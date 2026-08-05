@@ -304,7 +304,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] NotFoundPage, route error page, AppErrorBoundary
 - [x] Tokens / reset / minimal `shared/ui` for shell
 - [x] Nav / error smoke tests
-- [ ] PR linked to Shell issue
+- [x] PR linked to Shell issue — [#6](https://github.com/edicius2002/edicius-hq/pull/6)
 
 ### 3+ — Feature phases
 

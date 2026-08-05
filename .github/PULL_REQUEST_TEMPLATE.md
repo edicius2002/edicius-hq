@@ -1,6 +1,6 @@
 ## Summary
 
-<!-- What changed and why (1–3 bullets). Link the issue. -->
+<!-- What changed and why. Link the issue. -->
 
 Closes #
 
@@ -9,7 +9,8 @@ Closes #
 - [ ]
 - [ ]
 
-## Sanitization
+## Checklist
 
-- [ ] No `.local-data/`, CSV reales, backups, or secrets in this PR
-- [ ] Scope matches a single issue
+- [ ] Follows `docs/IMPLEMENTATION_PLAN.md`
+- [ ] No secrets, real CSVs, or `.local-data` in this PR
+- [ ] Implementation Plan updated if decisions or phase status changed

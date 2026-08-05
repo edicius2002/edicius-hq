@@ -1,0 +1,23 @@
+name: Chore / setup
+description: Tooling, docs, or scaffolding work
+title: "chore: "
+labels: ["chore"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: plan_ref
+    attributes:
+      label: Implementation Plan reference
+      placeholder: "e.g. Delivery sequence step 0 / Initial Setup checklist"

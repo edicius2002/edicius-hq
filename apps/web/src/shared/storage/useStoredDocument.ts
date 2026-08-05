@@ -85,7 +85,11 @@ export function useStoredDocument<T>({
         if (cached === undefined) {
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
         }
-        return commit(await change(normalize(cached)));
+        const current = normalize(cached);
+        const next = await change(current);
+        // A change that returns what it was given decided against editing —
+        // a refused operation, say — so there is nothing worth persisting.
+        return next === current ? current : commit(next);
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from key
     [commit, key, normalize, queryClient, serialize],

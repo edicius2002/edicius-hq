@@ -3,14 +3,19 @@ import { useState, type ChangeEvent } from 'react';
 import { useGreenlightData } from '@/features/greenlight/hooks/useGreenlightData';
 import {
   buildMonthGroups,
+  buildMonthlySeries,
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
 import { formatCount, formatMoney } from '@/features/greenlight/lib/format';
-import { MonthWeekList } from '@/features/greenlight/ui/MonthWeekList';
+import { buildSegmentSummaries, dateRangeLabel } from '@/features/greenlight/lib/segments';
+import type { ReplaceMode } from '@/features/greenlight/model/types';
+import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
+import { MoneyWeekChart } from '@/features/greenlight/ui/MoneyWeekChart';
+import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
+import { SegmentSummary } from '@/features/greenlight/ui/SegmentSummary';
 import { WeeklyChart } from '@/features/greenlight/ui/WeeklyChart';
 import { Button } from '@/shared/ui/Button';
-import buttonStyles from '@/shared/ui/Button.module.css';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 import { Stat } from '@/shared/ui/Stat';
@@ -19,13 +24,27 @@ import styles from './ui/GreenlightPage.module.css';
 
 export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
-  const { state, isLoading, isError, importCsv, isImporting, clearData, isClearing } =
-    useGreenlightData();
+  const [replaceMode, setReplaceMode] = useState<ReplaceMode>('all');
+  const {
+    state,
+    isLoading,
+    isError,
+    importCsv,
+    isImporting,
+    clearData,
+    isClearing,
+    loadSample,
+    isLoadingSample,
+    setMarkers,
+  } = useGreenlightData();
 
   const totals = computeTotals(state.stats);
   const weekly = buildWeeklySeries(state.stats);
+  const monthly = buildMonthlySeries(state.stats);
   const months = buildMonthGroups(state.stats);
+  const segments = buildSegmentSummaries(state.stats, state.markers);
   const hasData = Object.keys(state.stats).length > 0;
+  const range = dateRangeLabel(state.stats);
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -34,8 +53,7 @@ export function GreenlightPage() {
 
     setLocalError(null);
     try {
-      const content = await file.text();
-      await importCsv({ fileName: file.name, content });
+      await importCsv({ fileName: file.name, content: await file.text(), replaceMode });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Failed to import CSV.');
     }
@@ -46,33 +64,51 @@ export function GreenlightPage() {
     await clearData();
   }
 
+  async function handleSample() {
+    setLocalError(null);
+    await loadSample();
+  }
+
+  function handleExport() {
+    const blob = new Blob([JSON.stringify(state.stats, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `greenlight-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleToggleMarker(dayKey: string) {
+    const next = state.markers.includes(dayKey)
+      ? state.markers.filter((day) => day !== dayKey)
+      : [...state.markers, dayKey];
+    await setMarkers(next);
+  }
+
+  async function handleClearMarkers() {
+    await setMarkers([]);
+  }
+
   return (
     <section className={styles.page} aria-labelledby="greenlight-title">
       <PageHeader
         title="Greenlight"
-        subtitle="CSV weekly analytics for deliverable amounts and tasks."
+        subtitle="Deliverable value and completed tasks."
         titleId="greenlight-title"
         actions={
           <>
-            <label
-              className={`${buttonStyles.button} ${buttonStyles.primary} ${styles.fileButton} ${
-                isImporting ? styles.fileButtonDisabled : ''
-              }`}
-            >
-              {isImporting ? 'Importing…' : 'Import CSV'}
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                disabled={isImporting}
-                onChange={handleFileChange}
-              />
-            </label>
             <Button
-              variant="danger"
-              disabled={!hasData || isClearing}
-              onClick={() => void handleClear()}
+              variant="secondary"
+              disabled={isLoadingSample}
+              onClick={() => void handleSample()}
             >
-              Clear data
+              Load sample
+            </Button>
+            <Button variant="secondary" disabled={!hasData} onClick={handleExport}>
+              Export JSON
             </Button>
           </>
         }
@@ -90,46 +126,75 @@ export function GreenlightPage() {
         <>
           <div className={styles.totals}>
             <Stat
-              label="Total amount"
-              value={formatMoney(totals.amount, totals.currency)}
-              tone="accent"
+              label="Total tasks"
+              value={
+                <span className={styles.totalStack}>
+                  <span>{hasData ? formatMoney(totals.amount, totals.currency) : '—'}</span>
+                  <span className={styles.totalSecondary}>
+                    <strong>{hasData ? formatCount(totals.tasks) : '—'}</strong> delivered
+                  </span>
+                </span>
+              }
+              tone="income"
             />
-            <Stat label="Delivered tasks" value={formatCount(totals.tasks)} tone="income" />
           </div>
 
-          <Panel aria-labelledby="weekly-title">
-            <h2 id="weekly-title" className={styles.panelTitle}>
-              By week
-            </h2>
-            <WeeklyChart points={weekly} />
+          <div className={styles.overview} aria-label="Weekly and monthly overview">
+            <Panel className={styles.overviewCard}>
+              <div className={styles.panelHeading}>
+                <div>
+                  <h2 className={styles.panelTitle}>By week</h2>
+                  <p className={styles.panelSubtitle}>Deliverable value across all weeks</p>
+                </div>
+                <span className={styles.legend}>Tasks</span>
+              </div>
+              <WeeklyChart points={weekly} />
+            </Panel>
+            <Panel className={styles.overviewCard}>
+              <div className={styles.panelHeading}>
+                <div>
+                  <h2 className={styles.panelTitle}>By month</h2>
+                  <p className={styles.panelSubtitle}>Monthly deliverable totals</p>
+                </div>
+                <span className={styles.legend}>Tasks</span>
+              </div>
+              <MonthlyChart points={monthly} />
+            </Panel>
+          </div>
+
+          <Panel aria-labelledby="tasks-title">
+            <div className={styles.panelHeading}>
+              <h2 id="tasks-title" className={styles.panelTitle}>
+                Tasks
+              </h2>
+              <div className={styles.tasksActions}>
+                <span className={styles.range}>{range}</span>
+                {state.markers.length > 0 ? (
+                  <Button variant="secondary" onClick={() => void handleClearMarkers()}>
+                    Clear markers
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <MoneyWeekChart
+              months={months}
+              stats={state.stats}
+              markers={state.markers}
+              onToggleMarker={(day) => void handleToggleMarker(day)}
+            />
+            <SegmentSummary segments={segments} />
           </Panel>
 
-          <Panel aria-labelledby="months-title">
-            <h2 id="months-title" className={styles.panelTitle}>
-              By month
-            </h2>
-            {months.length ? (
-              <MonthWeekList months={months} />
-            ) : (
-              <p className={styles.muted}>No monthly groups yet.</p>
-            )}
-          </Panel>
-
-          <Panel aria-labelledby="import-status-title">
-            <h2 id="import-status-title" className={styles.panelTitle}>
-              Import status
-            </h2>
-            {state.meta ? (
-              <ul className={styles.statusList}>
-                <li>File: {state.meta.fileName}</li>
-                <li>Rows read: {formatCount(state.meta.rowsRead)}</li>
-                <li>Days generated: {formatCount(state.meta.daysGenerated)}</li>
-                <li>Updated: {new Date(state.meta.updatedAt).toLocaleString()}</li>
-              </ul>
-            ) : (
-              <p className={styles.muted}>No CSV imported yet.</p>
-            )}
-          </Panel>
+          <ImportPanel
+            replaceMode={replaceMode}
+            onReplaceModeChange={setReplaceMode}
+            meta={state.meta}
+            isImporting={isImporting}
+            isClearing={isClearing}
+            hasData={hasData}
+            onFileChange={(event) => void handleFileChange(event)}
+            onClear={() => void handleClear()}
+          />
         </>
       )}
     </section>

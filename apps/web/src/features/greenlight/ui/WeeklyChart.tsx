@@ -1,5 +1,11 @@
+import { useMemo, useState, type PointerEvent } from 'react';
+
+import {
+  buildWeekAxisTicks,
+  formatAxisMoney,
+  formatBarMoney,
+} from '@/features/greenlight/lib/chartFormat';
 import type { WeekPoint } from '@/features/greenlight/model/types';
-import { formatMoney } from '@/features/greenlight/lib/format';
 
 import styles from './WeeklyChart.module.css';
 
@@ -8,28 +14,52 @@ type WeeklyChartProps = {
 };
 
 export function WeeklyChart({ points }: WeeklyChartProps) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  const layout = useMemo(() => {
+    const width = 560;
+    const height = 268;
+    const pad = { top: 18, right: 16, bottom: 58, left: 54 };
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+    const maxValue = Math.max(...points.map((point) => point.amount), 0);
+    const { top, ticks } = buildWeekAxisTicks(maxValue);
+    const xAt = (index: number) =>
+      pad.left + (points.length === 1 ? plotW / 2 : (index / (points.length - 1)) * plotW);
+    const yAt = (value: number) => pad.top + plotH - (value / top) * plotH;
+    const coords = points.map((point, index) => ({
+      ...point,
+      x: xAt(index),
+      y: yAt(point.amount),
+    }));
+    const path = coords
+      .map((c, index) => `${index === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
+      .join(' ');
+    const baseY = pad.top + plotH;
+    const area = `${coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')} ${coords.at(-1)?.x.toFixed(1)},${baseY} ${coords[0]?.x.toFixed(1)},${baseY}`;
+    const labelStep = points.length > 12 ? Math.ceil(points.length / 10) : 1;
+    return { width, height, pad, top, ticks, coords, path, area, baseY, labelStep, xAt, yAt };
+  }, [points]);
+
   if (!points.length) {
-    return <p className={styles.empty}>No weekly data yet. Import a CSV to begin.</p>;
+    return <p className={styles.empty}>No weeks to chart yet.</p>;
   }
 
-  const width = 560;
-  const height = 180;
-  const pad = { top: 16, right: 16, bottom: 36, left: 48 };
-  const plotW = width - pad.left - pad.right;
-  const plotH = height - pad.top - pad.bottom;
-  const maxValue = Math.max(...points.map((point) => point.amount), 1);
-  const step = maxValue > 4000 ? 1000 : 500;
-  const top = Math.max(step * 2, Math.ceil(maxValue / step) * step);
+  const { width, height, pad, ticks, coords, path, area, baseY, labelStep, xAt, yAt } = layout;
+  const hover = hoverIndex === null ? null : coords[hoverIndex];
 
-  const xAt = (index: number) =>
-    pad.left + (points.length === 1 ? plotW / 2 : (index / (points.length - 1)) * plotW);
-  const yAt = (value: number) => pad.top + plotH - (value / top) * plotH;
-
-  const path = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xAt(index)} ${yAt(point.amount)}`)
-    .join(' ');
-
-  const area = `${path} L ${xAt(points.length - 1)} ${pad.top + plotH} L ${xAt(0)} ${pad.top + plotH} Z`;
+  function onMove(event: PointerEvent<SVGSVGElement>) {
+    const svg = event.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const relX = ((event.clientX - rect.left) / rect.width) * width;
+    if (relX < pad.left || relX > width - pad.right) {
+      setHoverIndex(null);
+      return;
+    }
+    const ratio = (relX - pad.left) / (width - pad.left - pad.right);
+    const idx = Math.max(0, Math.min(coords.length - 1, Math.round(ratio * (coords.length - 1))));
+    setHoverIndex(idx);
+  }
 
   return (
     <div className={styles.wrap}>
@@ -37,47 +67,78 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}
         role="img"
-        aria-label="Weekly amounts"
+        aria-label="Weekly deliverable value"
+        onPointerMove={onMove}
+        onPointerLeave={() => setHoverIndex(null)}
       >
-        {[0, 0.5, 1].map((fraction) => {
-          const value = top * fraction;
-          const y = yAt(value);
+        {ticks.map((tick) => {
+          const yPos = yAt(tick);
           return (
-            <g key={value}>
-              <line className={styles.grid} x1={pad.left} x2={width - pad.right} y1={y} y2={y} />
-              <text className={styles.axis} x={pad.left - 8} y={y + 4} textAnchor="end">
-                {value >= 1000 ? `$${value / 1000}k` : `$${value}`}
+            <g key={tick}>
+              <line
+                className={styles.grid}
+                x1={pad.left}
+                x2={width - pad.right}
+                y1={yPos}
+                y2={yPos}
+              />
+              <text className={styles.axis} x={pad.left - 8} y={yPos + 3} textAnchor="end">
+                {formatAxisMoney(tick)}
               </text>
             </g>
           );
         })}
-        <path className={styles.area} d={area} />
-        <path className={styles.line} d={path} />
-        {points.map((point, index) => (
-          <circle
-            key={point.key}
-            className={styles.dot}
-            cx={xAt(index)}
-            cy={yAt(point.amount)}
-            r={3.5}
-          >
-            <title>
-              {point.label}: {formatMoney(point.amount, point.currency)}
-            </title>
-          </circle>
-        ))}
-        {points.map((point, index) => (
-          <text
-            key={`${point.key}-label`}
-            className={styles.axis}
-            x={xAt(index)}
-            y={height - 12}
-            textAnchor="middle"
-          >
-            {point.label.split('–')[0]}
-          </text>
-        ))}
+        <line className={styles.axisLine} x1={pad.left} y1={pad.top} x2={pad.left} y2={baseY} />
+        <line
+          className={styles.axisLine}
+          x1={pad.left}
+          y1={baseY}
+          x2={width - pad.right}
+          y2={baseY}
+        />
+        <polygon className={styles.area} points={area} />
+        <path className={styles.line} d={path} pathLength={1} />
+        {coords.at(-1) ? (
+          <circle className={styles.dot} cx={coords.at(-1)!.x} cy={coords.at(-1)!.y} r={3.5} />
+        ) : null}
+        {points.map((point, index) => {
+          if (index % labelStep !== 0 && index !== points.length - 1) return null;
+          return (
+            <text
+              key={`${point.key}-label`}
+              className={styles.axis}
+              x={xAt(index)}
+              y={height - 34}
+              textAnchor="middle"
+            >
+              <tspan x={xAt(index)} dy="0">
+                {point.startLabel}
+              </tspan>
+              <tspan className={styles.axisSub} x={xAt(index)} dy="12">
+                {point.endLabel}
+              </tspan>
+            </text>
+          );
+        })}
+        {hover ? (
+          <g className={styles.hover}>
+            <line className={styles.crosshair} x1={hover.x} x2={hover.x} y1={pad.top} y2={baseY} />
+            <circle className={styles.cursor} cx={hover.x} cy={hover.y} r={5} />
+          </g>
+        ) : null}
       </svg>
+      {hover ? (
+        <div
+          className={styles.tooltip}
+          style={{
+            left: `${(hover.x / width) * 100}%`,
+            top: `${(hover.y / height) * 100}%`,
+          }}
+        >
+          <span className={styles.tipValue}>{formatBarMoney(hover.amount)}</span>
+          <span className={styles.tipLabel}>{hover.label}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,9 @@
-import type { DayStats, MonthGroup, WeekPoint } from '@/features/greenlight/model/types';
+import type {
+  DayStats,
+  MonthGroup,
+  MonthPoint,
+  WeekPoint,
+} from '@/features/greenlight/model/types';
 
 type DayRow = {
   date: string;
@@ -18,7 +23,9 @@ function toDayRows(stats: Record<string, DayStats>): DayRow[] {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function calendarWeekForDate(dateKey: string): { key: string; label: string } | null {
+export function calendarWeekForDate(
+  dateKey: string,
+): { key: string; label: string; startLabel: string; endLabel: string } | null {
   const [year, month, day] = dateKey.split('-').map(Number);
   if (!year || !month || !day) return null;
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -33,9 +40,13 @@ function calendarWeekForDate(dateKey: string): { key: string; label: string } | 
   const short = (item: Date) =>
     `${String(item.getUTCDate()).padStart(2, '0')}/${String(item.getUTCMonth() + 1).padStart(2, '0')}`;
 
+  const startLabel = short(start);
+  const endLabel = short(end);
   return {
     key: start.toISOString().slice(0, 10),
-    label: `${short(start)}–${short(end)}`,
+    label: `${startLabel}–${endLabel}`,
+    startLabel,
+    endLabel,
   };
 }
 
@@ -49,6 +60,22 @@ function calendarMonthForWeek(weekKey: string): { key: string; label: string } {
       year: 'numeric',
       timeZone: 'UTC',
     }).format(thursday),
+  };
+}
+
+function calendarMonthForDate(dateKey: string): { key: string; label: string } | null {
+  const [year, month] = String(dateKey || '')
+    .split('-')
+    .map(Number);
+  if (!year || !month) return null;
+  const date = new Date(Date.UTC(year, month - 1, 15));
+  return {
+    key: `${year}-${String(month).padStart(2, '0')}`,
+    label: new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(date),
   };
 }
 
@@ -82,6 +109,8 @@ export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] 
       weeks.set(week.key, {
         key: week.key,
         label: week.label,
+        startLabel: week.startLabel,
+        endLabel: week.endLabel,
         amount: row.amount,
         tasks: row.tasks,
         currency: row.currency,
@@ -92,6 +121,31 @@ export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] 
   return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
+/** Monthly totals by calendar month of each day key (legacy overview bars). */
+export function buildMonthlySeries(stats: Record<string, DayStats>): MonthPoint[] {
+  const months = new Map<string, MonthPoint>();
+
+  for (const row of toDayRows(stats)) {
+    const month = calendarMonthForDate(row.date);
+    if (!month) continue;
+    const current = months.get(month.key);
+    if (current) {
+      current.amount += row.amount;
+      current.currency = row.currency || current.currency;
+    } else {
+      months.set(month.key, {
+        key: month.key,
+        label: month.label,
+        amount: row.amount,
+        currency: row.currency,
+      });
+    }
+  }
+
+  return [...months.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** Month groups via Thursday-of-week rule (legacy money chart). */
 export function buildMonthGroups(stats: Record<string, DayStats>): MonthGroup[] {
   const weeks = buildWeeklySeries(stats);
   const months = new Map<string, MonthGroup>();
@@ -109,10 +163,18 @@ export function buildMonthGroups(stats: Record<string, DayStats>): MonthGroup[] 
         label: month.label,
         amount: week.amount,
         tasks: week.tasks,
+        currency: week.currency,
         weeks: [week],
       });
     }
   }
 
   return [...months.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** Days belonging to a calendar week (for marker placement on last day). */
+export function daysInWeek(stats: Record<string, DayStats>, weekKey: string): string[] {
+  return toDayRows(stats)
+    .filter((row) => calendarWeekForDate(row.date)?.key === weekKey)
+    .map((row) => row.date);
 }

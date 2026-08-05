@@ -333,13 +333,16 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 4 — Greenlight
 
-**Status:** In progress — issue [#9](https://github.com/edicius2002/edicius-hq/issues/9), branch `feat/greenlight`.
+**Status:** In progress — issue [#9](https://github.com/edicius2002/edicius-hq/issues/9), branch eat/greenlight.
 
-- [x] Replace Coming soon on `/greenlight`
-- [x] CSV import (ES/EN aliases, Deliverable/Entregable only, replace-all)
-- [x] Persist via `shared/storage` key `greenlight`
-- [x] Totals + weekly chart + month-grouped weeks
-- [x] Synthetic CSV tests (no real CSVs in git)
+- [x] Replace Coming soon on /greenlight
+- [x] CSV import (ES/EN aliases, Deliverable/Entregable only)
+- [x] Replace modes: all + current-month (markers preserved)
+- [x] Persist via shared/storage key greenlight (stats, meta, markers)
+- [x] Totals + weekly line chart + monthly bars + week cards (% of month)
+- [x] Markers between weeks + segment summaries
+- [x] Sample data + JSON export + clear
+- [x] Synthetic CSV / aggregation tests (no real CSVs in git)
 - [x] Adapted to UI foundation primitives / dark tokens
 - [ ] PR linked to Greenlight issue
 

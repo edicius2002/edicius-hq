@@ -1,33 +1,93 @@
 .page {
   display: grid;
   gap: var(--space-5);
-  max-width: 56rem;
-}
-
-.fileButton {
-  cursor: pointer;
-}
-
-.fileButton input {
-  display: none;
-}
-
-.fileButtonDisabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  pointer-events: none;
+  max-width: 72rem;
 }
 
 .totals {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  grid-template-columns: minmax(12rem, 22rem);
   gap: var(--space-3);
+}
+
+.totalStack {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.totalSecondary {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.totalSecondary strong {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.overview {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+}
+
+.overviewCard {
+  min-width: 0;
+}
+
+.panelHeading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
 }
 
 .panelTitle {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
+}
+
+.panelSubtitle {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.legend {
+  align-items: center;
+  color: var(--color-muted);
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 700;
+  gap: 0.4rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.legend::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--color-income);
+}
+
+.tasksActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.range {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .muted,
@@ -41,12 +101,8 @@
   color: var(--color-danger);
 }
 
-.statusList {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--color-muted);
-  font-size: 0.9rem;
+@media (max-width: 1100px) {
+  .overview {
+    grid-template-columns: 1fr;
+  }
 }

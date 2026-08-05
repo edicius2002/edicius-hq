@@ -56,7 +56,7 @@ describe('Shell navigation', () => {
 
     await user.click(within(nav).getByRole('link', { name: 'Greenlight' }));
     expect(await screen.findByRole('heading', { name: 'Greenlight' })).toBeInTheDocument();
-    expect(screen.getByText(/CSV weekly analytics/i)).toBeInTheDocument();
+    expect(screen.getByText(/Deliverable value and completed tasks/i)).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('link', { name: 'Investing' }));
     expect(await screen.findByRole('heading', { name: 'Investing' })).toBeInTheDocument();

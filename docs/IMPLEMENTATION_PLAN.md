@@ -284,13 +284,13 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Status:** In progress — issue [#3](https://github.com/edicius2002/edicius-hq/issues/3), branch `chore/initial-setup`.
 
-- [ ] npm workspaces + `apps/web` Vite/React/TS (Node 22)
+- [x] npm workspaces + `apps/web` Vite/React/TS (Node 22)
 - [ ] `services/api` FastAPI + `/api/health` (Python 3.12)
 - [ ] Dockerfiles + Compose (`web`, `api`), hot-reload, volume → `services/api/.local-data/`
-- [ ] ESLint, Prettier, EditorConfig, quality scripts
-- [ ] Vitest smoke baseline
+- [x] ESLint, Prettier, EditorConfig, quality scripts
+- [x] Vitest smoke baseline
 - [ ] GitHub Actions CI
-- [ ] `.env.example`, aliases, README (`docker compose up`)
+- [ ] `.env.example` and README (`docker compose up`) — `@/` aliases done in `apps/web`
 - [ ] PR linked to Initial Setup issue
 
 **Out of scope:** AppShell, product pages, Radix chrome, TanStack Query, Supabase Auth, cloud deploy.

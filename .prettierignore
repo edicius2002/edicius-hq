@@ -6,3 +6,4 @@ coverage
 services/api/.local-data
 package-lock.json
 *.min.js
+apps/web/public

@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Initial Setup implementation complete on `chore/initial-setup` ([#3](https://github.com/edicius2002/edicius-hq/issues/3)); PR pending owner approval.  
+> **Status:** Shell + placeholders in progress on `feat/shell-placeholders` ([#5](https://github.com/edicius2002/edicius-hq/issues/5)).  
 > **Last updated:** 2026-08-05  
-> **Review status:** Tooling, Docker Compose, and CI workflow ready on branch.  
-> **Phase closure:** Delivery step 0 (Docs) complete. Step 1 complete pending squash merge.  
-> **Next delivery:** Shell + placeholders (after Initial Setup merge).
+> **Review status:** Initial Setup merged ([#4](https://github.com/edicius2002/edicius-hq/pull/4)).  
+> **Phase closure:** Delivery steps 0–1 complete.  
+> **Next delivery:** Finish Shell + placeholders, then API client + storage.
 
 ---
 
@@ -297,13 +297,13 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 2 — Shell + placeholders
 
-**Status:** Not started. Depends on Initial Setup.
+**Status:** In progress — issue [#5](https://github.com/edicius2002/edicius-hq/issues/5), branch `feat/shell-placeholders`.
 
-- [ ] Router, AppShell, sidebar (4 tabs)
-- [ ] All four pages: English **title + “Coming soon.”**
-- [ ] NotFoundPage, route error page, AppErrorBoundary
-- [ ] Tokens / reset / minimal `shared/ui` for shell
-- [ ] Nav / error smoke tests
+- [x] Router, AppShell, sidebar (4 tabs)
+- [x] All four pages: English **title + “Coming soon.”**
+- [x] NotFoundPage, route error page, AppErrorBoundary
+- [x] Tokens / reset / minimal `shared/ui` for shell
+- [x] Nav / error smoke tests
 - [ ] PR linked to Shell issue
 
 ### 3+ — Feature phases

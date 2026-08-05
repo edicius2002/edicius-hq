@@ -7,3 +7,9 @@
   flex: 1;
   padding: var(--space-6);
 }
+
+.fallback {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}

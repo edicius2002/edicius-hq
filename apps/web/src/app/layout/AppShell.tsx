@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 
 import { Sidebar } from '@/app/layout/Sidebar';
@@ -9,7 +10,9 @@ export function AppShell() {
     <div className={styles.shell}>
       <Sidebar />
       <main className={styles.main}>
-        <Outlet />
+        <Suspense fallback={<p className={styles.fallback}>Loading…</p>}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

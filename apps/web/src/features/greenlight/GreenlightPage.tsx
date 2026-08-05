@@ -1,8 +1,8 @@
-import { useState, type ChangeEvent } from 'react';
+import { useMemo, useState, type ChangeEvent } from 'react';
 
 import { useGreenlightData } from '@/features/greenlight/hooks/useGreenlightData';
 import {
-  buildMonthGroups,
+  buildMonthGroupsFromWeeks,
   buildMonthlySeries,
   buildWeeklySeries,
   computeTotals,
@@ -27,7 +27,7 @@ export function GreenlightPage() {
   const [replaceMode, setReplaceMode] = useState<ReplaceMode>('all');
   const {
     state,
-    isLoading,
+    isFetching,
     isError,
     importCsv,
     isImporting,
@@ -38,13 +38,17 @@ export function GreenlightPage() {
     setMarkers,
   } = useGreenlightData();
 
-  const totals = computeTotals(state.stats);
-  const weekly = buildWeeklySeries(state.stats);
-  const monthly = buildMonthlySeries(state.stats);
-  const months = buildMonthGroups(state.stats);
-  const segments = buildSegmentSummaries(state.stats, state.markers);
+  const totals = useMemo(() => computeTotals(state.stats), [state.stats]);
+  const weekly = useMemo(() => buildWeeklySeries(state.stats), [state.stats]);
+  const monthly = useMemo(() => buildMonthlySeries(state.stats), [state.stats]);
+  const months = useMemo(() => buildMonthGroupsFromWeeks(weekly), [weekly]);
+  const segments = useMemo(
+    () => buildSegmentSummaries(state.stats, state.markers),
+    [state.stats, state.markers],
+  );
   const hasData = Object.keys(state.stats).length > 0;
-  const range = dateRangeLabel(state.stats);
+  const range = useMemo(() => dateRangeLabel(state.stats), [state.stats]);
+  const showSyncing = isFetching && !isError;
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -100,6 +104,7 @@ export function GreenlightPage() {
         titleId="greenlight-title"
         actions={
           <>
+            {showSyncing ? <span className={styles.syncing}>Syncing…</span> : null}
             <Button
               variant="secondary"
               disabled={isLoadingSample}
@@ -120,62 +125,68 @@ export function GreenlightPage() {
         </p>
       )}
 
-      {isLoading ? (
-        <p className={styles.muted}>Loading…</p>
-      ) : (
-        <>
-          <div className={styles.totals}>
-            <Stat
-              label="Total tasks"
-              value={
-                <span className={styles.totalStack}>
-                  <span>{hasData ? formatMoney(totals.amount, totals.currency) : '—'}</span>
-                  <span className={styles.totalSecondary}>
-                    <strong>{hasData ? formatCount(totals.tasks) : '—'}</strong> delivered
-                  </span>
-                </span>
-              }
-              tone="income"
-            />
-          </div>
+      <div className={styles.totals}>
+        <Stat
+          label="Total tasks"
+          value={
+            <span className={styles.totalStack}>
+              <span>{hasData ? formatMoney(totals.amount, totals.currency) : '—'}</span>
+              <span className={styles.totalSecondary}>
+                <strong>{hasData ? formatCount(totals.tasks) : '—'}</strong> delivered
+              </span>
+            </span>
+          }
+          tone="income"
+        />
+      </div>
 
-          <div className={styles.overview} aria-label="Weekly and monthly overview">
-            <Panel className={styles.overviewCard}>
-              <div className={styles.panelHeading}>
-                <div>
-                  <h2 className={styles.panelTitle}>By week</h2>
-                  <p className={styles.panelSubtitle}>Deliverable value across all weeks</p>
-                </div>
-                <span className={styles.legend}>Tasks</span>
-              </div>
-              <WeeklyChart points={weekly} />
-            </Panel>
-            <Panel className={styles.overviewCard}>
-              <div className={styles.panelHeading}>
-                <div>
-                  <h2 className={styles.panelTitle}>By month</h2>
-                  <p className={styles.panelSubtitle}>Monthly deliverable totals</p>
-                </div>
-                <span className={styles.legend}>Tasks</span>
-              </div>
-              <MonthlyChart points={monthly} />
-            </Panel>
-          </div>
-
-          <Panel aria-labelledby="tasks-title">
-            <div className={styles.panelHeading}>
-              <h2 id="tasks-title" className={styles.panelTitle}>
-                Tasks
-              </h2>
-              <div className={styles.tasksActions}>
-                <span className={styles.range}>{range}</span>
-                {state.markers.length > 0 ? (
-                  <Button variant="secondary" onClick={() => void handleClearMarkers()}>
-                    Clear markers
-                  </Button>
-                ) : null}
-              </div>
+      <div className={styles.overview} aria-label="Weekly and monthly overview">
+        <Panel className={styles.overviewCard}>
+          <div className={styles.panelHeading}>
+            <div>
+              <h2 className={styles.panelTitle}>By week</h2>
+              <p className={styles.panelSubtitle}>Deliverable value across all weeks</p>
             </div>
+            <span className={styles.legend}>Tasks</span>
+          </div>
+          {hasData ? (
+            <WeeklyChart points={weekly} />
+          ) : (
+            <p className={styles.muted}>No weeks to chart yet.</p>
+          )}
+        </Panel>
+        <Panel className={styles.overviewCard}>
+          <div className={styles.panelHeading}>
+            <div>
+              <h2 className={styles.panelTitle}>By month</h2>
+              <p className={styles.panelSubtitle}>Monthly deliverable totals</p>
+            </div>
+            <span className={styles.legend}>Tasks</span>
+          </div>
+          {hasData ? (
+            <MonthlyChart points={monthly} />
+          ) : (
+            <p className={styles.muted}>No months to chart yet.</p>
+          )}
+        </Panel>
+      </div>
+
+      <Panel aria-labelledby="tasks-title">
+        <div className={styles.panelHeading}>
+          <h2 id="tasks-title" className={styles.panelTitle}>
+            Tasks
+          </h2>
+          <div className={styles.tasksActions}>
+            <span className={styles.range}>{range}</span>
+            {state.markers.length > 0 ? (
+              <Button variant="secondary" onClick={() => void handleClearMarkers()}>
+                Clear markers
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        {hasData ? (
+          <>
             <MoneyWeekChart
               months={months}
               stats={state.stats}
@@ -183,20 +194,23 @@ export function GreenlightPage() {
               onToggleMarker={(day) => void handleToggleMarker(day)}
             />
             <SegmentSummary segments={segments} />
-          </Panel>
+          </>
+        ) : (
+          <p className={styles.muted}>No tasks to show.</p>
+        )}
+      </Panel>
 
-          <ImportPanel
-            replaceMode={replaceMode}
-            onReplaceModeChange={setReplaceMode}
-            meta={state.meta}
-            isImporting={isImporting}
-            isClearing={isClearing}
-            hasData={hasData}
-            onFileChange={(event) => void handleFileChange(event)}
-            onClear={() => void handleClear()}
-          />
-        </>
-      )}
+      <ImportPanel
+        replaceMode={replaceMode}
+        onReplaceModeChange={setReplaceMode}
+        meta={state.meta}
+        isSyncing={showSyncing}
+        isImporting={isImporting}
+        isClearing={isClearing}
+        hasData={hasData}
+        onFileChange={(event) => void handleFileChange(event)}
+        onClear={() => void handleClear()}
+      />
     </section>
   );
 }

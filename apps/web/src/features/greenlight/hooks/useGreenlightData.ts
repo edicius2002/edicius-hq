@@ -1,8 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { currentMonthKey, mergeCurrentMonthStats } from '@/features/greenlight/lib/merge';
-import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
-import { createSampleGreenlightState } from '@/features/greenlight/lib/sampleData';
 import {
   EMPTY_GREENLIGHT_STATE,
   type GreenlightState,
@@ -33,6 +30,8 @@ export function useGreenlightData() {
     queryKey: QUERY_KEY,
     queryFn: ({ signal }) =>
       readStorage<GreenlightState>('greenlight', signal).then(normalizeState),
+    placeholderData: EMPTY_GREENLIGHT_STATE,
+    retry: false,
   });
 
   const importMutation = useMutation({
@@ -46,12 +45,15 @@ export function useGreenlightData() {
       replaceMode: ReplaceMode;
     }) => {
       const current = normalizeState(queryClient.getQueryData<GreenlightState>(QUERY_KEY) ?? null);
+      const { importGreenlightCsv } = await import('@/features/greenlight/lib/processRows');
       const imported = importGreenlightCsv(content);
 
       let stats = imported.stats;
       let statusDetail = `Replaced all data with ${imported.daysGenerated} day(s) from ${imported.rowsRead} rows.`;
 
       if (replaceMode === 'current-month') {
+        const { currentMonthKey, mergeCurrentMonthStats } =
+          await import('@/features/greenlight/lib/merge');
         const monthKey = currentMonthKey();
         const { merged, replacedDays } = mergeCurrentMonthStats(
           current.stats,
@@ -92,7 +94,10 @@ export function useGreenlightData() {
   });
 
   const sampleMutation = useMutation({
-    mutationFn: async () => persist(createSampleGreenlightState()),
+    mutationFn: async () => {
+      const { createSampleGreenlightState } = await import('@/features/greenlight/lib/sampleData');
+      return persist(createSampleGreenlightState());
+    },
     onSuccess: (next) => {
       queryClient.setQueryData(QUERY_KEY, next);
     },
@@ -110,7 +115,7 @@ export function useGreenlightData() {
 
   return {
     state: normalizeState(query.data ?? null),
-    isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,
     importCsv: importMutation.mutateAsync,

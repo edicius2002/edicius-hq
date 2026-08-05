@@ -12,6 +12,7 @@ type ImportPanelProps = {
   replaceMode: ReplaceMode;
   onReplaceModeChange: (mode: ReplaceMode) => void;
   meta: GreenlightMeta | null;
+  isSyncing?: boolean;
   isImporting: boolean;
   isClearing: boolean;
   hasData: boolean;
@@ -23,18 +24,22 @@ export function ImportPanel({
   replaceMode,
   onReplaceModeChange,
   meta,
+  isSyncing = false,
   isImporting,
   isClearing,
   hasData,
   onFileChange,
   onClear,
 }: ImportPanelProps) {
-  const title = meta?.statusTitle || (meta ? 'Updated from CSV' : 'Waiting for CSV');
-  const detail =
-    meta?.statusDetail ||
-    (meta
-      ? 'Visible totals were computed from the last imported CSV.'
-      : 'Import a Greenlight time-records CSV to build the dashboard.');
+  const title = isSyncing
+    ? 'Syncing…'
+    : meta?.statusTitle || (meta ? 'Updated from CSV' : 'Waiting for CSV');
+  const detail = isSyncing
+    ? 'Loading Greenlight data from local storage.'
+    : meta?.statusDetail ||
+      (meta
+        ? 'Visible totals were computed from the last imported CSV.'
+        : 'Import a Greenlight time-records CSV to build the dashboard.');
 
   return (
     <Panel aria-labelledby="import-title">

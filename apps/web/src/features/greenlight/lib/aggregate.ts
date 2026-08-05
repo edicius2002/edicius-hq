@@ -146,8 +146,7 @@ export function buildMonthlySeries(stats: Record<string, DayStats>): MonthPoint[
 }
 
 /** Month groups via Thursday-of-week rule (legacy money chart). */
-export function buildMonthGroups(stats: Record<string, DayStats>): MonthGroup[] {
-  const weeks = buildWeeklySeries(stats);
+export function buildMonthGroupsFromWeeks(weeks: WeekPoint[]): MonthGroup[] {
   const months = new Map<string, MonthGroup>();
 
   for (const week of weeks) {
@@ -170,6 +169,10 @@ export function buildMonthGroups(stats: Record<string, DayStats>): MonthGroup[] 
   }
 
   return [...months.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+export function buildMonthGroups(stats: Record<string, DayStats>): MonthGroup[] {
+  return buildMonthGroupsFromWeeks(buildWeeklySeries(stats));
 }
 
 /** Days belonging to a calendar week (for marker placement on last day). */

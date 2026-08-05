@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Greenlight in progress on `feat/greenlight` ([#9](https://github.com/edicius2002/edicius-hq/issues/9)).
+> **Status:** Greenlight complete; Finance not started.
 > **Last updated:** 2026-08-05
-> **Review status:** UI foundation merged ([#11](https://github.com/edicius2002/edicius-hq/pull/11)).
-> **Phase closure:** Delivery steps 0–3b complete.
-> **Next delivery:** Finish Greenlight MVP, then Finance.
+> **Review status:** Greenlight merged ([#12](https://github.com/edicius2002/edicius-hq/pull/12)).
+> **Phase closure:** Delivery steps 0–4 complete.
+> **Next delivery:** Finance.
 
 ---
 
@@ -146,7 +146,7 @@ Desktop-first web suite for personal finance and markets. Medium-term: cloud dep
 | `/`           | Redirect         | → `/dashboard`         | —                                       |
 | `/dashboard`  | `DashboardPage`  | Title + “Coming soon.” | Optional hub widgets                    |
 | `/finance`    | `FinancePage`    | Title + “Coming soon.” | Flow diagram (FIN-*)                    |
-| `/greenlight` | `GreenlightPage` | Title + “Coming soon.” | CSV weekly analytics (GL-*)             |
+| `/greenlight` | `GreenlightPage` | Title + “Coming soon.” | CSV weekly analytics (GL-*) — **built** |
 | `/investing`  | `InvestingPage`  | Title + “Coming soon.” | Markets + Pulse panels (INV-_, PULSE-_) |
 | `*`           | `NotFoundPage`   | —                      | —                                       |
 
@@ -333,7 +333,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 4 — Greenlight
 
-**Status:** In progress — issue [#9](https://github.com/edicius2002/edicius-hq/issues/9), branch `feat/greenlight`.
+**Status:** Complete — [#9](https://github.com/edicius2002/edicius-hq/issues/9) / [#12](https://github.com/edicius2002/edicius-hq/pull/12).
 
 - [x] Replace Coming soon on `/greenlight`
 - [x] CSV import (ES/EN aliases, Deliverable/Entregable only)
@@ -349,7 +349,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Tool subscription widgets, one per tool per month (see 6.3)
 - [x] Synthetic CSV / aggregation / subscription tests (no real CSVs in git)
 - [x] Adapted to UI foundation primitives / dark tokens
-- [ ] PR linked to Greenlight issue
+- [x] PR linked to Greenlight issue — [#12](https://github.com/edicius2002/edicius-hq/pull/12)
 
 ### 5+ — Feature phases
 
@@ -460,3 +460,4 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | 2026-08-05 | UI foundation (#10): dark tokens, Berkeley Mono, shell primitives before Greenlight.                                |
 | 2026-08-05 | Greenlight MVP (#9): CSV weekly analytics on foundation UI.                                                         |
 | 2026-08-05 | Greenlight scope change (#9): dead sample data removed, task counting dropped, tool subscription widgets added.     |
+| 2026-08-05 | Greenlight merged (#12); step 4 complete. Next delivery is Finance.                                                 |

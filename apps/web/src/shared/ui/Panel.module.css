@@ -1,0 +1,9 @@
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: linear-gradient(180deg, rgba(45, 39, 33, 0.98), rgba(35, 30, 25, 0.98));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px var(--color-shadow);
+}

@@ -1,0 +1,31 @@
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.text {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 40rem;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff8ed;
+}
+
+.subtitle {
+  color: var(--color-muted);
+  font-size: 0.98rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

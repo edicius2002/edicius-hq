@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** API client + storage in progress on `feat/api-client-storage` ([#7](https://github.com/edicius2002/edicius-hq/issues/7)).  
-> **Last updated:** 2026-08-05  
-> **Review status:** Shell merged ([#6](https://github.com/edicius2002/edicius-hq/pull/6)).  
-> **Phase closure:** Delivery steps 0–2 complete.  
-> **Next delivery:** Finish API client + storage, then Greenlight.
+> **Status:** UI foundation in progress on `feat/ui-foundation` ([#10](https://github.com/edicius2002/edicius-hq/issues/10)). Greenlight remains open ([#9](https://github.com/edicius2002/edicius-hq/issues/9)).
+> **Last updated:** 2026-08-05
+> **Review status:** API client + storage merged ([#8](https://github.com/edicius2002/edicius-hq/pull/8)).
+> **Phase closure:** Delivery steps 0–3 complete.
+> **Next delivery:** Finish UI foundation, then Greenlight.
 
 ---
 
@@ -43,7 +43,8 @@ This file is the repository’s source of truth for confirmed product decisions,
 | 1     | **Initial Setup**        | Tooling only: workspaces, Vite/TS skeleton, FastAPI `/api/health`, lint/format/test/CI, Docker Compose. **No AppShell / no product pages.** |
 | 2     | **Shell + placeholders** | Router, AppShell, sidebar (4 tabs), all pages as title + “Coming soon.”, NotFound, error boundaries.                                        |
 | 3     | **API client + storage** | Typed `shared/api`, local KV facade, **TanStack Query** provider.                                                                           |
-| 4     | **Greenlight**           | Full feature (replace Coming soon).                                                                                                         |
+| 3b    | **UI foundation**        | Dark tokens (ediciuscorp), Berkeley Mono, shell migration, primitives `Button` / `Panel` / `PageHeader` / `Stat` (no Radix yet).            |
+| 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                 |
 | 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                         |
 | 6     | **Investing**            | Markets UI, quote bus, candle cache via API, charts; Pulse as extra panels on `/investing`.                                                 |
 | 7     | **Cloud**                | Supabase Auth (magic link), RLS, deploy.                                                                                                    |
@@ -115,9 +116,10 @@ shared/
 |-- storage/                # User-data facade
 |-- lib/
 |-- types/
-`-- ui/                     # Radix wrappers + primitives
+`-- ui/                     # Primitives (Radix later)
 
 styles/
+|-- fonts.css
 |-- tokens.css
 `-- reset.css
 ```
@@ -213,8 +215,10 @@ AppErrorBoundary
 ### Styling
 
 - CSS Modules (colocated), `camelCase` class names.
-- Global CSS: reset + design tokens only.
-- Radix UI headless primitives in `shared/ui`.
+- Global CSS: `fonts.css` + reset + design tokens (dark ediciuscorp palette).
+- Typeface: **Berkeley Mono** (commercial; self-host under `apps/web/public/fonts/`; binaries gitignored by default).
+- Current primitives in `shared/ui` (no Radix yet): `Button`, `Panel`, `PageHeader`, `Stat`.
+- Radix UI headless wrappers deferred until a later UI issue.
 - Desktop-first; English copy only.
 - `focus-visible` and `prefers-reduced-motion` where relevant.
 
@@ -308,7 +312,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 3 — API client + storage
 
-**Status:** In progress — issue [#7](https://github.com/edicius2002/edicius-hq/issues/7), branch `feat/api-client-storage`.
+**Status:** Complete — [#7](https://github.com/edicius2002/edicius-hq/issues/7) / [#8](https://github.com/edicius2002/edicius-hq/pull/8).
 
 - [x] Typed `shared/api` client (`/api/health`, `/api/kv/...`)
 - [x] FastAPI local KV (allowlisted keys → `.local-data/kv/`)
@@ -317,7 +321,21 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Smoke tests (web + API)
 - [x] PR linked to API client + storage issue — [#8](https://github.com/edicius2002/edicius-hq/pull/8)
 
-### 4+ — Feature phases
+### 3b — UI foundation
+
+**Status:** In progress — issue [#10](https://github.com/edicius2002/edicius-hq/issues/10), branch `feat/ui-foundation`.
+
+- [x] Dark tokens aligned with ediciuscorp
+- [x] Berkeley Mono self-host wiring + license docs
+- [x] Shell / Coming soon / errors migrated
+- [x] Primitives: `Button`, `Panel`, `PageHeader`, `Stat` (no Radix)
+- [ ] PR linked to UI foundation issue
+
+### 4 — Greenlight
+
+**Status:** Open — [#9](https://github.com/edicius2002/edicius-hq/issues/9) (adapt after UI foundation merges).
+
+### 5+ — Feature phases
 
 Follow the delivery sequence table. Expand INV-* IDs when the Investing phase starts.
 
@@ -352,14 +370,17 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 
 ### 3. Architecture
 
-| ID  | Decision                                                         | Rationale                      |
-| --- | ---------------------------------------------------------------- | ------------------------------ |
-| 3.1 | Monorepo: `apps/web` + `services/api` + `docs` + `supabase`.     | Shared repo, separable deploy. |
-| 3.2 | Feature folders + `shared/*`; features do not import each other. | Scalable boundaries.           |
-| 3.3 | FastAPI for market proxies, health, local KV.                    | Clean FE/BE split.             |
-| 3.4 | CSS Modules + tokens; Radix headless.                            | Accessible, brand-owned UI.    |
-| 3.5 | Desktop-first.                                                   | Matches usage.                 |
-| 3.6 | Routes: `/dashboard`, `/finance`, `/greenlight`, `/investing`.   | English UI; no `/pulse`.       |
+| ID  | Decision                                                         | Rationale                            |
+| --- | ---------------------------------------------------------------- | ------------------------------------ |
+| 3.1 | Monorepo: `apps/web` + `services/api` + `docs` + `supabase`.     | Shared repo, separable deploy.       |
+| 3.2 | Feature folders + `shared/*`; features do not import each other. | Scalable boundaries.                 |
+| 3.3 | FastAPI for market proxies, health, local KV.                    | Clean FE/BE split.                   |
+| 3.4 | CSS Modules + tokens; Radix later.                               | Brand-owned UI; Radix when needed.   |
+| 3.5 | Desktop-first.                                                   | Matches usage.                       |
+| 3.6 | Routes: `/dashboard`, `/finance`, `/greenlight`, `/investing`.   | English UI; no `/pulse`.             |
+| 3.7 | Dark ediciuscorp palette as default UI tokens.                   | Match locked visual criteria.        |
+| 3.8 | Berkeley Mono as product typeface (self-hosted).                 | Locked typography; license required. |
+| 3.9 | UI foundation before Greenlight visual adaptation.               | Shared primitives first.             |
 
 ### 4. Tooling and phases
 
@@ -406,3 +427,4 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | ---------- | ------------------------------------------------------------------------------------------------------------------- |
 | 2026-08-05 | Formal plan established; data plane; Pulse in Investing; delivery Q&A; clean rewrite for repository initialization. |
 | 2026-08-05 | Docs PR #1 merged to `main`; step 0 complete.                                                                       |
+| 2026-08-05 | UI foundation (#10): dark tokens, Berkeley Mono, shell primitives before Greenlight.                                |

@@ -5,9 +5,10 @@
   margin-top: auto;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--color-muted);
-  background: var(--color-bg);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
 }
 
 .dot {
@@ -18,21 +19,23 @@
 }
 
 .online {
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
+  color: var(--color-income);
+  background: var(--color-income-soft);
+  border-color: transparent;
 }
 
 .online .dot {
-  background: var(--color-accent);
+  background: var(--color-income);
 }
 
 .offline {
-  color: var(--color-danger);
-  background: var(--color-danger-soft);
+  color: var(--color-expense);
+  background: var(--color-expense-soft);
+  border-color: transparent;
 }
 
 .offline .dot {
-  background: var(--color-danger);
+  background: var(--color-expense);
 }
 
 .pending .dot {

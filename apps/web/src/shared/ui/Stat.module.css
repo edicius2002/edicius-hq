@@ -1,0 +1,35 @@
+.stat {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.label {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.income .value {
+  color: var(--color-income);
+}
+
+.expense .value {
+  color: var(--color-expense);
+}
+
+.accent .value {
+  color: var(--color-accent);
+}
+
+.default .value {
+  color: #fff8ed;
+}

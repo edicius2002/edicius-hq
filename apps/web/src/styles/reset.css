@@ -6,6 +6,7 @@
 
 html {
   min-height: 100%;
+  font-size: var(--font-size-base);
   background: var(--color-bg);
 }
 

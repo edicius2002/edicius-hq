@@ -1,28 +1,16 @@
 # Edicius HQ
 
-Suite local de finanzas personales, analitica Greenlight, investing y monitoreo operativo.
+Private suite for personal finance and markets.
 
-> **Estado:** bootstrap del repositorio formal. El codigo de producto se importa por issues/PRs de migracion desde el legado `ediciuscorp`. Ver el kit de migracion en el filesystem local `edicius-hq-migration/MIGRATION_PLAN.md` (carpeta hermana al working tree legado).
+## Source of truth
 
-## Que sera este repo
+**[docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md)** — product decisions, structure, data plane, and delivery phases.
 
-- **Finanzas** — diagrama interactivo de trabajos, cuentas, monedas y transferencias
-- **Greenlight** — dashboard semanal desde CSV
-- **Investing** — precios en vivo, chart, watchlist, heatmap
-- **Dashboard** — Market Pulse y Sentiment
-- **Status** — monitoreo local de internet de esta PC
-- **Backend local** — `server.py` (sin nube obligatoria; Supabase opcional)
+## Delivery order
 
-## Privacidad
+1. **Docs PR** — this README, NOTICE, `.gitignore`, implementation plan  
+2. **Initial Setup** — tooling, CI, Docker Compose (no UI shell)  
+3. **Shell + placeholders** — four tabs with “Coming soon.”  
+4. Feature phases — Greenlight → Finance → Investing → Cloud  
 
-Proyecto **privado**. Los datos financieros se quedan en el navegador / disco local (`.local-data/`). No commits de CSV reales, backups personales ni secretos.
-
-## Desarrollo
-
-Flujo obligatorio: **issue → branch → commits convencionales → PR → squash merge**.
-
-Lee [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-## Licencia
-
-Uso privado. Ver [NOTICE](./NOTICE).
+Do not start implementation until the owner opens the corresponding issue/PR.

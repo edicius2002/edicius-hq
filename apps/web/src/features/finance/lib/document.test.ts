@@ -11,14 +11,7 @@ import {
 const FALLBACK = 'fallback-diagram';
 
 function account(id: string) {
-  return {
-    id,
-    kind: 'account',
-    name: 'Bank',
-    notes: '',
-    position: { x: 0, y: 0 },
-    fees: { in: null, out: null },
-  };
+  return { id, kind: 'account', name: 'Bank', notes: '', position: { x: 0, y: 0 } };
 }
 
 function holding(id: string, accountId: string, asset = 'USD') {
@@ -147,7 +140,11 @@ describe('finance document', () => {
             {
               id: 'd1',
               nodes: [
-                { ...account('a1'), fees: { in: { value: 250, type: 'percent' }, out: null } },
+                account('a1'),
+                {
+                  ...holding('h1', 'a1'),
+                  fees: { in: { value: 250, type: 'percent' }, out: null },
+                },
               ],
             },
           ],
@@ -155,9 +152,24 @@ describe('finance document', () => {
         },
         FALLBACK,
       );
-      const node = getActiveDiagram(doc).nodes.a1;
-      expect(node.kind).toBe('account');
-      expect(node.kind === 'account' && node.fees.in).toEqual({ value: 100, type: 'percent' });
+      const node = getActiveDiagram(doc).nodes.h1;
+      expect(node.kind === 'holding' && node.fees.in).toEqual({ value: 100, type: 'percent' });
+    });
+
+    it('ignores fees stored on an account, since accounts never charge', () => {
+      const doc = normalizeDocument(
+        {
+          diagrams: [
+            {
+              id: 'd1',
+              nodes: [{ ...account('a1'), fees: { in: { value: 5, type: 'percent' }, out: null } }],
+            },
+          ],
+          activeDiagramId: 'd1',
+        },
+        FALLBACK,
+      );
+      expect(getActiveDiagram(doc).nodes.a1).not.toHaveProperty('fees');
     });
 
     it('keeps an empty amount as null rather than turning it into zero', () => {

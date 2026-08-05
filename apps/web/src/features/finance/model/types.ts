@@ -33,10 +33,13 @@ export type JobNode = NodeBase & {
   balances: Balance[];
 };
 
-/** Owns holdings. Its fees apply to transfers that name the account itself. */
+/**
+ * Owns holdings. It carries no fees of its own: an account is never an endpoint
+ * of a flow, so it can never charge one. What it shows is derived from the
+ * holdings it owns — see the account selectors.
+ */
 export type AccountNode = NodeBase & {
   kind: 'account';
-  fees: FeePolicy;
 };
 
 /** A balance of one asset inside an account. */

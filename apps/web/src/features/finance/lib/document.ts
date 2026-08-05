@@ -129,7 +129,7 @@ function toNode(value: unknown): FinanceNode | null {
   }
 
   if (kind === 'account') {
-    return { ...base, kind: 'account', fees: toFeePolicy(value.fees) };
+    return { ...base, kind: 'account' };
   }
 
   const accountId = toText(value.accountId);

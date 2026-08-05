@@ -3,10 +3,13 @@ import { type CSSProperties } from 'react';
 import { daysInWeek } from '@/features/greenlight/lib/aggregate';
 import { formatMoney } from '@/features/greenlight/lib/format';
 import { markerSegmentsForDays } from '@/features/greenlight/lib/segments';
+import { TOOL_IDS, TOOL_LABELS, TOOL_RATES } from '@/features/greenlight/lib/subscriptions';
 import {
   MARKER_SEGMENT_STYLES,
   type DayStats,
   type MonthGroup,
+  type ToolId,
+  type ToolWidgets,
 } from '@/features/greenlight/model/types';
 
 import styles from './MoneyWeekChart.module.css';
@@ -15,12 +18,21 @@ type MoneyWeekChartProps = {
   months: MonthGroup[];
   stats: Record<string, DayStats>;
   markers: string[];
+  widgets: ToolWidgets;
   onToggleMarker: (dayKey: string) => void;
+  onToggleWidget: (monthKey: string, tool: ToolId) => void;
 };
 
-export function MoneyWeekChart({ months, stats, markers, onToggleMarker }: MoneyWeekChartProps) {
+export function MoneyWeekChart({
+  months,
+  stats,
+  markers,
+  widgets,
+  onToggleMarker,
+  onToggleWidget,
+}: MoneyWeekChartProps) {
   if (!months.length) {
-    return <p className={styles.empty}>No tasks to show.</p>;
+    return <p className={styles.empty}>No weeks to show.</p>;
   }
 
   const dayKeys = Object.keys(stats).sort();
@@ -32,10 +44,35 @@ export function MoneyWeekChart({ months, stats, markers, onToggleMarker }: Money
     <div className={styles.list}>
       {months.map((month) => {
         const maxWeek = Math.max(...month.weeks.map((week) => week.amount), 0);
+        const monthTools = widgets[month.key] ?? [];
         return (
           <section key={month.key} className={styles.monthRow}>
             <h3 className={styles.monthTitle}>
               <span>{month.label}</span>
+              <span className={styles.toolChips}>
+                {TOOL_IDS.map((tool) => {
+                  const active = monthTools.includes(tool);
+                  const label = TOOL_LABELS[tool];
+                  return (
+                    <button
+                      key={tool}
+                      type="button"
+                      className={`${styles.toolChip} ${active ? styles.toolChipActive : ''}`}
+                      aria-pressed={active}
+                      title={
+                        active
+                          ? `Remove ${label} subscription from ${month.label}`
+                          : `Record ${label} subscription for ${month.label}`
+                      }
+                      onClick={() => onToggleWidget(month.key, tool)}
+                    >
+                      {active
+                        ? `${label} ${formatMoney(TOOL_RATES[tool], month.currency)}`
+                        : `+ ${label}`}
+                    </button>
+                  );
+                })}
+              </span>
               <strong>{formatMoney(month.amount, month.currency)}</strong>
             </h3>
             <div className={styles.weeks}>
@@ -93,11 +130,10 @@ export function MoneyWeekChart({ months, stats, markers, onToggleMarker }: Money
                       <div
                         className={styles.barTrack}
                         role="img"
-                        aria-label={`Tasks ${formatMoney(week.amount, week.currency)} in ${week.label}`}
+                        aria-label={`${formatMoney(week.amount, week.currency)} in ${week.label}`}
                       >
                         <span className={styles.barFill} style={{ height: `${barHeight}%` }} />
                       </div>
-                      <span className={styles.weekLabel}>Tasks</span>
                       <strong className={styles.weekRange}>{week.label}</strong>
                     </article>
 

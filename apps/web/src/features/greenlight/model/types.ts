@@ -1,8 +1,5 @@
 export type DeliverableBucket = {
   amount: number;
-  tasks: number;
-  attempter: number;
-  reviewer: number;
   details: string[];
 };
 
@@ -12,6 +9,12 @@ export type DayStats = {
 };
 
 export type ReplaceMode = 'all' | 'current-month';
+
+/** Reimbursed tool subscriptions, recorded per month; they never affect money totals. */
+export type ToolId = 'vscode' | 'cursor';
+
+/** Month key `YYYY-MM` -> tools billed that month (at most one entry per tool). */
+export type ToolWidgets = Record<string, ToolId[]>;
 
 export type GreenlightMeta = {
   fileName: string;
@@ -27,6 +30,7 @@ export type GreenlightState = {
   stats: Record<string, DayStats>;
   meta: GreenlightMeta | null;
   markers: string[];
+  widgets: ToolWidgets;
 };
 
 export type WeekPoint = {
@@ -35,7 +39,6 @@ export type WeekPoint = {
   startLabel: string;
   endLabel: string;
   amount: number;
-  tasks: number;
   currency: string;
 };
 
@@ -50,19 +53,20 @@ export type MonthGroup = {
   key: string;
   label: string;
   amount: number;
-  tasks: number;
   currency: string;
   weeks: WeekPoint[];
 };
 
 export type SegmentSummaryItem = {
   rangeLabel: string;
-  dayCount: number;
+  /** Distinct calendar weeks covered — a week can hold more than one payment date. */
+  weekCount: number;
   closed: boolean;
   amount: number;
   fee: number;
   net: number;
-  tasks: number;
+  /** False when the segment gross stayed under the fee threshold. */
+  feeCharged: boolean;
   currency: string;
 };
 
@@ -70,6 +74,7 @@ export const EMPTY_GREENLIGHT_STATE: GreenlightState = {
   stats: {},
   meta: null,
   markers: [],
+  widgets: {},
 };
 
 export const MARKER_SEGMENT_STYLES = [

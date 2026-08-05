@@ -8,7 +8,6 @@ import type {
 type DayRow = {
   date: string;
   amount: number;
-  tasks: number;
   currency: string;
 };
 
@@ -17,7 +16,6 @@ function toDayRows(stats: Record<string, DayStats>): DayRow[] {
     .map(([date, day]) => ({
       date,
       amount: day.Deliverable.amount,
-      tasks: day.Deliverable.tasks,
       currency: day.currency,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -81,18 +79,15 @@ function calendarMonthForDate(dateKey: string): { key: string; label: string } |
 
 export function computeTotals(stats: Record<string, DayStats>): {
   amount: number;
-  tasks: number;
   currency: string;
 } {
   let amount = 0;
-  let tasks = 0;
   let currency = 'USD';
   for (const day of Object.values(stats)) {
     amount += day.Deliverable.amount;
-    tasks += day.Deliverable.tasks;
     currency = day.currency || currency;
   }
-  return { amount, tasks, currency };
+  return { amount, currency };
 }
 
 export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] {
@@ -104,7 +99,6 @@ export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] 
     const existing = weeks.get(week.key);
     if (existing) {
       existing.amount += row.amount;
-      existing.tasks += row.tasks;
     } else {
       weeks.set(week.key, {
         key: week.key,
@@ -112,7 +106,6 @@ export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] 
         startLabel: week.startLabel,
         endLabel: week.endLabel,
         amount: row.amount,
-        tasks: row.tasks,
         currency: row.currency,
       });
     }
@@ -154,14 +147,12 @@ export function buildMonthGroupsFromWeeks(weeks: WeekPoint[]): MonthGroup[] {
     const existing = months.get(month.key);
     if (existing) {
       existing.amount += week.amount;
-      existing.tasks += week.tasks;
       existing.weeks.push(week);
     } else {
       months.set(month.key, {
         key: month.key,
         label: month.label,
         amount: week.amount,
-        tasks: week.tasks,
         currency: week.currency,
         weeks: [week],
       });

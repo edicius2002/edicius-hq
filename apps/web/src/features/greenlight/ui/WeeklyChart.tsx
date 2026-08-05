@@ -1,5 +1,6 @@
 import { useMemo, useState, type PointerEvent } from 'react';
 
+import { useElementWidth } from '@/features/greenlight/hooks/useElementWidth';
 import {
   buildWeekAxisTicks,
   formatAxisMoney,
@@ -9,17 +10,22 @@ import type { WeekPoint } from '@/features/greenlight/model/types';
 
 import styles from './WeeklyChart.module.css';
 
+const FALLBACK_WIDTH = 560;
+const MIN_WIDTH = 320;
+const CHART_HEIGHT = 300;
+
 type WeeklyChartProps = {
   points: WeekPoint[];
 };
 
 export function WeeklyChart({ points }: WeeklyChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [wrapRef, measuredWidth] = useElementWidth<HTMLDivElement>(FALLBACK_WIDTH);
 
   const layout = useMemo(() => {
-    const width = 560;
-    const height = 268;
-    const pad = { top: 18, right: 16, bottom: 58, left: 54 };
+    const width = Math.max(measuredWidth, MIN_WIDTH);
+    const height = CHART_HEIGHT;
+    const pad = { top: 26, right: 26, bottom: 58, left: 60 };
     const plotW = width - pad.left - pad.right;
     const plotH = height - pad.top - pad.bottom;
     const maxValue = Math.max(...points.map((point) => point.amount), 0);
@@ -37,9 +43,11 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
       .join(' ');
     const baseY = pad.top + plotH;
     const area = `${coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')} ${coords.at(-1)?.x.toFixed(1)},${baseY} ${coords[0]?.x.toFixed(1)},${baseY}`;
-    const labelStep = points.length > 12 ? Math.ceil(points.length / 10) : 1;
+    // Keep x labels from colliding: allow roughly one label per 72px of plot width.
+    const maxLabels = Math.max(2, Math.floor(plotW / 72));
+    const labelStep = points.length > maxLabels ? Math.ceil(points.length / maxLabels) : 1;
     return { width, height, pad, top, ticks, coords, path, area, baseY, labelStep, xAt, yAt };
-  }, [points]);
+  }, [points, measuredWidth]);
 
   if (!points.length) {
     return <p className={styles.empty}>No weeks to chart yet.</p>;
@@ -62,7 +70,7 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
   }
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} ref={wrapRef}>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { useElementWidth } from '@/features/greenlight/hooks/useElementWidth';
 import {
   buildAxisTicks,
   formatAxisMoney,
@@ -9,24 +10,30 @@ import type { MonthPoint } from '@/features/greenlight/model/types';
 
 import styles from './MonthlyChart.module.css';
 
+const FALLBACK_WIDTH = 420;
+const MIN_WIDTH = 280;
+const CHART_HEIGHT = 300;
+
 type MonthlyChartProps = {
   points: MonthPoint[];
 };
 
 export function MonthlyChart({ points }: MonthlyChartProps) {
+  const [wrapRef, measuredWidth] = useElementWidth<HTMLDivElement>(FALLBACK_WIDTH);
+
   const layout = useMemo(() => {
-    const width = 420;
-    const height = 268;
-    const pad = { top: 36, right: 14, bottom: 44, left: 54 };
+    const width = Math.max(measuredWidth, MIN_WIDTH);
+    const height = CHART_HEIGHT;
+    const pad = { top: 40, right: 26, bottom: 44, left: 60 };
     const plotW = width - pad.left - pad.right;
     const plotH = height - pad.top - pad.bottom;
     const maxValue = Math.max(...points.map((p) => p.amount), 0);
     const { top, ticks } = buildAxisTicks(maxValue);
     const groupW = plotW / Math.max(points.length, 1);
-    const barW = Math.max(20, Math.min(52, groupW * 0.62));
+    const barW = Math.max(20, Math.min(88, groupW * 0.55));
     const yAt = (value: number) => pad.top + plotH - (value / top) * plotH;
     return { width, height, pad, plotH, top, ticks, groupW, barW, yAt };
-  }, [points]);
+  }, [points, measuredWidth]);
 
   if (!points.length) {
     return <p className={styles.empty}>No months to chart yet.</p>;
@@ -35,7 +42,7 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
   const { width, height, pad, plotH, top, ticks, groupW, barW, yAt } = layout;
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} ref={wrapRef}>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}

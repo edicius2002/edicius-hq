@@ -2,8 +2,6 @@
   display: grid;
   gap: var(--space-5);
   width: 100%;
-  max-width: 72rem;
-  margin-inline: auto;
 }
 
 .totals {
@@ -42,30 +40,23 @@
   font-size: 0.85rem;
 }
 
-.legend {
-  align-items: center;
-  color: var(--color-muted);
-  display: inline-flex;
-  font-size: 0.74rem;
-  font-weight: 700;
-  gap: 0.4rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+/*
+ * Holds the marker segment cards. One marker yields two segments, which measure
+ * ~161px at the current font, so this reserves that up front: adding the first
+ * marker fills existing space instead of resizing the page. Further segments
+ * still grow it, but one card at a time rather than in a jump.
+ */
+.segmentsSlot {
+  min-height: 8.5rem;
 }
 
-.legend::before {
-  content: '';
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 999px;
-  background: var(--color-income);
-}
-
+/* Matches the Clear markers button height so its appearance does not shift the row. */
 .tasksActions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
+  min-height: 2.6rem;
 }
 
 .range {

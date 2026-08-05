@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractTaskBreakdown, importGreenlightCsv } from '@/features/greenlight/lib/processRows';
+import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
 import { buildWeeklySeries, computeTotals } from '@/features/greenlight/lib/aggregate';
 
 const SAMPLE_CSV = `Date,Record Type,Amount,Currency,Notes
@@ -17,19 +17,14 @@ describe('Greenlight CSV import', () => {
 
     expect(result.rowsRead).toBe(4);
     expect(result.daysGenerated).toBe(3);
-    expect(result.stats['2026-05-04']?.Deliverable).toMatchObject({
-      amount: 1000,
-      attempter: 2,
-      reviewer: 1,
-      tasks: 3,
-    });
-    expect(result.stats['2026-05-05']?.Deliverable).toMatchObject({
-      amount: 1500.5,
-      attempter: 4,
-      reviewer: 0,
-      tasks: 4,
-    });
+    expect(result.stats['2026-05-04']?.Deliverable).toMatchObject({ amount: 1000 });
+    expect(result.stats['2026-05-05']?.Deliverable).toMatchObject({ amount: 1500.5 });
     expect(result.stats['2026-05-06']).toBeUndefined();
+  });
+
+  it('keeps no per-day task counters', () => {
+    const { stats } = importGreenlightCsv(SAMPLE_CSV);
+    expect(Object.keys(stats['2026-05-04']!.Deliverable).sort()).toEqual(['amount', 'details']);
   });
 
   it('computes totals and weekly series', () => {
@@ -38,29 +33,8 @@ describe('Greenlight CSV import', () => {
     const weekly = buildWeeklySeries(stats);
 
     expect(totals.amount).toBeCloseTo(3000.5);
-    expect(totals.tasks).toBe(8);
     expect(weekly.length).toBeGreaterThanOrEqual(2);
     expect(weekly[0]?.amount).toBeCloseTo(2500.5);
-  });
-
-  it('parses task breakdown from notes', () => {
-    expect(extractTaskBreakdown('Attempter: 3 Reviewer: 2')).toEqual({
-      attempter: 3,
-      reviewer: 2,
-    });
-    expect(extractTaskBreakdown('Total Delivered Tasks: 9')).toEqual({
-      attempter: 9,
-      reviewer: 0,
-    });
-    expect(
-      extractTaskBreakdown(
-        'NES-COD-R-54|1074, 1051, 1014, 921, 1004, 1024, 1521, 1591, 1594, 1561 |',
-      ),
-    ).toEqual({ attempter: 10, reviewer: 0 });
-    expect(extractTaskBreakdown('NES-COD-R-54|Cursor subscription')).toEqual({
-      attempter: 0,
-      reviewer: 0,
-    });
   });
 
   it('imports TimeRecords-style headers with Date/Start', () => {
@@ -72,7 +46,6 @@ X,Deliverable,2026-07-21T00:00,2275.14,USD,|
     const result = importGreenlightCsv(csv);
     expect(result.daysGenerated).toBe(2);
     expect(result.stats['2026-07-28']?.Deliverable.amount).toBeCloseTo(1083.4);
-    expect(result.stats['2026-07-28']?.Deliverable.tasks).toBe(2);
     expect(result.stats['2026-07-21']?.Deliverable.amount).toBeCloseTo(2275.14);
   });
 

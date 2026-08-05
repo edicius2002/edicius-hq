@@ -1,4 +1,4 @@
-import { formatCount, formatMoney } from '@/features/greenlight/lib/format';
+import { formatMoney } from '@/features/greenlight/lib/format';
 import type { SegmentSummaryItem } from '@/features/greenlight/model/types';
 
 import styles from './SegmentSummary.module.css';
@@ -21,7 +21,7 @@ export function SegmentSummary({ segments }: SegmentSummaryProps) {
             <span className={styles.range}>{segment.rangeLabel}</span>
             <span className={styles.eyebrow}>
               {segment.closed
-                ? `${segment.dayCount} day${segment.dayCount === 1 ? '' : 's'}`
+                ? `${segment.weekCount} week${segment.weekCount === 1 ? '' : 's'}`
                 : 'In progress'}
             </span>
           </header>
@@ -33,7 +33,7 @@ export function SegmentSummary({ segments }: SegmentSummaryProps) {
               </strong>
             </div>
             <div className={styles.metric}>
-              <span>Fee (10%)</span>
+              <span>{segment.feeCharged ? 'Fee (10%)' : 'Fee (under min)'}</span>
               <strong>{formatMoney(segment.fee, segment.currency)}</strong>
             </div>
             <div className={styles.metric}>
@@ -41,10 +41,6 @@ export function SegmentSummary({ segments }: SegmentSummaryProps) {
               <strong className={styles.income}>
                 {formatMoney(segment.net, segment.currency)}
               </strong>
-            </div>
-            <div className={styles.metric}>
-              <span>Delivered tasks</span>
-              <strong>{formatCount(segment.tasks)}</strong>
             </div>
           </div>
         </article>

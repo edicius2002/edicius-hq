@@ -1,11 +1,50 @@
+/*
+ * Grid rules are drawn as borders on the month boxes, so the gutters come from
+ * padding rather than gap: with a gap the horizontal rules would be cut at every
+ * column boundary and the vertical rule would float in the middle of the break.
+ * Zero gap makes neighbouring borders meet, so the rules stay continuous and
+ * intersect. `stretch` is what keeps a row's boxes the same height, so a vertical
+ * rule spans the whole row and both horizontal rules land on the same line.
+ */
 .list {
   display: grid;
-  gap: var(--space-5);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 0;
 }
 
 .monthRow {
   display: grid;
+  align-content: start;
   gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-5) 0;
+  border-block-end: 1px solid var(--color-border);
+}
+
+/* Half the gutter on each side of the vertical rule. */
+.monthRow:nth-child(odd) {
+  padding-inline-end: var(--space-5);
+  border-inline-end: 1px solid var(--color-border);
+}
+
+.monthRow:nth-child(even) {
+  padding-inline-start: var(--space-5);
+}
+
+/* A lone final month has nothing to its right. */
+.monthRow:last-child:nth-child(odd) {
+  border-inline-end: 0;
+}
+
+/* No padding or rule against the outer edges of the grid. */
+.monthRow:nth-child(-n + 2) {
+  padding-block-start: 0;
+}
+
+.monthRow:nth-last-child(-n + 2) {
+  padding-block-end: 0;
+  border-block-end: 0;
 }
 
 .monthTitle {
@@ -28,11 +67,67 @@
   letter-spacing: 0;
 }
 
+.toolChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-inline-end: auto;
+}
+
+.toolChip {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  color: var(--color-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 9px;
+  text-transform: none;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.toolChip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.toolChip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.toolChipActive {
+  background: rgba(214, 166, 93, 0.1);
+  border-style: solid;
+  border-color: rgba(214, 166, 93, 0.48);
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toolChip {
+    transition: none;
+  }
+}
+
+/*
+ * No column gap: the marker slot is the whole gutter between two weeks, so its
+ * centred contents land exactly halfway. A gap here would push the marker off
+ * centre by half the gap.
+ */
 .weeks {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  column-gap: 0;
+  row-gap: 0.5rem;
   align-items: stretch;
+  justify-content: center;
 }
 
 .weekCluster {
@@ -50,7 +145,7 @@
   display: grid;
   flex: 1 1 0;
   gap: 5px;
-  grid-template-rows: auto auto 112px auto auto;
+  grid-template-rows: auto auto 112px auto;
   justify-items: center;
   max-width: 185px;
   min-width: 7.5rem;
@@ -108,19 +203,12 @@
   width: clamp(18px, 24%, 32px);
 }
 
-.weekLabel {
-  color: var(--color-muted);
-  font-size: 0.54rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
 .weekRange {
   font-size: 0.72rem;
   font-weight: 700;
 }
 
+/* Spans the full gutter; the handle and line are centred inside it. */
 .markerSlot {
   appearance: none;
   background: transparent;
@@ -128,7 +216,7 @@
   align-items: center;
   cursor: pointer;
   display: flex;
-  flex: 0 0 2px;
+  flex: 0 0 1.5rem;
   flex-direction: column;
   margin: 0;
   padding: 0;
@@ -197,7 +285,48 @@
   margin: 0;
 }
 
-@media (max-width: 900px) {
+/*
+ * A 4-week month is 4 clusters of ~180px, so it needs ~690px of content before it
+ * wraps. Two of those plus the 60px padding gutter make a 1440px list, and the
+ * panel (40) + main (80) + sidebar (300) padding around it put the cutoff at
+ * ~1860px; 1900 leaves a little slack. Measured at the current --font-size-base —
+ * retune both queries here if that token changes, since px media queries do not
+ * scale with the root font.
+ */
+@media (max-width: 1900px) {
+  .list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* One column: horizontal rules only, and the outer edges stay clean. */
+  .monthRow,
+  .monthRow:nth-child(odd),
+  .monthRow:nth-child(even) {
+    padding-inline: 0;
+    border-inline-end: 0;
+  }
+
+  .monthRow:nth-child(-n + 2) {
+    padding-block-start: var(--space-5);
+  }
+
+  .monthRow:first-child {
+    padding-block-start: 0;
+  }
+
+  .monthRow:nth-last-child(-n + 2) {
+    padding-block-end: var(--space-5);
+    border-block-end: 1px solid var(--color-border);
+  }
+
+  .monthRow:last-child {
+    padding-block-end: 0;
+    border-block-end: 0;
+  }
+}
+
+/* One column still needs those ~690px, which runs out around 1110px of viewport. */
+@media (max-width: 1150px) {
   .weeks {
     flex-direction: column;
   }

@@ -7,10 +7,13 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
-import { applyPlatformFee } from '@/features/greenlight/lib/fees';
-import { formatCount, formatMoney } from '@/features/greenlight/lib/format';
-import { buildSegmentSummaries, dateRangeLabel } from '@/features/greenlight/lib/segments';
-import type { ReplaceMode } from '@/features/greenlight/model/types';
+import { formatMoney } from '@/features/greenlight/lib/format';
+import {
+  buildSegmentSummaries,
+  computeSegmentedTotals,
+  dateRangeLabel,
+} from '@/features/greenlight/lib/segments';
+import type { ReplaceMode, ToolId } from '@/features/greenlight/model/types';
 import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
 import { MoneyWeekChart } from '@/features/greenlight/ui/MoneyWeekChart';
 import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
@@ -26,11 +29,25 @@ import styles from './ui/GreenlightPage.module.css';
 export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [replaceMode, setReplaceMode] = useState<ReplaceMode>('all');
-  const { state, isFetching, isError, importCsv, isImporting, clearData, isClearing, setMarkers } =
-    useGreenlightData();
+  const {
+    state,
+    isFetching,
+    isError,
+    importCsv,
+    isImporting,
+    clearData,
+    isClearing,
+    toggleMarker,
+    clearMarkers,
+    toggleWidget,
+  } = useGreenlightData();
 
   const totals = useMemo(() => computeTotals(state.stats), [state.stats]);
-  const moneyBreakdown = useMemo(() => applyPlatformFee(totals.amount), [totals.amount]);
+  // Charged per marker period, so the headline figures match the segment cards.
+  const moneyBreakdown = useMemo(
+    () => computeSegmentedTotals(state.stats, state.markers),
+    [state.stats, state.markers],
+  );
   const weekly = useMemo(() => buildWeeklySeries(state.stats), [state.stats]);
   const monthly = useMemo(() => buildMonthlySeries(state.stats), [state.stats]);
   const months = useMemo(() => buildMonthGroupsFromWeeks(weekly), [weekly]);
@@ -68,21 +85,37 @@ export function GreenlightPage() {
   }
 
   async function handleToggleMarker(dayKey: string) {
-    const next = state.markers.includes(dayKey)
-      ? state.markers.filter((day) => day !== dayKey)
-      : [...state.markers, dayKey];
-    await setMarkers(next);
+    setLocalError(null);
+    try {
+      await toggleMarker(dayKey);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Could not save the marker.');
+    }
   }
 
   async function handleClearMarkers() {
-    await setMarkers([]);
+    setLocalError(null);
+    try {
+      await clearMarkers();
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Could not clear the markers.');
+    }
+  }
+
+  async function handleToggleWidget(monthKey: string, tool: ToolId) {
+    setLocalError(null);
+    try {
+      await toggleWidget({ monthKey, tool });
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Could not save the subscription.');
+    }
   }
 
   return (
     <section className={styles.page} aria-labelledby="greenlight-title">
       <PageHeader
         title="Greenlight"
-        subtitle="Deliverable value and completed tasks."
+        subtitle="Deliverable value by week and month."
         titleId="greenlight-title"
         actions={showSyncing ? <span className={styles.syncing}>Syncing…</span> : undefined}
       />
@@ -112,7 +145,7 @@ export function GreenlightPage() {
           tone="accent"
         />
         <Stat
-          label="Fee (10%)"
+          label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
           value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
           tone="expense"
         />
@@ -121,7 +154,6 @@ export function GreenlightPage() {
           value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
           tone="income"
         />
-        <Stat label="Delivered tasks" value={hasData ? formatCount(totals.tasks) : '—'} />
       </div>
 
       <div className={styles.overview} aria-label="Weekly and monthly overview">
@@ -131,7 +163,6 @@ export function GreenlightPage() {
               <h2 className={styles.panelTitle}>By week</h2>
               <p className={styles.panelSubtitle}>Deliverable value across all weeks</p>
             </div>
-            <span className={styles.legend}>Tasks</span>
           </div>
           {hasData ? (
             <WeeklyChart points={weekly} />
@@ -145,7 +176,6 @@ export function GreenlightPage() {
               <h2 className={styles.panelTitle}>By month</h2>
               <p className={styles.panelSubtitle}>Monthly deliverable totals</p>
             </div>
-            <span className={styles.legend}>Tasks</span>
           </div>
           {hasData ? (
             <MonthlyChart points={monthly} />
@@ -155,10 +185,10 @@ export function GreenlightPage() {
         </Panel>
       </div>
 
-      <Panel aria-labelledby="tasks-title">
+      <Panel aria-labelledby="weeks-title">
         <div className={styles.panelHeading}>
-          <h2 id="tasks-title" className={styles.panelTitle}>
-            Tasks
+          <h2 id="weeks-title" className={styles.panelTitle}>
+            Weeks
           </h2>
           <div className={styles.tasksActions}>
             <span className={styles.range}>{range}</span>
@@ -175,12 +205,18 @@ export function GreenlightPage() {
               months={months}
               stats={state.stats}
               markers={state.markers}
+              widgets={state.widgets}
               onToggleMarker={(day) => void handleToggleMarker(day)}
+              onToggleWidget={(monthKey, tool) => void handleToggleWidget(monthKey, tool)}
             />
-            <SegmentSummary segments={segments} />
+            {/* Reserved so the first marker segments fill existing space instead
+                of pushing the page height out from under the cursor. */}
+            <div className={styles.segmentsSlot}>
+              <SegmentSummary segments={segments} />
+            </div>
           </>
         ) : (
-          <p className={styles.muted}>No tasks to show.</p>
+          <p className={styles.muted}>No weeks to show.</p>
         )}
       </Panel>
     </section>

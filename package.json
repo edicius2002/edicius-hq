@@ -18,8 +18,8 @@
     "typecheck": "npm run typecheck -w web",
     "test": "npm run test -w web",
     "test:api": "npm run api:test",
-    "api:dev": "cd services/api && .venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
-    "api:test": "cd services/api && .venv\\Scripts\\python.exe -m pytest",
+    "api:dev": "node scripts/api.mjs dev",
+    "api:test": "node scripts/api.mjs test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

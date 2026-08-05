@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Initial Setup in progress on `chore/initial-setup` ([#3](https://github.com/edicius2002/edicius-hq/issues/3)).  
+> **Status:** Initial Setup implementation complete on `chore/initial-setup` ([#3](https://github.com/edicius2002/edicius-hq/issues/3)); PR pending owner approval.  
 > **Last updated:** 2026-08-05  
-> **Review status:** Docs spine on `main` (clean history). Initial Setup issue opened.  
-> **Phase closure:** Delivery step 0 (Docs) complete.  
-> **Next delivery:** Finish Initial Setup (tooling / Docker / CI).
+> **Review status:** Tooling, Docker Compose, and CI workflow ready on branch.  
+> **Phase closure:** Delivery step 0 (Docs) complete. Step 1 complete pending squash merge.  
+> **Next delivery:** Shell + placeholders (after Initial Setup merge).
 
 ---
 
@@ -282,15 +282,15 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 1 — Initial Setup (tooling)
 
-**Status:** In progress — issue [#3](https://github.com/edicius2002/edicius-hq/issues/3), branch `chore/initial-setup`.
+**Status:** Implementation complete on `chore/initial-setup` — issue [#3](https://github.com/edicius2002/edicius-hq/issues/3). Awaiting PR/merge.
 
 - [x] npm workspaces + `apps/web` Vite/React/TS (Node 22)
 - [x] `services/api` FastAPI + `/api/health` (Python 3.12)
 - [x] Dockerfiles + Compose (`web`, `api`), hot-reload, volume → `services/api/.local-data/`
 - [x] ESLint, Prettier, EditorConfig, quality scripts
 - [x] Vitest smoke baseline
-- [ ] GitHub Actions CI
-- [ ] README (`docker compose up`) — `.env.example` and `@/` aliases done
+- [x] GitHub Actions CI
+- [x] `.env.example`, `@/` aliases, README (`docker compose up`)
 - [ ] PR linked to Initial Setup issue
 
 **Out of scope:** AppShell, product pages, Radix chrome, TanStack Query, Supabase Auth, cloud deploy.

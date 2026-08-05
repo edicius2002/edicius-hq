@@ -285,7 +285,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 **Status:** In progress — issue [#3](https://github.com/edicius2002/edicius-hq/issues/3), branch `chore/initial-setup`.
 
 - [x] npm workspaces + `apps/web` Vite/React/TS (Node 22)
-- [ ] `services/api` FastAPI + `/api/health` (Python 3.12)
+- [x] `services/api` FastAPI + `/api/health` (Python 3.12)
 - [ ] Dockerfiles + Compose (`web`, `api`), hot-reload, volume → `services/api/.local-data/`
 - [x] ESLint, Prettier, EditorConfig, quality scripts
 - [x] Vitest smoke baseline

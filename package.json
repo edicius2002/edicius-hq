@@ -12,9 +12,14 @@
   ],
   "scripts": {
     "dev": "npm run dev -w web",
+    "dev:web": "npm run dev -w web",
+    "dev:api": "npm run api:dev",
     "build": "npm run build -w web",
     "typecheck": "npm run typecheck -w web",
     "test": "npm run test -w web",
+    "test:api": "npm run api:test",
+    "api:dev": "cd services/api && .venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "api:test": "cd services/api && .venv\\Scripts\\python.exe -m pytest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

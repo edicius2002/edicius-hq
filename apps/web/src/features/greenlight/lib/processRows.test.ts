@@ -52,6 +52,28 @@ describe('Greenlight CSV import', () => {
       attempter: 9,
       reviewer: 0,
     });
+    expect(
+      extractTaskBreakdown(
+        'NES-COD-R-54|1074, 1051, 1014, 921, 1004, 1024, 1521, 1591, 1594, 1561 |',
+      ),
+    ).toEqual({ attempter: 10, reviewer: 0 });
+    expect(extractTaskBreakdown('NES-COD-R-54|Cursor subscription')).toEqual({
+      attempter: 0,
+      reviewer: 0,
+    });
+  });
+
+  it('imports TimeRecords-style headers with Date/Start', () => {
+    const csv = `Parent Client,Record Type,Date/Start,Amount,Currency,Notes
+X,Deliverable,2026-07-28T00:00,1083.4,USD,"NES-COD-R-54|1074, 1051 |"
+X,Expense,2026-07-28T00:00,30,USD,ignore
+X,Deliverable,2026-07-21T00:00,2275.14,USD,|
+`;
+    const result = importGreenlightCsv(csv);
+    expect(result.daysGenerated).toBe(2);
+    expect(result.stats['2026-07-28']?.Deliverable.amount).toBeCloseTo(1083.4);
+    expect(result.stats['2026-07-28']?.Deliverable.tasks).toBe(2);
+    expect(result.stats['2026-07-21']?.Deliverable.amount).toBeCloseTo(2275.14);
   });
 
   it('rejects CSV without deliverable rows', () => {

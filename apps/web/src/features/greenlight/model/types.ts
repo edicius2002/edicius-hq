@@ -60,6 +60,8 @@ export type SegmentSummaryItem = {
   dayCount: number;
   closed: boolean;
   amount: number;
+  fee: number;
+  net: number;
   tasks: number;
   currency: string;
 };

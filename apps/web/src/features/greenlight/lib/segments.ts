@@ -1,4 +1,5 @@
 import { shortDate } from '@/features/greenlight/lib/chartFormat';
+import { applyPlatformFee } from '@/features/greenlight/lib/fees';
 import type { DayStats, SegmentSummaryItem } from '@/features/greenlight/model/types';
 
 type DayRow = {
@@ -62,6 +63,7 @@ export function buildSegmentSummaries(
     .map(({ rows: segmentRows, closed }) => {
       const amount = segmentRows.reduce((sum, row) => sum + row.amount, 0);
       const tasks = segmentRows.reduce((sum, row) => sum + row.tasks, 0);
+      const { fee, net } = applyPlatformFee(amount);
       const first = shortDate(segmentRows[0].date);
       const last = shortDate(segmentRows.at(-1)!.date);
       return {
@@ -69,6 +71,8 @@ export function buildSegmentSummaries(
         dayCount: segmentRows.length,
         closed,
         amount,
+        fee,
+        net,
         tasks,
         currency: segmentRows[0]?.currency || 'USD',
       };

@@ -8,24 +8,8 @@
 
 .totals {
   display: grid;
-  grid-template-columns: minmax(12rem, 22rem);
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: var(--space-3);
-}
-
-.totalStack {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.totalSecondary {
-  color: var(--color-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.totalSecondary strong {
-  color: var(--color-text);
-  font-weight: 700;
 }
 
 .overview {

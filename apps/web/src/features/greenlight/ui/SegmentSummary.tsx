@@ -27,9 +27,19 @@ export function SegmentSummary({ segments }: SegmentSummaryProps) {
           </header>
           <div className={styles.metrics}>
             <div className={styles.metric}>
-              <span>Tasks</span>
+              <span>Gross</span>
               <strong className={styles.income}>
                 {formatMoney(segment.amount, segment.currency)}
+              </strong>
+            </div>
+            <div className={styles.metric}>
+              <span>Fee (10%)</span>
+              <strong>{formatMoney(segment.fee, segment.currency)}</strong>
+            </div>
+            <div className={styles.metric}>
+              <span>Net</span>
+              <strong className={styles.income}>
+                {formatMoney(segment.net, segment.currency)}
               </strong>
             </div>
             <div className={styles.metric}>

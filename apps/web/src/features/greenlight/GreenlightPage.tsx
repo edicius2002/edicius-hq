@@ -7,6 +7,7 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
+import { applyPlatformFee } from '@/features/greenlight/lib/fees';
 import { formatCount, formatMoney } from '@/features/greenlight/lib/format';
 import { buildSegmentSummaries, dateRangeLabel } from '@/features/greenlight/lib/segments';
 import type { ReplaceMode } from '@/features/greenlight/model/types';
@@ -29,6 +30,7 @@ export function GreenlightPage() {
     useGreenlightData();
 
   const totals = useMemo(() => computeTotals(state.stats), [state.stats]);
+  const moneyBreakdown = useMemo(() => applyPlatformFee(totals.amount), [totals.amount]);
   const weekly = useMemo(() => buildWeeklySeries(state.stats), [state.stats]);
   const monthly = useMemo(() => buildMonthlySeries(state.stats), [state.stats]);
   const months = useMemo(() => buildMonthGroupsFromWeeks(weekly), [weekly]);
@@ -49,7 +51,14 @@ export function GreenlightPage() {
     try {
       await importCsv({ fileName: file.name, content: await file.text(), replaceMode });
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Failed to import CSV.');
+      const message = error instanceof Error ? error.message : 'Failed to import CSV.';
+      if (/failed to fetch|networkerror|abort/i.test(message)) {
+        setLocalError(
+          'Could not reach the API (http://localhost:8000). Start it with `npm run api:dev` or `docker compose up`, then try again.',
+        );
+        return;
+      }
+      setLocalError(message);
     }
   }
 
@@ -98,17 +107,21 @@ export function GreenlightPage() {
 
       <div className={styles.totals}>
         <Stat
-          label="Total tasks"
-          value={
-            <span className={styles.totalStack}>
-              <span>{hasData ? formatMoney(totals.amount, totals.currency) : '—'}</span>
-              <span className={styles.totalSecondary}>
-                <strong>{hasData ? formatCount(totals.tasks) : '—'}</strong> delivered
-              </span>
-            </span>
-          }
+          label="Gross"
+          value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
+          tone="accent"
+        />
+        <Stat
+          label="Fee (10%)"
+          value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
+          tone="expense"
+        />
+        <Stat
+          label="Net"
+          value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
           tone="income"
         />
+        <Stat label="Delivered tasks" value={hasData ? formatCount(totals.tasks) : '—'} />
       </div>
 
       <div className={styles.overview} aria-label="Weekly and monthly overview">

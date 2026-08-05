@@ -12,7 +12,18 @@ export function extractTaskBreakdown(notes: string): { attempter: number; review
   if (attempter || reviewer) return { attempter, reviewer };
 
   const totalMatch = notes.match(/Total Delivered Tasks:\s*(\d+)/i);
-  return { attempter: totalMatch ? Number(totalMatch[1]) : 0, reviewer: 0 };
+  if (totalMatch) {
+    return { attempter: Number(totalMatch[1]), reviewer: 0 };
+  }
+
+  // TimeRecords export: "CODE|id, id, id |" — count numeric task IDs after the pipe.
+  const pipeSection = notes.includes('|') ? notes.split('|').slice(1).join('|') : '';
+  const taskIds = pipeSection.match(/\b\d{3,}\b/g);
+  if (taskIds?.length) {
+    return { attempter: taskIds.length, reviewer: 0 };
+  }
+
+  return { attempter: 0, reviewer: 0 };
 }
 
 export function processGreenlightRows(rows: CsvRow[]): Record<string, DayStats> {

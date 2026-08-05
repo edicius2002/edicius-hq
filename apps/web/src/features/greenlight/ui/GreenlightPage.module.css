@@ -1,0 +1,52 @@
+.page {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 56rem;
+}
+
+.fileButton {
+  cursor: pointer;
+}
+
+.fileButton input {
+  display: none;
+}
+
+.fileButtonDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.muted,
+.error {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+.statusList {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}

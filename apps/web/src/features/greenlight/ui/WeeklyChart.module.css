@@ -1,0 +1,41 @@
+.wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  min-width: 28rem;
+  height: auto;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.axis {
+  fill: var(--color-muted);
+  font-size: 0.7rem;
+}
+
+.area {
+  fill: var(--color-accent-soft);
+  opacity: 0.85;
+}
+
+.line {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.dot {
+  fill: var(--color-accent);
+}
+
+.empty {
+  color: var(--color-muted);
+  margin: 0;
+}

@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** UI foundation in progress on `feat/ui-foundation` ([#10](https://github.com/edicius2002/edicius-hq/issues/10)). Greenlight remains open ([#9](https://github.com/edicius2002/edicius-hq/issues/9)).
+> **Status:** Greenlight in progress on `feat/greenlight` ([#9](https://github.com/edicius2002/edicius-hq/issues/9)).
 > **Last updated:** 2026-08-05
-> **Review status:** API client + storage merged ([#8](https://github.com/edicius2002/edicius-hq/pull/8)).
-> **Phase closure:** Delivery steps 0–3 complete.
-> **Next delivery:** Finish UI foundation, then Greenlight.
+> **Review status:** UI foundation merged ([#11](https://github.com/edicius2002/edicius-hq/pull/11)).
+> **Phase closure:** Delivery steps 0–3b complete.
+> **Next delivery:** Finish Greenlight MVP, then Finance.
 
 ---
 
@@ -323,17 +323,25 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 3b — UI foundation
 
-**Status:** In progress — issue [#10](https://github.com/edicius2002/edicius-hq/issues/10), branch `feat/ui-foundation`.
+**Status:** Complete — [#10](https://github.com/edicius2002/edicius-hq/issues/10) / [#11](https://github.com/edicius2002/edicius-hq/pull/11).
 
 - [x] Dark tokens aligned with ediciuscorp
 - [x] Berkeley Mono self-host wiring + license docs
 - [x] Shell / Coming soon / errors migrated
 - [x] Primitives: `Button`, `Panel`, `PageHeader`, `Stat` (no Radix)
-- [ ] PR linked to UI foundation issue
+- [x] PR linked to UI foundation issue — [#11](https://github.com/edicius2002/edicius-hq/pull/11)
 
 ### 4 — Greenlight
 
-**Status:** Open — [#9](https://github.com/edicius2002/edicius-hq/issues/9) (adapt after UI foundation merges).
+**Status:** In progress — issue [#9](https://github.com/edicius2002/edicius-hq/issues/9), branch `feat/greenlight`.
+
+- [x] Replace Coming soon on `/greenlight`
+- [x] CSV import (ES/EN aliases, Deliverable/Entregable only, replace-all)
+- [x] Persist via `shared/storage` key `greenlight`
+- [x] Totals + weekly chart + month-grouped weeks
+- [x] Synthetic CSV tests (no real CSVs in git)
+- [x] Adapted to UI foundation primitives / dark tokens
+- [ ] PR linked to Greenlight issue
 
 ### 5+ — Feature phases
 
@@ -428,3 +436,4 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | 2026-08-05 | Formal plan established; data plane; Pulse in Investing; delivery Q&A; clean rewrite for repository initialization. |
 | 2026-08-05 | Docs PR #1 merged to `main`; step 0 complete.                                                                       |
 | 2026-08-05 | UI foundation (#10): dark tokens, Berkeley Mono, shell primitives before Greenlight.                                |
+| 2026-08-05 | Greenlight MVP (#9): CSV weekly analytics on foundation UI.                                                         |

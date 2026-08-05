@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import styles from './ErrorView.module.css';
+import { PageHeader } from '@/shared/ui/PageHeader';
 
 type AppErrorBoundaryProps = {
   children: ReactNode;
@@ -27,8 +28,11 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
     if (error) {
       return (
         <div className={styles.page} role="alert">
-          <h1 className={styles.title}>Something went wrong</h1>
-          <p className={styles.copy}>{error.message || 'An unexpected error occurred.'}</p>
+          <PageHeader
+            title="Something went wrong"
+            subtitle={error.message || 'An unexpected error occurred.'}
+            titleId="error-title"
+          />
         </div>
       );
     }

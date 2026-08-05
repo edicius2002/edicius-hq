@@ -51,3 +51,7 @@ services/api/.local-data/
 !examples/
 !examples/**/*.csv
 !examples/**/*.json
+
+# Licensed font binaries (keep README)
+apps/web/public/fonts/*
+!apps/web/public/fonts/README.md

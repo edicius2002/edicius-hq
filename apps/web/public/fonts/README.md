@@ -11,8 +11,9 @@ Edicius HQ uses **Berkeley Mono** (commercial license).
 - `BerkeleyMono-Medium.woff2` (or `.otf`)
 - `BerkeleyMono-Bold.woff2` (or `.otf`)
 
-3. Restart `npm run dev` / rebuild.
+3. Restore the `url('/fonts/…')` entries in `apps/web/src/styles/fonts.css` (currently `local()` only to avoid boot-time 404s).
+4. Restart `npm run dev` / rebuild.
 
 Binary font files in this directory are gitignored so unlicensed assets are not committed. If your license allows redistribution inside this private repo, you may force-add specific files intentionally.
 
-Until files are present, the app falls back to locally installed Berkeley Mono (if any) and then system monospace stacks.
+Until files are present, the app uses locally installed Berkeley Mono (if any) and then system monospace stacks.

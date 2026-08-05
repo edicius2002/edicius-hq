@@ -1,16 +1,13 @@
 /*
   Berkeley Mono is a commercial typeface.
-  Place licensed files in apps/web/public/fonts/ (see that folder's README).
-  Until files are present, `local()` and monospace fallbacks are used.
+  Place licensed files in apps/web/public/fonts/ (see that folder's README),
+  then restore url(...) entries below. Until then, only local() is used so
+  missing /fonts/*.woff2 files do not 404 on every boot.
 */
 
 @font-face {
   font-family: 'Berkeley Mono';
-  src:
-    local('Berkeley Mono'),
-    local('BerkeleyMono'),
-    url('/fonts/BerkeleyMono-Regular.woff2') format('woff2'),
-    url('/fonts/BerkeleyMono-Regular.otf') format('opentype');
+  src: local('Berkeley Mono'), local('BerkeleyMono');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -18,11 +15,7 @@
 
 @font-face {
   font-family: 'Berkeley Mono';
-  src:
-    local('Berkeley Mono Medium'),
-    local('BerkeleyMono-Medium'),
-    url('/fonts/BerkeleyMono-Medium.woff2') format('woff2'),
-    url('/fonts/BerkeleyMono-Medium.otf') format('opentype');
+  src: local('Berkeley Mono Medium'), local('BerkeleyMono-Medium');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -30,11 +23,7 @@
 
 @font-face {
   font-family: 'Berkeley Mono';
-  src:
-    local('Berkeley Mono Bold'),
-    local('BerkeleyMono-Bold'),
-    url('/fonts/BerkeleyMono-Bold.woff2') format('woff2'),
-    url('/fonts/BerkeleyMono-Bold.otf') format('opentype');
+  src: local('Berkeley Mono Bold'), local('BerkeleyMono-Bold');
   font-weight: 700;
   font-style: normal;
   font-display: swap;

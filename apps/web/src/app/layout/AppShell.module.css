@@ -1,9 +1,20 @@
 .shell {
   display: flex;
-  min-height: 100%;
+  align-items: stretch;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--color-bg);
 }
 
 .main {
   flex: 1;
+  min-width: 0;
   padding: var(--space-6);
+  background: transparent;
+}
+
+.fallback {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
 }

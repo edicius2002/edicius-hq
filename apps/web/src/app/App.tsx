@@ -1,8 +1,14 @@
+import { RouterProvider } from 'react-router-dom';
+
+import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
+import { createAppBrowserRouter } from '@/app/router/createAppRouter';
+
+const router = createAppBrowserRouter();
+
 export function App() {
   return (
-    <main>
-      <h1>Edicius HQ</h1>
-      <p>Web workspace scaffold is ready.</p>
-    </main>
+    <AppErrorBoundary>
+      <RouterProvider router={router} />
+    </AppErrorBoundary>
   );
 }

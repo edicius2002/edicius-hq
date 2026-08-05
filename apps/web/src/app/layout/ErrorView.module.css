@@ -1,0 +1,35 @@
+.page {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 40rem;
+  padding: var(--space-6);
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.copy {
+  color: var(--color-muted);
+}
+
+.actions {
+  margin-top: var(--space-2);
+}
+
+.linkButton {
+  display: inline-block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.danger {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+}

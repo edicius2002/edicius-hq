@@ -1,0 +1,9 @@
+.shell {
+  display: flex;
+  min-height: 100%;
+}
+
+.main {
+  flex: 1;
+  padding: var(--space-6);
+}

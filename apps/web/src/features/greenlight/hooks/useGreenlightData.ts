@@ -1,5 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef } from 'react';
+import { useMutation } from '@tanstack/react-query';
 
 import {
   mergeDetectedWidgets,
@@ -12,73 +11,27 @@ import {
   type ReplaceMode,
   type ToolId,
 } from '@/features/greenlight/model/types';
-import { readStorage, writeStorage } from '@/shared/storage/storage';
+import { useStoredDocument } from '@/shared/storage/useStoredDocument';
 
-const QUERY_KEY = ['storage', 'greenlight'] as const;
-
-const noop = () => undefined;
-
-function normalizeState(value: GreenlightState | null): GreenlightState {
+function normalizeState(value: unknown): GreenlightState {
   if (!value || typeof value !== 'object') return EMPTY_GREENLIGHT_STATE;
+  const stored = value as Partial<GreenlightState>;
   return {
-    stats: value.stats && typeof value.stats === 'object' ? value.stats : {},
-    meta: value.meta ?? null,
-    markers: Array.isArray(value.markers) ? value.markers : [],
-    widgets: normalizeToolWidgets(value.widgets),
+    stats: stored.stats && typeof stored.stats === 'object' ? stored.stats : {},
+    meta: stored.meta ?? null,
+    markers: Array.isArray(stored.markers) ? stored.markers : [],
+    widgets: normalizeToolWidgets(stored.widgets),
   };
 }
 
-async function persist(next: GreenlightState): Promise<GreenlightState> {
-  await writeStorage('greenlight', next);
-  return next;
-}
-
 export function useGreenlightData() {
-  const queryClient = useQueryClient();
-
-  const query = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: ({ signal }) =>
-      readStorage<GreenlightState>('greenlight', signal).then(normalizeState),
-    placeholderData: EMPTY_GREENLIGHT_STATE,
-    retry: false,
+  // Write serialization and the refusal to save over a failed read live in the
+  // shared store, so Greenlight and Finance cannot drift apart on either.
+  const store = useStoredDocument<GreenlightState>({
+    key: 'greenlight',
+    normalize: normalizeState,
+    placeholder: EMPTY_GREENLIGHT_STATE,
   });
-
-  /**
-   * Base state for a write. `placeholderData` never reaches the cache, so an
-   * undefined entry means the read failed rather than "stored document is empty"
-   * — a missing key still resolves to EMPTY_GREENLIGHT_STATE. Editing on top of
-   * a failed read would PUT an empty document over real stored data.
-   */
-  function readBaseState(): GreenlightState {
-    const cached = queryClient.getQueryData<GreenlightState>(QUERY_KEY);
-    if (!cached) {
-      throw new Error('Greenlight data could not be loaded, so nothing was saved. Reload first.');
-    }
-    return normalizeState(cached);
-  }
-
-  /**
-   * Every write is read-modify-write over the whole document, so overlapping
-   * writes would build the second edit from pre-first-write state and silently
-   * drop the first. This chain runs them strictly one at a time; because each
-   * task refreshes the cache before resolving, the next one reads current state.
-   * A failed write does not break the chain for later writes.
-   */
-  const writeChain = useRef<Promise<unknown>>(Promise.resolve());
-
-  function serializeWrite(task: () => Promise<GreenlightState>): Promise<GreenlightState> {
-    const run = writeChain.current.then(task, task);
-    writeChain.current = run.then(noop, noop);
-    return run;
-  }
-
-  /** Persist and refresh the cache inside the serialized task, never after it. */
-  async function commit(next: GreenlightState): Promise<GreenlightState> {
-    await persist(next);
-    queryClient.setQueryData(QUERY_KEY, next);
-    return next;
-  }
 
   const importMutation = useMutation({
     mutationFn: ({
@@ -90,8 +43,7 @@ export function useGreenlightData() {
       content: string;
       replaceMode: ReplaceMode;
     }) =>
-      serializeWrite(async () => {
-        const current = readBaseState();
+      store.edit(async (current) => {
         const { importGreenlightCsv } = await import('@/features/greenlight/lib/processRows');
         const imported = importGreenlightCsv(content);
 
@@ -113,7 +65,7 @@ export function useGreenlightData() {
             'Other months were kept; unmarked CSV days outside this month were ignored.';
         }
 
-        return commit({
+        return {
           stats,
           markers: current.markers,
           widgets: mergeDetectedWidgets(current.widgets, imported.widgets),
@@ -126,43 +78,42 @@ export function useGreenlightData() {
             statusTitle: 'Updated from CSV',
             statusDetail: `${statusDetail} Markers were kept.`,
           },
-        });
+        };
       }),
   });
 
   const clearMutation = useMutation({
-    mutationFn: () => serializeWrite(() => commit(EMPTY_GREENLIGHT_STATE)),
+    mutationFn: () => store.replace(EMPTY_GREENLIGHT_STATE),
   });
 
   // Toggles take the intent, not a precomputed array: the new value has to be
   // derived inside the write from state the caller's render may not have seen.
   const toggleMarkerMutation = useMutation({
     mutationFn: (dayKey: string) =>
-      serializeWrite(async () => {
-        const current = readBaseState();
-        const markers = current.markers.includes(dayKey)
+      store.edit((current) => ({
+        ...current,
+        markers: current.markers.includes(dayKey)
           ? current.markers.filter((day) => day !== dayKey)
-          : [...current.markers, dayKey];
-        return commit({ ...current, markers });
-      }),
+          : [...current.markers, dayKey],
+      })),
   });
 
   const clearMarkersMutation = useMutation({
-    mutationFn: () => serializeWrite(async () => commit({ ...readBaseState(), markers: [] })),
+    mutationFn: () => store.edit((current) => ({ ...current, markers: [] })),
   });
 
   const toggleWidgetMutation = useMutation({
     mutationFn: ({ monthKey, tool }: { monthKey: string; tool: ToolId }) =>
-      serializeWrite(async () => {
-        const current = readBaseState();
-        return commit({ ...current, widgets: toggleToolWidget(current.widgets, monthKey, tool) });
-      }),
+      store.edit((current) => ({
+        ...current,
+        widgets: toggleToolWidget(current.widgets, monthKey, tool),
+      })),
   });
 
   return {
-    state: normalizeState(query.data ?? null),
-    isFetching: query.isFetching,
-    isError: query.isError,
+    state: store.data,
+    isFetching: store.isFetching,
+    isError: store.isError,
     importCsv: importMutation.mutateAsync,
     isImporting: importMutation.isPending,
     clearData: clearMutation.mutateAsync,

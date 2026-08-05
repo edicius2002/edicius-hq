@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Shell + placeholders in progress on `feat/shell-placeholders` ([#5](https://github.com/edicius2002/edicius-hq/issues/5)).  
+> **Status:** API client + storage in progress on `feat/api-client-storage` ([#7](https://github.com/edicius2002/edicius-hq/issues/7)).  
 > **Last updated:** 2026-08-05  
-> **Review status:** Initial Setup merged ([#4](https://github.com/edicius2002/edicius-hq/pull/4)).  
-> **Phase closure:** Delivery steps 0–1 complete.  
-> **Next delivery:** Finish Shell + placeholders, then API client + storage.
+> **Review status:** Shell merged ([#6](https://github.com/edicius2002/edicius-hq/pull/6)).  
+> **Phase closure:** Delivery steps 0–2 complete.  
+> **Next delivery:** Finish API client + storage, then Greenlight.
 
 ---
 
@@ -297,7 +297,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 2 — Shell + placeholders
 
-**Status:** In progress — issue [#5](https://github.com/edicius2002/edicius-hq/issues/5), branch `feat/shell-placeholders`.
+**Status:** Complete — [#5](https://github.com/edicius2002/edicius-hq/issues/5) / [#6](https://github.com/edicius2002/edicius-hq/pull/6).
 
 - [x] Router, AppShell, sidebar (4 tabs)
 - [x] All four pages: English **title + “Coming soon.”**
@@ -306,7 +306,18 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Nav / error smoke tests
 - [x] PR linked to Shell issue — [#6](https://github.com/edicius2002/edicius-hq/pull/6)
 
-### 3+ — Feature phases
+### 3 — API client + storage
+
+**Status:** In progress — issue [#7](https://github.com/edicius2002/edicius-hq/issues/7), branch `feat/api-client-storage`.
+
+- [x] Typed `shared/api` client (`/api/health`, `/api/kv/...`)
+- [x] FastAPI local KV (allowlisted keys → `.local-data/kv/`)
+- [x] `shared/storage` facade (path A)
+- [x] TanStack Query provider + health query (`ApiStatus`)
+- [x] Smoke tests (web + API)
+- [x] PR linked to API client + storage issue — [#8](https://github.com/edicius2002/edicius-hq/pull/8)
+
+### 4+ — Feature phases
 
 Follow the delivery sequence table. Expand INV-* IDs when the Investing phase starts.
 

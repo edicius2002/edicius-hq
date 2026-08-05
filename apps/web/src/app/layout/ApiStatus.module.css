@@ -1,0 +1,40 @@
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  background: var(--color-bg);
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.online {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.online .dot {
+  background: var(--color-accent);
+}
+
+.offline {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.offline .dot {
+  background: var(--color-danger);
+}
+
+.pending .dot {
+  background: var(--color-muted);
+}

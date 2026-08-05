@@ -1,5 +1,7 @@
 import { NavLink } from 'react-router-dom';
 
+import { ApiStatus } from '@/app/layout/ApiStatus';
+
 import styles from './Sidebar.module.css';
 
 const navItems = [
@@ -29,6 +31,7 @@ export function Sidebar() {
           ))}
         </ul>
       </nav>
+      <ApiStatus />
     </aside>
   );
 }

@@ -1,0 +1,57 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+js/config.js
+
+# Local server data (Edicius HQ storage API)
+.local-data/
+
+# Personal finance data and exports
+*.csv
+*.tsv
+finanzas-backup-*.json
+diagrama-finanzas-*.json
+greenlight-*.json
+backup*.json
+*backup*.json
+
+# Diag outputs
+scripts/*-report.json
+scripts/*-report.*.json
+
+# Temp / logs
+*.tmp
+*.temp
+*.log
+
+# Python / Node
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Playwright
+playwright-report/
+test-results/
+
+# Keep only deliberate public examples
+!examples/
+!examples/**/*.csv
+!examples/**/*.json

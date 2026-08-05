@@ -1,0 +1,46 @@
+name: Migration module
+description: Import a module from legacy ediciuscorp into edicius-hq
+title: "feat: "
+labels: ["migration"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Finanzas + Greenlight baseline
+        - Local backend + KV storage
+        - Investing core
+        - Dashboard / Market Pulse / Sentiment
+        - Status / network monitor
+        - Supabase optional
+        - Docs + archive ediciuscorp
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Candidate files from ediciuscorp
+      description: Paths expected in this PR
+    validations:
+      required: true
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on issues
+      placeholder: "#1, #3"
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: checkboxes
+    id: sanitize
+    attributes:
+      label: Sanitization
+      options:
+        - label: No secrets, CSV reales, backups, or `.local-data/` will be committed
+          required: true

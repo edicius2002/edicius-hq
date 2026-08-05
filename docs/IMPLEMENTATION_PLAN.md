@@ -315,7 +315,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] `shared/storage` facade (path A)
 - [x] TanStack Query provider + health query (`ApiStatus`)
 - [x] Smoke tests (web + API)
-- [ ] PR linked to API client + storage issue
+- [x] PR linked to API client + storage issue — [#8](https://github.com/edicius2002/edicius-hq/pull/8)
 
 ### 4+ — Feature phases
 

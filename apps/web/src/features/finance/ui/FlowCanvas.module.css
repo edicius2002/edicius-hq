@@ -1,0 +1,83 @@
+.viewport {
+  position: relative;
+  overflow: auto;
+  min-height: 26rem;
+  height: clamp(26rem, 58vh, 46rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 26px 26px,
+    var(--color-bg-2);
+}
+
+/*
+ * Sized to the content so the viewport scrolls to reach far nodes, but never
+ * smaller than the viewport itself — otherwise an empty diagram would squeeze
+ * its own placeholder into a corner.
+ */
+.surface {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+  transform-origin: 0 0;
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge {
+  fill: none;
+  stroke: rgba(253, 186, 116, 0.75);
+  stroke-width: 2;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.edgeSelected {
+  stroke: var(--color-accent);
+  stroke-width: 3;
+}
+
+/* Widens what the pointer can grab without thickening the line itself. */
+.edgeHit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.edgeLayerInteractive {
+  pointer-events: none;
+}
+
+.edgeLabel {
+  fill: var(--color-text);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--color-bg-2);
+  stroke-width: 4;
+  text-anchor: middle;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.emptyTitle {
+  color: var(--color-text);
+  font-weight: 700;
+}

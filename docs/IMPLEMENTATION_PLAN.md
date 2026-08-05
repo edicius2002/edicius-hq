@@ -333,16 +333,21 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 4 — Greenlight
 
-**Status:** In progress — issue [#9](https://github.com/edicius2002/edicius-hq/issues/9), branch eat/greenlight.
+**Status:** In progress — issue [#9](https://github.com/edicius2002/edicius-hq/issues/9), branch `feat/greenlight`.
 
-- [x] Replace Coming soon on /greenlight
+- [x] Replace Coming soon on `/greenlight`
 - [x] CSV import (ES/EN aliases, Deliverable/Entregable only)
+- [x] TimeRecords format support (`Date/Start` headers)
 - [x] Replace modes: all + current-month (markers preserved)
-- [x] Persist via shared/storage key greenlight (stats, meta, markers)
-- [x] Totals + weekly line chart + monthly bars + week cards (% of month)
-- [x] Markers between weeks + segment summaries
-- [x] Sample data + JSON export + clear
-- [x] Synthetic CSV / aggregation tests (no real CSVs in git)
+- [x] Persist via `shared/storage` key `greenlight` (stats, meta, markers, widgets)
+- [x] Totals: Gross + Fee 10% (AnyoneAI, min $1,000 per period) + Net
+- [x] Weekly line chart + monthly bars + week cards (% of month)
+- [x] Charts size to their container; weekly line keeps the legacy draw-in reveal
+- [x] Markers between weeks + segment summaries (counted in calendar weeks)
+- [x] Clear action; sample data and JSON export cut from the MVP (see 6.1)
+- [x] Task counting removed from the product (see 6.2)
+- [x] Tool subscription widgets, one per tool per month (see 6.3)
+- [x] Synthetic CSV / aggregation / subscription tests (no real CSVs in git)
 - [x] Adapted to UI foundation primitives / dark tokens
 - [ ] PR linked to Greenlight issue
 
@@ -419,6 +424,20 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | 5.7 | Alerts: in-memory quote vs stored rules.                         | No need to persist last price.         |
 | 5.8 | No tick/OHLCV primary design in Supabase unless a later ADR.     | Avoid Postgres time-series by default. |
 
+### 6. Greenlight
+
+| ID  | Decision                                                                                              | Rationale                                                                                                 |
+| --- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 6.1 | Sample data and JSON export cut from the MVP.                                                         | Real CSV import covers the need; the dead module was still shipping a chunk.                              |
+| 6.2 | Task counting removed entirely (no `tasks`/`attempter`/`reviewer`).                                   | Most TimeRecords notes carry no task IDs, so per-day counts read as 0 next to real money. Money-only.     |
+| 6.3 | Tool subscriptions recorded per month as widgets: VSCode $10, Cursor $20, at most one of each.        | Rates taken from the CSV `Expense` rows ($10 + $20 = $30 when both are billed).                           |
+| 6.4 | Widgets are a record only — they never affect Gross, Fee or Net.                                      | They document what was reimbursed without disturbing the deliverable math.                                |
+| 6.5 | Widgets auto-seed from `Expense` rows; import never overwrites a month that already has an entry.     | Manual edits must survive re-import. An emptied month is stored as `[]` so a removal is not undone.       |
+| 6.6 | The 10% fee is charged only when a period's gross reaches **$1,000**; below that nothing is deducted. | Matches the contract minimum. Exactly $1,000 is charged.                                                  |
+| 6.7 | The fee threshold applies **per marker period**, and the headline totals sum those periods.           | Keeps the top Stats reconciling with the segment cards; a sub-minimum period keeps its full gross.        |
+| 6.8 | Greenlight storage writes are serialized, and a failed read blocks writing instead of saving empty.   | Read-modify-write on one document: overlapping writes dropped edits, and a failed read wiped stored data. |
+| 6.9 | Segment length is reported in **calendar weeks**, not payment dates.                                  | A week can carry several payment dates, so counting dates overstated the period.                          |
+
 ### Superseded decisions
 
 | ID  | Change                                                             | When       |
@@ -440,3 +459,4 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | 2026-08-05 | Docs PR #1 merged to `main`; step 0 complete.                                                                       |
 | 2026-08-05 | UI foundation (#10): dark tokens, Berkeley Mono, shell primitives before Greenlight.                                |
 | 2026-08-05 | Greenlight MVP (#9): CSV weekly analytics on foundation UI.                                                         |
+| 2026-08-05 | Greenlight scope change (#9): dead sample data removed, task counting dropped, tool subscription widgets added.     |

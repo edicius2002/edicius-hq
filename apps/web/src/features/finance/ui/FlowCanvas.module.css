@@ -60,10 +60,19 @@
   font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  /* Stroke behind the glyphs so the line does not run through the text. */
   paint-order: stroke;
   stroke: var(--color-bg-2);
   stroke-width: 4;
   text-anchor: middle;
+}
+
+.edgeLabelNet {
+  fill: var(--color-income);
+}
+
+.edgeLabelBlocked {
+  fill: var(--color-danger);
 }
 
 .empty {

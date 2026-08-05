@@ -7,12 +7,16 @@ export type Size = { width: number; height: number };
  * flow paths can be computed without a layout pass, and so the money math and
  * the drawing never have to agree on anything but these numbers.
  */
+/*
+ * Heights fit the most each kind ever shows — four rows, since a holding can add
+ * a fee line and an account an operation count. A box that is too short does not
+ * overflow: the grid crushes a row instead, which is why these are generous and
+ * why .name carries a min-height as a backstop.
+ */
 export const NODE_SIZE: Record<NodeKind, Size> = {
-  job: { width: 200, height: 104 },
-  account: { width: 200, height: 104 },
-  // Tall enough for the kind, the asset code and the amount to all fit; any
-  // shorter and the grid crushes the middle row rather than overflowing.
-  holding: { width: 140, height: 92 },
+  job: { width: 200, height: 116 },
+  account: { width: 200, height: 116 },
+  holding: { width: 140, height: 116 },
 };
 
 export function sizeOf(node: FinanceNode): Size {

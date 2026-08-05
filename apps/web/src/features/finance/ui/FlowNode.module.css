@@ -48,9 +48,15 @@
   text-transform: uppercase;
 }
 
+/*
+ * min-height is a backstop: a grid row with nothing to stop it collapses to zero
+ * when the box runs short, which hides the name instead of overflowing it. With
+ * this, an undersized box shows visibly rather than silently dropping content.
+ */
 .name {
   font-size: 0.85rem;
   font-weight: 700;
+  min-height: 1.15em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -89,6 +95,14 @@
   color: var(--color-expense);
   font-size: 0.6rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Arrows in, arrows out — how much traffic this account has seen. */
+.operations {
+  color: var(--color-muted);
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
 /* Anchors only appear while connecting, so they never sit in the way of a drag. */

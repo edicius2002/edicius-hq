@@ -1,14 +1,22 @@
 import { useCallback, useRef, useState, type PointerEvent } from 'react';
 
+import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import {
   anchorPoint,
   contentBounds,
   flowLabelPoint,
   flowPath,
 } from '@/features/finance/lib/geometry';
-import { formatAssetAmount } from '@/features/finance/lib/format';
+import { formatAmount, formatAssetAmount } from '@/features/finance/lib/format';
 import { selectAccountSummary } from '@/features/finance/lib/summary';
-import type { Anchor, Diagram, NodeId, Point } from '@/features/finance/model/types';
+import type {
+  Anchor,
+  Diagram,
+  FinanceNode,
+  Flow,
+  NodeId,
+  Point,
+} from '@/features/finance/model/types';
 
 import { FlowNode } from './FlowNode';
 import styles from './FlowCanvas.module.css';
@@ -131,9 +139,7 @@ export function FlowCanvas({
                   onPointerDown={() => onSelect({ type: 'flow', id: flow.id })}
                 />
                 {flow.amount !== null && flow.amount > 0 ? (
-                  <text className={styles.edgeLabel} x={label.x} y={label.y}>
-                    {formatAssetAmount(flow.asset, flow.amount)}
-                  </text>
+                  <FlowLabel x={label.x} y={label.y} flow={flow} source={source} target={target} />
                 ) : null}
               </g>
             );
@@ -147,8 +153,8 @@ export function FlowCanvas({
             selected={selection?.type === 'node' && selection.id === node.id}
             connecting={connectMode}
             isConnectSource={connectFrom?.nodeId === node.id}
-            accountTotals={
-              node.kind === 'account' ? selectAccountSummary(diagram, node.id).remaining : undefined
+            accountSummary={
+              node.kind === 'account' ? selectAccountSummary(diagram, node.id) : undefined
             }
             onSelect={() => onSelect({ type: 'node', id: node.id })}
             onDragStart={(event) => startDrag(node.id, event)}
@@ -164,5 +170,45 @@ export function FlowCanvas({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Gross on the first line, and what actually arrives underneath when fees take a
+ * cut. The net comes from the same computeTransfer the totals use, so a label can
+ * never claim something the summary disagrees with.
+ */
+function FlowLabel({
+  x,
+  y,
+  flow,
+  source,
+  target,
+}: {
+  x: number;
+  y: number;
+  flow: Flow;
+  source: FinanceNode;
+  target: FinanceNode;
+}) {
+  const breakdown = computeTransfer(flow.amount ?? 0, source, target);
+  const charged = breakdown.steps.length > 0;
+  const overdrawn = isOverdrawnByFees(breakdown);
+
+  return (
+    <text className={styles.edgeLabel} x={x} y={y} textAnchor="middle">
+      <tspan x={x} dy={charged ? '-0.35em' : '0'}>
+        {formatAssetAmount(flow.asset, breakdown.gross)}
+      </tspan>
+      {charged ? (
+        <tspan
+          className={overdrawn ? styles.edgeLabelBlocked : styles.edgeLabelNet}
+          x={x}
+          dy="1.2em"
+        >
+          {overdrawn ? 'fees exceed it' : `→ ${formatAmount(breakdown.net)}`}
+        </tspan>
+      ) : null}
+    </text>
   );
 }

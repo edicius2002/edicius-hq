@@ -35,8 +35,12 @@ type FlowNodeProps = {
   selected: boolean;
   connecting: boolean;
   isConnectSource: boolean;
-  /** Total left in each of an account's active holdings. */
-  accountTotals?: { asset: string; amount: number }[];
+  /** What an account is worth and how much has crossed it. */
+  accountSummary?: {
+    remaining: { asset: string; amount: number }[];
+    incoming: { count: number };
+    outgoing: { count: number };
+  };
   onSelect: () => void;
   onDragStart: (event: PointerEvent<HTMLElement>) => void;
   onAnchorClick: (anchor: Anchor) => void;
@@ -52,7 +56,7 @@ export function FlowNode({
   selected,
   connecting,
   isConnectSource,
-  accountTotals,
+  accountSummary,
   onSelect,
   onDragStart,
   onAnchorClick,
@@ -94,7 +98,7 @@ export function FlowNode({
 
       {node.kind === 'job' ? <JobBody node={node} /> : null}
       {node.kind === 'holding' ? <HoldingBody node={node} /> : null}
-      {node.kind === 'account' ? <AccountBody totals={accountTotals ?? []} /> : null}
+      {node.kind === 'account' ? <AccountBody summary={accountSummary} /> : null}
 
       {connecting
         ? ANCHORS.map((anchor) => (
@@ -146,16 +150,25 @@ function HoldingBody({ node }: { node: Extract<FinanceNode, { kind: 'holding' }>
   );
 }
 
-function AccountBody({ totals }: { totals: { asset: string; amount: number }[] }) {
-  if (!totals.length) return <span className={styles.muted}>No assets yet</span>;
+function AccountBody({ summary }: { summary?: FlowNodeProps['accountSummary'] }) {
+  if (!summary?.remaining.length) return <span className={styles.muted}>No assets yet</span>;
+
+  const moved = summary.incoming.count + summary.outgoing.count;
 
   return (
-    <div className={styles.balances}>
-      {totals.map((total) => (
-        <span key={total.asset} className={styles.balance}>
-          {total.asset} <strong>{formatAmount(total.amount)}</strong>
+    <>
+      <div className={styles.balances}>
+        {summary.remaining.map((total) => (
+          <span key={total.asset} className={styles.balance}>
+            {total.asset} <strong>{formatAmount(total.amount)}</strong>
+          </span>
+        ))}
+      </div>
+      {moved > 0 ? (
+        <span className={styles.operations}>
+          ↓{summary.incoming.count} ↑{summary.outgoing.count}
         </span>
-      ))}
-    </div>
+      ) : null}
+    </>
   );
 }

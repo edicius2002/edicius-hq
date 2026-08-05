@@ -46,8 +46,15 @@
 .workspace {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1fr) 20rem;
+  grid-template-columns: minmax(0, 1fr) 22rem;
   align-items: start;
+}
+
+.side {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
 }
 
 .summary {

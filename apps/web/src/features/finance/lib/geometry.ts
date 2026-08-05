@@ -8,9 +8,11 @@ export type Size = { width: number; height: number };
  * the drawing never have to agree on anything but these numbers.
  */
 export const NODE_SIZE: Record<NodeKind, Size> = {
-  job: { width: 200, height: 96 },
-  account: { width: 200, height: 96 },
-  holding: { width: 132, height: 76 },
+  job: { width: 200, height: 104 },
+  account: { width: 200, height: 104 },
+  // Tall enough for the kind, the asset code and the amount to all fit; any
+  // shorter and the grid crushes the middle row rather than overflowing.
+  holding: { width: 140, height: 92 },
 };
 
 export function sizeOf(node: FinanceNode): Size {

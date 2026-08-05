@@ -2,19 +2,41 @@ import { useMemo, useState } from 'react';
 
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
 import { formatAmount } from '@/features/finance/lib/format';
+import { NODE_SIZE } from '@/features/finance/lib/geometry';
 import { describeConnectError } from '@/features/finance/lib/operations';
-import { selectAvailable, selectInTransit, type AssetTotal } from '@/features/finance/lib/summary';
-import type { Anchor, NodeId } from '@/features/finance/model/types';
+import {
+  selectAvailable,
+  selectHoldingsOfAccount,
+  selectInTransit,
+  type AssetTotal,
+} from '@/features/finance/lib/summary';
+import type { Anchor, NodeId, Point } from '@/features/finance/model/types';
 import { FlowCanvas, type Selection } from '@/features/finance/ui/FlowCanvas';
+import {
+  PropertiesPanel,
+  type PropertiesPanelActions,
+} from '@/features/finance/ui/PropertiesPanel';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import styles from './ui/FinancePage.module.css';
 
-/** Stagger new nodes so they do not pile onto one spot. */
-function nextPosition(count: number) {
-  return { x: 80 + (count % 4) * 240, y: 80 + Math.floor(count / 4) * 150 };
+/**
+ * Jobs and accounts sit on a wide grid; each row leaves room underneath for the
+ * holdings its accounts will grow, so nothing lands on top of anything else.
+ */
+function nextPosition(topLevelCount: number) {
+  return { x: 80 + (topLevelCount % 4) * 260, y: 60 + Math.floor(topLevelCount / 4) * 420 };
+}
+
+/** Holdings stack below their own account rather than beside it, clear of each other. */
+function holdingPosition(accountPosition: Point, siblings: number) {
+  const step = NODE_SIZE.holding.height + 12;
+  return {
+    x: accountPosition.x,
+    y: accountPosition.y + NODE_SIZE.account.height + 32 + siblings * step,
+  };
 }
 
 export function FinancePage() {
@@ -28,7 +50,10 @@ export function FinancePage() {
 
   const available = useMemo(() => selectAvailable(diagram), [diagram]);
   const inTransit = useMemo(() => selectInTransit(diagram), [diagram]);
-  const nodeCount = diagram.nodeOrder.length;
+  // Holdings are placed relative to their account, so they do not shift this grid.
+  const topLevelCount = diagram.nodeOrder.filter(
+    (id) => diagram.nodes[id]?.kind !== 'holding',
+  ).length;
 
   function stopConnecting() {
     setConnectMode(false);
@@ -67,6 +92,31 @@ export function FinancePage() {
     setSelection(null);
   }
 
+  const panelActions: PropertiesPanelActions = {
+    renameNode: (id, name) => void finance.renameNode(id, name),
+    setNotes: (id, notes) => void finance.setNotes(id, notes),
+    addJobAsset: (jobId, asset) => void finance.addJobAsset(jobId, asset),
+    setJobBalance: (jobId, asset, amount) => void finance.setJobBalance(jobId, asset, amount),
+    setJobAssetActive: (jobId, asset, active) =>
+      void finance.setJobAssetActive(jobId, asset, active),
+    addHolding: async (accountId, asset) => {
+      setMessage(null);
+      const account = diagram.nodes[accountId];
+      const base = account?.position ?? { x: 0, y: 0 };
+      const siblings = selectHoldingsOfAccount(diagram, accountId).length;
+      const result = await finance.addHolding(accountId, asset, holdingPosition(base, siblings));
+      if (!result.ok) {
+        setMessage(
+          result.error.code === 'asset-already-held'
+            ? `This account already holds ${result.error.asset}.`
+            : 'That account no longer exists.',
+        );
+      }
+    },
+    updateHolding: (id, patch) => void finance.updateHolding(id, patch),
+    updateFlow: (id, patch) => void finance.updateFlow(id, patch),
+  };
+
   const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
   const hint = !connectMode
     ? 'Drag nodes to arrange them.'
@@ -85,8 +135,10 @@ export function FinancePage() {
       <Panel>
         <div className={styles.toolbar}>
           <div className={styles.toolGroup}>
-            <Button onClick={() => void finance.addJob(nextPosition(nodeCount))}>Add job</Button>
-            <Button onClick={() => void finance.addAccount(nextPosition(nodeCount))}>
+            <Button onClick={() => void finance.addJob(nextPosition(topLevelCount))}>
+              Add job
+            </Button>
+            <Button onClick={() => void finance.addAccount(nextPosition(topLevelCount))}>
               Add account
             </Button>
           </div>
@@ -127,10 +179,16 @@ export function FinancePage() {
           onAnchorClick={(nodeId, anchor) => void handleAnchorClick(nodeId, anchor)}
         />
 
-        <Panel className={styles.summary} aria-label="Diagram totals">
-          <SummarySection title="Available" totals={available} />
-          <SummarySection title="In transit" totals={inTransit} />
-        </Panel>
+        <div className={styles.side}>
+          <Panel aria-label="Selected item">
+            <PropertiesPanel diagram={diagram} selection={selection} actions={panelActions} />
+          </Panel>
+
+          <Panel className={styles.summary} aria-label="Diagram totals">
+            <SummarySection title="Available" totals={available} />
+            <SummarySection title="In transit" totals={inTransit} />
+          </Panel>
+        </div>
       </div>
     </section>
   );

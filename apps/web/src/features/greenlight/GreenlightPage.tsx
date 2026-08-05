@@ -25,18 +25,8 @@ import styles from './ui/GreenlightPage.module.css';
 export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [replaceMode, setReplaceMode] = useState<ReplaceMode>('all');
-  const {
-    state,
-    isFetching,
-    isError,
-    importCsv,
-    isImporting,
-    clearData,
-    isClearing,
-    loadSample,
-    isLoadingSample,
-    setMarkers,
-  } = useGreenlightData();
+  const { state, isFetching, isError, importCsv, isImporting, clearData, isClearing, setMarkers } =
+    useGreenlightData();
 
   const totals = useMemo(() => computeTotals(state.stats), [state.stats]);
   const weekly = useMemo(() => buildWeeklySeries(state.stats), [state.stats]);
@@ -68,23 +58,6 @@ export function GreenlightPage() {
     await clearData();
   }
 
-  async function handleSample() {
-    setLocalError(null);
-    await loadSample();
-  }
-
-  function handleExport() {
-    const blob = new Blob([JSON.stringify(state.stats, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `greenlight-${new Date().toISOString().slice(0, 10)}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
   async function handleToggleMarker(dayKey: string) {
     const next = state.markers.includes(dayKey)
       ? state.markers.filter((day) => day !== dayKey)
@@ -102,21 +75,19 @@ export function GreenlightPage() {
         title="Greenlight"
         subtitle="Deliverable value and completed tasks."
         titleId="greenlight-title"
-        actions={
-          <>
-            {showSyncing ? <span className={styles.syncing}>Syncing…</span> : null}
-            <Button
-              variant="secondary"
-              disabled={isLoadingSample}
-              onClick={() => void handleSample()}
-            >
-              Load sample
-            </Button>
-            <Button variant="secondary" disabled={!hasData} onClick={handleExport}>
-              Export JSON
-            </Button>
-          </>
-        }
+        actions={showSyncing ? <span className={styles.syncing}>Syncing…</span> : undefined}
+      />
+
+      <ImportPanel
+        replaceMode={replaceMode}
+        onReplaceModeChange={setReplaceMode}
+        meta={state.meta}
+        isSyncing={showSyncing}
+        isImporting={isImporting}
+        isClearing={isClearing}
+        hasData={hasData}
+        onFileChange={(event) => void handleFileChange(event)}
+        onClear={() => void handleClear()}
       />
 
       {(localError || isError) && (
@@ -199,18 +170,6 @@ export function GreenlightPage() {
           <p className={styles.muted}>No tasks to show.</p>
         )}
       </Panel>
-
-      <ImportPanel
-        replaceMode={replaceMode}
-        onReplaceModeChange={setReplaceMode}
-        meta={state.meta}
-        isSyncing={showSyncing}
-        isImporting={isImporting}
-        isClearing={isClearing}
-        hasData={hasData}
-        onFileChange={(event) => void handleFileChange(event)}
-        onClear={() => void handleClear()}
-      />
     </section>
   );
 }

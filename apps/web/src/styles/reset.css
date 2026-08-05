@@ -4,10 +4,14 @@
   box-sizing: border-box;
 }
 
-html,
+html {
+  min-height: 100%;
+  background: var(--color-bg);
+}
+
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
@@ -16,7 +20,7 @@ body {
   color: var(--color-text);
   background:
     radial-gradient(circle at top left, rgba(214, 166, 93, 0.09), transparent 32rem),
-    linear-gradient(180deg, var(--color-bg) 0%, #12100e 100%);
+    var(--color-bg);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }

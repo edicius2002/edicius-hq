@@ -1,7 +1,9 @@
 .page {
   display: grid;
   gap: var(--space-5);
+  width: 100%;
   max-width: 72rem;
+  margin-inline: auto;
 }
 
 .totals {

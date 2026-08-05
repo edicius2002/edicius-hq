@@ -1,0 +1,92 @@
+.page {
+  display: grid;
+  gap: var(--space-5);
+  width: 100%;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+}
+
+.overview {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+}
+
+.overviewCard {
+  min-width: 0;
+}
+
+.panelHeading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.panelSubtitle {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+/*
+ * Holds the marker segment cards. One marker yields two segments, which measure
+ * ~161px at the current font, so this reserves that up front: adding the first
+ * marker fills existing space instead of resizing the page. Further segments
+ * still grow it, but one card at a time rather than in a jump.
+ */
+.segmentsSlot {
+  min-height: 8.5rem;
+}
+
+/* Matches the Clear markers button height so its appearance does not shift the row. */
+.tasksActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 2.6rem;
+}
+
+.range {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.muted,
+.error,
+.syncing {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.syncing {
+  align-self: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+@media (max-width: 1100px) {
+  .overview {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,71 @@
+.list {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: var(--space-4);
+}
+
+/* One segment per row: range, status and every metric on a single line. */
+.card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-5);
+  row-gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+  border-left: 3px solid var(--color-accent);
+}
+
+.open {
+  border-left-color: var(--color-muted);
+  border-style: solid solid solid dashed;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.range {
+  font-weight: 700;
+}
+
+.eyebrow {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-5);
+  row-gap: var(--space-2);
+  margin-inline-start: auto;
+}
+
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.metric span {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+.metric strong {
+  font-size: 1.05rem;
+}
+
+.income {
+  color: var(--color-income);
+}

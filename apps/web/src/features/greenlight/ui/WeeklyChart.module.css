@@ -1,0 +1,139 @@
+.wrap {
+  position: relative;
+  width: 100%;
+  min-height: 300px;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 300px;
+}
+
+.grid {
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 1;
+}
+
+.axisLine {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+}
+
+.axis {
+  fill: var(--color-muted);
+  font-size: 0.7rem;
+}
+
+.axisSub {
+  fill: var(--color-muted);
+  opacity: 0.75;
+}
+
+/*
+ * Reveal on entry, ported from the legacy Greenlight week chart. The chart only
+ * mounts once the stored data resolves, so these run exactly when the page has
+ * finished loading its numbers — no timers or effects needed.
+ *
+ * Every static value below is the finished state, and each animation starts from
+ * hidden. That way disabling motion leaves the chart fully drawn.
+ */
+@keyframes drawLine {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes fadeInArea {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeInDot {
+  from {
+    opacity: 0;
+  }
+}
+
+.area {
+  fill: var(--color-income-soft);
+  opacity: 0.85;
+  /* Starts once the line is roughly a third drawn. */
+  animation: fadeInArea 1.1s ease 0.7s backwards;
+}
+
+.line {
+  fill: none;
+  stroke: var(--color-income);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* pathLength=1 on the element normalises the trace, so one dash covers it. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  /*
+   * Gentle ease-in-out rather than the legacy ease-out: over a slow draw a
+   * front-loaded curve reads as a dash followed by a crawl, this keeps the tip
+   * moving at an even pace and settles softly.
+   */
+  animation: drawLine 2.2s cubic-bezier(0.4, 0, 0.2, 1) backwards;
+}
+
+.dot,
+.cursor {
+  fill: var(--color-income);
+}
+
+/* Lands as the line finishes. The hover cursor dot is deliberately left alone. */
+.dot {
+  animation: fadeInDot 0.5s ease 1.9s backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .area,
+  .line,
+  .dot {
+    animation: none;
+  }
+}
+
+.crosshair {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.hover {
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute;
+  display: grid;
+  gap: 0.15rem;
+  transform: translate(-50%, calc(-100% - 12px));
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--color-border);
+  background: rgba(32, 28, 24, 0.94);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.tipValue {
+  color: var(--color-income);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.tipLabel {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+}
+
+.empty {
+  color: var(--color-muted);
+  margin: 1.75rem 0;
+  text-align: center;
+}

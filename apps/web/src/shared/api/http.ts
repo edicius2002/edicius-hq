@@ -18,6 +18,26 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
+const REQUEST_TIMEOUT_MS = 5_000;
+
+function composeAbortSignal(external?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  if (!external) return timeout;
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([external, timeout]);
+  }
+
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (external.aborted || timeout.aborted) {
+    controller.abort();
+    return controller.signal;
+  }
+  external.addEventListener('abort', onAbort, { once: true });
+  timeout.addEventListener('abort', onAbort, { once: true });
+  return controller.signal;
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const url = `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
   const headers: HeadersInit = {};
@@ -32,7 +52,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     method: options.method ?? 'GET',
     headers,
     body,
-    signal: options.signal,
+    signal: composeAbortSignal(options.signal),
   });
 
   if (response.status === 204) {

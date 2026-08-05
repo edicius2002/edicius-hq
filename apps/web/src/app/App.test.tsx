@@ -16,11 +16,13 @@ afterEach(() => {
 beforeEach(() => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () =>
-      Response.json({
-        status: 'ok',
-      }),
-    ),
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/kv/')) {
+        return new Response(null, { status: 404 });
+      }
+      return Response.json({ status: 'ok' });
+    }),
   );
 });
 
@@ -54,6 +56,7 @@ describe('Shell navigation', () => {
 
     await user.click(within(nav).getByRole('link', { name: 'Greenlight' }));
     expect(await screen.findByRole('heading', { name: 'Greenlight' })).toBeInTheDocument();
+    expect(screen.getByText(/Deliverable value by week and month/i)).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('link', { name: 'Investing' }));
     expect(await screen.findByRole('heading', { name: 'Investing' })).toBeInTheDocument();

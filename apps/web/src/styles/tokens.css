@@ -22,6 +22,8 @@
 
   --sidebar-width: 15rem;
   --font-sans: 'Berkeley Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  /* Percentage keeps the browser's own font-size preference as the baseline. */
+  --font-size-base: 125%;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;

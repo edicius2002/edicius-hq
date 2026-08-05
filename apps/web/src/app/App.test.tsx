@@ -2,20 +2,35 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
+import { AppProviders } from '@/app/providers/AppProviders';
 import { createAppMemoryRouter } from '@/app/router/createAppRouter';
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        status: 'ok',
+      }),
+    ),
+  );
 });
 
 function renderAt(path: string) {
   const router = createAppMemoryRouter([path]);
   return render(
     <AppErrorBoundary>
-      <RouterProvider router={router} />
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
     </AppErrorBoundary>,
   );
 }
@@ -25,6 +40,7 @@ describe('Shell navigation', () => {
     renderAt('/');
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
     expect(screen.getByText('Coming soon.')).toBeInTheDocument();
+    expect(await screen.findByRole('status')).toHaveTextContent('API online');
   });
 
   it('navigates between the four sidebar tabs', async () => {

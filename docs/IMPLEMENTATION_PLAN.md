@@ -286,11 +286,11 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 - [x] npm workspaces + `apps/web` Vite/React/TS (Node 22)
 - [x] `services/api` FastAPI + `/api/health` (Python 3.12)
-- [ ] Dockerfiles + Compose (`web`, `api`), hot-reload, volume → `services/api/.local-data/`
+- [x] Dockerfiles + Compose (`web`, `api`), hot-reload, volume → `services/api/.local-data/`
 - [x] ESLint, Prettier, EditorConfig, quality scripts
 - [x] Vitest smoke baseline
 - [ ] GitHub Actions CI
-- [ ] `.env.example` and README (`docker compose up`) — `@/` aliases done in `apps/web`
+- [ ] README (`docker compose up`) — `.env.example` and `@/` aliases done
 - [ ] PR linked to Initial Setup issue
 
 **Out of scope:** AppShell, product pages, Radix chrome, TanStack Query, Supabase Auth, cloud deploy.

@@ -1,6 +1,7 @@
 import { isRouteErrorResponse, Link, useRouteError } from 'react-router-dom';
 
 import styles from '@/app/layout/ErrorView.module.css';
+import { PageHeader } from '@/shared/ui/PageHeader';
 
 export function RouteErrorPage() {
   const error = useRouteError();
@@ -14,7 +15,7 @@ export function RouteErrorPage() {
 
   return (
     <div className={styles.page} role="alert">
-      <h1 className={styles.title}>Route error</h1>
+      <PageHeader title="Route error" subtitle={message} titleId="route-error-title" />
       <p className={`${styles.copy} ${styles.danger}`}>{message}</p>
       <div className={styles.actions}>
         <Link className={styles.linkButton} to="/dashboard">

@@ -3,14 +3,3 @@
   gap: var(--space-3);
   max-width: 40rem;
 }
-
-.title {
-  font-size: 1.75rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.copy {
-  color: var(--color-muted);
-  font-size: 1.05rem;
-}

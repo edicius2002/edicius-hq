@@ -1,20 +1,32 @@
 :root {
-  --color-bg: #eef1ee;
-  --color-surface: #ffffff;
-  --color-text: #152019;
-  --color-muted: #5a655e;
-  --color-border: #cfd6d1;
-  --color-accent: #0f5c3d;
-  --color-accent-soft: #d7ebe2;
-  --color-danger: #8b1e1e;
-  --color-danger-soft: #f6e4e4;
+  color-scheme: dark;
+
+  --color-bg: #181512;
+  --color-bg-2: #201c18;
+  --color-surface: #26211c;
+  --color-surface-soft: #2d2721;
+  --color-text: #f4eee6;
+  --color-muted: #b8aca0;
+  --color-border: #453b32;
+  --color-accent: #d6a65d;
+  --color-accent-dark: #b98235;
+  --color-accent-soft: rgba(214, 166, 93, 0.14);
+  --color-accent-ink: #17120d;
+  --color-income: #8dd36f;
+  --color-expense: #f08d78;
+  --color-income-soft: rgba(141, 211, 111, 0.13);
+  --color-expense-soft: rgba(240, 141, 120, 0.13);
+  --color-danger: #f08d78;
+  --color-danger-soft: rgba(240, 141, 120, 0.13);
+  --color-shadow: rgba(0, 0, 0, 0.28);
+
   --sidebar-width: 15rem;
-  --font-sans: 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --font-sans: 'Berkeley Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-5: 1.5rem;
   --space-6: 2rem;
-  --radius: 0.375rem;
+  --radius: 0.5rem;
 }

@@ -1,0 +1,11 @@
+.page {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 56rem;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+}

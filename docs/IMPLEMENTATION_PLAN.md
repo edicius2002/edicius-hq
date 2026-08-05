@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Ready to initialize the repository.  
+> **Status:** Docs spine on `main`. Ready for Initial Setup when instructed.  
 > **Last updated:** 2026-08-05  
-> **Review status:** Docs PR in flight / pending merge.  
-> **Phase closure:** None.  
-> **Next delivery:** Docs-only PR → Initial Setup (tooling) → Shell + placeholders.
+> **Review status:** Docs PR [#1](https://github.com/edicius2002/edicius-hq/pull/1) merged.  
+> **Phase closure:** Delivery step 0 (Docs PR) complete.  
+> **Next delivery:** Initial Setup (tooling / Docker / CI).
 
 ---
 
@@ -273,12 +273,12 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 0 — Docs PR
 
-**Status:** In progress.
+**Status:** Complete ([PR #1](https://github.com/edicius2002/edicius-hq/pull/1)).
 
 - [x] Clean rewrite: `README.md`, `NOTICE`, `.gitignore`, `docs/IMPLEMENTATION_PLAN.md`
 - [x] Minimal issue/PR templates
 - [x] Remove stale bootstrap clutter from the working tree
-- [ ] Open `docs/…` PR to `main`
+- [x] Open `docs/…` PR to `main`
 
 ### 1 — Initial Setup (tooling)
 
@@ -394,3 +394,4 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | Date | Summary |
 | --- | --- |
 | 2026-08-05 | Formal plan established; data plane; Pulse in Investing; delivery Q&A; clean rewrite for repository initialization. |
+| 2026-08-05 | Docs PR #1 merged to `main`; step 0 complete. |

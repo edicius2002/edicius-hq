@@ -1,0 +1,49 @@
+services:
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    ports:
+      - '${API_PORT:-8000}:8000'
+    environment:
+      LOCAL_DATA_DIR: /app/.local-data
+    volumes:
+      - ./services/api/app:/app/app
+      - ./services/api/tests:/app/tests
+      - ./services/api/pytest.ini:/app/pytest.ini
+      - ./services/api/.local-data:/app/.local-data
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '${WEB_PORT:-5173}:5173'
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      CHOKIDAR_USEPOLLING: 'true'
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      - web_node_modules:/app/node_modules
+      - web_app_node_modules:/app/apps/web/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  web_node_modules:
+  web_app_node_modules:

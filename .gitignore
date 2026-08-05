@@ -19,6 +19,11 @@ dist/
 build/
 coverage/
 .turbo/
+*.tsbuildinfo
+
+# Tooling caches
+.eslintcache
+.prettiercache
 
 # Python
 __pycache__/

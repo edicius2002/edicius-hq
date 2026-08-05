@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+coverage
+.local-data
+services/api/.local-data
+package-lock.json
+*.min.js
+apps/web/public

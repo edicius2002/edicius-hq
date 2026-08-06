@@ -2,7 +2,12 @@ import { useState, type ReactNode } from 'react';
 
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import { formatAmount, formatAssetAmount } from '@/features/finance/lib/format';
-import { selectAccountSummary, selectHoldingsOfAccount } from '@/features/finance/lib/summary';
+import { frameMembers } from '@/features/finance/lib/frames';
+import {
+  selectAccountSummary,
+  selectFrameSummary,
+  selectHoldingsOfAccount,
+} from '@/features/finance/lib/summary';
 import type {
   AccountNode,
   Diagram,
@@ -10,6 +15,7 @@ import type {
   FeeType,
   FinanceNode,
   Flow,
+  Frame,
   HoldingNode,
   JobNode,
 } from '@/features/finance/model/types';
@@ -55,11 +61,12 @@ export type PropertiesPanelActions = {
     patch: Partial<Pick<HoldingNode, 'amount' | 'fees' | 'active'>>,
   ) => void;
   updateFlow: (id: string, patch: Partial<Pick<Flow, 'amount' | 'label' | 'notes'>>) => void;
+  renameFrame: (id: string, name: string) => void;
 };
 
 type PropertiesPanelProps = {
   diagram: Diagram;
-  selection: { type: 'node' | 'flow'; id: string } | null;
+  selection: { type: 'node' | 'flow' | 'frame'; id: string } | null;
   actions: PropertiesPanelActions;
 };
 
@@ -67,7 +74,7 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
   if (!selection) {
     return (
       <div className={styles.empty}>
-        <span>Select a node or a flow to edit it.</span>
+        <span>Select a node, a flow or a frame to edit it.</span>
       </div>
     );
   }
@@ -76,6 +83,12 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
     const flow = diagram.flows[selection.id];
     if (!flow) return <div className={styles.empty}>That flow is gone.</div>;
     return <FlowFields diagram={diagram} flow={flow} actions={actions} />;
+  }
+
+  if (selection.type === 'frame') {
+    const frame = diagram.frames[selection.id];
+    if (!frame) return <div className={styles.empty}>That frame is gone.</div>;
+    return <FrameFields diagram={diagram} frame={frame} actions={actions} />;
   }
 
   const node = diagram.nodes[selection.id];
@@ -106,6 +119,67 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
           onChange={(event) => actions.setNotes(node.id, event.target.value)}
         />
       </Field>
+    </div>
+  );
+}
+
+/**
+ * A frame is named and nothing else. What it holds is not a field: it is worked
+ * out from what sits inside it, so the panel reports it rather than offering it
+ * for editing.
+ */
+function FrameFields({
+  diagram,
+  frame,
+  actions,
+}: {
+  diagram: Diagram;
+  frame: Frame;
+  actions: PropertiesPanelActions;
+}) {
+  const summary = selectFrameSummary(diagram, frameMembers(diagram, frame.id));
+
+  return (
+    <div className={styles.panel}>
+      <div className={styles.header}>
+        <span
+          className={styles.badge}
+          style={
+            {
+              '--badge-color': 'var(--color-muted)',
+              '--badge-bg': 'rgba(184, 172, 160, 0.14)',
+            } as React.CSSProperties
+          }
+        >
+          Frame
+        </span>
+      </div>
+
+      <Field label="Name">
+        <input
+          className={styles.input}
+          value={frame.name}
+          onChange={(event) => actions.renameFrame(frame.id, event.target.value)}
+        />
+      </Field>
+
+      <h3 className={styles.sectionTitle}>Holds</h3>
+      <p className={styles.hint}>
+        {summary.nodeCount === 0
+          ? 'Nothing yet. Drag a node inside and it joins.'
+          : `${summary.nodeCount} ${summary.nodeCount === 1 ? 'node' : 'nodes'}, by where they sit.`}
+      </p>
+
+      {summary.totals.length ? (
+        <div className={styles.assets}>
+          {summary.totals.map((total) => (
+            <div key={total.asset} className={styles.chainRow}>
+              <span>{total.asset}</span>
+              <strong>{formatAmount(total.amount)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

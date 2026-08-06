@@ -38,6 +38,15 @@
   transform-origin: 0 0;
 }
 
+/* The frame being dragged out. Not a frame yet, so it is drawn, not built. */
+.draft {
+  position: absolute;
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius);
+  background: rgba(214, 166, 93, 0.06);
+  pointer-events: none;
+}
+
 /* Placed and sized inline to follow the content, wherever the content is. */
 .edges {
   position: absolute;

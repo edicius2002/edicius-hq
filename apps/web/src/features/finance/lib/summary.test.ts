@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   selectAccountSummary,
   selectAvailable,
+  selectFrameSummary,
   selectInTransit,
 } from '@/features/finance/lib/summary';
 import type {
@@ -11,6 +12,7 @@ import type {
   Fee,
   FinanceNode,
   Flow,
+  Frame,
   HoldingNode,
 } from '@/features/finance/model/types';
 
@@ -64,7 +66,7 @@ function flow(id: string, from: string, to: string, asset: string, amount: numbe
   };
 }
 
-function diagram(nodes: FinanceNode[], flows: Flow[] = []): Diagram {
+function diagram(nodes: FinanceNode[], flows: Flow[] = [], frames: Frame[] = []): Diagram {
   return {
     id: 'd1',
     name: 'Cash flow',
@@ -72,6 +74,8 @@ function diagram(nodes: FinanceNode[], flows: Flow[] = []): Diagram {
     nodeOrder: nodes.map((node) => node.id),
     flows: Object.fromEntries(flows.map((item) => [item.id, item])),
     flowOrder: flows.map((item) => item.id),
+    frames: Object.fromEntries(frames.map((item) => [item.id, item])),
+    frameOrder: frames.map((item) => item.id),
   };
 }
 
@@ -319,5 +323,56 @@ describe('selectAccountSummary', () => {
     expect(selectAccountSummary(withFee, 'a1').outgoing.totals).toEqual([
       { asset: 'USD', amount: 500 },
     ]);
+  });
+});
+
+describe('selectFrameSummary', () => {
+  it('reports its members and nothing else', () => {
+    const inside = holding('h1', 'a1', 'USD', 1000);
+    const outside = holding('h2', 'a2', 'USD', 400);
+    const document = diagram([account('a1'), account('a2'), inside, outside]);
+
+    expect(selectAvailable(document)).toEqual([{ asset: 'USD', amount: 1400 }]);
+    expect(selectFrameSummary(document, [inside])).toEqual({
+      nodeCount: 1,
+      totals: [{ asset: 'USD', amount: 1000 }],
+    });
+  });
+
+  it('subtracts what a member committed, exactly as the headline does', () => {
+    const source = holding('h1', 'a1', 'USD', 1000);
+    const target = holding('h2', 'a2', 'USD', 0);
+    const document = diagram(
+      [account('a1'), account('a2'), source, target],
+      [flow('f1', 'h1', 'h2', 'USD', 300)],
+    );
+
+    expect(selectFrameSummary(document, [source]).totals).toEqual([{ asset: 'USD', amount: 700 }]);
+  });
+
+  it('counts an account as holding nothing of its own', () => {
+    const document = diagram([account('a1'), holding('h1', 'a1', 'USD', 500)]);
+
+    // An account is never an endpoint, so a frame around one whose holdings sit
+    // outside it honestly reports nothing — see decision 7.1.
+    expect(selectFrameSummary(document, [document.nodes.a1])).toEqual({ nodeCount: 1, totals: [] });
+  });
+
+  it('never adds one asset to another', () => {
+    const usd = holding('h1', 'a1', 'USD', 500);
+    const eur = holding('h2', 'a1', 'EUR', 200);
+    const document = diagram([account('a1'), usd, eur]);
+
+    expect(selectFrameSummary(document, [usd, eur]).totals).toEqual([
+      { asset: 'EUR', amount: 200 },
+      { asset: 'USD', amount: 500 },
+    ]);
+  });
+
+  it('leaves out a member that is switched off', () => {
+    const off = holding('h1', 'a1', 'USD', 900, { active: false });
+    const document = diagram([account('a1'), off]);
+
+    expect(selectFrameSummary(document, [off]).totals).toEqual([]);
   });
 });

@@ -47,6 +47,7 @@ export function FinancePage() {
   const [selection, setSelection] = useState<Selection>(null);
   const [connectMode, setConnectMode] = useState(false);
   const [connectFrom, setConnectFrom] = useState<{ nodeId: NodeId; anchor: Anchor } | null>(null);
+  const [frameMode, setFrameMode] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const available = useMemo(() => selectAvailable(diagram), [diagram]);
@@ -89,6 +90,7 @@ export function FinancePage() {
     if (!selection) return;
     setMessage(null);
     if (selection.type === 'node') void finance.deleteNode(selection.id);
+    else if (selection.type === 'frame') void finance.deleteFrame(selection.id);
     else void finance.deleteFlow(selection.id);
     setSelection(null);
   }
@@ -129,6 +131,7 @@ export function FinancePage() {
     },
     updateHolding: (id, patch) => void finance.updateHolding(id, patch),
     updateFlow: (id, patch) => void finance.updateFlow(id, patch),
+    renameFrame: (id, name) => void finance.renameFrame(id, name),
   };
 
   // Held in a ref so the listener is bound once instead of on every render.
@@ -161,11 +164,13 @@ export function FinancePage() {
 
   const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
   const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
-  const hint = !connectMode
-    ? 'Drag nodes to arrange them, the canvas to move around, and scroll to zoom.'
-    : connectFrom
-      ? 'Now pick the anchor it flows into.'
-      : 'Pick the anchor the money leaves from.';
+  const hint = frameMode
+    ? 'Drag out a rectangle to frame what it encloses.'
+    : !connectMode
+      ? 'Drag nodes to arrange them, the canvas to move around, and scroll to zoom.'
+      : connectFrom
+        ? 'Now pick the anchor it flows into.'
+        : 'Pick the anchor the money leaves from.';
 
   return (
     <section className={styles.page} aria-labelledby="finance-title">
@@ -219,11 +224,22 @@ export function FinancePage() {
               variant={connectMode ? 'primary' : 'secondary'}
               onClick={() => {
                 setMessage(null);
+                setFrameMode(false);
                 if (connectMode) stopConnecting();
                 else setConnectMode(true);
               }}
             >
               {connectMode ? 'Cancel connect' : 'Connect'}
+            </Button>
+            <Button
+              variant={frameMode ? 'primary' : 'secondary'}
+              onClick={() => {
+                setMessage(null);
+                stopConnecting();
+                setFrameMode((current) => !current);
+              }}
+            >
+              {frameMode ? 'Cancel frame' : 'Frame'}
             </Button>
             <Button variant="danger" disabled={!selection} onClick={handleDelete}>
               Delete
@@ -248,9 +264,21 @@ export function FinancePage() {
           selection={selection}
           connectMode={connectMode}
           connectFrom={connectFrom}
+          frameMode={frameMode}
           onSelect={setSelection}
           onMoveNode={(id, position) => void finance.moveNode(id, position)}
           onAnchorClick={(nodeId, anchor) => void handleAnchorClick(nodeId, anchor)}
+          onCreateFrame={(rect) => {
+            // One frame per press of the button, so the mode does not linger and
+            // turn the next pan into another rectangle.
+            setFrameMode(false);
+            void finance.addFrame(
+              { x: rect.left, y: rect.top },
+              { width: rect.width, height: rect.height },
+            );
+          }}
+          onMoveFrame={(id, position) => void finance.moveFrame(id, position)}
+          onResizeFrame={(id, position, size) => void finance.resizeFrame(id, position, size)}
         />
 
         <div className={styles.side}>

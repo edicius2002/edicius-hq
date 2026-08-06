@@ -25,6 +25,14 @@
   fill: #94a3b8;
 }
 
+/* Outlined rather than filled, so it groups without hiding its own nodes. */
+.frame {
+  fill: rgba(255, 255, 255, 0.03);
+  stroke: var(--color-border);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+
 /* Outline only: it marks where you are looking without hiding what is under it. */
 .frame {
   fill: rgba(255, 255, 255, 0.06);

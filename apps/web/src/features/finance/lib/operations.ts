@@ -1,4 +1,5 @@
 import { DEFAULT_ASSET } from '@/features/finance/lib/document';
+import { frameMembers, FRAME_MIN_SIZE } from '@/features/finance/lib/frames';
 import { err, ok, type Result } from '@/features/finance/lib/result';
 import type {
   Anchor,
@@ -7,10 +8,13 @@ import type {
   FinanceNode,
   Flow,
   FlowId,
+  Frame,
+  FrameId,
   HoldingNode,
   JobNode,
   NodeId,
   Point,
+  Size,
 } from '@/features/finance/model/types';
 
 // Every function here is a pure transition: it takes a diagram and returns a new
@@ -234,6 +238,84 @@ export function deleteNode(diagram: Diagram, id: NodeId): Diagram {
   }
 
   return removeNodes(diagram, doomed);
+}
+
+// --- frames --------------------------------------------------------------
+
+function withFrame(diagram: Diagram, frame: Frame): Diagram {
+  const isNew = !diagram.frames[frame.id];
+  return {
+    ...diagram,
+    frames: { ...diagram.frames, [frame.id]: frame },
+    frameOrder: isNew ? [...diagram.frameOrder, frame.id] : diagram.frameOrder,
+  };
+}
+
+function atLeastMinimum(size: Size): Size {
+  return {
+    width: Math.max(FRAME_MIN_SIZE.width, Math.round(size.width)),
+    height: Math.max(FRAME_MIN_SIZE.height, Math.round(size.height)),
+  };
+}
+
+export function addFrame(
+  diagram: Diagram,
+  input: { id: FrameId; position: Point; size: Size; name?: string },
+): Diagram {
+  return withFrame(diagram, {
+    id: input.id,
+    name: input.name ?? `Frame ${diagram.frameOrder.length + 1}`,
+    position: input.position,
+    size: atLeastMinimum(input.size),
+  });
+}
+
+export function renameFrame(diagram: Diagram, id: FrameId, name: string): Diagram {
+  const frame = diagram.frames[id];
+  return frame ? withFrame(diagram, { ...frame, name }) : diagram;
+}
+
+/**
+ * Move a frame, carrying what it holds.
+ *
+ * Members are read from the geometry before the move rather than after, so a
+ * frame sliding across a stationary node picks it up on arrival instead of
+ * shoving it along for the rest of the gesture. Because the members travel with
+ * the frame they stay inside it, which is what keeps membership from flickering
+ * mid-drag even though it is recomputed on every step.
+ */
+export function moveFrame(diagram: Diagram, id: FrameId, position: Point): Diagram {
+  const frame = diagram.frames[id];
+  if (!frame) return diagram;
+
+  const delta = { x: position.x - frame.position.x, y: position.y - frame.position.y };
+  if (delta.x === 0 && delta.y === 0) return diagram;
+
+  const nodes = { ...diagram.nodes };
+  for (const member of frameMembers(diagram, id)) {
+    nodes[member.id] = {
+      ...member,
+      position: { x: member.position.x + delta.x, y: member.position.y + delta.y },
+    };
+  }
+
+  return withFrame({ ...diagram, nodes }, { ...frame, position });
+}
+
+/** Resizing only changes the rectangle. What it now holds follows on its own. */
+export function resizeFrame(diagram: Diagram, id: FrameId, position: Point, size: Size): Diagram {
+  const frame = diagram.frames[id];
+  if (!frame) return diagram;
+  return withFrame(diagram, { ...frame, position, size: atLeastMinimum(size) });
+}
+
+/** A frame holds nothing of its own, so removing one leaves every node in place. */
+export function deleteFrame(diagram: Diagram, id: FrameId): Diagram {
+  if (!diagram.frames[id]) return diagram;
+
+  const frames = { ...diagram.frames };
+  delete frames[id];
+  return { ...diagram, frames, frameOrder: diagram.frameOrder.filter((item) => item !== id) };
 }
 
 // --- flows ---------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { FRAME_MIN_SIZE } from '@/features/finance/lib/frames';
 import {
   ANCHORS,
   DOCUMENT_VERSION,
@@ -12,15 +13,28 @@ import {
   type FinanceDocument,
   type FinanceNode,
   type Flow,
+  type Frame,
+  type FrameId,
   type NodeId,
   type Point,
+  type Size,
 } from '@/features/finance/model/types';
 
 export const DEFAULT_DIAGRAM_NAME = 'Cash flow';
 export const DEFAULT_ASSET: AssetCode = 'USD';
+export const DEFAULT_FRAME_NAME = 'Frame';
 
 export function createEmptyDiagram(id: DiagramId, name = DEFAULT_DIAGRAM_NAME): Diagram {
-  return { id, name, nodes: {}, nodeOrder: [], flows: {}, flowOrder: [] };
+  return {
+    id,
+    name,
+    nodes: {},
+    nodeOrder: [],
+    flows: {},
+    flowOrder: [],
+    frames: {},
+    frameOrder: [],
+  };
 }
 
 export function createEmptyDocument(diagramId: DiagramId): FinanceDocument {
@@ -244,6 +258,27 @@ function toFlow(value: unknown): Flow | null {
   };
 }
 
+function toSize(value: unknown): Size {
+  if (!isRecord(value)) return { ...FRAME_MIN_SIZE };
+  return {
+    width: Math.max(FRAME_MIN_SIZE.width, toAmount(value.width) ?? 0),
+    height: Math.max(FRAME_MIN_SIZE.height, toAmount(value.height) ?? 0),
+  };
+}
+
+function toFrame(value: unknown): Frame | null {
+  if (!isRecord(value)) return null;
+  const id = toText(value.id);
+  if (!id) return null;
+
+  return {
+    id,
+    name: toText(value.name, DEFAULT_FRAME_NAME) || DEFAULT_FRAME_NAME,
+    position: toPoint(value.position),
+    size: toSize(value.size),
+  };
+}
+
 /** Keep the stored order, then append anything the order array forgot. */
 function toOrder<T>(stored: unknown, byId: Record<string, T>): string[] {
   const known = new Set(Object.keys(byId));
@@ -283,6 +318,15 @@ function toDiagram(value: unknown, fallbackId: DiagramId): Diagram | null {
     if (flow && nodes[flow.from] && nodes[flow.to]) flows[flow.id] = flow;
   }
 
+  // Frames arrived after the first stored documents, so a diagram without them
+  // is not a broken one: it simply has none.
+  const frames: Record<FrameId, Frame> = {};
+  const rawFrames = Array.isArray(value.frames) ? value.frames : Object.values(value.frames ?? {});
+  for (const raw of rawFrames) {
+    const frame = toFrame(raw);
+    if (frame) frames[frame.id] = frame;
+  }
+
   return {
     id,
     name: toText(value.name, DEFAULT_DIAGRAM_NAME) || DEFAULT_DIAGRAM_NAME,
@@ -290,6 +334,8 @@ function toDiagram(value: unknown, fallbackId: DiagramId): Diagram | null {
     nodeOrder: toOrder(value.nodeOrder, nodes),
     flows,
     flowOrder: toOrder(value.flowOrder, flows),
+    frames,
+    frameOrder: toOrder(value.frameOrder, frames),
   };
 }
 

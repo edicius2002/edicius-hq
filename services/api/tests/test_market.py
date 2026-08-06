@@ -1,0 +1,337 @@
+"""
+The data plane, tested without a network.
+
+Nothing here reaches upstream: the adapters are exercised against recorded
+payloads and the cache against a counting factory. Yahoo being unofficial is
+exactly why its parsing must be pinned by tests that do not depend on it being
+up today.
+"""
+
+import asyncio
+import time
+
+import pytest
+
+from app.adapters import binance, registry, yahoo
+from app.adapters.models import ProviderError
+from app.config import TIMEFRAMES
+from app.services.market_cache import BarCache, MemoryCache
+
+TF = TIMEFRAMES["1d"]
+
+
+def yahoo_chart(*, stamps, opens, highs, lows, closes, volumes, meta=None):
+    return {
+        "chart": {
+            "error": None,
+            "result": [
+                {
+                    "meta": meta or {},
+                    "timestamp": stamps,
+                    "indicators": {
+                        "quote": [
+                            {
+                                "open": opens,
+                                "high": highs,
+                                "low": lows,
+                                "close": closes,
+                                "volume": volumes,
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+    }
+
+
+class TestYahooParsing:
+    def test_reads_a_plain_series(self):
+        payload = yahoo_chart(
+            stamps=[1, 2],
+            opens=[10.0, 11.0],
+            highs=[12.0, 13.0],
+            lows=[9.0, 10.5],
+            closes=[11.0, 12.5],
+            volumes=[100, 200],
+        )
+        bars = yahoo.parse_bars(payload, limit=100)
+
+        assert [b.time for b in bars] == [1, 2]
+        assert bars[0].close == 11.0
+        assert bars[1].volume == 200
+
+    def test_drops_padded_gaps_rather_than_drawing_them_as_zero(self):
+        payload = yahoo_chart(
+            stamps=[1, 2, 3],
+            opens=[10.0, None, 12.0],
+            highs=[12.0, None, 13.0],
+            lows=[9.0, None, 11.0],
+            closes=[11.0, None, 12.5],
+            volumes=[100, None, 300],
+        )
+        bars = yahoo.parse_bars(payload, limit=100)
+
+        assert [b.time for b in bars] == [1, 3]
+        assert all(b.close > 0 for b in bars)
+
+    def test_missing_volume_is_zero_not_a_dropped_bar(self):
+        payload = yahoo_chart(
+            stamps=[1],
+            opens=[10.0],
+            highs=[12.0],
+            lows=[9.0],
+            closes=[11.0],
+            volumes=[None],
+        )
+        bars = yahoo.parse_bars(payload, limit=100)
+
+        assert len(bars) == 1
+        assert bars[0].volume == 0
+
+    def test_keeps_the_newest_bars_when_the_cap_bites(self):
+        payload = yahoo_chart(
+            stamps=[1, 2, 3, 4],
+            opens=[1.0] * 4,
+            highs=[1.0] * 4,
+            lows=[1.0] * 4,
+            closes=[1.0, 2.0, 3.0, 4.0],
+            volumes=[0] * 4,
+        )
+        bars = yahoo.parse_bars(payload, limit=2)
+
+        assert [b.time for b in bars] == [3, 4]
+
+    def test_an_empty_result_is_a_missing_symbol(self):
+        with pytest.raises(ProviderError) as caught:
+            yahoo.parse_bars({"chart": {"result": []}}, limit=10)
+        assert caught.value.code == "symbol-not-found"
+
+    def test_an_upstream_error_is_reported_as_one(self):
+        payload = {"chart": {"error": {"description": "Not found"}, "result": []}}
+        with pytest.raises(ProviderError) as caught:
+            yahoo.parse_bars(payload, limit=10)
+        assert caught.value.code == "upstream-error"
+
+    def test_search_takes_what_it_can_name(self):
+        payload = {
+            "quotes": [
+                {"symbol": "aapl", "shortname": "Apple Inc.", "quoteType": "EQUITY",
+                 "exchange": "NMS"},
+                {"longname": "No symbol here"},
+                {"symbol": "MSFT", "longname": "Microsoft", "quoteType": "EQUITY"},
+            ]
+        }
+        hits = yahoo.parse_search(payload, limit=10)
+
+        assert [h.symbol for h in hits] == ["AAPL", "MSFT"]
+        assert hits[0].name == "Apple Inc."
+
+
+class TestBinanceParsing:
+    def test_reads_klines_and_converts_milliseconds(self):
+        payload = [[1700000000000, "10.0", "12.0", "9.0", "11.0", "5.5", 0]]
+        bars = binance.parse_bars(payload)
+
+        assert len(bars) == 1
+        assert bars[0].time == 1700000000
+        assert bars[0].high == 12.0
+
+    def test_skips_rows_that_are_not_candles(self):
+        payload = [[1700000000000, "1", "2", "0.5", "1.5", "3"], "nonsense", [1, 2]]
+        assert len(binance.parse_bars(payload)) == 1
+
+    def test_derives_the_previous_close_from_the_24h_change(self):
+        quote = binance.parse_quote("BTCUSDT", {"lastPrice": "110.0", "priceChange": "10.0"})
+
+        assert quote.price == 110.0
+        assert quote.previous_close == 100.0
+        assert quote.change == 10.0
+        assert quote.change_percent == pytest.approx(10.0)
+
+    def test_a_quote_with_no_price_is_refused(self):
+        with pytest.raises(ProviderError) as caught:
+            binance.parse_quote("BTCUSDT", {})
+        assert caught.value.code == "no-price"
+
+    def test_a_series_that_is_not_a_list_is_refused(self):
+        with pytest.raises(ProviderError):
+            binance.parse_bars({"not": "a series"})
+
+
+class TestRouting:
+    @pytest.mark.parametrize("symbol", ["BTCUSDT", "ethusdt", "SOLUSDC", "XRPFDUSD"])
+    def test_pairs_go_to_binance(self, symbol):
+        assert registry.provider_for(symbol) == "binance"
+
+    @pytest.mark.parametrize("symbol", ["AAPL", "VOO", "BRK.B", "^GSPC", "usdt"])
+    def test_everything_else_goes_to_yahoo(self, symbol):
+        # "USDT" alone is a ticker, not a pair: there is no base asset in front.
+        assert registry.provider_for(symbol) == "yahoo"
+
+    def test_symbols_are_normalised_before_anything_looks_at_them(self):
+        assert registry.normalize_symbol("  aapl \n") == "AAPL"
+
+
+class TestMemoryCache:
+    def test_serves_a_second_ask_without_calling_upstream(self):
+        calls = 0
+
+        async def factory():
+            nonlocal calls
+            calls += 1
+            return {"price": 1}
+
+        cache = MemoryCache(ttl=60)
+
+        async def run():
+            await cache.fetch("AAPL", factory)
+            await cache.fetch("AAPL", factory)
+
+        asyncio.run(run())
+        assert calls == 1
+
+    def test_asks_again_once_the_entry_is_stale(self):
+        calls = 0
+
+        async def factory():
+            nonlocal calls
+            calls += 1
+            return calls
+
+        cache = MemoryCache(ttl=0.01)
+
+        async def run():
+            first = await cache.fetch("AAPL", factory)
+            time.sleep(0.02)
+            second = await cache.fetch("AAPL", factory)
+            return first, second
+
+        first, second = asyncio.run(run())
+        assert (first, second) == (1, 2)
+        assert calls == 2
+
+    def test_concurrent_asks_for_one_key_make_one_upstream_call(self):
+        calls = 0
+
+        async def factory():
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.02)
+            return "quote"
+
+        cache = MemoryCache(ttl=60)
+
+        async def run():
+            return await asyncio.gather(*(cache.fetch("AAPL", factory) for _ in range(5)))
+
+        results = asyncio.run(run())
+
+        assert results == ["quote"] * 5
+        assert calls == 1, "five panels asking at once must not be five requests"
+
+    def test_different_keys_are_not_coalesced_together(self):
+        seen = []
+
+        async def factory_for(symbol):
+            async def factory():
+                seen.append(symbol)
+                await asyncio.sleep(0.01)
+                return symbol
+
+            return factory
+
+        cache = MemoryCache(ttl=60)
+
+        async def run():
+            a = await factory_for("AAPL")
+            b = await factory_for("MSFT")
+            await asyncio.gather(cache.fetch("AAPL", a), cache.fetch("MSFT", b))
+
+        asyncio.run(run())
+        assert sorted(seen) == ["AAPL", "MSFT"]
+
+    def test_a_failed_fetch_is_not_cached(self):
+        calls = 0
+
+        async def factory():
+            nonlocal calls
+            calls += 1
+            raise ProviderError("unreachable", "down")
+
+        cache = MemoryCache(ttl=60)
+
+        async def run():
+            for _ in range(2):
+                with pytest.raises(ProviderError):
+                    await cache.fetch("AAPL", factory)
+
+        asyncio.run(run())
+        assert calls == 2, "a refusal must not be remembered as an answer"
+
+
+class TestBarCache:
+    def test_survives_a_restart(self, tmp_path):
+        calls = 0
+
+        async def factory():
+            nonlocal calls
+            calls += 1
+            return binance.parse_bars([[1700000000000, "1", "2", "0.5", "1.5", "3"]])
+
+        async def run(cache):
+            return await cache.fetch("BTCUSDT", "1d", 60, factory)
+
+        first = asyncio.run(run(BarCache(tmp_path)))
+        # A brand new cache object over the same directory is what a restart is.
+        second = asyncio.run(run(BarCache(tmp_path)))
+
+        assert calls == 1
+        assert first == second
+        assert first[0].close == 1.5
+
+    def test_refetches_once_the_file_is_stale(self, tmp_path):
+        calls = 0
+
+        async def factory():
+            nonlocal calls
+            calls += 1
+            return binance.parse_bars([[1700000000000, "1", "2", "0.5", str(calls), "3"]])
+
+        cache = BarCache(tmp_path)
+
+        async def run():
+            await cache.fetch("BTCUSDT", "1d", 0.01, factory)
+            time.sleep(0.02)
+            return await cache.fetch("BTCUSDT", "1d", 0.01, factory)
+
+        bars = asyncio.run(run())
+        assert calls == 2
+        assert bars[0].close == 2.0
+
+    def test_a_corrupt_file_costs_a_refetch_not_an_error(self, tmp_path):
+        cache = BarCache(tmp_path)
+        (tmp_path / "BTCUSDT.1d.json").write_text("{ not json", encoding="utf-8")
+
+        async def factory():
+            return binance.parse_bars([[1700000000000, "1", "2", "0.5", "1.5", "3"]])
+
+        bars = asyncio.run(cache.fetch("BTCUSDT", "1d", 60, factory))
+        assert len(bars) == 1
+
+    def test_a_symbol_cannot_become_a_path(self, tmp_path):
+        cache = BarCache(tmp_path)
+        path = cache._path_for("../../etc/passwd", "1d")
+
+        assert path.parent == tmp_path
+        assert ".." not in path.name
+
+
+class TestTimeframes:
+    def test_every_frame_names_both_providers_and_caps_its_range(self):
+        for key, frame in TIMEFRAMES.items():
+            assert frame.key == key
+            assert frame.yahoo_interval and frame.yahoo_range
+            assert frame.binance_interval
+            assert frame.limit > 0, "an uncapped fetch is how a range=max query ends in OOM"
+            assert frame.ttl > 0

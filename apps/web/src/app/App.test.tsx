@@ -21,6 +21,13 @@ beforeEach(() => {
       if (url.includes('/api/kv/')) {
         return new Response(null, { status: 404 });
       }
+      // Shell navigation must not depend on a market upstream being reachable.
+      if (url.includes('/api/market/quotes')) {
+        return Response.json({ quotes: [], failed: [] });
+      }
+      if (url.includes('/api/market/bars')) {
+        return Response.json({ symbol: 'AAPL', timeframe: '1d', provider: 'test', bars: [] });
+      }
       return Response.json({ status: 'ok' });
     }),
   );

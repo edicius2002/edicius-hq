@@ -30,3 +30,68 @@ def local_data_dir() -> Path:
 
 def kv_dir() -> Path:
     return local_data_dir() / "kv"
+
+
+def bars_dir() -> Path:
+    """Path B: a cache of public market data, never user state."""
+    return local_data_dir() / "bars"
+
+
+# How many symbols one quote request may carry. Upstream is asked per symbol,
+# so this bounds the fan-out as much as the payload — see the cache note below.
+MAX_BATCH_SYMBOLS = 48
+
+
+class Timeframe:
+    """
+    One row of the timeframe table.
+
+    `yahoo_range` is the window asked for, and the caps are not arbitrary: an
+    uncapped `range=max` fetch returns decades of intraday bars and exhausts
+    memory, while Yahoo simply stops serving 60m data beyond about two years.
+    Both numbers were paid for by the legacy — see `js/investing/config.js`.
+    """
+
+    __slots__ = ("key", "yahoo_interval", "yahoo_range", "binance_interval", "limit", "ttl")
+
+    def __init__(
+        self,
+        key: str,
+        yahoo_interval: str,
+        yahoo_range: str,
+        binance_interval: str,
+        limit: int,
+        ttl: float,
+    ) -> None:
+        self.key = key
+        self.yahoo_interval = yahoo_interval
+        self.yahoo_range = yahoo_range
+        self.binance_interval = binance_interval
+        self.limit = limit
+        self.ttl = ttl
+
+
+# TTLs track how long a bar of that size stays interesting: polling faster than
+# roughly a tenth of the bar period spends requests without showing anything new.
+TIMEFRAMES: dict[str, Timeframe] = {
+    tf.key: tf
+    for tf in (
+        Timeframe("1m", "1m", "7d", "1m", 1500, 10.0),
+        Timeframe("5m", "5m", "60d", "5m", 1500, 20.0),
+        Timeframe("15m", "15m", "60d", "15m", 1500, 30.0),
+        Timeframe("1h", "60m", "1y", "1h", 1500, 60.0),
+        Timeframe("1d", "1d", "2y", "1d", 1825, 300.0),
+        Timeframe("1w", "1wk", "10y", "1w", 520, 600.0),
+        Timeframe("1M", "1mo", "30y", "1M", 360, 1800.0),
+    )
+}
+
+DEFAULT_TIMEFRAME = "1d"
+
+# A quote is a price now, so it goes stale in seconds. Bars are cached far
+# longer, per timeframe above.
+QUOTE_TTL_SECONDS = 15.0
+
+# Upstream is unofficial and occasionally slow; a hung request must not hold a
+# page open forever.
+UPSTREAM_TIMEOUT_SECONDS = 12.0

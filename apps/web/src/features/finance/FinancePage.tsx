@@ -11,6 +11,7 @@ import {
   type AssetTotal,
 } from '@/features/finance/lib/summary';
 import type { Anchor, NodeId, Point } from '@/features/finance/model/types';
+import { DiagramTabs } from '@/features/finance/ui/DiagramTabs';
 import { FlowCanvas, type Selection } from '@/features/finance/ui/FlowCanvas';
 import {
   PropertiesPanel,
@@ -172,6 +173,25 @@ export function FinancePage() {
         title="Finance"
         subtitle="Map where money comes from, where it sits, and where it moves."
         titleId="finance-title"
+      />
+
+      <DiagramTabs
+        diagrams={finance.diagrams}
+        activeId={finance.activeDiagramId}
+        onSelect={(id) => {
+          setSelection(null);
+          void finance.selectDiagram(id);
+        }}
+        onAdd={() => {
+          setSelection(null);
+          void finance.addDiagram();
+        }}
+        onDuplicate={(id) => void finance.duplicateDiagram(id)}
+        onRename={(id, name) => void finance.renameDiagram(id, name)}
+        onDelete={(id) => {
+          setSelection(null);
+          void finance.deleteDiagram(id);
+        }}
       />
 
       <Panel>

@@ -2,9 +2,14 @@ import { useMutation } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
 import {
+  addDiagram,
   createEmptyDocument,
+  deleteDiagram,
+  duplicateDiagram,
   getActiveDiagram,
   normalizeDocument,
+  renameDiagram,
+  setActiveDiagram,
   withActiveDiagram,
 } from '@/features/finance/lib/document';
 import {
@@ -117,6 +122,28 @@ export function useFinanceData() {
   );
 
   /**
+   * Edit the document rather than one diagram: adding, switching, renaming and
+   * removing. The undo flags follow whichever diagram ends up active, so the
+   * buttons describe the one on screen instead of the one just left behind.
+   */
+  const editDocument = useCallback(
+    (change: (doc: FinanceDocument) => FinanceDocument) =>
+      store.edit((doc) => {
+        const next = change(doc);
+        if (next === doc) return doc;
+
+        const history = historyOf(getActiveDiagram(next).id);
+        setSteps({ canUndo: canUndo(history), canRedo: canRedo(history) });
+        return next;
+      }),
+    [historyOf, store],
+  );
+
+  const forgetHistory = useCallback((id: DiagramId) => {
+    histories.current.delete(id);
+  }, []);
+
+  /**
    * Run a transition that may refuse. The refusal is captured from inside the
    * write, so it is judged against current state rather than what was rendered,
    * and a refused change leaves the diagram — and storage — untouched.
@@ -149,6 +176,21 @@ export function useFinanceData() {
     canRedo: steps.canRedo,
     undo: () => step('undo'),
     redo: () => step('redo'),
+
+    diagrams: document.diagrams,
+    activeDiagramId: document.activeDiagramId,
+    addDiagram: () => editDocument((doc) => addDiagram(doc, newId())),
+    duplicateDiagram: (id: DiagramId) => editDocument((doc) => duplicateDiagram(doc, id, newId())),
+    renameDiagram: (id: DiagramId, name: string) =>
+      editDocument((doc) => renameDiagram(doc, id, name)),
+    selectDiagram: (id: DiagramId) => editDocument((doc) => setActiveDiagram(doc, id)),
+    deleteDiagram: (id: DiagramId) =>
+      editDocument((doc) => {
+        const next = deleteDiagram(doc, id, newId());
+        // Its stack is meaningless once the diagram is gone.
+        if (next !== doc) forgetHistory(id);
+        return next;
+      }),
 
     // Structural edits get no key: each is a step of its own. Edits that fire in
     // runs — a drag, typing into a field — share one so undo goes back to before

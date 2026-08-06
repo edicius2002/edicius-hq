@@ -29,9 +29,11 @@ import type {
   DiagramId,
   FinanceDocument,
   FlowId,
+  FrameId,
   HoldingNode,
   NodeId,
   Point,
+  Size,
 } from '@/features/finance/model/types';
 import { useStoredDocument } from '@/shared/storage/useStoredDocument';
 
@@ -218,6 +220,17 @@ export function useFinanceData() {
       run((d) => ops.setJobBalance(d, jobId, asset, amount), `job:${jobId}:${asset}`),
     setJobAssetActive: (jobId: NodeId, asset: AssetCode, active: boolean) =>
       run((d) => ops.setJobAssetActive(d, jobId, asset, active)),
+
+    // A frame drawn, moved or pulled is one step, not one per pointer move.
+    addFrame: (position: Point, size: Size) =>
+      run((d) => ops.addFrame(d, { id: newId(), position, size })),
+    renameFrame: (id: FrameId, name: string) =>
+      run((d) => ops.renameFrame(d, id, name), `frame:${id}:name`),
+    moveFrame: (id: FrameId, position: Point) =>
+      run((d) => ops.moveFrame(d, id, position), `frame:${id}:move`),
+    resizeFrame: (id: FrameId, position: Point, size: Size) =>
+      run((d) => ops.resizeFrame(d, id, position, size), `frame:${id}:resize`),
+    deleteFrame: (id: FrameId) => run((d) => ops.deleteFrame(d, id)),
 
     connect: (input: Omit<Parameters<typeof ops.connect>[1], 'id'>) =>
       runResult((d) => ops.connect(d, { ...input, id: newId() })),

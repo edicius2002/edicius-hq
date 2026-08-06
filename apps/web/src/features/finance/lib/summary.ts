@@ -80,11 +80,16 @@ function isOverAllocated(diagram: Diagram, source: FinanceNode, asset: AssetCode
   return false;
 }
 
-/** What is still sitting in jobs and holdings: the balance less what it already committed. */
-export function selectAvailable(diagram: Diagram): AssetTotal[] {
+/**
+ * What a set of nodes still holds: the balance less what it already committed.
+ * Taking the set as an argument is what lets a frame report its own total
+ * through the very same arithmetic the headline uses, so the two can never
+ * disagree about the same money.
+ */
+function availableOf(diagram: Diagram, nodes: FinanceNode[]): AssetTotal[] {
   const totals = new Map<AssetCode, number>();
 
-  for (const node of listNodes(diagram)) {
+  for (const node of nodes) {
     if (node.kind === 'job') {
       for (const balance of node.balances) {
         if (!balance.active) continue;
@@ -103,6 +108,22 @@ export function selectAvailable(diagram: Diagram): AssetTotal[] {
   }
 
   return toAssetTotals(totals);
+}
+
+/** Everything still sitting in jobs and holdings across the whole diagram. */
+export function selectAvailable(diagram: Diagram): AssetTotal[] {
+  return availableOf(diagram, listNodes(diagram));
+}
+
+export type FrameSummary = { nodeCount: number; totals: AssetTotal[] };
+
+/**
+ * What a frame is worth. An account contributes nothing of its own — it holds no
+ * money, its holdings do — so a frame drawn around an account whose holdings sit
+ * outside it reports nothing, which is the honest answer.
+ */
+export function selectFrameSummary(diagram: Diagram, members: FinanceNode[]): FrameSummary {
+  return { nodeCount: members.length, totals: availableOf(diagram, members) };
 }
 
 /** A switched-off holding is out of play, so nothing can move to or from it. */

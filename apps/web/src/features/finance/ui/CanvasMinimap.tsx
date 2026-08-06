@@ -9,7 +9,7 @@ import {
   type Rect,
 } from '@/features/finance/lib/camera';
 import { sizeOf, type Size } from '@/features/finance/lib/geometry';
-import type { FinanceNode, Point } from '@/features/finance/model/types';
+import type { FinanceNode, Frame, Point } from '@/features/finance/model/types';
 
 import styles from './CanvasMinimap.module.css';
 
@@ -31,6 +31,7 @@ const KIND_CLASS: Record<FinanceNode['kind'], string> = {
 
 type CanvasMinimapProps = {
   nodes: FinanceNode[];
+  frames: Frame[];
   /** The whole diagram, which the minimap always shows in full. */
   world: Rect;
   camera: Camera;
@@ -43,7 +44,14 @@ type CanvasMinimapProps = {
  * bounds and the same camera the canvas does, so the rectangle cannot claim a
  * view the canvas is not showing.
  */
-export function CanvasMinimap({ nodes, world, camera, viewport, onMoveTo }: CanvasMinimapProps) {
+export function CanvasMinimap({
+  nodes,
+  frames,
+  world,
+  camera,
+  viewport,
+  onMoveTo,
+}: CanvasMinimapProps) {
   const dragPointer = useRef<number | null>(null);
   const view = minimapView(world, BOX, PADDING);
 
@@ -86,6 +94,22 @@ export function CanvasMinimap({ nodes, world, camera, viewport, onMoveTo }: Canv
         dragPointer.current = null;
       }}
     >
+      {/* Under the nodes here too, so the map reads the way the canvas does. */}
+      {frames.map((frame) => {
+        const at = worldToMinimap(view, frame.position);
+        return (
+          <rect
+            key={frame.id}
+            className={styles.frame}
+            x={at.x}
+            y={at.y}
+            width={Math.max(MIN_NODE, frame.size.width * view.scale)}
+            height={Math.max(MIN_NODE, frame.size.height * view.scale)}
+            rx={2}
+          />
+        );
+      })}
+
       {nodes.map((node) => {
         const size = sizeOf(node);
         const at = worldToMinimap(view, node.position);

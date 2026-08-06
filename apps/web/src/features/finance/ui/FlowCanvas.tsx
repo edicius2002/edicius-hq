@@ -16,6 +16,15 @@ import {
 } from '@/features/finance/lib/camera';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import {
+  frameMembership,
+  frameRect,
+  listFrames,
+  rectBetween,
+  resizeRect,
+  FRAME_MIN_SIZE,
+  type ResizeEdge,
+} from '@/features/finance/lib/frames';
+import {
   anchorPoint,
   contentRect,
   facingAnchors,
@@ -23,24 +32,33 @@ import {
   flowPath,
 } from '@/features/finance/lib/geometry';
 import { formatAmount, formatAssetAmount } from '@/features/finance/lib/format';
-import { isFlowActive, selectAccountSummary } from '@/features/finance/lib/summary';
+import {
+  isFlowActive,
+  selectAccountSummary,
+  selectFrameSummary,
+} from '@/features/finance/lib/summary';
 import type {
   Anchor,
   Diagram,
   FinanceNode,
   Flow,
+  Frame,
+  FrameId,
   NodeId,
   Point,
+  Rect,
+  Size,
 } from '@/features/finance/model/types';
 
 import { CanvasMinimap } from './CanvasMinimap';
 import { FlowNode } from './FlowNode';
+import { FrameBox } from './FrameBox';
 import styles from './FlowCanvas.module.css';
 
 /** Spacing of the backdrop dots at 100%, so the grid scales with the camera. */
 const GRID = 26;
 
-export type Selection = { type: 'node' | 'flow'; id: string } | null;
+export type Selection = { type: 'node' | 'flow' | 'frame'; id: string } | null;
 
 type FlowCanvasProps = {
   diagram: Diagram;
@@ -48,9 +66,14 @@ type FlowCanvasProps = {
   /** Anchors are only offered while connecting, so they never block a drag. */
   connectMode: boolean;
   connectFrom: { nodeId: NodeId; anchor: Anchor } | null;
+  /** While on, dragging bare canvas draws a frame instead of panning. */
+  frameMode: boolean;
   onSelect: (selection: Selection) => void;
   onMoveNode: (id: NodeId, position: Point) => void;
   onAnchorClick: (nodeId: NodeId, anchor: Anchor) => void;
+  onCreateFrame: (rect: Rect) => void;
+  onMoveFrame: (id: FrameId, position: Point) => void;
+  onResizeFrame: (id: FrameId, position: Point, size: Size) => void;
 };
 
 type Drag = {
@@ -67,20 +90,41 @@ type Drag = {
  */
 type Pan = { pointerId: number; origin: Point; from: Camera };
 
+/** A frame being moved or pulled. Both anchor on where the gesture started. */
+type FrameDrag = { frameId: FrameId; pointerId: number; origin: Point; from: Point };
+
+type FrameResize = {
+  frameId: FrameId;
+  pointerId: number;
+  edge: ResizeEdge;
+  origin: Point;
+  from: Rect;
+};
+
+/** A frame being drawn: two world corners, until the pointer comes up. */
+type FrameDraft = { pointerId: number; start: Point; current: Point };
+
 export function FlowCanvas({
   diagram,
   selection,
   connectMode,
   connectFrom,
+  frameMode,
   onSelect,
   onMoveNode,
   onAnchorClick,
+  onCreateFrame,
+  onMoveFrame,
+  onResizeFrame,
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const { camera, setCamera } = useDiagramCamera(diagram.id);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [pan, setPan] = useState<Pan | null>(null);
+  const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
+  const [frameResize, setFrameResize] = useState<FrameResize | null>(null);
+  const [draft, setDraft] = useState<FrameDraft | null>(null);
 
   // A switched-off holding keeps its amount but leaves the canvas.
   const nodes = diagram.nodeOrder
@@ -92,9 +136,13 @@ export function FlowCanvas({
     .map((id) => diagram.flows[id])
     .filter((flow) => flow && isFlowActive(diagram, flow));
 
+  const frames = listFrames(diagram);
+  // One pass for the whole canvas rather than a search per frame.
+  const membership = frameMembership(diagram);
+
   // What the diagram reaches, in every direction. The canvas has no corner, so
   // this is measured rather than assumed to start at the origin.
-  const content = contentRect(nodes);
+  const content = contentRect(nodes, frames);
   /*
    * The minimap covers the view as well as the diagram. Without that, a view
    * wider than the content puts the frame outside the box and the map shows
@@ -175,15 +223,44 @@ export function FlowCanvas({
     });
   }
 
+  function startFrameDrag(frame: Frame, event: PointerEvent<HTMLElement>) {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setFrameDrag({
+      frameId: frame.id,
+      pointerId: event.pointerId,
+      origin: toWorld(event),
+      from: frame.position,
+    });
+  }
+
+  function startFrameResize(frame: Frame, edge: ResizeEdge, event: PointerEvent<HTMLElement>) {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setFrameResize({
+      frameId: frame.id,
+      pointerId: event.pointerId,
+      edge,
+      origin: toWorld(event),
+      from: frameRect(frame),
+    });
+  }
+
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
-    // Only a press on bare canvas pans. Anything else — a node, a flow, the
-    // controls, the minimap — is doing its own thing with the pointer.
+    // Only a press on bare canvas starts a gesture here. Anything else — a node,
+    // a flow, a frame header, the controls, the minimap — is doing its own thing
+    // with the pointer.
     const onBackground =
       event.target === event.currentTarget || event.target === surfaceRef.current;
     if (!onBackground) return;
 
     onSelect(null);
     event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    if (frameMode) {
+      const start = toWorld(event);
+      setDraft({ pointerId: event.pointerId, start, current: start });
+      return;
+    }
+
     setPan({
       pointerId: event.pointerId,
       origin: { x: event.clientX, y: event.clientY },
@@ -192,12 +269,40 @@ export function FlowCanvas({
   }
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (draft && event.pointerId === draft.pointerId) {
+      setDraft({ ...draft, current: toWorld(event) });
+      return;
+    }
+
     if (pan && event.pointerId === pan.pointerId) {
       setCamera({
         ...pan.from,
         x: pan.from.x + (event.clientX - pan.origin.x),
         y: pan.from.y + (event.clientY - pan.origin.y),
       });
+      return;
+    }
+
+    if (frameDrag && event.pointerId === frameDrag.pointerId) {
+      const pointer = toWorld(event);
+      onMoveFrame(frameDrag.frameId, {
+        x: Math.round(frameDrag.from.x + pointer.x - frameDrag.origin.x),
+        y: Math.round(frameDrag.from.y + pointer.y - frameDrag.origin.y),
+      });
+      return;
+    }
+
+    if (frameResize && event.pointerId === frameResize.pointerId) {
+      const pointer = toWorld(event);
+      const next = resizeRect(frameResize.from, frameResize.edge, {
+        x: pointer.x - frameResize.origin.x,
+        y: pointer.y - frameResize.origin.y,
+      });
+      onResizeFrame(
+        frameResize.frameId,
+        { x: Math.round(next.left), y: Math.round(next.top) },
+        { width: Math.round(next.width), height: Math.round(next.height) },
+      );
       return;
     }
 
@@ -213,6 +318,18 @@ export function FlowCanvas({
   function endGesture(event: PointerEvent<HTMLDivElement>) {
     if (drag && event.pointerId === drag.pointerId) setDrag(null);
     if (pan && event.pointerId === pan.pointerId) setPan(null);
+    if (frameDrag && event.pointerId === frameDrag.pointerId) setFrameDrag(null);
+    if (frameResize && event.pointerId === frameResize.pointerId) setFrameResize(null);
+
+    if (draft && event.pointerId === draft.pointerId) {
+      const rect = rectBetween(draft.start, draft.current);
+      setDraft(null);
+      // A click rather than a drag is a change of mind, not a tiny frame. The
+      // minimum only rescues something that was actually dragged.
+      if (rect.width >= FRAME_MIN_SIZE.width / 2 && rect.height >= FRAME_MIN_SIZE.height / 2) {
+        onCreateFrame(rect);
+      }
+    }
   }
 
   return (
@@ -238,6 +355,22 @@ export function FlowCanvas({
         className={styles.surface}
         style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
+        {/* First in the DOM, so frames sit under the flows and the nodes and can
+            never take a click meant for either. */}
+        {frames.map((frame) => (
+          <FrameBox
+            key={frame.id}
+            frame={frame}
+            summary={selectFrameSummary(diagram, membership.get(frame.id) ?? [])}
+            selected={selection?.type === 'frame' && selection.id === frame.id}
+            onSelect={() => onSelect({ type: 'frame', id: frame.id })}
+            onMoveStart={(event) => startFrameDrag(frame, event)}
+            onResizeStart={(edge, event) => startFrameResize(frame, edge, event)}
+          />
+        ))}
+
+        {draft ? <FrameDraftBox rect={rectBetween(draft.start, draft.current)} /> : null}
+
         {/* Positioned and given a matching viewBox so paths keep using world
             coordinates while the layer follows content that runs negative. */}
         <svg
@@ -358,9 +491,10 @@ export function FlowCanvas({
         </button>
       </div>
 
-      {nodes.length ? (
+      {nodes.length || frames.length ? (
         <CanvasMinimap
           nodes={nodes}
+          frames={frames}
           world={mapped}
           camera={camera}
           viewport={viewportSize}
@@ -368,6 +502,17 @@ export function FlowCanvas({
         />
       ) : null}
     </div>
+  );
+}
+
+/** The rectangle being dragged out, before it is a frame. */
+function FrameDraftBox({ rect }: { rect: Rect }) {
+  return (
+    <div
+      className={styles.draft}
+      style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+      aria-hidden="true"
+    />
   );
 }
 

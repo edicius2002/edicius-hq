@@ -1,6 +1,7 @@
 import type {
   Anchor,
   FinanceNode,
+  Frame,
   NodeKind,
   Point,
   Rect,
@@ -126,12 +127,12 @@ export function facingAnchors(
  *
  * Measured in both directions rather than out from the origin: the canvas has no
  * corner, so a node dragged above or to the left of where the first one landed
- * is as much a part of the drawing as one dragged away from it. Fit and the
- * minimap read this, and they would lose whatever fell on the negative side of
- * an assumed origin.
+ * is as much a part of the drawing as one dragged away from it. Frames count
+ * too — one drawn past the last node is still part of the diagram. Fit and the
+ * minimap read this, and they would lose whatever fell outside it.
  */
-export function contentRect(nodes: FinanceNode[], padding = 160): Rect {
-  if (!nodes.length) {
+export function contentRect(nodes: FinanceNode[], frames: Frame[] = [], padding = 160): Rect {
+  if (!nodes.length && !frames.length) {
     return { left: 0, top: 0, width: padding * 2, height: padding * 2 };
   }
 
@@ -146,6 +147,13 @@ export function contentRect(nodes: FinanceNode[], padding = 160): Rect {
     top = Math.min(top, node.position.y);
     right = Math.max(right, node.position.x + size.width);
     bottom = Math.max(bottom, node.position.y + size.height);
+  }
+
+  for (const frame of frames) {
+    left = Math.min(left, frame.position.x);
+    top = Math.min(top, frame.position.y);
+    right = Math.max(right, frame.position.x + frame.size.width);
+    bottom = Math.max(bottom, frame.position.y + frame.size.height);
   }
 
   return {

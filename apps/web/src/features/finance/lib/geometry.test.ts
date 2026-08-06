@@ -9,7 +9,7 @@ import {
   flowPath,
   NODE_SIZE,
 } from '@/features/finance/lib/geometry';
-import type { FinanceNode } from '@/features/finance/model/types';
+import type { FinanceNode, Frame } from '@/features/finance/model/types';
 
 function account(id: string, x: number, y: number): FinanceNode {
   return { id, kind: 'account', name: id, notes: '', position: { x, y } };
@@ -101,8 +101,12 @@ describe('flowLabelPoint', () => {
 describe('contentRect', () => {
   const { width, height } = NODE_SIZE.account;
 
+  function frame(x: number, y: number, w: number, h: number): Frame {
+    return { id: 'f1', name: 'Frame', position: { x, y }, size: { width: w, height: h } };
+  }
+
   it('covers the furthest node plus breathing room on every side', () => {
-    const rect = contentRect([account('a', 0, 0), account('b', 400, 300)], 100);
+    const rect = contentRect([account('a', 0, 0), account('b', 400, 300)], [], 100);
     expect(rect).toEqual({
       left: -100,
       top: -100,
@@ -112,7 +116,7 @@ describe('contentRect', () => {
   });
 
   it('reaches nodes that sit above and left of the origin', () => {
-    const rect = contentRect([account('a', -600, -400), account('b', 200, 100)], 100);
+    const rect = contentRect([account('a', -600, -400), account('b', 200, 100)], [], 100);
     expect(rect.left).toBe(-700);
     expect(rect.top).toBe(-500);
     expect(rect.left + rect.width).toBe(200 + width + 100);
@@ -120,13 +124,25 @@ describe('contentRect', () => {
   });
 
   it('holds a diagram that is entirely on the negative side', () => {
-    const rect = contentRect([account('a', -1000, -1000)], 100);
+    const rect = contentRect([account('a', -1000, -1000)], [], 100);
     expect(rect.left).toBe(-1100);
     expect(rect.width).toBe(width + 200);
     expect(rect.width).toBeGreaterThan(0);
   });
 
+  it('reaches a frame drawn past the last node', () => {
+    const rect = contentRect([account('a', 0, 0)], [frame(900, 700, 400, 300)], 100);
+    expect(rect.left + rect.width).toBe(900 + 400 + 100);
+    expect(rect.top + rect.height).toBe(700 + 300 + 100);
+  });
+
+  it('reaches a frame drawn above and left of every node', () => {
+    const rect = contentRect([account('a', 0, 0)], [frame(-800, -600, 200, 200)], 100);
+    expect(rect.left).toBe(-900);
+    expect(rect.top).toBe(-700);
+  });
+
   it('is a padded square around the origin when there is nothing to cover', () => {
-    expect(contentRect([], 160)).toEqual({ left: 0, top: 0, width: 320, height: 320 });
+    expect(contentRect([], [], 160)).toEqual({ left: 0, top: 0, width: 320, height: 320 });
   });
 });

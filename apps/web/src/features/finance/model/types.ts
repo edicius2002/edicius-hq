@@ -1,5 +1,6 @@
 export type NodeId = string;
 export type FlowId = string;
+export type FrameId = string;
 export type DiagramId = string;
 
 /** An ISO 4217 code, a crypto ticker, or a stock symbol — whatever a holding stores. */
@@ -81,7 +82,21 @@ export type Flow = {
 };
 
 /**
- * Nodes and flows are normalized: a record for lookup, an array for render order.
+ * A named region of the canvas. It groups whatever sits inside it and reports
+ * what those nodes hold, but it owns nothing: membership is worked out from the
+ * geometry every time rather than stored, the same way a holding's account is a
+ * field rather than an edge — see ADR 0001.
+ */
+export type Frame = {
+  id: FrameId;
+  name: string;
+  position: Point;
+  size: Size;
+};
+
+/**
+ * Nodes, flows and frames are normalized: a record for lookup, an array for
+ * render order. For frames the order also settles ties — see `ownerFrameOf`.
  */
 export type Diagram = {
   id: DiagramId;
@@ -90,6 +105,8 @@ export type Diagram = {
   nodeOrder: NodeId[];
   flows: Record<FlowId, Flow>;
   flowOrder: FlowId[];
+  frames: Record<FrameId, Frame>;
+  frameOrder: FrameId[];
 };
 
 /**

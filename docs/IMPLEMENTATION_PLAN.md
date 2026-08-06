@@ -370,7 +370,11 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** canvas zoom, pan and minimap as one camera — [#20](https://github.com/edicius2002/edicius-hq/issues/20) / [#21](https://github.com/edicius2002/edicius-hq/pull/21). The camera is a new concern rather than an extension of the domain, so it landed as its own module with the persisted shape untouched.
 
-**Still deferred, no issues opened yet:** frames, backup and restore.
+**Follow-up, delivered:** the canvas has no corner — the origin clamp on node positions is gone and content is measured in both directions — [#25](https://github.com/edicius2002/edicius-hq/issues/25) / [#26](https://github.com/edicius2002/edicius-hq/pull/26).
+
+**Follow-up, in progress:** frames — [#24](https://github.com/edicius2002/edicius-hq/issues/24). First change to the persisted `Diagram` since ADR 0001, and it landed as an addition: `normalizeDocument` defaults the new field and a document stored before it opens unchanged.
+
+**Still deferred, no issue opened yet:** backup and restore.
 
 ### 6+ — Feature phases
 
@@ -477,6 +481,11 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 7.10 | The camera lives in memory, one per diagram, and is never stored.                                     | Departs from the legacy, which kept `{panX, panY, zoom}` per tab. Persisting costs a write per wheel notch and per pan frame, and puts view state in a document that otherwise holds only money. `Fit` and `100%` buy back what persistence was for. Same reasoning as 7.7. |
 | 7.11 | The canvas moves by transform, not by scroll.                                                         | Pan must reach past the content in every direction, and the minimap's frame has to be the same numbers the canvas transform uses. A scroll box only travels right and down from the origin, and would leave two things deciding what is on screen.                          |
 | 7.12 | The canvas is clipped, not hidden.                                                                    | A hidden box is still a scroll container, and the browser scrolls one to reveal a focused child — pressing a zoom button shoved the diagram out of view behind the camera's back. A clipped box cannot scroll, so the camera is the only thing that moves the world.        |
+| 7.13 | The canvas has no corner. Node positions are not clamped, and content is measured in both directions. | The clamp at the origin was invisible while the canvas was a scroll box, because a scroll box cannot reach past it either. The camera exposed it as a wall you could pan up to but not drag through.                                                                        |
+| 7.14 | Frame membership is derived from the geometry, never stored.                                          | The legacy stored `nodeIds` on each group _and_ recomputed them, which is one truth in two places. Same call ADR 0001 made for holding ownership. Dragging a node into a frame is then the whole gesture.                                                                   |
+| 7.15 | A frame reports through the same selector the headline totals use, across every asset.                | The legacy filtered to fiat, so a frame holding crypto reported nothing, and it recomputed `total − outgoing` inline. Sharing `availableOf` means a frame can never disagree with the totals above it.                                                                      |
+| 7.16 | A frame's body is transparent to the pointer; only its header and handles answer to one.              | A frame is often the largest thing on the canvas. If its body caught presses it would swallow every pan started inside it and stop the nodes underneath being the first thing you can grab.                                                                                 |
+| 7.17 | Moving a frame carries the members it had when the gesture started.                                   | Read before the move, not after, so a frame sliding across a stationary node picks it up on arrival rather than shoving it along. Because members travel with the frame they stay inside it, which is what stops membership flickering mid-drag.                            |
 
 ### Superseded decisions
 
@@ -506,3 +515,5 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-06 | Finance undo/redo and multiple diagrams merged (#18). Both landed as additions, so ADR 0001 held.                   |
 | 2026-08-06 | Finance canvas camera (#20): zoom, pan and minimap on one transform, held in memory per diagram.                    |
 | 2026-08-06 | Finance canvas camera merged (#21). Two faults surfaced only by measuring the running app, not by the tests.        |
+| 2026-08-06 | Finance canvas unbounded (#26): the origin clamp removed, content measured in both directions.                      |
+| 2026-08-06 | Finance frames (#24): named regions with derived membership. First addition to the persisted shape since ADR 0001.  |

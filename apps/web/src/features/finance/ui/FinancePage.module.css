@@ -35,12 +35,15 @@
   font-size: 0.78rem;
 }
 
+/*
+ * Lives inside the toolbar panel and only exists while there is something to
+ * say. Reserving a line for it out in the page cost a permanent empty row
+ * between the toolbar and the canvas.
+ */
 .error {
   margin: 0;
   color: var(--color-danger);
   font-size: 0.85rem;
-  /* Holds the line so a refusal message does not push the canvas down. */
-  min-height: 1.4rem;
 }
 
 .workspace {

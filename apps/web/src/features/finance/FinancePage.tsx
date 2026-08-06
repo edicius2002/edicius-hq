@@ -117,6 +117,7 @@ export function FinancePage() {
     updateFlow: (id, patch) => void finance.updateFlow(id, patch),
   };
 
+  const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
   const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
   const hint = !connectMode
     ? 'Drag nodes to arrange them.'
@@ -162,11 +163,14 @@ export function FinancePage() {
           <span className={`${styles.hint} ${styles.spacer}`}>{hint}</span>
           <span className={styles.status}>{status}</span>
         </div>
-      </Panel>
 
-      <p className={styles.error} role="alert">
-        {message ?? (finance.isError ? 'Could not load the diagram from storage.' : '')}
-      </p>
+        {/* Sits with the actions that caused it, and only when there is one. */}
+        {problem ? (
+          <p className={styles.error} role="alert">
+            {problem}
+          </p>
+        ) : null}
+      </Panel>
 
       <div className={styles.workspace}>
         <FlowCanvas

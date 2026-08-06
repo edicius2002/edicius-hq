@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
 import { formatAmount } from '@/features/finance/lib/format';
@@ -92,6 +92,19 @@ export function FinancePage() {
     setSelection(null);
   }
 
+  function handleUndo() {
+    setMessage(null);
+    // What a step lands on may no longer contain what was selected.
+    setSelection(null);
+    void finance.undo();
+  }
+
+  function handleRedo() {
+    setMessage(null);
+    setSelection(null);
+    void finance.redo();
+  }
+
   const panelActions: PropertiesPanelActions = {
     renameNode: (id, name) => void finance.renameNode(id, name),
     setNotes: (id, notes) => void finance.setNotes(id, notes),
@@ -117,6 +130,34 @@ export function FinancePage() {
     updateFlow: (id, patch) => void finance.updateFlow(id, patch),
   };
 
+  // Held in a ref so the listener is bound once instead of on every render.
+  const shortcuts = useRef({ undo: handleUndo, redo: handleRedo });
+  shortcuts.current = { undo: handleUndo, redo: handleRedo };
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+
+      // Fields keep their own undo; taking it would be worse than not having one.
+      // Guard the type: a key event can be aimed at document or window, and
+      // closest() only exists on elements.
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      if (event.shiftKey) shortcuts.current.redo();
+      else shortcuts.current.undo();
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
   const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
   const hint = !connectMode
@@ -141,6 +182,15 @@ export function FinancePage() {
             </Button>
             <Button onClick={() => void finance.addAccount(nextPosition(topLevelCount))}>
               Add account
+            </Button>
+          </div>
+
+          <div className={styles.toolGroup}>
+            <Button disabled={!finance.canUndo} title="Undo (Ctrl+Z)" onClick={handleUndo}>
+              Undo
+            </Button>
+            <Button disabled={!finance.canRedo} title="Redo (Ctrl+Shift+Z)" onClick={handleRedo}>
+              Redo
             </Button>
           </div>
 

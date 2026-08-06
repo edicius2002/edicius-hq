@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance delivered — core, undo/redo, multiple diagrams and the canvas camera; Investing not started.
+> **Status:** Finance delivered — core, undo/redo, multiple diagrams, the canvas camera and frames; Investing not started.
 > **Last updated:** 2026-08-06
-> **Review status:** Finance canvas camera merged ([#21](https://github.com/edicius2002/edicius-hq/pull/21)).
-> **Phase closure:** Delivery steps 0–5 complete, minus the Finance pieces deferred by agreement.
-> **Next delivery:** Frames, then backup and restore, then Investing.
+> **Review status:** Finance frames merged ([#28](https://github.com/edicius2002/edicius-hq/pull/28)).
+> **Phase closure:** Delivery steps 0–5 complete, minus backup and restore.
+> **Next delivery:** Backup and restore, then Investing.
 
 ---
 
@@ -372,7 +372,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** the canvas has no corner — the origin clamp on node positions is gone and content is measured in both directions — [#25](https://github.com/edicius2002/edicius-hq/issues/25) / [#26](https://github.com/edicius2002/edicius-hq/pull/26).
 
-**Follow-up, in progress:** frames — [#24](https://github.com/edicius2002/edicius-hq/issues/24). First change to the persisted `Diagram` since ADR 0001, and it landed as an addition: `normalizeDocument` defaults the new field and a document stored before it opens unchanged.
+**Follow-up, delivered:** frames — [#24](https://github.com/edicius2002/edicius-hq/issues/24) / [#28](https://github.com/edicius2002/edicius-hq/pull/28). First change to the persisted `Diagram` since ADR 0001, and it landed as an addition: `normalizeDocument` defaults the new field and a document stored before it opens unchanged. The ADR's bet is now tested rather than assumed.
 
 **Still deferred, no issue opened yet:** backup and restore.
 
@@ -517,3 +517,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-06 | Finance canvas camera merged (#21). Two faults surfaced only by measuring the running app, not by the tests.        |
 | 2026-08-06 | Finance canvas unbounded (#26): the origin clamp removed, content measured in both directions.                      |
 | 2026-08-06 | Finance frames (#24): named regions with derived membership. First addition to the persisted shape since ADR 0001.  |
+| 2026-08-06 | Finance frames merged (#28). Only backup and restore is left before Investing.                                      |

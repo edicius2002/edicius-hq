@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
+import { readBackup, type RestoreError } from '@/features/finance/lib/backup';
 import {
   addDiagram,
   createEmptyDocument,
@@ -146,6 +147,27 @@ export function useFinanceData() {
   }, []);
 
   /**
+   * Replace the whole document with one read from a file.
+   *
+   * Every stack is dropped: they belong to diagrams that are being swapped out,
+   * and a step back into a diagram the document no longer has would be worse
+   * than having no step at all. That is also why this is not itself undoable —
+   * the confirmation in front of it is what stands in for undo.
+   */
+  const restore = useCallback(
+    async (text: string): Promise<Result<void, RestoreError>> => {
+      const parsed = readBackup(text, DEFAULT_DIAGRAM_ID);
+      if (!parsed.ok) return parsed;
+
+      histories.current.clear();
+      setSteps({ canUndo: false, canRedo: false });
+      await store.replace(parsed.value);
+      return ok(undefined);
+    },
+    [store],
+  );
+
+  /**
    * Run a transition that may refuse. The refusal is captured from inside the
    * write, so it is judged against current state rather than what was rendered,
    * and a refused change leaves the diagram — and storage — untouched.
@@ -181,6 +203,7 @@ export function useFinanceData() {
 
     diagrams: document.diagrams,
     activeDiagramId: document.activeDiagramId,
+    restore,
     addDiagram: () => editDocument((doc) => addDiagram(doc, newId())),
     duplicateDiagram: (id: DiagramId) => editDocument((doc) => duplicateDiagram(doc, id, newId())),
     renameDiagram: (id: DiagramId, name: string) =>

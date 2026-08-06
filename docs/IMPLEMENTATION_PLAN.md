@@ -374,7 +374,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** frames — [#24](https://github.com/edicius2002/edicius-hq/issues/24) / [#28](https://github.com/edicius2002/edicius-hq/pull/28). First change to the persisted `Diagram` since ADR 0001, and it landed as an addition: `normalizeDocument` defaults the new field and a document stored before it opens unchanged. The ADR's bet is now tested rather than assumed.
 
-**Still deferred, no issue opened yet:** backup and restore.
+**Follow-up, in progress:** backup and restore — [#30](https://github.com/edicius2002/edicius-hq/issues/30). The last piece of step 5.
 
 ### 6+ — Feature phases
 
@@ -486,6 +486,10 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 7.15 | A frame reports through the same selector the headline totals use, across every asset.                | The legacy filtered to fiat, so a frame holding crypto reported nothing, and it recomputed `total − outgoing` inline. Sharing `availableOf` means a frame can never disagree with the totals above it.                                                                      |
 | 7.16 | A frame's body is transparent to the pointer; only its header and handles answer to one.              | A frame is often the largest thing on the canvas. If its body caught presses it would swallow every pan started inside it and stop the nodes underneath being the first thing you can grab.                                                                                 |
 | 7.17 | Moving a frame carries the members it had when the gesture started.                                   | Read before the move, not after, so a frame sliding across a stationary node picks it up on arrival rather than shoving it along. Because members travel with the frame they stay inside it, which is what stops membership flickering mid-drag.                            |
+| 7.18 | A backup is the whole document, not the diagram on screen.                                            | The legacy exported one diagram, labelled `scope: "current-diagram"`. With tabs that is a trap: you press Export believing your finances are safe and you saved one tab. Moving a single diagram between documents is sharing, not backup.                                  |
+| 7.19 | Restore replaces; it does not merge.                                                                  | Merging by diagram id has no obvious right answer for a collision, and every answer surprises someone. Replacing is one rule you can hold in your head. It is destructive, so it asks first, naming the file.                                                               |
+| 7.20 | A backup file is parsed by `normalizeDocument`, and the check that it _is_ a backup comes first.      | A file off the disk is as untrusted as a value off the wire. But that parser turns anything unusable into an empty document, so without a shape check in front of it, importing a holiday photo would succeed and replace every diagram with nothing.                       |
+| 7.21 | No automatic snapshots, and restore is not undoable.                                                  | The legacy carried a snapshot-and-self-heal system because `localStorage` silently evaporates; our documents are files on disk behind the API, so that would be copying the scar rather than the lesson. Undo is per diagram and in memory; restore swaps them all at once. |
 
 ### Superseded decisions
 
@@ -518,3 +522,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-06 | Finance canvas unbounded (#26): the origin clamp removed, content measured in both directions.                      |
 | 2026-08-06 | Finance frames (#24): named regions with derived membership. First addition to the persisted shape since ADR 0001.  |
 | 2026-08-06 | Finance frames merged (#28). Only backup and restore is left before Investing.                                      |
+| 2026-08-06 | Finance backup and restore (#30): the whole document to a file and back, guarded by the storage parser.             |

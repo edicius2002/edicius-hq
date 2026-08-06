@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance delivered — core, undo/redo, multiple diagrams, the canvas camera and frames; Investing not started.
+> **Status:** Finance complete. Investing not started.
 > **Last updated:** 2026-08-06
-> **Review status:** Finance frames merged ([#28](https://github.com/edicius2002/edicius-hq/pull/28)).
-> **Phase closure:** Delivery steps 0–5 complete, minus backup and restore.
-> **Next delivery:** Backup and restore, then Investing.
+> **Review status:** Finance backup and restore merged ([#31](https://github.com/edicius2002/edicius-hq/pull/31)).
+> **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
+> **Next delivery:** Investing — the INV-\* IDs need expanding before it opens.
 
 ---
 
@@ -353,7 +353,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 5 — Finance
 
-**Status:** Core complete — [#14](https://github.com/edicius2002/edicius-hq/issues/14) / [#15](https://github.com/edicius2002/edicius-hq/pull/15). Domain model recorded in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md).
+**Status:** Complete, follow-ups included — [#14](https://github.com/edicius2002/edicius-hq/issues/14) / [#15](https://github.com/edicius2002/edicius-hq/pull/15). Domain model recorded in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md), which held: every follow-up landed as an addition, and the one change to the persisted shape defaulted cleanly for documents stored before it.
 
 - [x] Replace Coming soon on `/finance`
 - [x] Jobs, accounts and holdings, created, edited, dragged and deleted
@@ -374,7 +374,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** frames — [#24](https://github.com/edicius2002/edicius-hq/issues/24) / [#28](https://github.com/edicius2002/edicius-hq/pull/28). First change to the persisted `Diagram` since ADR 0001, and it landed as an addition: `normalizeDocument` defaults the new field and a document stored before it opens unchanged. The ADR's bet is now tested rather than assumed.
 
-**Follow-up, in progress:** backup and restore — [#30](https://github.com/edicius2002/edicius-hq/issues/30). The last piece of step 5.
+**Follow-up, delivered:** backup and restore — [#30](https://github.com/edicius2002/edicius-hq/issues/30) / [#31](https://github.com/edicius2002/edicius-hq/pull/31). The last piece of step 5, which is now complete with nothing deferred.
 
 ### 6+ — Feature phases
 
@@ -523,3 +523,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-06 | Finance frames (#24): named regions with derived membership. First addition to the persisted shape since ADR 0001.  |
 | 2026-08-06 | Finance frames merged (#28). Only backup and restore is left before Investing.                                      |
 | 2026-08-06 | Finance backup and restore (#30): the whole document to a file and back, guarded by the storage parser.             |
+| 2026-08-06 | Finance backup and restore merged (#31). Step 5 complete with nothing deferred; next delivery is Investing.         |

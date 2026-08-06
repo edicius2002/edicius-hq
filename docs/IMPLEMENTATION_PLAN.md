@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance complete. Investing not started.
+> **Status:** Finance complete. Investing planned, not started.
 > **Last updated:** 2026-08-06
-> **Review status:** Finance backup and restore merged ([#31](https://github.com/edicius2002/edicius-hq/pull/31)).
+> **Review status:** Investing scope and decisions agreed; no code yet.
 > **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
-> **Next delivery:** Investing — the INV-\* IDs need expanding before it opens.
+> **Next delivery:** INV-01, the Investing data plane. One issue per slice, written before its work.
 
 ---
 
@@ -266,7 +266,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 | FIN-01…10   | Finance diagram capabilities                                                        |
 | GL-01…07    | Greenlight CSV / weekly analytics                                                   |
 | INV-00      | Coming soon on Investing                                                            |
-| INV-*       | Full markets (detail when Investing phase opens)                                    |
+| INV-01…07   | Full markets — one per delivery slice, expanded below                               |
 | PULSE-01…05 | Fear & Greed / Sentiment panels on `/investing`                                     |
 | API-01…08   | Health, Yahoo/charts/fundamentals/market, storage KV                                |
 | DATA-01…05  | Storage facade, allowlist, magic link, RLS, local without login                     |
@@ -376,9 +376,38 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** backup and restore — [#30](https://github.com/edicius2002/edicius-hq/issues/30) / [#31](https://github.com/edicius2002/edicius-hq/pull/31). The last piece of step 5, which is now complete with nothing deferred.
 
-### 6+ — Feature phases
+### 6 — Investing
 
-Follow the delivery sequence table. Expand INV-* IDs when the Investing phase starts.
+**Status:** Planned, not started. Scope agreed 2026-08-06; decisions in section 8.
+
+The largest phase in the plan by a wide margin: the legacy carries roughly 14,000 lines of
+JavaScript across `js/investing/`, plus a Python backend of its own (`server.py`,
+`yahoo_cache.py`, `chart_history.py`, `chart_feeder.py`, `market_indicators.py`). Finance, for
+comparison, was 3,800 lines. Every surface below is in scope; nothing is being cut.
+
+It is delivered in seven slices, each with its own issue written immediately before the work and
+its own PR — the rhythm Finance settled into, rather than one issue covering everything. An issue
+freezes decisions at the moment it is written, so one written now would be deciding the heatmap
+weeks before the heatmap is understood.
+
+| ID     | Slice                    | Scope                                                                                                                            |
+| ------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| INV-01 | **Data plane**           | FastAPI adapters (Yahoo, Binance), batched quotes, OHLCV cache under `.local-data/`, typed `shared/api` client, client quote bus |
+| INV-02 | **Chart**                | Lightweight Charts adapter, the timeframe set, progressive first paint, the live forming bar                                     |
+| INV-03 | **Watchlist and ticker** | Symbol search, watchlist persisted via `shared/storage`, ticker tape, market-status badge                                        |
+| INV-04 | **Technical analysis**   | RSI, MACD, overlays and their toggles                                                                                            |
+| INV-05 | **Portfolio**            | Positions with quantity and cost, market value and P&L against live quotes                                                       |
+| INV-06 | **Pulse**                | Fear & Greed composite and components, sentiment panels — on `/investing`, not a route (decision 2.6)                            |
+| INV-07 | **Secondary surfaces**   | Heatmap with tabs, symbol comparison, fundamentals, chart drawings and annotations                                               |
+
+**INV-01 comes first and draws nothing.** Every other slice reads from it, and the legacy's
+`js/investing/config.js` is where the expensive knowledge lives — Yahoo's retention ceiling per
+timeframe, caps that stop a `range=max` fetch exhausting memory, poll intervals matched to each bar
+period. That is ported carefully, not reinvented. Building the chart first would mean building on
+data nobody has yet shown to arrive reliably.
+
+**Out of scope for the phase:** alerts that fire while the tab is closed, which would need a process
+running outside the browser; that is a cloud-phase question, not a markets one.
 
 ---
 
@@ -491,6 +520,19 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 7.20 | A backup file is parsed by `normalizeDocument`, and the check that it _is_ a backup comes first.      | A file off the disk is as untrusted as a value off the wire. But that parser turns anything unusable into an empty document, so without a shape check in front of it, importing a holiday photo would succeed and replace every diagram with nothing.                       |
 | 7.21 | No automatic snapshots, and restore is not undoable.                                                  | The legacy carried a snapshot-and-self-heal system because `localStorage` silently evaporates; our documents are files on disk behind the API, so that would be copying the scar rather than the lesson. Undo is per diagram and in memory; restore swaps them all at once. |
 
+### 8. Investing
+
+Agreed before the phase opens, so the slices inherit them rather than each re-deciding.
+
+| ID  | Decision                                                                               | Rationale                                                                                                                                                                                                                                                                                                                                                                                           |
+| --- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8.1 | Market data comes from **Yahoo** for equities and **Binance** for crypto.              | Chosen against the alternatives rather than inherited. No keyed free tier delivers live data: Finnhub is 20 minutes behind, Twelve Data 4 hours, Alpha Vantage allows 25 requests a day. A watchlist and a live bar fed by four-hour-old prices are theatre, and paying is 30–100 USD a month for a personal dashboard. Binance is additionally an official, documented, keyless API — a real gain. |
+| 8.2 | Quotes are fetched in **batches**, never one request per symbol.                       | Yahoo's undocumented ceiling is a few hundred requests a day per IP. One request per symbol exhausts that in half an hour with a modest watchlist. The legacy batched up to 48 symbols per call for exactly this reason; here it is a requirement, not an optimisation.                                                                                                                             |
+| 8.3 | Every provider sits behind an **adapter in the API**, and no component ever names one. | These are unofficial endpoints that can change without notice and already need cookie and crumb handling. Behind a typed contract, replacing a provider is rewriting one module; leaked into the frontend, it is rewriting the phase. Extends the existing rule that market UI talks only to `shared/api`.                                                                                          |
+| 8.4 | The server-side cache is load-bearing, not a nicety.                                   | It is what keeps request counts under the ceiling and what keeps the page alive when upstream misbehaves. Revisit at the cloud phase: requests then leave from one datacenter IP rather than a home connection, which is far likelier to be throttled — 8.1 is explicitly open for review at that point.                                                                                            |
+| 8.5 | A portfolio position is **not** a Finance holding, and the two are never unified.      | A holding is an amount you state; a position is a quantity whose value the market decides today. They look alike and behave nothing alike. Investing keeps its own store and its own types.                                                                                                                                                                                                         |
+| 8.6 | Alerts compare in-memory quotes to stored rules, and only while the page is open.      | Already implied by decision 5.7. Firing with the tab closed needs something running outside the browser, which belongs to the cloud phase rather than to markets.                                                                                                                                                                                                                                   |
+
 ### Superseded decisions
 
 | ID  | Change                                                             | When       |
@@ -524,3 +566,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-06 | Finance frames merged (#28). Only backup and restore is left before Investing.                                      |
 | 2026-08-06 | Finance backup and restore (#30): the whole document to a file and back, guarded by the storage parser.             |
 | 2026-08-06 | Finance backup and restore merged (#31). Step 5 complete with nothing deferred; next delivery is Investing.         |
+| 2026-08-06 | Investing planned: seven slices, INV-01…07, and the data-source decisions in section 8. Data plane goes first.      |

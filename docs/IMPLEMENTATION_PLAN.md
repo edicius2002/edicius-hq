@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance core complete; its deferred pieces and Investing not started.
+> **Status:** Finance undo/redo and multiple diagrams in progress on `feat/finance-history` ([#17](https://github.com/edicius2002/edicius-hq/issues/17)).
 > **Last updated:** 2026-08-06
 > **Review status:** Finance core merged ([#15](https://github.com/edicius2002/edicius-hq/pull/15)).
 > **Phase closure:** Delivery steps 0–5 complete, minus the Finance pieces deferred by agreement.
-> **Next delivery:** The deferred Finance pieces, then Investing.
+> **Next delivery:** The remaining deferred Finance pieces, then Investing.
 
 ---
 
@@ -366,7 +366,9 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Domain tested without React: document, fees, summary, transitions, geometry
 - [x] PR linked to the Finance issue — [#15](https://github.com/edicius2002/edicius-hq/pull/15)
 
-**Deferred to their own issues, not yet opened:** frames, zoom, pan, minimap, undo/redo, multiple diagrams, backup and restore. The stored document already holds a diagram collection with a single entry, so tabs arrive as an append rather than a migration.
+**Follow-up, delivered:** undo/redo and multiple diagrams — [#17](https://github.com/edicius2002/edicius-hq/issues/17). Both landed without changing the persisted shape or rewriting anything, which is what ADR 0001 was betting on.
+
+**Still deferred, no issues opened yet:** frames, zoom, pan, minimap, backup and restore.
 
 ### 6+ — Feature phases
 
@@ -459,14 +461,17 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 
 Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md); this table records the product rules.
 
-| ID  | Decision                                                                                              | Rationale                                                                                                          |
-| --- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 7.1 | Fees belong to holdings only; accounts charge nothing.                                                | An account is never an endpoint of a flow, so it cannot charge one. The legacy's account-fee code was unreachable. |
-| 7.2 | A transfer takes the source's out-fee, then the destination's in-fee, each on the **running** amount. | 1000 at 10% and 10% nets 810, not 800; a flat 50 then 10% nets 855, where the reverse order gives 850.             |
-| 7.3 | Assets never convert. Each code totals on its own.                                                    | The diagram records what is held, not what it would be worth in something else.                                    |
-| 7.4 | A source may not commit more than it holds; when it does, all its flows leave the in-transit total.   | Ported from the legacy. Checked per asset for a job, since a job holds several.                                    |
-| 7.5 | A switched-off holding keeps its amount but leaves the canvas, the totals and its flows.              | One idea of "out of play", so the drawing and the numbers cannot disagree about it.                                |
-| 7.6 | Only two connections exist: job → holding, and holding → holding across different accounts.           | Matches the legacy's rules, but as typed refusals with reasons rather than silent no-ops.                          |
+| ID  | Decision                                                                                              | Rationale                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.1 | Fees belong to holdings only; accounts charge nothing.                                                | An account is never an endpoint of a flow, so it cannot charge one. The legacy's account-fee code was unreachable.                                  |
+| 7.2 | A transfer takes the source's out-fee, then the destination's in-fee, each on the **running** amount. | 1000 at 10% and 10% nets 810, not 800; a flat 50 then 10% nets 855, where the reverse order gives 850.                                              |
+| 7.3 | Assets never convert. Each code totals on its own.                                                    | The diagram records what is held, not what it would be worth in something else.                                                                     |
+| 7.4 | A source may not commit more than it holds; when it does, all its flows leave the in-transit total.   | Ported from the legacy. Checked per asset for a job, since a job holds several.                                                                     |
+| 7.5 | A switched-off holding keeps its amount but leaves the canvas, the totals and its flows.              | One idea of "out of play", so the drawing and the numbers cannot disagree about it.                                                                 |
+| 7.6 | Only two connections exist: job → holding, and holding → holding across different accounts.           | Matches the legacy's rules, but as typed refusals with reasons rather than silent no-ops.                                                           |
+| 7.7 | Undo history lives in memory, not storage.                                                            | Undo fixes what you just did. Persisting it would cost a write per pointer move and let history drift from the saved diagram.                       |
+| 7.8 | Undo is per diagram, and edits that fire in runs merge into one step.                                 | Ctrl+Z should affect the diagram on screen. Without merging, one drag becomes an entry per pointer move and undo steps back a few pixels at a time. |
+| 7.9 | Deleting the last diagram leaves an empty one.                                                        | The document always needs an active diagram, so it can never end up with none.                                                                      |
 
 ### Superseded decisions
 
@@ -493,3 +498,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-05 | Greenlight merged (#12); step 4 complete. Next delivery is Finance.                                                 |
 | 2026-08-05 | Finance core (#14): cash-flow canvas on a new domain model, recorded in ADR 0001. First ADR in the repository.      |
 | 2026-08-06 | Finance core merged (#15). Step 5 complete apart from the pieces deferred by agreement.                             |
+| 2026-08-06 | Finance undo/redo and multiple diagrams (#17). Both landed as additions, so ADR 0001 held.                          |

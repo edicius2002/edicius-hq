@@ -1,0 +1,25 @@
+# Line endings are LF everywhere: in the repository and in the working copy,
+# on every platform.
+#
+# Without this, Git on Windows checks files out with CRLF while Prettier is
+# configured with `endOfLine: "lf"`. Both are then correct by their own rule and
+# overwrite each other: `format:check` fails locally but passes in CI, and a
+# `prettier --write` across the repository rewrites the line endings of files
+# with no content change.
+#
+# `text=auto` still lets Git detect binary files and leave them alone.
+* text=auto eol=lf
+
+# Declared up front so a future commit cannot mangle them, even though the font
+# binaries are gitignored today.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

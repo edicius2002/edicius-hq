@@ -2,9 +2,9 @@
 
 > **Status:** Finance delivered, core plus undo/redo and multiple diagrams; Investing not started.
 > **Last updated:** 2026-08-06
-> **Review status:** Finance undo/redo and multiple diagrams merged ([#18](https://github.com/edicius2002/edicius-hq/pull/18)).
+> **Review status:** Finance canvas camera in review ([#20](https://github.com/edicius2002/edicius-hq/issues/20)).
 > **Phase closure:** Delivery steps 0–5 complete, minus the Finance pieces deferred by agreement.
-> **Next delivery:** The remaining deferred Finance pieces, then Investing.
+> **Next delivery:** Frames, then backup and restore, then Investing.
 
 ---
 
@@ -368,7 +368,9 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** undo/redo and multiple diagrams — [#17](https://github.com/edicius2002/edicius-hq/issues/17) / [#18](https://github.com/edicius2002/edicius-hq/pull/18). Both landed without changing the persisted shape or rewriting anything, which is what ADR 0001 was betting on.
 
-**Still deferred, no issues opened yet:** frames, zoom, pan, minimap, backup and restore.
+**Follow-up, in progress:** canvas zoom, pan and minimap as one camera — [#20](https://github.com/edicius2002/edicius-hq/issues/20).
+
+**Still deferred, no issues opened yet:** frames, backup and restore.
 
 ### 6+ — Feature phases
 
@@ -461,17 +463,20 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 
 Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md); this table records the product rules.
 
-| ID  | Decision                                                                                              | Rationale                                                                                                                                           |
-| --- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 7.1 | Fees belong to holdings only; accounts charge nothing.                                                | An account is never an endpoint of a flow, so it cannot charge one. The legacy's account-fee code was unreachable.                                  |
-| 7.2 | A transfer takes the source's out-fee, then the destination's in-fee, each on the **running** amount. | 1000 at 10% and 10% nets 810, not 800; a flat 50 then 10% nets 855, where the reverse order gives 850.                                              |
-| 7.3 | Assets never convert. Each code totals on its own.                                                    | The diagram records what is held, not what it would be worth in something else.                                                                     |
-| 7.4 | A source may not commit more than it holds; when it does, all its flows leave the in-transit total.   | Ported from the legacy. Checked per asset for a job, since a job holds several.                                                                     |
-| 7.5 | A switched-off holding keeps its amount but leaves the canvas, the totals and its flows.              | One idea of "out of play", so the drawing and the numbers cannot disagree about it.                                                                 |
-| 7.6 | Only two connections exist: job → holding, and holding → holding across different accounts.           | Matches the legacy's rules, but as typed refusals with reasons rather than silent no-ops.                                                           |
-| 7.7 | Undo history lives in memory, not storage.                                                            | Undo fixes what you just did. Persisting it would cost a write per pointer move and let history drift from the saved diagram.                       |
-| 7.8 | Undo is per diagram, and edits that fire in runs merge into one step.                                 | Ctrl+Z should affect the diagram on screen. Without merging, one drag becomes an entry per pointer move and undo steps back a few pixels at a time. |
-| 7.9 | Deleting the last diagram leaves an empty one.                                                        | The document always needs an active diagram, so it can never end up with none.                                                                      |
+| ID   | Decision                                                                                              | Rationale                                                                                                                                                                                                                                                                   |
+| ---- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.1  | Fees belong to holdings only; accounts charge nothing.                                                | An account is never an endpoint of a flow, so it cannot charge one. The legacy's account-fee code was unreachable.                                                                                                                                                          |
+| 7.2  | A transfer takes the source's out-fee, then the destination's in-fee, each on the **running** amount. | 1000 at 10% and 10% nets 810, not 800; a flat 50 then 10% nets 855, where the reverse order gives 850.                                                                                                                                                                      |
+| 7.3  | Assets never convert. Each code totals on its own.                                                    | The diagram records what is held, not what it would be worth in something else.                                                                                                                                                                                             |
+| 7.4  | A source may not commit more than it holds; when it does, all its flows leave the in-transit total.   | Ported from the legacy. Checked per asset for a job, since a job holds several.                                                                                                                                                                                             |
+| 7.5  | A switched-off holding keeps its amount but leaves the canvas, the totals and its flows.              | One idea of "out of play", so the drawing and the numbers cannot disagree about it.                                                                                                                                                                                         |
+| 7.6  | Only two connections exist: job → holding, and holding → holding across different accounts.           | Matches the legacy's rules, but as typed refusals with reasons rather than silent no-ops.                                                                                                                                                                                   |
+| 7.7  | Undo history lives in memory, not storage.                                                            | Undo fixes what you just did. Persisting it would cost a write per pointer move and let history drift from the saved diagram.                                                                                                                                               |
+| 7.8  | Undo is per diagram, and edits that fire in runs merge into one step.                                 | Ctrl+Z should affect the diagram on screen. Without merging, one drag becomes an entry per pointer move and undo steps back a few pixels at a time.                                                                                                                         |
+| 7.9  | Deleting the last diagram leaves an empty one.                                                        | The document always needs an active diagram, so it can never end up with none.                                                                                                                                                                                              |
+| 7.10 | The camera lives in memory, one per diagram, and is never stored.                                     | Departs from the legacy, which kept `{panX, panY, zoom}` per tab. Persisting costs a write per wheel notch and per pan frame, and puts view state in a document that otherwise holds only money. `Fit` and `100%` buy back what persistence was for. Same reasoning as 7.7. |
+| 7.11 | The canvas moves by transform, not by scroll.                                                         | Pan must reach past the content in every direction, and the minimap's frame has to be the same numbers the canvas transform uses. A scroll box only travels right and down from the origin, and would leave two things deciding what is on screen.                          |
+| 7.12 | The canvas is clipped, not hidden.                                                                    | A hidden box is still a scroll container, and the browser scrolls one to reveal a focused child — pressing a zoom button shoved the diagram out of view behind the camera's back. A clipped box cannot scroll, so the camera is the only thing that moves the world.        |
 
 ### Superseded decisions
 
@@ -499,3 +504,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-05 | Finance core (#14): cash-flow canvas on a new domain model, recorded in ADR 0001. First ADR in the repository.      |
 | 2026-08-06 | Finance core merged (#15). Step 5 complete apart from the pieces deferred by agreement.                             |
 | 2026-08-06 | Finance undo/redo and multiple diagrams merged (#18). Both landed as additions, so ADR 0001 held.                   |
+| 2026-08-06 | Finance canvas camera (#20): zoom, pan and minimap on one transform, held in memory per diagram.                    |

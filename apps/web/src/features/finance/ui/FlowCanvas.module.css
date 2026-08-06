@@ -1,24 +1,36 @@
+/*
+ * A window onto the diagram rather than a scroll box: the content is moved by
+ * the camera transform, so what leaves the window is clipped, not scrolled to.
+ * The dot grid is positioned and sized inline, travelling with the camera.
+ */
 .viewport {
   position: relative;
-  overflow: auto;
+  /*
+   * `clip`, not `hidden`. A hidden box is still a scroll container, and the
+   * browser scrolls one to reveal a focused child — pressing a zoom button
+   * shoved the whole diagram out of view, and the camera had no idea. A clipped
+   * box cannot scroll at all, so the camera is the only thing that moves it.
+   */
+  overflow: clip;
   min-height: 26rem;
   height: clamp(26rem, 58vh, 46rem);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1px) 0 0 / 26px 26px,
-    var(--color-bg-2);
+  background-color: var(--color-bg-2);
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-repeat: repeat;
+  cursor: grab;
+  /* The canvas owns the gesture; the page must not scroll or zoom under it. */
+  touch-action: none;
 }
 
-/*
- * Sized to the content so the viewport scrolls to reach far nodes, but never
- * smaller than the viewport itself — otherwise an empty diagram would squeeze
- * its own placeholder into a corner.
- */
+.panning {
+  cursor: grabbing;
+}
+
+/* The world. Sized to its content and placed entirely by the camera. */
 .surface {
   position: relative;
-  min-width: 100%;
-  min-height: 100%;
   transform-origin: 0 0;
 }
 
@@ -102,4 +114,49 @@
 .emptyTitle {
   color: var(--color-text);
   font-weight: 700;
+}
+
+/* Camera controls. Chrome over the window, so the camera never moves them. */
+.controls {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.control,
+.zoomLevel {
+  border: 0;
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.control:hover,
+.zoomLevel:hover {
+  background: var(--color-surface-soft);
+}
+
+.control:focus-visible,
+.zoomLevel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* Reads as a value rather than a button until you need it to be one. */
+.zoomLevel {
+  min-width: 3.6rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }

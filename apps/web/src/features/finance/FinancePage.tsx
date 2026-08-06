@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
+import { describeRestoreError } from '@/features/finance/lib/backup';
 import { formatAmount } from '@/features/finance/lib/format';
 import { NODE_SIZE } from '@/features/finance/lib/geometry';
 import { describeConnectError } from '@/features/finance/lib/operations';
@@ -11,6 +12,7 @@ import {
   type AssetTotal,
 } from '@/features/finance/lib/summary';
 import type { Anchor, NodeId, Point } from '@/features/finance/model/types';
+import { BackupControls } from '@/features/finance/ui/BackupControls';
 import { DiagramTabs } from '@/features/finance/ui/DiagramTabs';
 import { FlowCanvas, type Selection } from '@/features/finance/ui/FlowCanvas';
 import {
@@ -180,24 +182,39 @@ export function FinancePage() {
         titleId="finance-title"
       />
 
-      <DiagramTabs
-        diagrams={finance.diagrams}
-        activeId={finance.activeDiagramId}
-        onSelect={(id) => {
-          setSelection(null);
-          void finance.selectDiagram(id);
-        }}
-        onAdd={() => {
-          setSelection(null);
-          void finance.addDiagram();
-        }}
-        onDuplicate={(id) => void finance.duplicateDiagram(id)}
-        onRename={(id, name) => void finance.renameDiagram(id, name)}
-        onDelete={(id) => {
-          setSelection(null);
-          void finance.deleteDiagram(id);
-        }}
-      />
+      {/* Both act on the document rather than on one diagram, so they share a row. */}
+      <div className={styles.documentBar}>
+        <DiagramTabs
+          diagrams={finance.diagrams}
+          activeId={finance.activeDiagramId}
+          onSelect={(id) => {
+            setSelection(null);
+            void finance.selectDiagram(id);
+          }}
+          onAdd={() => {
+            setSelection(null);
+            void finance.addDiagram();
+          }}
+          onDuplicate={(id) => void finance.duplicateDiagram(id)}
+          onRename={(id, name) => void finance.renameDiagram(id, name)}
+          onDelete={(id) => {
+            setSelection(null);
+            void finance.deleteDiagram(id);
+          }}
+        />
+
+        <BackupControls
+          document={finance.document}
+          onRestore={async (text) => {
+            setMessage(null);
+            setSelection(null);
+            stopConnecting();
+            setFrameMode(false);
+            const result = await finance.restore(text);
+            return result.ok ? null : describeRestoreError(result.error);
+          }}
+        />
+      </div>
 
       <Panel>
         <div className={styles.toolbar}>

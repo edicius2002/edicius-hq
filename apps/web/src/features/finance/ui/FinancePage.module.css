@@ -4,6 +4,19 @@
   width: 100%;
 }
 
+/*
+ * The diagram tabs and the backup controls: both act on the whole document
+ * rather than on one diagram, which is why they share a row and sit apart from
+ * the editing toolbar underneath.
+ */
+.documentBar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;

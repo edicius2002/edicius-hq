@@ -15,3 +15,20 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
 }
+
+/**
+ * jsdom's Blob has no `text()`, which the Finance backup uses to read a chosen
+ * file. Filled in with the FileReader jsdom does have, rather than making the
+ * product carry a workaround for a gap only this environment has — every
+ * browser it targets has had `Blob.text` for years.
+ */
+if (typeof Blob !== 'undefined' && typeof Blob.prototype.text !== 'function') {
+  Blob.prototype.text = function text(this: Blob) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(this);
+    });
+  };
+}

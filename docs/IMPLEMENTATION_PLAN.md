@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Greenlight complete; Finance not started.
+> **Status:** Finance core in progress on `feat/finance` ([#14](https://github.com/edicius2002/edicius-hq/issues/14)).
 > **Last updated:** 2026-08-05
 > **Review status:** Greenlight merged ([#12](https://github.com/edicius2002/edicius-hq/pull/12)).
 > **Phase closure:** Delivery steps 0–4 complete.
-> **Next delivery:** Finance.
+> **Next delivery:** Finish the Finance core, then its deferred pieces.
 
 ---
 
@@ -145,7 +145,7 @@ Desktop-first web suite for personal finance and markets. Medium-term: cloud dep
 | ------------- | ---------------- | ---------------------- | --------------------------------------- |
 | `/`           | Redirect         | → `/dashboard`         | —                                       |
 | `/dashboard`  | `DashboardPage`  | Title + “Coming soon.” | Optional hub widgets                    |
-| `/finance`    | `FinancePage`    | Title + “Coming soon.” | Flow diagram (FIN-*)                    |
+| `/finance`    | `FinancePage`    | Title + “Coming soon.” | Flow diagram (FIN-\*) — **built**       |
 | `/greenlight` | `GreenlightPage` | Title + “Coming soon.” | CSV weekly analytics (GL-*) — **built** |
 | `/investing`  | `InvestingPage`  | Title + “Coming soon.” | Markets + Pulse panels (INV-_, PULSE-_) |
 | `*`           | `NotFoundPage`   | —                      | —                                       |
@@ -351,7 +351,24 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Adapted to UI foundation primitives / dark tokens
 - [x] PR linked to Greenlight issue — [#12](https://github.com/edicius2002/edicius-hq/pull/12)
 
-### 5+ — Feature phases
+### 5 — Finance
+
+**Status:** Core in progress — issue [#14](https://github.com/edicius2002/edicius-hq/issues/14), branch `feat/finance`. Domain model recorded in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md).
+
+- [x] Replace Coming soon on `/finance`
+- [x] Jobs, accounts and holdings, created, edited, dragged and deleted
+- [x] Flows drawn between holdings, with the connection rules as typed refusals
+- [x] Fee chain: source out-fee then destination in-fee, each on the running amount
+- [x] Available and In transit totals, no currency ever added to another
+- [x] Account view: what its active holdings have left, plus in/out operation counts
+- [x] Ownership drawn on the canvas as a tether, derived rather than stored
+- [x] Persist via `shared/storage` key `finance`, in a shape that leaves room for more diagrams
+- [x] Domain tested without React: document, fees, summary, transitions, geometry
+- [ ] PR linked to the Finance issue
+
+**Deferred to their own issues:** frames, zoom, pan, minimap, undo/redo, multiple diagrams, backup and restore.
+
+### 6+ — Feature phases
 
 Follow the delivery sequence table. Expand INV-* IDs when the Investing phase starts.
 
@@ -438,6 +455,19 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | 6.8 | Greenlight storage writes are serialized, and a failed read blocks writing instead of saving empty.   | Read-modify-write on one document: overlapping writes dropped edits, and a failed read wiped stored data. |
 | 6.9 | Segment length is reported in **calendar weeks**, not payment dates.                                  | A week can carry several payment dates, so counting dates overstated the period.                          |
 
+### 7. Finance
+
+Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md); this table records the product rules.
+
+| ID  | Decision                                                                                              | Rationale                                                                                                          |
+| --- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 7.1 | Fees belong to holdings only; accounts charge nothing.                                                | An account is never an endpoint of a flow, so it cannot charge one. The legacy's account-fee code was unreachable. |
+| 7.2 | A transfer takes the source's out-fee, then the destination's in-fee, each on the **running** amount. | 1000 at 10% and 10% nets 810, not 800; a flat 50 then 10% nets 855, where the reverse order gives 850.             |
+| 7.3 | Assets never convert. Each code totals on its own.                                                    | The diagram records what is held, not what it would be worth in something else.                                    |
+| 7.4 | A source may not commit more than it holds; when it does, all its flows leave the in-transit total.   | Ported from the legacy. Checked per asset for a job, since a job holds several.                                    |
+| 7.5 | A switched-off holding keeps its amount but leaves the canvas, the totals and its flows.              | One idea of "out of play", so the drawing and the numbers cannot disagree about it.                                |
+| 7.6 | Only two connections exist: job → holding, and holding → holding across different accounts.           | Matches the legacy's rules, but as typed refusals with reasons rather than silent no-ops.                          |
+
 ### Superseded decisions
 
 | ID  | Change                                                             | When       |
@@ -461,3 +491,4 @@ Follow the delivery sequence table. Expand INV-* IDs when the Investing phase st
 | 2026-08-05 | Greenlight MVP (#9): CSV weekly analytics on foundation UI.                                                         |
 | 2026-08-05 | Greenlight scope change (#9): dead sample data removed, task counting dropped, tool subscription widgets added.     |
 | 2026-08-05 | Greenlight merged (#12); step 4 complete. Next delivery is Finance.                                                 |
+| 2026-08-05 | Finance core (#14): cash-flow canvas on a new domain model, recorded in ADR 0001. First ADR in the repository.      |

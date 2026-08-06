@@ -102,7 +102,7 @@ describe('useGreenlightData storage sync', () => {
 
     await expect(
       result.current.toggleWidget({ monthKey: '2026-05', tool: 'vscode' }),
-    ).rejects.toThrow(/could not be loaded/i);
+    ).rejects.toThrow(/could not load/i);
 
     expect(api.writes).toHaveLength(0);
   });

@@ -1,0 +1,125 @@
+.node {
+  position: absolute;
+  display: grid;
+  align-content: center;
+  gap: 0.2rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--node-color);
+  border-radius: 10px;
+  background: var(--node-bg);
+  box-shadow: 0 6px 18px var(--color-shadow);
+  cursor: grab;
+  text-align: center;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.node:active {
+  cursor: grabbing;
+}
+
+.node:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.selected {
+  box-shadow:
+    0 0 0 2px var(--node-color),
+    0 6px 18px var(--color-shadow);
+}
+
+/* Dimmed while picking the other end of a connection. */
+.connectable {
+  border-style: dashed;
+}
+
+.connectSource {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 6px 18px var(--color-shadow);
+}
+
+.kind {
+  color: var(--node-color);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/*
+ * min-height is a backstop: a grid row with nothing to stop it collapses to zero
+ * when the box runs short, which hides the name instead of overflowing it. With
+ * this, an undersized box shows visibly rather than silently dropping content.
+ */
+.name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  min-height: 1.15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amount {
+  color: var(--color-income);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--color-muted);
+  font-size: 0.68rem;
+}
+
+.balances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
+  justify-content: center;
+}
+
+.balance {
+  color: var(--color-muted);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance strong {
+  color: var(--color-text);
+}
+
+.fees {
+  color: var(--color-expense);
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Arrows in, arrows out — how much traffic this account has seen. */
+.operations {
+  color: var(--color-muted);
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* Anchors only appear while connecting, so they never sit in the way of a drag. */
+.anchor {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid var(--color-accent);
+  border-radius: 50%;
+  background: var(--color-surface);
+  cursor: crosshair;
+  transform: translate(-50%, -50%);
+}
+
+.anchor:hover,
+.anchor:focus-visible {
+  background: var(--color-accent);
+  outline: none;
+}

@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance core in progress on `feat/finance` ([#14](https://github.com/edicius2002/edicius-hq/issues/14)).
-> **Last updated:** 2026-08-05
-> **Review status:** Greenlight merged ([#12](https://github.com/edicius2002/edicius-hq/pull/12)).
-> **Phase closure:** Delivery steps 0–4 complete.
-> **Next delivery:** Finish the Finance core, then its deferred pieces.
+> **Status:** Finance core complete; its deferred pieces and Investing not started.
+> **Last updated:** 2026-08-06
+> **Review status:** Finance core merged ([#15](https://github.com/edicius2002/edicius-hq/pull/15)).
+> **Phase closure:** Delivery steps 0–5 complete, minus the Finance pieces deferred by agreement.
+> **Next delivery:** The deferred Finance pieces, then Investing.
 
 ---
 
@@ -353,7 +353,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 5 — Finance
 
-**Status:** Core in progress — issue [#14](https://github.com/edicius2002/edicius-hq/issues/14), branch `feat/finance`. Domain model recorded in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md).
+**Status:** Core complete — [#14](https://github.com/edicius2002/edicius-hq/issues/14) / [#15](https://github.com/edicius2002/edicius-hq/pull/15). Domain model recorded in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md).
 
 - [x] Replace Coming soon on `/finance`
 - [x] Jobs, accounts and holdings, created, edited, dragged and deleted
@@ -364,9 +364,9 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Ownership drawn on the canvas as a tether, derived rather than stored
 - [x] Persist via `shared/storage` key `finance`, in a shape that leaves room for more diagrams
 - [x] Domain tested without React: document, fees, summary, transitions, geometry
-- [ ] PR linked to the Finance issue
+- [x] PR linked to the Finance issue — [#15](https://github.com/edicius2002/edicius-hq/pull/15)
 
-**Deferred to their own issues:** frames, zoom, pan, minimap, undo/redo, multiple diagrams, backup and restore.
+**Deferred to their own issues, not yet opened:** frames, zoom, pan, minimap, undo/redo, multiple diagrams, backup and restore. The stored document already holds a diagram collection with a single entry, so tabs arrive as an append rather than a migration.
 
 ### 6+ — Feature phases
 
@@ -492,3 +492,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-05 | Greenlight scope change (#9): dead sample data removed, task counting dropped, tool subscription widgets added.     |
 | 2026-08-05 | Greenlight merged (#12); step 4 complete. Next delivery is Finance.                                                 |
 | 2026-08-05 | Finance core (#14): cash-flow canvas on a new domain model, recorded in ADR 0001. First ADR in the repository.      |
+| 2026-08-06 | Finance core merged (#15). Step 5 complete apart from the pieces deferred by agreement.                             |

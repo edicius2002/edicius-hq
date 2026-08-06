@@ -1,8 +1,8 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance undo/redo and multiple diagrams in progress on `feat/finance-history` ([#17](https://github.com/edicius2002/edicius-hq/issues/17)).
+> **Status:** Finance delivered, core plus undo/redo and multiple diagrams; Investing not started.
 > **Last updated:** 2026-08-06
-> **Review status:** Finance core merged ([#15](https://github.com/edicius2002/edicius-hq/pull/15)).
+> **Review status:** Finance undo/redo and multiple diagrams merged ([#18](https://github.com/edicius2002/edicius-hq/pull/18)).
 > **Phase closure:** Delivery steps 0–5 complete, minus the Finance pieces deferred by agreement.
 > **Next delivery:** The remaining deferred Finance pieces, then Investing.
 
@@ -366,7 +366,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Domain tested without React: document, fees, summary, transitions, geometry
 - [x] PR linked to the Finance issue — [#15](https://github.com/edicius2002/edicius-hq/pull/15)
 
-**Follow-up, delivered:** undo/redo and multiple diagrams — [#17](https://github.com/edicius2002/edicius-hq/issues/17). Both landed without changing the persisted shape or rewriting anything, which is what ADR 0001 was betting on.
+**Follow-up, delivered:** undo/redo and multiple diagrams — [#17](https://github.com/edicius2002/edicius-hq/issues/17) / [#18](https://github.com/edicius2002/edicius-hq/pull/18). Both landed without changing the persisted shape or rewriting anything, which is what ADR 0001 was betting on.
 
 **Still deferred, no issues opened yet:** frames, zoom, pan, minimap, backup and restore.
 
@@ -498,4 +498,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-05 | Greenlight merged (#12); step 4 complete. Next delivery is Finance.                                                 |
 | 2026-08-05 | Finance core (#14): cash-flow canvas on a new domain model, recorded in ADR 0001. First ADR in the repository.      |
 | 2026-08-06 | Finance core merged (#15). Step 5 complete apart from the pieces deferred by agreement.                             |
-| 2026-08-06 | Finance undo/redo and multiple diagrams (#17). Both landed as additions, so ADR 0001 held.                          |
+| 2026-08-06 | Finance undo/redo and multiple diagrams merged (#18). Both landed as additions, so ADR 0001 held.                   |

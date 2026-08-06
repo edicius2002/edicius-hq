@@ -197,6 +197,44 @@ describe('selectInTransit', () => {
     expect(selectInTransit(model)).toEqual([{ asset: 'USD', amount: 100 }]);
   });
 
+  it('ignores a flow whose destination is switched off', () => {
+    const model = diagram(
+      [
+        account('a1'),
+        holding('h1', 'a1', 'USD', 1000),
+        account('a2'),
+        holding('h2', 'a2', 'USD', 0, { active: false }),
+      ],
+      [flow('f1', 'h1', 'h2', 'USD', 500)],
+    );
+    // Nothing can arrive at a holding that is out of play.
+    expect(selectInTransit(model)).toEqual([]);
+  });
+
+  it('ignores a flow whose source is switched off', () => {
+    const model = diagram(
+      [
+        account('a1'),
+        holding('h1', 'a1', 'USD', 1000, { active: false }),
+        account('a2'),
+        holding('h2', 'a2', 'USD', 0),
+      ],
+      [flow('f1', 'h1', 'h2', 'USD', 500)],
+    );
+    expect(selectInTransit(model)).toEqual([]);
+  });
+
+  it('counts the flow again once the holding comes back', () => {
+    const nodes = [
+      account('a1'),
+      holding('h1', 'a1', 'USD', 1000),
+      account('a2'),
+      holding('h2', 'a2', 'USD', 0),
+    ];
+    const flows = [flow('f1', 'h1', 'h2', 'USD', 500)];
+    expect(selectInTransit(diagram(nodes, flows))).toEqual([{ asset: 'USD', amount: 500 }]);
+  });
+
   it('checks a job source per asset rather than in total', () => {
     const model = diagram(
       [

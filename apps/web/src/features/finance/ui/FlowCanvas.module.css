@@ -37,6 +37,19 @@
   cursor: pointer;
 }
 
+/*
+ * The tether from an account to what it holds. Thin, dashed and grey, with no
+ * arrowhead: nothing moves along it, so it must not read like the solid arrows
+ * that carry money.
+ */
+.ownership {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.45);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
 .edgeSelected {
   stroke: var(--color-accent);
   stroke-width: 3;

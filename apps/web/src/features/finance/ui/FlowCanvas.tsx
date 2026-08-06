@@ -4,11 +4,12 @@ import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees'
 import {
   anchorPoint,
   contentBounds,
+  facingAnchors,
   flowLabelPoint,
   flowPath,
 } from '@/features/finance/lib/geometry';
 import { formatAmount, formatAssetAmount } from '@/features/finance/lib/format';
-import { selectAccountSummary } from '@/features/finance/lib/summary';
+import { isFlowActive, selectAccountSummary } from '@/features/finance/lib/summary';
 import type {
   Anchor,
   Diagram,
@@ -53,9 +54,35 @@ export function FlowCanvas({
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
 
-  const nodes = diagram.nodeOrder.map((id) => diagram.nodes[id]).filter(Boolean);
-  const flows = diagram.flowOrder.map((id) => diagram.flows[id]).filter(Boolean);
+  // A switched-off holding keeps its amount but leaves the canvas.
+  const nodes = diagram.nodeOrder
+    .map((id) => diagram.nodes[id])
+    .filter((node) => node && (node.kind !== 'holding' || node.active));
+  // Drawing a flow to a node that is not on the canvas would leave an arrow
+  // pointing at nothing, so dormant ends hide their flows too.
+  const flows = diagram.flowOrder
+    .map((id) => diagram.flows[id])
+    .filter((flow) => flow && isFlowActive(diagram, flow));
   const bounds = contentBounds(nodes);
+
+  /**
+   * Ownership is a field on the holding, not an edge, so these tethers are
+   * derived at draw time rather than stored — see ADR 0001.
+   */
+  const ownership = nodes.flatMap((node) => {
+    if (node.kind !== 'holding') return [];
+    const account = diagram.nodes[node.accountId];
+    if (account?.kind !== 'account') return [];
+    const anchors = facingAnchors(account, node);
+    return [
+      {
+        id: node.id,
+        from: anchorPoint(account, anchors.from),
+        to: anchorPoint(node, anchors.to),
+        anchors,
+      },
+    ];
+  });
 
   /** Pointer position in canvas coordinates, independent of scroll. */
   const toCanvas = useCallback((event: PointerEvent): Point => {
@@ -114,6 +141,16 @@ export function FlowCanvas({
               <polygon points="0 0, 8 4, 0 8" fill="rgba(253, 186, 116, 0.9)" />
             </marker>
           </defs>
+
+          {/* Drawn first so real money flows sit on top of the tethers. */}
+          {ownership.map((link) => (
+            <path
+              key={`own-${link.id}`}
+              className={styles.ownership}
+              d={flowPath(link.from, link.to, link.anchors.from, link.anchors.to)}
+            />
+          ))}
+
           {flows.map((flow) => {
             const source = diagram.nodes[flow.from];
             const target = diagram.nodes[flow.to];

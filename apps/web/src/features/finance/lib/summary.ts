@@ -105,6 +105,18 @@ export function selectAvailable(diagram: Diagram): AssetTotal[] {
   return toAssetTotals(totals);
 }
 
+/** A switched-off holding is out of play, so nothing can move to or from it. */
+function isDormant(node: FinanceNode | undefined): boolean {
+  return node?.kind === 'holding' && !node.active;
+}
+
+/** Whether a flow is live: both ends present and switched on. */
+export function isFlowActive(diagram: Diagram, flow: Flow): boolean {
+  const source = diagram.nodes[flow.from];
+  const target = diagram.nodes[flow.to];
+  return Boolean(source) && Boolean(target) && !isDormant(source) && !isDormant(target);
+}
+
 /** What is mid-flight: the net of every flow that still carries value after fees. */
 export function selectInTransit(diagram: Diagram): AssetTotal[] {
   const totals = new Map<AssetCode, number>();
@@ -112,6 +124,7 @@ export function selectInTransit(diagram: Diagram): AssetTotal[] {
   for (const flow of listFlows(diagram)) {
     const gross = grossOf(flow);
     if (gross <= 0) continue;
+    if (!isFlowActive(diagram, flow)) continue;
 
     const source = diagram.nodes[flow.from];
     const target = diagram.nodes[flow.to];

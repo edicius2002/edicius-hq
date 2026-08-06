@@ -1,5 +1,219 @@
-import { ComingSoonPage } from '@/shared/ui/ComingSoonPage';
+import { useMemo, useState } from 'react';
+
+import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
+import { formatAmount } from '@/features/finance/lib/format';
+import { NODE_SIZE } from '@/features/finance/lib/geometry';
+import { describeConnectError } from '@/features/finance/lib/operations';
+import {
+  selectAvailable,
+  selectHoldingsOfAccount,
+  selectInTransit,
+  type AssetTotal,
+} from '@/features/finance/lib/summary';
+import type { Anchor, NodeId, Point } from '@/features/finance/model/types';
+import { FlowCanvas, type Selection } from '@/features/finance/ui/FlowCanvas';
+import {
+  PropertiesPanel,
+  type PropertiesPanelActions,
+} from '@/features/finance/ui/PropertiesPanel';
+import { Button } from '@/shared/ui/Button';
+import { PageHeader } from '@/shared/ui/PageHeader';
+import { Panel } from '@/shared/ui/Panel';
+
+import styles from './ui/FinancePage.module.css';
+
+/**
+ * Jobs and accounts sit on a wide grid; each row leaves room underneath for the
+ * holdings its accounts will grow, so nothing lands on top of anything else.
+ */
+function nextPosition(topLevelCount: number) {
+  return { x: 80 + (topLevelCount % 4) * 260, y: 60 + Math.floor(topLevelCount / 4) * 420 };
+}
+
+/** Holdings stack below their own account rather than beside it, clear of each other. */
+function holdingPosition(accountPosition: Point, siblings: number) {
+  const step = NODE_SIZE.holding.height + 12;
+  return {
+    x: accountPosition.x,
+    y: accountPosition.y + NODE_SIZE.account.height + 32 + siblings * step,
+  };
+}
 
 export function FinancePage() {
-  return <ComingSoonPage title="Finance" />;
+  const finance = useFinanceData();
+  const { diagram } = finance;
+
+  const [selection, setSelection] = useState<Selection>(null);
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectFrom, setConnectFrom] = useState<{ nodeId: NodeId; anchor: Anchor } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const available = useMemo(() => selectAvailable(diagram), [diagram]);
+  const inTransit = useMemo(() => selectInTransit(diagram), [diagram]);
+  // Holdings are placed relative to their account, so they do not shift this grid.
+  const topLevelCount = diagram.nodeOrder.filter(
+    (id) => diagram.nodes[id]?.kind !== 'holding',
+  ).length;
+
+  function stopConnecting() {
+    setConnectMode(false);
+    setConnectFrom(null);
+  }
+
+  async function handleAnchorClick(nodeId: NodeId, anchor: Anchor) {
+    setMessage(null);
+
+    if (!connectFrom) {
+      setConnectFrom({ nodeId, anchor });
+      return;
+    }
+
+    // Clicking the source again backs out of the pick.
+    if (connectFrom.nodeId === nodeId) {
+      setConnectFrom(null);
+      return;
+    }
+
+    const result = await finance.connect({
+      from: connectFrom.nodeId,
+      to: nodeId,
+      fromAnchor: connectFrom.anchor,
+      toAnchor: anchor,
+    });
+    stopConnecting();
+    if (!result.ok) setMessage(describeConnectError(result.error));
+  }
+
+  function handleDelete() {
+    if (!selection) return;
+    setMessage(null);
+    if (selection.type === 'node') void finance.deleteNode(selection.id);
+    else void finance.deleteFlow(selection.id);
+    setSelection(null);
+  }
+
+  const panelActions: PropertiesPanelActions = {
+    renameNode: (id, name) => void finance.renameNode(id, name),
+    setNotes: (id, notes) => void finance.setNotes(id, notes),
+    addJobAsset: (jobId, asset) => void finance.addJobAsset(jobId, asset),
+    setJobBalance: (jobId, asset, amount) => void finance.setJobBalance(jobId, asset, amount),
+    setJobAssetActive: (jobId, asset, active) =>
+      void finance.setJobAssetActive(jobId, asset, active),
+    addHolding: async (accountId, asset) => {
+      setMessage(null);
+      const account = diagram.nodes[accountId];
+      const base = account?.position ?? { x: 0, y: 0 };
+      const siblings = selectHoldingsOfAccount(diagram, accountId).length;
+      const result = await finance.addHolding(accountId, asset, holdingPosition(base, siblings));
+      if (!result.ok) {
+        setMessage(
+          result.error.code === 'asset-already-held'
+            ? `This account already holds ${result.error.asset}.`
+            : 'That account no longer exists.',
+        );
+      }
+    },
+    updateHolding: (id, patch) => void finance.updateHolding(id, patch),
+    updateFlow: (id, patch) => void finance.updateFlow(id, patch),
+  };
+
+  const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
+  const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
+  const hint = !connectMode
+    ? 'Drag nodes to arrange them.'
+    : connectFrom
+      ? 'Now pick the anchor it flows into.'
+      : 'Pick the anchor the money leaves from.';
+
+  return (
+    <section className={styles.page} aria-labelledby="finance-title">
+      <PageHeader
+        title="Finance"
+        subtitle="Map where money comes from, where it sits, and where it moves."
+        titleId="finance-title"
+      />
+
+      <Panel>
+        <div className={styles.toolbar}>
+          <div className={styles.toolGroup}>
+            <Button onClick={() => void finance.addJob(nextPosition(topLevelCount))}>
+              Add job
+            </Button>
+            <Button onClick={() => void finance.addAccount(nextPosition(topLevelCount))}>
+              Add account
+            </Button>
+          </div>
+
+          <div className={styles.toolGroup}>
+            <Button
+              variant={connectMode ? 'primary' : 'secondary'}
+              onClick={() => {
+                setMessage(null);
+                if (connectMode) stopConnecting();
+                else setConnectMode(true);
+              }}
+            >
+              {connectMode ? 'Cancel connect' : 'Connect'}
+            </Button>
+            <Button variant="danger" disabled={!selection} onClick={handleDelete}>
+              Delete
+            </Button>
+          </div>
+
+          <span className={`${styles.hint} ${styles.spacer}`}>{hint}</span>
+          <span className={styles.status}>{status}</span>
+        </div>
+
+        {/* Sits with the actions that caused it, and only when there is one. */}
+        {problem ? (
+          <p className={styles.error} role="alert">
+            {problem}
+          </p>
+        ) : null}
+      </Panel>
+
+      <div className={styles.workspace}>
+        <FlowCanvas
+          diagram={diagram}
+          selection={selection}
+          connectMode={connectMode}
+          connectFrom={connectFrom}
+          onSelect={setSelection}
+          onMoveNode={(id, position) => void finance.moveNode(id, position)}
+          onAnchorClick={(nodeId, anchor) => void handleAnchorClick(nodeId, anchor)}
+        />
+
+        <div className={styles.side}>
+          <Panel aria-label="Selected item">
+            <PropertiesPanel diagram={diagram} selection={selection} actions={panelActions} />
+          </Panel>
+
+          <Panel className={styles.summary} aria-label="Diagram totals">
+            <SummarySection title="Available" totals={available} />
+            <SummarySection title="In transit" totals={inTransit} />
+          </Panel>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SummarySection({ title, totals }: { title: string; totals: AssetTotal[] }) {
+  return (
+    <section className={styles.summarySection}>
+      <h2 className={styles.summaryTitle}>{title}</h2>
+      {totals.length ? (
+        <div className={styles.summaryItems}>
+          {totals.map((total) => (
+            <div key={total.asset} className={styles.summaryItem}>
+              <span className={styles.summaryAsset}>{total.asset}</span>
+              <span className={styles.summaryValue}>{formatAmount(total.amount)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className={styles.summaryEmpty}>Nothing yet.</p>
+      )}
+    </section>
+  );
 }

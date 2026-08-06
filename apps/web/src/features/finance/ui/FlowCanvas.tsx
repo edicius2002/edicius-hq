@@ -1,5 +1,20 @@
-import { useCallback, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 
+import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
+import { useElementSize } from '@/features/finance/hooks/useElementSize';
+import {
+  fitCamera,
+  IDENTITY_CAMERA,
+  centerOn,
+  screenToWorld,
+  unionRect,
+  visibleRect,
+  zoomAt,
+  WHEEL_STEP,
+  ZOOM_STEP,
+  type Camera,
+  type Rect,
+} from '@/features/finance/lib/camera';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import {
   anchorPoint,
@@ -19,8 +34,12 @@ import type {
   Point,
 } from '@/features/finance/model/types';
 
+import { CanvasMinimap } from './CanvasMinimap';
 import { FlowNode } from './FlowNode';
 import styles from './FlowCanvas.module.css';
+
+/** Spacing of the backdrop dots at 100%, so the grid scales with the camera. */
+const GRID = 26;
 
 export type Selection = { type: 'node' | 'flow'; id: string } | null;
 
@@ -42,6 +61,13 @@ type Drag = {
   grabOffset: Point;
 };
 
+/**
+ * A pan in progress. It keeps the camera it started from and applies the whole
+ * delta each move, rather than accumulating per-event ones, so a slow drag
+ * cannot round its way somewhere the pointer never went.
+ */
+type Pan = { pointerId: number; origin: Point; from: Camera };
+
 export function FlowCanvas({
   diagram,
   selection,
@@ -51,8 +77,11 @@ export function FlowCanvas({
   onMoveNode,
   onAnchorClick,
 }: FlowCanvasProps) {
+  const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const { camera, setCamera } = useDiagramCamera(diagram.id);
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [pan, setPan] = useState<Pan | null>(null);
 
   // A switched-off holding keeps its amount but leaves the canvas.
   const nodes = diagram.nodeOrder
@@ -63,7 +92,17 @@ export function FlowCanvas({
   const flows = diagram.flowOrder
     .map((id) => diagram.flows[id])
     .filter((flow) => flow && isFlowActive(diagram, flow));
+
   const bounds = contentBounds(nodes);
+  // Node positions are clamped at the origin, so the diagram always starts
+  // there and the drawn size is also the region to frame.
+  const content: Rect = { left: 0, top: 0, width: bounds.width, height: bounds.height };
+  /*
+   * The minimap covers the view as well as the diagram. Without that, a view
+   * wider than the content puts the frame outside the box and the map shows
+   * nothing about where you are; with it, panning away simply grows the map.
+   */
+  const mapped = unionRect(content, visibleRect(camera, viewportSize));
 
   /**
    * Ownership is a field on the holding, not an edge, so these tethers are
@@ -84,18 +123,52 @@ export function FlowCanvas({
     ];
   });
 
-  /** Pointer position in canvas coordinates, independent of scroll. */
-  const toCanvas = useCallback((event: PointerEvent): Point => {
-    const surface = surfaceRef.current;
-    if (!surface) return { x: 0, y: 0 };
-    const rect = surface.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  }, []);
+  /** Pointer position in viewport pixels, before the camera is undone. */
+  const toViewport = useCallback(
+    (event: { clientX: number; clientY: number }): Point => {
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return { x: 0, y: 0 };
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    },
+    [viewportRef],
+  );
+
+  /** Where the pointer is in the diagram, whatever the camera is doing. */
+  function toWorld(event: PointerEvent): Point {
+    return screenToWorld(camera, toViewport(event));
+  }
+
+  /*
+   * Bound by hand rather than through onWheel: React listens passively, and a
+   * passive listener cannot stop the page scrolling out from under the zoom.
+   */
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = element.getBoundingClientRect();
+      const pivot = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      setCamera((current) =>
+        zoomAt(current, event.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP, pivot),
+      );
+    };
+
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [setCamera, viewportRef]);
+
+  function zoomFromCentre(factor: number) {
+    setCamera((current) =>
+      zoomAt(current, factor, { x: viewportSize.width / 2, y: viewportSize.height / 2 }),
+    );
+  }
 
   function startDrag(nodeId: NodeId, event: PointerEvent<HTMLElement>) {
     const node = diagram.nodes[nodeId];
     if (!node) return;
-    const pointer = toCanvas(event);
+    const pointer = toWorld(event);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setDrag({
       nodeId,
@@ -104,36 +177,68 @@ export function FlowCanvas({
     });
   }
 
+  function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    // Only a press on bare canvas pans. Anything else — a node, a flow, the
+    // controls, the minimap — is doing its own thing with the pointer.
+    const onBackground =
+      event.target === event.currentTarget || event.target === surfaceRef.current;
+    if (!onBackground) return;
+
+    onSelect(null);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setPan({
+      pointerId: event.pointerId,
+      origin: { x: event.clientX, y: event.clientY },
+      from: camera,
+    });
+  }
+
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (pan && event.pointerId === pan.pointerId) {
+      setCamera({
+        ...pan.from,
+        x: pan.from.x + (event.clientX - pan.origin.x),
+        y: pan.from.y + (event.clientY - pan.origin.y),
+      });
+      return;
+    }
+
     if (!drag || event.pointerId !== drag.pointerId) return;
-    const pointer = toCanvas(event);
+    const pointer = toWorld(event);
     onMoveNode(drag.nodeId, {
       x: Math.max(0, Math.round(pointer.x - drag.grabOffset.x)),
       y: Math.max(0, Math.round(pointer.y - drag.grabOffset.y)),
     });
   }
 
-  function endDrag(event: PointerEvent<HTMLDivElement>) {
+  function endGesture(event: PointerEvent<HTMLDivElement>) {
     if (drag && event.pointerId === drag.pointerId) setDrag(null);
+    if (pan && event.pointerId === pan.pointerId) setPan(null);
   }
 
   return (
     <div
-      className={styles.viewport}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onPointerDown={(event) => {
-        // A press on empty canvas clears the selection.
-        if (event.target === event.currentTarget || event.target === surfaceRef.current) {
-          onSelect(null);
-        }
+      ref={viewportRef}
+      className={`${styles.viewport} ${pan ? styles.panning : ''}`}
+      style={{
+        // The backdrop travels and scales with the camera; a fixed grid under a
+        // moving diagram reads as the canvas standing still.
+        backgroundSize: `${GRID * camera.zoom}px ${GRID * camera.zoom}px`,
+        backgroundPosition: `${camera.x}px ${camera.y}px`,
       }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endGesture}
+      onPointerCancel={endGesture}
     >
       <div
         ref={surfaceRef}
         className={styles.surface}
-        style={{ width: bounds.width, height: bounds.height }}
+        style={{
+          width: bounds.width,
+          height: bounds.height,
+          transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
+        }}
       >
         <svg className={styles.edges} width={bounds.width} height={bounds.height}>
           <defs>
@@ -198,14 +303,61 @@ export function FlowCanvas({
             onAnchorClick={(anchor) => onAnchorClick(node.id, anchor)}
           />
         ))}
-
-        {!nodes.length ? (
-          <div className={styles.empty}>
-            <span className={styles.emptyTitle}>Nothing here yet</span>
-            <span>Add a job or an account to start mapping where money moves.</span>
-          </div>
-        ) : null}
       </div>
+
+      {/* Chrome, not diagram: it sits outside the surface so the camera cannot
+          shrink it or push it off screen. */}
+      {!nodes.length ? (
+        <div className={styles.empty}>
+          <span className={styles.emptyTitle}>Nothing here yet</span>
+          <span>Add a job or an account to start mapping where money moves.</span>
+        </div>
+      ) : null}
+
+      <div className={styles.controls}>
+        <button
+          type="button"
+          className={styles.control}
+          aria-label="Zoom out"
+          onClick={() => zoomFromCentre(1 / ZOOM_STEP)}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          className={styles.zoomLevel}
+          aria-label="Reset zoom to 100%"
+          onClick={() => setCamera(IDENTITY_CAMERA)}
+        >
+          {Math.round(camera.zoom * 100)}%
+        </button>
+        <button
+          type="button"
+          className={styles.control}
+          aria-label="Zoom in"
+          onClick={() => zoomFromCentre(ZOOM_STEP)}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className={styles.control}
+          aria-label="Fit the diagram in view"
+          onClick={() => setCamera(fitCamera(content, viewportSize))}
+        >
+          Fit
+        </button>
+      </div>
+
+      {nodes.length ? (
+        <CanvasMinimap
+          nodes={nodes}
+          world={mapped}
+          camera={camera}
+          viewport={viewportSize}
+          onMoveTo={(point) => setCamera((current) => centerOn(point, viewportSize, current.zoom))}
+        />
+      ) : null}
     </div>
   );
 }

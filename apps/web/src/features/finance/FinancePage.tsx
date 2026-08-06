@@ -162,7 +162,7 @@ export function FinancePage() {
   const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
   const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
   const hint = !connectMode
-    ? 'Drag nodes to arrange them.'
+    ? 'Drag nodes to arrange them, the canvas to move around, and scroll to zoom.'
     : connectFrom
       ? 'Now pick the anchor it flows into.'
       : 'Pick the anchor the money leaves from.';

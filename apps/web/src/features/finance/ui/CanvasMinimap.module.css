@@ -1,0 +1,33 @@
+/* Sized to the BOX constant in CanvasMinimap.tsx. */
+.minimap {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  width: 168px;
+  height: 112px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: rgba(24, 21, 18, 0.85);
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* The same three colours the nodes carry, so the map reads as the diagram. */
+.job {
+  fill: var(--color-accent);
+}
+
+.account {
+  fill: #60a5fa;
+}
+
+.holding {
+  fill: #94a3b8;
+}
+
+/* Outline only: it marks where you are looking without hiding what is under it. */
+.frame {
+  fill: rgba(255, 255, 255, 0.06);
+  stroke: var(--color-text);
+  stroke-width: 1;
+}

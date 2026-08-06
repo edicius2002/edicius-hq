@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
-import { addAccount, addJob } from '@/features/finance/lib/operations';
+import { addAccount, addFrame, addJob } from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
 
 import { FlowCanvas } from './FlowCanvas';
@@ -17,18 +17,23 @@ function populated(id = 'd1'): Diagram {
   return diagram;
 }
 
+function canvasProps() {
+  return {
+    selection: null,
+    connectMode: false,
+    connectFrom: null,
+    frameMode: false,
+    onSelect: vi.fn(),
+    onMoveNode: vi.fn(),
+    onAnchorClick: vi.fn(),
+    onCreateFrame: vi.fn(),
+    onMoveFrame: vi.fn(),
+    onResizeFrame: vi.fn(),
+  };
+}
+
 function renderCanvas(diagram: Diagram) {
-  return render(
-    <FlowCanvas
-      diagram={diagram}
-      selection={null}
-      connectMode={false}
-      connectFrom={null}
-      onSelect={vi.fn()}
-      onMoveNode={vi.fn()}
-      onAnchorClick={vi.fn()}
-    />,
-  );
+  return render(<FlowCanvas diagram={diagram} {...canvasProps()} />);
 }
 
 describe('camera controls', () => {
@@ -96,14 +101,7 @@ describe('per-diagram cameras', () => {
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('120%');
 
-    const props = {
-      selection: null,
-      connectMode: false,
-      connectFrom: null,
-      onSelect: vi.fn(),
-      onMoveNode: vi.fn(),
-      onAnchorClick: vi.fn(),
-    };
+    const props = canvasProps();
 
     // Switching to the other diagram shows its own camera, not the one left behind.
     rerender(<FlowCanvas diagram={second} {...props} />);
@@ -112,5 +110,57 @@ describe('per-diagram cameras', () => {
     // And coming back finds the first one where it was.
     rerender(<FlowCanvas diagram={first} {...props} />);
     expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('120%');
+  });
+});
+
+describe('frames', () => {
+  function framed(): Diagram {
+    let diagram = populated();
+    // Wide enough to enclose the job at 40,40 and nothing else.
+    diagram = addFrame(diagram, {
+      id: 'f1',
+      position: { x: 0, y: 0 },
+      size: { width: 320, height: 240 },
+      name: 'Savings',
+    });
+    return diagram;
+  }
+
+  it('draws the frame with its name and what it holds', () => {
+    renderCanvas(framed());
+    const frame = screen.getByLabelText('Frame Savings');
+    expect(frame).toBeInTheDocument();
+    expect(frame).toHaveTextContent('Savings');
+    expect(frame).toHaveTextContent('1 node');
+  });
+
+  it('counts nothing when the rectangle encloses nothing', () => {
+    const diagram = addFrame(populated(), {
+      id: 'f1',
+      position: { x: 4000, y: 4000 },
+      size: { width: 300, height: 300 },
+      name: 'Empty',
+    });
+    renderCanvas(diagram);
+    expect(screen.getByLabelText('Frame Empty')).toHaveTextContent('0 nodes');
+  });
+
+  it('puts the frame on the minimap', () => {
+    renderCanvas(framed());
+    // Two nodes and the frame; the view marker stays off until jsdom has a size.
+    expect(
+      screen.getByRole('img', { name: 'Diagram minimap' }).querySelectorAll('rect'),
+    ).toHaveLength(3);
+  });
+
+  it('shows a frame even on a diagram with no nodes left', () => {
+    const diagram = addFrame(createEmptyDiagram('bare'), {
+      id: 'f1',
+      position: { x: 0, y: 0 },
+      size: { width: 300, height: 300 },
+    });
+    renderCanvas(diagram);
+    expect(screen.getByLabelText('Frame Frame 1')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Diagram minimap' })).toBeInTheDocument();
   });
 });

@@ -1,6 +1,13 @@
-import type { Anchor, FinanceNode, NodeKind, Point } from '@/features/finance/model/types';
+import type {
+  Anchor,
+  FinanceNode,
+  NodeKind,
+  Point,
+  Rect,
+  Size,
+} from '@/features/finance/model/types';
 
-export type Size = { width: number; height: number };
+export type { Rect, Size };
 
 /**
  * Node footprints in canvas units. Kept here rather than read from the DOM so
@@ -114,17 +121,37 @@ export function facingAnchors(
   return dy >= 0 ? { from: 'b', to: 't' } : { from: 't', to: 'b' };
 }
 
-/** Bounds of everything on the canvas, used to size the scroll area. */
-export function contentBounds(
-  nodes: FinanceNode[],
-  padding = 160,
-): { width: number; height: number } {
-  let right = 0;
-  let bottom = 0;
+/**
+ * Everything the diagram reaches, with breathing room on all four sides.
+ *
+ * Measured in both directions rather than out from the origin: the canvas has no
+ * corner, so a node dragged above or to the left of where the first one landed
+ * is as much a part of the drawing as one dragged away from it. Fit and the
+ * minimap read this, and they would lose whatever fell on the negative side of
+ * an assumed origin.
+ */
+export function contentRect(nodes: FinanceNode[], padding = 160): Rect {
+  if (!nodes.length) {
+    return { left: 0, top: 0, width: padding * 2, height: padding * 2 };
+  }
+
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+
   for (const node of nodes) {
     const size = sizeOf(node);
+    left = Math.min(left, node.position.x);
+    top = Math.min(top, node.position.y);
     right = Math.max(right, node.position.x + size.width);
     bottom = Math.max(bottom, node.position.y + size.height);
   }
-  return { width: right + padding, height: bottom + padding };
+
+  return {
+    left: left - padding,
+    top: top - padding,
+    width: right - left + padding * 2,
+    height: bottom - top + padding * 2,
+  };
 }

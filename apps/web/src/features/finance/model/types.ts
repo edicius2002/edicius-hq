@@ -7,6 +7,11 @@ export type AssetCode = string;
 
 export type Point = { x: number; y: number };
 
+export type Size = { width: number; height: number };
+
+/** A region of the canvas: where it starts and how far it runs. */
+export type Rect = { left: number; top: number; width: number; height: number };
+
 export type FeeType = 'percent' | 'fixed';
 
 export type Fee = { value: number; type: FeeType };

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   anchorPoint,
   centerOf,
-  contentBounds,
+  contentRect,
   facingAnchors,
   flowLabelPoint,
   flowPath,
@@ -98,14 +98,35 @@ describe('flowLabelPoint', () => {
   });
 });
 
-describe('contentBounds', () => {
-  it('covers the furthest node plus breathing room', () => {
-    const bounds = contentBounds([account('a', 0, 0), account('b', 400, 300)], 100);
-    expect(bounds.width).toBe(400 + NODE_SIZE.account.width + 100);
-    expect(bounds.height).toBe(300 + NODE_SIZE.account.height + 100);
+describe('contentRect', () => {
+  const { width, height } = NODE_SIZE.account;
+
+  it('covers the furthest node plus breathing room on every side', () => {
+    const rect = contentRect([account('a', 0, 0), account('b', 400, 300)], 100);
+    expect(rect).toEqual({
+      left: -100,
+      top: -100,
+      width: 400 + width + 200,
+      height: 300 + height + 200,
+    });
   });
 
-  it('is just the padding when there is nothing to cover', () => {
-    expect(contentBounds([], 160)).toEqual({ width: 160, height: 160 });
+  it('reaches nodes that sit above and left of the origin', () => {
+    const rect = contentRect([account('a', -600, -400), account('b', 200, 100)], 100);
+    expect(rect.left).toBe(-700);
+    expect(rect.top).toBe(-500);
+    expect(rect.left + rect.width).toBe(200 + width + 100);
+    expect(rect.top + rect.height).toBe(100 + height + 100);
+  });
+
+  it('holds a diagram that is entirely on the negative side', () => {
+    const rect = contentRect([account('a', -1000, -1000)], 100);
+    expect(rect.left).toBe(-1100);
+    expect(rect.width).toBe(width + 200);
+    expect(rect.width).toBeGreaterThan(0);
+  });
+
+  it('is a padded square around the origin when there is nothing to cover', () => {
+    expect(contentRect([], 160)).toEqual({ left: 0, top: 0, width: 320, height: 320 });
   });
 });

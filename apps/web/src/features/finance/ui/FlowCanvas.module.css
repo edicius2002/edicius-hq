@@ -28,15 +28,19 @@
   cursor: grabbing;
 }
 
-/* The world. Sized to its content and placed entirely by the camera. */
+/*
+ * The world. A point rather than a box: it has no size, only a place, and
+ * everything inside sits at its own world coordinates — which may be negative,
+ * since the canvas has no corner.
+ */
 .surface {
   position: relative;
   transform-origin: 0 0;
 }
 
+/* Placed and sized inline to follow the content, wherever the content is. */
 .edges {
   position: absolute;
-  inset: 0;
   overflow: visible;
   pointer-events: none;
 }

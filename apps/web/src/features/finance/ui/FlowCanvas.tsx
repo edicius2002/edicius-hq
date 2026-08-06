@@ -13,12 +13,11 @@ import {
   WHEEL_STEP,
   ZOOM_STEP,
   type Camera,
-  type Rect,
 } from '@/features/finance/lib/camera';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import {
   anchorPoint,
-  contentBounds,
+  contentRect,
   facingAnchors,
   flowLabelPoint,
   flowPath,
@@ -93,10 +92,9 @@ export function FlowCanvas({
     .map((id) => diagram.flows[id])
     .filter((flow) => flow && isFlowActive(diagram, flow));
 
-  const bounds = contentBounds(nodes);
-  // Node positions are clamped at the origin, so the diagram always starts
-  // there and the drawn size is also the region to frame.
-  const content: Rect = { left: 0, top: 0, width: bounds.width, height: bounds.height };
+  // What the diagram reaches, in every direction. The canvas has no corner, so
+  // this is measured rather than assumed to start at the origin.
+  const content = contentRect(nodes);
   /*
    * The minimap covers the view as well as the diagram. Without that, a view
    * wider than the content puts the frame outside the box and the map shows
@@ -205,9 +203,10 @@ export function FlowCanvas({
 
     if (!drag || event.pointerId !== drag.pointerId) return;
     const pointer = toWorld(event);
+    // Nowhere is out of bounds. The node goes where the pointer took it.
     onMoveNode(drag.nodeId, {
-      x: Math.max(0, Math.round(pointer.x - drag.grabOffset.x)),
-      y: Math.max(0, Math.round(pointer.y - drag.grabOffset.y)),
+      x: Math.round(pointer.x - drag.grabOffset.x),
+      y: Math.round(pointer.y - drag.grabOffset.y),
     });
   }
 
@@ -231,16 +230,26 @@ export function FlowCanvas({
       onPointerUp={endGesture}
       onPointerCancel={endGesture}
     >
+      {/* The world. It carries no size of its own: it is the origin the camera
+          moves and everything inside it is placed in world coordinates, which
+          may be negative. */}
       <div
         ref={surfaceRef}
         className={styles.surface}
-        style={{
-          width: bounds.width,
-          height: bounds.height,
-          transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
-        }}
+        style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}
       >
-        <svg className={styles.edges} width={bounds.width} height={bounds.height}>
+        {/* Positioned and given a matching viewBox so paths keep using world
+            coordinates while the layer follows content that runs negative. */}
+        <svg
+          className={styles.edges}
+          style={{
+            left: content.left,
+            top: content.top,
+            width: content.width,
+            height: content.height,
+          }}
+          viewBox={`${content.left} ${content.top} ${content.width} ${content.height}`}
+        >
           <defs>
             <marker id="flowArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
               <polygon points="0 0, 8 4, 0 8" fill="rgba(253, 186, 116, 0.9)" />

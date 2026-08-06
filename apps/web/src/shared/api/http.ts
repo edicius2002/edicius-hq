@@ -16,12 +16,18 @@ type RequestOptions = {
   method?: 'GET' | 'PUT' | 'POST' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
+  /**
+   * Overrides the default deadline. Market requests need it: the API waits up
+   * to 12s on an upstream that is unofficial and sometimes slow, and giving up
+   * at 5s here would abort calls the server was about to answer.
+   */
+  timeoutMs?: number;
 };
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
-function composeAbortSignal(external?: AbortSignal): AbortSignal {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+function composeAbortSignal(external: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
   if (!external) return timeout;
   if (typeof AbortSignal.any === 'function') {
     return AbortSignal.any([external, timeout]);
@@ -52,7 +58,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     method: options.method ?? 'GET',
     headers,
     body,
-    signal: composeAbortSignal(options.signal),
+    signal: composeAbortSignal(options.signal, options.timeoutMs ?? REQUEST_TIMEOUT_MS),
   });
 
   if (response.status === 204) {

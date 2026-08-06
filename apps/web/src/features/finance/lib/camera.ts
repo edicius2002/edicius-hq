@@ -1,5 +1,6 @@
-import type { Size } from '@/features/finance/lib/geometry';
-import type { Point } from '@/features/finance/model/types';
+import type { Point, Rect, Size } from '@/features/finance/model/types';
+
+export type { Rect, Size };
 
 /**
  * Where the canvas is looking. `x` and `y` translate the world in viewport
@@ -14,9 +15,6 @@ import type { Point } from '@/features/finance/model/types';
  * It is deliberately not part of the stored document — see decision 7.10.
  */
 export type Camera = { x: number; y: number; zoom: number };
-
-/** A region of the world: where it starts and how far it runs. */
-export type Rect = { left: number; top: number; width: number; height: number };
 
 export const IDENTITY_CAMERA: Camera = { x: 0, y: 0, zoom: 1 };
 

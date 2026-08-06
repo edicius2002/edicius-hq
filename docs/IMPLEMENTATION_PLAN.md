@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance complete. Investing planned, not started.
+> **Status:** Finance complete. Investing under way — the data plane is in.
 > **Last updated:** 2026-08-06
-> **Review status:** Investing scope and decisions agreed; no code yet.
+> **Review status:** INV-01, the Investing data plane, in review ([#34](https://github.com/edicius2002/edicius-hq/issues/34)).
 > **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
-> **Next delivery:** INV-01, the Investing data plane. One issue per slice, written before its work.
+> **Next delivery:** INV-02, the chart. One issue per slice, written before its work.
 
 ---
 
@@ -378,7 +378,9 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 6 — Investing
 
-**Status:** Planned, not started. Scope agreed 2026-08-06; decisions in section 8.
+**Status:** Under way. Scope agreed 2026-08-06; decisions in section 8.
+
+- [x] INV-01 — data plane ([#34](https://github.com/edicius2002/edicius-hq/issues/34))
 
 The largest phase in the plan by a wide margin: the legacy carries roughly 14,000 lines of
 JavaScript across `js/investing/`, plus a Python backend of its own (`server.py`,
@@ -531,6 +533,8 @@ Agreed before the phase opens, so the slices inherit them rather than each re-de
 | 8.3 | Every provider sits behind an **adapter in the API**, and no component ever names one. | These are unofficial endpoints that can change without notice and already need cookie and crumb handling. Behind a typed contract, replacing a provider is rewriting one module; leaked into the frontend, it is rewriting the phase. Extends the existing rule that market UI talks only to `shared/api`.                                                                                          |
 | 8.4 | The server-side cache is load-bearing, not a nicety.                                   | It is what keeps request counts under the ceiling and what keeps the page alive when upstream misbehaves. Revisit at the cloud phase: requests then leave from one datacenter IP rather than a home connection, which is far likelier to be throttled — 8.1 is explicitly open for review at that point.                                                                                            |
 | 8.5 | A portfolio position is **not** a Finance holding, and the two are never unified.      | A holding is an amount you state; a position is a quantity whose value the market decides today. They look alike and behave nothing alike. Investing keeps its own store and its own types.                                                                                                                                                                                                         |
+| 8.7 | Quotes cache in memory, bars cache on disk, and both coalesce.                         | A quote is stale in seconds, so a disk write costs more than the fetch it saves; two years of daily candles is stable for hours and worth surviving a restart. Coalescing is what stops three panels opening at once from being three upstream requests instead of one.                                                                                                                             |
+| 8.8 | A refused symbol travels beside the ones that worked, not instead of them.             | A watchlist of twenty must not go blank because one ticker was delisted. The API answers with quotes and failures together, each failure carrying a code the client can tell apart.                                                                                                                                                                                                                 |
 | 8.6 | Alerts compare in-memory quotes to stored rules, and only while the page is open.      | Already implied by decision 5.7. Firing with the tab closed needs something running outside the browser, which belongs to the cloud phase rather than to markets.                                                                                                                                                                                                                                   |
 
 ### Superseded decisions
@@ -567,3 +571,4 @@ Agreed before the phase opens, so the slices inherit them rather than each re-de
 | 2026-08-06 | Finance backup and restore (#30): the whole document to a file and back, guarded by the storage parser.             |
 | 2026-08-06 | Finance backup and restore merged (#31). Step 5 complete with nothing deferred; next delivery is Investing.         |
 | 2026-08-06 | Investing planned: seven slices, INV-01…07, and the data-source decisions in section 8. Data plane goes first.      |
+| 2026-08-06 | INV-01 delivered (#34): adapters, cache with coalescing, quote bus. Live against Yahoo and Binance.                 |

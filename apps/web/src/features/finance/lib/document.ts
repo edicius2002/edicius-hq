@@ -36,6 +36,83 @@ export function getActiveDiagram(doc: FinanceDocument): Diagram {
   return doc.diagrams.find((diagram) => diagram.id === doc.activeDiagramId) ?? doc.diagrams[0];
 }
 
+// --- the diagram collection ----------------------------------------------
+// Pure transitions over the document, mirroring the ones over a diagram. Ids
+// arrive from the caller so these stay deterministic.
+
+/** A name that does not collide with the diagrams already there. */
+function uniqueName(doc: FinanceDocument, wanted: string): string {
+  const taken = new Set(doc.diagrams.map((diagram) => diagram.name));
+  if (!taken.has(wanted)) return wanted;
+
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${wanted} ${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function addDiagram(
+  doc: FinanceDocument,
+  id: DiagramId,
+  name = DEFAULT_DIAGRAM_NAME,
+): FinanceDocument {
+  const diagram = createEmptyDiagram(id, uniqueName(doc, name));
+  return { ...doc, diagrams: [...doc.diagrams, diagram], activeDiagramId: id };
+}
+
+/**
+ * Copy a diagram, contents and all. Node ids are kept: they only have to be
+ * unique within their own diagram, and reusing them keeps the copy identical.
+ */
+export function duplicateDiagram(
+  doc: FinanceDocument,
+  sourceId: DiagramId,
+  id: DiagramId,
+): FinanceDocument {
+  const source = doc.diagrams.find((diagram) => diagram.id === sourceId);
+  if (!source) return doc;
+
+  const copy: Diagram = { ...source, id, name: uniqueName(doc, `${source.name} copy`) };
+  return { ...doc, diagrams: [...doc.diagrams, copy], activeDiagramId: id };
+}
+
+export function renameDiagram(doc: FinanceDocument, id: DiagramId, name: string): FinanceDocument {
+  return {
+    ...doc,
+    diagrams: doc.diagrams.map((diagram) => (diagram.id === id ? { ...diagram, name } : diagram)),
+  };
+}
+
+export function setActiveDiagram(doc: FinanceDocument, id: DiagramId): FinanceDocument {
+  return doc.diagrams.some((diagram) => diagram.id === id) ? { ...doc, activeDiagramId: id } : doc;
+}
+
+/**
+ * Remove a diagram. The document always needs one, so removing the last leaves
+ * an empty diagram behind rather than nothing. `fallbackId` names that one.
+ */
+export function deleteDiagram(
+  doc: FinanceDocument,
+  id: DiagramId,
+  fallbackId: DiagramId,
+): FinanceDocument {
+  const index = doc.diagrams.findIndex((diagram) => diagram.id === id);
+  if (index < 0) return doc;
+
+  const remaining = doc.diagrams.filter((diagram) => diagram.id !== id);
+  if (!remaining.length) {
+    return { ...doc, diagrams: [createEmptyDiagram(fallbackId)], activeDiagramId: fallbackId };
+  }
+
+  // Land on the neighbour rather than jumping to the far end of the bar.
+  const next = remaining[Math.min(index, remaining.length - 1)];
+  return {
+    ...doc,
+    diagrams: remaining,
+    activeDiagramId: doc.activeDiagramId === id ? next.id : doc.activeDiagramId,
+  };
+}
+
 /** Replace the active diagram, leaving the rest of the document untouched. */
 export function withActiveDiagram(doc: FinanceDocument, next: Diagram): FinanceDocument {
   return {

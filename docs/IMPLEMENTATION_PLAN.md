@@ -1,8 +1,8 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance delivered, core plus undo/redo and multiple diagrams; Investing not started.
+> **Status:** Finance delivered — core, undo/redo, multiple diagrams and the canvas camera; Investing not started.
 > **Last updated:** 2026-08-06
-> **Review status:** Finance canvas camera in review ([#20](https://github.com/edicius2002/edicius-hq/issues/20)).
+> **Review status:** Finance canvas camera merged ([#21](https://github.com/edicius2002/edicius-hq/pull/21)).
 > **Phase closure:** Delivery steps 0–5 complete, minus the Finance pieces deferred by agreement.
 > **Next delivery:** Frames, then backup and restore, then Investing.
 
@@ -368,7 +368,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 **Follow-up, delivered:** undo/redo and multiple diagrams — [#17](https://github.com/edicius2002/edicius-hq/issues/17) / [#18](https://github.com/edicius2002/edicius-hq/pull/18). Both landed without changing the persisted shape or rewriting anything, which is what ADR 0001 was betting on.
 
-**Follow-up, in progress:** canvas zoom, pan and minimap as one camera — [#20](https://github.com/edicius2002/edicius-hq/issues/20).
+**Follow-up, delivered:** canvas zoom, pan and minimap as one camera — [#20](https://github.com/edicius2002/edicius-hq/issues/20) / [#21](https://github.com/edicius2002/edicius-hq/pull/21). The camera is a new concern rather than an extension of the domain, so it landed as its own module with the persisted shape untouched.
 
 **Still deferred, no issues opened yet:** frames, backup and restore.
 
@@ -505,3 +505,4 @@ Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model
 | 2026-08-06 | Finance core merged (#15). Step 5 complete apart from the pieces deferred by agreement.                             |
 | 2026-08-06 | Finance undo/redo and multiple diagrams merged (#18). Both landed as additions, so ADR 0001 held.                   |
 | 2026-08-06 | Finance canvas camera (#20): zoom, pan and minimap on one transform, held in memory per diagram.                    |
+| 2026-08-06 | Finance canvas camera merged (#21). Two faults surfaced only by measuring the running app, not by the tests.        |

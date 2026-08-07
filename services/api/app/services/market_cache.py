@@ -121,6 +121,8 @@ class BarCache:
             safe_symbol = safe_symbol.replace("..", ".")
         safe_symbol = safe_symbol.strip("._-") or "unnamed"
 
+        # The timeframe key already carries the extended suffix when there is
+        # one, so the two variants of a series never share a file.
         safe_tf = "".join(c for c in timeframe if c.isalnum()) or "unnamed"
         return self.directory / f"{safe_symbol}.{safe_tf}.json"
 

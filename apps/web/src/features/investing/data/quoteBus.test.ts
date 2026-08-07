@@ -12,6 +12,9 @@ function quote(symbol: string, price = 100): Quote {
     change: 1,
     changePercent: 1,
     provider: 'test',
+    marketState: 'REGULAR',
+    name: symbol,
+    extended: false,
   };
 }
 

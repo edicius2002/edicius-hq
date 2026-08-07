@@ -34,6 +34,16 @@ class Quote:
     # than stored, so it can never disagree with the price beside it.
     previous_close: float | None
     provider: str
+    # What the exchange says about its own session — REGULAR, PRE, POST,
+    # POSTPOST, CLOSED. Absent from providers that have no session to report.
+    market_state: str | None = None
+    # Only the batch endpoint carries it, so a quote from elsewhere has none.
+    name: str | None = None
+    # Whether `price` came from a pre- or post-market session rather than the
+    # regular one. The change is still measured against the regular close, so
+    # the number answers "how is it doing" rather than "how has it moved since
+    # the bell", which is a different and less useful question at a glance.
+    extended: bool = False
 
     @property
     def change(self) -> float | None:

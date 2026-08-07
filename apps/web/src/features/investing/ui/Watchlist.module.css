@@ -1,0 +1,140 @@
+.list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius);
+  /* The flash fades out; only the moment it lands is abrupt. */
+  transition: background-color 0.45s ease;
+}
+
+.row:hover {
+  background: var(--color-surface-soft);
+}
+
+.selected {
+  background: var(--color-accent-soft);
+}
+
+.dragging {
+  opacity: 0.5;
+}
+
+.flashUp {
+  background: var(--color-income-soft);
+  transition: none;
+}
+
+.flashDown {
+  background: var(--color-expense-soft);
+  transition: none;
+}
+
+/* The row is the button: the whole strip should be clickable, not just a word. */
+.pick {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'symbol price'
+    'name   change';
+  gap: 0 var(--space-2);
+  padding: 0.35rem var(--space-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pick:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+}
+
+.symbol {
+  grid-area: symbol;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.name {
+  grid-area: name;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price {
+  grid-area: price;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.up,
+.down {
+  grid-area: change;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* An extended-hours price is thinner trade than a regular one, and is dimmed
+   for the same reason the chart draws its extended candles translucent. */
+.extended {
+  opacity: 0.68;
+}
+
+.up {
+  color: var(--color-income);
+}
+
+.down {
+  color: var(--color-expense);
+}
+
+.waiting {
+  grid-area: price;
+  color: var(--color-muted);
+  text-align: right;
+}
+
+/* Hidden until the row is wanted, so a list of twenty is not twenty crosses. */
+.remove {
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.row:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+}
+
+.remove:hover {
+  color: var(--color-danger);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+}

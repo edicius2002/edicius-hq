@@ -12,6 +12,8 @@ import { xAt, type IndexWindow, type Plot } from '@/features/investing/lib/scale
  */
 
 export type IndicatorSeries = {
+  /** Raw traded volume, index-aligned like the rest. Not a study — the bars' own. */
+  volume?: Float64Array;
   sma?: Float64Array;
   ema?: Float64Array;
   bollinger?: { basis: Float64Array; upper: Float64Array; lower: Float64Array };
@@ -26,6 +28,8 @@ export const INDICATOR_COLOURS = {
   bollinger: 'rgba(214, 166, 93, 0.55)',
   bollingerFill: 'rgba(214, 166, 93, 0.06)',
   vwap: '#c79bd6',
+  volume: 'rgba(141, 211, 111, 0.45)',
+  volumeDown: 'rgba(240, 141, 120, 0.45)',
   rsi: '#7fb8d6',
   rsiGuide: 'rgba(255, 255, 255, 0.12)',
   macd: '#7fb8d6',
@@ -174,6 +178,12 @@ export type PaneArgs = {
    * first time — the RSI drew its 30 and 70 guides with no numbers beside them.
    */
   canvasWidth: number;
+  /**
+   * Whether each bar closed up, so volume can be coloured by the candle it
+   * belongs to. Volume has no direction of its own — a heavy day says nothing
+   * about which way it went — so it borrows the price's.
+   */
+  rising?: (index: number) => boolean;
 };
 
 /** RSI's fixed 0–100 scale, so the guides mean the same thing on every symbol. */
@@ -203,7 +213,9 @@ export function drawPane(ctx: CanvasRenderingContext2D, args: PaneArgs): void {
   ctx.font = '10px ui-monospace, monospace';
   ctx.textBaseline = 'middle';
 
-  if (id === 'rsi' && series.rsi) {
+  if (id === 'volume' && series.volume) {
+    drawVolume(ctx, series.volume, args.rising, band, window, plot);
+  } else if (id === 'rsi' && series.rsi) {
     drawRsi(ctx, series.rsi, band, window, plot);
   } else if (id === 'macd' && series.macd) {
     drawMacd(ctx, series.macd, band, window, plot);
@@ -295,4 +307,66 @@ function label(ctx: CanvasRenderingContext2D, text: string, band: Band): void {
   ctx.fillStyle = INDICATOR_COLOURS.axis;
   ctx.textAlign = 'left';
   ctx.fillText(text, 6, band.top + 9);
+}
+
+/**
+ * Volume, as bars from the floor of its band.
+ *
+ * Scaled to the visible window rather than to the whole series, so a spike in
+ * 2024 does not flatten a month in 2026 into nothing. That is the same reason
+ * the price autoscales to what is on screen.
+ *
+ * A zero-volume bar draws nothing at all. Yahoo reports zero for a session that
+ * has not traded — the forming bar most often — and a one-pixel stub there
+ * would claim trading that did not happen.
+ */
+function drawVolume(
+  ctx: CanvasRenderingContext2D,
+  values: Float64Array,
+  rising: ((index: number) => boolean) | undefined,
+  band: Band,
+  window: IndexWindow,
+  plot: Plot,
+): void {
+  const range = visibleRange(window, values.length);
+
+  let peak = 0;
+  for (let index = range.from; index <= range.to; index += 1) {
+    const value = values[index];
+    if (!Number.isNaN(value) && value > peak) peak = value;
+  }
+  if (peak <= 0) return;
+
+  const slot = plot.width / Math.max(1, window.last - window.first);
+  const width = Math.max(1, slot * 0.6);
+  const floor = band.top + band.height;
+
+  for (let index = range.from; index <= range.to; index += 1) {
+    const value = values[index];
+    if (Number.isNaN(value) || value <= 0) continue;
+
+    const height = (value / peak) * band.height;
+    ctx.fillStyle =
+      rising?.(index) === false ? INDICATOR_COLOURS.volumeDown : INDICATOR_COLOURS.volume;
+    ctx.fillRect(xAt(index, window, plot) - width / 2, floor - height, width, height);
+  }
+
+  label(ctx, `Volume · peak ${compact(peak)}`, band);
+}
+
+/** Volume runs to the hundreds of millions; the axis has room for four characters. */
+export function compact(value: number): string {
+  const units: [number, string][] = [
+    [1e12, 'T'],
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ];
+  for (const [size, suffix] of units) {
+    if (value >= size) {
+      const scaled = value / size;
+      return `${scaled >= 100 ? Math.round(scaled) : scaled.toFixed(1)}${suffix}`;
+    }
+  }
+  return value >= 10 ? String(Math.round(value)) : value.toFixed(2);
 }

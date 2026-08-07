@@ -13,7 +13,7 @@ export const INDICATORS_KEY = 'indicators';
 
 /** Overlays draw on the price; panes get a band of their own below it. */
 export const OVERLAY_IDS = ['sma', 'ema', 'bollinger', 'vwap'] as const;
-export const PANE_IDS = ['rsi', 'macd'] as const;
+export const PANE_IDS = ['volume', 'rsi', 'macd'] as const;
 
 export type OverlayId = (typeof OVERLAY_IDS)[number];
 export type IndicatorId = OverlayId | (typeof PANE_IDS)[number];
@@ -57,6 +57,6 @@ export function toggle(indicators: Indicators, id: IndicatorId): Indicators {
   return { version: 1, active: INDICATOR_IDS.filter((each) => wanted.has(each)) };
 }
 
-export function activePanes(indicators: Indicators): ('rsi' | 'macd')[] {
+export function activePanes(indicators: Indicators): (typeof PANE_IDS)[number][] {
   return PANE_IDS.filter((id) => indicators.active.includes(id));
 }

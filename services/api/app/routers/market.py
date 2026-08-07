@@ -6,8 +6,13 @@ of it belongs in the KV store and none of it belongs in Postgres later (plan
 decisions 5.4 and 5.8).
 """
 
+import asyncio
+import json
+from collections.abc import AsyncIterator
+
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.adapters import registry
@@ -20,6 +25,7 @@ from app.config import (
     UPSTREAM_TIMEOUT_SECONDS,
 )
 from app.services.market_cache import BarCache, MemoryCache
+from app.services.stream_hub import HUB
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -241,3 +247,84 @@ def _as_http_error(exc: ProviderError) -> HTTPException:
     if exc.code == "rate-limited":
         return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, exc.message)
     return HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
+
+
+# How long a listener may hear nothing before we say so. A proxy that sees no
+# bytes assumes the connection died; a comment frame is the cheapest way to
+# disagree, and it doubles as the signal that the pipe is still open on a night
+# when genuinely nothing trades.
+HEARTBEAT_SECONDS = 20.0
+
+
+def sse(event: str, data: object) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def tick_payload(tick) -> dict:
+    """Deliberately the fields a row needs, and no provider name among them."""
+    return {
+        "symbol": tick.symbol,
+        "price": tick.price,
+        "marketState": tick.market_state,
+        "changePercent": tick.change_percent,
+        "time": tick.time,
+    }
+
+
+@router.get("/stream")
+async def stream_quotes(
+    request: Request,
+    symbols: str = Query(..., description="Comma-separated symbols to follow"),
+) -> StreamingResponse:
+    """
+    Live prices, pushed.
+
+    Server-sent events rather than a socket to the browser: this direction is
+    the only one carrying anything, and an EventSource reconnects by itself.
+    The upstream socket stays on this side of the wire, where decision 8.3 says
+    the provider's name belongs.
+
+    **This does not replace polling.** The socket carries trades, so a symbol
+    that does not trade says nothing, and it never sends a previous close. The
+    sweep on `/quotes` remains the source of truth — see decision 8.18.
+    """
+    # Shares the parser with /quotes, so a symbol that streams is spelled
+    # exactly like the one that is swept — and the same cap applies.
+    wanted = _parse_symbols(symbols)
+    if not wanted:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No symbols given.")
+
+    async def events() -> AsyncIterator[str]:
+        # Said before the first tick so the client knows the pipe is open even
+        # if the market is dead quiet.
+        yield sse("open", {"symbols": sorted(wanted)})
+
+        listener = HUB.listen(set(wanted))
+        try:
+            while True:
+                try:
+                    batch = await asyncio.wait_for(
+                        anext(listener), timeout=HEARTBEAT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                except StopAsyncIteration:
+                    return
+
+                if await request.is_disconnected():
+                    return
+                yield sse("quotes", [tick_payload(t) for t in batch])
+        finally:
+            await listener.aclose()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Nginx buffers by default, which would hold a tick until the
+            # buffer filled — the exact latency this endpoint exists to remove.
+            "X-Accel-Buffering": "no",
+        },
+    )

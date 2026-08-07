@@ -7,12 +7,19 @@ from app.config import CORS_ORIGINS
 from app.routers import health, kv, market
 from app.routers.market import close_client
 from app.services.kv_store import ensure_kv_dir
+from app.adapters.streams import CompositeStream
+from app.services.stream_hub import HUB
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     ensure_kv_dir()
+    # One upstream socket for the whole process, however many tabs listen. It
+    # follows nothing until someone asks, so an idle API opens no connection.
+    HUB.attach(CompositeStream())
+    HUB.start()
     yield
+    await HUB.stop()
     # The shared upstream client outlives a request but not the process.
     await close_client()
 

@@ -138,11 +138,27 @@ export type Cadence = {
  * How often to ask, by regime. The numbers come from the measurement in INV-02:
  * one cadence around the clock is ~66k requests a day, three regimes is ~24.5k,
  * and the night alone falls from 48.3k to 6.6k.
+ *
+ * `streaming` slows the quote poll from a cadence to a **sweep**. With prices
+ * arriving by push there is nothing left for a fast poll to discover, but the
+ * sweep is not thereby optional: it covers the symbols that never trade and so
+ * never tick, it carries the previous close and the name that a tick does not,
+ * and its returning is what proves the stream is alive. See decision 8.18.
  */
-export function cadenceFor(regime: Regime, timeframeMs: number): Cadence {
-  if (regime === 'regular') return { barsMs: timeframeMs, quotesMs: 15_000 };
-  if (regime === 'extended') return { barsMs: 60_000, quotesMs: 60_000 };
-  // Nothing trades, so bars are not asked for at all and quotes barely.
+export function cadenceFor(
+  regime: Regime,
+  timeframeMs: number,
+  { streaming = false }: { streaming?: boolean } = {},
+): Cadence {
+  if (regime === 'regular') {
+    return { barsMs: timeframeMs, quotesMs: streaming ? 60_000 : 15_000 };
+  }
+  if (regime === 'extended') {
+    return { barsMs: 60_000, quotesMs: streaming ? 300_000 : 60_000 };
+  }
+  // Nothing trades, so bars are not asked for at all and quotes barely — and a
+  // stream cannot improve on a market with no trades in it, so this is the one
+  // regime the sweep rate does not change.
   return { barsMs: null, quotesMs: 900_000 };
 }
 

@@ -83,6 +83,39 @@ export function isExtendedBar(time: number): boolean {
   return regimeAt(new Date(time * 1000)) !== 'regular';
 }
 
+/** Timeframes where one bar covers a whole session or more. */
+const SESSION_OR_LONGER = new Set(['1d', '1w', '1M']);
+
+export function coversWholeSession(timeframe: string): boolean {
+  return SESSION_OR_LONGER.has(timeframe);
+}
+
+/**
+ * Whether a bar draws as an extended-hours one.
+ *
+ * Two rules, because a daily bar is not an intraday bar with a longer period.
+ *
+ * Intraday, a bar is asked whether *it* falls outside the session, which is what
+ * an 08:00 or an 18:00 candle is.
+ *
+ * Daily and longer, that question is useless: every daily bar is stamped at the
+ * regular open, so it would always answer "regular" and today's candle would
+ * never fade. What makes the last one different is that it is still forming —
+ * so it is the extended one whenever the market is not currently open, and
+ * turns solid at the bell.
+ */
+export function makeIsExtended(
+  timeframe: string,
+  regime: Regime,
+  barCount: number,
+): (time: number, index: number) => boolean {
+  if (coversWholeSession(timeframe)) {
+    const lastIndex = barCount - 1;
+    return (_time, index) => regime !== 'regular' && index === lastIndex;
+  }
+  return (time) => isExtendedBar(time);
+}
+
 /**
  * Whether the regular session opened between two moments.
  *

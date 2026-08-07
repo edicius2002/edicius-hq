@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   cadenceFor,
   hasSession,
-  isExtendedBar,
+  makeIsExtended,
   regimeAt,
   type Regime,
 } from '@/features/investing/lib/session';
@@ -62,7 +62,8 @@ export type Candles = {
   regime: Regime;
   /** Whether the series currently carries extended-hours bars. */
   extended: boolean;
-  isGhost: (bar: Bar) => boolean;
+  /** Takes the index too: on a daily chart what marks a bar is being the last. */
+  isGhost: (bar: Bar, index: number) => boolean;
   isPending: boolean;
   isError: boolean;
   refetch: () => void;
@@ -88,8 +89,9 @@ export function useCandles(symbol: string, timeframe: string): Candles {
     // Crypto never has an overlay: Binance runs around the clock, so there is
     // no session for a bar to fall outside of.
     if (!hasSession(provider)) return () => false;
-    return (bar: Bar) => isExtendedBar(bar.time);
-  }, [provider]);
+    const rule = makeIsExtended(timeframe, regime, bars.length);
+    return (bar: Bar, index: number) => rule(bar.time, index);
+  }, [provider, timeframe, regime, bars.length]);
 
   return {
     bars,

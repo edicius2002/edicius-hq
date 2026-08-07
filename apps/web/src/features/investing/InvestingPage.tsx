@@ -47,7 +47,7 @@ export function InvestingPage() {
   });
 
   const quote = quotes.data?.quotes?.[0];
-  const ghosts = candles.bars.filter(candles.isGhost).length;
+  const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
 
   function submitSymbol() {
     const wanted = draft.trim().toUpperCase();

@@ -41,7 +41,7 @@ const DEFAULT_VISIBLE = 120;
 type CandleChartProps = {
   bars: Bar[];
   /** Whether a bar falls outside the regular session, and so draws translucent. */
-  isGhost: (bar: Bar) => boolean;
+  isGhost: (bar: Bar, index: number) => boolean;
   /** How to label a bar on the time axis; the chart does not own the calendar. */
   formatTime: (bar: Bar) => string;
   loading?: boolean;
@@ -207,7 +207,9 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
           <span>
             C <strong>{hovered.close.toFixed(2)}</strong>
           </span>
-          {isGhost(hovered) ? <span className={styles.ghostTag}>extended</span> : null}
+          {crosshair && isGhost(hovered, crosshair.index) ? (
+            <span className={styles.ghostTag}>extended</span>
+          ) : null}
         </div>
       ) : null}
 
@@ -224,7 +226,7 @@ type DrawArgs = {
   window: IndexWindow;
   plot: { width: number; height: number };
   size: { width: number; height: number };
-  isGhost: (bar: Bar) => boolean;
+  isGhost: (bar: Bar, index: number) => boolean;
   formatTime: (bar: Bar) => string;
 };
 
@@ -287,7 +289,7 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
     const rising = bar.close >= bar.open;
     // Extended-hours bars are drawn translucent rather than in another colour,
     // so up and down still read the same way outside the session.
-    ctx.globalAlpha = isGhost(bar) ? 0.4 : 1;
+    ctx.globalAlpha = isGhost(bar, index) ? 0.4 : 1;
     ctx.strokeStyle = rising ? COLOURS.up : COLOURS.down;
     ctx.fillStyle = ctx.strokeStyle;
 

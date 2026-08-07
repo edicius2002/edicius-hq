@@ -5,6 +5,7 @@ import {
   exchangeTime,
   hasSession,
   isExtendedBar,
+  makeIsExtended,
   openedBetween,
   regimeAt,
 } from '@/features/investing/lib/session';
@@ -134,5 +135,54 @@ describe('hasSession', () => {
   it('is false for crypto, which never closes', () => {
     expect(hasSession('binance')).toBe(false);
     expect(hasSession('yahoo')).toBe(true);
+  });
+});
+
+describe('makeIsExtended', () => {
+  const cerrado = utc('2026-01-16T02:00:00Z'); // 21:00 ET, nothing trading
+  const preMarket = Date.parse('2026-01-15T13:00:00Z') / 1000; // 08:00 ET
+  const midSession = Date.parse('2026-01-15T18:00:00Z') / 1000; // 13:00 ET
+  const dailyStamp = Date.parse('2026-01-15T14:30:00Z') / 1000; // 09:30 ET, the open
+
+  describe('intraday', () => {
+    it('marks a bar by where its own timestamp falls', () => {
+      const rule = makeIsExtended('1h', regimeAt(cerrado), 10);
+      expect(rule(preMarket, 3)).toBe(true);
+      expect(rule(midSession, 4)).toBe(false);
+    });
+
+    it('does not care which bar is last', () => {
+      const rule = makeIsExtended('5m', regimeAt(cerrado), 10);
+      expect(rule(midSession, 9)).toBe(false);
+    });
+  });
+
+  describe('daily and longer', () => {
+    it('marks the last bar while the market is not open', () => {
+      // Every daily bar is stamped at the regular open, so asking where its
+      // timestamp falls would always answer "regular" and today's candle would
+      // never fade. What makes it different is that it is still forming.
+      const rule = makeIsExtended('1d', regimeAt(cerrado), 10);
+      expect(rule(dailyStamp, 9)).toBe(true);
+      expect(rule(dailyStamp, 8)).toBe(false);
+    });
+
+    it('turns it solid again at the bell', () => {
+      const rule = makeIsExtended('1d', 'regular', 10);
+      expect(rule(dailyStamp, 9)).toBe(false);
+    });
+
+    it('applies to weekly and monthly too, which also carry a forming bar', () => {
+      for (const timeframe of ['1w', '1M']) {
+        const rule = makeIsExtended(timeframe, 'extended', 5);
+        expect(rule(dailyStamp, 4)).toBe(true);
+        expect(rule(dailyStamp, 0)).toBe(false);
+      }
+    });
+
+    it('marks nothing at all when there are no bars', () => {
+      const rule = makeIsExtended('1d', 'closed', 0);
+      expect(rule(dailyStamp, 0)).toBe(false);
+    });
   });
 });

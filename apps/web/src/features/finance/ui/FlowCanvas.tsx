@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 
 import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
 import { useElementSize } from '@/shared/lib/useElementSize';
@@ -74,6 +74,13 @@ type FlowCanvasProps = {
   onCreateFrame: (rect: Rect) => void;
   onMoveFrame: (id: FrameId, position: Point) => void;
   onResizeFrame: (id: FrameId, position: Point, size: Size) => void;
+  /**
+   * Chrome pinned to the top-left of the window. A readout about the diagram
+   * belongs over the diagram, where the eye already is — in the toolbar it was
+   * a row away from the thing it describes. The canvas stays ignorant of what
+   * it is being handed.
+   */
+  status?: ReactNode;
 };
 
 /*
@@ -132,6 +139,7 @@ export function FlowCanvas({
   onCreateFrame,
   onMoveFrame,
   onResizeFrame,
+  status,
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -498,6 +506,8 @@ export function FlowCanvas({
           <span>Add a job or an account to start mapping where money moves.</span>
         </div>
       ) : null}
+
+      {status ? <div className={styles.statusCorner}>{status}</div> : null}
 
       <div className={styles.controls}>
         <button

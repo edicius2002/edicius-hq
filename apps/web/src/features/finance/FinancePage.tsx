@@ -264,7 +264,6 @@ export function FinancePage() {
           </div>
 
           <span className={`${styles.hint} ${styles.spacer}`}>{hint}</span>
-          <SaveStatus state={finance.saveState} onRetry={finance.retrySave} />
         </div>
 
         {/* Sits with the actions that caused it, and only when there is one. */}
@@ -277,6 +276,7 @@ export function FinancePage() {
 
       <div className={styles.workspace}>
         <FlowCanvas
+          status={<SaveStatus state={finance.saveState} onRetry={finance.retrySave} />}
           diagram={diagram}
           selection={selection}
           connectMode={connectMode}

@@ -138,6 +138,28 @@
   font-weight: 700;
 }
 
+/*
+ * The save readout, pinned to the top-left of the window. Chrome like the zoom
+ * controls, so the camera never moves it — and diagonally opposite the minimap
+ * so neither ever covers the other.
+ */
+.statusCorner {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  /* A readout, not a target — except the retry inside it, which re-enables
+     itself. Without this the corner would swallow drags that start under it. */
+  pointer-events: none;
+  /* `pointer-events: none` stops it being hit, not being selected: a drag that
+     crosses it still takes the words with it. Nothing here is text to keep. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.statusCorner button {
+  pointer-events: auto;
+}
+
 /* Camera controls. Chrome over the window, so the camera never moves them. */
 .controls {
   position: absolute;

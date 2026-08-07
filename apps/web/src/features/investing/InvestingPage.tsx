@@ -205,52 +205,60 @@ export function InvestingPage() {
           </p>
         </Panel>
 
-        <Panel className={styles.side} aria-label="Watchlist">
-          <div className={styles.sideHeader}>
-            <h2 className={styles.sectionTitle}>Watchlist</h2>
-            <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
+        {/* Two columns where there is room for them, stacked where there is not.
+            The label names the panel rather than repeating the list's own — two
+            things called "Watchlist" is one name too many for a screen reader,
+            and it caught a measurement of mine out too. */}
+        <Panel className={styles.side} aria-label="Markets">
+          <div className={styles.column}>
+            <div className={styles.sideHeader}>
+              <h2 className={styles.sectionTitle}>Watchlist</h2>
+              <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
+            </div>
+
+            <SymbolSearch
+              following={new Set(watchlist.symbols)}
+              onPick={(picked, name) => {
+                void watchlist.add(picked, name);
+                setSymbol(picked);
+              }}
+            />
+
+            {watchlist.isError ? (
+              <p className={styles.error} role="alert">
+                Could not load the watchlist.
+              </p>
+            ) : (
+              <Watchlist
+                entries={watchlist.list.entries}
+                quotes={bySymbol}
+                selected={symbol}
+                onSelect={setSymbol}
+                onRemove={(picked) => void watchlist.remove(picked)}
+                onMove={(from, to) => void watchlist.move(from, to)}
+              />
+            )}
           </div>
 
-          <SymbolSearch
-            following={new Set(watchlist.symbols)}
-            onPick={(picked, name) => {
-              void watchlist.add(picked, name);
-              setSymbol(picked);
-            }}
-          />
-
-          {watchlist.isError ? (
-            <p className={styles.error} role="alert">
-              Could not load the watchlist.
-            </p>
-          ) : (
-            <Watchlist
-              entries={watchlist.list.entries}
-              quotes={bySymbol}
-              selected={symbol}
-              onSelect={setSymbol}
-              onRemove={(picked) => void watchlist.remove(picked)}
-              onMove={(from, to) => void watchlist.move(from, to)}
-            />
-          )}
-
-          <h2 className={`${styles.sectionTitle} ${styles.positionsTitle}`}>Positions</h2>
-          {holdings.isError ? (
-            <p className={styles.error} role="alert">
-              Could not load your positions.
-            </p>
-          ) : (
-            <Positions
-              portfolio={holdings.portfolio}
-              quotes={bySymbol}
-              selected={symbol}
-              onSelect={setSymbol}
-              onEdit={(picked, quantity, averageCost) =>
-                void holdings.set(picked, quantity, averageCost)
-              }
-              onRemove={(picked) => void holdings.remove(picked)}
-            />
-          )}
+          <div className={styles.column}>
+            <h2 className={`${styles.sectionTitle} ${styles.positionsTitle}`}>Positions</h2>
+            {holdings.isError ? (
+              <p className={styles.error} role="alert">
+                Could not load your positions.
+              </p>
+            ) : (
+              <Positions
+                portfolio={holdings.portfolio}
+                quotes={bySymbol}
+                selected={symbol}
+                onSelect={setSymbol}
+                onEdit={(picked, quantity, averageCost) =>
+                  void holdings.set(picked, quantity, averageCost)
+                }
+                onRemove={(picked) => void holdings.remove(picked)}
+              />
+            )}
+          </div>
         </Panel>
       </div>
     </section>

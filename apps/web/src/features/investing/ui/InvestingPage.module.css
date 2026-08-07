@@ -230,6 +230,24 @@
   align-items: start;
 }
 
+/*
+ * Wide enough for the watchlist and the positions to sit beside each other.
+ *
+ * Not a preference: stacked, the two need 1356px of height against a viewport
+ * of 983, and no amount of shrinking closes that — 20% off every font buys 13%
+ * of height, because most of a row is padding. Side by side the taller column
+ * is about 645px and both are simply visible.
+ *
+ * The threshold is where the chart stops being worth having: below roughly
+ * 700px of canvas it is a strip, and 27rem of sidebar plus that is what this
+ * asks for.
+ */
+@media (min-width: 1640px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) 29rem;
+  }
+}
+
 @media (max-width: 1100px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -262,6 +280,40 @@
     position: static;
     max-height: none;
     overflow-y: visible;
+  }
+}
+
+.column {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  /* Without this a long name would widen its column instead of being clipped
+     by the ellipsis that is there to stop exactly that. */
+  min-width: 0;
+}
+
+@media (min-width: 1640px) {
+  .side {
+    /* The watchlist takes the slack. Positions is a fixed shape — a quantity,
+       a cost, a value and a change — while the watchlist is the one carrying
+       names long enough to be clipped, so the spare pixels are worth more
+       there. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    gap: var(--space-4);
+    /* Both fit now, so the private scroll area is not needed and a scrollbar
+       would only add a seam down the middle of the panel. */
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  /* The rule that separated it from the watchlist above it; beside it now, the
+     column edge does that job. */
+  .positionsTitle {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    /* Aligned with the watchlist heading rather than with its search box. */
+    min-height: 1.6rem;
   }
 }
 

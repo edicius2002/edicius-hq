@@ -28,7 +28,7 @@
   display: grid;
   /* Symbol and holding on the left, value and profit right-aligned — so a
      column of numbers lines up and can be read down rather than across. */
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0 var(--space-2);
   flex: 1;
   min-width: 0;
@@ -49,9 +49,12 @@
 
 .holding,
 .waiting {
+  overflow: hidden;
   color: var(--color-muted);
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .waiting {

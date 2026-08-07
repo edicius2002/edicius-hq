@@ -37,3 +37,28 @@ export function formatPercent(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '—';
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
+
+/**
+ * A gain or a loss, signed.
+ *
+ * A loss carries its minus from the number itself, so an unsigned gain beside
+ * it reads as neither — the eye has to find the colour before it knows which
+ * way the row went. The plus is what makes the column symmetrical.
+ */
+export function formatSignedPrice(value: number, locale?: string): string {
+  if (!Number.isFinite(value)) return '—';
+  return (value > 0 ? '+' : '') + formatPrice(value, locale);
+}
+
+/**
+ * A quantity, which is not money.
+ *
+ * Grouped and decimal-separated like everything else on the page — a holding
+ * written 1.25 beside a price written 1,25 makes the reader parse two
+ * conventions in one row. But no minimum: three shares is `3`, not `3,00`,
+ * because trailing zeros on a count claim a precision that is not there.
+ */
+export function formatQuantity(value: number, locale?: string): string {
+  if (!Number.isFinite(value)) return '—';
+  return value.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 8 });
+}

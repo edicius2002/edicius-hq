@@ -39,8 +39,12 @@
 /* The row is the button: the whole strip should be clickable, not just a word. */
 .pick {
   flex: 1;
+  /* `min-width: 0` on both the row and its first track: a grid item defaults to
+     a minimum of its content, so without these the longest name widens the
+     column instead of meeting the ellipsis that exists to stop it. */
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     'symbol price'
     'name   change';

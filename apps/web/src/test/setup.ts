@@ -11,6 +11,22 @@ import { afterEach } from 'vitest';
 afterEach(cleanup);
 
 /**
+ * No test may reach the network, and this is not a formality.
+ *
+ * Storage writes leave on a trailing debounce, so one can fire after the test
+ * that caused it has finished and `vi.unstubAllGlobals()` has put the real
+ * `fetch` back. It then goes to whatever is serving the API base URL — during
+ * development that is the developer's own API over their own data. This
+ * happened: a fixture document replaced a real one.
+ *
+ * Assigning here rather than through `vi.stubGlobal` is deliberate: this becomes
+ * the value a test's own stub is restored *to*, so a late write fails loudly
+ * instead of quietly succeeding against something real.
+ */
+globalThis.fetch = () =>
+  Promise.reject(new Error('fetch was called without a stub. Tests must not reach the network.'));
+
+/**
  * jsdom has no ResizeObserver, and the Finance canvas measures itself with one
  * to work out what the camera can see. A stub that observes nothing is enough:
  * jsdom reports every element as zero-sized anyway, so there is no size to

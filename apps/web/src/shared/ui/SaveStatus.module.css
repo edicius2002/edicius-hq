@@ -1,0 +1,80 @@
+.wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/*
+ * A readout, not a control: it never answers to a pointer, and it reserves its
+ * width so the row does not shift as the label goes from "Saved" to "Saving…".
+ */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 7.5rem;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: color 0.18s ease;
+}
+
+/* Takes the label's colour, so one rule per state moves the dot with the text. */
+.status::before {
+  content: '';
+  display: block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status[data-state='pending'] {
+  color: var(--color-accent);
+}
+
+.status[data-state='saving'] {
+  color: var(--color-text);
+}
+
+.status[data-state='saved'] {
+  color: var(--color-income);
+}
+
+.status[data-state='failed'],
+.status[data-state='blocked'] {
+  color: var(--color-danger);
+}
+
+.status[data-state='saving']::before {
+  animation: pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* An indefinite pulse in the corner of the eye is what this setting is for. */
+@media (prefers-reduced-motion: reduce) {
+  .status[data-state='saving']::before {
+    animation: none;
+  }
+}
+
+.retry {
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.78rem;
+}

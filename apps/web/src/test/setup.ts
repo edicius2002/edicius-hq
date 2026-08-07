@@ -42,3 +42,26 @@ if (typeof Blob !== 'undefined' && typeof Blob.prototype.text !== 'function') {
     });
   };
 }
+
+/**
+ * jsdom has no `EventSource`, and the Investing page opens one for live prices
+ * as soon as it mounts. A stub that never connects is the right stand-in: a
+ * test that cares about the stream injects its own source, and every other test
+ * only needs the page to render without reaching for the network.
+ */
+if (typeof globalThis.EventSource === 'undefined') {
+  class EventSourceStub {
+    readonly url: string;
+    readonly readyState = 0;
+
+    constructor(url: string) {
+      this.url = url;
+    }
+
+    addEventListener() {}
+    removeEventListener() {}
+    close() {}
+  }
+
+  globalThis.EventSource = EventSourceStub as unknown as typeof EventSource;
+}

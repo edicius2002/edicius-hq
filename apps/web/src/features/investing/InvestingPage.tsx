@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { CandleChart } from '@/features/investing/chart/CandleChart';
 import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
+import { applyTicks } from '@/features/investing/data/quoteStream';
+import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
@@ -64,18 +66,32 @@ export function InvestingPage() {
     [watchlist.symbols, symbol],
   );
 
+  // Prices arrive by push. Asked before the sweep is set up, because how often
+  // to sweep depends on whether the stream is carrying — and not the reverse.
+  const stream = useQuoteStream(wanted);
+
+  // The poll behind it is a sweep, not a cadence, and it slows only while the
+  // stream is actually live: a dead socket puts the page straight back on the
+  // rate it had before any of this existed.
   const quotes = useQuery({
     queryKey: ['market', 'quotes', wanted],
     queryFn: () => quoteBus.quotes(wanted, { priority: PRIORITY.watchlist }),
     enabled: wanted.length > 0,
-    refetchInterval: cadenceFor(candles.regime, 0).quotesMs,
+    refetchInterval: cadenceFor(candles.regime, 0, { streaming: stream.live }).quotesMs,
   });
 
-  const bySymbol = useMemo(() => {
+  const swept = useMemo(() => {
     const map = new Map<string, Quote>();
     for (const quote of quotes.data?.quotes ?? []) map.set(quote.symbol, quote);
     return map;
   }, [quotes.data]);
+
+  // The swept quotes with every tick since laid over them. The sweep is the
+  // row; the stream only moves the price on it.
+  const bySymbol = useMemo(
+    () => applyTicks(swept, [...stream.ticks.values()]),
+    [swept, stream.ticks],
+  );
 
   const learnNames = watchlist.learnNames;
   // A symbol added by hand starts named after itself; the provider knows better.

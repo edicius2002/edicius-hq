@@ -55,3 +55,6 @@ services/api/.local-data/
 # Licensed font binaries (keep README)
 apps/web/public/fonts/*
 !apps/web/public/fonts/README.md
+
+# Agent worktrees live inside the repo; they are checkouts, not content.
+.claude/worktrees/

@@ -1,0 +1,81 @@
+.chart {
+  position: relative;
+  width: 100%;
+  height: clamp(20rem, 52vh, 40rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  overflow: hidden;
+}
+
+/* Both canvases fill the frame and stack; the later one wins. */
+.layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/*
+ * The pointer target sits above both canvases. Keeping the interaction on a
+ * plain div means neither canvas has to care about events, and the crosshair
+ * layer can be cleared and redrawn without touching listeners.
+ */
+.surface {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.dragging {
+  cursor: grabbing;
+}
+
+.readout {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 0.15rem var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: rgba(24, 21, 18, 0.85);
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.readout strong {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.readoutTime {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+/* Says why a candle is faded, so the translucency is legible rather than odd. */
+.ghostTag {
+  padding: 0 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  pointer-events: none;
+}

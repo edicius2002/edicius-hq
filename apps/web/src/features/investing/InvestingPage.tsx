@@ -1,47 +1,58 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
+import { CandleChart } from '@/features/investing/chart/CandleChart';
+import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
-import { getBars } from '@/shared/api/market';
+import { cadenceFor } from '@/features/investing/lib/session';
+import type { Bar } from '@/shared/api/market';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import styles from './ui/InvestingPage.module.css';
 
-/**
- * Scaffolding, and deliberately so.
- *
- * INV-01 builds the data plane and draws nothing; this panel exists only to
- * prove the plane end to end in the real app rather than only in tests — a
- * quote, a bar count, and which upstream answered. INV-02 and INV-03 replace it
- * with the chart and the watchlist.
- */
+const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] as const;
 
-const SEED = ['AAPL', 'BTCUSDT'];
-const TIMEFRAME = '1d';
+const REGIME_LABEL = {
+  regular: 'Market open',
+  extended: 'Extended hours',
+  closed: 'Market closed',
+} as const;
+
+/** Intraday frames want a clock; anything daily or longer wants a date. */
+function timeFormatter(timeframe: string) {
+  const intraday = ['1m', '5m', '15m', '1h'].includes(timeframe);
+  const format = new Intl.DateTimeFormat(
+    undefined,
+    intraday
+      ? { hour: '2-digit', minute: '2-digit' }
+      : { day: '2-digit', month: 'short', year: timeframe === '1M' ? '2-digit' : undefined },
+  );
+  return (bar: Bar) => format.format(new Date(bar.time * 1000));
+}
 
 export function InvestingPage() {
-  const [symbols, setSymbols] = useState(SEED);
+  const [symbol, setSymbol] = useState('AAPL');
+  const [timeframe, setTimeframe] = useState<string>('1d');
   const [draft, setDraft] = useState('');
 
+  const candles = useCandles(symbol, timeframe);
+  const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
+
   const quotes = useQuery({
-    queryKey: ['market', 'quotes', symbols],
-    queryFn: () => quoteBus.quotes(symbols, { priority: PRIORITY.watchlist }),
-    // The bus has its own TTL; this only decides when to ask it again.
-    refetchInterval: 15_000,
+    queryKey: ['market', 'quotes', symbol],
+    queryFn: () => quoteBus.quotes([symbol], { priority: PRIORITY.chart }),
+    refetchInterval: cadenceFor(candles.regime, 0).quotesMs,
   });
 
-  const bars = useQuery({
-    queryKey: ['market', 'bars', symbols[0], TIMEFRAME],
-    queryFn: () => getBars(symbols[0], TIMEFRAME),
-    enabled: symbols.length > 0,
-  });
+  const quote = quotes.data?.quotes?.[0];
+  const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
 
-  function addSymbol() {
+  function submitSymbol() {
     const wanted = draft.trim().toUpperCase();
-    if (!wanted || symbols.includes(wanted)) return;
-    setSymbols((current) => [...current, wanted]);
+    if (!wanted) return;
+    setSymbol(wanted);
     setDraft('');
   }
 
@@ -49,118 +60,92 @@ export function InvestingPage() {
     <section className={styles.page} aria-labelledby="investing-title">
       <PageHeader
         title="Investing"
-        subtitle="Markets. The data plane is in; the surfaces come next."
+        subtitle="Markets. One symbol for now; the watchlist and the rest come next."
         titleId="investing-title"
       />
 
       <Panel>
-        <p className={styles.note}>
-          A check that quotes and bars arrive, not the finished page. The chart, the watchlist and
-          the rest land in their own slices.
-        </p>
-
         <div className={styles.controls}>
           <input
             className={styles.input}
             value={draft}
-            placeholder="Add a symbol, e.g. MSFT or ETHUSDT"
+            placeholder={`Symbol — showing ${symbol}`}
             aria-label="Symbol"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') addSymbol();
+              if (event.key === 'Enter') submitSymbol();
             }}
           />
-          <Button onClick={addSymbol}>Add</Button>
-          {/* Refreshes everything on screen; refreshing half of it would be a
-              button that sometimes appears not to work. */}
-          <Button
-            onClick={() => {
-              void quotes.refetch();
-              void bars.refetch();
-            }}
-          >
-            Refresh
-          </Button>
+          <Button onClick={submitSymbol}>Show</Button>
+
+          <div className={styles.timeframes} role="group" aria-label="Timeframe">
+            {TIMEFRAMES.map((frame) => (
+              <button
+                key={frame}
+                type="button"
+                className={`${styles.timeframe} ${frame === timeframe ? styles.timeframeOn : ''}`}
+                aria-pressed={frame === timeframe}
+                onClick={() => setTimeframe(frame)}
+              >
+                {frame}
+              </button>
+            ))}
+          </div>
+
+          <span className={styles.spacer} />
+
+          {/* Says which regime the chart is in, because it explains both the
+              translucent candles and why polling slowed down. */}
+          <span className={`${styles.regime} ${styles[candles.regime]}`}>
+            {REGIME_LABEL[candles.regime]}
+          </span>
         </div>
       </Panel>
 
-      <Panel aria-label="Quotes">
-        <h2 className={styles.sectionTitle}>Quotes</h2>
+      <Panel aria-label={`${symbol} chart`}>
+        <div className={styles.chartHeader}>
+          <h2 className={styles.symbol}>{symbol}</h2>
+          {quote ? (
+            <>
+              <span className={styles.price}>
+                {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                <span className={styles.muted}> {quote.currency}</span>
+              </span>
+              <span className={(quote.changePercent ?? 0) >= 0 ? styles.up : styles.down}>
+                {quote.changePercent === null
+                  ? '—'
+                  : `${quote.changePercent >= 0 ? '+' : ''}${quote.changePercent.toFixed(2)}%`}
+              </span>
+            </>
+          ) : null}
 
-        {quotes.isPending ? <p className={styles.note}>Asking…</p> : null}
-        {quotes.isError ? (
+          <span className={styles.spacer} />
+
+          <span className={styles.meta}>
+            {candles.bars.length} bars
+            {ghosts > 0 ? <> · {ghosts} extended</> : null}
+            {candles.provider ? <> · {candles.provider}</> : null}
+          </span>
+          <Button onClick={candles.refetch}>Refresh</Button>
+        </div>
+
+        {candles.isError ? (
           <p className={styles.error} role="alert">
-            Could not reach the market data service.
+            Could not load bars for {symbol}.
           </p>
-        ) : null}
+        ) : (
+          <CandleChart
+            bars={candles.bars}
+            isGhost={candles.isGhost}
+            formatTime={formatTime}
+            loading={candles.isPending}
+          />
+        )}
 
-        {quotes.data?.quotes?.length ? (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th scope="col">Symbol</th>
-                <th scope="col">Price</th>
-                <th scope="col">Change</th>
-                <th scope="col">Served by</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quotes.data.quotes.map((quote) => (
-                <tr key={quote.symbol}>
-                  <th scope="row">{quote.symbol}</th>
-                  <td className={styles.number}>
-                    {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
-                    <span className={styles.muted}>{quote.currency}</span>
-                  </td>
-                  <td
-                    className={`${styles.number} ${
-                      (quote.changePercent ?? 0) >= 0 ? styles.up : styles.down
-                    }`}
-                  >
-                    {quote.changePercent === null
-                      ? '—'
-                      : `${quote.changePercent >= 0 ? '+' : ''}${quote.changePercent.toFixed(2)}%`}
-                  </td>
-                  <td className={styles.muted}>{quote.provider}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : null}
-
-        {/* A symbol nobody could serve says so, rather than quietly vanishing. */}
-        {quotes.data?.failed?.length ? (
-          <ul className={styles.failures}>
-            {quotes.data.failed.map((failure) => (
-              <li key={failure.symbol}>
-                <strong>{failure.symbol}</strong> — {failure.message}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </Panel>
-
-      <Panel aria-label="Bars">
-        <h2 className={styles.sectionTitle}>Bars</h2>
-        {bars.isPending ? <p className={styles.note}>Asking…</p> : null}
-        {bars.isError ? (
-          <p className={styles.error} role="alert">
-            Could not load bars for {symbols[0]}.
-          </p>
-        ) : null}
-        {bars.data?.bars ? (
-          <p className={styles.note}>
-            <strong>{bars.data.bars.length}</strong> bars for <strong>{bars.data.symbol}</strong> at{' '}
-            {bars.data.timeframe}, served by {bars.data.provider}
-            {bars.data.bars.length ? (
-              <>
-                {' '}
-                · last close{' '}
-                <strong>{bars.data.bars[bars.data.bars.length - 1].close.toLocaleString()}</strong>
-              </>
-            ) : null}
-          </p>
-        ) : null}
+        <p className={styles.note}>
+          Drag to pan, scroll to zoom. Candles outside the regular session are drawn translucent and
+          disappear when the market opens.
+        </p>
       </Panel>
     </section>
   );

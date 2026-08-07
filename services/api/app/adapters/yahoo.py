@@ -93,14 +93,21 @@ async def fetch_quote(client: httpx.AsyncClient, symbol: str) -> Quote:
     )
 
 
-async def fetch_bars(client: httpx.AsyncClient, symbol: str, timeframe: Timeframe) -> list[Bar]:
+async def fetch_bars(
+    client: httpx.AsyncClient,
+    symbol: str,
+    timeframe: Timeframe,
+    *,
+    extended: bool = False,
+) -> list[Bar]:
+    """`extended` asks for pre- and post-market bars as well as the session."""
     payload = await _get_json(
         client,
         f"/v8/finance/chart/{symbol}",
         {
             "interval": timeframe.yahoo_interval,
             "range": timeframe.yahoo_range,
-            "includePrePost": "false",
+            "includePrePost": "true" if extended else "false",
         },
     )
     return parse_bars(payload, timeframe.limit)

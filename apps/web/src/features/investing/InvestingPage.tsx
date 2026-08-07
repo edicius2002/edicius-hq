@@ -5,9 +5,13 @@ import { CandleChart } from '@/features/investing/chart/CandleChart';
 import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
+import { activePanes } from '@/features/investing/data/indicators';
+import { useIndicatorSeries } from '@/features/investing/hooks/useIndicatorSeries';
+import { useIndicators } from '@/features/investing/hooks/useIndicators';
 import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
+import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
@@ -57,6 +61,10 @@ export function InvestingPage() {
   const [timeframe, setTimeframe] = useState<string>('1d');
 
   const candles = useCandles(symbol, timeframe);
+  const { indicators, toggle: toggleIndicator } = useIndicators();
+  // Functions of the bars alone, so they survive every pan and zoom untouched.
+  const series = useIndicatorSeries(candles.bars, indicators, timeframe);
+  const panes = useMemo(() => activePanes(indicators), [indicators]);
   const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
 
   // The charted symbol rides along with the watchlist, so the whole screen is
@@ -170,11 +178,19 @@ export function InvestingPage() {
           ) : (
             <CandleChart
               bars={candles.bars}
+              indicators={series}
+              panes={panes}
               isGhost={candles.isGhost}
               formatTime={formatTime}
               loading={candles.isPending}
             />
           )}
+
+          <IndicatorBar
+            indicators={indicators}
+            timeframe={timeframe}
+            onToggle={(id) => void toggleIndicator(id)}
+          />
 
           <p className={styles.note}>
             {candles.bars.length} bars

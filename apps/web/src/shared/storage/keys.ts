@@ -6,6 +6,7 @@ export const STORAGE_KEYS = [
   'finance',
   'greenlight',
   'drawings',
+  'indicators',
 ] as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[number];

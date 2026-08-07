@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 import {
+  drawOverlays,
+  drawPane,
+  type IndicatorSeries,
+} from '@/features/investing/chart/indicatorLayers';
+import { layoutPanes, type PaneId, type PaneLayout } from '@/features/investing/lib/panes';
+
+import {
   barWidth,
   clampWindow,
   indexAt,
@@ -40,6 +47,10 @@ const DEFAULT_VISIBLE = 120;
 
 type CandleChartProps = {
   bars: Bar[];
+  /** Precomputed series, index-aligned with `bars`. Absent means "not on". */
+  indicators?: IndicatorSeries;
+  /** Which panes to open below the price, in the order they are drawn. */
+  panes?: PaneId[];
   /** Whether a bar falls outside the regular session, and so draws translucent. */
   isGhost: (bar: Bar, index: number) => boolean;
   /** How to label a bar on the time axis; the chart does not own the calendar. */
@@ -49,7 +60,14 @@ type CandleChartProps = {
 
 type Crosshair = { x: number; y: number; index: number } | null;
 
-export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartProps) {
+export function CandleChart({
+  bars,
+  indicators,
+  panes,
+  isGhost,
+  formatTime,
+  loading,
+}: CandleChartProps) {
   const [frameRef, size] = useElementSize<HTMLDivElement>();
   const candleRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -90,6 +108,15 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bars]);
 
+  // The bands are pure geometry over the plot height, so this is cheap and
+  // stable — the draw effect below depends on it and must not see a new object
+  // on every render.
+  const paneKey = (panes ?? []).join(',');
+  const layout = useMemo(
+    () => layoutPanes(plot.height, paneKey ? (paneKey.split(',') as PaneId[]) : []),
+    [plot.height, paneKey],
+  );
+
   useEffect(() => {
     const canvas = candleRef.current;
     if (!canvas || plot.width <= 0 || plot.height <= 0) return;
@@ -102,8 +129,8 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
 
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, size.width, size.height);
-    drawChart(ctx, { bars, window, plot, size, isGhost, formatTime });
-  }, [bars, window, plot, size, isGhost, formatTime]);
+    drawChart(ctx, { bars, window, plot, size, isGhost, formatTime, layout, indicators });
+  }, [bars, window, plot, size, isGhost, formatTime, layout, indicators]);
 
   useEffect(() => {
     const canvas = overlayRef.current;
@@ -228,6 +255,8 @@ type DrawArgs = {
   size: { width: number; height: number };
   isGhost: (bar: Bar, index: number) => boolean;
   formatTime: (bar: Bar) => string;
+  layout: PaneLayout;
+  indicators?: IndicatorSeries;
 };
 
 const COLOURS = {
@@ -238,18 +267,21 @@ const COLOURS = {
 };
 
 function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
-  const { bars, window, plot, size, isGhost, formatTime } = args;
+  const { bars, window, plot, size, isGhost, formatTime, layout, indicators } = args;
   const shown = visibleBars(bars, window);
   if (!shown.length) return;
 
+  // The price keeps the top band; the panes take what is left. Its band always
+  // starts at zero, so the scale needs the height and no offset.
+  const pricePlot = { width: plot.width, height: layout.price.height };
   const range = priceRange(shown);
-  const scale = priceScale(range, plot);
+  const scale = priceScale(range, pricePlot);
   const width = barWidth(window, plot);
 
   ctx.font = '10px ui-monospace, monospace';
   ctx.textBaseline = 'middle';
 
-  for (const price of priceTicks(range, plot)) {
+  for (const price of priceTicks(range, pricePlot)) {
     const y = scale(price);
     ctx.strokeStyle = COLOURS.grid;
     ctx.lineWidth = 1;
@@ -272,6 +304,8 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
 
     ctx.strokeStyle = COLOURS.grid;
     ctx.beginPath();
+    // Down the whole plot, so one vertical grid is shared by the price and
+    // every pane and a bar lines up across all of them.
     ctx.moveTo(Math.round(x) + 0.5, 0);
     ctx.lineTo(Math.round(x) + 0.5, plot.height);
     ctx.stroke();
@@ -279,6 +313,16 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
     ctx.fillStyle = COLOURS.axis;
     ctx.fillText(formatTime(bar), x, size.height - GUTTER_BOTTOM / 2);
   }
+
+  // Under the candles: a moving average must never hide the bar that made it.
+  if (indicators) {
+    drawOverlays(ctx, { series: indicators, window, plot, band: layout.price, scale });
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, layout.price.top, plot.width, layout.price.height);
+  ctx.clip();
 
   const from = Math.max(0, Math.floor(window.first));
   for (let index = from; index < Math.min(bars.length, Math.ceil(window.last)); index += 1) {
@@ -308,6 +352,20 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
   }
 
   ctx.globalAlpha = 1;
+  ctx.restore();
+
+  if (indicators) {
+    for (const pane of layout.panes) {
+      drawPane(ctx, {
+        id: pane.id,
+        band: pane.band,
+        series: indicators,
+        window,
+        plot,
+        canvasWidth: size.width,
+      });
+    }
+  }
 }
 
 function drawCrosshair(

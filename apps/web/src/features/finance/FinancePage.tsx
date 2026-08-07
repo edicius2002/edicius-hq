@@ -22,6 +22,7 @@ import {
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
+import { SaveStatus } from '@/shared/ui/SaveStatus';
 
 import styles from './ui/FinancePage.module.css';
 
@@ -165,7 +166,6 @@ export function FinancePage() {
   }, []);
 
   const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
-  const status = finance.isSaving ? 'Saving…' : finance.isFetching ? 'Loading…' : 'Saved';
   const hint = frameMode
     ? 'Drag out a rectangle to frame what it encloses.'
     : !connectMode
@@ -264,7 +264,6 @@ export function FinancePage() {
           </div>
 
           <span className={`${styles.hint} ${styles.spacer}`}>{hint}</span>
-          <span className={styles.status}>{status}</span>
         </div>
 
         {/* Sits with the actions that caused it, and only when there is one. */}
@@ -277,6 +276,7 @@ export function FinancePage() {
 
       <div className={styles.workspace}>
         <FlowCanvas
+          status={<SaveStatus state={finance.saveState} onRetry={finance.retrySave} />}
           diagram={diagram}
           selection={selection}
           connectMode={connectMode}

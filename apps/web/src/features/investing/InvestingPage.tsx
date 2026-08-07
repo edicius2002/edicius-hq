@@ -19,6 +19,8 @@ import type { Bar, Quote } from '@/shared/api/market';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
+import { formatPercent, formatPrice } from '@/features/investing/lib/money';
+
 import styles from './ui/InvestingPage.module.css';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] as const;
@@ -135,7 +137,7 @@ export function InvestingPage() {
             {charted ? (
               <>
                 <span className={styles.price}>
-                  {charted.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {formatPrice(charted.price)}
                   <span className={styles.muted}> {charted.currency}</span>
                 </span>
                 {charted.extended ? (
@@ -147,9 +149,7 @@ export function InvestingPage() {
                   </span>
                 ) : null}
                 <span className={(charted.changePercent ?? 0) >= 0 ? styles.up : styles.down}>
-                  {charted.changePercent === null
-                    ? '—'
-                    : `${charted.changePercent >= 0 ? '+' : ''}${charted.changePercent.toFixed(2)}%`}
+                  {formatPercent(charted.changePercent)}
                 </span>
               </>
             ) : null}

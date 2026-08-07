@@ -363,6 +363,10 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
         window,
         plot,
         canvasWidth: size.width,
+        rising: (index: number) => {
+          const bar = bars[index];
+          return bar ? bar.close >= bar.open : true;
+        },
       });
     }
   }

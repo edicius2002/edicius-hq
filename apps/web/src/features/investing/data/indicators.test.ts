@@ -62,8 +62,9 @@ describe('activePanes', () => {
   it('reports only the ones that get a band of their own', () => {
     const all = INDICATOR_IDS.reduce(toggle, NO_INDICATORS);
 
-    // Overlays live on the price scale; only these two take vertical room.
-    expect(activePanes(all)).toEqual(['rsi', 'macd']);
+    // Overlays live on the price scale; only these take vertical room, and
+    // volume comes first because it belongs to the bars above it.
+    expect(activePanes(all)).toEqual(['volume', 'rsi', 'macd']);
   });
 
   it('is empty when only overlays are on', () => {

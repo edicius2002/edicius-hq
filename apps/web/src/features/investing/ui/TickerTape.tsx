@@ -1,6 +1,7 @@
 import { type CSSProperties, useLayoutEffect, useRef, useState } from 'react';
 
 import { FALLBACK_DURATION_SECONDS, loopDuration, tapeCycle } from '@/features/investing/lib/tape';
+import { formatPercent, formatPrice } from '@/features/investing/lib/money';
 import type { Quote } from '@/shared/api/market';
 
 import styles from './TickerTape.module.css';
@@ -74,13 +75,9 @@ export function TickerTape({ quotes, onSelect }: TickerTapeProps) {
                   onClick={() => onSelect(quote.symbol)}
                 >
                   <span className={styles.symbol}>{quote.symbol}</span>
-                  <span className={styles.price}>
-                    {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  </span>
+                  <span className={styles.price}>{formatPrice(quote.price)}</span>
                   <span className={rising ? styles.up : styles.down}>
-                    {quote.changePercent === null
-                      ? '—'
-                      : `${rising ? '+' : ''}${quote.changePercent.toFixed(2)}%`}
+                    {formatPercent(quote.changePercent)}
                   </span>
                 </button>
               );

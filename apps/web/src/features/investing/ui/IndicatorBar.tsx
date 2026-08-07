@@ -16,6 +16,7 @@ import styles from './IndicatorBar.module.css';
  * settings — decision 8.23.
  */
 const LABELS: Record<IndicatorId, string> = {
+  volume: 'Volume',
   sma: 'SMA 20',
   ema: 'EMA 20',
   bollinger: 'BB 20/2',

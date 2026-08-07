@@ -1,17 +1,68 @@
 /*
- * Scrolls rather than wrapping: the tape is one line about the market, and a
- * second row of it would start competing with the chart for attention.
+ * A tape that runs, rather than a row you scroll.
+ *
+ * It used to be `overflow-x: auto`, which put a scrollbar under the prices and
+ * made reading the market an act of dragging. A tape moves on its own; that is
+ * what makes it a tape.
+ *
+ * The loop is two identical groups translated by exactly half the track, so the
+ * second lands where the first began and the seam never shows. Each group is at
+ * least as wide as the frame, so a short watchlist spreads out instead of
+ * dragging a gap across the screen.
  */
 .tape {
-  display: flex;
-  gap: var(--space-4);
-  padding: 0.3rem var(--space-3);
+  position: relative;
+  /* The track is intentionally wider than the frame; without this the tape
+     reports that width as its own and pushes the whole page sideways. */
+  min-width: 0;
+  padding: 0.3rem 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg-2);
-  overflow-x: auto;
-  scrollbar-width: thin;
+  /* `clip` rather than `hidden`: a hidden box is still a scroll container, and
+     focusing an item inside one scrolls it — the exact bug the camera had. */
+  overflow: clip;
   white-space: nowrap;
+}
+
+.track {
+  display: flex;
+  width: max-content;
+  animation: run var(--tape-duration, 40s) linear infinite;
+}
+
+/* Reading a price means stopping the tape, not chasing it. */
+.tape:hover .track,
+.tape:focus-within .track {
+  animation-play-state: paused;
+}
+
+@keyframes run {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    animation: none;
+  }
+}
+
+.group {
+  display: flex;
+  flex: 0 0 auto;
+  /* Packed at the density the references use — Yahoo Finance fits a symbol,
+     price and change into about 170px, and so does this. An earlier attempt at
+     `min-width: 100%` here was circular against the track's `max-content` and
+     the browser resolved it by doubling the group, which `space-around` then
+     spent as 200px of dead air between items. The list is repeated in the
+     component instead, which is width-independent and testable. */
+  gap: var(--space-5);
+  padding: 0 calc(var(--space-5) / 2);
 }
 
 .item {
@@ -45,6 +96,18 @@
 
 .price {
   color: var(--color-muted);
+}
+
+/* A price from a pre- or post-market session, marked the way the chart marks
+   its extended candles: dimmer, because it is thinner trade. */
+.extended {
+  opacity: 0.7;
+}
+
+.extended .symbol::after {
+  content: '·';
+  margin-left: 0.25rem;
+  color: var(--color-accent);
 }
 
 .up {

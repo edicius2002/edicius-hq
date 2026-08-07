@@ -57,6 +57,7 @@ class QuoteModel(BaseModel):
     # The exchange's own view of its session; absent where there is no session.
     marketState: str | None = None
     name: str | None = None
+    extended: bool = False
 
 
 class QuoteFailure(BaseModel):
@@ -159,6 +160,7 @@ def _as_model(quote: Quote) -> QuoteModel:
         provider=quote.provider,
         marketState=quote.market_state,
         name=quote.name,
+        extended=quote.extended,
     )
 
 

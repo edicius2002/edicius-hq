@@ -114,6 +114,14 @@ export function InvestingPage() {
                   {charted.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   <span className={styles.muted}> {charted.currency}</span>
                 </span>
+                {charted.extended ? (
+                  /* Says which session the number is from, so a price that
+                     disagrees with yesterday's close reads as live rather than
+                     as a bug. */
+                  <span className={styles.extendedTag} title={statusLabel}>
+                    {marketState?.startsWith('PRE') ? 'PRE' : 'AH'}
+                  </span>
+                ) : null}
                 <span className={(charted.changePercent ?? 0) >= 0 ? styles.up : styles.down}>
                   {charted.changePercent === null
                     ? '—'

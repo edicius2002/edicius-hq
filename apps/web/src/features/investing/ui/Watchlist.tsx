@@ -81,10 +81,17 @@ export function Watchlist({
 
               {quote ? (
                 <>
-                  <span className={styles.price}>
+                  <span
+                    className={`${styles.price} ${quote.extended ? styles.extended : ''}`}
+                    title={quote.extended ? 'Extended-hours price' : undefined}
+                  >
                     {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
-                  <span className={rising ? styles.up : styles.down}>
+                  <span
+                    className={`${rising ? styles.up : styles.down} ${
+                      quote.extended ? styles.extended : ''
+                    }`}
+                  >
                     {quote.changePercent === null
                       ? '—'
                       : `${rising ? '+' : ''}${quote.changePercent.toFixed(2)}%`}

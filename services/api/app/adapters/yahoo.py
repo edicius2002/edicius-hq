@@ -257,10 +257,14 @@ def parse_quotes(payload: object) -> list[Quote]:
         if not isinstance(row, dict):
             continue
         symbol = row.get("symbol")
-        price = row.get("regularMarketPrice")
+        state = str(row.get("marketState") or "")
+        price, extended = _live_price(row, state)
         if not symbol or price is None:
             continue
 
+        # Measured against the regular close even when the price is an extended
+        # one, so the percentage still answers "how is it doing today" rather
+        # than "how far has it drifted since the bell".
         previous = row.get("regularMarketPreviousClose")
         quotes.append(
             Quote(
@@ -271,8 +275,38 @@ def parse_quotes(payload: object) -> list[Quote]:
                 provider=PROVIDER,
                 # The exchange's own view of its session, which a clock cannot
                 # give: it knows about holidays.
-                market_state=str(row.get("marketState") or "") or None,
+                market_state=state or None,
                 name=str(row.get("shortName") or row.get("longName") or "") or None,
+                extended=extended,
             )
         )
     return quotes
+
+
+# Which field carries the live price, by session. Outside regular hours the
+# regular price is yesterday's news — showing it while the market moves is the
+# thing this exists to avoid.
+_EXTENDED_PRICE_FIELD = {
+    "PRE": "preMarketPrice",
+    "PREPRE": "preMarketPrice",
+    "POST": "postMarketPrice",
+    "POSTPOST": "postMarketPrice",
+}
+
+
+def _live_price(row: dict, state: str) -> tuple[float | None, bool]:
+    """
+    The most recent traded price, and whether it came from an extended session.
+
+    Falls back to the regular price rather than reporting nothing: an extended
+    session with no trades yet has no extended price, and a stale number beats
+    an empty row.
+    """
+    field = _EXTENDED_PRICE_FIELD.get(state)
+    if field is not None:
+        value = row.get(field)
+        if value is not None:
+            return float(value), True
+
+    regular = row.get("regularMarketPrice")
+    return (float(regular) if regular is not None else None), False

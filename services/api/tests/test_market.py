@@ -473,3 +473,81 @@ class TestYahooSession:
                 return Response()
 
         assert asyncio.run(session.crumb(Refusing())) is None  # type: ignore[arg-type]
+
+
+class TestExtendedSessionPricing:
+    def test_takes_the_after_hours_price_once_the_bell_has_gone(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "POSTPOST",
+                    "regularMarketPrice": 312.41,
+                    "regularMarketPreviousClose": 311.0,
+                    "postMarketPrice": 312.56,
+                }
+            )
+        )[0]
+
+        assert quote.price == 312.56
+        assert quote.extended is True
+
+    def test_takes_the_pre_market_price_before_it(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "PRE",
+                    "regularMarketPrice": 312.41,
+                    "preMarketPrice": 313.90,
+                }
+            )
+        )[0]
+
+        assert quote.price == 313.90
+        assert quote.extended is True
+
+    def test_measures_change_against_the_regular_close_even_then(self):
+        # "How is it doing today", not "how far has it drifted since the bell":
+        # the second is a different and far less useful question at a glance.
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "POSTPOST",
+                    "regularMarketPrice": 312.41,
+                    "regularMarketPreviousClose": 300.0,
+                    "postMarketPrice": 315.0,
+                }
+            )
+        )[0]
+
+        assert quote.previous_close == 300.0
+        assert quote.change == pytest.approx(15.0)
+        assert quote.change_percent == pytest.approx(5.0)
+
+    def test_falls_back_when_the_extended_session_has_not_traded_yet(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {"symbol": "AAPL", "marketState": "POST", "regularMarketPrice": 312.41}
+            )
+        )[0]
+
+        # A stale number beats an empty row.
+        assert quote.price == 312.41
+        assert quote.extended is False
+
+    def test_leaves_the_regular_price_alone_while_the_market_is_open(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "REGULAR",
+                    "regularMarketPrice": 312.41,
+                    "postMarketPrice": 999.0,
+                }
+            )
+        )[0]
+
+        assert quote.price == 312.41
+        assert quote.extended is False

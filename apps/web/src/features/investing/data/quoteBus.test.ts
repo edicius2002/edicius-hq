@@ -14,6 +14,7 @@ function quote(symbol: string, price = 100): Quote {
     provider: 'test',
     marketState: 'REGULAR',
     name: symbol,
+    extended: false,
   };
 }
 

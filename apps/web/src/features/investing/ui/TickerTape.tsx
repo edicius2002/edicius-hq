@@ -1,3 +1,6 @@
+import { type CSSProperties, useLayoutEffect, useRef, useState } from 'react';
+
+import { FALLBACK_DURATION_SECONDS, loopDuration, tapeCycle } from '@/features/investing/lib/tape';
 import type { Quote } from '@/shared/api/market';
 
 import styles from './TickerTape.module.css';
@@ -16,31 +19,75 @@ type TickerTapeProps = {
 };
 
 export function TickerTape({ quotes, onSelect }: TickerTapeProps) {
+  const groupRef = useRef<HTMLDivElement>(null);
+  const [duration, setDuration] = useState(FALLBACK_DURATION_SECONDS);
+
+  // The duration has to come from the measured width, because the thing being
+  // held constant is speed and CSS cannot divide by a width it does not know.
+  useLayoutEffect(() => {
+    const group = groupRef.current;
+    if (!group) return;
+
+    const measure = () => setDuration(loopDuration(group.scrollWidth));
+    measure();
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(group);
+    return () => observer.disconnect();
+  }, [quotes]);
+
   if (!quotes.length) return null;
 
+  const cycle = tapeCycle(quotes);
+  const style = { '--tape-duration': `${duration}s` } as CSSProperties;
+
+  // Two identical halves: the first is the tape, the second is what follows it
+  // out of the frame. The copy is decoration — hidden from assistive tech and
+  // out of the tab order, so nothing is announced or focused twice.
+  const halves = [
+    { key: 'lead', hidden: false },
+    { key: 'trail', hidden: true },
+  ];
+
   return (
-    <div className={styles.tape} aria-label="Ticker tape">
-      {quotes.map((quote) => {
-        const rising = (quote.changePercent ?? 0) >= 0;
-        return (
-          <button
-            key={quote.symbol}
-            type="button"
-            className={styles.item}
-            onClick={() => onSelect(quote.symbol)}
+    <div className={styles.tape} style={style} aria-label="Ticker tape">
+      <div className={styles.track}>
+        {halves.map((half) => (
+          <div
+            key={half.key}
+            ref={half.hidden ? undefined : groupRef}
+            className={styles.group}
+            aria-hidden={half.hidden || undefined}
           >
-            <span className={styles.symbol}>{quote.symbol}</span>
-            <span className={styles.price}>
-              {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-            <span className={rising ? styles.up : styles.down}>
-              {quote.changePercent === null
-                ? '—'
-                : `${rising ? '+' : ''}${quote.changePercent.toFixed(2)}%`}
-            </span>
-          </button>
-        );
-      })}
+            {cycle.map((quote, index) => {
+              const rising = (quote.changePercent ?? 0) >= 0;
+              return (
+                <button
+                  key={`${quote.symbol}-${index}`}
+                  type="button"
+                  className={`${styles.item} ${quote.extended ? styles.extended : ''}`}
+                  // Only the first pass through the symbols is reachable; the
+                  // repeats exist to fill the frame, not to be tabbed through.
+                  tabIndex={half.hidden || index >= quotes.length ? -1 : undefined}
+                  aria-hidden={index >= quotes.length || undefined}
+                  title={quote.extended ? `${quote.symbol} — extended hours` : quote.symbol}
+                  onClick={() => onSelect(quote.symbol)}
+                >
+                  <span className={styles.symbol}>{quote.symbol}</span>
+                  <span className={styles.price}>
+                    {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className={rising ? styles.up : styles.down}>
+                    {quote.changePercent === null
+                      ? '—'
+                      : `${rising ? '+' : ''}${quote.changePercent.toFixed(2)}%`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

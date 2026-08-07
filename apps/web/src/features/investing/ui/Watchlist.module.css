@@ -92,6 +92,12 @@
   text-align: right;
 }
 
+/* An extended-hours price is thinner trade than a regular one, and is dimmed
+   for the same reason the chart draws its extended candles translucent. */
+.extended {
+  opacity: 0.68;
+}
+
 .up {
   color: var(--color-income);
 }

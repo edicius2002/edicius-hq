@@ -20,6 +20,12 @@ export type Quote = {
   /** What the exchange says about its own session; absent where there is none. */
   marketState: string | null;
   name: string | null;
+  /**
+   * Whether `price` came from a pre- or post-market session. The change is
+   * still measured against the regular close, so the percentage answers
+   * "how is it doing today" either way.
+   */
+  extended: boolean;
 };
 
 /** A symbol that could not be served, beside the ones that could. */

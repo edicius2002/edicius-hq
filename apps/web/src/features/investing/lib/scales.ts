@@ -23,11 +23,32 @@ export type PriceRange = { min: number; max: number };
 
 export type Plot = { width: number; height: number };
 
-/** Fewer than this on screen and candles become unreadably fat. */
-export const MIN_VISIBLE_BARS = 10;
+/**
+ * The zoom limits are in **pixels per bar**, not in bar counts.
+ *
+ * A count means different things on different screens: ten bars is a 99px
+ * candle on a 1413px plot and a 42px one at 600px. What actually distorts the
+ * chart is the slot getting too wide — the body swells while the wick stays a
+ * hairline — or too narrow, where neighbours overlap.
+ */
+export const MAX_SLOT_PX = 32;
 
-export function clampWindow(window: IndexWindow, total: number): IndexWindow {
-  const span = Math.max(MIN_VISIBLE_BARS, Math.min(window.last - window.first, total));
+/** A floor so a very narrow plot still asks for a sane number of bars. */
+export const MIN_VISIBLE_BARS = 8;
+
+/** How much of its slot a candle body fills; the rest is the gap between bars. */
+const BODY_SHARE = 0.7;
+
+export function minVisibleBars(plot: Plot): number {
+  return Math.max(MIN_VISIBLE_BARS, Math.ceil(plot.width / MAX_SLOT_PX));
+}
+
+export function clampWindow(
+  window: IndexWindow,
+  total: number,
+  minBars = MIN_VISIBLE_BARS,
+): IndexWindow {
+  const span = Math.max(minBars, Math.min(window.last - window.first, total));
 
   // Kept inside the series, and anchored to the right when there is not enough
   // history to fill the span — a chart should end at the latest bar, not float.
@@ -58,11 +79,28 @@ export function indexAt(x: number, window: IndexWindow, plot: Plot): number {
   return (x / plot.width) * span + window.first - 0.5;
 }
 
+export function slotWidth(window: IndexWindow, plot: Plot): number {
+  return plot.width / (window.last - window.first || 1);
+}
+
 export function barWidth(window: IndexWindow, plot: Plot): number {
-  const span = window.last - window.first || 1;
+  const slot = slotWidth(window, plot);
   // A candle never quite fills its slot; the gap is what makes them read as
-  // separate bars rather than a solid block.
-  return Math.max(1, (plot.width / span) * 0.7);
+  // separate bars rather than a solid block. The floor keeps a candle visible
+  // when zoomed right out, and the cap stops that floor overflowing its own
+  // slot — past about a thousand bars the floor alone made neighbours overlap.
+  return Math.min(slot, Math.max(1, slot * BODY_SHARE));
+}
+
+/**
+ * How thick to draw the wick.
+ *
+ * Fixed at one pixel it becomes a thread stuck to a hundred-pixel body when
+ * zoomed in, which is the thing that actually looks broken. It scales with the
+ * body and stops growing before it becomes a second body.
+ */
+export function wickWidth(candle: number): number {
+  return Math.max(1, Math.min(candle / 6, 6));
 }
 
 /**
@@ -139,12 +177,10 @@ export function zoomWindow(
   factor: number,
   pivotIndex: number,
   total: number,
+  minBars = MIN_VISIBLE_BARS,
 ): IndexWindow {
   const span = window.last - window.first;
-  const next = Math.max(
-    MIN_VISIBLE_BARS,
-    Math.min(span * factor, Math.max(total, MIN_VISIBLE_BARS)),
-  );
+  const next = Math.max(minBars, Math.min(span * factor, Math.max(total, minBars)));
 
   // The half-bar is not decoration: `xAt` draws a bar at the centre of its slot,
   // and the slot changes width as you zoom. Preserving the index's share of the
@@ -152,9 +188,14 @@ export function zoomWindow(
   // into the chart sliding out from under the pointer.
   const share = span === 0 ? 0.5 : (pivotIndex - window.first + 0.5) / span;
   const first = pivotIndex + 0.5 - share * next;
-  return clampWindow({ first, last: first + next }, total);
+  return clampWindow({ first, last: first + next }, total, minBars);
 }
 
-export function panWindow(window: IndexWindow, byBars: number, total: number): IndexWindow {
-  return clampWindow({ first: window.first + byBars, last: window.last + byBars }, total);
+export function panWindow(
+  window: IndexWindow,
+  byBars: number,
+  total: number,
+  minBars = MIN_VISIBLE_BARS,
+): IndexWindow {
+  return clampWindow({ first: window.first + byBars, last: window.last + byBars }, total, minBars);
 }

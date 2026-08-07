@@ -4,13 +4,17 @@ import {
   barWidth,
   clampWindow,
   indexAt,
+  MAX_SLOT_PX,
   MIN_VISIBLE_BARS,
+  minVisibleBars,
   panWindow,
   priceRange,
   priceScale,
   priceTicks,
   timeTicks,
+  slotWidth,
   visibleBars,
+  wickWidth,
   xAt,
   zoomWindow,
 } from '@/features/investing/lib/scales';
@@ -75,8 +79,17 @@ describe('barWidth', () => {
     expect(width).toBeGreaterThan(0);
   });
 
-  it('never disappears entirely, however many bars there are', () => {
-    expect(barWidth({ first: 0, last: 5000 }, PLOT)).toBeGreaterThanOrEqual(1);
+  it('stays visible while its slot can hold a pixel', () => {
+    expect(barWidth({ first: 0, last: 500 }, PLOT)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shrinks below a pixel rather than overflowing its slot', () => {
+    // The old rule floored every candle at 1px, which past a thousand bars made
+    // each one paint over its neighbour. Sub-pixel and antialiased is honest;
+    // overlapping is not.
+    const window = { first: 0, last: 5000 };
+    expect(barWidth(window, PLOT)).toBeLessThanOrEqual(slotWidth(window, PLOT));
+    expect(barWidth(window, PLOT)).toBeGreaterThan(0);
   });
 });
 
@@ -202,5 +215,57 @@ describe('visibleBars', () => {
 
   it('does not run off either end', () => {
     expect(visibleBars(series(5), { first: -10, last: 99 })).toHaveLength(5);
+  });
+});
+
+describe('zoom limits in pixels', () => {
+  it('asks for more bars on a wider plot, so a candle never becomes a poster', () => {
+    // The same bar count means different things on different screens; the limit
+    // is a slot width, so it has to be derived from the plot.
+    expect(minVisibleBars({ width: 1413, height: 400 })).toBe(45);
+    expect(minVisibleBars({ width: 800, height: 400 })).toBe(25);
+  });
+
+  it('keeps a floor so a very narrow plot still asks for something sane', () => {
+    expect(minVisibleBars({ width: 100, height: 400 })).toBe(MIN_VISIBLE_BARS);
+  });
+
+  it('never lets a slot exceed the maximum once the limit is applied', () => {
+    const plot = { width: 1413, height: 400 };
+    const min = minVisibleBars(plot);
+    let window = { first: 0, last: 500 };
+    for (let i = 0; i < 40; i += 1) window = zoomWindow(window, 0.5, 250, 1000, min);
+
+    expect(slotWidth(window, plot)).toBeLessThanOrEqual(MAX_SLOT_PX + 0.001);
+  });
+});
+
+describe('barWidth against its slot', () => {
+  it('never paints over its neighbour, however far out you zoom', () => {
+    const plot = { width: 1413, height: 400 };
+    for (const bars of [100, 500, 1000, 1500, 5000]) {
+      const window = { first: 0, last: bars };
+      expect(barWidth(window, plot)).toBeLessThanOrEqual(slotWidth(window, plot));
+    }
+  });
+
+  it('leaves a visible gap while the bars are wide enough to have one', () => {
+    const plot = { width: 1413, height: 400 };
+    const window = { first: 0, last: 120 };
+    expect(slotWidth(window, plot) - barWidth(window, plot)).toBeGreaterThan(1);
+  });
+});
+
+describe('wickWidth', () => {
+  it('grows with the body instead of staying a thread', () => {
+    expect(wickWidth(99)).toBeGreaterThan(wickWidth(8));
+  });
+
+  it('is never thinner than a pixel', () => {
+    expect(wickWidth(0.5)).toBe(1);
+  });
+
+  it('stops growing before it becomes a second body', () => {
+    expect(wickWidth(600)).toBeLessThanOrEqual(6);
   });
 });

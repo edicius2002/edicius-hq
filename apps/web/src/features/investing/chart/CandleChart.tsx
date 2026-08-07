@@ -9,7 +9,9 @@ import {
   priceScale,
   priceTicks,
   timeTicks,
+  minVisibleBars,
   visibleBars,
+  wickWidth,
   xAt,
   zoomWindow,
   type IndexWindow,
@@ -77,8 +79,15 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
     if (!bars.length || anchored.current === key) return;
     anchored.current = key;
     setWindow(
-      clampWindow({ first: bars.length - DEFAULT_VISIBLE, last: bars.length }, bars.length),
+      clampWindow(
+        { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
+        bars.length,
+        minVisibleBars(plot),
+      ),
     );
+    // `plot` is deliberately absent: anchoring is about the series arriving, and
+    // a resize must not throw the view back to the newest bars.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bars]);
 
   useEffect(() => {
@@ -122,7 +131,7 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
     if (drag && event.pointerId === drag.pointerId) {
       const perBar = plot.width / Math.max(1, drag.from.last - drag.from.first);
       // Dragging right walks back through history, like moving a paper chart.
-      setWindow(panWindow(drag.from, -(x - drag.x) / perBar, bars.length));
+      setWindow(panWindow(drag.from, -(x - drag.x) / perBar, bars.length, minVisibleBars(plot)));
       return;
     }
 
@@ -145,15 +154,21 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
     const onWheel = (event: globalThis.WheelEvent) => {
       event.preventDefault();
       const rect = element.getBoundingClientRect();
-      const pivot = indexAt(event.clientX - rect.left, window, plot);
-      setWindow(
-        zoomWindow(window, event.deltaY < 0 ? 1 / WHEEL_STEP : WHEEL_STEP, pivot, bars.length),
+      const x = event.clientX - rect.left;
+      const factor = event.deltaY < 0 ? 1 / WHEEL_STEP : WHEEL_STEP;
+
+      // Composed on the latest window rather than one read from this closure.
+      // A trackpad fires far faster than React re-renders, so a listener holding
+      // a captured window throws events away — and one that is never re-bound
+      // ignores every event after the first.
+      setWindow((current) =>
+        zoomWindow(current, factor, indexAt(x, current, plot), bars.length, minVisibleBars(plot)),
       );
     };
 
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [window, plot, bars.length]);
+  }, [plot, bars.length]);
 
   const hovered = crosshair ? bars[crosshair.index] : undefined;
 
@@ -276,7 +291,9 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
     ctx.strokeStyle = rising ? COLOURS.up : COLOURS.down;
     ctx.fillStyle = ctx.strokeStyle;
 
-    ctx.lineWidth = 1;
+    // The wick grows with the body; a hairline against a wide candle is the
+    // thing that reads as broken when zoomed in.
+    ctx.lineWidth = wickWidth(width);
     ctx.beginPath();
     ctx.moveTo(Math.round(x) + 0.5, scale(bar.high));
     ctx.lineTo(Math.round(x) + 0.5, scale(bar.low));

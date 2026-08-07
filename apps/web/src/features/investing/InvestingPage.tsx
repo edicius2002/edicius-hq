@@ -8,10 +8,12 @@ import { applyTicks } from '@/features/investing/data/quoteStream';
 import { activePanes } from '@/features/investing/data/indicators';
 import { useIndicatorSeries } from '@/features/investing/hooks/useIndicatorSeries';
 import { useIndicators } from '@/features/investing/hooks/useIndicators';
+import { usePortfolio } from '@/features/investing/hooks/usePortfolio';
 import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
+import { Positions } from '@/features/investing/ui/Positions';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
@@ -59,6 +61,7 @@ function timeFormatter(timeframe: string) {
 
 export function InvestingPage() {
   const watchlist = useWatchlist();
+  const holdings = usePortfolio();
   const [symbol, setSymbol] = useState('AAPL');
   const [timeframe, setTimeframe] = useState<string>('1d');
 
@@ -71,10 +74,13 @@ export function InvestingPage() {
 
   // The charted symbol rides along with the watchlist, so the whole screen is
   // one request rather than one for the list and another for what it points at.
-  const wanted = useMemo(
-    () => (watchlist.symbols.includes(symbol) ? watchlist.symbols : [symbol, ...watchlist.symbols]),
-    [watchlist.symbols, symbol],
-  );
+  // Everything that needs a price: what you follow, what you hold, and what is
+  // charted. One request covers all three — a position values itself from the
+  // same quote the watchlist row is already showing.
+  const wanted = useMemo(() => {
+    const seen = new Set<string>([symbol, ...watchlist.symbols, ...holdings.symbols]);
+    return [...seen];
+  }, [watchlist.symbols, holdings.symbols, symbol]);
 
   // Prices arrive by push. Asked before the sweep is set up, because how often
   // to sweep depends on whether the stream is carrying — and not the reverse.
@@ -225,6 +231,24 @@ export function InvestingPage() {
               onSelect={setSymbol}
               onRemove={(picked) => void watchlist.remove(picked)}
               onMove={(from, to) => void watchlist.move(from, to)}
+            />
+          )}
+
+          <h2 className={`${styles.sectionTitle} ${styles.positionsTitle}`}>Positions</h2>
+          {holdings.isError ? (
+            <p className={styles.error} role="alert">
+              Could not load your positions.
+            </p>
+          ) : (
+            <Positions
+              portfolio={holdings.portfolio}
+              quotes={bySymbol}
+              selected={symbol}
+              onSelect={setSymbol}
+              onEdit={(picked, quantity, averageCost) =>
+                void holdings.set(picked, quantity, averageCost)
+              }
+              onRemove={(picked) => void holdings.remove(picked)}
             />
           )}
         </Panel>

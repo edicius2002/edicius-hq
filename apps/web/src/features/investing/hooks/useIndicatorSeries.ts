@@ -44,6 +44,11 @@ export function useIndicatorSeries(
     const closes = closesOf(bars);
     const series: IndicatorSeries = {};
 
+    if (has('volume')) {
+      const volume = new Float64Array(bars.length);
+      for (let i = 0; i < bars.length; i += 1) volume[i] = bars[i].volume;
+      series.volume = volume;
+    }
     if (has('sma')) series.sma = sma(closes, SMA_PERIOD);
     if (has('ema')) series.ema = ema(closes, EMA_PERIOD);
     if (has('bollinger')) series.bollinger = bollinger(closes, BOLLINGER_PERIOD);

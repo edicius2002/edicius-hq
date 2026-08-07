@@ -105,3 +105,32 @@ describe('valueToY', () => {
     expect(Number.isFinite(valueToY(5, { top: 0, height: 100 }, 5, 5))).toBe(true);
   });
 });
+
+describe('volume', () => {
+  it('sits directly under the price, above the studies', () => {
+    // Where every terminal puts it: it belongs to the bars above it rather
+    // than being derived from them.
+    const layout = layoutPanes(700, ['macd', 'volume', 'rsi']);
+
+    expect(layout.panes.map((p) => p.id)).toEqual(['volume', 'rsi', 'macd']);
+  });
+
+  it('takes less room than a study', () => {
+    const withVolume = layoutPanes(700, ['volume']);
+    const withRsi = layoutPanes(700, ['rsi']);
+
+    expect(withVolume.panes[0].band.height).toBeLessThan(withRsi.panes[0].band.height);
+    expect(withVolume.price.height).toBeGreaterThan(withRsi.price.height);
+  });
+
+  it('measures the panes actually shown, not the first of the global order', () => {
+    // They take different heights, so asking about the wrong ones would fit a
+    // volume band where a MACD is going to be drawn.
+    const studies = layoutPanes(420, ['rsi', 'macd']);
+
+    for (const pane of studies.panes) {
+      expect(pane.band.top + pane.band.height).toBeLessThanOrEqual(420 + 0.001);
+    }
+    expect(studies.price.height).toBeGreaterThanOrEqual(MIN_PRICE_HEIGHT);
+  });
+});

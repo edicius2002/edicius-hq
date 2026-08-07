@@ -33,6 +33,18 @@ beforeEach(() => {
   );
 });
 
+/**
+ * Routes are code-split, so arriving at one waits on a dynamic import that Vite
+ * compiles on demand — not on a render. The default one-second budget is a
+ * render budget, and on a loaded machine the first visit to a route overruns
+ * it, which made this the only intermittently red test in the suite.
+ */
+const ROUTE_LOAD_MS = 10_000;
+
+function arrivesAt(name: string) {
+  return screen.findByRole('heading', { name }, { timeout: ROUTE_LOAD_MS });
+}
+
 function renderAt(path: string) {
   const router = createAppMemoryRouter([path]);
   return render(
@@ -47,7 +59,7 @@ function renderAt(path: string) {
 describe('Shell navigation', () => {
   it('redirects / to Dashboard coming soon', async () => {
     renderAt('/');
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(await arrivesAt('Dashboard')).toBeInTheDocument();
     expect(screen.getByText('Coming soon.')).toBeInTheDocument();
     expect(await screen.findByRole('status')).toHaveTextContent('API online');
   });
@@ -59,22 +71,22 @@ describe('Shell navigation', () => {
     const nav = screen.getByRole('navigation');
 
     await user.click(within(nav).getByRole('link', { name: 'Finance' }));
-    expect(await screen.findByRole('heading', { name: 'Finance' })).toBeInTheDocument();
+    expect(await arrivesAt('Finance')).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('link', { name: 'Greenlight' }));
-    expect(await screen.findByRole('heading', { name: 'Greenlight' })).toBeInTheDocument();
+    expect(await arrivesAt('Greenlight')).toBeInTheDocument();
     expect(screen.getByText(/Deliverable value by week and month/i)).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('link', { name: 'Investing' }));
-    expect(await screen.findByRole('heading', { name: 'Investing' })).toBeInTheDocument();
+    expect(await arrivesAt('Investing')).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('link', { name: 'Dashboard' }));
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(await arrivesAt('Dashboard')).toBeInTheDocument();
   });
 
   it('shows NotFound for unknown routes', async () => {
     renderAt('/does-not-exist');
-    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+    expect(await arrivesAt('Page not found')).toBeInTheDocument();
   });
 });
 

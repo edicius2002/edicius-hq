@@ -1,4 +1,14 @@
 import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach } from 'vitest';
+
+/**
+ * Testing Library unmounts between tests by itself only when Vitest's globals
+ * are on, and here they are not — every test imports `describe` and `it`. So
+ * each render stayed in the document and the next test queried both, which
+ * surfaces as "found multiple elements" for anything rendered twice in a file.
+ */
+afterEach(cleanup);
 
 /**
  * jsdom has no ResizeObserver, and the Finance canvas measures itself with one

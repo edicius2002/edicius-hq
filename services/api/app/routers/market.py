@@ -6,14 +6,12 @@ of it belongs in the KV store and none of it belongs in Postgres later (plan
 decisions 5.4 and 5.8).
 """
 
-import asyncio
-
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.adapters import registry
-from app.adapters.models import ProviderError
+from app.adapters.models import ProviderError, Quote
 from app.config import (
     DEFAULT_TIMEFRAME,
     MAX_BATCH_SYMBOLS,
@@ -56,6 +54,10 @@ class QuoteModel(BaseModel):
     change: float | None
     changePercent: float | None
     provider: str
+    # The exchange's own view of its session; absent where there is no session.
+    marketState: str | None = None
+    name: str | None = None
+    extended: bool = False
 
 
 class QuoteFailure(BaseModel):
@@ -111,32 +113,55 @@ async def get_quotes(
 
     client = get_client()
 
-    async def one(symbol: str):
-        return await quote_cache.fetch(symbol, lambda: registry.fetch_quote(client, symbol))
-
-    settled = await asyncio.gather(*(one(s) for s in wanted), return_exceptions=True)
-
+    # Whatever is still fresh is answered from memory; only the rest is asked
+    # for, and those go upstream together rather than one request each.
     quotes: list[QuoteModel] = []
-    failed: list[QuoteFailure] = []
-    for symbol, outcome in zip(wanted, settled):
-        if isinstance(outcome, ProviderError):
-            failed.append(QuoteFailure(symbol=symbol, code=outcome.code, message=outcome.message))
-        elif isinstance(outcome, BaseException):
-            failed.append(QuoteFailure(symbol=symbol, code="unexpected", message=str(outcome)))
+    stale: list[str] = []
+    for symbol in wanted:
+        cached = quote_cache.get(symbol)
+        if isinstance(cached, Quote):
+            quotes.append(_as_model(cached))
         else:
-            quotes.append(
-                QuoteModel(
-                    symbol=outcome.symbol,
-                    price=outcome.price,
-                    currency=outcome.currency,
-                    previousClose=outcome.previous_close,
-                    change=outcome.change,
-                    changePercent=outcome.change_percent,
-                    provider=outcome.provider,
-                )
+            stale.append(symbol)
+
+    failed: list[QuoteFailure] = []
+    if stale:
+        try:
+            fetched, refused = await registry.fetch_quotes(client, stale)
+        except ProviderError as exc:
+            return QuotesResponse(
+                quotes=quotes,
+                failed=[QuoteFailure(symbol=s, code=exc.code, message=exc.message) for s in stale],
             )
 
+        for quote in fetched:
+            quote_cache.put(quote.symbol, quote)
+            quotes.append(_as_model(quote))
+        failed.extend(
+            QuoteFailure(symbol=symbol, code=error.code, message=error.message)
+            for symbol, error in refused
+        )
+
+    # Answered in the order asked for, so a list does not reshuffle itself when
+    # part of it comes from cache and part from upstream.
+    order = {symbol: index for index, symbol in enumerate(wanted)}
+    quotes.sort(key=lambda q: order.get(q.symbol, len(order)))
     return QuotesResponse(quotes=quotes, failed=failed)
+
+
+def _as_model(quote: Quote) -> QuoteModel:
+    return QuoteModel(
+        symbol=quote.symbol,
+        price=quote.price,
+        currency=quote.currency,
+        previousClose=quote.previous_close,
+        change=quote.change,
+        changePercent=quote.change_percent,
+        provider=quote.provider,
+        marketState=quote.market_state,
+        name=quote.name,
+        extended=quote.extended,
+    )
 
 
 @router.get("/bars", response_model=BarsResponse)

@@ -2,9 +2,9 @@
 
 > **Status:** Finance complete. Investing under way — the data plane is in.
 > **Last updated:** 2026-08-06
-> **Review status:** INV-02, the chart, in review ([#36](https://github.com/edicius2002/edicius-hq/issues/36)).
+> **Review status:** INV-03, the watchlist, in review ([#39](https://github.com/edicius2002/edicius-hq/issues/39)).
 > **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
-> **Next delivery:** INV-03, the watchlist and ticker. One issue per slice, written before its work.
+> **Next delivery:** INV-04, technical analysis. One issue per slice, written before its work.
 
 ---
 
@@ -382,6 +382,8 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 - [x] INV-01 — data plane ([#34](https://github.com/edicius2002/edicius-hq/issues/34))
 - [x] INV-02 — chart ([#36](https://github.com/edicius2002/edicius-hq/issues/36))
+- [x] INV-03 — watchlist and ticker ([#39](https://github.com/edicius2002/edicius-hq/issues/39))
+- [ ] INV-08 — live streaming ([#40](https://github.com/edicius2002/edicius-hq/issues/40))
 
 The largest phase in the plan by a wide margin: the legacy carries roughly 14,000 lines of
 JavaScript across `js/investing/`, plus a Python backend of its own (`server.py`,
@@ -402,6 +404,7 @@ weeks before the heatmap is understood.
 | INV-05 | **Portfolio**            | Positions with quantity and cost, market value and P&L against live quotes                                                       |
 | INV-06 | **Pulse**                | Fear & Greed composite and components, sentiment panels — on `/investing`, not a route (decision 2.6)                            |
 | INV-07 | **Secondary surfaces**   | Heatmap with tabs, symbol comparison, fundamentals, chart drawings and annotations                                               |
+| INV-08 | **Live streaming**       | Prices pushed over a WebSocket held by the API and relayed by SSE, with the poll reduced to a slow sweep                         |
 
 **INV-01 comes first and draws nothing.** Every other slice reads from it, and the legacy's
 `js/investing/config.js` is where the expensive knowledge lives — Yahoo's retention ceiling per
@@ -540,6 +543,11 @@ Agreed before the phase opens, so the slices inherit them rather than each re-de
 | 8.10 | The chart's x axis is bar index, not time.                                             | Mapping timestamps to pixels draws every weekend and every night as dead space. Indexing by bar position collapses closed sessions on their own, and makes the scale linear over integers.                                                                                                                                                                                                                                                      |
 | 8.11 | Extended-hours candles are fetched, drawn translucent, counted, and then gone.         | They come from `includePrePost` rather than accumulated ticks, so a reload at 3am restores them. They join the price autoscale and will feed the indicators. At the regular open we stop asking for them, so they vanish for good — the scale re-fitting and an indicator stepping at 9:30 are wanted, not faults. No candle is ever invented for a period with no trades.                                                                      |
 | 8.12 | Three cadence regimes, and the session clock lives with the chart.                     | Nothing trades between 20:00 and 04:00 ET, so polling then buys nothing. Measured: one cadence around the clock is ~66k requests a day, three regimes ~24.5k, and the night alone falls from 48.3k to 6.6k. Clearing the overlay needs to know when the market opens, so the clock sits where it is first needed rather than in INV-03 with its badge.                                                                                          |
+| 8.13 | Quotes are **batched behind a cookie-and-crumb session**, and the per-symbol path is the fallback. | Ten times fewer upstream requests, and flat in the number of symbols: forty cost the same as ten. But the handshake is the fragile thing INV-01 refused to take on — cookies expire and the crumb rotates — so a refusal drops back to the path that never needed a session, and a symbol the batch omits is asked for again alone. The saving is taken when it is there; nothing breaks when it is not. |
+| 8.14 | `marketState` decides **what is shown**; the session clock decides **cadence and clearing**.        | Each answers what the other cannot. The exchange knows it is a holiday, which 8.12's clock deliberately does not model; only the clock knows when the next bell is, which is what the overlay needs.                                                                                                                                                                                                                     |
+| 8.15 | The tape and the watchlist are fed by **one** set of quotes, with the charted symbol riding along.  | They show the same symbols. Two fetchers would double the request count for identical data and let the two disagree on screen, which is worse than either being slightly stale.                                                                                                                                                                                                                                          |
+| 8.16 | Outside regular hours the price shown is the **extended** one; the change is still measured against the **regular close**. | Reading only `regularMarketPrice` after the bell showed yesterday's number while the market moved — measured on NVDA, which read −0.10% when it was in fact +0.09%, the wrong colour as well as the wrong figure. The change stays against the regular close so the percentage answers "how is it doing today" rather than "how far has it drifted since the bell", which is a narrower and less useful question. The price is dimmed and tagged, for the same reason 8.11 draws extended candles translucent. |
+| 8.17 | The tape **runs on its own** at a constant **130 px/s**, packed at the density the references use. | It was `overflow-x: auto` — a scrollbar under the prices, so reading the market meant dragging it. Two identical halves translated by exactly half the track make the loop seamless; `clip` rather than `hidden`, because a hidden box is still a scroll container, the same trap the Finance camera fell into. Density and speed were measured, not chosen: Yahoo Finance fits an item into ~171px, and the first attempt here spent **362px** on a 160px item because `min-width: 100%` on a child of a `max-content` track is circular and the browser resolved it by doubling the group, which `space-around` then spent as 200px of dead air. Fixed, an item is 177px and nine are visible at once instead of four. Speed is held in pixels per second and the CSS duration derived from the measured width, so it does not change with the symbol count; a symbol now comes round every 13.5s rather than every 40. It pauses on hover, and the repeats that fill a short list are hidden from assistive tech and out of the tab order. |
 | 8.6  | Alerts compare in-memory quotes to stored rules, and only while the page is open.      | Already implied by decision 5.7. Firing with the tab closed needs something running outside the browser, which belongs to the cloud phase rather than to markets.                                                                                                                                                                                                                                                                               |
 
 ### Superseded decisions
@@ -578,3 +586,6 @@ Agreed before the phase opens, so the slices inherit them rather than each re-de
 | 2026-08-06 | Investing planned: seven slices, INV-01…07, and the data-source decisions in section 8. Data plane goes first.      |
 | 2026-08-06 | INV-01 delivered (#34): adapters, cache with coalescing, quote bus. Live against Yahoo and Binance.                 |
 | 2026-08-07 | INV-02 delivered (#36): hand-built candle chart, extended-hours overlay, three cadence regimes.                     |
+| 2026-08-07 | INV-03 delivered (#39): watchlist sidebar, tape, batched quotes. The legacy watchlist migrated in.                  |
+| 2026-08-07 | Extended-hours prices shown after the bell, and the tape made to run rather than scroll (8.16, 8.17).               |
+| 2026-08-07 | INV-08 added (#40): streaming measured against polling. ~2,160 requests/day → ~536, and 60s stale → sub-second.     |

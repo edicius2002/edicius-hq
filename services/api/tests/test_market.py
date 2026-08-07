@@ -14,6 +14,7 @@ import pytest
 
 from app.adapters import binance, registry, yahoo
 from app.adapters.models import ProviderError
+from app.adapters.yahoo_session import SESSION_TTL_SECONDS, YahooSession
 from app.config import TIMEFRAMES
 from app.services.market_cache import BarCache, MemoryCache
 
@@ -335,3 +336,218 @@ class TestTimeframes:
             assert frame.binance_interval
             assert frame.limit > 0, "an uncapped fetch is how a range=max query ends in OOM"
             assert frame.ttl > 0
+
+
+def quote_payload(*rows):
+    return {"quoteResponse": {"error": None, "result": list(rows)}}
+
+
+class TestYahooBatchParsing:
+    def test_reads_every_quote_in_one_response(self):
+        quotes = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "aapl",
+                    "regularMarketPrice": 312.41,
+                    "regularMarketPreviousClose": 333.43,
+                    "currency": "usd",
+                    "marketState": "POSTPOST",
+                    "shortName": "Apple Inc.",
+                },
+                {"symbol": "MSFT", "regularMarketPrice": 500.0},
+            )
+        )
+
+        assert [q.symbol for q in quotes] == ["AAPL", "MSFT"]
+        assert quotes[0].currency == "USD"
+        assert quotes[0].market_state == "POSTPOST"
+        assert quotes[0].name == "Apple Inc."
+        assert quotes[0].change == pytest.approx(312.41 - 333.43)
+
+    def test_a_symbol_with_no_price_is_left_out_rather_than_faked(self):
+        quotes = yahoo.parse_quotes(
+            quote_payload({"symbol": "GOOD", "regularMarketPrice": 1.0}, {"symbol": "BAD"})
+        )
+        assert [q.symbol for q in quotes] == ["GOOD"]
+
+    def test_a_quote_with_no_previous_close_reports_no_change(self):
+        quote = yahoo.parse_quotes(quote_payload({"symbol": "X", "regularMarketPrice": 10.0}))[0]
+        assert quote.previous_close is None
+        assert quote.change is None
+        assert quote.change_percent is None
+
+    def test_an_upstream_error_is_reported_rather_than_read_as_empty(self):
+        with pytest.raises(ProviderError):
+            yahoo.parse_quotes({"quoteResponse": {"error": "Invalid crumb", "result": None}})
+
+    def test_a_response_that_is_not_one_is_refused(self):
+        for payload in ([], "nonsense", {"finance": {}}):
+            with pytest.raises(ProviderError):
+                yahoo.parse_quotes(payload)
+
+
+class TestYahooSession:
+    def test_reuses_a_fresh_crumb_instead_of_negotiating_again(self):
+        session = YahooSession()
+        calls = 0
+
+        async def negotiate(_client):
+            nonlocal calls
+            calls += 1
+            return "CRUMB"
+
+        session._negotiate = negotiate  # type: ignore[assignment]
+
+        async def run():
+            return [await session.crumb(None) for _ in range(3)]  # type: ignore[arg-type]
+
+        assert asyncio.run(run()) == ["CRUMB"] * 3
+        assert calls == 1
+
+    def test_ten_symbols_arriving_together_negotiate_once(self):
+        session = YahooSession()
+        calls = 0
+
+        async def negotiate(_client):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.02)
+            return "CRUMB"
+
+        session._negotiate = negotiate  # type: ignore[assignment]
+
+        async def run():
+            return await asyncio.gather(*(session.crumb(None) for _ in range(10)))  # type: ignore[arg-type]
+
+        assert asyncio.run(run()) == ["CRUMB"] * 10
+        assert calls == 1, "a handshake is expensive; ten callers must not each pay for one"
+
+    def test_negotiates_again_once_the_crumb_is_stale(self):
+        session = YahooSession()
+        calls = 0
+
+        async def negotiate(_client):
+            nonlocal calls
+            calls += 1
+            return f"CRUMB{calls}"
+
+        session._negotiate = negotiate  # type: ignore[assignment]
+
+        async def run():
+            first = await session.crumb(None, now=0)  # type: ignore[arg-type]
+            # Well past the TTL, which is how a rotation shows up.
+            second = await session.crumb(None, now=SESSION_TTL_SECONDS + 1)  # type: ignore[arg-type]
+            return first, second
+
+        first, second = asyncio.run(run())
+        assert first != second
+
+    def test_forgetting_a_refused_crumb_makes_the_next_call_negotiate(self):
+        session = YahooSession()
+        calls = 0
+
+        async def negotiate(_client):
+            nonlocal calls
+            calls += 1
+            return f"CRUMB{calls}"
+
+        session._negotiate = negotiate  # type: ignore[assignment]
+
+        async def run():
+            await session.crumb(None)  # type: ignore[arg-type]
+            session.forget()
+            await session.crumb(None)  # type: ignore[arg-type]
+
+        asyncio.run(run())
+        assert calls == 2, "a refusal must not leave the same dead crumb in place forever"
+
+    def test_a_page_is_not_a_crumb(self):
+        session = YahooSession()
+
+        class Refusing:
+            async def get(self, *_args, **_kwargs):
+                class Response:
+                    status_code = 200
+                    text = "<html>Something went wrong</html>"
+
+                return Response()
+
+        assert asyncio.run(session.crumb(Refusing())) is None  # type: ignore[arg-type]
+
+
+class TestExtendedSessionPricing:
+    def test_takes_the_after_hours_price_once_the_bell_has_gone(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "POSTPOST",
+                    "regularMarketPrice": 312.41,
+                    "regularMarketPreviousClose": 311.0,
+                    "postMarketPrice": 312.56,
+                }
+            )
+        )[0]
+
+        assert quote.price == 312.56
+        assert quote.extended is True
+
+    def test_takes_the_pre_market_price_before_it(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "PRE",
+                    "regularMarketPrice": 312.41,
+                    "preMarketPrice": 313.90,
+                }
+            )
+        )[0]
+
+        assert quote.price == 313.90
+        assert quote.extended is True
+
+    def test_measures_change_against_the_regular_close_even_then(self):
+        # "How is it doing today", not "how far has it drifted since the bell":
+        # the second is a different and far less useful question at a glance.
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "POSTPOST",
+                    "regularMarketPrice": 312.41,
+                    "regularMarketPreviousClose": 300.0,
+                    "postMarketPrice": 315.0,
+                }
+            )
+        )[0]
+
+        assert quote.previous_close == 300.0
+        assert quote.change == pytest.approx(15.0)
+        assert quote.change_percent == pytest.approx(5.0)
+
+    def test_falls_back_when_the_extended_session_has_not_traded_yet(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {"symbol": "AAPL", "marketState": "POST", "regularMarketPrice": 312.41}
+            )
+        )[0]
+
+        # A stale number beats an empty row.
+        assert quote.price == 312.41
+        assert quote.extended is False
+
+    def test_leaves_the_regular_price_alone_while_the_market_is_open(self):
+        quote = yahoo.parse_quotes(
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "REGULAR",
+                    "regularMarketPrice": 312.41,
+                    "postMarketPrice": 999.0,
+                }
+            )
+        )[0]
+
+        assert quote.price == 312.41
+        assert quote.extended is False

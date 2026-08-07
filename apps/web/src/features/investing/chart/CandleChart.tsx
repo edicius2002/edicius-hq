@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 import {
   barWidth,
@@ -51,6 +51,7 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
   const [frameRef, size] = useElementSize<HTMLDivElement>();
   const candleRef = useRef<HTMLCanvasElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
 
   const [window, setWindow] = useState<IndexWindow>({ first: 0, last: DEFAULT_VISIBLE });
   const [crosshair, setCrosshair] = useState<Crosshair>(null);
@@ -132,13 +133,27 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
     setCrosshair({ x, y, index: Math.round(indexAt(x, window, plot)) });
   }
 
-  function onWheel(event: WheelEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const pivot = indexAt(event.clientX - rect.left, window, plot);
-    setWindow(
-      zoomWindow(window, event.deltaY < 0 ? 1 / WHEEL_STEP : WHEEL_STEP, pivot, bars.length),
-    );
-  }
+  /*
+   * Bound by hand rather than through onWheel: React listens passively, and a
+   * passive listener cannot call preventDefault — so zooming would scroll the
+   * page out from under the chart. The same trap the Finance camera hit.
+   */
+  useEffect(() => {
+    const element = surfaceRef.current;
+    if (!element) return;
+
+    const onWheel = (event: globalThis.WheelEvent) => {
+      event.preventDefault();
+      const rect = element.getBoundingClientRect();
+      const pivot = indexAt(event.clientX - rect.left, window, plot);
+      setWindow(
+        zoomWindow(window, event.deltaY < 0 ? 1 / WHEEL_STEP : WHEEL_STEP, pivot, bars.length),
+      );
+    };
+
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [window, plot, bars.length]);
 
   const hovered = crosshair ? bars[crosshair.index] : undefined;
 
@@ -148,6 +163,7 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
       <canvas ref={overlayRef} className={styles.layer} style={{ width: '100%', height: '100%' }} />
 
       <div
+        ref={surfaceRef}
         className={`${styles.surface} ${drag ? styles.dragging : ''}`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -157,7 +173,6 @@ export function CandleChart({ bars, isGhost, formatTime, loading }: CandleChartP
         onPointerUp={() => setDrag(null)}
         onPointerCancel={() => setDrag(null)}
         onPointerLeave={() => setCrosshair(null)}
-        onWheel={onWheel}
       />
 
       {/* The readout follows the crosshair rather than living in a corner, so

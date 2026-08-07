@@ -20,6 +20,15 @@
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
   background-repeat: repeat;
   cursor: grab;
+  /*
+   * Every press in here moves something, so none of it is text to select. Left
+   * selectable, a drag anchors a selection in whatever label it passes — frame
+   * headers most often, since the nodes were the only thing opting out — and the
+   * node arrives with the canvas highlighted behind it. Prefixed as well: Safari
+   * still reads only the -webkit- form.
+   */
+  -webkit-user-select: none;
+  user-select: none;
   /* The canvas owns the gesture; the page must not scroll or zoom under it. */
   touch-action: none;
 }

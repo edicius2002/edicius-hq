@@ -11,6 +11,7 @@ ALLOWED_KV_KEYS = frozenset(
         "finance",
         "greenlight",
         "drawings",
+        "indicators",
     }
 )
 

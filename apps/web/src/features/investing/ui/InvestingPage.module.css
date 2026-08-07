@@ -17,6 +17,12 @@
   text-transform: uppercase;
 }
 
+/* Between the chart and its footnote: the toggles belong with the thing they
+   change, not up in the header with the timeframes. */
+.indicators {
+  margin-top: var(--space-3);
+}
+
 .note {
   margin: 0;
   color: var(--color-muted);

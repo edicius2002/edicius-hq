@@ -34,15 +34,6 @@
   margin-inline-start: auto;
 }
 
-.status {
-  color: var(--color-muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  /* Reserved so the row does not shift when the text appears. */
-  min-width: 7rem;
-  text-align: end;
-}
-
 .hint {
   color: var(--color-muted);
   font-size: 0.78rem;

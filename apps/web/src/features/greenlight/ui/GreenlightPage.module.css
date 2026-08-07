@@ -68,17 +68,10 @@
 }
 
 .muted,
-.error,
-.syncing {
+.error {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.95rem;
-}
-
-.syncing {
-  align-self: center;
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 
 .error {

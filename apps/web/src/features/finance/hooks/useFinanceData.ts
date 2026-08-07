@@ -1,4 +1,3 @@
-import { useMutation } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
 
 import { readBackup, type RestoreError } from '@/features/finance/lib/backup';
@@ -103,10 +102,12 @@ export function useFinanceData() {
     [historyOf, rememberHistory, store],
   );
 
-  const apply = useMutation({ mutationFn: (edit: Edit) => editDiagram(edit) });
+  // Called straight rather than through a mutation: the only thing that read the
+  // mutation's state was the save status, which the store now reports itself,
+  // and a mutation firing per pointer move was a render per pointer move.
   const run = useCallback(
-    (change: DiagramChange, coalesceKey?: string) => apply.mutateAsync({ change, coalesceKey }),
-    [apply],
+    (change: DiagramChange, coalesceKey?: string) => editDiagram({ change, coalesceKey }),
+    [editDiagram],
   );
 
   /** Move one step through the stack and persist whatever it lands on. */
@@ -194,7 +195,8 @@ export function useFinanceData() {
     diagram,
     isFetching: store.isFetching,
     isError: store.isError,
-    isSaving: apply.isPending,
+    saveState: store.saveState,
+    retrySave: store.retrySave,
 
     canUndo: steps.canUndo,
     canRedo: steps.canRedo,

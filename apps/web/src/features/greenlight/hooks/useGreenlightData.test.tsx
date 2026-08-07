@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,6 +7,9 @@ import { useGreenlightData } from '@/features/greenlight/hooks/useGreenlightData
 import type { GreenlightState } from '@/features/greenlight/model/types';
 
 afterEach(() => {
+  // Unmounted before the stub goes: leaving a hook mounted would let its
+  // debounce fire into the next test, or into whatever `fetch` is by then.
+  cleanup();
   vi.unstubAllGlobals();
 });
 
@@ -74,11 +77,15 @@ describe('useGreenlightData storage sync', () => {
       ]);
     });
 
-    expect(api.stored.widgets).toEqual({
-      '2026-04': ['vscode'],
-      '2026-05': ['vscode'],
-      '2026-06': ['cursor'],
-    });
+    // One write carries both, because neither toggle waited for the other's.
+    await waitFor(() =>
+      expect(api.stored.widgets).toEqual({
+        '2026-04': ['vscode'],
+        '2026-05': ['vscode'],
+        '2026-06': ['cursor'],
+      }),
+    );
+    expect(api.writes).toHaveLength(1);
   });
 
   it('keeps stats intact while toggling', async () => {
@@ -90,8 +97,27 @@ describe('useGreenlightData storage sync', () => {
       await result.current.toggleMarker('2026-04-17');
     });
 
+    // The write leaves on a trailing debounce, so the marker reaches storage a
+    // moment after it reaches the screen.
+    await waitFor(() => expect(api.stored.markers).toEqual(['2026-04-17']));
     expect(api.stored.stats['2026-04-17']?.Deliverable.amount).toBe(388);
-    expect(api.stored.markers).toEqual(['2026-04-17']);
+  });
+
+  it('says that edits are held before it says they are saved', async () => {
+    const api = stubApi();
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+
+    await waitFor(() => expect(result.current.saveState).toBe('idle'));
+
+    await act(async () => {
+      await result.current.toggleMarker('2026-04-17');
+    });
+
+    expect(result.current.saveState).toBe('pending');
+    expect(api.writes).toHaveLength(0);
+
+    await waitFor(() => expect(result.current.saveState).toBe('saved'));
+    expect(api.writes).toHaveLength(1);
   });
 
   it('refuses to write when the read failed, instead of overwriting stored data', async () => {

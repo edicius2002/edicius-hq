@@ -20,6 +20,15 @@
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
   background-repeat: repeat;
   cursor: grab;
+  /*
+   * Every press in here moves something, so none of it is text to select. Left
+   * selectable, a drag anchors a selection in whatever label it passes — frame
+   * headers most often, since the nodes were the only thing opting out — and the
+   * node arrives with the canvas highlighted behind it. Prefixed as well: Safari
+   * still reads only the -webkit- form.
+   */
+  -webkit-user-select: none;
+  user-select: none;
   /* The canvas owns the gesture; the page must not scroll or zoom under it. */
   touch-action: none;
 }
@@ -127,6 +136,28 @@
 .emptyTitle {
   color: var(--color-text);
   font-weight: 700;
+}
+
+/*
+ * The save readout, pinned to the top-left of the window. Chrome like the zoom
+ * controls, so the camera never moves it — and diagonally opposite the minimap
+ * so neither ever covers the other.
+ */
+.statusCorner {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  /* A readout, not a target — except the retry inside it, which re-enables
+     itself. Without this the corner would swallow drags that start under it. */
+  pointer-events: none;
+  /* `pointer-events: none` stops it being hit, not being selected: a drag that
+     crosses it still takes the words with it. Nothing here is text to keep. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.statusCorner button {
+  pointer-events: auto;
 }
 
 /* Camera controls. Chrome over the window, so the camera never moves them. */

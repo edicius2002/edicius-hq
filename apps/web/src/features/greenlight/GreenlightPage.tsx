@@ -22,6 +22,7 @@ import { WeeklyChart } from '@/features/greenlight/ui/WeeklyChart';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
+import { SaveStatus } from '@/shared/ui/SaveStatus';
 import { Stat } from '@/shared/ui/Stat';
 
 import styles from './ui/GreenlightPage.module.css';
@@ -33,6 +34,8 @@ export function GreenlightPage() {
     state,
     isFetching,
     isError,
+    saveState,
+    retrySave,
     importCsv,
     isImporting,
     clearData,
@@ -117,7 +120,7 @@ export function GreenlightPage() {
         title="Greenlight"
         subtitle="Deliverable value by week and month."
         titleId="greenlight-title"
-        actions={showSyncing ? <span className={styles.syncing}>Syncing…</span> : undefined}
+        actions={<SaveStatus state={saveState} onRetry={retrySave} />}
       />
 
       <ImportPanel

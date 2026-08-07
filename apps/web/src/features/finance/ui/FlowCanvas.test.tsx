@@ -1,9 +1,9 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
-import { addAccount, addFrame, addJob } from '@/features/finance/lib/operations';
+import { addAccount, addFrame, addHolding, addJob } from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
 
 import { FlowCanvas } from './FlowCanvas';
@@ -110,6 +110,114 @@ describe('per-diagram cameras', () => {
     // And coming back finds the first one where it was.
     rerender(<FlowCanvas diagram={first} {...props} />);
     expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('120%');
+  });
+});
+
+/**
+ * A press that starts a gesture has to claim the default, or the browser reads
+ * the same drag as a text selection and the labels light up blue behind the
+ * thing being moved. These check the claim is made, since the stylesheet half of
+ * the fix cannot be seen from jsdom.
+ */
+describe('gestures do not double as text selection', () => {
+  function pressed(element: Element): boolean {
+    // fireEvent returns false once a listener has prevented the default.
+    return !fireEvent.pointerDown(element, { bubbles: true, cancelable: true, pointerId: 1 });
+  }
+
+  it('claims the press that starts a node drag', () => {
+    renderCanvas(populated());
+    expect(pressed(screen.getByLabelText('Job Job'))).toBe(true);
+  });
+
+  it('claims the press that starts a pan', () => {
+    const { container } = renderCanvas(populated());
+    const viewport = container.firstElementChild;
+    expect(viewport).not.toBeNull();
+    expect(pressed(viewport as Element)).toBe(true);
+  });
+
+  it('claims the press that starts a frame move', () => {
+    renderCanvas(
+      addFrame(populated(), {
+        id: 'f1',
+        position: { x: 0, y: 0 },
+        size: { width: 320, height: 240 },
+        name: 'Savings',
+      }),
+    );
+    const header = screen.getByTitle('Drag to move the frame');
+    expect(pressed(header)).toBe(true);
+  });
+
+  it('leaves a press on the zoom controls alone, so they still take a click', () => {
+    renderCanvas(populated());
+    // Not a gesture: the button needs its default to focus and activate.
+    expect(pressed(screen.getByRole('button', { name: 'Zoom in' }))).toBe(false);
+  });
+});
+
+/**
+ * Saving is a round trip and the canvas draws from the saved document, so a node
+ * that waited for the write to land trailed the pointer and stopped dead when one
+ * was slow. These drive a drag while the diagram prop never changes — storage
+ * saying nothing at all — and expect the node to have moved anyway.
+ */
+describe('a drag draws itself, without waiting for storage', () => {
+  function drag(element: Element, to: { x: number; y: number }) {
+    fireEvent.pointerDown(element, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: 50,
+      clientY: 50,
+    });
+    fireEvent.pointerMove(element, { bubbles: true, pointerId: 1, clientX: to.x, clientY: to.y });
+  }
+
+  it('moves the node with the pointer while the document stays put', () => {
+    const props = canvasProps();
+    // The job sits at 40,40 and is grabbed 10px in, so it lands at 140,140.
+    render(<FlowCanvas diagram={populated()} {...props} />);
+    const node = screen.getByLabelText('Job Job');
+
+    drag(node, { x: 150, y: 150 });
+
+    expect(node).toHaveStyle({ left: '140px', top: '140px' });
+    // Storage is still told; it is only no longer what the canvas draws from.
+    expect(props.onMoveNode).toHaveBeenCalledWith('job-1', { x: 140, y: 140 });
+  });
+
+  it('carries what is drawn from it rather than leaving it behind', () => {
+    // The account owns a holding, so a tether is drawn between the two.
+    const held = addHolding(populated(), {
+      id: 'h1',
+      accountId: 'acc-1',
+      asset: 'USD',
+      position: { x: 600, y: 300 },
+    });
+    if (!held.ok) throw new Error('the fixture should hold an asset');
+
+    const { container } = render(<FlowCanvas diagram={held.value} {...canvasProps()} />);
+    const before = container.querySelector('svg path')?.getAttribute('d');
+    expect(before).toBeTruthy();
+
+    drag(screen.getByLabelText('Account Account'), { x: 400, y: 400 });
+
+    expect(container.querySelector('svg path')?.getAttribute('d')).not.toBe(before);
+  });
+
+  it('hands the position back to the document once the gesture ends', () => {
+    const props = canvasProps();
+    const { rerender } = render(<FlowCanvas diagram={populated()} {...props} />);
+    const node = screen.getByLabelText('Job Job');
+
+    drag(node, { x: 150, y: 150 });
+    fireEvent.pointerUp(node, { bubbles: true, pointerId: 1 });
+
+    // Storage never caught up, so the node falls back to where the document says.
+    rerender(<FlowCanvas diagram={populated()} {...props} />);
+    expect(screen.getByLabelText('Job Job')).toHaveStyle({ left: '40px', top: '40px' });
   });
 });
 

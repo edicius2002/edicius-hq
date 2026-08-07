@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 
 import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
 import { useElementSize } from '@/shared/lib/useElementSize';
@@ -74,13 +74,29 @@ type FlowCanvasProps = {
   onCreateFrame: (rect: Rect) => void;
   onMoveFrame: (id: FrameId, position: Point) => void;
   onResizeFrame: (id: FrameId, position: Point, size: Size) => void;
+  /**
+   * Chrome pinned to the top-left of the window. A readout about the diagram
+   * belongs over the diagram, where the eye already is — in the toolbar it was
+   * a row away from the thing it describes. The canvas stays ignorant of what
+   * it is being handed.
+   */
+  status?: ReactNode;
 };
 
+/*
+ * Every gesture below carries where it has got to, not just where it began.
+ *
+ * Saving is a round trip, and the saved document is what the canvas draws from,
+ * so reading the position back from it made whatever was being dragged trail the
+ * pointer by a whole write — and stop dead whenever one was slow. The gesture
+ * owns the position while it lasts and the document catches up behind it.
+ */
 type Drag = {
   nodeId: NodeId;
   pointerId: number;
   /** Where inside the node the pointer grabbed it, so it does not jump. */
   grabOffset: Point;
+  position: Point;
 };
 
 /**
@@ -91,7 +107,13 @@ type Drag = {
 type Pan = { pointerId: number; origin: Point; from: Camera };
 
 /** A frame being moved or pulled. Both anchor on where the gesture started. */
-type FrameDrag = { frameId: FrameId; pointerId: number; origin: Point; from: Point };
+type FrameDrag = {
+  frameId: FrameId;
+  pointerId: number;
+  origin: Point;
+  from: Point;
+  position: Point;
+};
 
 type FrameResize = {
   frameId: FrameId;
@@ -99,6 +121,7 @@ type FrameResize = {
   edge: ResizeEdge;
   origin: Point;
   from: Rect;
+  rect: Rect;
 };
 
 /** A frame being drawn: two world corners, until the pointer comes up. */
@@ -116,6 +139,7 @@ export function FlowCanvas({
   onCreateFrame,
   onMoveFrame,
   onResizeFrame,
+  status,
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -129,14 +153,27 @@ export function FlowCanvas({
   // A switched-off holding keeps its amount but leaves the canvas.
   const nodes = diagram.nodeOrder
     .map((id) => diagram.nodes[id])
-    .filter((node) => node && (node.kind !== 'holding' || node.active));
+    .filter((node) => node && (node.kind !== 'holding' || node.active))
+    // Drawn where the gesture has taken it rather than where the document has
+    // got to, so it keeps up with the pointer instead of with the network.
+    .map((node) => (drag?.nodeId === node.id ? { ...node, position: drag.position } : node));
+  // Everything that draws a node reads it from here, so the flows and the
+  // minimap travel with it rather than staying behind on the stored position.
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
   // Drawing a flow to a node that is not on the canvas would leave an arrow
   // pointing at nothing, so dormant ends hide their flows too.
   const flows = diagram.flowOrder
     .map((id) => diagram.flows[id])
     .filter((flow) => flow && isFlowActive(diagram, flow));
 
-  const frames = listFrames(diagram);
+  const frames = listFrames(diagram).map((frame) => {
+    if (frameDrag?.frameId === frame.id) return { ...frame, position: frameDrag.position };
+    if (frameResize?.frameId === frame.id) {
+      const { left, top, width, height } = frameResize.rect;
+      return { ...frame, position: { x: left, y: top }, size: { width, height } };
+    }
+    return frame;
+  });
   // One pass for the whole canvas rather than a search per frame.
   const membership = frameMembership(diagram);
 
@@ -156,7 +193,7 @@ export function FlowCanvas({
    */
   const ownership = nodes.flatMap((node) => {
     if (node.kind !== 'holding') return [];
-    const account = diagram.nodes[node.accountId];
+    const account = nodeById.get(node.accountId);
     if (account?.kind !== 'account') return [];
     const anchors = facingAnchors(account, node);
     return [
@@ -215,32 +252,35 @@ export function FlowCanvas({
     const node = diagram.nodes[nodeId];
     if (!node) return;
     const pointer = toWorld(event);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    beginGesture(event);
     setDrag({
       nodeId,
       pointerId: event.pointerId,
       grabOffset: { x: pointer.x - node.position.x, y: pointer.y - node.position.y },
+      position: node.position,
     });
   }
 
   function startFrameDrag(frame: Frame, event: PointerEvent<HTMLElement>) {
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    beginGesture(event);
     setFrameDrag({
       frameId: frame.id,
       pointerId: event.pointerId,
       origin: toWorld(event),
       from: frame.position,
+      position: frame.position,
     });
   }
 
   function startFrameResize(frame: Frame, edge: ResizeEdge, event: PointerEvent<HTMLElement>) {
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    beginGesture(event);
     setFrameResize({
       frameId: frame.id,
       pointerId: event.pointerId,
       edge,
       origin: toWorld(event),
       from: frameRect(frame),
+      rect: frameRect(frame),
     });
   }
 
@@ -253,7 +293,7 @@ export function FlowCanvas({
     if (!onBackground) return;
 
     onSelect(null);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    beginGesture(event);
 
     if (frameMode) {
       const start = toWorld(event);
@@ -285,10 +325,12 @@ export function FlowCanvas({
 
     if (frameDrag && event.pointerId === frameDrag.pointerId) {
       const pointer = toWorld(event);
-      onMoveFrame(frameDrag.frameId, {
+      const position = {
         x: Math.round(frameDrag.from.x + pointer.x - frameDrag.origin.x),
         y: Math.round(frameDrag.from.y + pointer.y - frameDrag.origin.y),
-      });
+      };
+      setFrameDrag({ ...frameDrag, position });
+      onMoveFrame(frameDrag.frameId, position);
       return;
     }
 
@@ -298,10 +340,17 @@ export function FlowCanvas({
         x: pointer.x - frameResize.origin.x,
         y: pointer.y - frameResize.origin.y,
       });
+      const rect = {
+        left: Math.round(next.left),
+        top: Math.round(next.top),
+        width: Math.round(next.width),
+        height: Math.round(next.height),
+      };
+      setFrameResize({ ...frameResize, rect });
       onResizeFrame(
         frameResize.frameId,
-        { x: Math.round(next.left), y: Math.round(next.top) },
-        { width: Math.round(next.width), height: Math.round(next.height) },
+        { x: rect.left, y: rect.top },
+        { width: rect.width, height: rect.height },
       );
       return;
     }
@@ -309,10 +358,12 @@ export function FlowCanvas({
     if (!drag || event.pointerId !== drag.pointerId) return;
     const pointer = toWorld(event);
     // Nowhere is out of bounds. The node goes where the pointer took it.
-    onMoveNode(drag.nodeId, {
+    const position = {
       x: Math.round(pointer.x - drag.grabOffset.x),
       y: Math.round(pointer.y - drag.grabOffset.y),
-    });
+    };
+    setDrag({ ...drag, position });
+    onMoveNode(drag.nodeId, position);
   }
 
   function endGesture(event: PointerEvent<HTMLDivElement>) {
@@ -399,8 +450,8 @@ export function FlowCanvas({
           ))}
 
           {flows.map((flow) => {
-            const source = diagram.nodes[flow.from];
-            const target = diagram.nodes[flow.to];
+            const source = nodeById.get(flow.from);
+            const target = nodeById.get(flow.to);
             if (!source || !target) return null;
 
             const from = anchorPoint(source, flow.fromAnchor);
@@ -456,6 +507,8 @@ export function FlowCanvas({
         </div>
       ) : null}
 
+      {status ? <div className={styles.statusCorner}>{status}</div> : null}
+
       <div className={styles.controls}>
         <button
           type="button"
@@ -503,6 +556,27 @@ export function FlowCanvas({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Takes the pointer for the rest of a gesture.
+ *
+ * The capture keeps the moves coming when a fast drag outruns the element it
+ * started on or leaves the window, so the release is never missed and the canvas
+ * cannot be left thinking a drag is still going. Preventing the default stops
+ * the browser reading the same press as the start of a text selection or a
+ * native drag — the stylesheet already makes the canvas unselectable, but that
+ * only covers what is inside it, and a gesture may end anywhere.
+ */
+function beginGesture(event: PointerEvent<HTMLElement>) {
+  event.preventDefault();
+  try {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  } catch {
+    // Capturing is an improvement on the gesture, not a condition of it: a
+    // pointer that is already gone cannot be captured and throws for saying so.
+    // The drag still works from the events that do arrive, so it goes ahead.
+  }
 }
 
 /** The rectangle being dragged out, before it is a frame. */

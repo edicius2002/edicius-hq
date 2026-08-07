@@ -25,8 +25,9 @@ function normalizeState(value: unknown): GreenlightState {
 }
 
 export function useGreenlightData() {
-  // Write serialization and the refusal to save over a failed read live in the
-  // shared store, so Greenlight and Finance cannot drift apart on either.
+  // Write serialization, the debounce in front of it and the refusal to save
+  // over a failed read all live in the shared store, so Greenlight and Finance
+  // cannot drift apart on any of them.
   const store = useStoredDocument<GreenlightState>({
     key: 'greenlight',
     normalize: normalizeState,
@@ -114,6 +115,8 @@ export function useGreenlightData() {
     state: store.data,
     isFetching: store.isFetching,
     isError: store.isError,
+    saveState: store.saveState,
+    retrySave: store.retrySave,
     importCsv: importMutation.mutateAsync,
     isImporting: importMutation.isPending,
     clearData: clearMutation.mutateAsync,

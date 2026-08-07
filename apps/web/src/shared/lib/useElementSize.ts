@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 
-import type { Size } from '@/features/finance/lib/geometry';
+export type Size = { width: number; height: number };
 
 const EMPTY: Size = { width: 0, height: 0 };
 
 /**
- * The measured size of an element. The camera needs it to fit a diagram and to
- * work out what is on screen, and neither can be answered from the diagram
- * alone. Measured rather than assumed because the canvas is sized in `vh`.
+ * The measured size of an element.
+ *
+ * Lives in shared because two features need it and features may not import
+ * each other: the Finance camera needs it to fit a diagram, and the Investing
+ * chart needs it to size its canvas. Measured rather than assumed, because
+ * both are sized in viewport units.
  */
 export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, Size] {
   const ref = useRef<T | null>(null);

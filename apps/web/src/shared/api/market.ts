@@ -44,6 +44,8 @@ export type BarsResponse = {
   symbol: string;
   timeframe: string;
   provider: string;
+  /** Whether the series includes pre- and post-market bars. */
+  extended: boolean;
   bars: Bar[];
 };
 
@@ -69,9 +71,12 @@ export function getQuotes(symbols: string[], signal?: AbortSignal): Promise<Quot
 export function getBars(
   symbol: string,
   timeframe: string,
+  extended = false,
   signal?: AbortSignal,
 ): Promise<BarsResponse> {
-  const query = `symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`;
+  const query =
+    `symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}` +
+    (extended ? '&extended=true' : '');
   return apiRequest<BarsResponse>(`/api/market/bars?${query}`, {
     signal,
     timeoutMs: MARKET_TIMEOUT_MS,

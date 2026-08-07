@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 
 import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
-import { useElementSize } from '@/features/finance/hooks/useElementSize';
+import { useElementSize } from '@/shared/lib/useElementSize';
 import {
   fitCamera,
   IDENTITY_CAMERA,

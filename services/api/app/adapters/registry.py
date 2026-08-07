@@ -35,11 +35,21 @@ async def fetch_quote(client: httpx.AsyncClient, symbol: str) -> Quote:
     return await yahoo.fetch_quote(client, symbol)
 
 
-async def fetch_bars(client: httpx.AsyncClient, symbol: str, timeframe: Timeframe) -> list[Bar]:
+async def fetch_bars(
+    client: httpx.AsyncClient,
+    symbol: str,
+    timeframe: Timeframe,
+    *,
+    extended: bool = False,
+) -> list[Bar]:
+    """
+    `extended` is ignored by Binance, which has no session to be outside of:
+    crypto trades around the clock, so every bar is a regular one.
+    """
     symbol = normalize_symbol(symbol)
     if provider_for(symbol) == binance.PROVIDER:
         return await binance.fetch_bars(client, symbol, timeframe)
-    return await yahoo.fetch_bars(client, symbol, timeframe)
+    return await yahoo.fetch_bars(client, symbol, timeframe, extended=extended)
 
 
 async def search(client: httpx.AsyncClient, query: str, limit: int = 10) -> list[SymbolHit]:

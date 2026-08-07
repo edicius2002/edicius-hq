@@ -84,6 +84,9 @@ class BarsResponse(BaseModel):
     symbol: str
     timeframe: str
     provider: str
+    # Echoed back so the client knows whether what it holds includes the
+    # extended session, without having to remember what it asked for.
+    extended: bool
     bars: list[BarModel]
 
 
@@ -140,6 +143,7 @@ async def get_quotes(
 async def get_bars(
     symbol: str = Query(...),
     timeframe: str = Query(DEFAULT_TIMEFRAME),
+    extended: bool = Query(False, description="Include pre- and post-market bars"),
 ) -> BarsResponse:
     frame = TIMEFRAMES.get(timeframe)
     if frame is None:
@@ -151,12 +155,14 @@ async def get_bars(
     resolved = registry.normalize_symbol(symbol)
     client = get_client()
 
+    # Two different series, so two different cache entries.
+    cache_key = f"{frame.key}ext" if extended else frame.key
     try:
         bars = await bar_cache.fetch(
             resolved,
-            frame.key,
+            cache_key,
             frame.ttl,
-            lambda: registry.fetch_bars(client, resolved, frame),
+            lambda: registry.fetch_bars(client, resolved, frame, extended=extended),
         )
     except ProviderError as exc:
         raise _as_http_error(exc) from exc
@@ -165,6 +171,7 @@ async def get_bars(
         symbol=resolved,
         timeframe=frame.key,
         provider=registry.provider_for(resolved),
+        extended=extended,
         bars=[BarModel(**{k: getattr(bar, k) for k in BarModel.model_fields}) for bar in bars],
     )
 

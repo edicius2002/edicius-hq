@@ -104,8 +104,12 @@ export function Watchlist({
             <button
               type="button"
               className={styles.remove}
-              aria-label={`Remove ${entry.symbol}`}
-              title={`Remove ${entry.symbol}`}
+              /* Names the list it acts on. The positions panel beside it has
+                 its own ✕ for the same symbol, and two controls answering to
+                 one name are ambiguous to a screen reader — and picked the
+                 wrong one out of the document when a check went looking. */
+              aria-label={`Stop following ${entry.symbol}`}
+              title={`Stop following ${entry.symbol}`}
               onClick={() => onRemove(entry.symbol)}
             >
               ✕

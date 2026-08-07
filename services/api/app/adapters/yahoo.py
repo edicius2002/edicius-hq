@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from app.adapters.models import Bar, ProviderError, Quote, SymbolHit
+from app.adapters.yahoo_session import BROWSER_UA, SESSION
 from app.config import Timeframe
 
 PROVIDER = "yahoo"
@@ -186,3 +187,92 @@ def parse_search(payload: Any, limit: int) -> list[SymbolHit]:
         if len(hits) >= limit:
             break
     return hits
+
+
+QUOTE_URL = "https://query2.finance.yahoo.com/v7/finance/quote"
+
+
+async def fetch_quotes(client: httpx.AsyncClient, symbols: list[str]) -> list[Quote]:
+    """
+    Every symbol in one request.
+
+    Ten times fewer upstream calls than asking one at a time, and flat in the
+    number of symbols — forty cost the same as ten. The price is the session in
+    `yahoo_session`, which is why every failure here raises rather than guesses:
+    the caller falls back to the per-symbol path that needs no session.
+    """
+    if not symbols:
+        return []
+
+    crumb = await SESSION.crumb(client)
+    if crumb is None:
+        raise ProviderError("no-session", "Could not negotiate a Yahoo session")
+
+    try:
+        response = await client.get(
+            QUOTE_URL,
+            params={"symbols": ",".join(symbols), "crumb": crumb},
+            headers={"User-Agent": BROWSER_UA},
+        )
+    except httpx.HTTPError as exc:
+        raise ProviderError("unreachable", f"Yahoo could not be reached: {exc}") from exc
+
+    if response.status_code in (401, 403):
+        # The crumb went stale or the cookies were dropped. Forgetting it means
+        # the next attempt negotiates instead of failing the same way forever.
+        SESSION.forget()
+        raise ProviderError("no-session", "Yahoo refused the session")
+    if response.status_code == 429:
+        raise ProviderError("rate-limited", "Yahoo is rate limiting this address")
+    if response.status_code >= 400:
+        raise ProviderError("upstream-error", f"Yahoo answered {response.status_code}")
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderError("upstream-error", f"Yahoo sent something unreadable: {exc}") from exc
+
+    return parse_quotes(payload)
+
+
+def parse_quotes(payload: object) -> list[Quote]:
+    """
+    Split out so the shape is pinned by tests rather than by an endpoint being
+    up. A symbol Yahoo does not know is simply absent from the result, so the
+    caller compares what it asked for against what came back.
+    """
+    if not isinstance(payload, dict):
+        raise ProviderError("upstream-error", "Yahoo sent something that is not a response")
+
+    container = payload.get("quoteResponse")
+    if not isinstance(container, dict):
+        raise ProviderError("upstream-error", "Yahoo sent no quoteResponse")
+
+    error = container.get("error")
+    if error:
+        raise ProviderError("upstream-error", str(error))
+
+    quotes: list[Quote] = []
+    for row in container.get("result") or []:
+        if not isinstance(row, dict):
+            continue
+        symbol = row.get("symbol")
+        price = row.get("regularMarketPrice")
+        if not symbol or price is None:
+            continue
+
+        previous = row.get("regularMarketPreviousClose")
+        quotes.append(
+            Quote(
+                symbol=str(symbol).upper(),
+                price=float(price),
+                currency=str(row.get("currency") or "USD").upper(),
+                previous_close=float(previous) if previous is not None else None,
+                provider=PROVIDER,
+                # The exchange's own view of its session, which a clock cannot
+                # give: it knows about holidays.
+                market_state=str(row.get("marketState") or "") or None,
+                name=str(row.get("shortName") or row.get("longName") or "") or None,
+            )
+        )
+    return quotes

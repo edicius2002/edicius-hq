@@ -189,3 +189,38 @@
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * Chart and watchlist side by side. The sidebar is fixed rather than draggable:
+ * the legacy persisted a width, and that can come back if a fixed one turns out
+ * to be wrong, but a divider is machinery until then.
+ */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.side {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.sideHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.sideHeader .sectionTitle {
+  margin: 0;
+}

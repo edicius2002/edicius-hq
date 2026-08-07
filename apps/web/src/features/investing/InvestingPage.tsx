@@ -1,18 +1,35 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { CandleChart } from '@/features/investing/chart/CandleChart';
 import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
+import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
-import type { Bar } from '@/shared/api/market';
-import { Button } from '@/shared/ui/Button';
+import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
+import { TickerTape } from '@/features/investing/ui/TickerTape';
+import { Watchlist } from '@/features/investing/ui/Watchlist';
+import type { Bar, Quote } from '@/shared/api/market';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import styles from './ui/InvestingPage.module.css';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] as const;
+
+/**
+ * What the exchange calls its own session, in words. Taken over our clock for
+ * display because it knows about holidays, which `regimeAt` deliberately does
+ * not model.
+ */
+const MARKET_STATE_LABEL: Record<string, string> = {
+  REGULAR: 'Market open',
+  PRE: 'Pre-market',
+  PREPRE: 'Pre-market',
+  POST: 'After hours',
+  POSTPOST: 'After hours',
+  CLOSED: 'Market closed',
+};
 
 const REGIME_LABEL = {
   regular: 'Market open',
@@ -33,120 +50,145 @@ function timeFormatter(timeframe: string) {
 }
 
 export function InvestingPage() {
+  const watchlist = useWatchlist();
   const [symbol, setSymbol] = useState('AAPL');
   const [timeframe, setTimeframe] = useState<string>('1d');
-  const [draft, setDraft] = useState('');
 
   const candles = useCandles(symbol, timeframe);
   const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
 
+  // The charted symbol rides along with the watchlist, so the whole screen is
+  // one request rather than one for the list and another for what it points at.
+  const wanted = useMemo(
+    () => (watchlist.symbols.includes(symbol) ? watchlist.symbols : [symbol, ...watchlist.symbols]),
+    [watchlist.symbols, symbol],
+  );
+
   const quotes = useQuery({
-    queryKey: ['market', 'quotes', symbol],
-    queryFn: () => quoteBus.quotes([symbol], { priority: PRIORITY.chart }),
+    queryKey: ['market', 'quotes', wanted],
+    queryFn: () => quoteBus.quotes(wanted, { priority: PRIORITY.watchlist }),
+    enabled: wanted.length > 0,
     refetchInterval: cadenceFor(candles.regime, 0).quotesMs,
   });
 
-  const quote = quotes.data?.quotes?.[0];
-  const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
+  const bySymbol = useMemo(() => {
+    const map = new Map<string, Quote>();
+    for (const quote of quotes.data?.quotes ?? []) map.set(quote.symbol, quote);
+    return map;
+  }, [quotes.data]);
 
-  function submitSymbol() {
-    const wanted = draft.trim().toUpperCase();
-    if (!wanted) return;
-    setSymbol(wanted);
-    setDraft('');
-  }
+  const learnNames = watchlist.learnNames;
+  // A symbol added by hand starts named after itself; the provider knows better.
+  useEffect(() => {
+    const names = new Map<string, string>();
+    for (const [key, quote] of bySymbol) if (quote.name) names.set(key, quote.name);
+    if (names.size) void learnNames(names);
+  }, [bySymbol, learnNames]);
+
+  const charted = bySymbol.get(symbol);
+  const marketState = charted?.marketState;
+  const statusLabel =
+    (marketState ? MARKET_STATE_LABEL[marketState] : undefined) ?? REGIME_LABEL[candles.regime];
+  const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
 
   return (
     <section className={styles.page} aria-labelledby="investing-title">
       <PageHeader
         title="Investing"
-        subtitle="Markets. One symbol for now; the watchlist and the rest come next."
+        subtitle="Markets. Follow what matters and chart it."
         titleId="investing-title"
       />
 
-      <Panel>
-        <div className={styles.controls}>
-          <input
-            className={styles.input}
-            value={draft}
-            placeholder={`Symbol — showing ${symbol}`}
-            aria-label="Symbol"
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') submitSymbol();
-            }}
-          />
-          <Button onClick={submitSymbol}>Show</Button>
+      <TickerTape quotes={quotes.data?.quotes ?? []} onSelect={setSymbol} />
 
-          <div className={styles.timeframes} role="group" aria-label="Timeframe">
-            {TIMEFRAMES.map((frame) => (
-              <button
-                key={frame}
-                type="button"
-                className={`${styles.timeframe} ${frame === timeframe ? styles.timeframeOn : ''}`}
-                aria-pressed={frame === timeframe}
-                onClick={() => setTimeframe(frame)}
-              >
-                {frame}
-              </button>
-            ))}
+      {/* Chart on the left, watchlist on the right — the same shape Finance uses
+          for its canvas and side panel, and the arrangement that makes clicking
+          a row and reading the answer one movement rather than two. */}
+      <div className={styles.workspace}>
+        <Panel aria-label={`${symbol} chart`}>
+          <div className={styles.chartHeader}>
+            <h2 className={styles.symbol}>{symbol}</h2>
+            {charted ? (
+              <>
+                <span className={styles.price}>
+                  {charted.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <span className={styles.muted}> {charted.currency}</span>
+                </span>
+                <span className={(charted.changePercent ?? 0) >= 0 ? styles.up : styles.down}>
+                  {charted.changePercent === null
+                    ? '—'
+                    : `${charted.changePercent >= 0 ? '+' : ''}${charted.changePercent.toFixed(2)}%`}
+                </span>
+              </>
+            ) : null}
+
+            <span className={styles.spacer} />
+
+            <div className={styles.timeframes} role="group" aria-label="Timeframe">
+              {TIMEFRAMES.map((frame) => (
+                <button
+                  key={frame}
+                  type="button"
+                  className={`${styles.timeframe} ${frame === timeframe ? styles.timeframeOn : ''}`}
+                  aria-pressed={frame === timeframe}
+                  onClick={() => setTimeframe(frame)}
+                >
+                  {frame}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <span className={styles.spacer} />
+          {candles.isError ? (
+            <p className={styles.error} role="alert">
+              Could not load bars for {symbol}.
+            </p>
+          ) : (
+            <CandleChart
+              bars={candles.bars}
+              isGhost={candles.isGhost}
+              formatTime={formatTime}
+              loading={candles.isPending}
+            />
+          )}
 
-          {/* Says which regime the chart is in, because it explains both the
-              translucent candles and why polling slowed down. */}
-          <span className={`${styles.regime} ${styles[candles.regime]}`}>
-            {REGIME_LABEL[candles.regime]}
-          </span>
-        </div>
-      </Panel>
-
-      <Panel aria-label={`${symbol} chart`}>
-        <div className={styles.chartHeader}>
-          <h2 className={styles.symbol}>{symbol}</h2>
-          {quote ? (
-            <>
-              <span className={styles.price}>
-                {quote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                <span className={styles.muted}> {quote.currency}</span>
-              </span>
-              <span className={(quote.changePercent ?? 0) >= 0 ? styles.up : styles.down}>
-                {quote.changePercent === null
-                  ? '—'
-                  : `${quote.changePercent >= 0 ? '+' : ''}${quote.changePercent.toFixed(2)}%`}
-              </span>
-            </>
-          ) : null}
-
-          <span className={styles.spacer} />
-
-          <span className={styles.meta}>
+          <p className={styles.note}>
             {candles.bars.length} bars
             {ghosts > 0 ? <> · {ghosts} extended</> : null}
-            {candles.provider ? <> · {candles.provider}</> : null}
-          </span>
-          <Button onClick={candles.refetch}>Refresh</Button>
-        </div>
-
-        {candles.isError ? (
-          <p className={styles.error} role="alert">
-            Could not load bars for {symbol}.
+            {candles.provider ? <> · {candles.provider}</> : null} · drag to pan, scroll to zoom
           </p>
-        ) : (
-          <CandleChart
-            bars={candles.bars}
-            isGhost={candles.isGhost}
-            formatTime={formatTime}
-            loading={candles.isPending}
-          />
-        )}
+        </Panel>
 
-        <p className={styles.note}>
-          Drag to pan, scroll to zoom. Candles outside the regular session are drawn translucent and
-          disappear when the market opens.
-        </p>
-      </Panel>
+        <Panel className={styles.side} aria-label="Watchlist">
+          <div className={styles.sideHeader}>
+            <h2 className={styles.sectionTitle}>Watchlist</h2>
+            <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
+          </div>
+
+          <SymbolSearch
+            following={new Set(watchlist.symbols)}
+            onPick={(picked, name) => {
+              void watchlist.add(picked, name);
+              setSymbol(picked);
+            }}
+          />
+
+          {watchlist.isError ? (
+            <p className={styles.error} role="alert">
+              Could not load the watchlist.
+            </p>
+          ) : (
+            <Watchlist
+              entries={watchlist.list.entries}
+              quotes={bySymbol}
+              selected={symbol}
+              onSelect={setSymbol}
+              onRemove={(picked) => void watchlist.remove(picked)}
+              onMove={(from, to) => void watchlist.move(from, to)}
+            />
+          )}
+        </Panel>
+      </div>
     </section>
   );
 }

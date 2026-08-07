@@ -2,9 +2,9 @@
 
 > **Status:** Finance complete. Investing under way — the data plane is in.
 > **Last updated:** 2026-08-06
-> **Review status:** INV-02, the chart, in review ([#36](https://github.com/edicius2002/edicius-hq/issues/36)).
+> **Review status:** INV-03, the watchlist, in review ([#39](https://github.com/edicius2002/edicius-hq/issues/39)).
 > **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
-> **Next delivery:** INV-03, the watchlist and ticker. One issue per slice, written before its work.
+> **Next delivery:** INV-04, technical analysis. One issue per slice, written before its work.
 
 ---
 
@@ -382,6 +382,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 - [x] INV-01 — data plane ([#34](https://github.com/edicius2002/edicius-hq/issues/34))
 - [x] INV-02 — chart ([#36](https://github.com/edicius2002/edicius-hq/issues/36))
+- [x] INV-03 — watchlist and ticker ([#39](https://github.com/edicius2002/edicius-hq/issues/39))
 
 The largest phase in the plan by a wide margin: the legacy carries roughly 14,000 lines of
 JavaScript across `js/investing/`, plus a Python backend of its own (`server.py`,
@@ -578,3 +579,4 @@ Agreed before the phase opens, so the slices inherit them rather than each re-de
 | 2026-08-06 | Investing planned: seven slices, INV-01…07, and the data-source decisions in section 8. Data plane goes first.      |
 | 2026-08-06 | INV-01 delivered (#34): adapters, cache with coalescing, quote bus. Live against Yahoo and Binance.                 |
 | 2026-08-07 | INV-02 delivered (#36): hand-built candle chart, extended-hours overlay, three cadence regimes.                     |
+| 2026-08-07 | INV-03 delivered (#39): watchlist sidebar, tape, batched quotes. The legacy watchlist migrated in.                  |

@@ -17,6 +17,9 @@ export type Quote = {
   change: number | null;
   changePercent: number | null;
   provider: string;
+  /** What the exchange says about its own session; absent where there is none. */
+  marketState: string | null;
+  name: string | null;
 };
 
 /** A symbol that could not be served, beside the ones that could. */

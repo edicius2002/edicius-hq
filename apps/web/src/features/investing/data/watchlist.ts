@@ -43,7 +43,13 @@ export function normalizeWatchlist(value: unknown): Watchlist {
   const seen = new Set<string>();
   for (const item of raw) {
     if (typeof item !== 'object' || item === null) continue;
-    const symbol = normalizeSymbol(String((item as { symbol?: unknown }).symbol ?? ''));
+
+    // Checked rather than coerced: `String({})` is `[object Object]`, which
+    // `normalizeSymbol` would happily uppercase into a symbol we would then go
+    // and poll. The portfolio normalizer refuses the same way.
+    const stored = (item as { symbol?: unknown }).symbol;
+    if (typeof stored !== 'string') continue;
+    const symbol = normalizeSymbol(stored);
     // One row per symbol: a duplicate would poll twice and flash twice.
     if (!symbol || seen.has(symbol)) continue;
     seen.add(symbol);

@@ -121,7 +121,7 @@ class FakeSource {
   }
   emit(type: string, data?: string) {
     this.listeners.get(type)?.(
-      data === undefined ? new Event(type) : (new MessageEvent(type, { data }) as Event),
+      data === undefined ? new Event(type) : new MessageEvent(type, { data }),
     );
   }
 }

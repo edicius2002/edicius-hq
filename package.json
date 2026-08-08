@@ -18,6 +18,7 @@
     "typecheck": "npm run typecheck -w web",
     "test": "npm run test -w web",
     "lint:api": "node scripts/api.mjs lint",
+    "typecheck:api": "node scripts/api.mjs typecheck",
     "format:api": "node scripts/api.mjs format",
     "test:api": "npm run api:test",
     "api:dev": "node scripts/api.mjs dev",

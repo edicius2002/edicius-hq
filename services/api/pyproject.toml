@@ -32,3 +32,23 @@ ignore = [
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.mypy]
+# Non-strict on purpose. The seven `# type: ignore[...]` comments already in
+# this code were written for a checker nobody had installed — decision 10.1's
+# finding, one layer up — so they are the ready-made baseline, and the point of
+# turning it on is to stop that happening again rather than to reach strictness
+# in one move.
+python_version = "3.12"
+files = ["app"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+# The suppressions have to name their rule, so the next one cannot be a blanket.
+enable_error_code = ["ignore-without-code"]
+
+[[tool.mypy.overrides]]
+# Fixtures assert on shapes they built; annotating them buys nothing.
+module = "tests.*"
+ignore_errors = true

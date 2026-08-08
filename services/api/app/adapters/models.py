@@ -77,3 +77,24 @@ class SymbolHit:
     name: str
     kind: str
     exchange: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Tick:
+    """
+    One price as a socket reports it. Deliberately thinner than a `Quote`.
+
+    Here rather than inside an adapter because it is the contract, not one
+    provider's idea of it — decision 8.3. It lived in `yahoo_stream` while
+    `binance_stream` and the hub both imported it from there, which made the
+    shape of the whole streaming path depend on the file for one upstream.
+    """
+
+    symbol: str
+    price: float
+    provider: str
+    #: The exchange's own word for the session this trade happened in.
+    market_state: str | None = None
+    change_percent: float | None = None
+    #: Seconds since the epoch, as the exchange stamped it.
+    time: float | None = None

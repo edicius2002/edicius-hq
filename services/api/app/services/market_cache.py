@@ -20,7 +20,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 
 from app.adapters.models import Bar
 from app.config import bars_dir
@@ -32,17 +32,21 @@ class _Coalescer:
     """One in-flight task per key, shared by everyone who asks for it."""
 
     def __init__(self) -> None:
-        self._inflight: dict[str, asyncio.Task[object]] = {}
+        # `Any` because one coalescer serves calls with different result types;
+        # the cast at the read is where that is turned back into something
+        # honest, and it is a single named claim rather than two suppressions
+        # that pointed at the wrong error codes.
+        self._inflight: dict[str, asyncio.Task[Any]] = {}
 
     async def run(self, key: str, factory: Callable[[], Awaitable[T]]) -> T:
         existing = self._inflight.get(key)
         if existing is not None:
             # Shielded: a caller giving up must not cancel the fetch the others
             # are still waiting on.
-            return await asyncio.shield(existing)  # type: ignore[return-value]
+            return cast(T, await asyncio.shield(existing))
 
         task: asyncio.Task[T] = asyncio.ensure_future(factory())
-        self._inflight[key] = task  # type: ignore[assignment]
+        self._inflight[key] = task
         try:
             return await asyncio.shield(task)
         finally:

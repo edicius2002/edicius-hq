@@ -1,0 +1,34 @@
+[tool.ruff]
+# The web side is checked for format, lint and types on every push; the API was
+# only ever run through pytest. The gap showed: the code already carried
+# `# noqa: BLE001` suppressions for a linter that was never installed, so they
+# suppressed nothing and nobody could tell.
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes — unused imports and names, the ones that rot quietly
+    "I",    # import order, so a diff never argues about it
+    "UP",   # pyupgrade — this targets 3.12 and should read like it
+    "B",    # bugbear — the mutable-default and loop-variable-capture family
+    "BLE",  # blind except, which the stream adapters take on purpose and say so
+    "SIM",  # simplifications
+    "RUF",  # ruff's own
+]
+
+ignore = [
+    # Long lines are a formatter's business, and the formatter already ran.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build fixtures and assert on them; a magic number in an assertion is
+# the assertion. Reaching into a private helper is also fair there.
+"tests/*" = ["S101", "SLF001"]
+
+[tool.ruff.format]
+quote-style = "double"

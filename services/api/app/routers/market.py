@@ -303,10 +303,8 @@ async def stream_quotes(
         try:
             while True:
                 try:
-                    batch = await asyncio.wait_for(
-                        anext(listener), timeout=HEARTBEAT_SECONDS
-                    )
-                except asyncio.TimeoutError:
+                    batch = await asyncio.wait_for(anext(listener), timeout=HEARTBEAT_SECONDS)
+                except TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
                 except StopAsyncIteration:

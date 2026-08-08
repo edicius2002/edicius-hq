@@ -53,7 +53,7 @@ class Timeframe:
     Both numbers were paid for by the legacy — see `js/investing/config.js`.
     """
 
-    __slots__ = ("key", "yahoo_interval", "yahoo_range", "binance_interval", "limit", "ttl")
+    __slots__ = ("binance_interval", "key", "limit", "ttl", "yahoo_interval", "yahoo_range")
 
     def __init__(
         self,

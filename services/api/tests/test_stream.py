@@ -7,8 +7,8 @@ import time
 import pytest
 
 from app.adapters import binance_stream, yahoo_stream
-from app.services import stream_hub
 from app.adapters.wire import WireError, read_base64_message, read_message
+from app.services import stream_hub
 
 
 def varint(value: int) -> bytes:
@@ -59,9 +59,7 @@ def pricing(**over) -> str:
 
 class TestWireFormat:
     def test_reads_each_type_the_stream_uses(self):
-        fields = read_message(
-            text_field(1, "MSFT") + float_field(2, 497.36) + varint_field(7, 4)
-        )
+        fields = read_message(text_field(1, "MSFT") + float_field(2, 497.36) + varint_field(7, 4))
 
         assert fields[1] == b"MSFT"
         assert fields[2] == pytest.approx(497.36, abs=1e-3)
@@ -69,9 +67,7 @@ class TestWireFormat:
 
     def test_skips_a_field_it_does_not_know_rather_than_refusing(self):
         # An upstream that adds a field must not take the price with it.
-        fields = read_message(
-            text_field(1, "AAPL") + varint_field(99, 7) + float_field(2, 100.0)
-        )
+        fields = read_message(text_field(1, "AAPL") + varint_field(99, 7) + float_field(2, 100.0))
 
         assert fields[1] == b"AAPL"
         assert fields[2] == pytest.approx(100.0)
@@ -203,9 +199,7 @@ class TestTheConnection:
         socket = FakeSocket([pricing()])
 
         async def run():
-            stream = yahoo_stream.YahooStream(
-                connect=lambda _url: socket, sleep=cancelling_sleep()
-            )
+            stream = yahoo_stream.YahooStream(connect=lambda _url: socket, sleep=cancelling_sleep())
             await stream.watch({"AAPL", "MSFT"})
             return await take(stream, 1)
 
@@ -281,9 +275,7 @@ class TestTheConnection:
         socket = FakeSocket([pricing(), pricing(), pricing()])
 
         async def run():
-            stream = yahoo_stream.YahooStream(
-                connect=lambda _url: socket, sleep=cancelling_sleep()
-            )
+            stream = yahoo_stream.YahooStream(connect=lambda _url: socket, sleep=cancelling_sleep())
             await stream.watch({"AAPL"})
             ticks = stream.ticks()
             await anext(ticks)
@@ -298,9 +290,7 @@ class TestTheConnection:
         socket = FakeSocket([pricing(), pricing()])
 
         async def run():
-            stream = yahoo_stream.YahooStream(
-                connect=lambda _url: socket, sleep=cancelling_sleep()
-            )
+            stream = yahoo_stream.YahooStream(connect=lambda _url: socket, sleep=cancelling_sleep())
             await stream.watch({"AAPL"})
             ticks = stream.ticks()
             await anext(ticks)
@@ -444,13 +434,9 @@ class TestTheHub:
 
         async def run():
             stream = hub.listen({"AAPL"})
-            await anext(
-                _started(stream, hub, yahoo_stream.Tick("AAPL", 100.0, market_state="PRE"))
-            )
+            await anext(_started(stream, hub, yahoo_stream.Tick("AAPL", 100.0, market_state="PRE")))
             batch = await anext(
-                _started(
-                    stream, hub, yahoo_stream.Tick("AAPL", 100.0, market_state="REGULAR")
-                )
+                _started(stream, hub, yahoo_stream.Tick("AAPL", 100.0, market_state="REGULAR"))
             )
             await stream.aclose()
             return batch
@@ -515,7 +501,12 @@ class TestBinanceStreaming:
 
     @pytest.mark.parametrize(
         "message",
-        ["nope", json.dumps({"s": "BTCUSDT"}), json.dumps({"c": "1"}), json.dumps({"s": "B", "c": "x"})],
+        [
+            "nope",
+            json.dumps({"s": "BTCUSDT"}),
+            json.dumps({"c": "1"}),
+            json.dumps({"s": "B", "c": "x"}),
+        ],
     )
     def test_ignores_a_frame_it_cannot_read(self, message):
         assert binance_stream.parse_tick(message) is None

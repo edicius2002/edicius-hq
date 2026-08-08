@@ -88,7 +88,10 @@ async def fetch_quotes(
         settled = await asyncio.gather(
             *(binance.fetch_quote(client, s) for s in pairs), return_exceptions=True
         )
-        for symbol, outcome in zip(pairs, settled):
+        # `strict` because gather returns exactly one outcome per task: if that
+        # ever stopped being true, a symbol would vanish from `failed` instead
+        # of being reported, which is what decision 8.8 exists to prevent.
+        for symbol, outcome in zip(pairs, settled, strict=True):
             if isinstance(outcome, Quote):
                 quotes.append(outcome)
             elif isinstance(outcome, ProviderError):
@@ -137,7 +140,7 @@ async def _yahoo_one_by_one(
 
     quotes: list[Quote] = []
     failed: list[tuple[str, ProviderError]] = []
-    for symbol, outcome in zip(symbols, settled):
+    for symbol, outcome in zip(symbols, settled, strict=True):
         if isinstance(outcome, Quote):
             quotes.append(outcome)
         elif isinstance(outcome, ProviderError):

@@ -586,6 +586,15 @@ writes and what it says while it is doing so ([#38](https://github.com/edicius20
 | 9.6 | A write that has been overtaken reports nothing.                                      | A generation counter, so a slow response cannot paint "Saved" over edits that are still waiting. It mattered for a round trip before; with a debounce in front it matters for the length of a whole drag.                                                                                                                                                   |
 | 9.7 | The test environment refuses an unstubbed `fetch`.                                    | Not a formality. A debounced write can fire after the test that caused it has finished and `vi.unstubAllGlobals()` has put the real `fetch` back, and it then goes to whatever serves the API base URL — in development, the developer's own API over their own data. This happened during the work: a fixture document replaced the real Finance one.      |
 
+### 10. Tooling
+
+| ID   | Decision                                                                       | Rationale                                                                                                                                                                                                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10.1 | The API passes lint and format in CI, like the web.                            | It only ever ran `pytest`. The gap was visible in the code itself: `# noqa: BLE001` suppressions written for **ruff**, which was never installed — so they suppressed nothing and nobody could tell. Anything not in CI rots quietly; the first run found seven findings in code that had never been checked. |
+| 10.2 | Python tooling runs through the API's own interpreter, never `python` on PATH. | `python -m ruff` from the repo root picks up whatever happens to be installed, which is how a check passes on one machine and fails on another. `scripts/api.mjs` already resolved the venv for `dev` and `test`; lint and format go the same way.                                                            |
+
+---
+
 ### Superseded decisions
 
 | ID  | Change                                                             | When       |
@@ -630,3 +639,4 @@ writes and what it says while it is doing so ([#38](https://github.com/edicius20
 | 2026-08-07 | INV-04 delivered (#45): six indicators, RSI and MACD panes on the same canvas (8.22–8.25).                          |
 | 2026-08-07 | Volume pane for equities and pairs, two-decimal figures, and the bar-poll load test (8.26–8.28).                    |
 | 2026-08-07 | INV-05 delivered (#49): positions, P&L against live quotes, seven legacy holdings migrated (8.29–8.33).             |
+| 2026-08-07 | The API joins CI's lint and format gates (10.1, 10.2). Seven findings in code never checked before.                 |

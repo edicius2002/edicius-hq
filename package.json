@@ -17,6 +17,8 @@
     "build": "npm run build -w web",
     "typecheck": "npm run typecheck -w web",
     "test": "npm run test -w web",
+    "lint:api": "node scripts/api.mjs lint",
+    "format:api": "node scripts/api.mjs format",
     "test:api": "npm run api:test",
     "api:dev": "node scripts/api.mjs dev",
     "api:test": "node scripts/api.mjs test",

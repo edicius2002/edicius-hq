@@ -3,11 +3,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.adapters.streams import CompositeStream
 from app.config import CORS_ORIGINS
 from app.routers import health, kv, market
 from app.routers.market import close_client
 from app.services.kv_store import ensure_kv_dir
-from app.adapters.streams import CompositeStream
 from app.services.stream_hub import HUB
 
 

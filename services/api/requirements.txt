@@ -5,3 +5,7 @@ httpx==0.28.1
 # — a transitive dependency you rely on by name is one an upgrade can remove.
 websockets==17.0.1
 pytest==8.4.1
+# Lint and format for the API. Pinned like everything else: the code already
+# carried `# noqa` codes for a linter nobody had installed, which suppressed
+# nothing and told no one.
+ruff==0.16.2

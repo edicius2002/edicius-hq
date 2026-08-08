@@ -67,5 +67,8 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Typecheck
+        run: python -m mypy
+
       - name: Test
         run: python -m pytest

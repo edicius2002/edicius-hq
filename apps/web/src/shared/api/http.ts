@@ -73,7 +73,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       typeof parsed === 'object' &&
       parsed !== null &&
       'detail' in parsed &&
-      typeof (parsed as { detail: unknown }).detail === 'string'
+      typeof parsed.detail === 'string'
         ? (parsed as { detail: string }).detail
         : `Request failed with status ${response.status}`;
     throw new ApiError(detail, response.status, parsed);

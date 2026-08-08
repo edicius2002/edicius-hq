@@ -118,19 +118,28 @@ export function FinancePage() {
     setJobBalance: (jobId, asset, amount) => void finance.setJobBalance(jobId, asset, amount),
     setJobAssetActive: (jobId, asset, active) =>
       void finance.setJobAssetActive(jobId, asset, active),
-    addHolding: async (accountId, asset) => {
+    /*
+     * Not an `async` handler: the prop returns void, so nothing awaits this and
+     * a rejection had nowhere to go — a storage failure here left the panel
+     * silent. Handling both arms explicitly is what makes that impossible.
+     */
+    addHolding: (accountId, asset) => {
       setMessage(null);
       const account = diagram.nodes[accountId];
       const base = account?.position ?? { x: 0, y: 0 };
       const siblings = selectHoldingsOfAccount(diagram, accountId).length;
-      const result = await finance.addHolding(accountId, asset, holdingPosition(base, siblings));
-      if (!result.ok) {
-        setMessage(
-          result.error.code === 'asset-already-held'
-            ? `This account already holds ${result.error.asset}.`
-            : 'That account no longer exists.',
-        );
-      }
+
+      void finance
+        .addHolding(accountId, asset, holdingPosition(base, siblings))
+        .then((result) => {
+          if (result.ok) return;
+          setMessage(
+            result.error.code === 'asset-already-held'
+              ? `This account already holds ${result.error.asset}.`
+              : 'That account no longer exists.',
+          );
+        })
+        .catch(() => setMessage('Could not add the holding. The change was not saved.'));
     },
     updateHolding: (id, patch) => void finance.updateHolding(id, patch),
     updateFlow: (id, patch) => void finance.updateFlow(id, patch),

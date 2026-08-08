@@ -39,7 +39,7 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     disconnect() {}
   }
 
-  globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+  globalThis.ResizeObserver = ResizeObserverStub;
 }
 
 /**

@@ -24,7 +24,7 @@ describe('Greenlight CSV import', () => {
 
   it('keeps no per-day task counters', () => {
     const { stats } = importGreenlightCsv(SAMPLE_CSV);
-    expect(Object.keys(stats['2026-05-04']!.Deliverable).sort()).toEqual(['amount', 'details']);
+    expect(Object.keys(stats['2026-05-04'].Deliverable).sort()).toEqual(['amount', 'details']);
   });
 
   it('computes totals and weekly series', () => {

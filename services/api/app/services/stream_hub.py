@@ -15,9 +15,27 @@ instead of one per trade.
 import asyncio
 import contextlib
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Protocol
 
-from app.adapters.yahoo_stream import Tick
+from app.adapters.models import Tick
+
+
+class Upstream(Protocol):
+    """
+    What the hub needs of a provider's socket.
+
+    Declared here, by the consumer, rather than imported from an adapter: the
+    hub must not depend on which provider it is talking to (decision 8.3), and
+    `_stream` was previously left unannotated — so mypy inferred `None` from
+    the constructor and considered every line that used it unreachable. The
+    whole upstream integration was invisible to the type checker.
+    """
+
+    async def watch(self, symbols: set[str]) -> None: ...
+
+    def ticks(self) -> AsyncIterator[Tick]: ...
+
 
 # How often a listener is flushed. Fast enough to read as live, slow enough
 # that a symbol trading hard cannot turn into a render per trade.
@@ -123,8 +141,8 @@ class StreamHub:
         self._flush_seconds = flush_seconds
         self._keepalive_seconds = keepalive_seconds
         self._lock = asyncio.Lock()
-        self._pump: asyncio.Task | None = None
-        self._stream = None
+        self._pump: asyncio.Task[None] | None = None
+        self._stream: Upstream | None = None
 
     @property
     def symbols(self) -> set[str]:
@@ -135,7 +153,7 @@ class StreamHub:
     def listener_count(self) -> int:
         return len(self._listeners)
 
-    def attach(self, stream) -> None:
+    def attach(self, stream: Upstream) -> None:
         """
         The upstream to keep in step. Injected rather than constructed here so
         the hub can be tested with something that never opens a socket.
@@ -151,7 +169,7 @@ class StreamHub:
         if self._stream is not None:
             await self._stream.watch(self.symbols)
 
-    async def listen(self, symbols: set[str]) -> AsyncIterator[list[Tick]]:
+    async def listen(self, symbols: set[str]) -> AsyncGenerator[list[Tick], None]:
         """
         Batches of ticks for one listener, until it goes away.
 

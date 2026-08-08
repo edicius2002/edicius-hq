@@ -18,14 +18,44 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator
+from typing import Protocol, cast
 
 import websockets
 
+from app.adapters.models import Tick
 from app.adapters.wire import WireError, as_float, as_text, read_base64_message, zigzag
 
 logger = logging.getLogger(__name__)
+
+
+class Socket(Protocol):
+    """
+    What these adapters need of a websocket, and nothing more.
+
+    Declared by the consumer rather than imported from the library, so a test
+    can hand over an object with three methods. The alternative used here first
+    was `Callable[..., object]`, which typed nothing and forced two
+    `# type: ignore` at the call sites — suppressions for a checker that was
+    not installed, which is the exact rot decision 10.1 is about.
+    """
+
+    async def send(self, message: str) -> None: ...
+
+    async def __aenter__(self) -> "Socket": ...
+
+    async def __aexit__(self, *args: object) -> bool | None: ...
+
+    def __aiter__(self) -> AsyncIterator[str | bytes]: ...
+
+
+class Connect(Protocol):
+    def __call__(self, url: str) -> Socket: ...
+
+
+class Sleep(Protocol):
+    async def __call__(self, seconds: float) -> None: ...
+
 
 PROVIDER = "yahoo"
 STREAM_URL = "wss://streamer.finance.yahoo.com/?version=2"
@@ -59,20 +89,6 @@ _BACKOFF_FACTOR = 2.0
 # How often to look again while nothing is being followed. Short enough that
 # the first page to open does not wait for it, long enough to be free.
 _IDLE_POLL_SECONDS = 1.0
-
-
-@dataclass(frozen=True, slots=True)
-class Tick:
-    """One price, as the socket reports it. Deliberately thinner than a Quote."""
-
-    symbol: str
-    price: float
-    provider: str = PROVIDER
-    #: Yahoo's own name for the session this trade happened in.
-    market_state: str | None = None
-    change_percent: float | None = None
-    #: Seconds since the epoch, as the exchange stamped it.
-    time: float | None = None
 
 
 def parse_tick(message: str) -> Tick | None:
@@ -111,6 +127,7 @@ def parse_tick(message: str) -> Tick | None:
     return Tick(
         symbol=symbol,
         price=price,
+        provider=PROVIDER,
         market_state=MARKET_HOURS.get(hours) if isinstance(hours, int) else None,
         change_percent=as_float(fields.get(_CHANGE_PERCENT)),
         # Yahoo stamps in milliseconds; everything else in this API is seconds.
@@ -135,16 +152,19 @@ class YahooStream:
         self,
         *,
         url: str = STREAM_URL,
-        connect: Callable[..., object] | None = None,
-        sleep: Callable[[float], object] | None = None,
+        connect: Connect | None = None,
+        sleep: Sleep | None = None,
     ) -> None:
         self._url = url
         # Injected so the reconnect loop can be tested without a network and
         # without waiting out a real backoff.
-        self._connect = connect or websockets.connect
+        # A cast rather than an ignore: this asserts that the library's
+        # connector matches the shape declared above, which is exactly what a
+        # cast is for — and unlike an ignore it names what is being claimed.
+        self._connect: Connect = connect or cast(Connect, websockets.connect)
         self._sleep = sleep or asyncio.sleep
         self._symbols: set[str] = set()
-        self._socket: object | None = None
+        self._socket: Socket | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -161,7 +181,7 @@ class YahooStream:
 
         if socket is not None and symbols:
             with contextlib.suppress(Exception):
-                await socket.send(subscribe_frame(sorted(symbols)))  # type: ignore[attr-defined]
+                await socket.send(subscribe_frame(sorted(symbols)))
 
     async def ticks(self) -> AsyncIterator[Tick]:
         """
@@ -185,7 +205,7 @@ class YahooStream:
                 continue
 
             try:
-                async with self._connect(self._url) as socket:  # type: ignore[union-attr]
+                async with self._connect(self._url) as socket:
                     self._socket = socket
                     backoff = _BACKOFF_START
 

@@ -7,19 +7,64 @@ import {
 } from '@/features/greenlight/lib/subscriptions';
 import {
   EMPTY_GREENLIGHT_STATE,
+  type DayStats,
   type GreenlightState,
   type ReplaceMode,
   type ToolId,
 } from '@/features/greenlight/model/types';
 import { useStoredDocument } from '@/shared/storage/useStoredDocument';
 
+/**
+ * One day, or nothing.
+ *
+ * `stats` used to be accepted whole on `typeof === 'object'`, so a single
+ * malformed day reached `toDayRows`, which reads `day.Deliverable.amount`
+ * unguarded. That throws, and the boundary that catches it wraps the entire
+ * `RouterProvider` — the app is replaced by an error screen with no navigation,
+ * so there is no route to the Clear button that would have fixed it. One bad
+ * byte and the way out is gone.
+ *
+ * A day that cannot be read is dropped rather than repaired, for the same
+ * reason Finance's `toNode` and the portfolio's normalizer drop rather than
+ * guess: losing a day is visible, and an invented one is not.
+ */
+function toDayStats(value: unknown): DayStats | null {
+  if (!value || typeof value !== 'object') return null;
+  const day = value as Partial<DayStats>;
+
+  // The amount is the one field with no sensible stand-in, so it decides.
+  const amount = day.Deliverable?.amount;
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+
+  return {
+    Deliverable: {
+      amount,
+      details: Array.isArray(day.Deliverable?.details) ? day.Deliverable.details : [],
+    },
+    currency: typeof day.currency === 'string' && day.currency ? day.currency : 'USD',
+  };
+}
+
+function normalizeStats(value: unknown): Record<string, DayStats> {
+  if (!value || typeof value !== 'object') return {};
+
+  const stats: Record<string, DayStats> = {};
+  for (const [date, day] of Object.entries(value as Record<string, unknown>)) {
+    const usable = toDayStats(day);
+    if (usable) stats[date] = usable;
+  }
+  return stats;
+}
+
 function normalizeState(value: unknown): GreenlightState {
   if (!value || typeof value !== 'object') return EMPTY_GREENLIGHT_STATE;
   const stored = value as Partial<GreenlightState>;
   return {
-    stats: stored.stats && typeof stored.stats === 'object' ? stored.stats : {},
+    stats: normalizeStats(stored.stats),
     meta: stored.meta ?? null,
-    markers: Array.isArray(stored.markers) ? stored.markers : [],
+    markers: Array.isArray(stored.markers)
+      ? stored.markers.filter((marker) => typeof marker === 'string')
+      : [],
     widgets: normalizeToolWidgets(stored.widgets),
   };
 }

@@ -111,7 +111,8 @@ export function Positions({
                 <button
                   type="button"
                   className={styles.action}
-                  aria-label={'Edit ' + position.symbol}
+                  aria-label={'Edit ' + position.symbol + ' position'}
+                  title={'Edit ' + position.symbol + ' position'}
                   onClick={() => setEditing(position.symbol)}
                 >
                   ✎
@@ -119,7 +120,10 @@ export function Positions({
                 <button
                   type="button"
                   className={styles.action}
-                  aria-label={'Remove ' + position.symbol}
+                  /* "position", because the watchlist beside it has a ✕ for
+                     the same symbol and the two must not share a name. */
+                  aria-label={'Remove ' + position.symbol + ' position'}
+                  title={'Remove ' + position.symbol + ' position'}
                   onClick={() => onRemove(position.symbol)}
                 >
                   ✕
@@ -185,7 +189,7 @@ function PositionForm({
         step="any"
         min="0"
         value={qty}
-        aria-label={symbol + ' quantity'}
+        aria-label={symbol + ' position quantity'}
         onChange={(event) => setQty(event.target.value)}
       />
       <input
@@ -194,13 +198,23 @@ function PositionForm({
         step="any"
         min="0"
         value={cost}
-        aria-label={symbol + ' average cost'}
+        aria-label={symbol + ' position average cost'}
         onChange={(event) => setCost(event.target.value)}
       />
-      <button type="submit" className={styles.action} disabled={!valid} aria-label="Save">
+      <button
+        type="submit"
+        className={styles.action}
+        disabled={!valid}
+        aria-label={'Save ' + symbol + ' position'}
+      >
         ✓
       </button>
-      <button type="button" className={styles.action} onClick={onCancel} aria-label="Cancel">
+      <button
+        type="button"
+        className={styles.action}
+        onClick={onCancel}
+        aria-label={'Cancel editing ' + symbol}
+      >
         ✕
       </button>
     </form>

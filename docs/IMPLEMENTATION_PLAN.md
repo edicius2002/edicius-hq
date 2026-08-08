@@ -510,6 +510,11 @@ running outside the browser; that is a cloud-phase question, not a markets one.
 | 6.8 | Greenlight storage writes are serialized, and a failed read blocks writing instead of saving empty.   | Read-modify-write on one document: overlapping writes dropped edits, and a failed read wiped stored data. |
 | 6.9 | Segment length is reported in **calendar weeks**, not payment dates.                                  | A week can carry several payment dates, so counting dates overstated the period.                          |
 
+| 6.7 | A stored day is validated **one at a time**, and an unreadable one is dropped. | `stats` was accepted whole on `typeof === 'object'`, so one malformed day reached `toDayRows`, which reads `day.Deliverable.amount` unguarded. That throws, and the boundary catching it wraps the entire `RouterProvider` — the app is replaced by an error screen with no navigation, so there is no route to the Clear button that would have fixed it. One bad byte and the way out was gone. Dropped rather than repaired, like Finance's `toNode` and the portfolio's normalizer: losing a day is visible, an invented one is not. The amount decides, because it is the one field with no sensible stand-in. |
+| 6.8 | The destructive half of a CSV import is under test. | Importing is the only operation here that can destroy years of data, and nothing exercised it. Verified by mutation: swapping the two arguments at the `mergeCurrentMonthStats` call — which discards every month except the CSV's — passed all 497 tests. Now three tests cover it, and the swap turns one of them red. |
+
+---
+
 ### 7. Finance
 
 Structural decisions live in [ADR 0001](ADRs/0001-finance-cash-flow-domain-model.md); this table records the product rules.
@@ -657,3 +662,4 @@ writes and what it says while it is doing so ([#38](https://github.com/edicius20
 | 2026-08-08 | Sustainability audit: 14 agents, 22 findings after adversarial refutation of 19.                                    |
 | 2026-08-08 | Streaming steady state fixed (8.34–8.36). The stream had been tearing itself down every 20s of quiet.               |
 | 2026-08-08 | Stored documents get the durable write the disposable cache already had (3.12).                                     |
+| 2026-08-08 | Greenlight validates a stored day at a time, and its CSV import is finally under test (6.7, 6.8).                   |

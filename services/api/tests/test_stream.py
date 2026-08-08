@@ -244,6 +244,9 @@ class TestTheConnection:
 
         async def run():
             stream = yahoo_stream.YahooStream(connect=refuse, sleep=sleep)
+            # It has to be following something before a refusal is possible:
+            # with nothing followed it opens nothing and there is no backoff.
+            await stream.watch({"AAPL"})
             await take(stream, 1)
 
         with pytest.raises(asyncio.CancelledError):
@@ -264,6 +267,7 @@ class TestTheConnection:
                 connect=lambda _url: (_ for _ in ()).throw(ConnectionError("no")),
                 sleep=sleep,
             )
+            await stream.watch({"AAPL"})
             await take(stream, 1)
 
         with pytest.raises(asyncio.CancelledError):
@@ -531,3 +535,122 @@ class TestBinanceStreaming:
 
         assert "btcusdt@ticker" in opened[0] and "ethusdt" not in opened[0]
         assert "ethusdt@ticker" in opened[-1]
+
+
+class TestTheQuietMarket:
+    """
+    A stream with nothing to say must stay open.
+
+    The first version put the timeout around `anext(listener)` with
+    `asyncio.wait_for`. That delivers the cancellation *into* the generator,
+    which runs its `finally`, drops out of the hub and unsubscribes upstream —
+    so every quiet interval ended the response, the browser reconnected, and a
+    still market cost roughly 150 full cycles an hour, each one a new Yahoo
+    subscribe frame and a complete Binance socket rebuild.
+    """
+
+    def test_silence_is_an_empty_batch_not_the_end(self):
+        hub = stream_hub.StreamHub(flush_seconds=0, keepalive_seconds=0.01)
+
+        async def run():
+            stream = hub.listen({"AAPL"})
+            first = await anext(_started(stream, hub, tick("AAPL", 1)))
+            quiet = [await anext(stream) for _ in range(3)]
+            still_there = (hub.listener_count, set(hub.symbols))
+            await stream.aclose()
+            return first, quiet, still_there
+
+        first, quiet, still_there = asyncio.run(run())
+
+        assert [t.price for t in first] == [1]
+        assert quiet == [[], [], []]
+        assert still_there == (1, {"AAPL"})
+
+    def test_a_tick_after_the_silence_still_arrives(self):
+        # The listener surviving is only worth something if it still works.
+        hub = stream_hub.StreamHub(flush_seconds=0, keepalive_seconds=0.01)
+
+        async def run():
+            stream = hub.listen({"AAPL"})
+            await anext(_started(stream, hub, tick("AAPL", 1)))
+            await anext(stream)
+            await anext(stream)
+            return await anext(_started(stream, hub, tick("AAPL", 99)))
+
+        assert [t.price for t in asyncio.run(run())] == [99]
+
+    def test_the_upstream_subscription_is_not_rebuilt_by_silence(self):
+        # Each teardown re-sent the whole subscribe frame and, because the
+        # followed set momentarily emptied, rebuilt the Binance socket too.
+        upstream = FakeUpstream()
+        hub = stream_hub.StreamHub(flush_seconds=0, keepalive_seconds=0.01)
+        hub.attach(upstream)
+
+        async def run():
+            stream = hub.listen({"AAPL"})
+            await anext(_started(stream, hub, tick("AAPL", 1)))
+            for _ in range(4):
+                await anext(stream)
+            await stream.aclose()
+
+        asyncio.run(run())
+
+        # One subscribe on the way in, one unsubscribe on the way out. Nothing
+        # in between, however long the market stays quiet.
+        assert upstream.watched == [{"AAPL"}, set()]
+
+    def test_a_closing_client_still_unsubscribes(self):
+        # The fix must not turn a real disconnect into a leak.
+        upstream = FakeUpstream()
+        hub = stream_hub.StreamHub(flush_seconds=0, keepalive_seconds=0.01)
+        hub.attach(upstream)
+
+        async def run():
+            stream = hub.listen({"AAPL"})
+            await anext(_started(stream, hub, tick("AAPL", 1)))
+            await stream.aclose()
+            return hub.listener_count, set(hub.symbols)
+
+        assert asyncio.run(run()) == (0, set())
+
+
+class TestTheIdleStream:
+    def test_yahoo_opens_nothing_until_something_is_followed(self):
+        # An idle API held a socket open to Yahoo from the moment it booted,
+        # before any page had asked for a price — and it meant every test that
+        # started the app reached the real network.
+        opened = []
+
+        def connect(url):
+            opened.append(url)
+            return FakeSocket([pricing()])
+
+        waits = []
+
+        async def sleep(seconds):
+            waits.append(seconds)
+            if len(waits) >= 3:
+                raise asyncio.CancelledError
+
+        async def run():
+            stream = yahoo_stream.YahooStream(connect=connect, sleep=sleep)
+            await take(stream, 1)
+
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(run())
+
+        assert opened == []
+        assert waits == [1.0, 1.0, 1.0]
+
+    def test_and_opens_as_soon_as_there_is(self):
+        socket = FakeSocket([pricing()])
+
+        async def run():
+            stream = yahoo_stream.YahooStream(connect=lambda _url: socket, sleep=cancelling_sleep())
+            await stream.watch({"AAPL"})
+            return await take(stream, 1)
+
+        ticks = asyncio.run(run())
+
+        assert [t.symbol for t in ticks] == ["AAPL"]
+        assert json.loads(socket.sent[0]) == {"subscribe": ["AAPL"]}

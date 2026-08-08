@@ -56,6 +56,10 @@ _BACKOFF_START = 1.0
 _BACKOFF_MAX = 60.0
 _BACKOFF_FACTOR = 2.0
 
+# How often to look again while nothing is being followed. Short enough that
+# the first page to open does not wait for it, long enough to be free.
+_IDLE_POLL_SECONDS = 1.0
+
 
 @dataclass(frozen=True, slots=True)
 class Tick:
@@ -169,15 +173,23 @@ class YahooStream:
         backoff = _BACKOFF_START
 
         while True:
+            async with self._lock:
+                wanted = sorted(self._symbols)
+
+            if not wanted:
+                # Nothing to follow, so nothing to open. An idle API held a
+                # socket to Yahoo from the moment it booted, before any page had
+                # asked for a price — and it meant every test that started the
+                # app reached the real network.
+                await self._sleep(_IDLE_POLL_SECONDS)
+                continue
+
             try:
                 async with self._connect(self._url) as socket:  # type: ignore[union-attr]
                     self._socket = socket
                     backoff = _BACKOFF_START
 
-                    async with self._lock:
-                        wanted = sorted(self._symbols)
-                    if wanted:
-                        await socket.send(subscribe_frame(wanted))
+                    await socket.send(subscribe_frame(wanted))
 
                     async for raw in socket:
                         tick = parse_tick(raw if isinstance(raw, str) else raw.decode())

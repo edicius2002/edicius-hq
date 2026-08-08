@@ -1,0 +1,98 @@
+name: Upstream reachability
+
+# Manual only, and deliberately so. This reaches third-party endpoints on
+# purpose; running it on every push would be exactly the hammering the load
+# script warns against, and it would tell us nothing new each time.
+#
+# What it is for: a GitHub runner has a **datacenter IP**, which is the thing
+# decision 8.4 flags and nobody has ever tested. Everything in Investing rests
+# on undocumented endpoints that have only been exercised from a home
+# connection. This is the cheapest way to learn, before step 7 commits to a
+# deploy target, whether that assumption survives leaving the house.
+#
+# Read the result against the baseline in the run summary: from a home
+# connection all seven surfaces answer. A surface marked BLOCKED here — a 401,
+# 403, 429, or a consent wall — is the scenario, and it means the data plane
+# needs rethinking before the deploy rather than after it.
+on:
+  workflow_dispatch:
+    inputs:
+      rate_sweep:
+        description: 'Also run the rate sweep (adds ~6 minutes, hits upstream harder)'
+        type: boolean
+        default: false
+
+# One at a time. Two runners probing the same endpoints would muddy exactly the
+# question being asked.
+concurrency:
+  group: upstream-reachability
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Probe from a datacenter address
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Where this is running from
+        # The address itself is worth recording: a later run from a different
+        # runner pool is a different address, and that matters to the answer.
+        run: |
+          echo "runner: ${{ runner.name }} / ${{ runner.os }}"
+          curl -s --max-time 10 https://api.ipify.org || echo "(could not read the address)"
+          echo
+
+      - name: Reachability
+        id: probe
+        continue-on-error: true
+        run: python ../../scripts/reachability.py
+
+      - name: Reachability, as JSON
+        if: always()
+        run: python ../../scripts/reachability.py --json > "$RUNNER_TEMP/probe.json" || true
+
+      - name: Rate sweep
+        if: inputs.rate_sweep
+        continue-on-error: true
+        run: python ../../scripts/bars-load.py --api http://127.0.0.1:8000
+
+      - name: Summary
+        if: always()
+        working-directory: .
+        run: |
+          {
+            echo "## Upstream reachability from a datacenter address"
+            echo
+            echo "Baseline, measured from a home connection: **all seven surfaces answered.**"
+            echo
+            echo '```'
+            python scripts/reachability.py || true
+            echo '```'
+            echo
+            echo "A surface marked BLOCKED is decision 8.4's scenario: the address is being"
+            echo "refused rather than the request being wrong. That means step 7 needs a"
+            echo "different data plane — a keyed provider, an egress proxy, or keeping the"
+            echo "market API where it is — and it is far cheaper to know now than after a deploy."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if an upstream refused this address
+        if: steps.probe.outcome == 'failure'
+        run: |
+          echo "At least one surface did not answer. Read the summary above."
+          exit 1

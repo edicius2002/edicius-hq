@@ -1,4 +1,4 @@
-import { formatMoney } from '@/features/greenlight/lib/format';
+import { formatMoney } from '@/shared/lib/money';
 import type { SegmentSummaryItem } from '@/features/greenlight/model/types';
 
 import styles from './SegmentSummary.module.css';

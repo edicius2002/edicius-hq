@@ -460,6 +460,12 @@ running outside the browser; that is a cloud-phase question, not a markets one.
 | 3.8 | Berkeley Mono as product typeface (self-hosted).                 | Locked typography; license required. |
 | 3.9 | UI foundation before Greenlight visual adaptation.               | Shared primitives first.             |
 
+| 3.9 | **One money formatter for the whole app**, in `shared/lib/money`. | There were three, one per feature, and they had drifted: Greenlight wrote `$1,365` where Finance wrote `1,365.00` — `maximumFractionDigits` with no minimum drops the decimals whenever they are zero — and both hardcoded `en-US` while Investing asked the browser, so the same app used two decimal conventions depending on the tab. The reader's locale wins: it is what the machine says they want, and hardcoding `en-US` in a personal tool for a reader whose system is not `en-US` is the accidental choice, not the deliberate one. |
+| 3.10 | The currency symbol is **composed, not left to `Intl`**. | `style: 'currency'` moves the symbol by locale — measured, $17,615.03 becomes `17.615,03 $`in`es-ES`and`USD 1,365.00`in`es-PE`. Unifying the number format would then have silently relocated every currency figure in Greenlight. The number convention was what was broken; where the symbol sits was not, and a fix should not redecorate what it passes. Unknown currencies fall back to their code rather than to an invented glyph. |
+| 3.11 | Axis labels keep their own, shorter rule.                                                    | A tick reading `$17,615.03` is noise where `$17.6k`is the same information, and two decimals repeated down an axis are two nobody reads. They share the reader's grouping, though: a bar labelled`$1,365` beside a summary reading `$1.365,00` would be the same inconsistency in miniature. |
+
+---
+
 ### 4. Tooling and phases
 
 | ID  | Decision                                                   | Rationale                               |
@@ -640,3 +646,4 @@ writes and what it says while it is doing so ([#38](https://github.com/edicius20
 | 2026-08-07 | Volume pane for equities and pairs, two-decimal figures, and the bar-poll load test (8.26–8.28).                    |
 | 2026-08-07 | INV-05 delivered (#49): positions, P&L against live quotes, seven legacy holdings migrated (8.29–8.33).             |
 | 2026-08-07 | The API joins CI's lint and format gates (10.1, 10.2). Seven findings in code never checked before.                 |
+| 2026-08-07 | Three money formatters collapsed into one, in `shared/lib/money` (3.9–3.11).                                        |

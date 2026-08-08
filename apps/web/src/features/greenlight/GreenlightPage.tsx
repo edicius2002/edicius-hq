@@ -7,7 +7,7 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
-import { formatMoney } from '@/features/greenlight/lib/format';
+import { formatMoney } from '@/shared/lib/money';
 import {
   buildSegmentSummaries,
   computeSegmentedTotals,

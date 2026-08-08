@@ -10,10 +10,10 @@ import {
 } from '@/features/investing/data/portfolio';
 import {
   formatPercent,
-  formatPrice,
+  formatAmount,
   formatQuantity,
-  formatSignedPrice,
-} from '@/features/investing/lib/money';
+  formatSignedAmount,
+} from '@/shared/lib/money';
 import type { Quote } from '@/shared/api/market';
 
 import styles from './Positions.module.css';
@@ -89,14 +89,14 @@ export function Positions({
               >
                 <span className={styles.symbol}>{position.symbol}</span>
                 <span className={styles.holding}>
-                  {formatQuantity(position.quantity)} @ {formatPrice(position.averageCost)}
+                  {formatQuantity(position.quantity)} @ {formatAmount(position.averageCost)}
                 </span>
 
                 {valuation ? (
                   <>
-                    <span className={styles.value}>{formatPrice(valuation.value)}</span>
+                    <span className={styles.value}>{formatAmount(valuation.value)}</span>
                     <span className={rising ? styles.up : styles.down}>
-                      {formatSignedPrice(valuation.profit)}
+                      {formatSignedAmount(valuation.profit)}
                       {valuation.profitPercent === null
                         ? ''
                         : ' · ' + formatPercent(valuation.profitPercent)}
@@ -139,9 +139,9 @@ export function Positions({
           <span className={styles.totalLabel}>
             Total <span className={styles.muted}>{total.currency}</span>
           </span>
-          <span className={styles.totalValue}>{formatPrice(total.value)}</span>
+          <span className={styles.totalValue}>{formatAmount(total.value)}</span>
           <span className={total.profit >= 0 ? styles.up : styles.down}>
-            {formatSignedPrice(total.profit)}
+            {formatSignedAmount(total.profit)}
             {total.profitPercent === null ? '' : ' · ' + formatPercent(total.profitPercent)}
           </span>
         </div>

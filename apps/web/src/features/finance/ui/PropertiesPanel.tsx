@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
-import { formatAmount, formatAssetAmount } from '@/features/finance/lib/format';
+import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import { frameMembers } from '@/features/finance/lib/frames';
 import {
   selectAccountSummary,

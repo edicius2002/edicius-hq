@@ -21,7 +21,7 @@ import type { Bar, Quote } from '@/shared/api/market';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
-import { formatPercent, formatPrice } from '@/features/investing/lib/money';
+import { formatPercent, formatAmount } from '@/shared/lib/money';
 
 import styles from './ui/InvestingPage.module.css';
 
@@ -143,7 +143,7 @@ export function InvestingPage() {
             {charted ? (
               <>
                 <span className={styles.price}>
-                  {formatPrice(charted.price)}
+                  {formatAmount(charted.price)}
                   <span className={styles.muted}> {charted.currency}</span>
                 </span>
                 {charted.extended ? (

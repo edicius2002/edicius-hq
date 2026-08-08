@@ -1,6 +1,6 @@
 import { type PointerEvent } from 'react';
 
-import { formatAmount } from '@/features/finance/lib/format';
+import { formatAmount } from '@/shared/lib/money';
 import { RESIZE_EDGES, type ResizeEdge } from '@/features/finance/lib/frames';
 import type { FrameSummary } from '@/features/finance/lib/summary';
 import type { Frame } from '@/features/finance/model/types';

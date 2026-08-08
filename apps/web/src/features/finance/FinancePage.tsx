@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
 import { describeRestoreError } from '@/features/finance/lib/backup';
-import { formatAmount } from '@/features/finance/lib/format';
+import { formatAmount } from '@/shared/lib/money';
 import { NODE_SIZE } from '@/features/finance/lib/geometry';
 import { describeConnectError } from '@/features/finance/lib/operations';
 import {

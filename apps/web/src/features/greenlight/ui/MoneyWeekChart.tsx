@@ -1,7 +1,7 @@
 import { type CSSProperties } from 'react';
 
 import { daysInWeek } from '@/features/greenlight/lib/aggregate';
-import { formatMoney } from '@/features/greenlight/lib/format';
+import { formatMoney } from '@/shared/lib/money';
 import { markerSegmentsForDays } from '@/features/greenlight/lib/segments';
 import { TOOL_IDS, TOOL_LABELS, TOOL_RATES } from '@/features/greenlight/lib/subscriptions';
 import {

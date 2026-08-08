@@ -28,6 +28,13 @@ export function buildWeekAxisTicks(maxValue: number): { top: number; ticks: numb
   return { top, ticks };
 }
 
+/*
+ * Axis and bar labels are deliberately not `formatMoney`. A tick reading
+ * "$17,615.03" is noise where "$17.6k" is the same information, and two
+ * decimals repeated down an axis are two decimals nobody reads. What they do
+ * share is the reader's grouping: a bar labelled $1,365 beside a summary
+ * reading $1.365,00 would be the same inconsistency in miniature.
+ */
 export function formatAxisMoney(value: number): string {
   const amount = Number(value) || 0;
   if (amount >= 1000) {
@@ -42,7 +49,7 @@ export function formatAxisMoney(value: number): string {
 export function formatBarMoney(value: number): string {
   const amount = Math.round(Number(value) || 0);
   if (Math.abs(amount) >= 100000) return formatAxisMoney(amount);
-  return `$${amount.toLocaleString('en-US')}`;
+  return `$${amount.toLocaleString()}`;
 }
 
 export function shortDate(value: string): string {

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MODES = ['dev', 'test', 'lint', 'format'];
+const MODES = ['dev', 'test', 'lint', 'format', 'typecheck'];
 
 const mode = process.argv[2];
 if (!MODES.includes(mode)) {
@@ -47,6 +47,7 @@ const ARGS = {
     ['-m', 'ruff', 'check', '.'],
     ['-m', 'ruff', 'format', '--check', '.'],
   ],
+  typecheck: [['-m', 'mypy']],
   format: [
     ['-m', 'ruff', 'check', '.', '--fix'],
     ['-m', 'ruff', 'format', '.'],

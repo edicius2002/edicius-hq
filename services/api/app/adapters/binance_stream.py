@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import websockets
 
-from app.adapters.yahoo_stream import Tick
+from app.adapters.models import Tick
 
 PROVIDER = "binance"
 STREAM_BASE = "wss://stream.binance.com:9443/stream"

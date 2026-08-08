@@ -7,6 +7,7 @@ import time
 import pytest
 
 from app.adapters import binance_stream, yahoo_stream
+from app.adapters.models import Tick
 from app.adapters.wire import WireError, read_base64_message, read_message
 from app.services import stream_hub
 
@@ -181,8 +182,8 @@ def cancelling_sleep():
     return sleep
 
 
-async def take(stream: yahoo_stream.YahooStream, count: int) -> list[yahoo_stream.Tick]:
-    out: list[yahoo_stream.Tick] = []
+async def take(stream: yahoo_stream.YahooStream, count: int) -> list[Tick]:
+    out: list[Tick] = []
     ticks = stream.ticks()
     try:
         async for tick in ticks:
@@ -325,8 +326,8 @@ class FakeUpstream:
             yield  # pragma: no cover
 
 
-def tick(symbol: str, price: float) -> yahoo_stream.Tick:
-    return yahoo_stream.Tick(symbol=symbol, price=price)
+def tick(symbol: str, price: float) -> Tick:
+    return Tick(symbol=symbol, price=price, provider="test")
 
 
 class TestTheHub:
@@ -438,9 +439,9 @@ class TestTheHub:
 
         async def run():
             stream = hub.listen({"AAPL"})
-            await anext(_started(stream, hub, yahoo_stream.Tick("AAPL", 100.0, market_state="PRE")))
+            await anext(_started(stream, hub, Tick("AAPL", 100.0, "test", market_state="PRE")))
             batch = await anext(
-                _started(stream, hub, yahoo_stream.Tick("AAPL", 100.0, market_state="REGULAR"))
+                _started(stream, hub, Tick("AAPL", 100.0, "test", market_state="REGULAR"))
             )
             await stream.aclose()
             return batch

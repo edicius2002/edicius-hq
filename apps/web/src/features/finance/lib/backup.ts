@@ -47,7 +47,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function hasDiagrams(value: unknown): boolean {
+function hasDiagrams(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && Array.isArray(value.diagrams);
 }
 
@@ -61,7 +61,10 @@ function hasDiagrams(value: unknown): boolean {
  * without this check, importing a holiday photo would succeed and quietly
  * replace every diagram with nothing.
  */
-function pickDocument(parsed: unknown): unknown | null {
+// `Record<string, unknown> | null` rather than `unknown | null`, which says
+// nothing: `unknown` already includes null, so the union collapsed and the
+// caller's `if (!source)` was guarding a type that admitted everything.
+function pickDocument(parsed: unknown): Record<string, unknown> | null {
   if (!isRecord(parsed)) return null;
   if (hasDiagrams(parsed.document)) return parsed.document;
   if (hasDiagrams(parsed)) return parsed;

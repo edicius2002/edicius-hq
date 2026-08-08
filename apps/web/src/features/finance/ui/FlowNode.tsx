@@ -1,7 +1,7 @@
 import { type CSSProperties, type PointerEvent } from 'react';
 
 import { NODE_SIZE } from '@/features/finance/lib/geometry';
-import { formatAmount } from '@/features/finance/lib/format';
+import { formatAmount } from '@/shared/lib/money';
 import { ANCHORS, type Anchor, type FinanceNode } from '@/features/finance/model/types';
 
 import styles from './FlowNode.module.css';

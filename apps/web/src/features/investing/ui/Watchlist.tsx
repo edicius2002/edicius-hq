@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { WatchlistEntry } from '@/features/investing/data/watchlist';
-import { formatPercent, formatPrice } from '@/features/investing/lib/money';
+import { formatPercent, formatAmount } from '@/shared/lib/money';
 import type { Quote } from '@/shared/api/market';
 
 import styles from './Watchlist.module.css';
@@ -86,7 +86,7 @@ export function Watchlist({
                     className={`${styles.price} ${quote.extended ? styles.extended : ''}`}
                     title={quote.extended ? 'Extended-hours price' : undefined}
                   >
-                    {formatPrice(quote.price)}
+                    {formatAmount(quote.price)}
                   </span>
                   <span
                     className={`${rising ? styles.up : styles.down} ${

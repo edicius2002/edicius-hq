@@ -31,7 +31,7 @@ import {
   flowLabelPoint,
   flowPath,
 } from '@/features/finance/lib/geometry';
-import { formatAmount, formatAssetAmount } from '@/features/finance/lib/format';
+import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import {
   isFlowActive,
   selectAccountSummary,

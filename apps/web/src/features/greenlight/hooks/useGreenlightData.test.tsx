@@ -133,3 +133,155 @@ describe('useGreenlightData storage sync', () => {
     expect(api.writes).toHaveLength(0);
   });
 });
+
+/**
+ * Importing a CSV is the only operation in this app that can destroy years of
+ * data, and until now nothing exercised the destructive half of it.
+ *
+ * Verified by mutation before writing these: swapping the two arguments at the
+ * `mergeCurrentMonthStats` call — which discards every other month and keeps
+ * only the CSV — passed all 497 tests.
+ */
+describe('importing a CSV', () => {
+  const OTHER_MONTH = '2026-04-17';
+
+  /** One deliverable row, in the month the clock says we are in. */
+  function csvForThisMonth(day = 15) {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const date = `${now.getFullYear()}-${month}-${String(day).padStart(2, '0')}`;
+    return {
+      date,
+      text: ['Date,Type,Amount,Currency', `${date},Deliverable,500,USD`].join('\n'),
+    };
+  }
+
+  it('keeps the other months when replacing only the current one', async () => {
+    // The whole point of `current-month`: April must survive an August import.
+    const api = stubApi();
+    const csv = csvForThisMonth();
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    await act(async () => {
+      await result.current.importCsv({
+        fileName: 'x.csv',
+        content: csv.text,
+        replaceMode: 'current-month',
+      });
+    });
+
+    await waitFor(() => expect(Object.keys(api.stored.stats)).toContain(csv.date));
+    expect(Object.keys(api.stored.stats)).toContain(OTHER_MONTH);
+    expect(api.stored.stats[OTHER_MONTH]).toEqual(STORED.stats[OTHER_MONTH]);
+  });
+
+  it('replaces everything when told to replace everything', async () => {
+    // The other mode is destructive on purpose, and must stay that way.
+    const api = stubApi();
+    const csv = csvForThisMonth();
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    await act(async () => {
+      await result.current.importCsv({
+        fileName: 'x.csv',
+        content: csv.text,
+        replaceMode: 'all',
+      });
+    });
+
+    await waitFor(() => expect(Object.keys(api.stored.stats)).not.toContain(OTHER_MONTH));
+  });
+
+  it('keeps the markers whichever mode was used', async () => {
+    // The status line promises "Markers were kept"; nothing checked it.
+    const api = stubApi();
+    const csv = csvForThisMonth();
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    await act(async () => {
+      await result.current.importCsv({
+        fileName: 'x.csv',
+        content: csv.text,
+        replaceMode: 'all',
+      });
+    });
+
+    await waitFor(() => expect(api.stored.meta?.fileName).toBe('x.csv'));
+    expect(api.stored.markers).toEqual(STORED.markers);
+  });
+});
+
+describe('reading damaged stored data', () => {
+  /**
+   * `stats` used to be taken whole on `typeof === 'object'`, so one malformed
+   * day reached `toDayRows`, which reads `day.Deliverable.amount` unguarded.
+   * That throws, and the boundary that catches it wraps the whole
+   * `RouterProvider` — the app is replaced by an error screen with no
+   * navigation, so there is no route to the Clear button that would fix it.
+   */
+  function stubStored(state: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? 'GET') === 'PUT') {
+          return Response.json({ key: 'greenlight', value: JSON.parse(String(init?.body)).value });
+        }
+        return Response.json({ key: 'greenlight', value: state });
+      }),
+    );
+  }
+
+  it('drops a day it cannot read instead of taking the app down', async () => {
+    stubStored({
+      stats: {
+        '2026-04-17': { Deliverable: { amount: 388, details: [] }, currency: 'USD' },
+        '2026-04-18': null,
+        '2026-04-19': { currency: 'USD' },
+        '2026-04-20': { Deliverable: { amount: 'a lot' }, currency: 'USD' },
+      },
+      meta: null,
+      markers: [],
+      widgets: {},
+    });
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    // The good day survives; the three unreadable ones are simply not there.
+    expect(Object.keys(result.current.state.stats)).toEqual(['2026-04-17']);
+  });
+
+  it('repairs the parts of a day it can', async () => {
+    stubStored({
+      stats: { '2026-04-17': { Deliverable: { amount: 388 } } },
+      meta: null,
+      markers: [],
+      widgets: {},
+    });
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    // Missing details and a missing currency have obvious answers; a missing
+    // amount does not, which is why that one drops the day instead.
+    expect(result.current.state.stats['2026-04-17']).toEqual({
+      Deliverable: { amount: 388, details: [] },
+      currency: 'USD',
+    });
+  });
+
+  it('drops a marker that is not a date string', async () => {
+    stubStored({ stats: {}, meta: null, markers: ['2026-05-16', 42, null], widgets: {} });
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    expect(result.current.state.markers).toEqual(['2026-05-16']);
+  });
+});

@@ -9,11 +9,12 @@ up today.
 
 import asyncio
 import time
+from unittest import mock
 
 import pytest
 
 from app.adapters import binance, registry, yahoo
-from app.adapters.models import ProviderError
+from app.adapters.models import ProviderError, Quote
 from app.adapters.yahoo_session import SESSION_TTL_SECONDS, YahooSession
 from app.config import TIMEFRAMES
 from app.services.market_cache import BarCache, MemoryCache
@@ -364,7 +365,10 @@ class TestYahooBatchParsing:
 
         assert [q.symbol for q in quotes] == ["AAPL", "MSFT"]
         assert quotes[0].currency == "USD"
-        assert quotes[0].market_state == "POSTPOST"
+        # Canonical, not Yahoo's doubled word: the REST endpoint says POSTPOST
+        # and the socket says POST for the same session, so both are mapped
+        # into one vocabulary the client can branch on.
+        assert quotes[0].market_state == "POST"
         assert quotes[0].name == "Apple Inc."
         assert quotes[0].change == pytest.approx(312.41 - 333.43)
 
@@ -553,3 +557,58 @@ class TestExtendedSessionPricing:
 
         assert quote.price == 312.41
         assert quote.extended is False
+
+
+class TestTheBatchFallback:
+    def test_a_rate_limit_is_reported_rather_than_multiplied(self):
+        """
+        The fallback turns one request into one per symbol. Answering a quota
+        refusal with it spends ten times the budget at the exact moment there
+        is none left — and decision 8.4 is written around a daily ceiling.
+        """
+        calls: list[str] = []
+
+        async def refuse_batch(_client, _symbols):
+            calls.append("batch")
+            raise ProviderError("rate-limited", "Yahoo is rate limiting this address")
+
+        async def one_by_one(_client, symbol):
+            calls.append(f"one:{symbol}")
+            raise AssertionError("the fallback must not run for a rate limit")
+
+        with (
+            mock.patch.object(yahoo, "fetch_quotes", refuse_batch),
+            mock.patch.object(yahoo, "fetch_quote", one_by_one),
+        ):
+            quotes, failed = asyncio.run(registry._yahoo_quotes(None, ["AAPL", "MSFT", "NVDA"]))
+
+        assert calls == ["batch"]
+        assert quotes == []
+        # Every symbol carries the reason, which is what decision 8.8 renders.
+        assert [symbol for symbol, _ in failed] == ["AAPL", "MSFT", "NVDA"]
+        assert {error.code for _, error in failed} == {"rate-limited"}
+
+    def test_any_other_refusal_still_falls_back(self):
+        # The handshake is the fragile thing the fallback exists for, and this
+        # must not have turned that off.
+        calls: list[str] = []
+
+        async def refuse_batch(_client, _symbols):
+            calls.append("batch")
+            raise ProviderError("upstream-error", "the crumb rotated")
+
+        async def one_by_one(_client, symbol):
+            calls.append(f"one:{symbol}")
+            return Quote(
+                symbol=symbol, price=1.0, currency="USD", previous_close=None, provider="yahoo"
+            )
+
+        with (
+            mock.patch.object(yahoo, "fetch_quotes", refuse_batch),
+            mock.patch.object(yahoo, "fetch_quote", one_by_one),
+        ):
+            quotes, failed = asyncio.run(registry._yahoo_quotes(None, ["AAPL", "MSFT"]))
+
+        assert calls == ["batch", "one:AAPL", "one:MSFT"]
+        assert [q.symbol for q in quotes] == ["AAPL", "MSFT"]
+        assert failed == []

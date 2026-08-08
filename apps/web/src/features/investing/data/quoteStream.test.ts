@@ -26,7 +26,15 @@ function quote(over: Partial<Quote> = {}): Quote {
 }
 
 function tick(over: Partial<Tick> = {}): Tick {
-  return { symbol: 'AAPL', price: 312, marketState: 'REGULAR', changePercent: 4, time: 1, ...over };
+  return {
+    symbol: 'AAPL',
+    price: 312,
+    marketState: 'REGULAR',
+    extended: false,
+    changePercent: 4,
+    time: 1,
+    ...over,
+  };
 }
 
 describe('mergeTick', () => {
@@ -54,10 +62,13 @@ describe('mergeTick', () => {
     expect(merged.changePercent).toBeCloseTo(10);
   });
 
-  it('marks the price extended when the tick says the session is', () => {
-    expect(mergeTick(quote(), tick({ marketState: 'PRE' })).extended).toBe(true);
-    expect(mergeTick(quote(), tick({ marketState: 'POST' })).extended).toBe(true);
-    expect(mergeTick(quote(), tick({ marketState: 'REGULAR' })).extended).toBe(false);
+  it('takes the extended flag from the tick rather than reading the words', () => {
+    // The API decides this, because the REST path already did and two answers
+    // to one question is how the vocabularies drifted apart in the first place.
+    expect(mergeTick(quote(), tick({ marketState: 'PRE', extended: true })).extended).toBe(true);
+    expect(mergeTick(quote(), tick({ marketState: 'REGULAR', extended: false })).extended).toBe(
+      false,
+    );
   });
 
   it('leaves the change unknown when there is nothing to measure against', () => {

@@ -79,6 +79,48 @@ class SymbolHit:
     exchange: str | None = None
 
 
+# The words the client understands, and the only ones either path may send.
+#
+# Yahoo's REST endpoint and its socket describe the same sessions differently —
+# `POSTPOST` against `POST`, and a socket-only `EXTENDED` the client had no
+# branch for at all, so a tick carrying it was rendered as though it were a
+# regular-session price. Both paths map into this set now.
+REGULAR = "REGULAR"
+PRE = "PRE"
+POST = "POST"
+CLOSED = "CLOSED"
+
+MARKET_SESSIONS = frozenset({REGULAR, PRE, POST, CLOSED})
+
+# Yahoo's REST vocabulary, which doubles some of these for reasons of its own.
+_REST_SESSIONS = {
+    "REGULAR": REGULAR,
+    "PRE": PRE,
+    "PREPRE": PRE,
+    "POST": POST,
+    "POSTPOST": POST,
+    "CLOSED": CLOSED,
+}
+
+
+def canonical_session(raw: str | None) -> str | None:
+    """One vocabulary, whichever endpoint the words came from."""
+    if not raw:
+        return None
+    return _REST_SESSIONS.get(raw.upper())
+
+
+def is_extended_session(session: str | None) -> bool:
+    """
+    Whether a price from this session is an extended-hours one.
+
+    Decided here rather than in the browser, because it was decided in both:
+    the REST path computed `extended` on the server and the streaming path let
+    the client infer it from a string, so the two could disagree — and did.
+    """
+    return session in {PRE, POST}
+
+
 @dataclass(frozen=True, slots=True)
 class Tick:
     """
@@ -98,3 +140,7 @@ class Tick:
     change_percent: float | None = None
     #: Seconds since the epoch, as the exchange stamped it.
     time: float | None = None
+
+    @property
+    def extended(self) -> bool:
+        return is_extended_session(self.market_state)

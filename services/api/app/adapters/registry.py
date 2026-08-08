@@ -113,10 +113,19 @@ async def _yahoo_quotes(
     refusal drops back to the per-symbol chart endpoint INV-01 built, which
     needs no session at all. Slower and far more requests, but it works when the
     handshake does not, and the alternative is an empty watchlist.
+
+    **Except when the refusal is the quota.** The fallback turns one request
+    into one per symbol, so answering a rate limit with it multiplies the load
+    tenfold at the exact moment there is none left to spend — and decision 8.4
+    is written around a daily ceiling. A rate limit travels to the caller as
+    itself, which decision 8.8 already knows how to show beside the symbols
+    that worked.
     """
     try:
         batched = await yahoo.fetch_quotes(client, symbols)
-    except ProviderError:
+    except ProviderError as error:
+        if error.code == "rate-limited":
+            return [], [(symbol, error) for symbol in symbols]
         return await _yahoo_one_by_one(client, symbols)
 
     found = {quote.symbol for quote in batched}

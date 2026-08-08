@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import websockets
 
+from app.adapters import models
 from app.adapters.models import Tick
 
 PROVIDER = "binance"
@@ -93,7 +94,7 @@ def parse_tick(message: str) -> Tick | None:
         provider=PROVIDER,
         # A pair never closes, so it is always in its regular session. Saying
         # so explicitly keeps the badge from having to special-case crypto.
-        market_state="REGULAR",
+        market_state=models.REGULAR,
         change_percent=change_percent,
         time=float(stamp) / 1000 if isinstance(stamp, (int, float)) else None,
     )

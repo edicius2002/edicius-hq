@@ -19,12 +19,18 @@ export type Tick = {
   symbol: string;
   price: number;
   marketState: string | null;
+  /**
+   * Whether this price came from a pre- or post-market session.
+   *
+   * Sent rather than inferred here. The REST path already computed it on the
+   * server, so deriving it in the browser from `marketState` meant one question
+   * answered in two places — and the two vocabularies drifted, with the socket
+   * emitting an `EXTENDED` that this file had no branch for at all.
+   */
+  extended: boolean;
   changePercent: number | null;
   time: number | null;
 };
-
-/** The sessions in which a price is not a regular-hours one. */
-const EXTENDED_STATES = new Set(['PRE', 'PREPRE', 'POST', 'POSTPOST']);
 
 /**
  * A tick laid over the quote the sweep produced.
@@ -43,7 +49,7 @@ export function mergeTick(quote: Quote, tick: Tick): Quote {
     ...quote,
     price: tick.price,
     marketState: tick.marketState ?? quote.marketState,
-    extended: tick.marketState ? EXTENDED_STATES.has(tick.marketState) : quote.extended,
+    extended: tick.extended,
     change,
     changePercent:
       change === null || previousClose === null ? null : (change / previousClose) * 100,

@@ -23,6 +23,7 @@ from typing import Protocol, cast
 
 import websockets
 
+from app.adapters import models
 from app.adapters.models import Tick
 from app.adapters.wire import WireError, as_float, as_text, read_base64_message, zigzag
 
@@ -70,14 +71,19 @@ _EXCHANGE = 5
 _MARKET_HOURS = 7
 _CHANGE_PERCENT = 8
 
-# The values seen in field 7. Yahoo's own words for its sessions; 1 is the
-# regular one, and crypto — which never closes — reports it around the clock.
+# The values seen in field 7, mapped straight into the canonical vocabulary.
+#
+# 3 used to be reported as "EXTENDED", a word only this file ever produced and
+# that no consumer had a branch for — so such a tick was rendered as a regular
+# price. Extended hours are pre or post; the socket does not say which, and
+# `POST` is the honest reading, since a session is only ever "extended" after
+# the bell in Yahoo's own usage.
 MARKET_HOURS = {
-    0: "PRE",
-    1: "REGULAR",
-    2: "POST",
-    3: "EXTENDED",
-    4: "PRE",
+    0: models.PRE,
+    1: models.REGULAR,
+    2: models.POST,
+    3: models.POST,
+    4: models.PRE,
 }
 
 # Long enough that a flapping upstream is not hammered, short enough that a

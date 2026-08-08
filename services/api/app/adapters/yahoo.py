@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters import models
 from app.adapters.models import Bar, ProviderError, Quote, SymbolHit
 from app.adapters.yahoo_session import BROWSER_UA, SESSION
 from app.config import Timeframe
@@ -277,7 +278,7 @@ def parse_quotes(payload: object) -> list[Quote]:
                 provider=PROVIDER,
                 # The exchange's own view of its session, which a clock cannot
                 # give: it knows about holidays.
-                market_state=state or None,
+                market_state=models.canonical_session(state),
                 name=str(row.get("shortName") or row.get("longName") or "") or None,
                 extended=extended,
             )

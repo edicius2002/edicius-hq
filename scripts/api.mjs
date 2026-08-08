@@ -40,17 +40,25 @@ if (!python) {
  * ruff` from the repo root picks up whatever happens to be on PATH, which is
  * how a check passes on one machine and fails on another.
  */
+/*
+ * The repo-root `scripts/` directory holds Python too — the load test and the
+ * reachability probe — and nothing was checking it: ruff runs from
+ * `services/api`, so those files were outside every gate. Anything not in CI
+ * rots, which is the finding decision 10.1 came from.
+ */
+const PY_TARGETS = ['.', '../../scripts'];
+
 const ARGS = {
   test: [['-m', 'pytest']],
   dev: [['-m', 'uvicorn', 'app.main:app', '--reload', '--host', '127.0.0.1', '--port', '8000']],
   lint: [
-    ['-m', 'ruff', 'check', '.'],
-    ['-m', 'ruff', 'format', '--check', '.'],
+    ['-m', 'ruff', 'check', ...PY_TARGETS],
+    ['-m', 'ruff', 'format', '--check', ...PY_TARGETS],
   ],
   typecheck: [['-m', 'mypy']],
   format: [
-    ['-m', 'ruff', 'check', '.', '--fix'],
-    ['-m', 'ruff', 'format', '.'],
+    ['-m', 'ruff', 'check', ...PY_TARGETS, '--fix'],
+    ['-m', 'ruff', 'format', ...PY_TARGETS],
   ],
 };
 

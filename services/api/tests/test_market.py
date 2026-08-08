@@ -117,8 +117,12 @@ class TestYahooParsing:
     def test_search_takes_what_it_can_name(self):
         payload = {
             "quotes": [
-                {"symbol": "aapl", "shortname": "Apple Inc.", "quoteType": "EQUITY",
-                 "exchange": "NMS"},
+                {
+                    "symbol": "aapl",
+                    "shortname": "Apple Inc.",
+                    "quoteType": "EQUITY",
+                    "exchange": "NMS",
+                },
                 {"longname": "No symbol here"},
                 {"symbol": "MSFT", "longname": "Microsoft", "quoteType": "EQUITY"},
             ]
@@ -528,9 +532,7 @@ class TestExtendedSessionPricing:
 
     def test_falls_back_when_the_extended_session_has_not_traded_yet(self):
         quote = yahoo.parse_quotes(
-            quote_payload(
-                {"symbol": "AAPL", "marketState": "POST", "regularMarketPrice": 312.41}
-            )
+            quote_payload({"symbol": "AAPL", "marketState": "POST", "regularMarketPrice": 312.41})
         )[0]
 
         # A stale number beats an empty row.

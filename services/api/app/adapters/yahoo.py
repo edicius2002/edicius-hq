@@ -88,7 +88,9 @@ async def fetch_quote(client: httpx.AsyncClient, symbol: str) -> Quote:
         price=float(price),
         currency=str(meta.get("currency") or "USD").upper(),
         previous_close=(
-            float(meta["chartPreviousClose"]) if meta.get("chartPreviousClose") is not None else None
+            float(meta["chartPreviousClose"])
+            if meta.get("chartPreviousClose") is not None
+            else None
         ),
         provider=PROVIDER,
     )

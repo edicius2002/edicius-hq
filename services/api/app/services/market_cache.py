@@ -17,9 +17,10 @@ would each ask upstream for the same symbol — and Yahoo counts every one.
 import asyncio
 import json
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Awaitable, Callable, TypeVar
+from typing import TypeVar
 
 from app.adapters.models import Bar
 from app.config import bars_dir
@@ -143,8 +144,13 @@ class BarCache:
             # Written beside then moved, so a reader never sees half a file.
             temporary = path.with_suffix(".tmp")
             temporary.write_text(
-                json.dumps({"symbol": symbol, "timeframe": timeframe,
-                            "bars": [asdict(bar) for bar in bars]}),
+                json.dumps(
+                    {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "bars": [asdict(bar) for bar in bars],
+                    }
+                ),
                 encoding="utf-8",
             )
             temporary.replace(path)

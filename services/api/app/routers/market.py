@@ -6,7 +6,6 @@ of it belongs in the KV store and none of it belongs in Postgres later (plan
 decisions 5.4 and 5.8).
 """
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -249,13 +248,6 @@ def _as_http_error(exc: ProviderError) -> HTTPException:
     return HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
 
 
-# How long a listener may hear nothing before we say so. A proxy that sees no
-# bytes assumes the connection died; a comment frame is the cheapest way to
-# disagree, and it doubles as the signal that the pipe is still open on a night
-# when genuinely nothing trades.
-HEARTBEAT_SECONDS = 20.0
-
-
 def sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
@@ -301,18 +293,19 @@ async def stream_quotes(
 
         listener = HUB.listen(set(wanted))
         try:
-            while True:
-                try:
-                    batch = await asyncio.wait_for(anext(listener), timeout=HEARTBEAT_SECONDS)
-                except TimeoutError:
-                    yield ": keep-alive\n\n"
-                    continue
-                except StopAsyncIteration:
-                    return
-
+            # No timeout around this iteration. `asyncio.wait_for` wrapped
+            # around `anext` delivers its cancellation *into* the generator,
+            # which runs its `finally`, unsubscribes and ends the response — so
+            # every quiet interval used to tear the stream down, and a still
+            # market cost roughly 150 reconnects an hour. The hub does its own
+            # waiting now and reports silence as an empty batch.
+            async for batch in listener:
                 if await request.is_disconnected():
                     return
-                yield sse("quotes", [tick_payload(t) for t in batch])
+                if batch:
+                    yield sse("quotes", [tick_payload(t) for t in batch])
+                else:
+                    yield ": keep-alive\n\n"
         finally:
             await listener.aclose()
 

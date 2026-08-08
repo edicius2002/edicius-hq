@@ -23,6 +23,11 @@ from app.adapters.yahoo_stream import Tick
 # that a symbol trading hard cannot turn into a render per trade.
 FLUSH_SECONDS = 0.25
 
+# How long a listener waits before saying "still here" with nothing to report.
+# Long enough that a busy market never reaches it, short enough that a proxy
+# watching for bytes does not give up first.
+KEEPALIVE_SECONDS = 20.0
+
 
 def _same_reading(before: Tick | None, now: Tick) -> bool:
     """Everything a row displays, which is everything except when it happened."""
@@ -68,9 +73,26 @@ class _Listener:
         self._closed = True
         self._ready.set()
 
-    async def drain(self) -> list[Tick]:
-        """Waits for something to say, then says all of it at once."""
-        await self._ready.wait()
+    async def drain(self, timeout: float | None = None) -> list[Tick]:
+        """
+        Waits for something to say, then says all of it at once.
+
+        An empty list means "nothing within `timeout`" — a keep-alive, not a
+        reason to stop.
+
+        The timeout lives *here* rather than around the generator, and that is
+        the whole point of this method taking one. `asyncio.wait_for` wrapped
+        around `anext(listener)` delivers its cancellation **into** the
+        generator, which runs the `finally` in `listen` and unsubscribes: every
+        quiet interval tore the listener down, the browser reconnected, and a
+        still market cost about 150 full cycles an hour. Cancelling an
+        `Event.wait` instead costs nothing.
+        """
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout)
+        except TimeoutError:
+            return []
+
         self._ready.clear()
         batch = list(self._pending.values())
         self._pending.clear()
@@ -90,10 +112,16 @@ class StreamHub:
     gone, so two tabs on the same watchlist cost one subscription.
     """
 
-    def __init__(self, *, flush_seconds: float = FLUSH_SECONDS) -> None:
+    def __init__(
+        self,
+        *,
+        flush_seconds: float = FLUSH_SECONDS,
+        keepalive_seconds: float = KEEPALIVE_SECONDS,
+    ) -> None:
         self._listeners: set[_Listener] = set()
         self._wanted: Counter[str] = Counter()
         self._flush_seconds = flush_seconds
+        self._keepalive_seconds = keepalive_seconds
         self._lock = asyncio.Lock()
         self._pump: asyncio.Task | None = None
         self._stream = None
@@ -130,6 +158,10 @@ class StreamHub:
         Yields lists rather than single ticks because the flush is the point:
         everything that happened in the last interval arrives together, and the
         client renders once for the lot.
+
+        An **empty list is a keep-alive**: nothing traded for a while and the
+        connection is still good. The caller turns it into whatever its
+        transport needs. Nothing about a quiet market ends this generator.
         """
         listener = _Listener(symbols)
 
@@ -140,15 +172,15 @@ class StreamHub:
 
         try:
             while True:
-                batch = await listener.drain()
+                batch = await listener.drain(self._keepalive_seconds)
                 if listener.closed:
                     return
+                yield batch
+                # Rate limit after a real batch only. Pausing after a
+                # keep-alive would delay the next genuine tick by a window it
+                # did nothing to earn.
                 if batch:
-                    yield batch
-                # Rate limit after yielding, not before: the first tick reaches
-                # the page immediately, and only a second one within the window
-                # waits for it.
-                await asyncio.sleep(self._flush_seconds)
+                    await asyncio.sleep(self._flush_seconds)
         finally:
             async with self._lock:
                 self._listeners.discard(listener)

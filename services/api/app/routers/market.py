@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.adapters import registry
-from app.adapters.models import ProviderError, Quote
+from app.adapters.models import ProviderError, Quote, Tick
 from app.config import (
     DEFAULT_TIMEFRAME,
     MAX_BATCH_SYMBOLS,
@@ -252,12 +252,20 @@ def sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def tick_payload(tick) -> dict:
-    """Deliberately the fields a row needs, and no provider name among them."""
+def tick_payload(tick: Tick) -> dict:
+    """
+    Deliberately the fields a row needs, and no provider name among them.
+
+    `extended` travels rather than being inferred in the browser: the REST path
+    already computed it on the server, so leaving the socket's clients to
+    derive it from a string meant the same question was answered in two places
+    — and the two vocabularies had already drifted apart.
+    """
     return {
         "symbol": tick.symbol,
         "price": tick.price,
         "marketState": tick.market_state,
+        "extended": tick.extended,
         "changePercent": tick.change_percent,
         "time": tick.time,
     }

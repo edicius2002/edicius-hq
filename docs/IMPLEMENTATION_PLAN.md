@@ -466,6 +466,10 @@ running outside the browser; that is a cloud-phase question, not a markets one.
 
 ---
 
+| 3.12 | A stored document is written **beside, flushed, then moved** — never truncated in place. | `put_value` was `path.write_text`, which truncates and then writes: a crash, a full disk or a container stopped mid-request left the document empty or half written, with no other copy. Forty lines away the **disposable** bar cache already wrote temp-then-`replace`, with a comment about readers never seeing half a file — the throwaway cache had the durable write and the ledger did not. Decision 7.21 declined snapshot-and-self-heal because "our documents are files on disk behind the API", and that reasoning only holds if the write is atomic. The temporary is made in the destination's own directory, because `os.replace` is atomic only within one filesystem, and the bytes are `fsync`ed before the rename claims they are real. |
+
+---
+
 ### 4. Tooling and phases
 
 | ID  | Decision                                                   | Rationale                               |
@@ -652,3 +656,4 @@ writes and what it says while it is doing so ([#38](https://github.com/edicius20
 | 2026-08-07 | Three money formatters collapsed into one, in `shared/lib/money` (3.9–3.11).                                        |
 | 2026-08-08 | Sustainability audit: 14 agents, 22 findings after adversarial refutation of 19.                                    |
 | 2026-08-08 | Streaming steady state fixed (8.34–8.36). The stream had been tearing itself down every 20s of quiet.               |
+| 2026-08-08 | Stored documents get the durable write the disposable cache already had (3.12).                                     |

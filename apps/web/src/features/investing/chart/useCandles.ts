@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 
 import {
   cadenceFor,
-  hasSession,
   makeIsExtended,
   regimeAt,
   type Regime,
@@ -83,15 +82,17 @@ export function useCandles(symbol: string, timeframe: string): Candles {
   });
 
   const provider = query.data?.provider ?? '';
+  const hasSession = query.data?.hasSession ?? true;
   const bars = useMemo(() => query.data?.bars ?? [], [query.data]);
 
   const isGhost = useMemo(() => {
-    // Crypto never has an overlay: Binance runs around the clock, so there is
-    // no session for a bar to fall outside of.
-    if (!hasSession(provider)) return () => false;
+    // Crypto never has an overlay: a pair's market runs around the clock, so
+    // there is no session for a bar to fall outside of. The API says which,
+    // rather than this reading a provider's name to work it out.
+    if (!hasSession) return () => false;
     const rule = makeIsExtended(timeframe, regime, bars.length);
     return (bar: Bar, index: number) => rule(bar.time, index);
-  }, [provider, timeframe, regime, bars.length]);
+  }, [hasSession, timeframe, regime, bars.length]);
 
   return {
     bars,

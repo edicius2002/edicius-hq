@@ -18,9 +18,27 @@ import styles from './Watchlist.module.css';
 /** Long enough to catch the eye, short enough not to still be lit on the next tick. */
 const FLASH_MS = 600;
 
+/** What the provider said about a symbol it would not serve. */
+export type Failure = { code: string; message: string };
+
+/**
+ * Said in the row rather than in a banner, because it is about that symbol and
+ * not about the page. Kept short: the code is the useful part and the full
+ * message is one hover away.
+ */
+const FAILURE_LABEL: Record<string, string> = {
+  'rate-limited': 'rate limited',
+  'symbol-not-found': 'unknown symbol',
+  'no-price': 'no price',
+  unreachable: 'unreachable',
+  'upstream-error': 'upstream error',
+};
+
 type WatchlistProps = {
   entries: WatchlistEntry[];
   quotes: Map<string, Quote>;
+  /** Symbols the provider refused, by symbol. Rendered in place of a price. */
+  failures?: Map<string, Failure>;
   selected: string;
   onSelect: (symbol: string) => void;
   onRemove: (symbol: string) => void;
@@ -32,6 +50,7 @@ type Flash = 'up' | 'down';
 export function Watchlist({
   entries,
   quotes,
+  failures,
   selected,
   onSelect,
   onRemove,
@@ -48,6 +67,7 @@ export function Watchlist({
     <ul className={styles.list} aria-label="Watchlist">
       {entries.map((entry) => {
         const quote = quotes.get(entry.symbol);
+        const failure = quote ? undefined : failures?.get(entry.symbol);
         const rising = (quote?.changePercent ?? 0) >= 0;
         const flash = flashes.get(entry.symbol);
 
@@ -96,6 +116,16 @@ export function Watchlist({
                     {formatPercent(quote.changePercent)}
                   </span>
                 </>
+              ) : failure ? (
+                /*
+                 * A refused row used to show the same "·" as one that had not
+                 * loaded yet, forever — so a rate-limited symbol was
+                 * indistinguishable from a slow one, and decision 8.8 sent the
+                 * reason all the way here for nothing.
+                 */
+                <span className={styles.failed} title={failure.message}>
+                  {FAILURE_LABEL[failure.code] ?? failure.code}
+                </span>
               ) : (
                 <span className={styles.waiting}>·</span>
               )}

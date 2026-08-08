@@ -59,11 +59,17 @@ def _blocked(status: int | None, body: str) -> bool:
     """
     Whether a refusal reads as "not you" rather than "not that".
 
-    401 and 403 on an endpoint that serves a browser, 429 outright, and any
-    body mentioning consent or a captcha — the wall an address with no history
-    tends to meet.
+    401 and 403 on an endpoint that serves a browser, 429 outright, **451** for
+    a refusal on legal grounds, and any body mentioning consent or a captcha.
+
+    451 was missing from the first version and the first real run found out
+    why it matters: from a GitHub runner, Binance answers 451 to both its REST
+    and its socket, while every Yahoo surface answers normally. The probe
+    reported that as an ordinary failure, which understates it — a 451 is the
+    address being refused, exactly the class this exists to detect, just for
+    geography rather than for quota.
     """
-    if status in {401, 403, 429}:
+    if status in {401, 403, 429, 451}:
         return True
     lowered = body.lower()
     return any(word in lowered for word in ("captcha", "consent", "unusual traffic", "guce"))
@@ -179,7 +185,10 @@ async def _probe_socket(name: str, url: str, subscribe: str | None) -> Probe:
     except Exception as error:  # noqa: BLE001
         ms = int((time.perf_counter() - started) * 1000)
         text = f"{type(error).__name__}: {error}"
-        return Probe(name, False, text, ms, _blocked(None, text))
+        # A rejected handshake carries its status in the message rather than in
+        # a response object, so the status has to be read out of the text.
+        status = next((code for code in (401, 403, 429, 451) if str(code) in text), None)
+        return Probe(name, False, text, ms, _blocked(status, text))
 
 
 async def probe_sockets() -> list[Probe]:

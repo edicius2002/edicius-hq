@@ -1,4 +1,5 @@
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
+import type { NodeContent } from '@/features/finance/lib/geometry';
 import type {
   AssetCode,
   Diagram,
@@ -205,5 +206,35 @@ export function selectAccountSummary(diagram: Diagram, accountId: NodeId): Accou
     remaining: toAssetTotals(remaining, true),
     incoming: { count: incomingCount, totals: toAssetTotals(incomingTotals) },
     outgoing: { count: outgoingCount, totals: toAssetTotals(outgoingTotals) },
+  };
+}
+
+/**
+ * How many rows a node will show, from the document alone.
+ *
+ * This is what lets `sizeOf` follow the content without a layout pass: every
+ * question a box's height depends on — does this holding carry a fee, how many
+ * assets does this account still hold, has it seen any traffic — is answerable
+ * here, from the same data the money maths already reads.
+ *
+ * Every consumer of a node's rectangle has to route through this. A frame that
+ * measured a node differently from the canvas would decide ownership on a box
+ * nobody could see.
+ */
+export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeContent {
+  if (node.kind === 'holding') {
+    const fees = node.fees;
+    const charged = (fee: { value: number } | null) => Boolean(fee && fee.value !== 0);
+    return { extraRow: charged(fees.out) || charged(fees.in) };
+  }
+
+  if (node.kind === 'job') {
+    return { assetRows: node.balances.filter((balance) => balance.active).length };
+  }
+
+  const summary = selectAccountSummary(diagram, node.id);
+  return {
+    assetRows: summary.remaining.length,
+    extraRow: summary.incoming.count + summary.outgoing.count > 0,
   };
 }

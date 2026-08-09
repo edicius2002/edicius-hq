@@ -1,9 +1,20 @@
+/*
+ * Sizes are in pixels, not rem, and that is the point.
+ *
+ * The box is placed and measured in canvas units — `geometry.ts` computes flow
+ * paths from those numbers without a layout pass. Content in `rem` meant the
+ * two only agreed at a 16px root font; at the 20px this app uses, a holding
+ * with a fee needed 120.5px of its 116px box and the grid quietly crushed a row.
+ * A box measured in canvas units cannot have contents measured in something the
+ * reader's browser gets to change.
+ */
 .node {
   position: absolute;
   display: grid;
   align-content: center;
-  gap: 0.2rem;
-  padding: 0.5rem 0.6rem;
+  gap: 4px;
+  padding: 8px 10px;
+  line-height: 1.4;
   border: 1px solid var(--node-color);
   border-radius: 10px;
   background: var(--node-bg);
@@ -42,7 +53,7 @@
 
 .kind {
   color: var(--node-color);
-  font-size: 0.6rem;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -54,9 +65,9 @@
  * this, an undersized box shows visibly rather than silently dropping content.
  */
 .name {
-  font-size: 0.85rem;
+  font-size: 15px;
   font-weight: 700;
-  min-height: 1.15em;
+  min-height: 21px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -64,27 +75,48 @@
 
 .amount {
   color: var(--color-income);
-  font-size: 0.9rem;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
 
 .muted {
   color: var(--color-muted);
-  font-size: 0.68rem;
+  font-size: 12px;
 }
 
+/*
+ * Two to a line, always — a grid rather than a wrap.
+ *
+ * `flex-wrap` fitted as many as happened to go: three narrow chips on one line,
+ * two wide ones on the next. The geometry that reserves the box's height cannot
+ * see a chip's width without a layout pass, so it reserved the conservative two
+ * and the drawing sometimes used fewer lines than that. Fixing the count at two
+ * makes `CHIPS_PER_LINE` exact instead of an upper bound: the box grows by one
+ * line for every second asset, and by exactly the height that line takes.
+ */
 .balances {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.35rem;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 7px;
+  justify-items: center;
+  width: 100%;
+}
+
+/*
+ * A lone asset would otherwise sit in the left half of the grid rather than
+ * under the name. An odd last chip keeps its column, which is what makes the
+ * lines read as a column pair instead of as centred text.
+ */
+.balances > :only-child {
+  grid-column: 1 / -1;
 }
 
 .balance {
   color: var(--color-muted);
-  font-size: 0.62rem;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .balance strong {
@@ -93,14 +125,14 @@
 
 .fees {
   color: var(--color-expense);
-  font-size: 0.6rem;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 /* Arrows in, arrows out — how much traffic this account has seen. */
 .operations {
   color: var(--color-muted);
-  font-size: 0.58rem;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }

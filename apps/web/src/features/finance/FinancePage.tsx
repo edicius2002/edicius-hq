@@ -175,117 +175,139 @@ export function FinancePage() {
   }, []);
 
   const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
+  /*
+   * Only while a mode is waiting on you. Idle, this said "Drag nodes to arrange
+   * them, the canvas to move around, and scroll to zoom" — which a user with a
+   * pointer on the canvas learns by moving it, and which at 676px was wider
+   * than the 661px the bar had left, so it took a line of its own. The three
+   * that remain say what the app is waiting for, which nothing else does.
+   */
   const hint = frameMode
     ? 'Drag out a rectangle to frame what it encloses.'
     : !connectMode
-      ? 'Drag nodes to arrange them, the canvas to move around, and scroll to zoom.'
+      ? null
       : connectFrom
         ? 'Now pick the anchor it flows into.'
         : 'Pick the anchor the money leaves from.';
 
-  return (
-    <section className={styles.page} aria-labelledby="finance-title">
-      <PageHeader
-        title="Finance"
-        subtitle="Map where money comes from, where it sits, and where it moves."
-        titleId="finance-title"
-      />
-
-      {/* Both act on the document rather than on one diagram, so they share a row. */}
-      <div className={styles.documentBar}>
-        <DiagramTabs
-          diagrams={finance.diagrams}
-          activeId={finance.activeDiagramId}
-          onSelect={(id) => {
-            setSelection(null);
-            void finance.selectDiagram(id);
-          }}
-          onAdd={() => {
-            setSelection(null);
-            void finance.addDiagram();
-          }}
-          onDuplicate={(id) => void finance.duplicateDiagram(id)}
-          onRename={(id, name) => void finance.renameDiagram(id, name)}
-          onDelete={(id) => {
-            setSelection(null);
-            void finance.deleteDiagram(id);
-          }}
-        />
-
-        <BackupControls
-          document={finance.document}
-          onRestore={async (text) => {
-            setMessage(null);
-            setSelection(null);
-            stopConnecting();
-            setFrameMode(false);
-            const result = await finance.restore(text);
-            return result.ok ? null : describeRestoreError(result.error);
-          }}
-        />
+  const toolbar = (
+    <div className={styles.toolbar}>
+      <div className={styles.toolGroup}>
+        <Button onClick={() => void finance.addJob(nextPosition(topLevelCount))}>Add job</Button>
+        <Button onClick={() => void finance.addAccount(nextPosition(topLevelCount))}>
+          Add account
+        </Button>
       </div>
 
-      <Panel>
-        <div className={styles.toolbar}>
-          <div className={styles.toolGroup}>
-            <Button onClick={() => void finance.addJob(nextPosition(topLevelCount))}>
-              Add job
-            </Button>
-            <Button onClick={() => void finance.addAccount(nextPosition(topLevelCount))}>
-              Add account
-            </Button>
-          </div>
+      <div className={styles.toolGroup}>
+        <Button disabled={!finance.canUndo} title="Undo (Ctrl+Z)" onClick={handleUndo}>
+          Undo
+        </Button>
+        <Button disabled={!finance.canRedo} title="Redo (Ctrl+Shift+Z)" onClick={handleRedo}>
+          Redo
+        </Button>
+      </div>
 
-          <div className={styles.toolGroup}>
-            <Button disabled={!finance.canUndo} title="Undo (Ctrl+Z)" onClick={handleUndo}>
-              Undo
-            </Button>
-            <Button disabled={!finance.canRedo} title="Redo (Ctrl+Shift+Z)" onClick={handleRedo}>
-              Redo
-            </Button>
-          </div>
+      <div className={styles.toolGroup}>
+        <Button
+          variant={connectMode ? 'primary' : 'secondary'}
+          onClick={() => {
+            setMessage(null);
+            setFrameMode(false);
+            if (connectMode) stopConnecting();
+            else setConnectMode(true);
+          }}
+        >
+          {connectMode ? 'Cancel connect' : 'Connect'}
+        </Button>
+        <Button
+          variant={frameMode ? 'primary' : 'secondary'}
+          onClick={() => {
+            setMessage(null);
+            stopConnecting();
+            setFrameMode((current) => !current);
+          }}
+        >
+          {frameMode ? 'Cancel frame' : 'Frame'}
+        </Button>
+        <Button variant="danger" disabled={!selection} onClick={handleDelete}>
+          Delete
+        </Button>
+      </div>
+    </div>
+  );
 
-          <div className={styles.toolGroup}>
-            <Button
-              variant={connectMode ? 'primary' : 'secondary'}
-              onClick={() => {
-                setMessage(null);
-                setFrameMode(false);
-                if (connectMode) stopConnecting();
-                else setConnectMode(true);
+  return (
+    <section className={styles.page} aria-labelledby="finance-title">
+      {/* The editing actions ride beside the title rather than in a panel of
+          their own. Measured at 1139x802 before this: the page furniture above
+          the canvas took 529px of a 791px viewport, so only 273px of diagram
+          was ever on screen. The subtitle went for the same reason — it said
+          what the page is to someone already looking at it. */}
+      <PageHeader
+        className={styles.header}
+        title="Finance"
+        titleId="finance-title"
+        beside={
+          <div className={styles.tabsScroll}>
+            <DiagramTabs
+              diagrams={finance.diagrams}
+              activeId={finance.activeDiagramId}
+              onSelect={(id) => {
+                setSelection(null);
+                void finance.selectDiagram(id);
               }}
-            >
-              {connectMode ? 'Cancel connect' : 'Connect'}
-            </Button>
-            <Button
-              variant={frameMode ? 'primary' : 'secondary'}
-              onClick={() => {
+              onAdd={() => {
+                setSelection(null);
+                void finance.addDiagram();
+              }}
+              onDuplicate={(id) => void finance.duplicateDiagram(id)}
+              onRename={(id, name) => void finance.renameDiagram(id, name)}
+              onDelete={(id) => {
+                setSelection(null);
+                void finance.deleteDiagram(id);
+              }}
+            />
+          </div>
+        }
+        actions={
+          <div className={styles.headerActions}>
+            {toolbar}
+            <BackupControls
+              document={finance.document}
+              onRestore={async (text) => {
                 setMessage(null);
+                setSelection(null);
                 stopConnecting();
-                setFrameMode((current) => !current);
+                setFrameMode(false);
+                const result = await finance.restore(text);
+                return result.ok ? null : describeRestoreError(result.error);
               }}
-            >
-              {frameMode ? 'Cancel frame' : 'Frame'}
-            </Button>
-            <Button variant="danger" disabled={!selection} onClick={handleDelete}>
-              Delete
-            </Button>
+            />
           </div>
+        }
+      />
 
-          <span className={`${styles.hint} ${styles.spacer}`}>{hint}</span>
-        </div>
+      {/* Sits with the actions that caused it, and only when there is one. */}
+      {problem ? (
+        <p className={styles.error} role="alert">
+          {problem}
+        </p>
+      ) : null}
 
-        {/* Sits with the actions that caused it, and only when there is one. */}
-        {problem ? (
-          <p className={styles.error} role="alert">
-            {problem}
-          </p>
-        ) : null}
-      </Panel>
-
+      {/* Nothing between the canvas and the panel beside it: with the bar gone
+          the two columns start on the same line as well as ending on it. */}
       <div className={styles.workspace}>
         <FlowCanvas
-          status={<SaveStatus state={finance.saveState} onRetry={finance.retrySave} />}
+          status={
+            <>
+              <SaveStatus state={finance.saveState} onRetry={finance.retrySave} />
+              {/* On the canvas rather than above it: a hint that comes and goes
+                  with a mode would otherwise push the canvas down mid-gesture,
+                  and the alignment with the panel beside it with it. */}
+              {hint ? <span className={styles.canvasHint}>{hint}</span> : null}
+            </>
+          }
           diagram={diagram}
           selection={selection}
           connectMode={connectMode}
@@ -308,7 +330,7 @@ export function FinancePage() {
         />
 
         <div className={styles.side}>
-          <Panel aria-label="Selected item">
+          <Panel className={styles.properties} aria-label="Selected item">
             <PropertiesPanel diagram={diagram} selection={selection} actions={panelActions} />
           </Panel>
 

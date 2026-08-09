@@ -14,22 +14,168 @@ export type { Rect, Size };
  * Node footprints in canvas units. Kept here rather than read from the DOM so
  * flow paths can be computed without a layout pass, and so the money math and
  * the drawing never have to agree on anything but these numbers.
+ *
+ * **Height follows the rows a node actually shows.** It used to be one number
+ * per kind, sized for the most that kind could ever display, which left most
+ * boxes part empty: measured on the real diagram, an account or job holding one
+ * asset carried 26px of slack in a 116px box, and a holding with no fee 17px.
+ * Sixteen of its twenty-nine nodes are holdings.
+ *
+ * And the worst case it was sized for did not fit either. The box is in canvas
+ * pixels while the content was in `rem`, so the two only agreed at a 16px root
+ * font — at the 20px this app actually uses, a holding *with* a fee needed
+ * 120.5px of a 116px box and the grid crushed a row to hide it. The row metrics
+ * below are in pixels for that reason, and `FlowNode.module.css` states its
+ * fonts in pixels to match: a box measured in canvas units cannot have contents
+ * measured in something else.
  */
-/*
- * Heights fit the most each kind ever shows — four rows, since a holding can add
- * a fee line and an account an operation count. A box that is too short does not
- * overflow: the grid crushes a row instead, which is why these are generous and
- * why .name carries a min-height as a backstop.
+
+/**
+ * The font sizes `FlowNode.module.css` states, in the same pixels.
+ *
+ * Duplicated deliberately, and guarded by a test: a stylesheet cannot be read
+ * from here without a layout pass, and a layout pass is the one thing this file
+ * exists to avoid. Written down once, and the height derived from it — a
+ * hand-written height is how the first attempt reserved 15px for a row that
+ * takes 15.4 and crushed it.
  */
-export const NODE_SIZE: Record<NodeKind, Size> = {
-  job: { width: 200, height: 116 },
-  account: { width: 200, height: 116 },
-  holding: { width: 140, height: 116 },
+const FONT = {
+  kind: 11,
+  name: 15,
+  amount: 16,
+  balance: 11,
+  fees: 11,
+  operations: 10,
+  muted: 12,
+} as const;
+
+/** `.node` sets this; every row is one line of it. */
+export const LINE_HEIGHT = 1.4;
+
+/** Rounded up, always: half a pixel short is a crushed row. */
+function rowHeight(font: number): number {
+  return Math.ceil(font * LINE_HEIGHT);
+}
+
+const ROW = Object.fromEntries(
+  Object.entries(FONT).map(([row, font]) => [row, rowHeight(font)]),
+) as Record<keyof typeof FONT, number>;
+
+export const NODE_FONT = FONT;
+export const NODE_ROW = ROW;
+
+const PADDING_Y = 8;
+const ROW_GAP = 4;
+
+/**
+ * Asset chips go two to a line, so a node with eight assets is four lines tall
+ * rather than eight rows tall.
+ *
+ * This is **exact, not an estimate**. `.balances` is a two-column grid, so the
+ * count is fixed by the stylesheet rather than fitted to whatever widths the
+ * amounts happen to have — which is the only way a height computed without a
+ * layout pass can match what gets drawn. It was `flex-wrap` first: three narrow
+ * chips fitted on a line where two wide ones did not, and the reservation could
+ * only be an upper bound.
+ *
+ * Counting assets instead of lines is what made an eight-asset account 217px
+ * tall — taller than the flat 116 this change set out to shrink.
+ */
+export const CHIPS_PER_LINE = 2;
+const CHIP_GAP = 3;
+
+export function balancesHeight(assets: number): number {
+  const lines = Math.ceil(assets / CHIPS_PER_LINE);
+  return lines * ROW.balance + Math.max(0, lines - 1) * CHIP_GAP;
+}
+
+export const NODE_WIDTH: Record<NodeKind, number> = {
+  job: 200,
+  account: 200,
+  holding: 140,
 };
 
-export function sizeOf(node: FinanceNode): Size {
-  return NODE_SIZE[node.kind];
+/**
+ * The shortest a box can be and still read.
+ *
+ * Two nodes of the same kind differing by a single row would otherwise differ by
+ * fourteen pixels, which reads as misalignment rather than as information.
+ */
+export const MIN_NODE_HEIGHT = 74;
+
+/**
+ * The room a stack of rows needs, floor not yet applied.
+ *
+ * The floor belongs at the end, once every block is counted. Applying it here
+ * charged a short node the floor's padding *and* its balances on top — a flat
+ * 18px of air on every single-line account and job, measured on the diagram.
+ */
+function stackHeight(rows: readonly (keyof typeof ROW)[], extra = 0): number {
+  const content = rows.reduce((total, row) => total + ROW[row], 0);
+  const blocks = rows.length + (extra > 0 ? 1 : 0);
+  const gaps = Math.max(0, blocks - 1) * ROW_GAP;
+  return PADDING_Y * 2 + content + extra + gaps;
 }
+
+function heightOf(rows: readonly (keyof typeof ROW)[], extra = 0): number {
+  return Math.max(MIN_NODE_HEIGHT, stackHeight(rows, extra));
+}
+
+/**
+ * What a node has to say about itself, in rows.
+ *
+ * Every kind opens with its label and its name. What follows is answerable from
+ * the document alone — whether a holding carries a fee, how many assets an
+ * account still holds — which is what keeps this a pure function and the flow
+ * paths a single pass.
+ */
+export type NodeContent = {
+  /** Assets with something to show. Zero renders the "No assets yet" line. */
+  assetRows?: number;
+  /** A holding with a fee on either side, or an account that has seen traffic. */
+  extraRow?: boolean;
+};
+
+export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
+  const rows: (keyof typeof ROW)[] = ['kind', 'name'];
+
+  if (node.kind === 'holding') {
+    rows.push('amount');
+    if (content.extraRow) rows.push('fees');
+    return { width: NODE_WIDTH[node.kind], height: heightOf(rows) };
+  }
+
+  const assets = content.assetRows ?? 0;
+  if (content.extraRow) rows.push('operations');
+
+  // The balances block is one child of the node's grid, however many lines it
+  // wraps to, so it is measured as a block rather than pushed as rows.
+  const balances = assets > 0 ? balancesHeight(assets) : ROW.muted;
+  return { width: NODE_WIDTH[node.kind], height: heightOf(rows, balances) };
+}
+
+/**
+ * The tallest a kind can be, for anything that has to reserve room before it
+ * knows what a node will say — placing a new one, or sizing a fixture.
+ */
+export const NODE_SIZE: Record<NodeKind, Size> = {
+  job: { width: NODE_WIDTH.job, height: heightOf(['kind', 'name', 'balance', 'operations']) },
+  account: {
+    width: NODE_WIDTH.account,
+    height: heightOf(['kind', 'name', 'balance', 'operations']),
+  },
+  holding: { width: NODE_WIDTH.holding, height: heightOf(['kind', 'name', 'amount', 'fees']) },
+};
+
+/**
+ * How a caller answers "what does this node show?" for a node it did not pick.
+ *
+ * Anything measuring a *set* of nodes needs this rather than a single content:
+ * height follows the rows, so a bound taken over nodes measured as empty is a
+ * bound around boxes nobody drew. The default measures nothing extra, which is
+ * right for callers that have no diagram to ask — tests, and fixtures.
+ */
+export type ContentOf = (node: FinanceNode) => NodeContent;
 
 /** Fractions of the node box, clockwise from the top-left corner. */
 const ANCHOR_FRACTIONS: Record<Anchor, Point> = {
@@ -43,8 +189,16 @@ const ANCHOR_FRACTIONS: Record<Anchor, Point> = {
   l: { x: 0, y: 0.5 },
 };
 
-export function anchorPoint(node: FinanceNode, anchor: Anchor): Point {
-  const size = sizeOf(node);
+/**
+ * Where a connector meets a node.
+ *
+ * `content` matters here for the same reason it matters to a frame: a height
+ * that follows the rows means measuring a node without knowing its rows lands
+ * the line on a box that is not the one drawn. Callers with the diagram pass
+ * `selectNodeContent`.
+ */
+export function anchorPoint(node: FinanceNode, anchor: Anchor, content?: NodeContent): Point {
+  const size = sizeOf(node, content);
   const fraction = ANCHOR_FRACTIONS[anchor];
   return {
     x: node.position.x + size.width * fraction.x,
@@ -52,8 +206,8 @@ export function anchorPoint(node: FinanceNode, anchor: Anchor): Point {
   };
 }
 
-export function centerOf(node: FinanceNode): Point {
-  const size = sizeOf(node);
+export function centerOf(node: FinanceNode, content?: NodeContent): Point {
+  const size = sizeOf(node, content);
   return {
     x: node.position.x + size.width / 2,
     y: node.position.y + size.height / 2,
@@ -110,9 +264,10 @@ export function flowLabelPoint(from: Point, to: Point, offset: Point | null): Po
 export function facingAnchors(
   source: FinanceNode,
   target: FinanceNode,
+  contentOf: ContentOf = () => ({}),
 ): { from: Anchor; to: Anchor } {
-  const a = centerOf(source);
-  const b = centerOf(target);
+  const a = centerOf(source, contentOf(source));
+  const b = centerOf(target, contentOf(target));
   const dx = b.x - a.x;
   const dy = b.y - a.y;
 
@@ -131,7 +286,12 @@ export function facingAnchors(
  * too — one drawn past the last node is still part of the diagram. Fit and the
  * minimap read this, and they would lose whatever fell outside it.
  */
-export function contentRect(nodes: FinanceNode[], frames: Frame[] = [], padding = 160): Rect {
+export function contentRect(
+  nodes: FinanceNode[],
+  frames: Frame[] = [],
+  padding = 160,
+  contentOf: ContentOf = () => ({}),
+): Rect {
   if (!nodes.length && !frames.length) {
     return { left: 0, top: 0, width: padding * 2, height: padding * 2 };
   }
@@ -142,7 +302,7 @@ export function contentRect(nodes: FinanceNode[], frames: Frame[] = [], padding 
   let bottom = Number.NEGATIVE_INFINITY;
 
   for (const node of nodes) {
-    const size = sizeOf(node);
+    const size = sizeOf(node, contentOf(node));
     left = Math.min(left, node.position.x);
     top = Math.min(top, node.position.y);
     right = Math.max(right, node.position.x + size.width);

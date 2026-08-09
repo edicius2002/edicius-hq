@@ -5,16 +5,57 @@
 }
 
 /*
- * The diagram tabs and the backup controls: both act on the whole document
- * rather than on one diagram, which is why they share a row and sit apart from
- * the editing toolbar underneath.
+ * One line, always. Wrapping put the actions under the title, which moved the
+ * canvas down by a whole row — the layout shift this page has spent the last
+ * several changes removing. `nowrap` means the pieces have to fit instead, and
+ * the two rules below are how they do: the controls are sized down to the tabs'
+ * scale, and the tabs scroll rather than pushing anything off the line.
  */
-.documentBar {
+.header {
+  flex-wrap: nowrap;
+  /* `flex-start` is right for a header with a subtitle under the title. This one
+     has no second line, so it left the controls sitting 10px above the word they
+     are meant to line up with. */
+  align-items: center;
+}
+
+.tabsScroll {
+  min-width: 0;
+  overflow-x: auto;
+  /* No scrollbar reserved: it would sit under the tabs on every page load and
+     the row is the one thing here that must not change height. */
+  scrollbar-width: none;
+}
+
+.tabsScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.headerActions {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  flex-wrap: wrap;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--space-3);
+}
+
+/*
+ * Header scale, not page scale. `font: inherit` made these 20px against the
+ * tabs' 15.2px beside them, which is what made the row too wide to hold
+ * together — nine controls each carrying a third more width than they needed.
+ */
+.headerActions button {
+  font-size: 0.68rem;
+  padding: 5px 10px;
+}
+
+/*
+ * Said on the canvas, in its top-left corner beside the save readout. It comes
+ * and goes with a mode, and anywhere else that would resize the row and take
+ * the canvas's alignment with the side panel with it.
+ */
+.canvasHint {
+  color: var(--color-muted);
+  font-size: 0.78rem;
 }
 
 .toolbar {
@@ -54,7 +95,11 @@
   display: grid;
   gap: var(--space-4);
   grid-template-columns: minmax(0, 1fr) 22rem;
-  align-items: start;
+  /* `stretch`, not `start`: the canvas has no natural height worth respecting —
+     it is a window onto a diagram — so the side column decides how tall the row
+     is and the canvas fills it. With `start` the two ended at different places
+     and the diagram stopped short of the totals beside it. */
+  align-items: stretch;
 }
 
 .side {
@@ -64,9 +109,53 @@
   min-width: 0;
 }
 
+/*
+ * Both side boxes hold their height rather than following their contents.
+ *
+ * Measured on the real document: selecting a holding, an account and a job gave
+ * 482, 541 and 482px against 402 with nothing selected — so every click moved
+ * the totals below by up to 139px, and in the two-column layout resized the
+ * canvas beside them too. A panel that changes size when you look at something
+ * is a panel that moves the thing you were about to click.
+ *
+ * The heights come from those measurements with headroom over the tallest case,
+ * and what does not fit scrolls inside rather than being cut off.
+ */
+/*
+ * A container, so the lists inside can pair up on the panel's own width rather
+ * than on the window's. The two are inversely related here — the panel is at
+ * its widest when the page has stacked, which is the *narrow* window — so a
+ * media query would decide it exactly backwards.
+ */
+/*
+ * Tall enough that nothing scrolls. Measured across all 24 nodes with the height
+ * released: 482px for every holding, job and small account, and 567px for the
+ * eight-asset account — 617px before the spacing was tightened. 31rem clears the
+ * tallest with room for one more pair of assets on it.
+ *
+ * `auto` rather than `hidden` is the safety valve: a document with a much
+ * larger account than this one scrolls instead of losing rows off the bottom.
+ *
+ * No `overscroll-behavior: contain`. An `overflow: auto` box is a scroll
+ * container even when its content fits, and `contain` stops the wheel there
+ * rather than passing it on — so the page would not scroll while the pointer
+ * was anywhere over the panel, which is most of the right-hand column. The
+ * canvas is the one place the wheel means something else, and it says so by
+ * handling the event itself.
+ */
+.properties {
+  container-type: inline-size;
+  height: 31rem;
+  overflow-y: auto;
+}
+
 .summary {
   display: grid;
   gap: var(--space-4);
+  align-content: start;
+  height: 18rem;
+  /* Chains to the page, for the reason given on `.properties` above. */
+  overflow-y: auto;
 }
 
 .summarySection {
@@ -83,9 +172,15 @@
   text-transform: uppercase;
 }
 
+/*
+ * Two to a row. One asset per line turned nine holdings into nine lines and a
+ * panel taller than the diagram beside it; paired, the same nine read in five
+ * and the totals stay in view with the canvas.
+ */
 .summaryItems {
   display: grid;
-  gap: 0.3rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem var(--space-4);
 }
 
 .summaryItem {

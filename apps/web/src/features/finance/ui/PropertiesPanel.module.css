@@ -1,7 +1,13 @@
+/*
+ * Tighter between blocks than between a label and its own control, so the panel
+ * reads as sections rather than as one long ladder — and so the tallest node
+ * fits the fixed height without a scrollbar. See the height in
+ * `FinancePage.module.css`, which is measured against what this leaves.
+ */
 .panel {
   display: grid;
   align-content: start;
-  gap: var(--space-3);
+  gap: var(--space-2);
   /* Held steady so selecting a node does not resize the workspace. */
   min-height: 22rem;
 }
@@ -16,10 +22,19 @@
   text-align: center;
 }
 
+/*
+ * The kind badge and the name, on one line. The badge keeps its own width and
+ * the name takes what is left.
+ */
 .header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
 }
 
 .badge {
@@ -75,20 +90,56 @@
   font-size: 0.66rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  margin: var(--space-2) 0 0;
+  /* The grid gap already separates it from what came before; the extra margin
+     was a second separator doing the same job. */
+  margin: 0;
   text-transform: uppercase;
 }
 
+/*
+ * Two to a row, matching the diagram's balance chips and the totals panel.
+ *
+ * Shared by all three asset lists — an account's "Assets held", a job's pay
+ * assets and a frame's totals — because they are the same list of the same
+ * thing, and an account with eight of them was eight lines of a panel that has
+ * a fixed height to fill.
+ */
 .assets {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.35rem var(--space-3);
 }
 
+/*
+ * Swept with an eight-asset account selected, measuring the container's content
+ * box against the amount field a pair leaves room for:
+ *
+ *   18.9rem → 81px    16.9rem → 61px    15.9rem → 51px
+ *   14.9rem → 41px    12.9rem → 22px    11.9rem → overflows
+ *
+ * The row survives down to 12.9rem, but a 22px field is not one anybody can
+ * type an amount into, so the threshold is set by legibility rather than by
+ * where the layout breaks. 16rem keeps the field near 56px and still falls back
+ * well before the overflow.
+ *
+ * The two panel widths this actually meets are 18.9rem in the two-column layout
+ * and 35rem stacked — both comfortably above it.
+ */
+@container (min-width: 16rem) {
+  .assets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/*
+ * `minmax(0, 1fr)` for the amount: at half the panel's width the input's own
+ * minimum would otherwise set the column and push the pair past the edge.
+ */
 .asset {
   display: grid;
   grid-template-columns: 4.2rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .assetToggle {
@@ -114,10 +165,39 @@
   color: var(--color-accent);
 }
 
+/*
+ * The out fee and the in fee, side by side.
+ *
+ * `minmax(0, 1fr)` rather than `1fr`: a grid track's default minimum is the
+ * content's own minimum width, so the number inputs would refuse to shrink and
+ * push the pair past the panel instead of sharing it.
+ */
+.feePair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
 .feeGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 4.5rem;
   gap: 0.4rem;
+}
+
+/* In and out, side by side — one comparison rather than two stacked facts. */
+.movement {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.movementLabel {
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .chain {

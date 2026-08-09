@@ -9,7 +9,20 @@
 .text {
   display: grid;
   gap: var(--space-2);
-  max-width: 40rem;
+  min-width: 0;
+}
+
+/*
+ * `nowrap`, so whatever sits beside the title stays on the title's line. It is
+ * allowed to shrink instead — `min-width: 0` is what lets it, since a flex
+ * item's floor is its content otherwise.
+ */
+.titleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .title {
@@ -22,6 +35,9 @@
 .subtitle {
   color: var(--color-muted);
   font-size: 0.98rem;
+  /* The reading width belongs to the prose, not to the header. On `.text` it
+     also capped whatever sits beside the title. */
+  max-width: 40rem;
 }
 
 .actions {

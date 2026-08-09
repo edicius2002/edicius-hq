@@ -96,14 +96,19 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
 
   return (
     <div className={styles.panel}>
-      <Header kind={node.kind} />
-      <Field label="Name">
+      <Header kind={node.kind}>
+        {/* The badge already says what this is, so a "Name" label above the box
+            beside it named the same thing twice and cost a row of a panel with
+            a fixed height. The accessible name moves onto the input itself,
+            which is what a screen reader reads anyway. */}
         <input
-          className={styles.input}
+          className={`${styles.input} ${styles.nameInput}`}
           value={node.name}
+          aria-label="Name"
+          placeholder="Name"
           onChange={(event) => actions.renameNode(node.id, event.target.value)}
         />
-      </Field>
+      </Header>
 
       {node.kind === 'job' ? <JobFields node={node} actions={actions} /> : null}
       {node.kind === 'account' ? (
@@ -184,7 +189,7 @@ function FrameFields({
   );
 }
 
-function Header({ kind }: { kind: FinanceNode['kind'] }) {
+function Header({ kind, children }: { kind: FinanceNode['kind']; children?: ReactNode }) {
   const badge = BADGE[kind];
   return (
     <div className={styles.header}>
@@ -194,6 +199,7 @@ function Header({ kind }: { kind: FinanceNode['kind'] }) {
       >
         {badge.label}
       </span>
+      {children}
     </div>
   );
 }
@@ -351,17 +357,20 @@ function AccountFields({
       </div>
 
       <h3 className={styles.sectionTitle}>Movement</h3>
-      <div className={styles.chain}>
-        <div className={styles.chainRow}>
-          <span>In</span>
+      {/* In and out are one comparison, not two facts, and side by side is how a
+          comparison reads. Stacked they also cost a row the fixed panel does not
+          have to spare. */}
+      <div className={styles.movement}>
+        <div className={styles.chain}>
+          <span className={styles.movementLabel}>In</span>
           <span>
             {summary.incoming.count} ·{' '}
             {summary.incoming.totals.map((t) => formatAssetAmount(t.asset, t.amount)).join(', ') ||
               '—'}
           </span>
         </div>
-        <div className={styles.chainRow}>
-          <span>Out</span>
+        <div className={styles.chain}>
+          <span className={styles.movementLabel}>Out</span>
           <span>
             {summary.outgoing.count} ·{' '}
             {summary.outgoing.totals.map((t) => formatAssetAmount(t.asset, t.amount)).join(', ') ||
@@ -369,7 +378,6 @@ function AccountFields({
           </span>
         </div>
       </div>
-      <p className={styles.hint}>Out counts what left; in counts what arrived after fees.</p>
     </>
   );
 }
@@ -391,20 +399,21 @@ function HoldingFields({ node, actions }: { node: HoldingNode; actions: Properti
       </Field>
 
       <h3 className={styles.sectionTitle}>Fees</h3>
-      <FeeField
-        label="Charged on the way out"
-        fee={node.fees.out}
-        onChange={(fee) => actions.updateHolding(node.id, { fees: { ...node.fees, out: fee } })}
-      />
-      <FeeField
-        label="Charged on the way in"
-        fee={node.fees.in}
-        onChange={(fee) => actions.updateHolding(node.id, { fees: { ...node.fees, in: fee } })}
-      />
-      <p className={styles.hint}>
-        A transfer takes the source&apos;s out fee first, then the destination&apos;s in fee, each
-        from what is left.
-      </p>
+      {/* Side by side: they are the two halves of one question — what a transfer
+          costs leaving and what it costs arriving — and stacked they read as two
+          unrelated settings that happen to be near each other. */}
+      <div className={styles.feePair}>
+        <FeeField
+          label="Charged on the way out"
+          fee={node.fees.out}
+          onChange={(fee) => actions.updateHolding(node.id, { fees: { ...node.fees, out: fee } })}
+        />
+        <FeeField
+          label="Charged on the way in"
+          fee={node.fees.in}
+          onChange={(fee) => actions.updateHolding(node.id, { fees: { ...node.fees, in: fee } })}
+        />
+      </div>
     </>
   );
 }

@@ -7,6 +7,7 @@ decisions 5.4 and 5.8).
 """
 
 import json
+import logging
 from collections.abc import AsyncIterator
 
 import httpx
@@ -25,6 +26,8 @@ from app.config import (
 )
 from app.services.market_cache import BarCache, MemoryCache
 from app.services.stream_hub import HUB
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -94,6 +97,9 @@ class BarsResponse(BaseModel):
     # Echoed back so the client knows whether what it holds includes the
     # extended session, without having to remember what it asked for.
     extended: bool
+    # Whether this instrument's market closes at all. A crypto pair's does not,
+    # and the client used to work that out by testing the provider's name.
+    hasSession: bool
     bars: list[BarModel]
 
 
@@ -202,6 +208,7 @@ async def get_bars(
         timeframe=frame.key,
         provider=registry.provider_for(resolved),
         extended=extended,
+        hasSession=registry.has_session(resolved),
         bars=[BarModel(**{k: getattr(bar, k) for k in BarModel.model_fields}) for bar in bars],
     )
 
@@ -240,12 +247,28 @@ def _parse_symbols(raw: str) -> list[str]:
 
 
 def _as_http_error(exc: ProviderError) -> HTTPException:
-    """Upstream trouble is reported as itself, not as a blank result."""
-    if exc.code == "symbol-not-found":
-        return HTTPException(status.HTTP_404_NOT_FOUND, exc.message)
-    if exc.code == "rate-limited":
-        return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, exc.message)
-    return HTTPException(status.HTTP_502_BAD_GATEWAY, exc.message)
+    """
+    Upstream trouble is reported as itself, not as a blank result.
+
+    The detail carries the code as well as the message. `ProviderError` exists
+    to be machine-readable — its own docstring says so — and this dropped the
+    code on the floor, leaving `/bars` and `/search` clients to infer the
+    reason from an HTTP status while `/quotes` handed them the word. Two
+    endpoints, two answers to the same question.
+    """
+    # Logged at the one place that already knows a request failed and why.
+    # `rate-limited` is the one that matters: it is the shape of decision 8.4's
+    # ceiling arriving, and it is invisible from outside the process.
+    logger.warning("upstream refused: %s (%s)", exc.code, exc.message)
+
+    statuses = {
+        "symbol-not-found": status.HTTP_404_NOT_FOUND,
+        "rate-limited": status.HTTP_429_TOO_MANY_REQUESTS,
+    }
+    return HTTPException(
+        statuses.get(exc.code, status.HTTP_502_BAD_GATEWAY),
+        {"code": exc.code, "message": exc.message},
+    )
 
 
 def sse(event: str, data: object) -> str:

@@ -55,6 +55,15 @@ export type BarsResponse = {
   provider: string;
   /** Whether the series includes pre- and post-market bars. */
   extended: boolean;
+  /**
+   * Whether this instrument's market closes at all.
+   *
+   * Served rather than inferred: the client used to answer it by testing
+   * `provider !== 'binance'`, which is reading a provider's name to decide
+   * behaviour — the thing decision 8.3 exists to prevent, and the last place
+   * it leaked.
+   */
+  hasSession: boolean;
   bars: Bar[];
 };
 

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   cadenceFor,
   exchangeTime,
-  hasSession,
   isExtendedBar,
   makeIsExtended,
   openedBetween,
@@ -128,13 +127,6 @@ describe('cadenceFor', () => {
     const cadence = cadenceFor('closed', 10_000);
     expect(cadence.barsMs).toBeNull();
     expect(cadence.quotesMs).toBe(900_000);
-  });
-});
-
-describe('hasSession', () => {
-  it('is false for crypto, which never closes', () => {
-    expect(hasSession('binance')).toBe(false);
-    expect(hasSession('yahoo')).toBe(true);
   });
 });
 

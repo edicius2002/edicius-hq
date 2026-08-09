@@ -16,6 +16,7 @@ would each ask upstream for the same symbol — and Yahoo counts every one.
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -24,6 +25,8 @@ from typing import Any, TypeVar, cast
 
 from app.adapters.models import Bar
 from app.config import bars_dir
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -158,9 +161,11 @@ class BarCache:
                 encoding="utf-8",
             )
             temporary.replace(path)
-        except OSError:
-            # A cache that cannot write is slow, not broken.
-            pass
+        except OSError as error:
+            # A cache that cannot write is slow, not broken — but silently slow
+            # is how a 0% hit rate turns the client's request budget into a
+            # budget nobody is inside, with nothing to look at.
+            logger.warning("bar cache could not write %s %s: %s", symbol, timeframe, error)
 
     async def fetch(
         self,

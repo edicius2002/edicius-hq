@@ -23,6 +23,22 @@ def normalize_symbol(symbol: str) -> str:
     return symbol.strip().upper()
 
 
+def has_session(symbol: str) -> bool:
+    """
+    Whether this instrument's market closes.
+
+    An exchange has a session; a crypto pair does not — Binance runs around the
+    clock, so nothing about pre- or post-market applies and no bar is ever an
+    extended-hours one.
+
+    Answered here because it is a fact about the instrument, and the client was
+    answering it by testing `provider !== 'binance'` — reading a provider's name
+    to decide behaviour, which decision 8.3 exists to prevent. It was the last
+    place that leaked.
+    """
+    return provider_for(symbol) != binance.PROVIDER
+
+
 def provider_for(symbol: str) -> str:
     symbol = normalize_symbol(symbol)
     if any(symbol.endswith(asset) and len(symbol) > len(asset) for asset in _CRYPTO_QUOTE_ASSETS):

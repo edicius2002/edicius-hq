@@ -612,3 +612,16 @@ class TestTheBatchFallback:
         assert calls == ["batch", "one:AAPL", "one:MSFT"]
         assert [q.symbol for q in quotes] == ["AAPL", "MSFT"]
         assert failed == []
+
+
+class TestTheSessionFactTravels:
+    def test_an_equity_has_a_session_and_a_pair_does_not(self):
+        """
+        The client used to answer this by testing `provider !== 'binance'` —
+        reading a provider's name to decide behaviour, which decision 8.3
+        exists to prevent. It was the last place that leaked.
+        """
+        assert registry.has_session("AAPL") is True
+        assert registry.has_session("SPCX") is True
+        assert registry.has_session("BTCUSDT") is False
+        assert registry.has_session("ETHUSDT") is False

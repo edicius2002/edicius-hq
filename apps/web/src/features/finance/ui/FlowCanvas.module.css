@@ -12,8 +12,21 @@
    * box cannot scroll at all, so the camera is the only thing that moves it.
    */
   overflow: clip;
-  min-height: 26rem;
-  height: clamp(26rem, 58vh, 46rem);
+  /*
+   * Fills the row rather than picking a band of its own.
+   *
+   * It was `clamp(26rem, 58vh, 46rem)` — a height chosen without reference to
+   * what sits beside it, so the canvas and the properties-and-totals column
+   * ended together only by coincidence, and at most window sizes the diagram
+   * stopped well above the totals. `.workspace` is a grid; stretching to the
+   * row makes the taller column set the height and the two end level.
+   *
+   * The floor is for the stacked layout below 1400px, where there is no row to
+   * fill. It follows the screen rather than sitting at a fixed 26rem, which
+   * spent the same 520px on a laptop and on a 1440p display.
+   */
+  min-height: max(26rem, 60vh);
+  height: 100%;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background-color: var(--color-bg-2);
@@ -145,6 +158,9 @@
  */
 .statusCorner {
   position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   top: var(--space-3);
   left: var(--space-3);
   /* A readout, not a target — except the retry inside it, which re-enables

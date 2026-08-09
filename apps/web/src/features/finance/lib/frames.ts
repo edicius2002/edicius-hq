@@ -1,4 +1,5 @@
-import { sizeOf } from '@/features/finance/lib/geometry';
+import { sizeOf, type NodeContent } from '@/features/finance/lib/geometry';
+import { selectNodeContent } from '@/features/finance/lib/summary';
 import type {
   Diagram,
   FinanceNode,
@@ -21,8 +22,16 @@ export function frameRect(frame: Frame): Rect {
   };
 }
 
-export function nodeRect(node: FinanceNode): Rect {
-  const size = sizeOf(node);
+/**
+ * A node's footprint.
+ *
+ * `content` is not optional in spirit: a height now follows the rows a node
+ * shows, so measuring one without it gives the shortest box that kind can be,
+ * and a frame would decide ownership on a rectangle nobody can see. Callers
+ * that have the diagram pass `selectNodeContent`.
+ */
+export function nodeRect(node: FinanceNode, content?: NodeContent): Rect {
+  const size = sizeOf(node, content);
   return { left: node.position.x, top: node.position.y, width: size.width, height: size.height };
 }
 
@@ -71,7 +80,11 @@ export function listPlacedNodes(diagram: Diagram): FinanceNode[] {
 export function ownerFrameOf(diagram: Diagram, node: FinanceNode): FrameId | null {
   if (!isPlaced(node)) return null;
 
-  const bounds = nodeRect(node);
+  // Measured the way the canvas draws it. Before heights followed content this
+  // was one number per kind and the two could not disagree; now they can, and a
+  // frame deciding ownership on a box nobody can see would be the worst kind of
+  // bug — invisible and about position.
+  const bounds = nodeRect(node, selectNodeContent(diagram, node));
   let owner: FrameId | null = null;
   let ownerArea = Number.POSITIVE_INFINITY;
 

@@ -3,11 +3,18 @@ import { describe, expect, it } from 'vitest';
 import {
   anchorPoint,
   centerOf,
+  balancesHeight,
+  CHIPS_PER_LINE,
   contentRect,
   facingAnchors,
   flowLabelPoint,
   flowPath,
+  LINE_HEIGHT,
+  MIN_NODE_HEIGHT,
+  NODE_FONT,
+  NODE_ROW,
   NODE_SIZE,
+  sizeOf,
 } from '@/features/finance/lib/geometry';
 import type { FinanceNode, Frame } from '@/features/finance/model/types';
 
@@ -17,7 +24,10 @@ function account(id: string, x: number, y: number): FinanceNode {
 
 describe('anchorPoint', () => {
   const node = account('a', 100, 200);
-  const { width, height } = NODE_SIZE.account;
+  // Measured the way it is drawn. A height follows the rows a node shows, so a
+  // test that assumed the kind's worst case would be asserting against a box
+  // nobody renders.
+  const { width, height } = sizeOf(node);
 
   it('puts corners on the box corners', () => {
     expect(anchorPoint(node, 'tl')).toEqual({ x: 100, y: 200 });
@@ -99,7 +109,7 @@ describe('flowLabelPoint', () => {
 });
 
 describe('contentRect', () => {
-  const { width, height } = NODE_SIZE.account;
+  const { width, height } = sizeOf(account('a', 0, 0));
 
   function frame(x: number, y: number, w: number, h: number): Frame {
     return { id: 'f1', name: 'Frame', position: { x, y }, size: { width: w, height: h } };
@@ -144,5 +154,100 @@ describe('contentRect', () => {
 
   it('is a padded square around the origin when there is nothing to cover', () => {
     expect(contentRect([], [], 160)).toEqual({ left: 0, top: 0, width: 320, height: 320 });
+  });
+});
+
+describe('a box that follows its rows', () => {
+  const account = (): FinanceNode => ({
+    id: 'a1',
+    kind: 'account',
+    name: 'Account',
+    notes: '',
+    position: { x: 0, y: 0 },
+  });
+  const holding = (): FinanceNode => ({
+    id: 'h1',
+    kind: 'holding',
+    name: 'Holding',
+    notes: '',
+    asset: 'USD',
+    amount: 1,
+    active: true,
+    accountId: 'a1',
+    fees: { in: null, out: null },
+    position: { x: 0, y: 0 },
+  });
+
+  it('reserves at least what a row actually takes', () => {
+    /*
+     * The heights are derived from the font sizes rather than written down,
+     * because the first attempt wrote them down: it reserved 15px for a row
+     * that takes 15.4 and the grid crushed it — the exact failure the old
+     * "generous" sizing was trying to avoid.
+     */
+    for (const [row, font] of Object.entries(NODE_FONT)) {
+      expect(NODE_ROW[row as keyof typeof NODE_FONT]).toBeGreaterThanOrEqual(font * LINE_HEIGHT);
+    }
+  });
+
+  it('is shorter for a node with less to say', () => {
+    const bare = sizeOf(holding(), { extraRow: false });
+    const withFee = sizeOf(holding(), { extraRow: true });
+
+    expect(bare.height).toBeLessThan(withFee.height);
+    // And both are tighter than the single 116 every kind used to take.
+    expect(withFee.height).toBeLessThan(116);
+  });
+
+  it('grows a line per row of asset chips, not a row per asset', () => {
+    // The chips wrap. Two assets sit beside each other and cost one line;
+    // counting them as rows instead is what made the eight-asset account 217px
+    // tall — taller than the flat 116 this change set out to shrink.
+    const one = sizeOf(account(), { assetRows: 1 });
+    const two = sizeOf(account(), { assetRows: CHIPS_PER_LINE });
+    const overflowing = sizeOf(account(), { assetRows: CHIPS_PER_LINE + 1 });
+
+    expect(two.height).toBe(one.height);
+    expect(overflowing.height).toBeGreaterThan(two.height);
+  });
+
+  it('reserves the lines the chips actually wrap to', () => {
+    // Measured on the real diagram: eight assets settle into four lines, and
+    // the block they make is 71px tall. Reserving less crushes a row and hides
+    // an asset, which is why this rounds up rather than fitting exactly.
+    expect(balancesHeight(8)).toBeGreaterThanOrEqual(71);
+    expect(balancesHeight(8)).toBeLessThan(71 + NODE_ROW.balance);
+  });
+
+  it('is tighter than the flat height it replaces, at the sizes the diagram has', () => {
+    // The asset counts on the real document. Every account but one holds two
+    // or fewer, and those now come in under the 116 they all used to take.
+    for (const assets of [1, 2]) {
+      expect(sizeOf(account(), { assetRows: assets, extraRow: true }).height).toBeLessThan(116);
+    }
+    // The eight-asset account is genuinely taller than one row — it has eight
+    // balances to show. What it must not be is the 217 that counting assets
+    // as rows produced.
+    expect(sizeOf(account(), { assetRows: 8, extraRow: true }).height).toBeLessThan(160);
+  });
+
+  it('shows the empty line rather than collapsing to nothing', () => {
+    // An account with no assets still says "No assets yet", which is a row.
+    expect(sizeOf(account(), { assetRows: 0 }).height).toBeGreaterThanOrEqual(MIN_NODE_HEIGHT);
+  });
+
+  it('never goes below the floor, so two nodes cannot look misaligned', () => {
+    expect(sizeOf(account(), { assetRows: 0 }).height).toBeGreaterThanOrEqual(MIN_NODE_HEIGHT);
+    expect(sizeOf(holding(), {}).height).toBeGreaterThanOrEqual(MIN_NODE_HEIGHT);
+  });
+
+  it('keeps the widths, which were never the problem', () => {
+    expect(sizeOf(account(), {}).width).toBe(200);
+    expect(sizeOf(holding(), {}).width).toBe(140);
+  });
+
+  it('reserves the tallest case for anything that has to guess', () => {
+    // Placing a new node happens before it has anything to say.
+    expect(NODE_SIZE.holding.height).toBe(sizeOf(holding(), { extraRow: true }).height);
   });
 });

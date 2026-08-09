@@ -102,6 +102,18 @@
   opacity: 0.68;
 }
 
+/* Muted rather than alarming: a refused symbol is a fact about that row, not
+   an error the page needs to shout about. */
+.failed {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--color-muted);
+  font-size: 0.62rem;
+  font-style: italic;
+  text-align: right;
+}
+
 .up {
   color: var(--color-income);
 }

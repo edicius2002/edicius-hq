@@ -11,12 +11,15 @@ same shape at three in the morning as at noon. See plan decision 8.1.
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 
 import websockets
 
 from app.adapters import models
 from app.adapters.models import Tick
+
+logger = logging.getLogger(__name__)
 
 PROVIDER = "binance"
 STREAM_BASE = "wss://stream.binance.com:9443/stream"
@@ -157,6 +160,9 @@ class BinanceStream:
                             yield tick
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 — any failure is a reconnect
+            except Exception as error:  # noqa: BLE001 — any failure is a reconnect
+                # Yahoo's loop already said this; without the pair the two
+                # halves of the stream fail in different levels of silence.
+                logger.info("binance stream dropped, reconnecting in %.0fs: %s", backoff, error)
                 await self._sleep(backoff)
                 backoff = min(backoff * 2, 60.0)

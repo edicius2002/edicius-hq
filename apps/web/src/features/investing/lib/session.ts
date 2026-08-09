@@ -161,12 +161,3 @@ export function cadenceFor(
   // regime the sweep rate does not change.
   return { barsMs: null, quotesMs: 900_000 };
 }
-
-/**
- * Crypto has no session. Everything above describes an exchange that closes,
- * and Binance does not — so a pair is always "regular" and never gets an
- * overlay.
- */
-export function hasSession(provider: string): boolean {
-  return provider !== 'binance';
-}

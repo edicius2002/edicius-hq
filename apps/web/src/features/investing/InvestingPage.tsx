@@ -96,6 +96,17 @@ export function InvestingPage() {
     refetchInterval: cadenceFor(candles.regime, 0, { streaming: stream.live }).quotesMs,
   });
 
+  // The reasons decision 8.8 sends beside the quotes that worked. They reached
+  // the page and stopped there, so a refused row showed the same "·" as one
+  // still loading — forever.
+  const failures = useMemo(() => {
+    const map = new Map<string, { code: string; message: string }>();
+    for (const failure of quotes.data?.failed ?? []) {
+      map.set(failure.symbol, { code: failure.code, message: failure.message });
+    }
+    return map;
+  }, [quotes.data]);
+
   const swept = useMemo(() => {
     const map = new Map<string, Quote>();
     for (const quote of quotes.data?.quotes ?? []) map.set(quote.symbol, quote);
@@ -232,6 +243,7 @@ export function InvestingPage() {
               <Watchlist
                 entries={watchlist.list.entries}
                 quotes={bySymbol}
+                failures={failures}
                 selected={symbol}
                 onSelect={setSymbol}
                 onRemove={(picked) => void watchlist.remove(picked)}

@@ -1,6 +1,6 @@
 import { type CSSProperties, type PointerEvent } from 'react';
 
-import { NODE_SIZE } from '@/features/finance/lib/geometry';
+import { sizeOf, type NodeContent } from '@/features/finance/lib/geometry';
 import { formatAmount } from '@/shared/lib/money';
 import { ANCHORS, type Anchor, type FinanceNode } from '@/features/finance/model/types';
 
@@ -35,6 +35,12 @@ type FlowNodeProps = {
   selected: boolean;
   connecting: boolean;
   isConnectSource: boolean;
+  /**
+   * How many rows this node will show. The box is sized from it, so the two
+   * cannot disagree — a height derived from the kind alone left an account with
+   * one asset carrying 26px of slack in a 116px box.
+   */
+  content: NodeContent;
   /** What an account is worth and how much has crossed it. */
   accountSummary?: {
     remaining: { asset: string; amount: number }[];
@@ -56,13 +62,14 @@ export function FlowNode({
   selected,
   connecting,
   isConnectSource,
+  content,
   accountSummary,
   onSelect,
   onDragStart,
   onAnchorClick,
 }: FlowNodeProps) {
   const palette = KIND_COLOR[node.kind];
-  const size = NODE_SIZE[node.kind];
+  const size = sizeOf(node, content);
 
   const style: CSSProperties = {
     left: node.position.x,

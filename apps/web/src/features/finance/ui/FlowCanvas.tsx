@@ -35,6 +35,7 @@ import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import {
   isFlowActive,
   selectAccountSummary,
+  selectNodeContent,
   selectFrameSummary,
 } from '@/features/finance/lib/summary';
 import type {
@@ -179,7 +180,10 @@ export function FlowCanvas({
 
   // What the diagram reaches, in every direction. The canvas has no corner, so
   // this is measured rather than assumed to start at the origin.
-  const content = contentRect(nodes, frames);
+  // Measured with each node's rows, not with the kind's default: fit-to-view
+  // frames what is drawn, and what is drawn is now as tall as it has to say.
+  const contentOf = (node: FinanceNode) => selectNodeContent(diagram, node);
+  const content = contentRect(nodes, frames, undefined, contentOf);
   /*
    * The minimap covers the view as well as the diagram. Without that, a view
    * wider than the content puts the frame outside the box and the map shows
@@ -195,12 +199,12 @@ export function FlowCanvas({
     if (node.kind !== 'holding') return [];
     const account = nodeById.get(node.accountId);
     if (account?.kind !== 'account') return [];
-    const anchors = facingAnchors(account, node);
+    const anchors = facingAnchors(account, node, contentOf);
     return [
       {
         id: node.id,
-        from: anchorPoint(account, anchors.from),
-        to: anchorPoint(node, anchors.to),
+        from: anchorPoint(account, anchors.from, contentOf(account)),
+        to: anchorPoint(node, anchors.to, contentOf(node)),
         anchors,
       },
     ];
@@ -454,8 +458,8 @@ export function FlowCanvas({
             const target = nodeById.get(flow.to);
             if (!source || !target) return null;
 
-            const from = anchorPoint(source, flow.fromAnchor);
-            const to = anchorPoint(target, flow.toAnchor);
+            const from = anchorPoint(source, flow.fromAnchor, contentOf(source));
+            const to = anchorPoint(target, flow.toAnchor, contentOf(target));
             const path = flowPath(from, to, flow.fromAnchor, flow.toAnchor);
             const label = flowLabelPoint(from, to, flow.labelOffset);
             const isSelected = selection?.type === 'flow' && selection.id === flow.id;
@@ -488,6 +492,7 @@ export function FlowCanvas({
             selected={selection?.type === 'node' && selection.id === node.id}
             connecting={connectMode}
             isConnectSource={connectFrom?.nodeId === node.id}
+            content={contentOf(node)}
             accountSummary={
               node.kind === 'account' ? selectAccountSummary(diagram, node.id) : undefined
             }

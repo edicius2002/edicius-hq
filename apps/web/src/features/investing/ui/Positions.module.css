@@ -10,6 +10,27 @@
   font-size: 0.78rem;
 }
 
+.add {
+  position: relative;
+  min-height: 1.85rem;
+  margin-bottom: var(--space-2);
+}
+
+.addButton {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.addButton:hover {
+  background: var(--color-surface-soft);
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -26,9 +47,9 @@
 
 .pick {
   display: grid;
-  /* Symbol and holding on the left, value and profit right-aligned — so a
-     column of numbers lines up and can be read down rather than across. */
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* Each half of the row is centered, so the holding reads as one compact
+     statement rather than two competing left- and right-aligned columns. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 var(--space-2);
   flex: 1;
   min-width: 0;
@@ -37,7 +58,8 @@
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  align-items: center;
+  text-align: center;
   cursor: pointer;
 }
 
@@ -62,20 +84,21 @@
   grid-row: 1 / span 2;
   align-self: center;
   font-style: italic;
+  text-align: center;
 }
 
 .value {
   color: var(--color-text);
   font-size: 0.74rem;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
 }
 
 .up,
 .down {
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
 }
 
 .up {
@@ -126,6 +149,55 @@
   gap: var(--space-2);
   width: 100%;
   padding: var(--space-2);
+}
+
+.addForm {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px var(--color-shadow);
+}
+
+.editForm {
+  display: flex;
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.fieldLabel {
+  color: var(--color-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.selectedSymbol {
+  color: var(--color-text);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.addForm .input {
+  width: 100%;
 }
 
 .input {

@@ -40,13 +40,46 @@ export type { Rect, Size };
  * takes 15.4 and crushed it.
  */
 const FONT = {
-  kind: 11,
-  name: 15,
-  amount: 16,
-  balance: 11,
-  fees: 11,
-  operations: 10,
-  muted: 12,
+  /**
+   * The corner label. It does **not** occupy a row: it is drawn in the node's
+   * top padding, which is why the padding is asymmetric below. A kind that
+   * everyone can already tell from the colour and the shape was costing a full
+   * 16px row plus its gap on every node in the diagram.
+   */
+  kind: 7,
+  /** Smaller than the numbers it introduces. A name is a label, not a figure. */
+  name: 12,
+  /**
+   * The figure a holding exists to show. Its smaller 100px footprint needs a
+   * quieter 12px figure, which still leads the compact box without clipping a
+   * five-figure amount.
+   */
+  amount: 12,
+  /**
+   * Up from 11, but not as far as it wanted to go. The chips sit two to a fixed
+   * column of 86px, so their size is capped by the widest amount that has to fit
+   * one — measured, 13px pushed the widest past its column while 12 clears it.
+   */
+  balance: 12,
+  fees: 9,
+  operations: 9,
+  muted: 11,
+  /**
+   * Smaller than a balance chip, because this row says a symbol, the paired
+   * remaining/total amount, and the share — all on one line.
+   *
+   * The wider 240px account/job node leaves 220px inside its padding. That
+   * clears 10px while keeping the two amounts together as one field.
+   *
+   *   font   real data   five figures   six figures   four-letter ticker + six
+   *   8px      126           145            154              164
+   *   9px      141           162            172              183  ← over
+   *   10px     155           179            191              202
+   *
+   * 10px is the last safe size for the extreme case. The amount pair is clipped
+   * as a unit when future data exceeds that measured ceiling.
+   */
+  allocation: 10,
 } as const;
 
 /** `.node` sets this; every row is one line of it. */
@@ -64,7 +97,13 @@ const ROW = Object.fromEntries(
 export const NODE_FONT = FONT;
 export const NODE_ROW = ROW;
 
-const PADDING_Y = 8;
+/**
+ * Asymmetric, because the corner label lives in the top of it rather than in a
+ * row of its own. `PADDING_TOP` is the label's line box plus a hair; anything
+ * less and a long name would run under it.
+ */
+const PADDING_TOP = 13;
+const PADDING_BOTTOM = 8;
 const ROW_GAP = 4;
 
 /**
@@ -89,10 +128,25 @@ export function balancesHeight(assets: number): number {
   return lines * ROW.balance + Math.max(0, lines - 1) * CHIP_GAP;
 }
 
+/**
+ * An asset with outgoing flows: symbol, `remaining / total`, then the share
+ * still free — all on one line, full width.
+ *
+ * One line rather than two, which means the whole of it has to fit 180px of
+ * inner width. It does, at the smaller of the two font sizes here: the row is
+ * measured in `FONT.allocation` rather than `FONT.balance` for exactly that
+ * reason, and the two are kept apart so shrinking one cannot quietly reflow the
+ * chips beside it.
+ */
+export function allocatedHeight(blocks: number): number {
+  if (blocks <= 0) return 0;
+  return blocks * ROW.allocation + Math.max(0, blocks - 1) * CHIP_GAP;
+}
+
 export const NODE_WIDTH: Record<NodeKind, number> = {
-  job: 200,
-  account: 200,
-  holding: 140,
+  job: 240,
+  account: 240,
+  holding: 100,
 };
 
 /**
@@ -101,7 +155,17 @@ export const NODE_WIDTH: Record<NodeKind, number> = {
  * Two nodes of the same kind differing by a single row would otherwise differ by
  * fourteen pixels, which reads as misalignment rather than as information.
  */
-export const MIN_NODE_HEIGHT = 74;
+/**
+ * The shortest a box can be and still read.
+ *
+ * Lowered twice: once with the corner label, and again when the holding figure
+ * came down to 14px. At 74 it padded three quarters of the diagram back to a
+ * height none of them needed; at 48 it was still adding 7px of air to every
+ * bare holding, measured — which is the empty space this section began with. Two nodes of the same kind differing by a row still differ by
+ * that row, which is the point — the floor is for the degenerate case, not for
+ * flattening the ones that have something to say.
+ */
+export const MIN_NODE_HEIGHT = 42;
 
 /**
  * The room a stack of rows needs, floor not yet applied.
@@ -114,7 +178,7 @@ function stackHeight(rows: readonly (keyof typeof ROW)[], extra = 0): number {
   const content = rows.reduce((total, row) => total + ROW[row], 0);
   const blocks = rows.length + (extra > 0 ? 1 : 0);
   const gaps = Math.max(0, blocks - 1) * ROW_GAP;
-  return PADDING_Y * 2 + content + extra + gaps;
+  return PADDING_TOP + PADDING_BOTTOM + content + extra + gaps;
 }
 
 function heightOf(rows: readonly (keyof typeof ROW)[], extra = 0): number {
@@ -130,41 +194,59 @@ function heightOf(rows: readonly (keyof typeof ROW)[], extra = 0): number {
  * paths a single pass.
  */
 export type NodeContent = {
-  /** Assets with something to show. Zero renders the "No assets yet" line. */
+  /** Assets shown as chips, two to a line. Zero renders the "No assets yet" line. */
   assetRows?: number;
+  /**
+   * Assets with outgoing flows. Each is drawn as its own block of two lines —
+   * the asset with its percentage, then what is left over what there was — so
+   * it is counted apart from the chips rather than wrapping among them.
+   */
+  allocatedRows?: number;
   /** A holding with a fee on either side, or an account that has seen traffic. */
   extraRow?: boolean;
 };
 
 export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
-  const rows: (keyof typeof ROW)[] = ['kind', 'name'];
+  // No `kind` row: the label is drawn in the top padding, in the corner.
+  const rows: (keyof typeof ROW)[] = [];
 
   if (node.kind === 'holding') {
+    // A holding is its asset and its figure, and the asset is the corner label.
+    // What is left in the body is the number, which is the whole point of it.
     rows.push('amount');
     if (content.extraRow) rows.push('fees');
     return { width: NODE_WIDTH[node.kind], height: heightOf(rows) };
   }
 
+  rows.push('name');
+
   const assets = content.assetRows ?? 0;
+  const allocated = content.allocatedRows ?? 0;
   if (content.extraRow) rows.push('operations');
 
   // The balances block is one child of the node's grid, however many lines it
   // wraps to, so it is measured as a block rather than pushed as rows.
-  const balances = assets > 0 ? balancesHeight(assets) : ROW.muted;
-  return { width: NODE_WIDTH[node.kind], height: heightOf(rows, balances) };
+  const chips = assets > 0 ? balancesHeight(assets) : allocated > 0 ? 0 : ROW.muted;
+  const blocks = allocatedHeight(allocated);
+  const gapBetween = chips > 0 && blocks > 0 ? CHIP_GAP : 0;
+  return { width: NODE_WIDTH[node.kind], height: heightOf(rows, chips + blocks + gapBetween) };
 }
 
 /**
  * The tallest a kind can be, for anything that has to reserve room before it
  * knows what a node will say — placing a new one, or sizing a fixture.
+ *
+ * Spelled with the same rows `sizeOf` uses, and checked against it by a test:
+ * left to itself this kept the rows from before the corner label and reserved
+ * 107px for a box whose worst case is 70.
  */
 export const NODE_SIZE: Record<NodeKind, Size> = {
-  job: { width: NODE_WIDTH.job, height: heightOf(['kind', 'name', 'balance', 'operations']) },
+  job: { width: NODE_WIDTH.job, height: heightOf(['name', 'operations'], balancesHeight(1)) },
   account: {
     width: NODE_WIDTH.account,
-    height: heightOf(['kind', 'name', 'balance', 'operations']),
+    height: heightOf(['name', 'operations'], balancesHeight(1)),
   },
-  holding: { width: NODE_WIDTH.holding, height: heightOf(['kind', 'name', 'amount', 'fees']) },
+  holding: { width: NODE_WIDTH.holding, height: heightOf(['amount', 'fees']) },
 };
 
 /**

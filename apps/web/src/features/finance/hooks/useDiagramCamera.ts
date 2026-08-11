@@ -1,30 +1,68 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState, type SetStateAction } from 'react';
 
 import { IDENTITY_CAMERA, type Camera } from '@/features/finance/lib/camera';
+import {
+  FINANCE_CAMERA_VIEWS_KEY,
+  NO_FINANCE_CAMERA_VIEWS,
+  cameraFor,
+  normalizeFinanceCameraViews,
+  setFinanceCamera,
+  type FinanceCameraViews,
+} from '@/features/finance/lib/cameraViews';
 import type { DiagramId } from '@/features/finance/model/types';
+import { useStoredDocument } from '@/shared/storage/useStoredDocument';
 
 /**
- * One camera per diagram, held in memory rather than stored.
+ * One camera per diagram, restored independently from the financial document.
  *
- * Persisting it would cost a storage write per notch of the wheel and per frame
- * of a pan, and where you were last looking is not part of the money — see
- * decision 7.10. Switching tabs swaps cameras instead of carrying one over, for
- * the same reason undo stacks are per diagram: what you do here should land on
- * the diagram in front of you.
+ * The view still does not become money data or backup content. The shared write
+ * queue coalesces a pan or wheel run to one durable write, while local state
+ * keeps the canvas at the pointer rather than waiting for storage.
  */
 export function useDiagramCamera(diagramId: DiagramId) {
+  const store = useStoredDocument<FinanceCameraViews>({
+    key: FINANCE_CAMERA_VIEWS_KEY,
+    normalize: normalizeFinanceCameraViews,
+    placeholder: NO_FINANCE_CAMERA_VIEWS,
+  });
   const remembered = useRef(new Map<DiagramId, Camera>());
   const [camera, setCamera] = useState<Camera>(IDENTITY_CAMERA);
   const [shownId, setShownId] = useState(diagramId);
+  const [hydrated, setHydrated] = useState(false);
 
-  // Adjusting state during render rather than in an effect, so the first paint
-  // of a newly selected diagram already uses its own camera instead of showing
-  // the previous one for a frame.
+  // The storage read is deliberately folded into render, like a tab switch: the
+  // first usable paint has the restored view rather than briefly showing 100%.
+  if (!store.isFetching && !hydrated) {
+    const restored = cameraFor(store.data, diagramId);
+    remembered.current.set(diagramId, restored);
+    setCamera(restored);
+    setHydrated(true);
+  }
+
+  // Switching tabs swaps cameras rather than carrying one across. An in-memory
+  // map covers the instant switch; the stored map covers leaving and returning.
   if (shownId !== diagramId) {
     remembered.current.set(shownId, camera);
     setShownId(diagramId);
-    setCamera(remembered.current.get(diagramId) ?? IDENTITY_CAMERA);
+    setCamera(remembered.current.get(diagramId) ?? cameraFor(store.data, diagramId));
   }
 
-  return { camera, setCamera };
+  const updateCamera = useCallback(
+    (nextOrChange: SetStateAction<Camera>) => {
+      setCamera((current) => {
+        const next =
+          typeof nextOrChange === 'function'
+            ? nextOrChange(current)
+            : nextOrChange;
+        if (next === current) return current;
+
+        remembered.current.set(diagramId, next);
+        void store.edit((views) => setFinanceCamera(views, diagramId, next));
+        return next;
+      });
+    },
+    [diagramId, store],
+  );
+
+  return { camera, setCamera: updateCamera, isFetching: store.isFetching || !hydrated };
 }

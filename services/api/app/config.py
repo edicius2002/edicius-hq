@@ -12,6 +12,8 @@ ALLOWED_KV_KEYS = frozenset(
         "greenlight",
         "drawings",
         "indicators",
+        "chart-views",
+        "finance-camera-views",
     }
 )
 

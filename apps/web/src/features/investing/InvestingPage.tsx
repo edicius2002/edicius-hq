@@ -6,6 +6,8 @@ import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
 import { activePanes } from '@/features/investing/data/indicators';
+import { chartViewKey } from '@/features/investing/data/chartViews';
+import { useChartViews } from '@/features/investing/hooks/useChartViews';
 import { useIndicatorSeries } from '@/features/investing/hooks/useIndicatorSeries';
 import { useIndicators } from '@/features/investing/hooks/useIndicators';
 import { usePortfolio } from '@/features/investing/hooks/usePortfolio';
@@ -66,11 +68,13 @@ export function InvestingPage() {
   const [timeframe, setTimeframe] = useState<string>('1d');
 
   const candles = useCandles(symbol, timeframe);
+  const chartViews = useChartViews();
   const { indicators, toggle: toggleIndicator } = useIndicators();
   // Functions of the bars alone, so they survive every pan and zoom untouched.
   const series = useIndicatorSeries(candles.bars, indicators, timeframe);
   const panes = useMemo(() => activePanes(indicators), [indicators]);
   const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
+  const currentChartView = useMemo(() => chartViewKey(symbol, timeframe), [symbol, timeframe]);
 
   // The charted symbol rides along with the watchlist, so the whole screen is
   // one request rather than one for the list and another for what it points at.
@@ -192,9 +196,18 @@ export function InvestingPage() {
             <p className={styles.error} role="alert">
               Could not load bars for {symbol}.
             </p>
+          ) : chartViews.isFetching && !chartViews.isError ? (
+            // Do not draw the newest-bars default and then jump to the restored
+            // range: this brief pause makes the first chart frame the right one.
+            <p className={styles.note} role="status">
+              Restoring chart view…
+            </p>
           ) : (
             <CandleChart
               bars={candles.bars}
+              viewKey={currentChartView}
+              initialWindow={chartViews.windows[currentChartView] ?? null}
+              onWindowChange={(window) => void chartViews.setWindow(currentChartView, window)}
               indicators={series}
               panes={panes}
               isGhost={candles.isGhost}

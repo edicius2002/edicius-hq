@@ -50,6 +50,26 @@
   cursor: grabbing;
 }
 
+/* Storage has not answered yet: hide the 100% fallback so the first diagram the
+   reader sees is the view they left, not a frame that immediately jumps away. */
+.restoring {
+  cursor: wait;
+  pointer-events: none;
+}
+
+.restoring > :not(.restoringMessage) {
+  visibility: hidden;
+}
+
+.restoringMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
 /*
  * The world. A point rather than a box: it has no size, only a place, and
  * everything inside sits at its own world coordinates — which may be negative,

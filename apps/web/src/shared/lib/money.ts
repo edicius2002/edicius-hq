@@ -56,6 +56,43 @@ export function formatAmount(value: number, locale?: string): string {
 }
 
 /**
+ * A typed amount, back to a number. The inverse of `formatAmount` for input.
+ *
+ * Accepts the comma as the decimal separator, because that is what the app
+ * writes everywhere else. A native `type="number"` cannot be made to agree:
+ * it renders its value with the browser UI's separator, which here is the
+ * point — so the same balance read `3250,00` on a node and `3250.00` in the
+ * field that edits it.
+ *
+ * Grouping separators are dropped rather than parsed. Nothing here writes them
+ * into an input, and treating a stray point as a thousands mark would turn a
+ * mistyped `1.5` into 15.
+ *
+ * Empty means "no amount", which is a different state from zero — a balance
+ * nobody has filled in is not a balance of nothing.
+ */
+export function parseAmount(raw: string): number | null {
+  const cleaned = raw.replace(/\s/g, '').replace(/,/, '.');
+  if (cleaned === '' || cleaned === '-' || cleaned === '.') return null;
+  // A second separator is a typo, not a thousands mark: `Number` says NaN and
+  // NaN is reported as "nothing typed yet" rather than silently rounded.
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * A number in an input, written the way the rest of the app writes numbers.
+ *
+ * No grouping: the string round-trips through `parseAmount` unchanged, and a
+ * separator that means "thousands" while you are typing is a separator you have
+ * to delete before you can finish a decimal.
+ */
+export function amountToInput(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '';
+  return String(value).replace('.', ',');
+}
+
+/**
  * Symbols we compose ourselves. Anything else falls back to its code, which is
  * unambiguous and never wrong — a made-up glyph would be both.
  */

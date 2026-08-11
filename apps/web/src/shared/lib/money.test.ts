@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  amountToInput,
   formatAmount,
   formatAssetAmount,
   formatMoney,
   formatPercent,
   formatQuantity,
   formatSignedAmount,
+  parseAmount,
 } from '@/shared/lib/money';
 
 describe('formatAmount', () => {
@@ -141,5 +143,62 @@ describe('one rule for the whole app', () => {
     // asked the browser, so the same app used two decimal conventions.
     expect(formatAmount(1234.5, 'de-DE')).toBe('1.234,50');
     expect(formatAmount(1234.5, 'en-US')).toBe('1,234.50');
+  });
+});
+
+describe('parseAmount', () => {
+  it('reads the comma as the decimal separator', () => {
+    expect(parseAmount('12,34')).toBe(12.34);
+    expect(parseAmount('0,5')).toBe(0.5);
+    expect(parseAmount('-7,25')).toBe(-7.25);
+  });
+
+  it('still reads a point, because the field converts one as you type', () => {
+    expect(parseAmount('12.34')).toBe(12.34);
+  });
+
+  it('treats a second separator as a typo, not as a thousands mark', () => {
+    // Parsing `1.234,56` as 1234.56 would mean parsing a mistyped `1.5` as 15.
+    // Nothing writes grouping into an input, so the safe reading is "unfinished".
+    expect(parseAmount('1.234,56')).toBeNull();
+    expect(parseAmount('1,2,3')).toBeNull();
+  });
+
+  it('says nothing rather than zero for what has not been typed yet', () => {
+    // A balance nobody has filled in is not a balance of nothing.
+    expect(parseAmount('')).toBeNull();
+    expect(parseAmount('   ')).toBeNull();
+    expect(parseAmount('-')).toBeNull();
+    expect(parseAmount(',')).toBeNull();
+    expect(parseAmount('abc')).toBeNull();
+  });
+
+  it('keeps zero, which is a real amount', () => {
+    expect(parseAmount('0')).toBe(0);
+    expect(parseAmount('0,00')).toBe(0);
+  });
+});
+
+describe('amountToInput', () => {
+  it('writes the comma the rest of the app writes', () => {
+    expect(amountToInput(12.34)).toBe('12,34');
+    expect(amountToInput(-7.25)).toBe('-7,25');
+  });
+
+  it('groups nothing, so what it writes can be read back unchanged', () => {
+    const written = amountToInput(1234567.89);
+    expect(written).toBe('1234567,89');
+    expect(parseAmount(written)).toBe(1234567.89);
+  });
+
+  it('round-trips every amount it writes', () => {
+    for (const value of [0, 0.01, 1, 999999.99, -450.5, 1733.33]) {
+      expect(parseAmount(amountToInput(value))).toBe(value);
+    }
+  });
+
+  it('shows an empty field for no amount, not a zero', () => {
+    expect(amountToInput(null)).toBe('');
+    expect(amountToInput(Number.NaN)).toBe('');
   });
 });

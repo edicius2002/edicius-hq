@@ -7,6 +7,8 @@ export const STORAGE_KEYS = [
   'greenlight',
   'drawings',
   'indicators',
+  'chart-views',
+  'finance-camera-views',
 ] as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[number];

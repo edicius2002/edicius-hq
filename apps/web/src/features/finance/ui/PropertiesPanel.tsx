@@ -1,10 +1,13 @@
 import { useState, type ReactNode } from 'react';
 
+import { canExecuteFlow, describeExecuteError } from '@/features/finance/lib/execute';
+import { AmountInput } from '@/features/finance/ui/AmountInput';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import { frameMembers } from '@/features/finance/lib/frames';
 import {
   selectAccountSummary,
+  selectAllocation,
   selectFrameSummary,
   selectHoldingsOfAccount,
 } from '@/features/finance/lib/summary';
@@ -29,26 +32,6 @@ const BADGE: Record<FinanceNode['kind'], { label: string; color: string; bg: str
   holding: { label: 'Holding', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.14)' },
 };
 
-/** Empty input means "no amount", which is a different state from zero. */
-function toAmount(raw: string): number | null {
-  if (raw.trim() === '') return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function feeInput(fee: Fee | null): string {
-  return fee ? String(fee.value) : '';
-}
-
-function buildFee(raw: string, type: FeeType): Fee | null {
-  const value = toAmount(raw);
-  if (value === null || value === 0) return null;
-  return {
-    value: type === 'percent' ? Math.min(Math.max(value, 0), 100) : Math.max(value, 0),
-    type,
-  };
-}
-
 export type PropertiesPanelActions = {
   renameNode: (id: string, name: string) => void;
   setNotes: (id: string, notes: string) => void;
@@ -61,6 +44,7 @@ export type PropertiesPanelActions = {
     patch: Partial<Pick<HoldingNode, 'amount' | 'fees' | 'active'>>,
   ) => void;
   updateFlow: (id: string, patch: Partial<Pick<Flow, 'amount' | 'label' | 'notes'>>) => void;
+  executeFlow: (id: string) => void;
   renameFrame: (id: string, name: string) => void;
 };
 
@@ -110,7 +94,7 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
         />
       </Header>
 
-      {node.kind === 'job' ? <JobFields node={node} actions={actions} /> : null}
+      {node.kind === 'job' ? <JobFields diagram={diagram} node={node} actions={actions} /> : null}
       {node.kind === 'account' ? (
         <AccountFields diagram={diagram} node={node} actions={actions} />
       ) : null}
@@ -204,6 +188,41 @@ function Header({ kind, children }: { kind: FinanceNode['kind']; children?: Reac
   );
 }
 
+/**
+ * What share of a balance is still free.
+ *
+ * Silent until something is actually promised: with no outgoing flows the answer
+ * is always "all of it", and a chip that always says 100% is noise rather than
+ * information. The pair behind it — what is left over what there was — is on the
+ * chip's title, because the panel has a fixed height and this is the second
+ * question, not the first.
+ */
+function Allocated({
+  diagram,
+  nodeId,
+  asset,
+}: {
+  diagram: Diagram;
+  nodeId: string;
+  asset: string;
+}) {
+  const allocation = selectAllocation(diagram, nodeId, asset);
+  if (!allocation || allocation.committed <= 0) return null;
+
+  return (
+    <span
+      className={`${styles.allocated} ${allocation.exceeded ? styles.allocatedOver : ''}`}
+      title={
+        allocation.exceeded
+          ? `Flows out of this balance promise ${formatAmount(allocation.committed)} of ${formatAmount(allocation.total)} — ${formatAmount(-allocation.remaining)} more than it holds.`
+          : `${formatAmount(allocation.remaining)} free of ${formatAmount(allocation.total)}`
+      }
+    >
+      {allocation.exceeded ? 'over' : `${Math.round(allocation.pct)}%`}
+    </span>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className={styles.field}>
@@ -214,7 +233,15 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Shared editor for the list of assets a job is paid in. */
-function JobFields({ node, actions }: { node: JobNode; actions: PropertiesPanelActions }) {
+function JobFields({
+  diagram,
+  node,
+  actions,
+}: {
+  diagram: Diagram;
+  node: JobNode;
+  actions: PropertiesPanelActions;
+}) {
   const [draft, setDraft] = useState('');
 
   function addAsset() {
@@ -241,17 +268,14 @@ function JobFields({ node, actions }: { node: JobNode; actions: PropertiesPanelA
               >
                 {balance.asset}
               </button>
-              <input
+              <AmountInput
                 className={styles.input}
-                type="number"
-                step="0.01"
-                value={balance.amount ?? ''}
-                placeholder="0.00"
+                value={balance.amount}
+                placeholder="0,00"
                 disabled={!balance.active}
-                onChange={(event) =>
-                  actions.setJobBalance(node.id, balance.asset, toAmount(event.target.value))
-                }
+                onChange={(amount) => actions.setJobBalance(node.id, balance.asset, amount)}
               />
+              <Allocated diagram={diagram} nodeId={node.id} asset={balance.asset} />
             </div>
           ))}
         </div>
@@ -319,17 +343,14 @@ function AccountFields({
               >
                 {holding.asset}
               </button>
-              <input
+              <AmountInput
                 className={styles.input}
-                type="number"
-                step="0.01"
-                value={holding.amount ?? ''}
-                placeholder="0.00"
+                value={holding.amount}
+                placeholder="0,00"
                 disabled={!holding.active}
-                onChange={(event) =>
-                  actions.updateHolding(holding.id, { amount: toAmount(event.target.value) })
-                }
+                onChange={(amount) => actions.updateHolding(holding.id, { amount })}
               />
+              <Allocated diagram={diagram} nodeId={holding.id} asset={holding.asset} />
             </div>
           ))}
         </div>
@@ -386,15 +407,11 @@ function HoldingFields({ node, actions }: { node: HoldingNode; actions: Properti
   return (
     <>
       <Field label={`Amount (${node.asset})`}>
-        <input
+        <AmountInput
           className={styles.input}
-          type="number"
-          step="0.01"
-          value={node.amount ?? ''}
-          placeholder="0.00"
-          onChange={(event) =>
-            actions.updateHolding(node.id, { amount: toAmount(event.target.value) })
-          }
+          value={node.amount}
+          placeholder="0,00"
+          onChange={(amount) => actions.updateHolding(node.id, { amount })}
         />
       </Field>
 
@@ -432,20 +449,21 @@ function FeeField({
     <span className={styles.field}>
       {label}
       <span className={styles.feeGrid}>
-        <input
+        <AmountInput
           className={styles.input}
-          type="number"
-          step="0.01"
-          min="0"
-          max={type === 'percent' ? 100 : undefined}
-          value={feeInput(fee)}
+          value={fee ? fee.value : null}
           placeholder="0"
-          onChange={(event) => onChange(buildFee(event.target.value, type))}
+          onChange={(value) => onChange(value === null ? null : { value, type })}
         />
         <select
           className={styles.select}
           value={type}
-          onChange={(event) => onChange(buildFee(feeInput(fee), event.target.value as FeeType))}
+          /* The value is a number now, so changing the unit no longer sends it
+             out to a string and back — which was the last thing keeping a
+             second parser alive beside `parseAmount`. */
+          onChange={(event) =>
+            onChange(fee ? { value: fee.value, type: event.target.value as FeeType } : null)
+          }
         >
           <option value="percent">%</option>
           <option value="fixed">flat</option>
@@ -468,6 +486,7 @@ function FlowFields({
   const target = diagram.nodes[flow.to];
   const breakdown = computeTransfer(flow.amount ?? 0, source, target);
   const overdrawn = isOverdrawnByFees(breakdown);
+  const settle = canExecuteFlow(diagram, flow.id);
 
   return (
     <div className={styles.panel}>
@@ -490,15 +509,11 @@ function FlowFields({
       </p>
 
       <Field label={`Amount (${flow.asset})`}>
-        <input
+        <AmountInput
           className={styles.input}
-          type="number"
-          step="0.01"
-          value={flow.amount ?? ''}
-          placeholder="0.00"
-          onChange={(event) =>
-            actions.updateFlow(flow.id, { amount: toAmount(event.target.value) })
-          }
+          value={flow.amount}
+          placeholder="0,00"
+          onChange={(amount) => actions.updateFlow(flow.id, { amount })}
         />
       </Field>
 
@@ -535,6 +550,29 @@ function FlowFields({
           totals.
         </p>
       ) : null}
+
+      {/*
+       * Carrying the flow out, not only describing it. The refusal is said in
+       * words beside the button rather than left as a disabled control with
+       * nothing to explain it — which is the whole difference between "you
+       * cannot" and "you cannot, because".
+       */}
+      <div className={styles.settle}>
+        <Button
+          variant="primary"
+          disabled={!settle.ok}
+          onClick={() => actions.executeFlow(flow.id)}
+        >
+          Execute
+        </Button>
+        {settle.ok ? (
+          <span className={styles.settleNote}>
+            Moves {formatAmount(breakdown.net)} {flow.asset} and leaves the flow empty.
+          </span>
+        ) : (
+          <span className={styles.settleBlocked}>{describeExecuteError(settle.error)}</span>
+        )}
+      </div>
 
       <Field label="Label">
         <input

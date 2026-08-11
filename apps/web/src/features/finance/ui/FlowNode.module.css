@@ -13,7 +13,14 @@
   display: grid;
   align-content: center;
   gap: 4px;
-  padding: 8px 10px;
+  /*
+   * Deeper at the top: the corner label lives in that padding rather than in a
+   * row of its own, which is what took a full 16px row plus its gap off every
+   * node in the diagram. Keep in step with PADDING_TOP/PADDING_BOTTOM in
+   * `geometry.ts` — a box measured in canvas units cannot have contents
+   * measured in something else.
+   */
+  padding: 13px 10px 8px;
   line-height: 1.4;
   border: 1px solid var(--node-color);
   border-radius: 10px;
@@ -51,12 +58,29 @@
     0 6px 18px var(--color-shadow);
 }
 
+/*
+ * The corner label, out of the grid entirely.
+ *
+ * Absolute so it costs no row: it sits in the node's top padding, top-left,
+ * which is where a label belongs on a box whose content is a figure. It is not
+ * a target — every press in here drags the node — so it lets the pointer
+ * through rather than swallowing a drag that starts on it.
+ */
 .kind {
+  position: absolute;
+  top: 3px;
+  left: 8px;
   color: var(--node-color);
-  font-size: 11px;
+  font-size: 7px;
   font-weight: 800;
   letter-spacing: 0.08em;
+  line-height: 1.4;
   text-transform: uppercase;
+  pointer-events: none;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
@@ -65,24 +89,33 @@
  * this, an undersized box shows visibly rather than silently dropping content.
  */
 .name {
-  font-size: 15px;
+  /* Smaller than the numbers under it: a name introduces a figure, it is not
+     one. It was the largest thing on a node that exists to show an amount. */
+  font-size: 12px;
   font-weight: 700;
-  min-height: 21px;
+  min-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* The figure a holding exists to show, and the only thing in its body. */
+.amount {
+  color: var(--color-income);
+  display: block;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.amount {
-  color: var(--color-income);
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
-
 .muted {
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 /*
@@ -95,6 +128,66 @@
  * makes `CHIPS_PER_LINE` exact instead of an upper bound: the box grows by one
  * line for every second asset, and by exactly the height that line takes.
  */
+/*
+ * An asset that has flows leaving it: symbol, what is left, what there was, and
+ * the share still free — in that order, on one row.
+ *
+ * The larger account/job boxes leave 220px inside their padding, so this can
+ * use 10px without wrapping. The pair of amounts is one field: a remaining
+ * amount without its total is not useful information.
+ */
+.allocations {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+}
+
+.allocation {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-muted);
+}
+
+.allocation strong {
+  color: var(--color-text);
+}
+
+.allocationAmounts {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.allocationAsset {
+  font-weight: 700;
+}
+
+.allocationOf {
+  opacity: 0.8;
+}
+
+.allocationPct {
+  color: var(--color-income);
+  font-weight: 800;
+}
+
+/* Promising more than it holds: no percentage honestly describes that. */
+.allocationOver,
+.allocationOver strong,
+.allocationOver .allocationPct {
+  color: var(--color-danger);
+}
+
 .balances {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -112,10 +205,16 @@
   grid-column: 1 / -1;
 }
 
+/* Up from 11, but capped by the 86px column two of these share. */
 .balance {
+  display: block;
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -123,16 +222,32 @@
   color: var(--color-text);
 }
 
+/*
+ * A balance the flows out of it have already overdrawn. Said in colour on the
+ * node itself, because it is the one thing about a balance you should not have
+ * to open a panel to find out — and colour costs no room, which the boxes,
+ * sized to their content, do not have to spare.
+ */
+.balanceOver,
+.balanceOver strong {
+  color: var(--color-danger);
+}
+
 .fees {
+  display: block;
   color: var(--color-expense);
-  font-size: 11px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Arrows in, arrows out — how much traffic this account has seen. */
 .operations {
   color: var(--color-muted);
-  font-size: 10px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
 }

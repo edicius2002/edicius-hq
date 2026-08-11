@@ -50,10 +50,7 @@ export function useDiagramCamera(diagramId: DiagramId) {
   const updateCamera = useCallback(
     (nextOrChange: SetStateAction<Camera>) => {
       setCamera((current) => {
-        const next =
-          typeof nextOrChange === 'function'
-            ? nextOrChange(current)
-            : nextOrChange;
+        const next = typeof nextOrChange === 'function' ? nextOrChange(current) : nextOrChange;
         if (next === current) return current;
 
         remembered.current.set(diagramId, next);

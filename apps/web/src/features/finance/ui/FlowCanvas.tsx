@@ -421,7 +421,9 @@ export function FlowCanvas({
       onPointerCancel={endGesture}
       aria-busy={isRestoringCamera || undefined}
     >
-      {isRestoringCamera ? <div className={styles.restoringMessage}>Restoring diagram view…</div> : null}
+      {isRestoringCamera ? (
+        <div className={styles.restoringMessage}>Restoring diagram view…</div>
+      ) : null}
       {/* The world. It carries no size of its own: it is the origin the camera
           moves and everything inside it is placed in world coordinates, which
           may be negative. */}

@@ -51,11 +51,7 @@ export function chartViewKey(symbol: string, timeframe: string): string {
 }
 
 /** Save only a material move, so a repeated wheel event at an edge costs nothing. */
-export function setChartWindow(
-  views: ChartViews,
-  key: string,
-  window: IndexWindow,
-): ChartViews {
+export function setChartWindow(views: ChartViews, key: string, window: IndexWindow): ChartViews {
   const previous = views.windows[key];
   if (previous?.first === window.first && previous.last === window.last) return views;
 

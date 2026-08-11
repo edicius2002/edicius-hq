@@ -1,14 +1,33 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
 import { addAccount, addFrame, addHolding, addJob } from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
+import { NO_FINANCE_CAMERA_VIEWS } from '@/features/finance/lib/cameraViews';
 
 import { FlowCanvas } from './FlowCanvas';
 
 afterEach(cleanup);
+
+function TestWrapper({ children }: { children: ReactNode }) {
+  const [client] = useState(() => {
+    const next = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+        mutations: { retry: false },
+      },
+    });
+    // The camera store is present before the canvas mounts, so these interaction
+    // tests do not need an HTTP server just to exercise local camera movement.
+    next.setQueryData(['storage', 'finance-camera-views'], NO_FINANCE_CAMERA_VIEWS);
+    return next;
+  });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
 
 function populated(id = 'd1'): Diagram {
   let diagram = createEmptyDiagram(id);
@@ -33,7 +52,7 @@ function canvasProps() {
 }
 
 function renderCanvas(diagram: Diagram) {
-  return render(<FlowCanvas diagram={diagram} {...canvasProps()} />);
+  return render(<FlowCanvas diagram={diagram} {...canvasProps()} />, { wrapper: TestWrapper });
 }
 
 describe('camera controls', () => {
@@ -178,7 +197,7 @@ describe('a drag draws itself, without waiting for storage', () => {
   it('moves the node with the pointer while the document stays put', () => {
     const props = canvasProps();
     // The job sits at 40,40 and is grabbed 10px in, so it lands at 140,140.
-    render(<FlowCanvas diagram={populated()} {...props} />);
+    render(<FlowCanvas diagram={populated()} {...props} />, { wrapper: TestWrapper });
     const node = screen.getByLabelText('Job Job');
 
     drag(node, { x: 150, y: 150 });
@@ -198,7 +217,9 @@ describe('a drag draws itself, without waiting for storage', () => {
     });
     if (!held.ok) throw new Error('the fixture should hold an asset');
 
-    const { container } = render(<FlowCanvas diagram={held.value} {...canvasProps()} />);
+    const { container } = render(<FlowCanvas diagram={held.value} {...canvasProps()} />, {
+      wrapper: TestWrapper,
+    });
     const before = container.querySelector('svg path')?.getAttribute('d');
     expect(before).toBeTruthy();
 
@@ -209,7 +230,9 @@ describe('a drag draws itself, without waiting for storage', () => {
 
   it('hands the position back to the document once the gesture ends', () => {
     const props = canvasProps();
-    const { rerender } = render(<FlowCanvas diagram={populated()} {...props} />);
+    const { rerender } = render(<FlowCanvas diagram={populated()} {...props} />, {
+      wrapper: TestWrapper,
+    });
     const node = screen.getByLabelText('Job Job');
 
     drag(node, { x: 150, y: 150 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 import {
   drawOverlays,
@@ -47,6 +47,12 @@ const DEFAULT_VISIBLE = 120;
 
 type CandleChartProps = {
   bars: Bar[];
+  /** Identity of the series whose view is on screen. */
+  viewKey: string;
+  /** Restored before the chart mounts, so it never flashes the default view. */
+  initialWindow: IndexWindow | null;
+  /** Persists deliberate pan and zoom gestures, never an automatic re-fit. */
+  onWindowChange: (window: IndexWindow) => void;
   /** Precomputed series, index-aligned with `bars`. Absent means "not on". */
   indicators?: IndicatorSeries;
   /** Which panes to open below the price, in the order they are drawn. */
@@ -62,6 +68,9 @@ type Crosshair = { x: number; y: number; index: number } | null;
 
 export function CandleChart({
   bars,
+  viewKey,
+  initialWindow,
+  onWindowChange,
   indicators,
   panes,
   isGhost,
@@ -73,14 +82,29 @@ export function CandleChart({
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
-  const [window, setWindow] = useState<IndexWindow>({ first: 0, last: DEFAULT_VISIBLE });
+  const [window, setWindow] = useState<IndexWindow>(
+    () => initialWindow ?? { first: 0, last: DEFAULT_VISIBLE },
+  );
+  const [shownViewKey, setShownViewKey] = useState(viewKey);
   const [crosshair, setCrosshair] = useState<Crosshair>(null);
   const [drag, setDrag] = useState<{ pointerId: number; x: number; from: IndexWindow } | null>(
     null,
   );
+  const onWindowChangeRef = useRef(onWindowChange);
+  onWindowChangeRef.current = onWindowChange;
   // Set once per series so a reload lands on the latest bars rather than on the
   // oldest, while a refetch of the same series leaves the view where it was.
   const anchored = useRef<string>('');
+
+  // The chart stays mounted while the user changes symbol or timeframe. Reset
+  // during render, as the Finance canvas does, so no frame can draw the former
+  // series through the new one's saved window.
+  if (shownViewKey !== viewKey) {
+    setShownViewKey(viewKey);
+    setWindow(initialWindow ?? { first: 0, last: DEFAULT_VISIBLE });
+    setCrosshair(null);
+    setDrag(null);
+  }
 
   // Memoised because both draw effects depend on it: a fresh object each
   // render would repaint fifteen hundred candles on every pointer move.
@@ -93,12 +117,12 @@ export function CandleChart({
   );
 
   useEffect(() => {
-    const key = `${bars.length}`;
+    const key = `${viewKey}:${bars.length}`;
     if (!bars.length || anchored.current === key) return;
     anchored.current = key;
     setWindow(
       clampWindow(
-        { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
+        initialWindow ?? { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
         bars.length,
         minVisibleBars(plot),
       ),
@@ -106,7 +130,7 @@ export function CandleChart({
     // `plot` is deliberately absent: anchoring is about the series arriving, and
     // a resize must not throw the view back to the newest bars.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars]);
+  }, [bars, viewKey, initialWindow]);
 
   // The bands are pure geometry over the plot height, so this is cheap and
   // stable — the draw effect below depends on it and must not see a new object
@@ -152,13 +176,23 @@ export function CandleChart({
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  const moveWindow = useCallback((change: (current: IndexWindow) => IndexWindow) => {
+    setWindow((current) => {
+      const next = change(current);
+      if (next !== current) onWindowChangeRef.current(next);
+      return next;
+    });
+  }, []);
+
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     const { x, y } = pointerPosition(event);
 
     if (drag && event.pointerId === drag.pointerId) {
       const perBar = plot.width / Math.max(1, drag.from.last - drag.from.first);
       // Dragging right walks back through history, like moving a paper chart.
-      setWindow(panWindow(drag.from, -(x - drag.x) / perBar, bars.length, minVisibleBars(plot)));
+      moveWindow(() =>
+        panWindow(drag.from, -(x - drag.x) / perBar, bars.length, minVisibleBars(plot)),
+      );
       return;
     }
 
@@ -188,14 +222,14 @@ export function CandleChart({
       // A trackpad fires far faster than React re-renders, so a listener holding
       // a captured window throws events away — and one that is never re-bound
       // ignores every event after the first.
-      setWindow((current) =>
+      moveWindow((current) =>
         zoomWindow(current, factor, indexAt(x, current, plot), bars.length, minVisibleBars(plot)),
       );
     };
 
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [plot, bars.length]);
+  }, [plot, bars.length, moveWindow]);
 
   const hovered = crosshair ? bars[crosshair.index] : undefined;
 

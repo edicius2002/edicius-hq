@@ -15,6 +15,7 @@
     "dev:web": "npm run dev -w web",
     "dev:api": "npm run api:dev",
     "build": "npm run build -w web",
+    "start": "npm run build && node scripts/serve.mjs",
     "typecheck": "npm run typecheck -w web",
     "test": "npm run test -w web",
     "lint:api": "node scripts/api.mjs lint",

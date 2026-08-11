@@ -29,6 +29,17 @@ Stop with `docker compose down`.
 
 ## Local development (without Docker)
 
+### Run the compiled app and API together
+
+```bash
+npm ci
+npm start
+```
+
+This builds the web app, starts the local API, and serves the production bundle
+at http://127.0.0.1:5173. Finance data remains in
+`services/api/.local-data/`. Stop both with `Ctrl+C`.
+
 ### Web
 
 ```bash

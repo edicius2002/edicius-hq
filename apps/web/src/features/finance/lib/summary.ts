@@ -210,6 +210,115 @@ export function selectAccountSummary(diagram: Diagram, accountId: NodeId): Accou
 }
 
 /**
+ * How much of one balance is already promised, and how much is still free.
+ *
+ * A node has always shown what is left; nothing showed what is committed, so a
+ * balance of 1.000 with 900 already allocated read exactly like one with nothing
+ * allocated. The legacy drew this on the node — `accountCurrencyBalanceMeta` in
+ * `js/flow.js` — and the arithmetic here is the same one, reusing `committed`
+ * so a percentage can never disagree with the totals computed from it.
+ *
+ * `exceeded` is the case worth having: a diagram that does not add up. It is
+ * reported rather than clamped, because `remaining` going negative is the fact,
+ * and `pct` is clamped only because a bar cannot be more than full.
+ */
+export type Allocation = {
+  /** What the balance holds before anything leaves it. */
+  total: number;
+  /** The gross of every outgoing flow of this asset. */
+  committed: number;
+  /** `total - committed`. Negative when the flows promise more than exists. */
+  remaining: number;
+  /** Share of the balance still free, 0–100. Zero when there is nothing to divide. */
+  pct: number;
+  exceeded: boolean;
+};
+
+export function selectAllocation(
+  diagram: Diagram,
+  nodeId: NodeId,
+  asset: AssetCode,
+): Allocation | null {
+  const node = diagram.nodes[nodeId];
+  if (!node) return null;
+
+  let total: number;
+  if (node.kind === 'holding') {
+    if (node.asset !== asset) return null;
+    total = node.amount ?? 0;
+  } else if (node.kind === 'job') {
+    const balance = node.balances.find((item) => item.asset === asset && item.active);
+    if (!balance) return null;
+    total = balance.amount ?? 0;
+  } else {
+    // An account holds nothing itself; ask its holdings.
+    return null;
+  }
+
+  const out = committed(diagram, nodeId, asset);
+  const remaining = total - out;
+  return {
+    total,
+    committed: out,
+    remaining,
+    pct: total > 0 ? Math.max(0, Math.min((remaining / total) * 100, 100)) : 0,
+    exceeded: out > total,
+  };
+}
+
+/** One asset of a node, with how much of it is still free. */
+export type AssetAllocation = Allocation & { asset: AssetCode };
+
+/**
+ * Every asset a node shows, and what each has left against what it had.
+ *
+ * A job answers for itself; an account answers for the holdings it owns, which
+ * is why an asset held twice in one account is summed rather than listed twice —
+ * the node shows one line per asset, so the arithmetic has to agree with that.
+ *
+ * Only assets with something actually promised come back. An asset with no
+ * outgoing flows has nothing to say beyond its balance, which the node already
+ * shows.
+ */
+export function selectAssetAllocations(diagram: Diagram, node: FinanceNode): AssetAllocation[] {
+  if (node.kind === 'job') {
+    return node.balances
+      .filter((balance) => balance.active)
+      .flatMap((balance) => {
+        const allocation = selectAllocation(diagram, node.id, balance.asset);
+        return allocation && allocation.committed > 0
+          ? [{ asset: balance.asset, ...allocation }]
+          : [];
+      });
+  }
+
+  if (node.kind !== 'account') return [];
+
+  const totals = new Map<AssetCode, { total: number; committed: number }>();
+  for (const holding of selectHoldingsOfAccount(diagram, node.id)) {
+    if (!holding.active) continue;
+    const entry = totals.get(holding.asset) ?? { total: 0, committed: 0 };
+    entry.total += holding.amount ?? 0;
+    entry.committed += committed(diagram, holding.id);
+    totals.set(holding.asset, entry);
+  }
+
+  return [...totals.entries()]
+    .filter(([, entry]) => entry.committed > 0)
+    .map(([asset, entry]) => {
+      const remaining = entry.total - entry.committed;
+      return {
+        asset,
+        total: entry.total,
+        committed: entry.committed,
+        remaining,
+        pct: entry.total > 0 ? Math.max(0, Math.min((remaining / entry.total) * 100, 100)) : 0,
+        exceeded: entry.committed > entry.total,
+      };
+    });
+}
+
+/**
  * How many rows a node will show, from the document alone.
  *
  * This is what lets `sizeOf` follow the content without a layout pass: every
@@ -228,13 +337,19 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
     return { extraRow: charged(fees.out) || charged(fees.in) };
   }
 
+  const allocated = selectAssetAllocations(diagram, node);
+
   if (node.kind === 'job') {
-    return { assetRows: node.balances.filter((balance) => balance.active).length };
+    const active = node.balances.filter((balance) => balance.active).length;
+    // An allocated asset is drawn as its own two-line block, so it leaves the
+    // chips rather than wrapping among them.
+    return { assetRows: active - allocated.length, allocatedRows: allocated.length };
   }
 
   const summary = selectAccountSummary(diagram, node.id);
   return {
-    assetRows: summary.remaining.length,
+    assetRows: summary.remaining.length - allocated.length,
+    allocatedRows: allocated.length,
     extraRow: summary.incoming.count + summary.outgoing.count > 0,
   };
 }

@@ -10,10 +10,21 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
  */
 const processes = [
   spawn(process.execPath, [path.join(repoRoot, 'scripts', 'api.mjs'), 'dev'], { stdio: 'inherit' }),
-  spawn(process.execPath, [path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js'), 'preview', '--host', '127.0.0.1', '--port', '5173'], {
-    stdio: 'inherit',
-    cwd: path.join(repoRoot, 'apps', 'web'),
-  }),
+  spawn(
+    process.execPath,
+    [
+      path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js'),
+      'preview',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '5173',
+    ],
+    {
+      stdio: 'inherit',
+      cwd: path.join(repoRoot, 'apps', 'web'),
+    },
+  ),
 ];
 
 let stopping = false;

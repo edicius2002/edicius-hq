@@ -63,9 +63,9 @@ describe('CandleChart view persistence boundary', () => {
     fireEvent.wheel(surface(container), { clientX: 200, clientY: 100, deltaY: -1 });
 
     expect(onWindowChange).toHaveBeenCalledTimes(1);
-    expect(onWindowChange.mock.calls[0][0].last - onWindowChange.mock.calls[0][0].first).toBeLessThan(
-      120,
-    );
+    expect(
+      onWindowChange.mock.calls[0][0].last - onWindowChange.mock.calls[0][0].first,
+    ).toBeLessThan(120);
   });
 
   it('uses the other saved window when the selected series changes', () => {

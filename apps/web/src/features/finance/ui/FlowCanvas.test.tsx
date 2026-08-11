@@ -16,7 +16,10 @@ afterEach(cleanup);
 function TestWrapper({ children }: { children: ReactNode }) {
   const [client] = useState(() => {
     const next = new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+        mutations: { retry: false },
+      },
     });
     // The camera store is present before the canvas mounts, so these interaction
     // tests do not need an HTTP server just to exercise local camera movement.

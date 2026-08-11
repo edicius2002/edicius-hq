@@ -12,7 +12,10 @@ afterEach(() => {
 
 function TestWrapper({ children }: { children: ReactNode }) {
   const [client] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }),
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      }),
   );
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }

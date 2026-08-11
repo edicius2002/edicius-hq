@@ -132,7 +132,10 @@ export function FlowNode({
         it sits in the node's top padding, which is why that padding is deeper
         than the bottom.
       */}
-      <span className={styles.kind} title={node.kind === 'holding' ? node.asset : KIND_LABEL[node.kind]}>
+      <span
+        className={styles.kind}
+        title={node.kind === 'holding' ? node.asset : KIND_LABEL[node.kind]}
+      >
         {node.kind === 'holding' ? node.asset : KIND_LABEL[node.kind]}
       </span>
 

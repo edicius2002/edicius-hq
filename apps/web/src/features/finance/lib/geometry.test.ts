@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   anchorPoint,
   centerOf,
+  allocatedHeight,
   balancesHeight,
   CHIPS_PER_LINE,
   contentRect,
@@ -241,13 +242,66 @@ describe('a box that follows its rows', () => {
     expect(sizeOf(holding(), {}).height).toBeGreaterThanOrEqual(MIN_NODE_HEIGHT);
   });
 
-  it('keeps the widths, which were never the problem', () => {
-    expect(sizeOf(account(), {}).width).toBe(200);
-    expect(sizeOf(holding(), {}).width).toBe(140);
+  it('keeps the wider top-level boxes and compacts holdings', () => {
+    expect(sizeOf(account(), {}).width).toBe(240);
+    expect(sizeOf(holding(), {}).width).toBe(100);
   });
 
   it('reserves the tallest case for anything that has to guess', () => {
-    // Placing a new node happens before it has anything to say.
+    // Placing a new node happens before it has anything to say. Checked against
+    // `sizeOf` rather than against a number: written down, this kept the rows
+    // from before the corner label and reserved 107px for a 70px box.
     expect(NODE_SIZE.holding.height).toBe(sizeOf(holding(), { extraRow: true }).height);
+    expect(NODE_SIZE.account.height).toBe(
+      sizeOf(account(), { assetRows: 1, extraRow: true }).height,
+    );
+  });
+});
+
+describe('an asset with flows leaving it', () => {
+  const account = (): FinanceNode => ({
+    id: 'a1',
+    kind: 'account',
+    name: 'Account',
+    notes: '',
+    position: { x: 0, y: 0 },
+  });
+
+  it('reserves one line per allocated asset, at its own size', () => {
+    // Symbol, what is left, what there was and the share, all on one row. The
+    // row is set smaller than a balance chip so the four parts clear 180px, and
+    // the height has to follow that size rather than the chips'.
+    expect(allocatedHeight(1)).toBe(NODE_ROW.allocation);
+    expect(allocatedHeight(2)).toBe(NODE_ROW.allocation * 2 + 3);
+    expect(allocatedHeight(0)).toBe(0);
+  });
+
+  it('costs no more than the chip it replaces', () => {
+    // One row either way, and the allocated row is the smaller font, so showing
+    // the whole story is not paid for in height.
+    const asChip = sizeOf(account(), { assetRows: 1 });
+    const asRow = sizeOf(account(), { assetRows: 0, allocatedRows: 1 });
+
+    expect(asRow.height).toBeLessThanOrEqual(asChip.height);
+  });
+
+  it('does not also pay for the empty line, having something to say', () => {
+    // `assetRows: 0` normally means "No assets yet". With a block present there
+    // is no such line, and reserving it would leave a node with a row of air.
+    // Two allocated rows rather than one, so both sides of the comparison clear
+    // MIN_NODE_HEIGHT — at the floor the difference is whatever the floor left
+    // over, which measures the floor rather than the rule.
+    const withBlock = sizeOf(account(), { assetRows: 0, allocatedRows: 2 });
+    const bothWays = sizeOf(account(), { assetRows: 2, allocatedRows: 2 });
+
+    // One line of chips, plus the gap between the two groups.
+    expect(bothWays.height - withBlock.height).toBe(NODE_ROW.balance + 3);
+  });
+
+  it('still derives from the document alone', () => {
+    // Two nodes with the same content are the same size, whatever they hold.
+    expect(sizeOf(account(), { assetRows: 3, allocatedRows: 2 })).toEqual(
+      sizeOf(account(), { assetRows: 3, allocatedRows: 2 }),
+    );
   });
 });

@@ -118,6 +118,10 @@ export function FinancePage() {
     setJobBalance: (jobId, asset, amount) => void finance.setJobBalance(jobId, asset, amount),
     setJobAssetActive: (jobId, asset, active) =>
       void finance.setJobAssetActive(jobId, asset, active),
+    executeFlow: (id) => {
+      setMessage(null);
+      void finance.executeFlow(id);
+    },
     /*
      * Not an `async` handler: the prop returns void, so nothing awaits this and
      * a rejection had nowhere to go — a storage failure here left the panel

@@ -21,6 +21,7 @@ import {
   undo as undoStep,
   type History,
 } from '@/features/finance/lib/history';
+import { executeFlow } from '@/features/finance/lib/execute';
 import * as ops from '@/features/finance/lib/operations';
 import { err, ok, type Result } from '@/features/finance/lib/result';
 import type {
@@ -262,5 +263,8 @@ export function useFinanceData() {
     updateFlow: (id: FlowId, patch: Parameters<typeof ops.updateFlow>[2]) =>
       run((d) => ops.updateFlow(d, id, patch), `flow:${id}:${Object.keys(patch).join()}`),
     deleteFlow: (id: FlowId) => run((d) => ops.deleteFlow(d, id)),
+    // No coalesce key: settling is a discrete act, so each one is its own step
+    // to undo. The legacy pushed history before settling for the same reason.
+    executeFlow: (id: FlowId) => run((d) => executeFlow(d, id)),
   };
 }

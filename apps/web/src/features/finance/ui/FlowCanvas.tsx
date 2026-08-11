@@ -35,6 +35,8 @@ import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import {
   isFlowActive,
   selectAccountSummary,
+  selectAllocation,
+  selectAssetAllocations,
   selectNodeContent,
   selectFrameSummary,
 } from '@/features/finance/lib/summary';
@@ -144,7 +146,7 @@ export function FlowCanvas({
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
-  const { camera, setCamera } = useDiagramCamera(diagram.id);
+  const { camera, setCamera, isFetching: isRestoringCamera } = useDiagramCamera(diagram.id);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [pan, setPan] = useState<Pan | null>(null);
   const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
@@ -183,6 +185,20 @@ export function FlowCanvas({
   // Measured with each node's rows, not with the kind's default: fit-to-view
   // frames what is drawn, and what is drawn is now as tall as it has to say.
   const contentOf = (node: FinanceNode) => selectNodeContent(diagram, node);
+  /*
+   * Which of a node's assets promise more than they hold. The canvas knows the
+   * diagram and the node only draws, which is the same split `accountSummary`
+   * already uses. An account's own totals carry the sign; a job's do not.
+   */
+  const overAllocatedOf = (node: FinanceNode): ReadonlySet<string> | undefined => {
+    if (node.kind !== 'job') return undefined;
+    const over = new Set<string>();
+    for (const balance of node.balances) {
+      if (!balance.active) continue;
+      if (selectAllocation(diagram, node.id, balance.asset)?.exceeded) over.add(balance.asset);
+    }
+    return over.size ? over : undefined;
+  };
   const content = contentRect(nodes, frames, undefined, contentOf);
   /*
    * The minimap covers the view as well as the diagram. Without that, a view
@@ -390,7 +406,9 @@ export function FlowCanvas({
   return (
     <div
       ref={viewportRef}
-      className={`${styles.viewport} ${pan ? styles.panning : ''}`}
+      className={`${styles.viewport} ${pan ? styles.panning : ''} ${
+        isRestoringCamera ? styles.restoring : ''
+      }`}
       style={{
         // The backdrop travels and scales with the camera; a fixed grid under a
         // moving diagram reads as the canvas standing still.
@@ -401,7 +419,9 @@ export function FlowCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={endGesture}
       onPointerCancel={endGesture}
+      aria-busy={isRestoringCamera || undefined}
     >
+      {isRestoringCamera ? <div className={styles.restoringMessage}>Restoring diagram view…</div> : null}
       {/* The world. It carries no size of its own: it is the origin the camera
           moves and everything inside it is placed in world coordinates, which
           may be negative. */}
@@ -493,6 +513,8 @@ export function FlowCanvas({
             connecting={connectMode}
             isConnectSource={connectFrom?.nodeId === node.id}
             content={contentOf(node)}
+            overAllocated={overAllocatedOf(node)}
+            allocations={selectAssetAllocations(diagram, node)}
             accountSummary={
               node.kind === 'account' ? selectAccountSummary(diagram, node.id) : undefined
             }

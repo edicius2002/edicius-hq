@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   selectAccountSummary,
+  selectAllocation,
   selectAvailable,
   selectFrameSummary,
   selectInTransit,
@@ -374,5 +375,65 @@ describe('selectFrameSummary', () => {
     const document = diagram([account('a1'), off]);
 
     expect(selectFrameSummary(document, [off]).totals).toEqual([]);
+  });
+});
+
+describe('selectAllocation', () => {
+  it('reports what is committed as well as what is left', () => {
+    const d = diagram(
+      [account('a1'), holding('h1', 'a1', 'USD', 1000), holding('h2', 'a1', 'USD', 0)],
+      [flow('f1', 'h1', 'h2', 'USD', 900)],
+    );
+
+    expect(selectAllocation(d, 'h1', 'USD')).toEqual({
+      total: 1000,
+      committed: 900,
+      remaining: 100,
+      pct: 10,
+      exceeded: false,
+    });
+  });
+
+  it('says a balance is exceeded rather than pretending it is empty', () => {
+    // The case worth having: a diagram that does not add up. `remaining` is
+    // reported negative because that is the fact; only `pct` is clamped,
+    // because a share of a balance cannot be less than none of it.
+    const d = diagram(
+      [account('a1'), holding('h1', 'a1', 'USD', 100), holding('h2', 'a1', 'USD', 0)],
+      [flow('f1', 'h1', 'h2', 'USD', 250)],
+    );
+
+    expect(selectAllocation(d, 'h1', 'USD')).toMatchObject({
+      remaining: -150,
+      pct: 0,
+      exceeded: true,
+    });
+  });
+
+  it('counts only the flows of the asset asked about', () => {
+    const d = diagram(
+      [
+        job('j1', [{ asset: 'USD', amount: 500, active: true }]),
+        account('a1'),
+        holding('h1', 'a1', 'PEN', 0),
+      ],
+      [flow('f1', 'j1', 'h1', 'PEN', 400)],
+    );
+
+    // The job's PEN flow must not eat into its USD balance.
+    expect(selectAllocation(d, 'j1', 'USD')).toMatchObject({ committed: 0, remaining: 500 });
+  });
+
+  it('has nothing to say about an inactive balance or an account', () => {
+    const d = diagram([account('a1'), job('j1', [{ asset: 'USD', amount: 500, active: false }])]);
+
+    expect(selectAllocation(d, 'j1', 'USD')).toBeNull();
+    // An account holds nothing itself — its holdings do.
+    expect(selectAllocation(d, 'a1', 'USD')).toBeNull();
+  });
+
+  it('divides nothing by nothing without producing a number', () => {
+    const d = diagram([account('a1'), holding('h1', 'a1', 'USD', 0)]);
+    expect(selectAllocation(d, 'h1', 'USD')).toMatchObject({ pct: 0, exceeded: false });
   });
 });

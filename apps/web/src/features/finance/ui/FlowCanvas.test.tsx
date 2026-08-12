@@ -5,7 +5,14 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
-import { addAccount, addFrame, addHolding, addJob } from '@/features/finance/lib/operations';
+import {
+  addAccount,
+  addFrame,
+  addHolding,
+  addJob,
+  connect,
+  updateHolding,
+} from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
 import { NO_FINANCE_CAMERA_VIEWS } from '@/features/finance/lib/cameraViews';
 
@@ -241,6 +248,42 @@ describe('a drag draws itself, without waiting for storage', () => {
     // Storage never caught up, so the node falls back to where the document says.
     rerender(<FlowCanvas diagram={populated()} {...props} />);
     expect(screen.getByLabelText('Job Job')).toHaveStyle({ left: '40px', top: '40px' });
+  });
+});
+
+describe('holding balances', () => {
+  it('shows what a holding has left after its outgoing flow', () => {
+    let diagram = populated();
+    const source = addHolding(diagram, {
+      id: 'source-usd',
+      accountId: 'acc-1',
+      asset: 'USD',
+      position: { x: 600, y: 300 },
+    });
+    if (!source.ok) throw new Error('the source holding should be added');
+    diagram = updateHolding(source.value, 'source-usd', { amount: 500 });
+
+    diagram = addAccount(diagram, { id: 'acc-2', position: { x: 900, y: 300 } });
+    const target = addHolding(diagram, {
+      id: 'target-usd',
+      accountId: 'acc-2',
+      asset: 'USD',
+      position: { x: 1100, y: 300 },
+    });
+    if (!target.ok) throw new Error('the target holding should be added');
+
+    const connected = connect(target.value, {
+      id: 'flow-1',
+      from: 'source-usd',
+      to: 'target-usd',
+      amount: 125,
+    });
+    if (!connected.ok) throw new Error('the holdings should connect');
+
+    renderCanvas(connected.value);
+    const sourceNode = document.querySelector('[data-node-id="source-usd"]');
+    expect(sourceNode).toHaveTextContent('375.00');
+    expect(sourceNode).not.toHaveTextContent('500.00');
   });
 });
 

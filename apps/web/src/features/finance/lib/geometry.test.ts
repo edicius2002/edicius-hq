@@ -244,7 +244,7 @@ describe('a box that follows its rows', () => {
 
   it('keeps the wider top-level boxes and compacts holdings', () => {
     expect(sizeOf(account(), {}).width).toBe(240);
-    expect(sizeOf(holding(), {}).width).toBe(100);
+    expect(sizeOf(holding(), {}).width).toBe(88);
   });
 
   it('reserves the tallest case for anything that has to guess', () => {

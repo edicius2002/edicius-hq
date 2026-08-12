@@ -517,6 +517,11 @@ export function FlowCanvas({
             content={contentOf(node)}
             overAllocated={overAllocatedOf(node)}
             allocations={selectAssetAllocations(diagram, node)}
+            holdingRemaining={
+              node.kind === 'holding'
+                ? selectAllocation(diagram, node.id, node.asset)?.remaining
+                : undefined
+            }
             accountSummary={
               node.kind === 'account' ? selectAccountSummary(diagram, node.id) : undefined
             }

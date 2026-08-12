@@ -50,7 +50,7 @@ const FONT = {
   /** Smaller than the numbers it introduces. A name is a label, not a figure. */
   name: 12,
   /**
-   * The figure a holding exists to show. Its smaller 100px footprint needs a
+   * The figure a holding exists to show. Its smaller 88px footprint needs a
    * quieter 12px figure, which still leads the compact box without clipping a
    * five-figure amount.
    */
@@ -146,7 +146,7 @@ export function allocatedHeight(blocks: number): number {
 export const NODE_WIDTH: Record<NodeKind, number> = {
   job: 240,
   account: 240,
-  holding: 100,
+  holding: 88,
 };
 
 /**

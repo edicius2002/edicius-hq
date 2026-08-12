@@ -65,6 +65,8 @@ type FlowNodeProps = {
     pct: number;
     exceeded: boolean;
   }[];
+  /** What one holding still has after its own outgoing commitments. */
+  holdingRemaining?: number;
   accountSummary?: {
     remaining: { asset: string; amount: number }[];
     incoming: { count: number };
@@ -89,6 +91,7 @@ export function FlowNode({
   accountSummary,
   overAllocated,
   allocations,
+  holdingRemaining,
   onSelect,
   onDragStart,
   onAnchorClick,
@@ -150,7 +153,7 @@ export function FlowNode({
       {node.kind === 'job' ? (
         <JobBody node={node} overAllocated={overAllocated} allocations={allocations} />
       ) : null}
-      {node.kind === 'holding' ? <HoldingBody node={node} /> : null}
+      {node.kind === 'holding' ? <HoldingBody node={node} remaining={holdingRemaining} /> : null}
       {node.kind === 'account' ? (
         <AccountBody
           summary={accountSummary}
@@ -256,7 +259,13 @@ function JobBody({
   );
 }
 
-function HoldingBody({ node }: { node: Extract<FinanceNode, { kind: 'holding' }> }) {
+function HoldingBody({
+  node,
+  remaining = node.amount ?? 0,
+}: {
+  node: Extract<FinanceNode, { kind: 'holding' }>;
+  remaining?: number;
+}) {
   const fees = [feeLabel(node.fees.out), feeLabel(node.fees.in)];
   const feeText = [fees[0] ? `out ${fees[0]}` : '', fees[1] ? `in ${fees[1]}` : '']
     .filter(Boolean)
@@ -264,8 +273,8 @@ function HoldingBody({ node }: { node: Extract<FinanceNode, { kind: 'holding' }>
 
   return (
     <>
-      <span className={styles.amount} title={formatAmount(node.amount ?? 0)}>
-        {formatAmount(node.amount ?? 0)}
+      <span className={styles.amount} title={`${formatAmount(remaining)} remaining`}>
+        {formatAmount(remaining)}
       </span>
       {feeText ? (
         <span className={styles.fees} title={feeText}>

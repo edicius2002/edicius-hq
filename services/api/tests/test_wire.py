@@ -11,6 +11,7 @@ These assert the literal keys, because the literal keys are the contract.
 """
 
 import json
+import os
 from unittest import mock
 
 import pytest
@@ -99,6 +100,7 @@ class TestBarsOnTheWire:
         assert body["timeframe"] == "1d"
         assert body["provider"] == "yahoo"
         assert body["hasSession"] is True
+        assert body["stale"] is False
         assert body["bars"] == [
             {
                 "time": 1_786_060_800,
@@ -123,6 +125,38 @@ class TestBarsOnTheWire:
 
     def test_an_unknown_timeframe_is_refused_rather_than_guessed(self, client):
         assert client.get("/api/market/bars?symbol=AAPL&timeframe=7h").status_code == 400
+
+    def test_a_recent_cached_series_survives_an_upstream_refusal(self, client):
+        bar = Bar(time=1_786_060_800, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+        market_router.bar_cache.write("AAPL", "15m", [bar])
+        path = market_router.bar_cache._path_for("AAPL", "15m")
+        old = path.stat().st_mtime - 60
+        os.utime(path, (old, old))
+
+        async def refuse(*_args, **_kwargs):
+            raise ProviderError("upstream-error", "Yahoo answered 502")
+
+        with mock.patch.object(market_router.registry, "fetch_bars", refuse):
+            response = client.get("/api/market/bars?symbol=AAPL&timeframe=15m")
+
+        assert response.status_code == 200
+        assert response.json()["stale"] is True
+        assert response.json()["bars"][0]["close"] == 1.5
+
+    def test_a_cached_series_does_not_hide_that_a_symbol_is_gone(self, client):
+        bar = Bar(time=1_786_060_800, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+        market_router.bar_cache.write("DELISTED", "1d", [bar])
+        path = market_router.bar_cache._path_for("DELISTED", "1d")
+        old = path.stat().st_mtime - 301
+        os.utime(path, (old, old))
+
+        async def refuse(*_args, **_kwargs):
+            raise ProviderError("symbol-not-found", "Yahoo does not know that symbol")
+
+        with mock.patch.object(market_router.registry, "fetch_bars", refuse):
+            response = client.get("/api/market/bars?symbol=DELISTED&timeframe=1d")
+
+        assert response.status_code == 404
 
 
 class TestSearchOnTheWire:

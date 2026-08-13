@@ -279,6 +279,7 @@ export function InvestingPage() {
           <p className={styles.note}>
             {candles.bars.length} bars
             {ghosts > 0 ? <> · {ghosts} extended</> : null}
+            {candles.isStale ? <> · data delayed</> : null}
             {candles.provider ? <> · {candles.provider}</> : null} · drag to pan, scroll to zoom
           </p>
         </Panel>

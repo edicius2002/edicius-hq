@@ -64,6 +64,8 @@ export type BarsResponse = {
    * it leaked.
    */
   hasSession: boolean;
+  /** The API preserved the last valid series during a temporary provider failure. */
+  stale: boolean;
   bars: Bar[];
 };
 

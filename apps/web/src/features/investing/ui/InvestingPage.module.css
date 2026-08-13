@@ -6,29 +6,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
   width: 100%;
-}
-
-.sectionTitle {
-  color: var(--color-muted);
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  margin: 0 0 var(--space-3);
-  text-transform: uppercase;
-}
-
-/* Between the chart and its footnote: the toggles belong with the thing they
-   change, not up in the header with the timeframes. */
-.indicators {
-  margin-top: var(--space-3);
-}
-
-/* Separated from the watchlist above it, because it is a different question:
-   what you follow, then what you hold. */
-.positionsTitle {
-  margin-top: var(--space-5);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
+  container-type: inline-size;
 }
 
 .note {
@@ -197,6 +175,33 @@
   flex-wrap: wrap;
 }
 
+.viewControls {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.viewControl {
+  padding: 0.3rem var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.viewControl:hover,
+.viewControl[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.viewControl:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .symbol {
   margin: 0;
   color: var(--color-text);
@@ -218,69 +223,40 @@
   font-variant-numeric: tabular-nums;
 }
 
-/*
- * Chart and watchlist side by side. The sidebar is fixed rather than draggable:
- * the legacy persisted a width, and that can come back if a fixed one turns out
- * to be wrong, but a divider is machinery until then.
- */
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 20rem;
+  grid-template-columns: minmax(0, 1fr) 16rem;
   gap: var(--space-4);
   align-items: start;
+  min-width: 0;
 }
 
-/*
- * Wide enough for the watchlist and the positions to sit beside each other.
- *
- * Not a preference: stacked, the two need 1356px of height against a viewport
- * of 983, and no amount of shrinking closes that — 20% off every font buys 13%
- * of height, because most of a row is padding. Side by side the taller column
- * is about 645px and both are simply visible.
- *
- * The threshold is where the chart stops being worth having: below roughly
- * 700px of canvas it is a strip, and 27rem of sidebar plus that is what this
- * asks for.
- */
-@media (min-width: 1640px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr) 29rem;
-  }
+.workspaceWide {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-@media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.chartPanel {
+  min-width: 0;
+  --investing-chart-height: clamp(28rem, 64vh, 52rem);
+}
+
+.marketPanelSlot {
+  min-width: 0;
 }
 
 .side {
-  display: grid;
-  gap: var(--space-3);
-  align-content: start;
-  /*
-   * Scrolls within itself rather than pushing the page down. Ten followed
-   * symbols and seven positions are taller than a viewport, and scrolling the
-   * page to reach the positions would carry the chart off screen — which is the
-   * one thing having both on one screen was for.
-   *
-   * Sticky so it stays beside the chart as the page moves for anything else.
-   */
   position: sticky;
   top: var(--space-4);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
   max-height: calc(100vh - var(--space-6));
-  overflow-y: auto;
-  scrollbar-width: thin;
+  max-height: calc(100dvh - var(--space-6));
+  overflow: hidden;
 }
 
-@media (max-width: 1100px) {
-  /* Stacked, the sidebar is no longer beside anything, so a private scroll
-     area would just be a box within a box. */
-  .side {
-    position: static;
-    max-height: none;
-    overflow-y: visible;
-  }
+.side[hidden],
+.tabPanel[hidden] {
+  display: none;
 }
 
 .column {
@@ -292,38 +268,124 @@
   min-width: 0;
 }
 
-@media (min-width: 1640px) {
-  .side {
-    /* The watchlist takes the slack. Positions is a fixed shape — a quantity,
-       a cost, a value and a change — while the watchlist is the one carrying
-       names long enough to be clipped, so the spare pixels are worth more
-       there. */
-    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-    gap: var(--space-4);
-    /* Both fit now, so the private scroll area is not needed and a scrollbar
-       would only add a seam down the middle of the panel. */
-    max-height: none;
-    overflow-y: visible;
-  }
-
-  /* The rule that separated it from the watchlist above it; beside it now, the
-     column edge does that job. */
-  .positionsTitle {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
-    /* Aligned with the watchlist heading rather than with its search box. */
-    min-height: 1.6rem;
-  }
-}
-
-.sideHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.railHeader {
+  display: grid;
   gap: var(--space-2);
 }
 
-.sideHeader .sectionTitle {
-  margin: 0;
+.marketTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+}
+
+.marketTab {
+  padding: 0.35rem var(--space-2);
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.marketTab:hover {
+  color: var(--color-text);
+}
+
+.marketTabOn {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.marketTab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tabPanel {
+  min-height: 0;
+  padding-right: 2px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.railHeader .regime {
+  justify-self: start;
+}
+
+/* The decision is based on the usable page width, not the viewport. The app
+   sidebar and main padding consume 19rem before this workspace sees a pixel. */
+@container (max-width: 58rem) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .marketPanelSlot {
+    width: min(100%, 36rem);
+    justify-self: end;
+  }
+
+  .side {
+    position: static;
+    max-height: 32rem;
+  }
+}
+
+@container (max-width: 48rem) {
+  .chartPanel {
+    --investing-chart-height: clamp(24rem, 62vh, 38rem);
+  }
+
+  .timeframes {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+.focusMode {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: var(--space-4);
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.focusMode .pageHeader,
+.focusMode .tickerWrap,
+.focusMode .marketPanelSlot {
+  display: none;
+}
+
+.focusMode .workspace {
+  height: 100%;
+  min-height: 0;
+}
+
+.focusMode .chartPanel {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  height: 100%;
+  min-height: 0;
+  --investing-chart-height: 100%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .viewControl,
+  .marketTab {
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      background-color 0.15s ease;
+  }
 }

@@ -15,6 +15,7 @@ import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
+import { MarketRail } from '@/features/investing/ui/MarketRail';
 import { Positions } from '@/features/investing/ui/Positions';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
@@ -66,6 +67,27 @@ export function InvestingPage() {
   const holdings = usePortfolio();
   const [symbol, setSymbol] = useState('AAPL');
   const [timeframe, setTimeframe] = useState<string>('1d');
+  const [marketPanelOpen, setMarketPanelOpen] = useState(true);
+  const [chartFocused, setChartFocused] = useState(false);
+
+  // Focus mode is a chart workspace, not a browser fullscreen request. Escape
+  // always returns to the page and the body cannot scroll behind the fixed
+  // surface while it is open.
+  useEffect(() => {
+    if (!chartFocused) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setChartFocused(false);
+    };
+
+    document.body.style.overflow = 'hidden';
+    globalThis.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      globalThis.removeEventListener('keydown', onKeyDown);
+    };
+  }, [chartFocused]);
 
   const candles = useCandles(symbol, timeframe);
   const chartViews = useChartViews();
@@ -139,20 +161,26 @@ export function InvestingPage() {
   const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
 
   return (
-    <section className={styles.page} aria-labelledby="investing-title">
+    <section
+      className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
+      aria-labelledby={chartFocused ? undefined : 'investing-title'}
+      aria-label={chartFocused ? 'Focused investing chart' : undefined}
+    >
       <PageHeader
         title="Investing"
         subtitle="Markets. Follow what matters and chart it."
         titleId="investing-title"
+        className={styles.pageHeader}
       />
 
-      <TickerTape quotes={quotes.data?.quotes ?? []} onSelect={setSymbol} />
+      <div className={styles.tickerWrap}>
+        <TickerTape quotes={quotes.data?.quotes ?? []} onSelect={setSymbol} />
+      </div>
 
-      {/* Chart on the left, watchlist on the right — the same shape Finance uses
-          for its canvas and side panel, and the arrangement that makes clicking
-          a row and reading the answer one movement rather than two. */}
-      <div className={styles.workspace}>
-        <Panel aria-label={`${symbol} chart`}>
+      <div
+        className={`${styles.workspace} ${!marketPanelOpen || chartFocused ? styles.workspaceWide : ''}`}
+      >
+        <Panel className={styles.chartPanel} aria-label={`${symbol} chart`}>
           <div className={styles.chartHeader}>
             <h2 className={styles.symbol}>{symbol}</h2>
             {charted ? (
@@ -189,6 +217,32 @@ export function InvestingPage() {
                   {frame}
                 </button>
               ))}
+            </div>
+
+            <div className={styles.viewControls}>
+              {!chartFocused ? (
+                <button
+                  type="button"
+                  className={styles.viewControl}
+                  aria-expanded={marketPanelOpen}
+                  aria-controls="market-panel"
+                  aria-label={marketPanelOpen ? 'Hide markets' : 'Show markets'}
+                  title={marketPanelOpen ? 'Hide market panel' : 'Show market panel'}
+                  onClick={() => setMarketPanelOpen((open) => !open)}
+                >
+                  Markets
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={styles.viewControl}
+                aria-pressed={chartFocused}
+                aria-label={chartFocused ? 'Exit focus' : 'Focus chart'}
+                title={chartFocused ? 'Exit chart focus' : 'Focus chart'}
+                onClick={() => setChartFocused((focused) => !focused)}
+              >
+                {chartFocused ? 'Exit' : 'Focus'}
+              </button>
             </div>
           </div>
 
@@ -229,62 +283,60 @@ export function InvestingPage() {
           </p>
         </Panel>
 
-        {/* Two columns where there is room for them, stacked where there is not.
-            The label names the panel rather than repeating the list's own — two
-            things called "Watchlist" is one name too many for a screen reader,
-            and it caught a measurement of mine out too. */}
-        <Panel className={styles.side} aria-label="Markets">
-          <div className={styles.column}>
-            <div className={styles.sideHeader}>
-              <h2 className={styles.sectionTitle}>Watchlist</h2>
-              <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
-            </div>
+        <div className={styles.marketPanelSlot}>
+          <MarketRail
+            regime={candles.regime}
+            statusLabel={statusLabel}
+            hidden={!marketPanelOpen || chartFocused}
+            watchlist={
+              <div className={styles.column}>
+                <SymbolSearch
+                  following={new Set(watchlist.symbols)}
+                  onPick={(picked, name) => {
+                    void watchlist.add(picked, name);
+                    setSymbol(picked);
+                  }}
+                />
 
-            <SymbolSearch
-              following={new Set(watchlist.symbols)}
-              onPick={(picked, name) => {
-                void watchlist.add(picked, name);
-                setSymbol(picked);
-              }}
-            />
-
-            {watchlist.isError ? (
-              <p className={styles.error} role="alert">
-                Could not load the watchlist.
-              </p>
-            ) : (
-              <Watchlist
-                entries={watchlist.list.entries}
-                quotes={bySymbol}
-                failures={failures}
-                selected={symbol}
-                onSelect={setSymbol}
-                onRemove={(picked) => void watchlist.remove(picked)}
-                onMove={(from, to) => void watchlist.move(from, to)}
-              />
-            )}
-          </div>
-
-          <div className={styles.column}>
-            <h2 className={`${styles.sectionTitle} ${styles.positionsTitle}`}>Positions</h2>
-            {holdings.isError ? (
-              <p className={styles.error} role="alert">
-                Could not load your positions.
-              </p>
-            ) : (
-              <Positions
-                portfolio={holdings.portfolio}
-                quotes={bySymbol}
-                selected={symbol}
-                onSelect={setSymbol}
-                onEdit={(picked, quantity, averageCost) =>
-                  void holdings.set(picked, quantity, averageCost)
-                }
-                onRemove={(picked) => void holdings.remove(picked)}
-              />
-            )}
-          </div>
-        </Panel>
+                {watchlist.isError ? (
+                  <p className={styles.error} role="alert">
+                    Could not load the watchlist.
+                  </p>
+                ) : (
+                  <Watchlist
+                    entries={watchlist.list.entries}
+                    quotes={bySymbol}
+                    failures={failures}
+                    selected={symbol}
+                    onSelect={setSymbol}
+                    onRemove={(picked) => void watchlist.remove(picked)}
+                    onMove={(from, to) => void watchlist.move(from, to)}
+                  />
+                )}
+              </div>
+            }
+            positions={
+              <div className={styles.column}>
+                {holdings.isError ? (
+                  <p className={styles.error} role="alert">
+                    Could not load your positions.
+                  </p>
+                ) : (
+                  <Positions
+                    portfolio={holdings.portfolio}
+                    quotes={bySymbol}
+                    selected={symbol}
+                    onSelect={setSymbol}
+                    onEdit={(picked, quantity, averageCost) =>
+                      void holdings.set(picked, quantity, averageCost)
+                    }
+                    onRemove={(picked) => void holdings.remove(picked)}
+                  />
+                )}
+              </div>
+            }
+          />
+        </div>
       </div>
     </section>
   );

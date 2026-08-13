@@ -20,6 +20,7 @@ from app.adapters.models import ProviderError, Quote, Tick
 from app.config import (
     DEFAULT_TIMEFRAME,
     MAX_BATCH_SYMBOLS,
+    MAX_STALE_BARS_SECONDS,
     QUOTE_TTL_SECONDS,
     TIMEFRAMES,
     UPSTREAM_TIMEOUT_SECONDS,
@@ -35,6 +36,11 @@ quote_cache = MemoryCache(QUOTE_TTL_SECONDS)
 bar_cache = BarCache()
 
 _client: httpx.AsyncClient | None = None
+
+# Only failures that can heal may fall back to old bars. A ticker that no
+# longer exists must still be reported as such instead of showing historical
+# data that looks current.
+_TRANSIENT_BAR_FAILURES = frozenset({"rate-limited", "unreachable", "upstream-error"})
 
 
 def get_client() -> httpx.AsyncClient:
@@ -100,6 +106,8 @@ class BarsResponse(BaseModel):
     # Whether this instrument's market closes at all. A crypto pair's does not,
     # and the client used to work that out by testing the provider's name.
     hasSession: bool
+    # True when an upstream refusal made us preserve the last valid disk entry.
+    stale: bool = False
     bars: list[BarModel]
 
 
@@ -193,6 +201,7 @@ async def get_bars(
 
     # Two different series, so two different cache entries.
     cache_key = f"{frame.key}ext" if extended else frame.key
+    stale = False
     try:
         bars = await bar_cache.fetch(
             resolved,
@@ -201,7 +210,22 @@ async def get_bars(
             lambda: registry.fetch_bars(client, resolved, frame, extended=extended),
         )
     except ProviderError as exc:
-        raise _as_http_error(exc) from exc
+        stale_bars = (
+            bar_cache.read_stale(resolved, cache_key, MAX_STALE_BARS_SECONDS)
+            if exc.code in _TRANSIENT_BAR_FAILURES
+            else None
+        )
+        if stale_bars is None:
+            raise _as_http_error(exc) from exc
+        bars = stale_bars
+        stale = True
+        logger.warning(
+            "serving stale bars after upstream refusal: %s %s (%s: %s)",
+            resolved,
+            frame.key,
+            exc.code,
+            exc.message,
+        )
 
     return BarsResponse(
         symbol=resolved,
@@ -209,6 +233,7 @@ async def get_bars(
         provider=registry.provider_for(resolved),
         extended=extended,
         hasSession=registry.has_session(resolved),
+        stale=stale,
         bars=[BarModel(**{k: getattr(bar, k) for k in BarModel.model_fields}) for bar in bars],
     )
 

@@ -64,6 +64,8 @@ export type Candles = {
   /** Takes the index too: on a daily chart what marks a bar is being the last. */
   isGhost: (bar: Bar, index: number) => boolean;
   isPending: boolean;
+  /** Existing bars are being preserved because their refresh failed. */
+  isStale: boolean;
   isError: boolean;
   refetch: () => void;
 };
@@ -101,7 +103,10 @@ export function useCandles(symbol: string, timeframe: string): Candles {
     extended: query.data?.extended ?? false,
     isGhost,
     isPending: query.isPending,
-    isError: query.isError,
+    // React Query intentionally retains successful data when a background
+    // refresh fails. That is degraded data, not a fatal empty chart.
+    isStale: (query.data?.stale ?? false) || (query.isError && query.data !== undefined),
+    isError: query.isError && query.data === undefined,
     refetch: () => void query.refetch(),
   };
 }

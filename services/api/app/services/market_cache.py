@@ -144,6 +144,10 @@ class BarCache:
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
+    def read_stale(self, symbol: str, timeframe: str, max_age: float) -> list[Bar] | None:
+        """Read a valid expired entry, bounded so a dead provider cannot fossilise it."""
+        return self.read(symbol, timeframe, max_age)
+
     def write(self, symbol: str, timeframe: str, bars: list[Bar]) -> None:
         path = self._path_for(symbol, timeframe)
         try:

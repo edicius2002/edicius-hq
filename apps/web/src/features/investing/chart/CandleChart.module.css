@@ -1,7 +1,7 @@
 .chart {
   position: relative;
   width: 100%;
-  height: clamp(20rem, 52vh, 40rem);
+  height: var(--investing-chart-height, clamp(28rem, 64vh, 52rem));
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg-2);

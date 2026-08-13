@@ -10,10 +10,14 @@ import { createAppMemoryRouter } from '@/app/router/createAppRouter';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
+  // The layout tests exercise the chart shell, not canvas pixels. jsdom emits
+  // a noisy "not implemented" error before returning null without this stub.
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -87,6 +91,53 @@ describe('Shell navigation', () => {
   it('shows NotFound for unknown routes', async () => {
     renderAt('/does-not-exist');
     expect(await arrivesAt('Page not found')).toBeInTheDocument();
+  });
+});
+
+describe('Investing chart-first workspace', () => {
+  it('keeps watchlist and positions in one switchable market rail', async () => {
+    const user = userEvent.setup();
+    renderAt('/investing');
+    await arrivesAt('Investing');
+
+    expect(screen.getByRole('tab', { name: 'Watchlist' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('tab', { name: 'Positions' }));
+
+    expect(screen.getByRole('tab', { name: 'Positions' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Nothing held yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Search a symbol' })).not.toBeInTheDocument();
+  });
+
+  it('can devote the workspace to the chart and returns with Escape', async () => {
+    const user = userEvent.setup();
+    renderAt('/investing');
+    await arrivesAt('Investing');
+
+    await user.click(screen.getByRole('button', { name: 'Focus chart' }));
+
+    expect(screen.getByRole('region', { name: 'Focused investing chart' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Markets' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Exit focus' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.getByRole('heading', { name: 'Investing' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Markets' })).toBeInTheDocument();
+  });
+
+  it('collapses and restores the market rail without entering focus mode', async () => {
+    const user = userEvent.setup();
+    renderAt('/investing');
+    await arrivesAt('Investing');
+
+    await user.click(screen.getByRole('button', { name: 'Hide markets' }));
+    expect(screen.queryByRole('region', { name: 'Markets' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show markets' }));
+    expect(screen.getByRole('region', { name: 'Markets' })).toBeInTheDocument();
   });
 });
 

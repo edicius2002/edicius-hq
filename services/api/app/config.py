@@ -81,7 +81,11 @@ TIMEFRAMES: dict[str, Timeframe] = {
     for tf in (
         Timeframe("1m", "1m", "7d", "1m", 1500, 10.0),
         Timeframe("5m", "5m", "60d", "5m", 1500, 20.0),
-        Timeframe("15m", "15m", "60d", "15m", 1500, 30.0),
+        # Yahoo documents/implements 60 days as the intraday retention edge,
+        # but `range=60d` can round its start just beyond that edge and answer
+        # 422. Leave one day of headroom; losing at most one session is better
+        # than making this timeframe intermittently unavailable.
+        Timeframe("15m", "15m", "59d", "15m", 1500, 30.0),
         Timeframe("1h", "60m", "1y", "1h", 1500, 60.0),
         Timeframe("1d", "1d", "2y", "1d", 1825, 300.0),
         Timeframe("1w", "1wk", "10y", "1w", 520, 600.0),
@@ -98,3 +102,9 @@ QUOTE_TTL_SECONDS = 15.0
 # Upstream is unofficial and occasionally slow; a hung request must not hold a
 # page open forever.
 UPSTREAM_TIMEOUT_SECONDS = 12.0
+
+# A short provider outage must not blank a chart that was already loaded. The
+# fallback is explicitly reported as stale on the wire, and one week also
+# carries a Friday close across a long weekend without preserving old market
+# data indefinitely.
+MAX_STALE_BARS_SECONDS = 7 * 24 * 60 * 60

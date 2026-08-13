@@ -8,6 +8,7 @@ up today.
 """
 
 import asyncio
+import os
 import time
 from unittest import mock
 
@@ -315,6 +316,24 @@ class TestBarCache:
         assert calls == 2
         assert bars[0].close == 2.0
 
+    def test_can_recover_a_recent_expired_entry_after_an_upstream_failure(self, tmp_path):
+        cache = BarCache(tmp_path)
+        expected = binance.parse_bars([[1700000000000, "1", "2", "0.5", "1.5", "3"]])
+        cache.write("BTCUSDT", "1d", expected)
+
+        assert cache.read("BTCUSDT", "1d", 0) is None
+        assert cache.read_stale("BTCUSDT", "1d", 60) == expected
+
+    def test_will_not_recover_an_unboundedly_old_entry(self, tmp_path):
+        cache = BarCache(tmp_path)
+        expected = binance.parse_bars([[1700000000000, "1", "2", "0.5", "1.5", "3"]])
+        cache.write("BTCUSDT", "1d", expected)
+        path = cache._path_for("BTCUSDT", "1d")
+        old = time.time() - 120
+        os.utime(path, (old, old))
+
+        assert cache.read_stale("BTCUSDT", "1d", 60) is None
+
     def test_a_corrupt_file_costs_a_refetch_not_an_error(self, tmp_path):
         cache = BarCache(tmp_path)
         (tmp_path / "BTCUSDT.1d.json").write_text("{ not json", encoding="utf-8")
@@ -341,6 +360,9 @@ class TestTimeframes:
             assert frame.binance_interval
             assert frame.limit > 0, "an uncapped fetch is how a range=max query ends in OOM"
             assert frame.ttl > 0
+
+    def test_fifteen_minutes_stays_inside_yahoos_sixty_day_retention_edge(self):
+        assert TIMEFRAMES["15m"].yahoo_range == "59d"
 
 
 def quote_payload(*rows):

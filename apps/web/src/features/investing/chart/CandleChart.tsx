@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 
 import {
   drawOverlays,
@@ -49,6 +58,9 @@ type CandleChartProps = {
   bars: Bar[];
   /** Identity of the series whose view is on screen. */
   viewKey: string;
+  /** Names the chart for people who cannot inspect its pixels. */
+  symbol: string;
+  timeframe: string;
   /** Precomputed series, index-aligned with `bars`. Absent means "not on". */
   indicators?: IndicatorSeries;
   /** Which panes to open below the price, in the order they are drawn. */
@@ -65,6 +77,8 @@ type Crosshair = { x: number; y: number; index: number } | null;
 export function CandleChart({
   bars,
   viewKey,
+  symbol,
+  timeframe,
   indicators,
   panes,
   isGhost,
@@ -80,6 +94,8 @@ export function CandleChart({
   const [shownViewKey, setShownViewKey] = useState(viewKey);
   const [following, setFollowing] = useState(true);
   const [crosshair, setCrosshair] = useState<Crosshair>(null);
+  const [keyboardIndex, setKeyboardIndex] = useState<number | null>(null);
+  const [tableOpen, setTableOpen] = useState(false);
   const [drag, setDrag] = useState<{ pointerId: number; x: number; from: IndexWindow } | null>(
     null,
   );
@@ -92,6 +108,8 @@ export function CandleChart({
     setWindow({ first: 0, last: DEFAULT_VISIBLE });
     setFollowing(true);
     setCrosshair(null);
+    setKeyboardIndex(null);
+    setTableOpen(false);
     setDrag(null);
   }
 
@@ -124,6 +142,23 @@ export function CandleChart({
     () => layoutPanes(plot.height, paneKey ? (paneKey.split(',') as PaneId[]) : []),
     [plot.height, paneKey],
   );
+
+  // This is deliberately derived from bars/window only. Pointer motion redraws
+  // the overlay, but it must not reformat the screen-reader range or table.
+  const shownBars = useMemo(() => visibleBars(bars, window), [bars, window]);
+  const visibleRange = useMemo(() => {
+    if (!shownBars.length) return 'No bars are visible.';
+    const first = shownBars[0];
+    const last = shownBars.at(-1);
+    return `Showing ${shownBars.length} bars from ${formatTime(first)} to ${formatTime(last ?? first)}.`;
+  }, [formatTime, shownBars]);
+  const tableRows = useMemo(
+    () => (tableOpen ? shownBars.map((bar) => ({ bar })) : []),
+    [shownBars, tableOpen],
+  );
+  const instructionsId = useId();
+  const statusId = useId();
+  const tableId = useId();
 
   useEffect(() => {
     const canvas = candleRef.current;
@@ -170,12 +205,7 @@ export function CandleChart({
     if (drag && event.pointerId === drag.pointerId) {
       const perBar = plot.width / Math.max(1, drag.from.last - drag.from.first);
       // Dragging right walks back through history, like moving a paper chart.
-      const next = panWindow(
-        drag.from,
-        -(x - drag.x) / perBar,
-        bars.length,
-        minVisibleBars(plot),
-      );
+      const next = panWindow(drag.from, -(x - drag.x) / perBar, bars.length, minVisibleBars(plot));
       // Follow only lets go when the user has actually walked away from the
       // right edge. Dragging into the edge must not disable it by accident.
       if (next.last < bars.length) setFollowing(false);
@@ -187,7 +217,98 @@ export function CandleChart({
       setCrosshair(null);
       return;
     }
+    setKeyboardIndex(null);
     setCrosshair({ x, y, index: Math.round(indexAt(x, window, plot)) });
+  }
+
+  function windowContaining(index: number): IndexWindow {
+    if (index >= window.first && index < window.last) return window;
+
+    const span = window.last - window.first;
+    if (index < window.first) {
+      return clampWindow({ first: index, last: index + span }, bars.length, minVisibleBars(plot));
+    }
+    return clampWindow(
+      { first: index - span + 1, last: index + 1 },
+      bars.length,
+      minVisibleBars(plot),
+    );
+  }
+
+  function selectBar(index: number) {
+    if (!bars.length) return;
+    const nextIndex = Math.max(0, Math.min(bars.length - 1, index));
+    const nextWindow = windowContaining(nextIndex);
+    // Keyboard movement into history is the same intent as dragging there:
+    // do not snap the user back to the incoming live edge.
+    if (nextIndex < bars.length - 1 || nextWindow.last < bars.length) setFollowing(false);
+    setWindow(nextWindow);
+    setKeyboardIndex(nextIndex);
+    setCrosshair({
+      x: xAt(nextIndex, nextWindow, plot),
+      y: plot.height / 2,
+      index: nextIndex,
+    });
+  }
+
+  function panByKeyboard(byBars: number) {
+    const next = panWindow(window, byBars, bars.length, minVisibleBars(plot));
+    if (next.last < bars.length) setFollowing(false);
+    setWindow(next);
+    setKeyboardIndex(null);
+    setCrosshair(null);
+  }
+
+  function zoomByKeyboard(factor: number) {
+    if (!bars.length) return;
+    const pivot = keyboardIndex ?? Math.max(0, Math.ceil(window.last) - 1);
+    const next = zoomWindow(window, factor, pivot, bars.length, minVisibleBars(plot));
+    if (next.last < bars.length) setFollowing(false);
+    setWindow(next);
+  }
+
+  function onSurfaceKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const selected = keyboardIndex ?? Math.max(0, Math.ceil(window.last) - 1);
+    const panStep = Math.max(1, Math.floor((window.last - window.first) * 0.8));
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault();
+        selectBar(selected - 1);
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        selectBar(selected + 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        selectBar(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        selectBar(bars.length - 1);
+        break;
+      case 'PageUp':
+        event.preventDefault();
+        panByKeyboard(-panStep);
+        break;
+      case 'PageDown':
+        event.preventDefault();
+        panByKeyboard(panStep);
+        break;
+      case '+':
+      case '=':
+        event.preventDefault();
+        zoomByKeyboard(1 / WHEEL_STEP);
+        break;
+      case '-':
+      case '_':
+        event.preventDefault();
+        zoomByKeyboard(WHEEL_STEP);
+        break;
+      default:
+        break;
+    }
   }
 
   /*
@@ -218,62 +339,137 @@ export function CandleChart({
     return () => element.removeEventListener('wheel', onWheel);
   }, [plot, bars.length, moveWindow]);
 
+  const selected = keyboardIndex === null ? undefined : bars[keyboardIndex];
   const hovered = crosshair ? bars[crosshair.index] : undefined;
+  const activeBar = selected ?? hovered;
+  const activeIndex = selected && keyboardIndex !== null ? keyboardIndex : crosshair?.index;
+  const selectedSummary = selected
+    ? `${formatTime(selected)}. Open ${selected.open.toFixed(2)}, high ${selected.high.toFixed(2)}, low ${selected.low.toFixed(2)}, close ${selected.close.toFixed(2)}.`
+    : undefined;
 
   return (
-    <div className={styles.chart} ref={frameRef}>
-      <canvas ref={candleRef} className={styles.layer} style={{ width: '100%', height: '100%' }} />
-      <canvas ref={overlayRef} className={styles.layer} style={{ width: '100%', height: '100%' }} />
+    <div className={styles.chartShell}>
+      <div className={styles.chart} ref={frameRef}>
+        <canvas
+          ref={candleRef}
+          className={styles.layer}
+          style={{ width: '100%', height: '100%' }}
+        />
+        <canvas
+          ref={overlayRef}
+          className={styles.layer}
+          style={{ width: '100%', height: '100%' }}
+        />
 
-      <div
-        ref={surfaceRef}
-        className={`${styles.surface} ${drag ? styles.dragging : ''}`}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture?.(event.pointerId);
-          setDrag({ pointerId: event.pointerId, x: pointerPosition(event).x, from: window });
-        }}
-        onPointerMove={onPointerMove}
-        onPointerUp={() => setDrag(null)}
-        onPointerCancel={() => setDrag(null)}
-        onPointerLeave={() => setCrosshair(null)}
-      />
+        <div
+          ref={surfaceRef}
+          className={`${styles.surface} ${drag ? styles.dragging : ''}`}
+          role="region"
+          aria-roledescription="candlestick chart"
+          aria-label={`${symbol} ${timeframe} chart. ${visibleRange} ${
+            following ? 'Following latest candles.' : 'Viewing historical candles.'
+          }`}
+          aria-describedby={`${instructionsId} ${statusId}`}
+          tabIndex={0}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            setDrag({ pointerId: event.pointerId, x: pointerPosition(event).x, from: window });
+          }}
+          onPointerMove={onPointerMove}
+          onPointerUp={() => setDrag(null)}
+          onPointerCancel={() => setDrag(null)}
+          onPointerLeave={() => setCrosshair(null)}
+          onKeyDown={onSurfaceKeyDown}
+        />
 
-      <button
-        type="button"
-        className={styles.follow}
-        aria-pressed={following}
-        title="Follow latest candles"
-        onClick={() => setFollowing(true)}
-      >
-        Latest
-      </button>
+        <p id={instructionsId} className={styles.srOnly}>
+          Use left and right arrow keys to read candles. Home and End move to the first and latest
+          candle. Page Up and Page Down pan. Plus and minus zoom. Moving into history stops
+          following the latest candles.
+        </p>
+        <p id={statusId} className={styles.srOnly} aria-live="polite">
+          {selectedSummary ?? visibleRange}
+        </p>
 
-      {/* The readout follows the crosshair rather than living in a corner, so
-          the eye does not have to travel to read what it is pointing at. */}
-      {hovered ? (
-        <div className={styles.readout}>
-          <span className={styles.readoutTime}>{formatTime(hovered)}</span>
-          <span>
-            O <strong>{hovered.open.toFixed(2)}</strong>
-          </span>
-          <span>
-            H <strong>{hovered.high.toFixed(2)}</strong>
-          </span>
-          <span>
-            L <strong>{hovered.low.toFixed(2)}</strong>
-          </span>
-          <span>
-            C <strong>{hovered.close.toFixed(2)}</strong>
-          </span>
-          {crosshair && isGhost(hovered, crosshair.index) ? (
-            <span className={styles.ghostTag}>extended</span>
-          ) : null}
+        <button
+          type="button"
+          className={styles.follow}
+          aria-pressed={following}
+          title="Follow latest candles"
+          onClick={() => setFollowing(true)}
+        >
+          Latest
+        </button>
+
+        <button
+          type="button"
+          className={styles.dataToggle}
+          aria-expanded={tableOpen}
+          aria-controls={tableId}
+          onClick={() => setTableOpen((open) => !open)}
+        >
+          {tableOpen ? 'Hide data table' : 'Show data table'}
+        </button>
+
+        {/* The readout follows the crosshair rather than living in a corner, so
+            the eye does not have to travel to read what it is pointing at. */}
+        {activeBar ? (
+          <div className={styles.readout}>
+            <span className={styles.readoutTime}>{formatTime(activeBar)}</span>
+            <span>
+              O <strong>{activeBar.open.toFixed(2)}</strong>
+            </span>
+            <span>
+              H <strong>{activeBar.high.toFixed(2)}</strong>
+            </span>
+            <span>
+              L <strong>{activeBar.low.toFixed(2)}</strong>
+            </span>
+            <span>
+              C <strong>{activeBar.close.toFixed(2)}</strong>
+            </span>
+            {activeIndex !== undefined && isGhost(activeBar, activeIndex) ? (
+              <span className={styles.ghostTag}>extended</span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {loading && !bars.length ? <div className={styles.empty}>Loading…</div> : null}
+        {!loading && !bars.length ? (
+          <div className={styles.empty}>No bars for this symbol.</div>
+        ) : null}
+      </div>
+
+      {tableOpen ? (
+        <div id={tableId} className={styles.dataTable}>
+          <table>
+            <caption>
+              {symbol} {timeframe} visible candle data. {visibleRange}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Time</th>
+                <th scope="col">Open</th>
+                <th scope="col">High</th>
+                <th scope="col">Low</th>
+                <th scope="col">Close</th>
+                <th scope="col">Volume</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map(({ bar }) => (
+                <tr key={bar.time}>
+                  <th scope="row">{formatTime(bar)}</th>
+                  <td>{bar.open.toFixed(2)}</td>
+                  <td>{bar.high.toFixed(2)}</td>
+                  <td>{bar.low.toFixed(2)}</td>
+                  <td>{bar.close.toFixed(2)}</td>
+                  <td>{bar.volume.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ) : null}
-
-      {loading && !bars.length ? <div className={styles.empty}>Loading…</div> : null}
-      {!loading && !bars.length ? (
-        <div className={styles.empty}>No bars for this symbol.</div>
       ) : null}
     </div>
   );

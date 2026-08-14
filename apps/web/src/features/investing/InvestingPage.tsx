@@ -271,6 +271,8 @@ export function InvestingPage() {
             <CandleChart
               bars={candles.bars}
               viewKey={`${symbol}:${timeframe}`}
+              symbol={symbol}
+              timeframe={timeframe}
               indicators={series}
               panes={panes}
               isGhost={candles.isGhost}

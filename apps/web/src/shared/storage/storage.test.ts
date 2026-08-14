@@ -52,4 +52,12 @@ describe('storage facade', () => {
     await expect(writeStorage('not-allowed' as never, 1)).rejects.toThrow(/not allowlisted/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('leaves an old chart-views document untouched', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(readStorage('chart-views' as never)).rejects.toThrow(/not allowlisted/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

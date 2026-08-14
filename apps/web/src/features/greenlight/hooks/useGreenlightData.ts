@@ -93,24 +93,24 @@ export function useGreenlightData() {
       store.edit(async (current) => {
         const { importGreenlightCsv } = await import('@/features/greenlight/lib/processRows');
         const imported = importGreenlightCsv(content);
+        const { planGreenlightImport } = await import('@/features/greenlight/lib/importPlan');
+        const plan = planGreenlightImport({
+          existing: current.stats,
+          incoming: imported.stats,
+          replaceMode,
+        });
 
-        let stats = imported.stats;
-        let statusDetail = `Replaced all data with ${imported.daysGenerated} day(s) from ${imported.rowsRead} rows.`;
-
-        if (replaceMode === 'current-month') {
-          const { currentMonthKey, mergeCurrentMonthStats } =
-            await import('@/features/greenlight/lib/merge');
-          const monthKey = currentMonthKey();
-          const { merged, replacedDays } = mergeCurrentMonthStats(
-            current.stats,
-            imported.stats,
-            monthKey,
+        if (plan.emptyMonth) {
+          throw new Error(
+            `The CSV has no records for the current month (${plan.monthKey}). Nothing was changed.`,
           );
-          stats = merged;
-          statusDetail =
-            `Replaced only ${monthKey}: ${replacedDays} day(s) from the CSV. ` +
-            'Other months were kept; unmarked CSV days outside this month were ignored.';
         }
+
+        const stats = plan.nextStats;
+        const statusDetail =
+          replaceMode === 'current-month'
+            ? `Replaced only ${plan.monthKey}: ${Object.keys(imported.stats).filter((date) => date.startsWith(`${plan.monthKey}-`)).length} day(s) from the CSV. Other months were kept; unmarked CSV days outside this month were ignored.`
+            : `Replaced all data with ${imported.daysGenerated} day(s) from ${imported.rowsRead} rows.`;
 
         return {
           stats,

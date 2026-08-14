@@ -17,6 +17,8 @@ export type Quote = {
   change: number | null;
   changePercent: number | null;
   provider: string;
+  /** Provider market time in Unix seconds; null when it did not provide one. */
+  time: number | null;
   /** What the exchange says about its own session; absent where there is none. */
   marketState: string | null;
   name: string | null;

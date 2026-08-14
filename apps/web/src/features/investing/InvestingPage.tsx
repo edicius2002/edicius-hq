@@ -118,14 +118,6 @@ export function InvestingPage() {
     refetchInterval: cadenceFor(candles.regime, 0, { streaming: live }).quotesMs,
   });
 
-  // Quotes do not carry their own market timestamp. React Query's update time
-  // is therefore the best sweep boundary available here; it is milliseconds,
-  // while the stream contract uses seconds. A tick without a timestamp stays
-  // visible because it cannot honestly be ordered against the sweep.
-  useEffect(() => {
-    if (quotes.dataUpdatedAt) discardTicksBefore(quotes.dataUpdatedAt / 1000);
-  }, [quotes.dataUpdatedAt, discardTicksBefore]);
-
   // The reasons decision 8.8 sends beside the quotes that worked. They reached
   // the page and stopped there, so a refused row showed the same "·" as one
   // still loading — forever.
@@ -142,6 +134,20 @@ export function InvestingPage() {
     for (const quote of quotes.data?.quotes ?? []) map.set(quote.symbol, quote);
     return map;
   }, [quotes.data]);
+
+  const sweepTimes = useMemo(
+    () => new Map((quotes.data?.quotes ?? []).map((quote) => [quote.symbol, quote.time])),
+    [quotes.data],
+  );
+
+  // The provider's market timestamp and streamed tick timestamp are both
+  // exchange Unix seconds, so a tick arriving while a sweep is in flight stays
+  // above an older response. When an upstream omits quote.time, React Query's
+  // browser arrival time is a documented, less precise fallback. Untimestamped
+  // ticks always stay because they cannot be ordered against either boundary.
+  useEffect(() => {
+    if (quotes.dataUpdatedAt) discardTicksBefore(sweepTimes, quotes.dataUpdatedAt / 1000);
+  }, [quotes.dataUpdatedAt, discardTicksBefore, sweepTimes]);
 
   // The swept quotes with every tick since laid over them. The sweep is the
   // row; the stream only moves the price on it.

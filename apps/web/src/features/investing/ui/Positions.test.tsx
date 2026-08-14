@@ -29,6 +29,7 @@ describe('Positions', () => {
                 change: 5,
                 changePercent: 4.17,
                 provider: 'test',
+                time: 100,
                 marketState: 'REGULAR',
                 name: 'Apple Inc.',
                 extended: false,

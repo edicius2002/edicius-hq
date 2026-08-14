@@ -31,6 +31,7 @@ function quotes(): Map<string, Quote> {
         change: 0.48,
         changePercent: 1.85,
         provider: 'yahoo',
+        time: 100,
         marketState: 'REGULAR',
         name: 'Pfizer, Inc.',
         extended: false,
@@ -96,5 +97,34 @@ describe('the two lists, side by side', () => {
     // Both lists show a PFE price; the button that charts it must not be
     // confusable with the one that opens the position for editing.
     expect(screen.getByRole('button', { name: 'Edit PFE position' })).toBeInTheDocument();
+  });
+
+  it('explains when a followed symbol was excluded by the request limit', () => {
+    render(
+      <Watchlist
+        entries={entries}
+        quotes={new Map()}
+        failures={
+          new Map([
+            [
+              SYMBOL,
+              {
+                code: 'batch-limit',
+                message: 'Excluded: a request can follow at most 48 symbols.',
+              },
+            ],
+          ])
+        }
+        selected={SYMBOL}
+        onSelect={vi.fn()}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('request limit')).toHaveAttribute(
+      'title',
+      'Excluded: a request can follow at most 48 symbols.',
+    );
   });
 });

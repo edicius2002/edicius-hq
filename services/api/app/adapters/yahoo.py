@@ -94,6 +94,7 @@ async def fetch_quote(client: httpx.AsyncClient, symbol: str) -> Quote:
             else None
         ),
         provider=PROVIDER,
+        time=_timestamp(meta.get("regularMarketTime")),
     )
 
 
@@ -276,6 +277,7 @@ def parse_quotes(payload: object) -> list[Quote]:
                 currency=str(row.get("currency") or "USD").upper(),
                 previous_close=float(previous) if previous is not None else None,
                 provider=PROVIDER,
+                time=_quote_time(row, state, extended),
                 # The exchange's own view of its session, which a clock cannot
                 # give: it knows about holidays.
                 market_state=models.canonical_session(state),
@@ -295,6 +297,27 @@ _EXTENDED_PRICE_FIELD = {
     "POST": "postMarketPrice",
     "POSTPOST": "postMarketPrice",
 }
+
+_EXTENDED_TIME_FIELD = {
+    "PRE": "preMarketTime",
+    "PREPRE": "preMarketTime",
+    "POST": "postMarketTime",
+    "POSTPOST": "postMarketTime",
+}
+
+
+def _timestamp(value: object) -> float | None:
+    """An upstream timestamp, or an explicit absence when it cannot be read."""
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _quote_time(row: dict, state: str, extended: bool) -> float | None:
+    """Timestamp for the same session price selected by `_live_price`."""
+    field = _EXTENDED_TIME_FIELD.get(state) if extended else "regularMarketTime"
+    return _timestamp(row.get(field))
 
 
 def _live_price(row: dict, state: str) -> tuple[float | None, bool]:

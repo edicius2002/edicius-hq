@@ -12,6 +12,7 @@ These assert the literal keys, because the literal keys are the contract.
 
 import json
 import os
+import asyncio
 from unittest import mock
 
 import pytest
@@ -41,6 +42,7 @@ def quote(symbol: str = "AAPL") -> Quote:
         currency="USD",
         previous_close=311.0,
         provider="yahoo",
+        time=1_786_060_798.0,
         market_state="POST",
         name="Apple Inc.",
         extended=True,
@@ -63,6 +65,7 @@ class TestQuotesOnTheWire:
             "change": pytest.approx(1.56),
             "changePercent": pytest.approx(0.5016, abs=1e-3),
             "provider": "yahoo",
+            "time": 1_786_060_798.0,
             "marketState": "POST",
             "name": "Apple Inc.",
             "extended": True,
@@ -84,6 +87,26 @@ class TestQuotesOnTheWire:
 
     def test_refuses_a_request_with_no_symbols(self, client):
         assert client.get("/api/market/quotes?symbols=").status_code == 400
+
+    def test_reports_symbols_excluded_by_the_batch_limit(self, client):
+        symbols = [f"SYM{i}" for i in range(49)]
+        requested: list[str] = []
+
+        async def answer(_client, wanted):
+            requested.extend(wanted)
+            return [], []
+
+        with mock.patch.object(market_router.registry, "fetch_quotes", answer):
+            body = client.get(f"/api/market/quotes?symbols={','.join(symbols)}").json()
+
+        assert requested == symbols[:48]
+        assert body["failed"] == [
+            {
+                "symbol": "SYM48",
+                "code": "batch-limit",
+                "message": "Excluded: a request can follow at most 48 symbols.",
+            }
+        ]
 
 
 class TestBarsOnTheWire:
@@ -215,3 +238,24 @@ class TestTheStreamFrames:
         # Two newlines end an event; one would make the browser wait forever.
         assert market_router.sse("quotes", [1]) == "event: quotes\ndata: [1]\n\n"
         assert json.loads(market_router.sse("open", {"a": 1}).split("data: ")[1]) == {"a": 1}
+
+    def test_the_stream_open_frame_reports_symbols_excluded_by_the_same_limit(self):
+        class Request:
+            async def is_disconnected(self):
+                return False
+
+        symbols = ",".join(f"SYM{i}" for i in range(49))
+
+        async def first_frame():
+            response = await market_router.stream_quotes(Request(), symbols)
+            body = response.body_iterator
+            try:
+                return await anext(body)
+            finally:
+                await body.aclose()
+
+        frame = asyncio.run(first_frame())
+        assert json.loads(frame.split("data: ")[1]) == {
+            "symbols": sorted(f"SYM{i}" for i in range(48)),
+            "excluded": ["SYM48"],
+        }

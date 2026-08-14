@@ -149,12 +149,18 @@ class TestBinanceParsing:
         assert len(binance.parse_bars(payload)) == 1
 
     def test_derives_the_previous_close_from_the_24h_change(self):
-        quote = binance.parse_quote("BTCUSDT", {"lastPrice": "110.0", "priceChange": "10.0"})
+        quote = binance.parse_quote(
+            "BTCUSDT", {"lastPrice": "110.0", "priceChange": "10.0", "closeTime": 1700000000123}
+        )
 
         assert quote.price == 110.0
         assert quote.previous_close == 100.0
         assert quote.change == 10.0
         assert quote.change_percent == pytest.approx(10.0)
+        assert quote.time == pytest.approx(1700000000.123)
+
+    def test_a_missing_upstream_time_stays_explicitly_unknown(self):
+        assert binance.parse_quote("BTCUSDT", {"lastPrice": "110.0"}).time is None
 
     def test_a_quote_with_no_price_is_refused(self):
         with pytest.raises(ProviderError) as caught:
@@ -379,6 +385,7 @@ class TestYahooBatchParsing:
                     "regularMarketPreviousClose": 333.43,
                     "currency": "usd",
                     "marketState": "POSTPOST",
+                    "regularMarketTime": 1_700_000_123,
                     "shortName": "Apple Inc.",
                 },
                 {"symbol": "MSFT", "regularMarketPrice": 500.0},
@@ -393,6 +400,7 @@ class TestYahooBatchParsing:
         assert quotes[0].market_state == "POST"
         assert quotes[0].name == "Apple Inc."
         assert quotes[0].change == pytest.approx(312.41 - 333.43)
+        assert quotes[0].time == 1_700_000_123
 
     def test_a_symbol_with_no_price_is_left_out_rather_than_faked(self):
         quotes = yahoo.parse_quotes(
@@ -405,6 +413,7 @@ class TestYahooBatchParsing:
         assert quote.previous_close is None
         assert quote.change is None
         assert quote.change_percent is None
+        assert quote.time is None
 
     def test_an_upstream_error_is_reported_rather_than_read_as_empty(self):
         with pytest.raises(ProviderError):
@@ -515,12 +524,14 @@ class TestExtendedSessionPricing:
                     "regularMarketPrice": 312.41,
                     "regularMarketPreviousClose": 311.0,
                     "postMarketPrice": 312.56,
+                    "postMarketTime": 1_700_000_123,
                 }
             )
         )[0]
 
         assert quote.price == 312.56
         assert quote.extended is True
+        assert quote.time == 1_700_000_123
 
     def test_takes_the_pre_market_price_before_it(self):
         quote = yahoo.parse_quotes(
@@ -530,12 +541,14 @@ class TestExtendedSessionPricing:
                     "marketState": "PRE",
                     "regularMarketPrice": 312.41,
                     "preMarketPrice": 313.90,
+                    "preMarketTime": 1_700_000_124,
                 }
             )
         )[0]
 
         assert quote.price == 313.90
         assert quote.extended is True
+        assert quote.time == 1_700_000_124
 
     def test_measures_change_against_the_regular_close_even_then(self):
         # "How is it doing today", not "how far has it drifted since the bell":
@@ -558,12 +571,20 @@ class TestExtendedSessionPricing:
 
     def test_falls_back_when_the_extended_session_has_not_traded_yet(self):
         quote = yahoo.parse_quotes(
-            quote_payload({"symbol": "AAPL", "marketState": "POST", "regularMarketPrice": 312.41})
+            quote_payload(
+                {
+                    "symbol": "AAPL",
+                    "marketState": "POST",
+                    "regularMarketPrice": 312.41,
+                    "regularMarketTime": 1_700_000_125,
+                }
+            )
         )[0]
 
         # A stale number beats an empty row.
         assert quote.price == 312.41
         assert quote.extended is False
+        assert quote.time == 1_700_000_125
 
     def test_leaves_the_regular_price_alone_while_the_market_is_open(self):
         quote = yahoo.parse_quotes(

@@ -7,7 +7,6 @@ export const STORAGE_KEYS = [
   'greenlight',
   'drawings',
   'indicators',
-  'chart-views',
   'finance-camera-views',
 ] as const;
 

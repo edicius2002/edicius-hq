@@ -146,8 +146,9 @@ export function allocatedHeight(blocks: number): number {
 export const NODE_WIDTH: Record<NodeKind, number> = {
   job: 240,
   /**
-   * The widest intrinsic account content. Holdings can make an account wider
-   * still, because their positions are unbounded; see `holdingSpanWidth`.
+   * The widest an account is ever drawn. Holdings can only bring it below this
+   * — a single column need not reserve the full width — never above it; see
+   * `holdingSpanWidth`.
    */
   account: 240,
   holding: 93,
@@ -269,9 +270,18 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
   const chips = assets > 0 ? balancesHeight(assets) : allocated > 0 ? 0 : ROW.muted;
   const blocks = allocatedHeight(allocated);
   const gapBetween = chips > 0 && blocks > 0 ? CHIP_GAP : 0;
+  // The holdings' span can only ever make an account *narrower*. Left to widen
+  // it, distance became width: holdings dragged apart stretched their account
+  // across the gap between them — one real diagram reached 779px of mostly air
+  // for twelve holdings spread over six columns. The point of measuring them
+  // was to stop a single column reserving the full 240, not to let an
+  // arrangement grow past what the account itself is ever drawn as.
   const intrinsicWidth =
     node.kind === 'account'
-      ? Math.max(content.minimumWidth ?? EMPTY_ACCOUNT_CONTENT_WIDTH, content.holdingSpanWidth ?? 0)
+      ? Math.max(
+          content.minimumWidth ?? EMPTY_ACCOUNT_CONTENT_WIDTH,
+          Math.min(content.holdingSpanWidth ?? 0, NODE_WIDTH.account),
+        )
       : NODE_WIDTH.job;
   return { width: intrinsicWidth, height: heightOf(rows, chips + blocks + gapBetween) };
 }
@@ -287,9 +297,9 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
 export const NODE_SIZE: Record<NodeKind, Size> = {
   job: { width: NODE_WIDTH.job, height: heightOf(['name', 'operations'], balancesHeight(1)) },
   account: {
-    // Holding positions have no maximum distance, so there is no finite global
-    // maximum account width. This is the widest *intrinsic* account content;
-    // `holdingSpanWidth` can deliberately exceed it once the diagram is known.
+    // A true upper bound again: the holdings' span is clamped to this in
+    // `sizeOf`, so no arrangement of them can make an account wider than the
+    // box its own content is measured against.
     width: NODE_WIDTH.account,
     height: heightOf(['name', 'operations'], balancesHeight(1)),
   },

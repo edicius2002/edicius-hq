@@ -249,7 +249,7 @@ describe('a box that follows its rows', () => {
     expect(sizeOf(holding(), {}).width).toBeLessThan(100);
   });
 
-  it('lets an account follow the real span of its holdings', () => {
+  it('lets its holdings narrow an account, never widen it', () => {
     const ownContent = HOLDING_CONTENT_WIDTH;
     const oneColumn = sizeOf(account(), { minimumWidth: ownContent, holdingSpanWidth: ownContent });
     const overlapping = sizeOf(account(), {
@@ -260,12 +260,21 @@ describe('a box that follows its rows', () => {
       minimumWidth: ownContent,
       holdingSpanWidth: ownContent + 194,
     });
+    const scattered = sizeOf(account(), {
+      minimumWidth: ownContent,
+      holdingSpanWidth: 779,
+    });
 
-    // Overlapping holdings occupy only their bounding box; they are not counted
-    // as two columns merely because their x coordinates differ.
+    // A single column stops reserving the full width, which is the whole point
+    // of measuring the holdings at all.
     expect(oneColumn.width).toBe(ownContent);
     expect(overlapping.width).toBe(ownContent + 18);
-    expect(twoColumns.width).toBe(ownContent + 194);
+
+    // Past the account's own width the span stops counting: distance between
+    // holdings is empty space, not content the box has to hold. Dragging twelve
+    // of them across six columns used to stretch their account to 779px.
+    expect(twoColumns.width).toBe(NODE_SIZE.account.width);
+    expect(scattered.width).toBe(NODE_SIZE.account.width);
   });
 
   it('reserves the tallest case for anything that has to guess', () => {

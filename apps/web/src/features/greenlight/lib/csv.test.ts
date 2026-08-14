@@ -1,15 +1,11 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { describe, expect, it } from 'vitest';
 
 import { parseCsv } from '@/features/greenlight/lib/csv';
 
-const FIXTURE = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/timerecords-sample.csv'),
-  'utf8',
-);
+// Loaded through the bundler rather than `node:fs`: `src` is browser code and
+// its tsconfig types it as such, so a test reaching for the filesystem builds
+// under Vitest and fails the app's own `tsc -b`.
+import FIXTURE from './fixtures/timerecords-sample.csv?raw';
 
 describe('parseCsv', () => {
   it('parses the real TimeRecords export: 23 quoted rows, commas inside Notes', () => {

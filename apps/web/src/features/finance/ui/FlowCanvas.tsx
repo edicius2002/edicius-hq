@@ -580,6 +580,7 @@ export function FlowCanvas({
           world={mapped}
           camera={camera}
           viewport={viewportSize}
+          contentOf={contentOf}
           onMoveTo={(point) => setCamera((current) => centerOn(point, viewportSize, current.zoom))}
         />
       ) : null}
@@ -640,10 +641,17 @@ function FlowLabel({
   const breakdown = computeTransfer(flow.amount ?? 0, source, target);
   const charged = breakdown.steps.length > 0;
   const overdrawn = isOverdrawnByFees(breakdown);
+  const label = flow.label.trim();
+  const hasLabel = label.length > 0;
 
   return (
     <text className={styles.edgeLabel} x={x} y={y} textAnchor="middle">
-      <tspan x={x} dy={charged ? '-0.35em' : '0'}>
+      {hasLabel ? (
+        <tspan className={styles.edgeLabelName} x={x} dy={charged ? '-1.05em' : '-0.6em'}>
+          {label}
+        </tspan>
+      ) : null}
+      <tspan className={styles.edgeLabelAmount} x={x} dy={hasLabel ? '1.2em' : charged ? '-0.35em' : '0'}>
         {formatAssetAmount(flow.asset, breakdown.gross)}
       </tspan>
       {charged ? (

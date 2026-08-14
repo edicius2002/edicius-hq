@@ -8,7 +8,7 @@ import {
   type Camera,
   type Rect,
 } from '@/features/finance/lib/camera';
-import { sizeOf, type Size } from '@/features/finance/lib/geometry';
+import { sizeOf, type ContentOf, type Size } from '@/features/finance/lib/geometry';
 import type { FinanceNode, Frame, Point } from '@/features/finance/model/types';
 
 import styles from './CanvasMinimap.module.css';
@@ -36,6 +36,7 @@ type CanvasMinimapProps = {
   world: Rect;
   camera: Camera;
   viewport: Size;
+  contentOf: ContentOf;
   onMoveTo: (world: Point) => void;
 };
 
@@ -50,6 +51,7 @@ export function CanvasMinimap({
   world,
   camera,
   viewport,
+  contentOf,
   onMoveTo,
 }: CanvasMinimapProps) {
   const dragPointer = useRef<number | null>(null);
@@ -111,7 +113,7 @@ export function CanvasMinimap({
       })}
 
       {nodes.map((node) => {
-        const size = sizeOf(node);
+        const size = sizeOf(node, contentOf(node));
         const at = worldToMinimap(view, node.position);
         return (
           <rect

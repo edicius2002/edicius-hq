@@ -93,4 +93,18 @@ describe('import', () => {
     // Back to the two buttons, so a second attempt does not need a reload.
     expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument();
   });
+
+  it('recovers from a rejected restore instead of staying on Restoring', async () => {
+    const user = userEvent.setup();
+    const onRestore = vi.fn<Restore>(async () => {
+      throw new Error('storage unavailable');
+    });
+    renderControls(onRestore);
+
+    await user.upload(screen.getByLabelText('Backup file'), backupFile());
+    await user.click(await screen.findByRole('button', { name: 'Replace' }));
+
+    expect(await screen.findByText(/Could not save the restored backup/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument();
+  });
 });

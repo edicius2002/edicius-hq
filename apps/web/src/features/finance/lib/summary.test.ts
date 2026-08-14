@@ -6,7 +6,9 @@ import {
   selectAvailable,
   selectFrameSummary,
   selectInTransit,
+  selectNodeContent,
 } from '@/features/finance/lib/summary';
+import { HOLDING_CONTENT_WIDTH, sizeOf } from '@/features/finance/lib/geometry';
 import type {
   Balance,
   Diagram,
@@ -79,6 +81,42 @@ function diagram(nodes: FinanceNode[], flows: Flow[] = [], frames: Frame[] = [])
     frameOrder: frames.map((item) => item.id),
   };
 }
+
+describe('account node geometry', () => {
+  function contentFor(...holdings: FinanceNode[]) {
+    const accountNode = account('a1');
+    const model = diagram([accountNode, ...holdings]);
+    return { account: accountNode, content: selectNodeContent(model, accountNode) };
+  }
+
+  it('shrinks a one-holding account to its own content', () => {
+    const { account: accountNode, content } = contentFor(
+      holding('h1', 'a1', 'USD', 12005.13, { position: { x: 0, y: 0 } }),
+    );
+
+    expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH);
+    expect(sizeOf(accountNode, content).width).toBeLessThan(240);
+  });
+
+  it('uses the holdings bounding box, including overlap rather than exact x columns', () => {
+    const { content } = contentFor(
+      holding('left', 'a1', 'USD', 0, { position: { x: -153, y: 0 } }),
+      holding('right', 'a1', 'PEN', 0, { position: { x: -135, y: 0 } }),
+    );
+
+    expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 18);
+  });
+
+  it('keeps an account wide when holdings truly occupy separate columns', () => {
+    const { account: accountNode, content } = contentFor(
+      holding('left', 'a1', 'USD', 0, { position: { x: -581, y: 0 } }),
+      holding('right', 'a1', 'PEN', 0, { position: { x: -387, y: 0 } }),
+    );
+
+    expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 194);
+    expect(sizeOf(accountNode, content).width).toBeGreaterThan(240);
+  });
+});
 
 describe('selectAvailable', () => {
   it('subtracts what a source already committed', () => {

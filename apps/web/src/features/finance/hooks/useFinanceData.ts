@@ -161,9 +161,11 @@ export function useFinanceData() {
       const parsed = readBackup(text, DEFAULT_DIAGRAM_ID);
       if (!parsed.ok) return parsed;
 
+      await store.replace(parsed.value);
+      // Restore is deliberately not undoable, but a failed write must not erase
+      // the undo stack for the document the user still has on disk.
       histories.current.clear();
       setSteps({ canUndo: false, canRedo: false });
-      await store.replace(parsed.value);
       return ok(undefined);
     },
     [store],

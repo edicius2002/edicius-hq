@@ -6,8 +6,6 @@ import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
 import { activePanes } from '@/features/investing/data/indicators';
-import { chartViewKey } from '@/features/investing/data/chartViews';
-import { useChartViews } from '@/features/investing/hooks/useChartViews';
 import { useIndicatorSeries } from '@/features/investing/hooks/useIndicatorSeries';
 import { useIndicators } from '@/features/investing/hooks/useIndicators';
 import { usePortfolio } from '@/features/investing/hooks/usePortfolio';
@@ -90,13 +88,11 @@ export function InvestingPage() {
   }, [chartFocused]);
 
   const candles = useCandles(symbol, timeframe);
-  const chartViews = useChartViews();
   const { indicators, toggle: toggleIndicator } = useIndicators();
   // Functions of the bars alone, so they survive every pan and zoom untouched.
   const series = useIndicatorSeries(candles.bars, indicators, timeframe);
   const panes = useMemo(() => activePanes(indicators), [indicators]);
   const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
-  const currentChartView = useMemo(() => chartViewKey(symbol, timeframe), [symbol, timeframe]);
 
   // The charted symbol rides along with the watchlist, so the whole screen is
   // one request rather than one for the list and another for what it points at.
@@ -122,6 +118,13 @@ export function InvestingPage() {
     refetchInterval: cadenceFor(candles.regime, 0, { streaming: stream.live }).quotesMs,
   });
 
+  // A successful REST sweep is newer than every overlay kept from the prior
+  // sweep. Dropping those overlays is what lets polling recover a dead stream
+  // instead of leaving its last tick painted forever.
+  useEffect(() => {
+    if (quotes.dataUpdatedAt) stream.discardTicks();
+  }, [quotes.dataUpdatedAt, stream.discardTicks]);
+
   // The reasons decision 8.8 sends beside the quotes that worked. They reached
   // the page and stopped there, so a refused row showed the same "·" as one
   // still loading — forever.
@@ -144,6 +147,13 @@ export function InvestingPage() {
   const bySymbol = useMemo(
     () => applyTicks(swept, [...stream.ticks.values()]),
     [swept, stream.ticks],
+  );
+  const tapeQuotes = useMemo(
+    () => wanted.flatMap((wantedSymbol) => {
+      const quote = bySymbol.get(wantedSymbol);
+      return quote ? [quote] : [];
+    }),
+    [wanted, bySymbol],
   );
 
   const learnNames = watchlist.learnNames;
@@ -174,7 +184,7 @@ export function InvestingPage() {
       />
 
       <div className={styles.tickerWrap}>
-        <TickerTape quotes={quotes.data?.quotes ?? []} onSelect={setSymbol} />
+        <TickerTape quotes={tapeQuotes} onSelect={setSymbol} />
       </div>
 
       <div
@@ -250,18 +260,10 @@ export function InvestingPage() {
             <p className={styles.error} role="alert">
               Could not load bars for {symbol}.
             </p>
-          ) : chartViews.isFetching && !chartViews.isError ? (
-            // Do not draw the newest-bars default and then jump to the restored
-            // range: this brief pause makes the first chart frame the right one.
-            <p className={styles.note} role="status">
-              Restoring chart view…
-            </p>
           ) : (
             <CandleChart
               bars={candles.bars}
-              viewKey={currentChartView}
-              initialWindow={chartViews.windows[currentChartView] ?? null}
-              onWindowChange={(window) => void chartViews.setWindow(currentChartView, window)}
+              viewKey={`${symbol}:${timeframe}`}
               indicators={series}
               panes={panes}
               isGhost={candles.isGhost}
@@ -332,6 +334,7 @@ export function InvestingPage() {
                       void holdings.set(picked, quantity, averageCost)
                     }
                     onRemove={(picked) => void holdings.remove(picked)}
+                    onMove={(from, to) => void holdings.move(from, to)}
                   />
                 )}
               </div>

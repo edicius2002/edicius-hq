@@ -63,6 +63,7 @@ function renderBoth() {
         onSelect={vi.fn()}
         onEdit={vi.fn()}
         onRemove={vi.fn()}
+        onMove={vi.fn()}
       />
     </>,
   );

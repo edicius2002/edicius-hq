@@ -61,17 +61,40 @@ export function applyTicks(quotes: Map<string, Quote>, ticks: Tick[]): Map<strin
   let changed = false;
   const next = new Map(quotes);
 
+  // A reconnect can replay an older frame after a newer one. Keep one reading
+  // per symbol and let its exchange timestamp decide which is current; when an
+  // upstream has no timestamp, EventSource arrival order is the best ordering
+  // it gave us.
+  const latest = new Map<string, Tick>();
   for (const tick of ticks) {
+    const previous = latest.get(tick.symbol);
+    if (!previous || isNewerTick(tick, previous)) latest.set(tick.symbol, tick);
+  }
+
+  for (const tick of latest.values()) {
     const quote = next.get(tick.symbol);
     // A tick for a symbol the sweep has not delivered yet is dropped rather
     // than invented into a row: there is no previous close to measure it
     // against, and half a row is worse than none.
-    if (!quote || quote.price === tick.price) continue;
+    if (!quote || sameReading(quote, tick)) continue;
     next.set(tick.symbol, mergeTick(quote, tick));
     changed = true;
   }
 
   return changed ? next : quotes;
+}
+
+function isNewerTick(next: Tick, previous: Tick): boolean {
+  if (next.time !== null && previous.time !== null) return next.time >= previous.time;
+  return true;
+}
+
+function sameReading(quote: Quote, tick: Tick): boolean {
+  return (
+    quote.price === tick.price &&
+    quote.marketState === (tick.marketState ?? quote.marketState) &&
+    quote.extended === tick.extended
+  );
 }
 
 export function streamUrl(symbols: string[]): string {

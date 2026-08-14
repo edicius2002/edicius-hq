@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,48 @@ afterEach(() => {
 });
 
 describe('Positions', () => {
+  it('puts the portfolio total and its return above the position controls', () => {
+    render(
+      <Positions
+        portfolio={{
+          version: 1,
+          positions: [{ symbol: 'AAPL', quantity: 2, averageCost: 100 }],
+        }}
+        quotes={
+          new Map([
+            [
+              'AAPL',
+              {
+                symbol: 'AAPL',
+                price: 125,
+                currency: 'USD',
+                previousClose: 120,
+                change: 5,
+                changePercent: 4.17,
+                provider: 'test',
+                marketState: 'REGULAR',
+                name: 'Apple Inc.',
+                extended: false,
+              },
+            ],
+          ])
+        }
+        selected="AAPL"
+        onSelect={vi.fn()}
+        onEdit={vi.fn()}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    const total = screen.getByLabelText('Total USD');
+    const add = screen.getByRole('button', { name: 'Add position' });
+
+    expect(total).toHaveTextContent('250.00');
+    expect(total).toHaveTextContent('+50.00 · +25.00%');
+    expect(total.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('adds a position from an empty portfolio', async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();
@@ -32,6 +74,7 @@ describe('Positions', () => {
         onSelect={vi.fn()}
         onEdit={onEdit}
         onRemove={vi.fn()}
+        onMove={vi.fn()}
       />,
     );
 
@@ -60,6 +103,7 @@ describe('Positions', () => {
         onSelect={vi.fn()}
         onEdit={vi.fn()}
         onRemove={vi.fn()}
+        onMove={vi.fn()}
       />,
     );
 
@@ -88,6 +132,7 @@ describe('Positions', () => {
         onSelect={vi.fn()}
         onEdit={onEdit}
         onRemove={vi.fn()}
+        onMove={vi.fn()}
       />,
     );
 
@@ -98,5 +143,32 @@ describe('Positions', () => {
     await user.click(screen.getByRole('button', { name: 'Save AAPL position' }));
 
     expect(onEdit).toHaveBeenCalledWith('AAPL', 2, 100);
+  });
+
+  it('reorders positions by drag and drop', () => {
+    const onMove = vi.fn();
+    const { container } = render(
+      <Positions
+        portfolio={{
+          version: 1,
+          positions: [
+            { symbol: 'AAPL', quantity: 1, averageCost: 100 },
+            { symbol: 'MSFT', quantity: 1, averageCost: 200 },
+          ],
+        }}
+        quotes={new Map()}
+        selected="AAPL"
+        onSelect={vi.fn()}
+        onEdit={vi.fn()}
+        onRemove={vi.fn()}
+        onMove={onMove}
+      />,
+    );
+
+    const rows = container.querySelectorAll('li[draggable="true"]');
+    fireEvent.dragStart(rows[0]);
+    fireEvent.drop(rows[1]);
+
+    expect(onMove).toHaveBeenCalledWith('AAPL', 'MSFT');
   });
 });

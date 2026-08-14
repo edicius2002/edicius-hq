@@ -97,6 +97,23 @@ describe('applyTicks', () => {
     expect(applyTicks(before, [])).toBe(before);
   });
 
+  it('applies a session change even when its price is unchanged', () => {
+    const before = new Map([['AAPL', quote({ price: 311, marketState: 'REGULAR' })]]);
+
+    const after = applyTicks(before, [tick({ price: 311, marketState: 'POST', extended: true })]);
+
+    expect(after).not.toBe(before);
+    expect(after.get('AAPL')).toMatchObject({ marketState: 'POST', extended: true });
+  });
+
+  it('keeps the newest tick for a symbol when a batch is out of order', () => {
+    const before = new Map([['AAPL', quote()]]);
+
+    const after = applyTicks(before, [tick({ price: 320, time: 20 }), tick({ price: 315, time: 10 })]);
+
+    expect(after.get('AAPL')?.price).toBe(320);
+  });
+
   it('applies every symbol that moved', () => {
     const before = new Map([
       ['AAPL', quote()],

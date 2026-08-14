@@ -38,6 +38,17 @@ const POLL_MS: Record<string, number> = {
   '1M': 1_800_000,
 };
 
+export function candleRefetchInterval(
+  regime: Regime,
+  timeframe: string,
+  hasSession: boolean,
+): number | false {
+  const timeframeMs = POLL_MS[timeframe] ?? 60_000;
+  // A crypto pair does not close with New York. Its candle has to keep moving
+  // through a US night and weekend just as its streamed quote does.
+  return hasSession ? (cadenceFor(regime, timeframeMs).barsMs ?? false) : timeframeMs;
+}
+
 /** How often to re-ask what regime we are in. A minute is finer than any boundary. */
 const REGIME_TICK_MS = 30_000;
 
@@ -72,7 +83,9 @@ export type Candles = {
 
 export function useCandles(symbol: string, timeframe: string): Candles {
   const regime = useRegime();
-  const wantExtended = regime !== 'regular';
+  const [sessions, setSessions] = useState<Map<string, boolean>>(() => new Map());
+  const hasSession = sessions.get(symbol) ?? true;
+  const wantExtended = hasSession && regime !== 'regular';
 
   const query = useQuery({
     // The flag is part of the key: the two variants are different series, and
@@ -80,21 +93,32 @@ export function useCandles(symbol: string, timeframe: string): Candles {
     queryKey: ['market', 'bars', symbol, timeframe, wantExtended],
     queryFn: () => getBars(symbol, timeframe, wantExtended),
     enabled: Boolean(symbol),
-    refetchInterval: cadenceFor(regime, POLL_MS[timeframe] ?? 60_000).barsMs ?? false,
+    refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 
   const provider = query.data?.provider ?? '';
-  const hasSession = query.data?.hasSession ?? true;
+  const reportedSession = query.data?.hasSession ?? hasSession;
   const bars = useMemo(() => query.data?.bars ?? [], [query.data]);
+
+  useEffect(() => {
+    const nextHasSession = query.data?.hasSession;
+    if (nextHasSession === undefined) return;
+    setSessions((current) => {
+      if (current.get(symbol) === nextHasSession) return current;
+      const next = new Map(current);
+      next.set(symbol, nextHasSession);
+      return next;
+    });
+  }, [query.data, symbol]);
 
   const isGhost = useMemo(() => {
     // Crypto never has an overlay: a pair's market runs around the clock, so
     // there is no session for a bar to fall outside of. The API says which,
     // rather than this reading a provider's name to work it out.
-    if (!hasSession) return () => false;
+    if (!reportedSession) return () => false;
     const rule = makeIsExtended(timeframe, regime, bars.length);
     return (bar: Bar, index: number) => rule(bar.time, index);
-  }, [hasSession, timeframe, regime, bars.length]);
+  }, [reportedSession, timeframe, regime, bars.length]);
 
   return {
     bars,

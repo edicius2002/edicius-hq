@@ -49,10 +49,6 @@ type CandleChartProps = {
   bars: Bar[];
   /** Identity of the series whose view is on screen. */
   viewKey: string;
-  /** Restored before the chart mounts, so it never flashes the default view. */
-  initialWindow: IndexWindow | null;
-  /** Persists deliberate pan and zoom gestures, never an automatic re-fit. */
-  onWindowChange: (window: IndexWindow) => void;
   /** Precomputed series, index-aligned with `bars`. Absent means "not on". */
   indicators?: IndicatorSeries;
   /** Which panes to open below the price, in the order they are drawn. */
@@ -69,8 +65,6 @@ type Crosshair = { x: number; y: number; index: number } | null;
 export function CandleChart({
   bars,
   viewKey,
-  initialWindow,
-  onWindowChange,
   indicators,
   panes,
   isGhost,
@@ -82,26 +76,21 @@ export function CandleChart({
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
-  const [window, setWindow] = useState<IndexWindow>(
-    () => initialWindow ?? { first: 0, last: DEFAULT_VISIBLE },
-  );
+  const [window, setWindow] = useState<IndexWindow>({ first: 0, last: DEFAULT_VISIBLE });
   const [shownViewKey, setShownViewKey] = useState(viewKey);
+  const [following, setFollowing] = useState(true);
   const [crosshair, setCrosshair] = useState<Crosshair>(null);
   const [drag, setDrag] = useState<{ pointerId: number; x: number; from: IndexWindow } | null>(
     null,
   );
-  const onWindowChangeRef = useRef(onWindowChange);
-  onWindowChangeRef.current = onWindowChange;
-  // Set once per series so a reload lands on the latest bars rather than on the
-  // oldest, while a refetch of the same series leaves the view where it was.
-  const anchored = useRef<string>('');
 
-  // The chart stays mounted while the user changes symbol or timeframe. Reset
-  // during render, as the Finance canvas does, so no frame can draw the former
-  // series through the new one's saved window.
+  // Every chart begins at the live edge. A chart may stay mounted while its
+  // symbol or timeframe changes, so reset during render before a former series
+  // can draw through the new one.
   if (shownViewKey !== viewKey) {
     setShownViewKey(viewKey);
-    setWindow(initialWindow ?? { first: 0, last: DEFAULT_VISIBLE });
+    setWindow({ first: 0, last: DEFAULT_VISIBLE });
+    setFollowing(true);
     setCrosshair(null);
     setDrag(null);
   }
@@ -117,20 +106,15 @@ export function CandleChart({
   );
 
   useEffect(() => {
-    const key = `${viewKey}:${bars.length}`;
-    if (!bars.length || anchored.current === key) return;
-    anchored.current = key;
+    if (!following || !bars.length) return;
     setWindow(
       clampWindow(
-        initialWindow ?? { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
+        { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
         bars.length,
         minVisibleBars(plot),
       ),
     );
-    // `plot` is deliberately absent: anchoring is about the series arriving, and
-    // a resize must not throw the view back to the newest bars.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, viewKey, initialWindow]);
+  }, [bars, following, plot]);
 
   // The bands are pure geometry over the plot height, so this is cheap and
   // stable — the draw effect below depends on it and must not see a new object
@@ -177,11 +161,7 @@ export function CandleChart({
   }
 
   const moveWindow = useCallback((change: (current: IndexWindow) => IndexWindow) => {
-    setWindow((current) => {
-      const next = change(current);
-      if (next !== current) onWindowChangeRef.current(next);
-      return next;
-    });
+    setWindow((current) => change(current));
   }, []);
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -190,9 +170,16 @@ export function CandleChart({
     if (drag && event.pointerId === drag.pointerId) {
       const perBar = plot.width / Math.max(1, drag.from.last - drag.from.first);
       // Dragging right walks back through history, like moving a paper chart.
-      moveWindow(() =>
-        panWindow(drag.from, -(x - drag.x) / perBar, bars.length, minVisibleBars(plot)),
+      const next = panWindow(
+        drag.from,
+        -(x - drag.x) / perBar,
+        bars.length,
+        minVisibleBars(plot),
       );
+      // Follow only lets go when the user has actually walked away from the
+      // right edge. Dragging into the edge must not disable it by accident.
+      if (next.last < bars.length) setFollowing(false);
+      moveWindow(() => next);
       return;
     }
 
@@ -250,6 +237,16 @@ export function CandleChart({
         onPointerCancel={() => setDrag(null)}
         onPointerLeave={() => setCrosshair(null)}
       />
+
+      <button
+        type="button"
+        className={styles.follow}
+        aria-pressed={following}
+        title="Follow latest candles"
+        onClick={() => setFollowing(true)}
+      >
+        Latest
+      </button>
 
       {/* The readout follows the crosshair rather than living in a corner, so
           the eye does not have to travel to read what it is pointing at. */}

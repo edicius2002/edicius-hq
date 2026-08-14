@@ -18,6 +18,7 @@ function quote(over: Partial<Quote> = {}): Quote {
     change: 11,
     changePercent: 3.67,
     provider: 'yahoo',
+    time: 100,
     marketState: 'REGULAR',
     name: 'Apple Inc.',
     extended: false,

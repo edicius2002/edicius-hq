@@ -68,6 +68,9 @@ class QuoteModel(BaseModel):
     change: float | None
     changePercent: float | None
     provider: str
+    # Provider market time in Unix seconds, matching streamed tick.time.
+    # Explicitly null when the upstream did not provide one.
+    time: float | None = None
     # The exchange's own view of its session; absent where there is no session.
     marketState: str | None = None
     name: str | None = None
@@ -126,7 +129,7 @@ class SearchResponse(BaseModel):
 async def get_quotes(
     symbols: str = Query(..., description="Comma-separated symbols"),
 ) -> QuotesResponse:
-    wanted = _parse_symbols(symbols)
+    wanted, excluded = _parse_symbols(symbols)
     if not wanted:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one symbol is required")
 
@@ -143,14 +146,22 @@ async def get_quotes(
         else:
             stale.append(symbol)
 
-    failed: list[QuoteFailure] = []
+    failed: list[QuoteFailure] = [
+        QuoteFailure(
+            symbol=symbol,
+            code="batch-limit",
+            message=f"Excluded: a request can follow at most {MAX_BATCH_SYMBOLS} symbols.",
+        )
+        for symbol in excluded
+    ]
     if stale:
         try:
             fetched, refused = await registry.fetch_quotes(client, stale)
         except ProviderError as exc:
             return QuotesResponse(
                 quotes=quotes,
-                failed=[QuoteFailure(symbol=s, code=exc.code, message=exc.message) for s in stale],
+                failed=failed
+                + [QuoteFailure(symbol=s, code=exc.code, message=exc.message) for s in stale],
             )
 
         for quote in fetched:
@@ -177,6 +188,7 @@ def _as_model(quote: Quote) -> QuoteModel:
         change=quote.change,
         changePercent=quote.change_percent,
         provider=quote.provider,
+        time=quote.time,
         marketState=quote.market_state,
         name=quote.name,
         extended=quote.extended,
@@ -262,13 +274,16 @@ def get_timeframes() -> dict[str, list[str]]:
     return {"timeframes": list(TIMEFRAMES)}
 
 
-def _parse_symbols(raw: str) -> list[str]:
+def _parse_symbols(raw: str) -> tuple[list[str], list[str]]:
     seen: list[str] = []
     for part in raw.split(","):
         symbol = registry.normalize_symbol(part)
         if symbol and symbol not in seen:
             seen.append(symbol)
-    return seen[:MAX_BATCH_SYMBOLS]
+    # The cap protects the provider fan-out. Keep the rejected tail visible to
+    # callers instead of making rows wait forever for a quote or stream that
+    # will never be requested.
+    return seen[:MAX_BATCH_SYMBOLS], seen[MAX_BATCH_SYMBOLS:]
 
 
 def _as_http_error(exc: ProviderError) -> HTTPException:
@@ -338,14 +353,16 @@ async def stream_quotes(
     """
     # Shares the parser with /quotes, so a symbol that streams is spelled
     # exactly like the one that is swept — and the same cap applies.
-    wanted = _parse_symbols(symbols)
+    wanted, excluded = _parse_symbols(symbols)
     if not wanted:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No symbols given.")
 
     async def events() -> AsyncIterator[str]:
         # Said before the first tick so the client knows the pipe is open even
         # if the market is dead quiet.
-        yield sse("open", {"symbols": sorted(wanted)})
+        # A stream has no response body, so expose the same truncation on its
+        # opening frame. The /quotes sweep renders these as row-level failures.
+        yield sse("open", {"symbols": sorted(wanted), "excluded": sorted(excluded)})
 
         listener = HUB.listen(set(wanted))
         try:

@@ -23,6 +23,19 @@ import type {
 
 const NO_FEES = { in: null, out: null } as const;
 
+/** Keep live edits inside the same fee bounds document normalization enforces. */
+function normalizeFee(fee: HoldingNode['fees']['in']): HoldingNode['fees']['in'] {
+  if (!fee || !Number.isFinite(fee.value)) return null;
+  return {
+    type: fee.type,
+    value: fee.type === 'percent' ? Math.min(100, Math.max(0, fee.value)) : Math.max(0, fee.value),
+  };
+}
+
+function normalizeFees(fees: HoldingNode['fees']): HoldingNode['fees'] {
+  return { in: normalizeFee(fees.in), out: normalizeFee(fees.out) };
+}
+
 function normalizeAsset(asset: string): AssetCode {
   return asset.trim().toUpperCase();
 }
@@ -150,7 +163,11 @@ export function updateHolding(
   id: NodeId,
   patch: Partial<Pick<HoldingNode, 'amount' | 'fees' | 'active'>>,
 ): Diagram {
-  return mapHolding(diagram, id, (holding) => ({ ...holding, ...patch }));
+  return mapHolding(diagram, id, (holding) => ({
+    ...holding,
+    ...patch,
+    fees: patch.fees === undefined ? holding.fees : normalizeFees(patch.fees),
+  }));
 }
 
 /** Switching a holding off keeps its amount, so switching it back on restores it. */

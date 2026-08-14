@@ -10,6 +10,7 @@ import {
   facingAnchors,
   flowLabelPoint,
   flowPath,
+  HOLDING_CONTENT_WIDTH,
   LINE_HEIGHT,
   MIN_NODE_HEIGHT,
   NODE_FONT,
@@ -242,9 +243,29 @@ describe('a box that follows its rows', () => {
     expect(sizeOf(holding(), {}).height).toBeGreaterThanOrEqual(MIN_NODE_HEIGHT);
   });
 
-  it('keeps the wider top-level boxes and compacts holdings', () => {
-    expect(sizeOf(account(), {}).width).toBe(240);
-    expect(sizeOf(holding(), {}).width).toBe(100);
+  it('sizes a holding for the promised maximum amount', () => {
+    // `99,999.99` is nine 12px monospace characters plus the box chrome.
+    expect(sizeOf(holding(), {}).width).toBe(HOLDING_CONTENT_WIDTH);
+    expect(sizeOf(holding(), {}).width).toBeLessThan(100);
+  });
+
+  it('lets an account follow the real span of its holdings', () => {
+    const ownContent = HOLDING_CONTENT_WIDTH;
+    const oneColumn = sizeOf(account(), { minimumWidth: ownContent, holdingSpanWidth: ownContent });
+    const overlapping = sizeOf(account(), {
+      minimumWidth: ownContent,
+      holdingSpanWidth: ownContent + 18,
+    });
+    const twoColumns = sizeOf(account(), {
+      minimumWidth: ownContent,
+      holdingSpanWidth: ownContent + 194,
+    });
+
+    // Overlapping holdings occupy only their bounding box; they are not counted
+    // as two columns merely because their x coordinates differ.
+    expect(oneColumn.width).toBe(ownContent);
+    expect(overlapping.width).toBe(ownContent + 18);
+    expect(twoColumns.width).toBe(ownContent + 194);
   });
 
   it('reserves the tallest case for anything that has to guess', () => {
@@ -255,6 +276,13 @@ describe('a box that follows its rows', () => {
     expect(NODE_SIZE.account.height).toBe(
       sizeOf(account(), { assetRows: 1, extraRow: true }).height,
     );
+    // A new account has no known holding positions. The static size therefore
+    // reserves its widest intrinsic content, while a known holding span may be
+    // wider without any finite upper bound.
+    expect(NODE_SIZE.account.width).toBe(240);
+    expect(
+      sizeOf(account(), { minimumWidth: NODE_SIZE.account.width, holdingSpanWidth: 0 }).width,
+    ).toBe(NODE_SIZE.account.width);
   });
 });
 

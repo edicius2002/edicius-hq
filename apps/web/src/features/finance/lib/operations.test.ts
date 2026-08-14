@@ -121,6 +121,17 @@ describe('addHolding', () => {
     diagram = setHoldingActive(diagram, 'bankUsd', true);
     expect((diagram.nodes.bankUsd as HoldingNode).amount).toBe(250);
   });
+
+  it('normalizes edited fees so they cannot create money', () => {
+    const diagram = updateHolding(scenario(), 'bankUsd', {
+      fees: { out: { type: 'fixed', value: -5 }, in: { type: 'percent', value: 120 } },
+    });
+
+    expect((diagram.nodes.bankUsd as HoldingNode).fees).toEqual({
+      out: { type: 'fixed', value: 0 },
+      in: { type: 'percent', value: 100 },
+    });
+  });
 });
 
 describe('job balances', () => {

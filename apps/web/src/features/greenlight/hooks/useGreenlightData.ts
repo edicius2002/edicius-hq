@@ -1,17 +1,19 @@
 import { useMutation } from '@tanstack/react-query';
 
 import { calendarWeekForDate } from '@/features/greenlight/lib/aggregate';
+import { planGreenlightImport } from '@/features/greenlight/lib/importPlan';
+import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
 import { normalizeMarkers } from '@/features/greenlight/lib/segments';
 import {
   mergeDetectedWidgets,
   normalizeToolWidgets,
+  pruneToolWidgets,
   toggleToolWidget,
 } from '@/features/greenlight/lib/subscriptions';
 import {
   EMPTY_GREENLIGHT_STATE,
   type DayStats,
   type GreenlightState,
-  type ReplaceMode,
   type ToolId,
 } from '@/features/greenlight/model/types';
 import { useStoredDocument } from '@/shared/storage/useStoredDocument';
@@ -66,7 +68,7 @@ function normalizeState(value: unknown): GreenlightState {
     stats,
     meta: stored.meta ?? null,
     markers: normalizeMarkers(stored.markers, stats),
-    widgets: normalizeToolWidgets(stored.widgets),
+    widgets: pruneToolWidgets(normalizeToolWidgets(stored.widgets), stats),
   };
 }
 
@@ -81,46 +83,31 @@ export function useGreenlightData() {
   });
 
   const importMutation = useMutation({
-    mutationFn: ({
-      fileName,
-      content,
-      replaceMode,
-    }: {
-      fileName: string;
-      content: string;
-      replaceMode: ReplaceMode;
-    }) =>
-      store.edit(async (current) => {
-        const { importGreenlightCsv } = await import('@/features/greenlight/lib/processRows');
+    mutationFn: ({ fileName, content }: { fileName: string; content: string }) =>
+      store.edit((current) => {
         const imported = importGreenlightCsv(content);
-        const { planGreenlightImport } = await import('@/features/greenlight/lib/importPlan');
         const plan = planGreenlightImport({
           existing: current.stats,
           incoming: imported.stats,
-          replaceMode,
         });
 
-        if (plan.emptyMonth) {
-          throw new Error(
-            `The CSV has no records for the current month (${plan.monthKey}). Nothing was changed.`,
-          );
-        }
-
         const stats = plan.nextStats;
-        const statusDetail =
-          replaceMode === 'current-month'
-            ? `Replaced only ${plan.monthKey}: ${Object.keys(imported.stats).filter((date) => date.startsWith(`${plan.monthKey}-`)).length} day(s) from the CSV. Other months were kept; unmarked CSV days outside this month were ignored.`
-            : `Replaced all data with ${imported.daysGenerated} day(s) from ${imported.rowsRead} rows.`;
+        const statusDetail = plan.seed
+          ? `Replaced all data with ${imported.daysGenerated} day(s) from ${imported.rowsRead} rows.`
+          : `Rebuilt ${plan.replacedWeeks.length} week(s) from the CSV (${Object.keys(imported.stats).length} day(s)). Other weeks were kept.`;
 
         return {
           stats,
           markers: normalizeMarkers(current.markers, stats),
-          widgets: mergeDetectedWidgets(current.widgets, imported.widgets),
+          widgets: pruneToolWidgets(
+            mergeDetectedWidgets(current.widgets, imported.widgets),
+            stats,
+          ),
           meta: {
             fileName,
             rowsRead: imported.rowsRead,
             daysGenerated: Object.keys(stats).length,
-            replaceMode,
+            replaceMode: plan.seed ? 'all' : 'weeks',
             updatedAt: new Date().toISOString(),
             statusTitle: 'Updated from CSV',
             statusDetail: `${statusDetail} Markers were kept.`,

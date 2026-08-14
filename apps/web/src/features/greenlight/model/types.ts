@@ -8,7 +8,8 @@ export type DayStats = {
   currency: string;
 };
 
-export type ReplaceMode = 'all' | 'current-month';
+/** Written on import. `'all'` is the empty-store seed; `'weeks'` is every later import. */
+export type ReplaceMode = 'all' | 'weeks';
 
 /** Reimbursed tool subscriptions, recorded per month; they never affect money totals. */
 export type ToolId = 'vscode' | 'cursor';

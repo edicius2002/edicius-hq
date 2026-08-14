@@ -1,5 +1,6 @@
+import { calendarMonthForWeek, calendarWeekForDate } from '@/features/greenlight/lib/aggregate';
 import { valueFor, type CsvRow } from '@/features/greenlight/lib/csv';
-import type { ToolId, ToolWidgets } from '@/features/greenlight/model/types';
+import type { DayStats, ToolId, ToolWidgets } from '@/features/greenlight/model/types';
 
 /** Monthly reimbursement billed per tool, taken from the TimeRecords Expense rows. */
 export const TOOL_RATES: Record<ToolId, number> = {
@@ -67,6 +68,27 @@ export function mergeDetectedWidgets(existing: ToolWidgets, detected: ToolWidget
     merged[monthKey] = tools;
   }
   return merged;
+}
+
+/**
+ * Drop widgets whose month no longer has any week with data — the same
+ * rule as `normalizeMarkers`. An orphaned key both paints nothing (the
+ * chart only lists Thursday-months that still have weeks) and blocks
+ * `mergeDetectedWidgets` from reseeding that month if it returns.
+ */
+export function pruneToolWidgets(widgets: ToolWidgets, stats: Record<string, DayStats>): ToolWidgets {
+  const months = new Set<string>();
+  for (const date of Object.keys(stats)) {
+    const week = calendarWeekForDate(date)?.key;
+    if (!week) continue;
+    months.add(calendarMonthForWeek(week).key);
+  }
+
+  const pruned: ToolWidgets = {};
+  for (const [monthKey, tools] of Object.entries(widgets)) {
+    if (months.has(monthKey)) pruned[monthKey] = tools;
+  }
+  return pruned;
 }
 
 /** Toggle one tool for one month. Keeps an empty array behind so the month stays touched. */

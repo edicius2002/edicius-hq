@@ -7,7 +7,7 @@ import {
   type ImportPlan,
 } from '@/features/greenlight/lib/importPlan';
 import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
-import type { DayStats, GreenlightMeta, ReplaceMode } from '@/features/greenlight/model/types';
+import type { DayStats, GreenlightMeta } from '@/features/greenlight/model/types';
 import { Button } from '@/shared/ui/Button';
 import buttonStyles from '@/shared/ui/Button.module.css';
 import { Panel } from '@/shared/ui/Panel';
@@ -17,18 +17,11 @@ import styles from './ImportPanel.module.css';
 type PendingClear = { kind: 'clear' };
 type PendingImport = {
   kind: 'import';
-  fileName: string;
   incoming: Record<string, DayStats>;
 };
 type Pending = PendingClear | PendingImport | null;
 
 type ImportPanelProps = {
-  replaceMode: ReplaceMode;
-  onReplaceModeChange: (mode: ReplaceMode) => void;
-  /** Clock month, e.g. "August 2026" — same instant as current-month replace. */
-  replaceMonthLabel: string;
-  /** Clock month key `YYYY-MM`, so a preview can freeze the same month the persist uses. */
-  monthKey: string;
   stats: Record<string, DayStats>;
   meta: GreenlightMeta | null;
   isSyncing?: boolean;
@@ -41,10 +34,6 @@ type ImportPanelProps = {
 };
 
 export function ImportPanel({
-  replaceMode,
-  onReplaceModeChange,
-  replaceMonthLabel,
-  monthKey,
   stats,
   meta,
   isSyncing = false,
@@ -63,10 +52,8 @@ export function ImportPanel({
     return planGreenlightImport({
       existing: stats,
       incoming: pending.incoming,
-      replaceMode,
-      monthKey,
     });
-  }, [pending, stats, replaceMode, monthKey]);
+  }, [pending, stats]);
 
   const status = isSyncing
     ? 'Syncing…'
@@ -90,7 +77,6 @@ export function ImportPanel({
       setPendingFile(file);
       setPending({
         kind: 'import',
-        fileName: file.name,
         incoming: imported.stats,
       });
     } catch (error) {
@@ -133,31 +119,7 @@ export function ImportPanel({
           Update from CSV
         </h2>
 
-        <fieldset className={styles.modes} aria-label="Replace mode" disabled={busy}>
-          <label className={styles.mode}>
-            <input
-              type="radio"
-              name="greenlightReplaceMode"
-              value="all"
-              checked={replaceMode === 'all'}
-              onChange={() => onReplaceModeChange('all')}
-            />
-            <span>Replace all</span>
-          </label>
-          <label
-            className={styles.mode}
-            title={`Replaces ${replaceMonthLabel} entirely: days in that month missing from the CSV are removed. Other months are kept.`}
-          >
-            <input
-              type="radio"
-              name="greenlightReplaceMode"
-              value="current-month"
-              checked={replaceMode === 'current-month'}
-              onChange={() => onReplaceModeChange('current-month')}
-            />
-            <span>Replace {replaceMonthLabel} only</span>
-          </label>
-        </fieldset>
+        {!hasData ? <span className={styles.seedLabel}>Replace all</span> : null}
 
         <label
           className={`${buttonStyles.button} ${buttonStyles.primary} ${styles.fileButton} ${
@@ -181,13 +143,17 @@ export function ImportPanel({
         {status ? <span className={styles.status}>{status}</span> : null}
       </div>
 
-      {replaceMode === 'current-month' ? (
+      {hasData ? (
         <p className={styles.modeHint}>
-          Replaces {replaceMonthLabel} entirely — days missing from the CSV are removed. Other
-          months are kept.
+          Rebuilds every week the CSV mentions (Monday–Sunday). Weeks not in the file are left as
+          they are.
         </p>
       ) : (
-        <p className={styles.modeHint}>Replaces every stored day with this CSV.</p>
+        <p className={styles.modeHint}>
+          No stored days yet — this CSV becomes the whole document. After that, imports only rebuild
+          the weeks the file mentions, so history the CSV omits cannot be deleted by a partial
+          export.
+        </p>
       )}
 
       {pending?.kind === 'import' && copy ? (

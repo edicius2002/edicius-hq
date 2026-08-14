@@ -48,7 +48,8 @@ export function calendarWeekForDate(
   };
 }
 
-function calendarMonthForWeek(weekKey: string): { key: string; label: string } {
+/** Thursday-of-week month — same grouping the charts and widget keys use. */
+export function calendarMonthForWeek(weekKey: string): { key: string; label: string } {
   const [year, month, day] = weekKey.split('-').map(Number);
   const thursday = new Date(Date.UTC(year, month - 1, day + 3));
   return {

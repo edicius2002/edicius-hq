@@ -1,6 +1,7 @@
+import { calendarWeekForDate } from '@/features/greenlight/lib/aggregate';
 import { shortDate } from '@/features/greenlight/lib/chartFormat';
-import { currentMonthKey, dateInMonth, mergeCurrentMonthStats } from '@/features/greenlight/lib/merge';
-import type { DayStats, ReplaceMode } from '@/features/greenlight/model/types';
+import { mergeWeekStats } from '@/features/greenlight/lib/merge';
+import type { DayStats } from '@/features/greenlight/model/types';
 import { formatMoney } from '@/shared/lib/money';
 
 export type ImportDayAdd = { date: string; amount: number };
@@ -8,13 +9,14 @@ export type ImportDayChange = { date: string; before: number; after: number };
 export type ImportDayRemove = { date: string; amount: number };
 
 export type ImportPlan = {
-  replaceMode: ReplaceMode;
-  monthKey: string;
-  emptyMonth: boolean;
+  /** True when there is nothing stored — the Replace-all seed, not a merge. */
+  seed: boolean;
+  replacedWeeks: string[];
   nextStats: Record<string, DayStats>;
   added: ImportDayAdd[];
   changed: ImportDayChange[];
   removed: ImportDayRemove[];
+  /** Whole document, not just the weeks being rebuilt. */
   beforeTotal: number;
   afterTotal: number;
   currency: string;
@@ -24,8 +26,8 @@ function amountOf(day: DayStats | undefined): number {
   return day?.Deliverable.amount ?? 0;
 }
 
-function sumAmounts(stats: Record<string, DayStats>, dates: string[]): number {
-  return dates.reduce((sum, date) => sum + amountOf(stats[date]), 0);
+function sumAll(stats: Record<string, DayStats>): number {
+  return Object.values(stats).reduce((sum, day) => sum + amountOf(day), 0);
 }
 
 function currencyOf(stats: Record<string, DayStats>, fallback = 'USD'): string {
@@ -35,38 +37,33 @@ function currencyOf(stats: Record<string, DayStats>, fallback = 'USD'): string {
   return fallback;
 }
 
+function inReplacedWeeks(date: string, weeks: Set<string>): boolean {
+  const week = calendarWeekForDate(date)?.key;
+  return Boolean(week && weeks.has(week));
+}
+
 /**
- * What applying this CSV would do to `existing`, in the selected replace mode.
- * Does not write. `emptyMonth` is the current-month miss — a preview message,
- * not an exception.
+ * What applying this CSV would do to `existing`. Does not write.
+ *
+ * Day diffs are scoped to weeks the CSV mentions. Totals are the whole
+ * document, because a backdated row moving week is a no-loss swap only if
+ * you look at the full sum. Headline names how many weeks are rebuilt;
+ * disappearing days stay on their own highlighted line — they are the
+ * dangerous bit, not a grey bullet next to "new day".
  */
 export function planGreenlightImport({
   existing,
   incoming,
-  replaceMode,
-  monthKey = currentMonthKey(),
 }: {
   existing: Record<string, DayStats>;
   incoming: Record<string, DayStats>;
-  replaceMode: ReplaceMode;
-  monthKey?: string;
 }): ImportPlan {
-  const inScope = (date: string) =>
-    replaceMode === 'all' ? true : dateInMonth(date, monthKey);
+  const seed = Object.keys(existing).length === 0;
+  const { merged: nextStats, replacedWeeks } = mergeWeekStats(existing, incoming);
+  const weekSet = new Set(replacedWeeks);
 
-  let nextStats: Record<string, DayStats>;
-  let emptyMonth = false;
-
-  if (replaceMode === 'current-month') {
-    const { merged, replacedDays } = mergeCurrentMonthStats(existing, incoming, monthKey);
-    emptyMonth = replacedDays === 0;
-    nextStats = emptyMonth ? existing : merged;
-  } else {
-    nextStats = incoming;
-  }
-
-  const existingDates = Object.keys(existing).filter(inScope).sort();
-  const nextDates = Object.keys(nextStats).filter(inScope).sort();
+  const existingDates = Object.keys(existing).filter((date) => inReplacedWeeks(date, weekSet)).sort();
+  const nextDates = Object.keys(nextStats).filter((date) => inReplacedWeeks(date, weekSet)).sort();
   const existingSet = new Set(existingDates);
   const nextSet = new Set(nextDates);
 
@@ -74,41 +71,38 @@ export function planGreenlightImport({
   const changed: ImportDayChange[] = [];
   const removed: ImportDayRemove[] = [];
 
-  if (!emptyMonth) {
-    for (const date of nextDates) {
-      if (!existingSet.has(date)) {
-        added.push({ date, amount: amountOf(nextStats[date]) });
-      } else if (amountOf(existing[date]) !== amountOf(nextStats[date])) {
-        changed.push({
-          date,
-          before: amountOf(existing[date]),
-          after: amountOf(nextStats[date]),
-        });
-      }
+  for (const date of nextDates) {
+    if (!existingSet.has(date)) {
+      added.push({ date, amount: amountOf(nextStats[date]) });
+    } else if (amountOf(existing[date]) !== amountOf(nextStats[date])) {
+      changed.push({
+        date,
+        before: amountOf(existing[date]),
+        after: amountOf(nextStats[date]),
+      });
     }
-    for (const date of existingDates) {
-      if (!nextSet.has(date)) {
-        removed.push({ date, amount: amountOf(existing[date]) });
-      }
+  }
+  for (const date of existingDates) {
+    if (!nextSet.has(date)) {
+      removed.push({ date, amount: amountOf(existing[date]) });
     }
   }
 
   return {
-    replaceMode,
-    monthKey,
-    emptyMonth,
+    seed,
+    replacedWeeks,
     nextStats,
     added,
     changed,
     removed,
-    beforeTotal: sumAmounts(existing, existingDates),
-    afterTotal: emptyMonth ? sumAmounts(existing, existingDates) : sumAmounts(nextStats, nextDates),
+    beforeTotal: sumAll(existing),
+    afterTotal: sumAll(nextStats),
     currency: currencyOf(nextStats, currencyOf(existing)),
   };
 }
 
 export function importPlanHasChanges(plan: ImportPlan): boolean {
-  return !plan.emptyMonth && (plan.added.length > 0 || plan.changed.length > 0 || plan.removed.length > 0);
+  return plan.added.length > 0 || plan.changed.length > 0 || plan.removed.length > 0;
 }
 
 function countPhrase(count: number, one: string, many: string): string {
@@ -135,26 +129,19 @@ export function formatImportPlan(plan: ImportPlan, locale?: string): {
 } {
   const { currency } = plan;
 
-  if (plan.emptyMonth) {
-    const month = new Intl.DateTimeFormat(locale ?? 'en-US', {
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).format(new Date(`${plan.monthKey}-15T00:00:00.000Z`));
-    return {
-      headline: `The CSV has no records for ${month}. Nothing will change.`,
-      removedLine: null,
-    };
-  }
-
   if (!importPlanHasChanges(plan)) {
     return {
-      headline: 'No changes. This CSV matches the stored days this mode would replace.',
+      headline: plan.seed
+        ? 'No changes. The CSV is empty of deliverable days.'
+        : 'No changes. This CSV matches the stored days of the weeks it mentions.',
       removedLine: null,
     };
   }
 
   const other: string[] = [];
+  if (!plan.seed && plan.replacedWeeks.length) {
+    other.push(countPhrase(plan.replacedWeeks.length, 'week rebuilt', 'weeks rebuilt'));
+  }
   if (plan.added.length) {
     other.push(countPhrase(plan.added.length, 'new day', 'new days'));
   }

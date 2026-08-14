@@ -61,20 +61,12 @@ function calendarMonthForWeek(weekKey: string): { key: string; label: string } {
   };
 }
 
-function calendarMonthForDate(dateKey: string): { key: string; label: string } | null {
-  const [year, month] = String(dateKey || '')
-    .split('-')
-    .map(Number);
-  if (!year || !month) return null;
-  const date = new Date(Date.UTC(year, month - 1, 15));
-  return {
-    key: `${year}-${String(month).padStart(2, '0')}`,
-    label: new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).format(date),
-  };
+function shortMonthLabel(monthKey: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${monthKey}-15T00:00:00.000Z`));
 }
 
 export function computeTotals(stats: Record<string, DayStats>): {
@@ -114,31 +106,21 @@ export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] 
   return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** Monthly totals by calendar month of each day key (legacy overview bars). */
+/**
+ * Monthly totals by Thursday-of-week — the same grouping as the Weeks chart.
+ * A week is the payment unit (Mon–Sun); splitting it across calendar months
+ * would invent a cut the client does not make.
+ */
 export function buildMonthlySeries(stats: Record<string, DayStats>): MonthPoint[] {
-  const months = new Map<string, MonthPoint>();
-
-  for (const row of toDayRows(stats)) {
-    const month = calendarMonthForDate(row.date);
-    if (!month) continue;
-    const current = months.get(month.key);
-    if (current) {
-      current.amount += row.amount;
-      current.currency = row.currency || current.currency;
-    } else {
-      months.set(month.key, {
-        key: month.key,
-        label: month.label,
-        amount: row.amount,
-        currency: row.currency,
-      });
-    }
-  }
-
-  return [...months.values()].sort((a, b) => a.key.localeCompare(b.key));
+  return buildMonthGroupsFromWeeks(buildWeeklySeries(stats)).map((month) => ({
+    key: month.key,
+    label: shortMonthLabel(month.key),
+    amount: month.amount,
+    currency: month.currency,
+  }));
 }
 
-/** Month groups via Thursday-of-week rule (legacy money chart). */
+/** Month groups via Thursday-of-week — same rule as `buildMonthlySeries`. */
 export function buildMonthGroupsFromWeeks(weeks: WeekPoint[]): MonthGroup[] {
   const months = new Map<string, MonthGroup>();
 

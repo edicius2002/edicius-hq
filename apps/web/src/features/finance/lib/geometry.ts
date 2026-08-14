@@ -145,9 +145,41 @@ export function allocatedHeight(blocks: number): number {
 
 export const NODE_WIDTH: Record<NodeKind, number> = {
   job: 240,
+  /**
+   * The widest intrinsic account content. Holdings can make an account wider
+   * still, because their positions are unbounded; see `holdingSpanWidth`.
+   */
   account: 240,
-  holding: 100,
+  holding: 93,
 };
+
+/**
+ * The longest holding figure Finance promises to fit: `99,999.99`.
+ *
+ * The canvas is measured without the DOM, so text has to be expressed in the
+ * same units as the boxes. `0.65em` is a conservative character width for the
+ * monospace stack in the stylesheet, including its fallback fonts.
+ */
+const MAX_HOLDING_AMOUNT_CHARACTERS = '99,999.99'.length;
+const TEXT_CHARACTER_EM = 0.65;
+const HORIZONTAL_PADDING = 20;
+const BORDER_WIDTH = 2;
+const BOX_HORIZONTAL_CHROME = HORIZONTAL_PADDING + BORDER_WIDTH;
+
+export function textWidth(characters: number, font: number): number {
+  return Math.ceil(characters * font * TEXT_CHARACTER_EM);
+}
+
+/** Text width plus the node's horizontal padding and borders. */
+export function nodeTextWidth(text: string, font: number): number {
+  return textWidth(text.length, font) + BOX_HORIZONTAL_CHROME;
+}
+
+/** Width needed by the holding amount, including the node's horizontal chrome. */
+export const HOLDING_CONTENT_WIDTH =
+  textWidth(MAX_HOLDING_AMOUNT_CHARACTERS, FONT.amount) + BOX_HORIZONTAL_CHROME;
+const EMPTY_ACCOUNT_CONTENT_WIDTH =
+  textWidth('No assets yet'.length, FONT.muted) + BOX_HORIZONTAL_CHROME;
 
 /**
  * The shortest a box can be and still read.
@@ -204,6 +236,14 @@ export type NodeContent = {
   allocatedRows?: number;
   /** A holding with a fee on either side, or an account that has seen traffic. */
   extraRow?: boolean;
+  /**
+   * The smallest width the account's own rendered rows need. This is separate
+   * from holdings: an account may be narrow on its own but need to span a wide
+   * arrangement of the holdings it owns.
+   */
+  minimumWidth?: number;
+  /** The real horizontal extent of an account's active holdings. */
+  holdingSpanWidth?: number;
 };
 
 export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
@@ -215,7 +255,7 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
     // What is left in the body is the number, which is the whole point of it.
     rows.push('amount');
     if (content.extraRow) rows.push('fees');
-    return { width: NODE_WIDTH[node.kind], height: heightOf(rows) };
+    return { width: Math.max(NODE_WIDTH.holding, HOLDING_CONTENT_WIDTH), height: heightOf(rows) };
   }
 
   rows.push('name');
@@ -229,7 +269,11 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
   const chips = assets > 0 ? balancesHeight(assets) : allocated > 0 ? 0 : ROW.muted;
   const blocks = allocatedHeight(allocated);
   const gapBetween = chips > 0 && blocks > 0 ? CHIP_GAP : 0;
-  return { width: NODE_WIDTH[node.kind], height: heightOf(rows, chips + blocks + gapBetween) };
+  const intrinsicWidth =
+    node.kind === 'account'
+      ? Math.max(content.minimumWidth ?? EMPTY_ACCOUNT_CONTENT_WIDTH, content.holdingSpanWidth ?? 0)
+      : NODE_WIDTH.job;
+  return { width: intrinsicWidth, height: heightOf(rows, chips + blocks + gapBetween) };
 }
 
 /**
@@ -243,6 +287,9 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
 export const NODE_SIZE: Record<NodeKind, Size> = {
   job: { width: NODE_WIDTH.job, height: heightOf(['name', 'operations'], balancesHeight(1)) },
   account: {
+    // Holding positions have no maximum distance, so there is no finite global
+    // maximum account width. This is the widest *intrinsic* account content;
+    // `holdingSpanWidth` can deliberately exceed it once the diagram is known.
     width: NODE_WIDTH.account,
     height: heightOf(['name', 'operations'], balancesHeight(1)),
   },

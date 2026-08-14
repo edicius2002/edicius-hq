@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
-import { addAccount, addFrame, addHolding, addJob } from '@/features/finance/lib/operations';
+import { addAccount, addFrame, addHolding, addJob, connect, updateFlow } from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
 import { NO_FINANCE_CAMERA_VIEWS } from '@/features/finance/lib/cameraViews';
 
@@ -107,6 +107,35 @@ describe('minimap', () => {
     renderCanvas(createEmptyDiagram('empty'));
     expect(screen.queryByRole('img', { name: 'Diagram minimap' })).not.toBeInTheDocument();
     expect(screen.getByText('Nothing here yet')).toBeInTheDocument();
+  });
+});
+
+describe('flow labels', () => {
+  it('draws an edited label above the amount', () => {
+    let diagram = addAccount(createEmptyDiagram('label'), {
+      id: 'source-account',
+      position: { x: 0, y: 0 },
+    });
+    const source = addHolding(diagram, {
+      id: 'source',
+      accountId: 'source-account',
+      asset: 'USD',
+      position: { x: 0, y: 0 },
+    });
+    if (!source.ok) throw new Error('fixture should add source holding');
+    diagram = addAccount(source.value, { id: 'target-account', position: { x: 400, y: 0 } });
+    const target = addHolding(diagram, {
+      id: 'target',
+      accountId: 'target-account',
+      asset: 'USD',
+      position: { x: 400, y: 0 },
+    });
+    if (!target.ok) throw new Error('fixture should add target holding');
+    const flow = connect(target.value, { id: 'f1', from: 'source', to: 'target', amount: 50 });
+    if (!flow.ok) throw new Error('fixture should connect holdings');
+
+    renderCanvas(updateFlow(flow.value, 'f1', { label: 'Salary' }));
+    expect(screen.getByText('Salary')).toBeInTheDocument();
   });
 });
 

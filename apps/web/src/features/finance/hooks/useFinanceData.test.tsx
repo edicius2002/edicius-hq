@@ -16,9 +16,10 @@ afterEach(() => {
 });
 
 /** Fake KV endpoint. `readFails` breaks the initial GET without blocking writes. */
-function stubApi(options: { readFails?: boolean; writeDelayMs?: number } = {}) {
+function stubApi(options: { readFails?: boolean; writeDelayMs?: number; failPutAt?: number } = {}) {
   let stored: unknown = null;
   const writes: FinanceDocument[] = [];
+  let puts = 0;
 
   vi.stubGlobal(
     'fetch',
@@ -26,6 +27,10 @@ function stubApi(options: { readFails?: boolean; writeDelayMs?: number } = {}) {
       const method = init?.method ?? 'GET';
 
       if (method === 'PUT') {
+        puts += 1;
+        if (puts === options.failPutAt) {
+          return Response.json({ detail: 'storage unavailable' }, { status: 500 });
+        }
         const body = JSON.parse(String(init?.body)) as { value: FinanceDocument };
         if (options.writeDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, options.writeDelayMs));
@@ -263,5 +268,24 @@ describe('useFinanceData', () => {
     expect(api.writes).toHaveLength(2);
     expect(api.writes.at(-1)?.diagrams[0].nodeOrder).toEqual([]);
     expect(rendered.result.current.diagram.nodeOrder).toEqual([]);
+  });
+
+  it('keeps undo history when a backup replacement fails to persist', async () => {
+    const api = stubApi({ failPutAt: 2 });
+    const rendered = await mounted();
+
+    await act(async () => {
+      await rendered.result.current.addAccount({ x: 0, y: 0 });
+    });
+    await written(api, 1);
+    expect(rendered.result.current.canUndo).toBe(true);
+
+    const backup = createBackup(
+      { ...rendered.result.current.document, diagrams: [] },
+      '2026-08-07T00:00:00.000Z',
+    );
+    await expect(rendered.result.current.restore(JSON.stringify(backup))).rejects.toThrow();
+
+    expect(rendered.result.current.canUndo).toBe(true);
   });
 });

@@ -46,10 +46,15 @@ export function BackupControls({ document: financeDocument, onRestore }: BackupC
   async function confirmRestore() {
     if (!pending) return;
     setRestoring(true);
-    const problem = await onRestore(pending.text);
-    setRestoring(false);
-    setPending(null);
-    setMessage(problem);
+    try {
+      const problem = await onRestore(pending.text);
+      setMessage(problem);
+    } catch {
+      setMessage('Could not save the restored backup. Retry saving before leaving this page.');
+    } finally {
+      setRestoring(false);
+      setPending(null);
+    }
   }
 
   return (

@@ -1,5 +1,10 @@
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
-import type { NodeContent } from '@/features/finance/lib/geometry';
+import {
+  HOLDING_CONTENT_WIDTH,
+  nodeTextWidth,
+  sizeOf,
+  type NodeContent,
+} from '@/features/finance/lib/geometry';
 import type {
   AssetCode,
   Diagram,
@@ -347,9 +352,45 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
   }
 
   const summary = selectAccountSummary(diagram, node.id);
+  const holdings = selectHoldingsOfAccount(diagram, node.id).filter((holding) => holding.active);
+  const holdingSpanWidth = holdings.length
+    ? Math.max(
+        ...holdings.map((holding) => holding.position.x + sizeOf(holding, selectNodeContent(diagram, holding)).width),
+      ) - Math.min(...holdings.map((holding) => holding.position.x))
+    : 0;
+  const chipWidth = Math.max(
+    textWidthForAccount('No assets yet', 'muted'),
+    ...summary.remaining.map((total) =>
+      textWidthForAccount(`${total.asset} ${'9'.repeat('99,999.99'.length)}`, 'balance'),
+    ),
+  );
+  const allocationWidth = Math.max(
+    0,
+    ...allocated.map((item) =>
+      textWidthForAccount(
+        `${item.asset} ${'9'.repeat('99,999.99'.length)} / ${'9'.repeat('99,999.99'.length)} 100%`,
+        'allocation',
+      ),
+    ),
+  );
+  const nameWidth = textWidthForAccount(node.name || 'Account', 'name');
   return {
     assetRows: summary.remaining.length - allocated.length,
     allocatedRows: allocated.length,
     extraRow: summary.incoming.count + summary.outgoing.count > 0,
+    minimumWidth: Math.min(
+      240,
+      Math.max(HOLDING_CONTENT_WIDTH, nameWidth, chipWidth, allocationWidth),
+    ),
+    holdingSpanWidth,
   };
+}
+
+/** Mirrors geometry's conservative text metric without introducing a DOM read. */
+function textWidthForAccount(
+  text: string,
+  row: 'muted' | 'name' | 'balance' | 'allocation',
+): number {
+  const font = row === 'muted' ? 11 : row === 'allocation' ? 10 : 12;
+  return nodeTextWidth(text, font);
 }

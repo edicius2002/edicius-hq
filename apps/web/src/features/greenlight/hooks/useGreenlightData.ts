@@ -1,5 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 
+import { calendarWeekForDate } from '@/features/greenlight/lib/aggregate';
+import { normalizeMarkers } from '@/features/greenlight/lib/segments';
 import {
   mergeDetectedWidgets,
   normalizeToolWidgets,
@@ -59,12 +61,11 @@ function normalizeStats(value: unknown): Record<string, DayStats> {
 function normalizeState(value: unknown): GreenlightState {
   if (!value || typeof value !== 'object') return EMPTY_GREENLIGHT_STATE;
   const stored = value as Partial<GreenlightState>;
+  const stats = normalizeStats(stored.stats);
   return {
-    stats: normalizeStats(stored.stats),
+    stats,
     meta: stored.meta ?? null,
-    markers: Array.isArray(stored.markers)
-      ? stored.markers.filter((marker) => typeof marker === 'string')
-      : [],
+    markers: normalizeMarkers(stored.markers, stats),
     widgets: normalizeToolWidgets(stored.widgets),
   };
 }
@@ -113,7 +114,7 @@ export function useGreenlightData() {
 
         return {
           stats,
-          markers: current.markers,
+          markers: normalizeMarkers(current.markers, stats),
           widgets: mergeDetectedWidgets(current.widgets, imported.widgets),
           meta: {
             fileName,
@@ -135,13 +136,17 @@ export function useGreenlightData() {
   // Toggles take the intent, not a precomputed array: the new value has to be
   // derived inside the write from state the caller's render may not have seen.
   const toggleMarkerMutation = useMutation({
-    mutationFn: (dayKey: string) =>
-      store.edit((current) => ({
-        ...current,
-        markers: current.markers.includes(dayKey)
-          ? current.markers.filter((day) => day !== dayKey)
-          : [...current.markers, dayKey],
-      })),
+    mutationFn: (weekKey: string) =>
+      store.edit((current) => {
+        const marker = calendarWeekForDate(weekKey)?.key;
+        if (!marker) return current;
+        return {
+          ...current,
+          markers: current.markers.includes(marker)
+            ? current.markers.filter((week) => week !== marker)
+            : [...current.markers, marker],
+        };
+      }),
   });
 
   const clearMarkersMutation = useMutation({

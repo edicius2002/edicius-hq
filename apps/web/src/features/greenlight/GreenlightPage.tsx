@@ -88,10 +88,10 @@ export function GreenlightPage() {
     }
   }
 
-  async function handleToggleMarker(dayKey: string) {
+  async function handleToggleMarker(weekKey: string) {
     setLocalError(null);
     try {
-      await toggleMarker(dayKey);
+      await toggleMarker(weekKey);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Could not save the marker.');
     }
@@ -211,7 +211,7 @@ export function GreenlightPage() {
               stats={state.stats}
               markers={state.markers}
               widgets={state.widgets}
-              onToggleMarker={(day) => void handleToggleMarker(day)}
+              onToggleMarker={(week) => void handleToggleMarker(week)}
               onToggleWidget={(monthKey, tool) => void handleToggleWidget(monthKey, tool)}
             />
             {/* Reserved so the first marker segments fill existing space instead

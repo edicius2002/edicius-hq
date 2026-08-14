@@ -107,14 +107,16 @@ describe('account node geometry', () => {
     expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 18);
   });
 
-  it('keeps an account wide when holdings truly occupy separate columns', () => {
+  it('reports the real span of separated holdings but is not widened past 240', () => {
     const { account: accountNode, content } = contentFor(
       holding('left', 'a1', 'USD', 0, { position: { x: -581, y: 0 } }),
       holding('right', 'a1', 'PEN', 0, { position: { x: -387, y: 0 } }),
     );
 
+    // The measurement stays honest — this really is how far apart they sit —
+    // and `sizeOf` is what decides the span cannot buy width beyond the box.
     expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 194);
-    expect(sizeOf(accountNode, content).width).toBeGreaterThan(240);
+    expect(sizeOf(accountNode, content).width).toBe(240);
   });
 });
 

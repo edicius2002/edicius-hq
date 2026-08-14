@@ -32,11 +32,5 @@ export function mergeCurrentMonthStats(
     replacedDays += 1;
   }
 
-  if (!replacedDays) {
-    throw new Error(
-      `The CSV has no records for the current month (${monthKey}). Nothing was changed.`,
-    );
-  }
-
   return { merged, replacedDays };
 }

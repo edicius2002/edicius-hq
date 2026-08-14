@@ -114,3 +114,14 @@
   margin: 0;
   font-size: 0.85rem;
 }
+
+.confirmDanger {
+  border-color: var(--color-danger);
+}
+
+.removed {
+  flex: 1 1 100%;
+  color: var(--color-danger);
+  font-size: 0.9rem;
+  font-weight: 700;
+}

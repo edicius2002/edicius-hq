@@ -94,9 +94,10 @@ describe('Greenlight aggregation (Thursday-of-week months)', () => {
     expect(merged['2026-05-08']?.Deliverable.amount).toBe(560);
     expect(merged['2026-06-01']).toBeUndefined();
 
-    expect(() => mergeCurrentMonthStats(existing, { '2026-06-01': day(1) }, '2026-05')).toThrow(
-      /current month/,
-    );
+    const empty = mergeCurrentMonthStats(existing, { '2026-06-01': day(1) }, '2026-05');
+    expect(empty.replacedDays).toBe(0);
+    expect(empty.merged['2026-04-10']).toBeTruthy();
+    expect(empty.merged['2026-05-01']).toBeUndefined();
   });
 
   it('labels the clock month the same way the radio does', () => {

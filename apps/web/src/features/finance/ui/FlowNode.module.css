@@ -270,3 +270,9 @@
   background: var(--color-accent);
   outline: none;
 }
+
+/* The surface, not every anchor, owns the tab stop. This is its visible cursor. */
+.anchorKeyboard {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(214, 166, 93, 0.42);
+}

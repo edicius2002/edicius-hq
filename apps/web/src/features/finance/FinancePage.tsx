@@ -331,6 +331,12 @@ export function FinancePage() {
           }}
           onMoveFrame={(id, position) => void finance.moveFrame(id, position)}
           onResizeFrame={(id, position, size) => void finance.resizeFrame(id, position, size)}
+          onConnectModeChange={(active) => {
+            setMessage(null);
+            setFrameMode(false);
+            if (active) setConnectMode(true);
+            else stopConnecting();
+          }}
         />
 
         <div className={styles.side}>

@@ -6,10 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
 import { addAccount, addFrame, addHolding, addJob, connect, updateFlow } from '@/features/finance/lib/operations';
-import type { Diagram } from '@/features/finance/model/types';
+import type { Anchor, Diagram, FrameId, NodeId, Point, Rect, Size } from '@/features/finance/model/types';
 import { NO_FINANCE_CAMERA_VIEWS } from '@/features/finance/lib/cameraViews';
 
-import { FlowCanvas } from './FlowCanvas';
+import { FlowCanvas, type Selection } from './FlowCanvas';
 
 afterEach(cleanup);
 
@@ -54,6 +54,186 @@ function canvasProps() {
 function renderCanvas(diagram: Diagram) {
   return render(<FlowCanvas diagram={diagram} {...canvasProps()} />, { wrapper: TestWrapper });
 }
+
+type KeyboardCanvasProps = {
+  diagram: Diagram;
+  onSelect?: (selection: Selection) => void;
+  onMoveNode?: (id: NodeId, position: Point) => void;
+  onAnchorClick?: (id: NodeId, anchor: Anchor) => void;
+  onConnectModeChange?: (active: boolean) => void;
+  onCreateFrame?: (rect: Rect) => void;
+  onResizeFrame?: (id: FrameId, position: Point, size: Size) => void;
+};
+
+/** Mirrors FinancePage's shared selection/connect state without mounting the page. */
+function KeyboardCanvas({
+  diagram,
+  onSelect = vi.fn(),
+  onMoveNode = vi.fn(),
+  onAnchorClick = vi.fn(),
+  onConnectModeChange = vi.fn(),
+  onCreateFrame = vi.fn(),
+  onResizeFrame = vi.fn(),
+}: KeyboardCanvasProps) {
+  const [selection, setSelection] = useState<Selection>(null);
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectFrom, setConnectFrom] = useState<{ nodeId: string; anchor: Anchor } | null>(null);
+
+  return (
+    <FlowCanvas
+      diagram={diagram}
+      selection={selection}
+      connectMode={connectMode}
+      connectFrom={connectFrom}
+      frameMode={false}
+      onSelect={(next) => {
+        setSelection(next);
+        onSelect(next);
+      }}
+      onMoveNode={onMoveNode}
+      onAnchorClick={(nodeId, anchor) => {
+        onAnchorClick(nodeId, anchor);
+        if (!connectFrom) setConnectFrom({ nodeId, anchor });
+        else if (connectFrom.nodeId !== nodeId) {
+          setConnectFrom(null);
+          setConnectMode(false);
+        }
+      }}
+      onCreateFrame={onCreateFrame}
+      onMoveFrame={vi.fn()}
+      onResizeFrame={onResizeFrame}
+      onConnectModeChange={(active) => {
+        onConnectModeChange(active);
+        setConnectMode(active);
+        if (!active) setConnectFrom(null);
+      }}
+    />
+  );
+}
+
+describe('canvas keyboard route', () => {
+  function viewportOf(container: HTMLElement): HTMLDivElement {
+    return container.firstElementChild as HTMLDivElement;
+  }
+
+  it('selects nodes by their spatial neighbours, not their document order', () => {
+    const onSelect = vi.fn();
+    const { container } = render(<KeyboardCanvas diagram={populated()} onSelect={onSelect} />, {
+      wrapper: TestWrapper,
+    });
+    const viewport = viewportOf(container);
+    viewport.focus();
+
+    fireEvent.keyDown(viewport, { key: 'ArrowRight' });
+    fireEvent.keyDown(viewport, { key: 'ArrowRight' });
+
+    expect(onSelect).toHaveBeenNthCalledWith(1, { type: 'node', id: 'job-1' });
+    expect(onSelect).toHaveBeenNthCalledWith(2, { type: 'node', id: 'acc-1' });
+    expect(screen.getByLabelText('Account Account').className).toContain('selected');
+  });
+
+  it('moves a selected node with fine and coarse keyboard steps', () => {
+    const onMoveNode = vi.fn();
+    const { container } = render(<KeyboardCanvas diagram={populated()} onMoveNode={onMoveNode} />, {
+      wrapper: TestWrapper,
+    });
+    const viewport = viewportOf(container);
+    viewport.focus();
+    fireEvent.keyDown(viewport, { key: 'ArrowRight' });
+
+    fireEvent.keyDown(viewport, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(viewport, { key: 'ArrowDown', shiftKey: true, altKey: true });
+
+    expect(onMoveNode).toHaveBeenNthCalledWith(1, 'job-1', { x: 50, y: 40 });
+    expect(onMoveNode).toHaveBeenNthCalledWith(2, 'job-1', { x: 50, y: 90 });
+    expect(screen.getByLabelText('Job Job')).toHaveStyle({ left: '50px', top: '90px' });
+  });
+
+  it('chooses source and destination anchors through the canvas, then can cancel a new connection', () => {
+    const onAnchorClick = vi.fn();
+    const onConnectModeChange = vi.fn();
+    const { container } = render(
+      <KeyboardCanvas
+        diagram={populated()}
+        onAnchorClick={onAnchorClick}
+        onConnectModeChange={onConnectModeChange}
+      />,
+      { wrapper: TestWrapper },
+    );
+    const viewport = viewportOf(container);
+    viewport.focus();
+    fireEvent.keyDown(viewport, { key: 'ArrowRight' });
+    fireEvent.keyDown(viewport, { key: 'c' });
+    fireEvent.keyDown(viewport, { key: 'Enter' });
+    fireEvent.keyDown(viewport, { key: 'ArrowRight' });
+    fireEvent.keyDown(viewport, { key: 'a' });
+    fireEvent.keyDown(viewport, { key: 'Enter' });
+
+    expect(onAnchorClick).toHaveBeenNthCalledWith(1, 'job-1', 'r');
+    expect(onAnchorClick).toHaveBeenNthCalledWith(2, 'acc-1', 'br');
+
+    fireEvent.keyDown(viewport, { key: 'ArrowLeft' });
+    fireEvent.keyDown(viewport, { key: 'c' });
+    fireEvent.keyDown(viewport, { key: 'Escape' });
+    expect(onConnectModeChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('creates, selects, and resizes frames without moving focus into frame handles', () => {
+    const onCreateFrame = vi.fn();
+    const onResizeFrame = vi.fn();
+    const diagram = addFrame(populated(), {
+      id: 'f1',
+      position: { x: 0, y: 0 },
+      size: { width: 320, height: 240 },
+      name: 'Savings',
+    });
+    const { container } = render(
+      <KeyboardCanvas diagram={diagram} onCreateFrame={onCreateFrame} onResizeFrame={onResizeFrame} />,
+      { wrapper: TestWrapper },
+    );
+    const viewport = viewportOf(container);
+    viewport.focus();
+
+    fireEvent.keyDown(viewport, { key: 'f', shiftKey: true });
+    expect(onCreateFrame).toHaveBeenCalledWith(expect.objectContaining({ width: 180, height: 150 }));
+
+    fireEvent.keyDown(viewport, { key: 'f' });
+    fireEvent.keyDown(viewport, { key: 'ArrowRight', ctrlKey: true, shiftKey: true });
+    expect(onResizeFrame).toHaveBeenCalledWith('f1', { x: 0, y: 0 }, { width: 330, height: 240 });
+  });
+
+  it('selects flows from the canvas so their properties remain reachable by Tab', () => {
+    const onSelect = vi.fn();
+    const base = populated();
+    const diagram: Diagram = {
+      ...base,
+      flows: {
+        'flow-1': {
+          id: 'flow-1',
+          from: 'job-1',
+          to: 'acc-1',
+          fromAnchor: 'r',
+          toAnchor: 'l',
+          amount: 10,
+          asset: 'USD',
+          label: '',
+          notes: '',
+          labelOffset: null,
+        },
+      },
+      flowOrder: ['flow-1'],
+    };
+    const { container } = render(<KeyboardCanvas diagram={diagram} onSelect={onSelect} />, {
+      wrapper: TestWrapper,
+    });
+    const viewport = viewportOf(container);
+    viewport.focus();
+
+    fireEvent.keyDown(viewport, { key: 'e' });
+
+    expect(onSelect).toHaveBeenCalledWith({ type: 'flow', id: 'flow-1' });
+  });
+});
 
 describe('camera controls', () => {
   it('starts at 100%', () => {

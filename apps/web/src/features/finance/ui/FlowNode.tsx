@@ -35,6 +35,8 @@ type FlowNodeProps = {
   selected: boolean;
   connecting: boolean;
   isConnectSource: boolean;
+  /** The canvas owns keyboard focus; this marks its currently chosen anchor. */
+  keyboardAnchor?: Anchor;
   /**
    * How many rows this node will show. The box is sized from it, so the two
    * cannot disagree — a height derived from the kind alone left an account with
@@ -85,6 +87,7 @@ export function FlowNode({
   selected,
   connecting,
   isConnectSource,
+  keyboardAnchor,
   content,
   accountSummary,
   overAllocated,
@@ -164,10 +167,12 @@ export function FlowNode({
             <button
               key={anchor}
               type="button"
-              className={styles.anchor}
+              className={`${styles.anchor} ${keyboardAnchor === anchor ? styles.anchorKeyboard : ''}`}
               style={ANCHOR_OFFSETS[anchor]}
               title={`Connect from ${anchor}`}
               aria-label={`Connect from ${anchor}`}
+              tabIndex={-1}
+              aria-pressed={keyboardAnchor === anchor || undefined}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation();

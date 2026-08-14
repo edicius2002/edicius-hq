@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useGreenlightData } from '@/features/greenlight/hooks/useGreenlightData';
 import {
@@ -7,7 +7,7 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
-import { formatMoney } from '@/shared/lib/money';
+import { currentMonthLabel } from '@/features/greenlight/lib/merge';
 import {
   buildSegmentSummaries,
   computeSegmentedTotals,
@@ -19,6 +19,7 @@ import { MoneyWeekChart } from '@/features/greenlight/ui/MoneyWeekChart';
 import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
 import { SegmentSummary } from '@/features/greenlight/ui/SegmentSummary';
 import { WeeklyChart } from '@/features/greenlight/ui/WeeklyChart';
+import { formatMoney } from '@/shared/lib/money';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
@@ -62,11 +63,7 @@ export function GreenlightPage() {
   const range = useMemo(() => dateRangeLabel(state.stats), [state.stats]);
   const showSyncing = isFetching && !isError;
 
-  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
+  async function handleImport(file: File) {
     setLocalError(null);
     try {
       await importCsv({ fileName: file.name, content: await file.text(), replaceMode });
@@ -84,7 +81,11 @@ export function GreenlightPage() {
 
   async function handleClear() {
     setLocalError(null);
-    await clearData();
+    try {
+      await clearData();
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Could not clear Greenlight data.');
+    }
   }
 
   async function handleToggleMarker(dayKey: string) {
@@ -126,12 +127,13 @@ export function GreenlightPage() {
       <ImportPanel
         replaceMode={replaceMode}
         onReplaceModeChange={setReplaceMode}
+        replaceMonthLabel={currentMonthLabel()}
         meta={state.meta}
         isSyncing={showSyncing}
         isImporting={isImporting}
         isClearing={isClearing}
         hasData={hasData}
-        onFileChange={(event) => void handleFileChange(event)}
+        onImport={(file) => void handleImport(file)}
         onClear={() => void handleClear()}
       />
 

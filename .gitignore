@@ -52,6 +52,10 @@ services/api/.local-data/
 !examples/**/*.csv
 !examples/**/*.json
 
+# Test fixtures: structure of a real export, none of its data. Anything added
+# here must be anonymised — no names, emails, phone numbers, clients or rates.
+!apps/web/src/**/fixtures/*.csv
+
 # Licensed font binaries (keep README)
 apps/web/public/fonts/*
 !apps/web/public/fonts/README.md

@@ -36,6 +36,7 @@ type PositionsProps = {
   onSelect: (symbol: string) => void;
   onEdit: (symbol: string, quantity: number, averageCost: number) => void;
   onRemove: (symbol: string) => void;
+  onMove: (from: string, to: string) => void;
 };
 
 export function Positions({
@@ -45,9 +46,11 @@ export function Positions({
   onSelect,
   onEdit,
   onRemove,
+  onMove,
 }: PositionsProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [dragging, setDragging] = useState<string | null>(null);
 
   const valued = portfolio.positions
     .map((position) => valuePosition(position, quotes.get(position.symbol)))
@@ -55,6 +58,19 @@ export function Positions({
 
   return (
     <div>
+      {totalsByCurrency(valued).map((total) => (
+        <div key={total.currency} className={styles.total} aria-label={`Total ${total.currency}`}>
+          <span className={styles.totalLabel}>
+            Total <span className={styles.muted}>{total.currency}</span>
+          </span>
+          <span className={styles.totalValue}>{formatAmount(total.value)}</span>
+          <span className={total.profit >= 0 ? styles.up : styles.down}>
+            {formatSignedAmount(total.profit)}
+            {total.profitPercent === null ? '' : ' · ' + formatPercent(total.profitPercent)}
+          </span>
+        </div>
+      ))}
+
       <div className={styles.add}>
         {adding ? (
           <PositionForm
@@ -97,7 +113,17 @@ export function Positions({
             return (
               <li
                 key={position.symbol}
-                className={`${styles.row} ${position.symbol === selected ? styles.selected : ''}`}
+                className={`${styles.row} ${position.symbol === selected ? styles.selected : ''} ${
+                  dragging === position.symbol ? styles.dragging : ''
+                }`}
+                draggable
+                onDragStart={() => setDragging(position.symbol)}
+                onDragEnd={() => setDragging(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => {
+                  if (dragging && dragging !== position.symbol) onMove(dragging, position.symbol);
+                  setDragging(null);
+                }}
               >
                 <button
                   type="button"
@@ -153,19 +179,6 @@ export function Positions({
       ) : (
         <p className={styles.empty}>Nothing held yet.</p>
       )}
-
-      {totalsByCurrency(valued).map((total) => (
-        <div key={total.currency} className={styles.total}>
-          <span className={styles.totalLabel}>
-            Total <span className={styles.muted}>{total.currency}</span>
-          </span>
-          <span className={styles.totalValue}>{formatAmount(total.value)}</span>
-          <span className={total.profit >= 0 ? styles.up : styles.down}>
-            {formatSignedAmount(total.profit)}
-            {total.profitPercent === null ? '' : ' · ' + formatPercent(total.profitPercent)}
-          </span>
-        </div>
-      ))}
     </div>
   );
 }

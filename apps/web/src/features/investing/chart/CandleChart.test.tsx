@@ -32,8 +32,6 @@ function chartProps(over: Partial<React.ComponentProps<typeof CandleChart>> = {}
   return {
     bars: bars(),
     viewKey: 'AAPL:1d',
-    initialWindow: { first: 20, last: 140 },
-    onWindowChange: vi.fn(),
     isGhost: () => false,
     formatTime: (bar: Bar) => `bar ${bar.time}`,
     ...over,
@@ -46,38 +44,41 @@ function surface(container: HTMLElement): HTMLElement {
   return element as HTMLElement;
 }
 
-describe('CandleChart view persistence boundary', () => {
-  it('starts the crosshair in the restored index window', () => {
+describe('CandleChart live-edge follow', () => {
+  it('starts at the newest candles', () => {
     const { container } = render(<CandleChart {...chartProps()} />);
 
-    fireEvent.pointerMove(surface(container), { clientX: 0, clientY: 10 });
+    fireEvent.pointerMove(surface(container), { clientX: 799, clientY: 10 });
 
-    // x=0 is half a slot before the first candle and rounds to the first saved bar.
-    expect(screen.getByText('bar 20')).toBeInTheDocument();
+    expect(screen.getByText('bar 199')).toBeInTheDocument();
   });
 
-  it('persists a deliberate zoom, rather than only changing its local view', () => {
-    const onWindowChange = vi.fn();
-    const { container } = render(<CandleChart {...chartProps({ onWindowChange })} />);
+  it('rejoins the latest candles after panning into history', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
 
-    fireEvent.wheel(surface(container), { clientX: 200, clientY: 100, deltaY: -1 });
+    fireEvent.pointerDown(surface(container), { pointerId: 1, clientX: 400, clientY: 100 });
+    fireEvent.pointerMove(surface(container), { pointerId: 1, clientX: 700, clientY: 100 });
+    fireEvent.pointerUp(surface(container), { pointerId: 1 });
+    fireEvent.pointerMove(surface(container), { clientX: 799, clientY: 10 });
 
-    expect(onWindowChange).toHaveBeenCalledTimes(1);
-    expect(
-      onWindowChange.mock.calls[0][0].last - onWindowChange.mock.calls[0][0].first,
-    ).toBeLessThan(120);
+    expect(screen.queryByText('bar 199')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Latest' }));
+    fireEvent.pointerMove(surface(container), { clientX: 799, clientY: 10 });
+
+    expect(screen.getByText('bar 199')).toBeInTheDocument();
   });
 
-  it('uses the other saved window when the selected series changes', () => {
+  it('follows the latest candles again after changing series', () => {
     const { container, rerender } = render(<CandleChart {...chartProps()} />);
 
     rerender(
       <CandleChart
-        {...chartProps({ viewKey: 'AAPL:1h', initialWindow: { first: 60, last: 180 } })}
+        {...chartProps({ viewKey: 'AAPL:1h', bars: bars(300) })}
       />,
     );
-    fireEvent.pointerMove(surface(container), { clientX: 0, clientY: 10 });
+    fireEvent.pointerMove(surface(container), { clientX: 799, clientY: 10 });
 
-    expect(screen.getByText('bar 60')).toBeInTheDocument();
+    expect(screen.getByText('bar 299')).toBeInTheDocument();
   });
 });

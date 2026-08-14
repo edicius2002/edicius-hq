@@ -4,6 +4,7 @@ import {
   EMPTY_PORTFOLIO,
   normalizePortfolio,
   positionFor,
+  reorderPositions,
   removePosition,
   setPosition,
   symbolsOf,
@@ -140,6 +141,27 @@ describe('removePosition', () => {
     // Identity is what lets the storage facade skip a pointless write.
     const before = portfolio(['A', 1, 1]);
     expect(removePosition(before, 'Z')).toBe(before);
+  });
+});
+
+describe('reorderPositions', () => {
+  it('moves a position to where the target sits', () => {
+    const before = portfolio(['AAPL', 1, 1], ['MSFT', 1, 1], ['NVDA', 1, 1]);
+
+    expect(symbolsOf(reorderPositions(before, 'NVDA', 'AAPL'))).toEqual(['NVDA', 'AAPL', 'MSFT']);
+  });
+
+  it('moves downwards too', () => {
+    const before = portfolio(['AAPL', 1, 1], ['MSFT', 1, 1], ['NVDA', 1, 1]);
+
+    expect(symbolsOf(reorderPositions(before, 'AAPL', 'NVDA'))).toEqual(['MSFT', 'NVDA', 'AAPL']);
+  });
+
+  it('does nothing for the same or a missing position', () => {
+    const before = portfolio(['AAPL', 1, 1], ['MSFT', 1, 1]);
+
+    expect(reorderPositions(before, 'AAPL', 'AAPL')).toBe(before);
+    expect(reorderPositions(before, 'AAPL', 'NVDA')).toBe(before);
   });
 });
 

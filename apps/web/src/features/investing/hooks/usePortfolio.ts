@@ -4,6 +4,7 @@ import {
   EMPTY_PORTFOLIO,
   PORTFOLIO_KEY,
   normalizePortfolio,
+  reorderPositions,
   removePosition,
   setPosition,
   symbolsOf,
@@ -39,6 +40,11 @@ export function usePortfolio() {
     [store],
   );
 
+  const move = useCallback(
+    (from: string, to: string) => store.edit((current) => reorderPositions(current, from, to)),
+    [store],
+  );
+
   return {
     portfolio,
     symbols,
@@ -46,5 +52,6 @@ export function usePortfolio() {
     isError: store.isError,
     set,
     remove,
+    move,
   };
 }

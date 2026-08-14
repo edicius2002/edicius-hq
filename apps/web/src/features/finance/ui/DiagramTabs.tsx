@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Diagram, DiagramId } from '@/features/finance/model/types';
 
@@ -25,6 +25,23 @@ export function DiagramTabs({
 }: DiagramTabsProps) {
   const [renaming, setRenaming] = useState<DiagramId | null>(null);
   const [draft, setDraft] = useState('');
+  // Spelled as a shape rather than `DiagramId | 'add'`: ids are strings, so
+  // that union collapses to `string` and a diagram whose id really were "add"
+  // would steer the focus at the button instead of at itself.
+  const [focusAfterDelete, setFocusAfterDelete] = useState<
+    { kind: 'tab'; id: DiagramId } | { kind: 'add' } | null
+  >(null);
+  const tabs = useRef(new Map<DiagramId, HTMLButtonElement>());
+  const addButton = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!focusAfterDelete) return;
+    const target =
+      focusAfterDelete.kind === 'add' ? addButton.current : tabs.current.get(focusAfterDelete.id);
+    if (!target) return;
+    target.focus();
+    setFocusAfterDelete(null);
+  }, [diagrams, focusAfterDelete]);
 
   function startRename(diagram: Diagram) {
     setRenaming(diagram.id);
@@ -36,9 +53,18 @@ export function DiagramTabs({
     setRenaming(null);
   }
 
+  function deleteDiagram(diagram: Diagram, index: number) {
+    // Pick the following diagram first, then the preceding one. Deleting the
+    // final diagram creates a fresh id in the document layer, so the Add button
+    // is the only stable, reachable target in that case.
+    const neighbour = diagrams[index + 1]?.id ?? diagrams[index - 1]?.id;
+    setFocusAfterDelete(neighbour ? { kind: 'tab', id: neighbour } : { kind: 'add' });
+    onDelete(diagram.id);
+  }
+
   return (
-    <div className={styles.bar} role="tablist" aria-label="Diagrams">
-      {diagrams.map((diagram) => {
+    <nav className={styles.bar} aria-label="Diagrams">
+      {diagrams.map((diagram, index) => {
         const isActive = diagram.id === activeId;
 
         if (renaming === diagram.id) {
@@ -64,12 +90,14 @@ export function DiagramTabs({
           <div key={diagram.id} className={`${styles.tab} ${isActive ? styles.active : ''}`}>
             <button
               type="button"
-              role="tab"
-              aria-selected={isActive}
               className={styles.name}
-              title={isActive ? 'Double-click to rename' : `Switch to ${diagram.name}`}
+              aria-current={isActive ? 'page' : undefined}
+              ref={(element) => {
+                if (element) tabs.current.set(diagram.id, element);
+                else tabs.current.delete(diagram.id);
+              }}
+              title={`Switch to ${diagram.name}`}
               onClick={() => onSelect(diagram.id)}
-              onDoubleClick={() => isActive && startRename(diagram)}
             >
               {diagram.name}
             </button>
@@ -77,6 +105,15 @@ export function DiagramTabs({
             {/* Actions belong to the diagram you are on, so the bar stays quiet. */}
             {isActive ? (
               <>
+                <button
+                  type="button"
+                  className={styles.action}
+                  title={`Rename ${diagram.name}`}
+                  aria-label={`Rename ${diagram.name}`}
+                  onClick={() => startRename(diagram)}
+                >
+                  Rename
+                </button>
                 <button
                   type="button"
                   className={styles.action}
@@ -91,7 +128,7 @@ export function DiagramTabs({
                   className={`${styles.action} ${styles.danger}`}
                   title={`Delete ${diagram.name}`}
                   aria-label={`Delete ${diagram.name}`}
-                  onClick={() => onDelete(diagram.id)}
+                  onClick={() => deleteDiagram(diagram, index)}
                 >
                   ✕
                 </button>
@@ -101,9 +138,9 @@ export function DiagramTabs({
         );
       })}
 
-      <button type="button" className={styles.add} onClick={onAdd}>
+      <button ref={addButton} type="button" className={styles.add} onClick={onAdd}>
         + Diagram
       </button>
-    </div>
+    </nav>
   );
 }

@@ -7,13 +7,12 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
-import { currentMonthKey, currentMonthLabel } from '@/features/greenlight/lib/merge';
 import {
   buildSegmentSummaries,
   computeSegmentedTotals,
   dateRangeLabel,
 } from '@/features/greenlight/lib/segments';
-import type { ReplaceMode, ToolId } from '@/features/greenlight/model/types';
+import type { ToolId } from '@/features/greenlight/model/types';
 import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
 import { MoneyWeekChart } from '@/features/greenlight/ui/MoneyWeekChart';
 import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
@@ -30,7 +29,6 @@ import styles from './ui/GreenlightPage.module.css';
 
 export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
-  const [replaceMode, setReplaceMode] = useState<ReplaceMode>('all');
   const {
     state,
     isFetching,
@@ -66,7 +64,7 @@ export function GreenlightPage() {
   async function handleImport(file: File) {
     setLocalError(null);
     try {
-      await importCsv({ fileName: file.name, content: await file.text(), replaceMode });
+      await importCsv({ fileName: file.name, content: await file.text() });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to import CSV.';
       if (/failed to fetch|networkerror|abort/i.test(message)) {
@@ -125,10 +123,6 @@ export function GreenlightPage() {
       />
 
       <ImportPanel
-        replaceMode={replaceMode}
-        onReplaceModeChange={setReplaceMode}
-        replaceMonthLabel={currentMonthLabel()}
-        monthKey={currentMonthKey()}
         stats={state.stats}
         meta={state.meta}
         isSyncing={showSyncing}

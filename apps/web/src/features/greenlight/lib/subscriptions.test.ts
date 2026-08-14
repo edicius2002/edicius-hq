@@ -5,6 +5,7 @@ import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
 import {
   detectToolWidgets,
   mergeDetectedWidgets,
+  pruneToolWidgets,
   toggleToolWidget,
   TOOL_RATES,
 } from '@/features/greenlight/lib/subscriptions';
@@ -75,6 +76,28 @@ Expense,2026-04-17T00:00,10,USD,1. VSCode Copilot
     it('treats an emptied month as touched so a manual removal survives re-import', () => {
       const merged = mergeDetectedWidgets({ '2026-04': [] }, { '2026-04': ['vscode', 'cursor'] });
       expect(merged['2026-04']).toEqual([]);
+    });
+  });
+
+  describe('pruneToolWidgets', () => {
+    it('drops a month that has no weeks with data, so it can be redetected', () => {
+      const stats = {
+        '2026-04-17': { Deliverable: { amount: 388, details: [] }, currency: 'USD' },
+      };
+      const pruned = pruneToolWidgets(
+        { '2026-04': ['vscode'], '2026-05': [], '2026-06': ['cursor'] },
+        stats,
+      );
+      expect(pruned).toEqual({ '2026-04': ['vscode'] });
+      // The empty May entry used to block reseeding forever.
+      expect(mergeDetectedWidgets(pruned, { '2026-05': ['vscode'] })['2026-05']).toEqual(['vscode']);
+    });
+
+    it('keeps an emptied month that still has weeks, so a manual removal survives', () => {
+      const stats = {
+        '2026-04-17': { Deliverable: { amount: 388, details: [] }, currency: 'USD' },
+      };
+      expect(pruneToolWidgets({ '2026-04': [] }, stats)).toEqual({ '2026-04': [] });
     });
   });
 

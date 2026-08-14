@@ -7,7 +7,7 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
-import { currentMonthLabel } from '@/features/greenlight/lib/merge';
+import { currentMonthKey, currentMonthLabel } from '@/features/greenlight/lib/merge';
 import {
   buildSegmentSummaries,
   computeSegmentedTotals,
@@ -128,12 +128,17 @@ export function GreenlightPage() {
         replaceMode={replaceMode}
         onReplaceModeChange={setReplaceMode}
         replaceMonthLabel={currentMonthLabel()}
+        monthKey={currentMonthKey()}
+        stats={state.stats}
         meta={state.meta}
         isSyncing={showSyncing}
         isImporting={isImporting}
         isClearing={isClearing}
         hasData={hasData}
         onImport={(file) => void handleImport(file)}
+        onParseError={(message) => {
+          setLocalError(message);
+        }}
         onClear={() => void handleClear()}
       />
 

@@ -1,6 +1,13 @@
-import { useState, type ChangeEvent } from 'react';
+import { useMemo, useState, type ChangeEvent } from 'react';
 
-import type { GreenlightMeta, ReplaceMode } from '@/features/greenlight/model/types';
+import {
+  formatImportPlan,
+  importPlanHasChanges,
+  planGreenlightImport,
+  type ImportPlan,
+} from '@/features/greenlight/lib/importPlan';
+import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
+import type { DayStats, GreenlightMeta, ReplaceMode } from '@/features/greenlight/model/types';
 import { Button } from '@/shared/ui/Button';
 import buttonStyles from '@/shared/ui/Button.module.css';
 import { Panel } from '@/shared/ui/Panel';
@@ -8,20 +15,28 @@ import { Panel } from '@/shared/ui/Panel';
 import styles from './ImportPanel.module.css';
 
 type PendingClear = { kind: 'clear' };
-type PendingReplaceAll = { kind: 'replace-all'; file: File };
-type Pending = PendingClear | PendingReplaceAll | null;
+type PendingImport = {
+  kind: 'import';
+  fileName: string;
+  incoming: Record<string, DayStats>;
+};
+type Pending = PendingClear | PendingImport | null;
 
 type ImportPanelProps = {
   replaceMode: ReplaceMode;
   onReplaceModeChange: (mode: ReplaceMode) => void;
   /** Clock month, e.g. "August 2026" — same instant as current-month replace. */
   replaceMonthLabel: string;
+  /** Clock month key `YYYY-MM`, so a preview can freeze the same month the persist uses. */
+  monthKey: string;
+  stats: Record<string, DayStats>;
   meta: GreenlightMeta | null;
   isSyncing?: boolean;
   isImporting: boolean;
   isClearing: boolean;
   hasData: boolean;
   onImport: (file: File) => void;
+  onParseError: (message: string | null) => void;
   onClear: () => void;
 };
 
@@ -29,15 +44,29 @@ export function ImportPanel({
   replaceMode,
   onReplaceModeChange,
   replaceMonthLabel,
+  monthKey,
+  stats,
   meta,
   isSyncing = false,
   isImporting,
   isClearing,
   hasData,
   onImport,
+  onParseError,
   onClear,
 }: ImportPanelProps) {
   const [pending, setPending] = useState<Pending>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  const importPlan: ImportPlan | null = useMemo(() => {
+    if (pending?.kind !== 'import') return null;
+    return planGreenlightImport({
+      existing: stats,
+      incoming: pending.incoming,
+      replaceMode,
+      monthKey,
+    });
+  }, [pending, stats, replaceMode, monthKey]);
 
   const status = isSyncing
     ? 'Syncing…'
@@ -47,19 +76,28 @@ export function ImportPanel({
         ? meta.fileName
         : null;
   const showDetail = Boolean(meta?.statusDetail) && !isSyncing && !isImporting && pending === null;
-  const busy = isImporting || isClearing || pending !== null;
+  const previewOpen = pending?.kind === 'import';
+  const busy = isImporting || isClearing || pending?.kind === 'clear';
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
 
-    if (replaceMode === 'all') {
-      setPending({ kind: 'replace-all', file });
-      return;
+    try {
+      const imported = importGreenlightCsv(await file.text());
+      onParseError(null);
+      setPendingFile(file);
+      setPending({
+        kind: 'import',
+        fileName: file.name,
+        incoming: imported.stats,
+      });
+    } catch (error) {
+      setPending(null);
+      setPendingFile(null);
+      onParseError(error instanceof Error ? error.message : 'Failed to import CSV.');
     }
-
-    onImport(file);
   }
 
   function handleClearClick() {
@@ -67,9 +105,10 @@ export function ImportPanel({
   }
 
   function handleConfirm() {
-    if (pending?.kind === 'replace-all') {
-      const file = pending.file;
+    if (pending?.kind === 'import' && pendingFile && importPlan && importPlanHasChanges(importPlan)) {
+      const file = pendingFile;
       setPending(null);
+      setPendingFile(null);
       onImport(file);
       return;
     }
@@ -81,14 +120,11 @@ export function ImportPanel({
 
   function handleCancel() {
     setPending(null);
+    setPendingFile(null);
   }
 
-  const confirmMessage =
-    pending?.kind === 'replace-all'
-      ? `Replace all Greenlight data with ${pending.file.name}? Existing days not in the file will be lost.`
-      : pending?.kind === 'clear'
-        ? 'Clear all Greenlight data? This cannot be undone.'
-        : null;
+  const copy = importPlan ? formatImportPlan(importPlan) : null;
+  const canApplyImport = Boolean(importPlan && importPlanHasChanges(importPlan));
 
   return (
     <Panel aria-labelledby="import-title" className={styles.panel}>
@@ -125,7 +161,7 @@ export function ImportPanel({
 
         <label
           className={`${buttonStyles.button} ${buttonStyles.primary} ${styles.fileButton} ${
-            isImporting || pending !== null ? styles.fileDisabled : ''
+            isImporting ? styles.fileDisabled : ''
           }`}
         >
           {isImporting ? 'Importing…' : 'Select CSV'}
@@ -133,12 +169,12 @@ export function ImportPanel({
             type="file"
             accept=".csv,text/csv"
             aria-label="Select CSV"
-            disabled={isImporting || pending !== null}
-            onChange={handleFileChange}
+            disabled={isImporting}
+            onChange={(event) => void handleFileChange(event)}
           />
         </label>
 
-        <Button variant="danger" disabled={!hasData || busy} onClick={handleClearClick}>
+        <Button variant="danger" disabled={!hasData || busy || previewOpen} onClick={handleClearClick}>
           Clear
         </Button>
 
@@ -154,11 +190,29 @@ export function ImportPanel({
         <p className={styles.modeHint}>Replaces every stored day with this CSV.</p>
       )}
 
-      {pending && confirmMessage ? (
+      {pending?.kind === 'import' && copy ? (
+        <div
+          className={`${styles.confirm} ${importPlan?.removed.length ? styles.confirmDanger : ''}`}
+          role="alert"
+        >
+          {copy.removedLine ? <p className={styles.removed}>{copy.removedLine}.</p> : null}
+          <p>{copy.headline}</p>
+          {canApplyImport ? (
+            <Button variant="danger" onClick={handleConfirm}>
+              Replace
+            </Button>
+          ) : null}
+          <Button variant="secondary" onClick={handleCancel}>
+            {canApplyImport ? 'Cancel' : 'OK'}
+          </Button>
+        </div>
+      ) : null}
+
+      {pending?.kind === 'clear' ? (
         <div className={styles.confirm} role="alert">
-          <p>{confirmMessage}</p>
+          <p>Clear all Greenlight data? This cannot be undone.</p>
           <Button variant="danger" onClick={handleConfirm}>
-            {pending.kind === 'clear' ? 'Clear' : 'Replace'}
+            Clear
           </Button>
           <Button variant="secondary" onClick={handleCancel}>
             Cancel

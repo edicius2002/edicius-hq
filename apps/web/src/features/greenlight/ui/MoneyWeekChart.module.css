@@ -296,10 +296,11 @@
  * Real screens (125% Windows scale): 1536px and 1707px CSS. After sidebar
  * (15rem), main padding (2× space-6) and panel padding (2× space-4) the list
  * is ~1116px / ~1287px — two columns of ~528px / ~613px. Collapse below
- * 1280px CSS viewport (~860px of list), not 1900. px queries do not scale
- * with --font-size-base; retune if that token or the chrome widths change.
+ * 1500px CSS viewport so a half-width window is one column; 1536 and 1707
+ * stay two. px queries do not scale with --font-size-base; retune if that
+ * token or the chrome widths change.
  */
-@media (max-width: 1279px) {
+@media (max-width: 1499px) {
   .list {
     grid-template-columns: minmax(0, 1fr);
   }

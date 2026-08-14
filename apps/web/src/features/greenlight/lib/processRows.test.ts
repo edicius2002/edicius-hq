@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
@@ -10,6 +14,11 @@ Reviewer: 1"
 2026-05-06,Expense,999,USD,should be ignored
 2026-05-11,Deliverable,500,USD,Attempter: 1
 `;
+
+const TIME_RECORDS_EXPORT = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/timerecords-sample.csv'),
+  'utf8',
+);
 
 describe('Greenlight CSV import', () => {
   it('imports deliverable rows with ES/EN aliases and aggregates by day', () => {
@@ -53,5 +62,17 @@ X,Deliverable,2026-07-21T00:00,2275.14,USD,|
     expect(() => importGreenlightCsv(`Date,Record Type,Amount\n2026-01-01,Expense,10\n`)).toThrow(
       /Deliverable\/Entregable/,
     );
+  });
+
+  it('imports the real TimeRecords export without adding Expense amounts', () => {
+    const result = importGreenlightCsv(TIME_RECORDS_EXPORT);
+
+    expect(result.rowsRead).toBe(23);
+    expect(result.daysGenerated).toBe(17);
+    // Three Deliverable rows on the same day are summed; the Expense on 06-28 is not.
+    expect(result.stats['2026-07-28']?.Deliverable.amount).toBeCloseTo(1113.4);
+    expect(result.stats['2026-06-28']?.Deliverable.amount).toBeCloseTo(1365);
+    expect(result.stats['2026-08-03']?.Deliverable.amount).toBeCloseTo(1733.44);
+    expect(result.stats['2026-04-08']?.Deliverable.amount).toBeCloseTo(3882.5);
   });
 });

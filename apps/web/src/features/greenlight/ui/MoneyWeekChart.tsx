@@ -19,7 +19,7 @@ type MoneyWeekChartProps = {
   stats: Record<string, DayStats>;
   markers: string[];
   widgets: ToolWidgets;
-  onToggleMarker: (dayKey: string) => void;
+  onToggleMarker: (weekKey: string) => void;
   onToggleWidget: (monthKey: string, tool: ToolId) => void;
 };
 
@@ -98,8 +98,7 @@ export function MoneyWeekChart({
                 const monthPct = month.amount > 0 ? (week.amount / month.amount) * 100 : 0;
                 const pctLabel = `${monthPct.toFixed(1).replace(/\.0$/, '')}% of month`;
 
-                const activeMarkerDay = weekDays.find((day) => markers.includes(day));
-                const markerDay = activeMarkerDay || weekDays.at(-1);
+                const isMarked = markers.includes(week.key);
                 const isLastWeek = week.key === lastWeekKey;
                 const segmentVars = segmentStyle
                   ? ({
@@ -108,11 +107,11 @@ export function MoneyWeekChart({
                       '--segment-color': segmentStyle.color,
                     } as CSSProperties)
                   : undefined;
-                const markerVars = activeMarkerDay
+                const markerVars = isMarked
                   ? ({
                       '--marker-color':
                         MARKER_SEGMENT_STYLES[
-                          (byDay.get(markerDay!) || 0) % MARKER_SEGMENT_STYLES.length
+                          (segmentIndex ?? 0) % MARKER_SEGMENT_STYLES.length
                         ].color,
                     } as CSSProperties)
                   : undefined;
@@ -137,16 +136,16 @@ export function MoneyWeekChart({
                       <strong className={styles.weekRange}>{week.label}</strong>
                     </article>
 
-                    {!isLastWeek && markerDay ? (
+                    {!isLastWeek ? (
                       <button
                         type="button"
-                        className={`${styles.markerSlot} ${activeMarkerDay ? styles.markerActive : ''}`}
-                        title={activeMarkerDay ? 'Remove marker' : 'Add marker'}
-                        aria-label={activeMarkerDay ? 'Remove marker' : 'Add marker'}
+                        className={`${styles.markerSlot} ${isMarked ? styles.markerActive : ''}`}
+                        title={isMarked ? 'Remove marker' : 'Add marker'}
+                        aria-label={isMarked ? 'Remove marker' : 'Add marker'}
                         style={markerVars}
-                        onClick={() => onToggleMarker(markerDay)}
+                        onClick={() => onToggleMarker(week.key)}
                       >
-                        <span className={styles.markerHandle}>{activeMarkerDay ? '✕' : '+'}</span>
+                        <span className={styles.markerHandle}>{isMarked ? '✕' : '+'}</span>
                         <span className={styles.markerLine} />
                       </button>
                     ) : null}

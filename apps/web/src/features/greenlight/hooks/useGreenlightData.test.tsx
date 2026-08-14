@@ -99,7 +99,7 @@ describe('useGreenlightData storage sync', () => {
 
     // The write leaves on a trailing debounce, so the marker reaches storage a
     // moment after it reaches the screen.
-    await waitFor(() => expect(api.stored.markers).toEqual(['2026-04-17']));
+    await waitFor(() => expect(api.stored.markers).toEqual(['2026-04-13']));
     expect(api.stored.stats['2026-04-17']?.Deliverable.amount).toBe(388);
   });
 
@@ -276,12 +276,31 @@ describe('reading damaged stored data', () => {
     });
   });
 
-  it('drops a marker that is not a date string', async () => {
-    stubStored({ stats: {}, meta: null, markers: ['2026-05-16', 42, null], widgets: {} });
+  it('drops a marker that is not a date string and maps a day onto its week', async () => {
+    stubStored({
+      stats: { '2026-05-16': { Deliverable: { amount: 390, details: [] }, currency: 'USD' } },
+      meta: null,
+      markers: ['2026-05-16', 42, null],
+      widgets: {},
+    });
 
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
     await waitFor(() => expect(result.current.isFetching).toBe(false));
 
-    expect(result.current.state.markers).toEqual(['2026-05-16']);
+    expect(result.current.state.markers).toEqual(['2026-05-11']);
+  });
+
+  it('drops a stored marker whose week is gone from stats', async () => {
+    stubStored({
+      stats: { '2026-04-17': { Deliverable: { amount: 388, details: [] }, currency: 'USD' } },
+      meta: null,
+      markers: ['2026-05-16'],
+      widgets: {},
+    });
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    expect(result.current.state.markers).toEqual([]);
   });
 });

@@ -29,6 +29,7 @@ export type GreenlightMeta = {
 export type GreenlightState = {
   stats: Record<string, DayStats>;
   meta: GreenlightMeta | null;
+  /** Week keys `YYYY-MM-DD` (Monday). Older documents stored a payment day. */
   markers: string[];
   widgets: ToolWidgets;
 };

@@ -106,7 +106,7 @@ export function InvestingPage() {
 
   // Prices arrive by push. Asked before the sweep is set up, because how often
   // to sweep depends on whether the stream is carrying — and not the reverse.
-  const stream = useQuoteStream(wanted);
+  const { ticks, live, discardTicksBefore } = useQuoteStream(wanted);
 
   // The poll behind it is a sweep, not a cadence, and it slows only while the
   // stream is actually live: a dead socket puts the page straight back on the
@@ -115,15 +115,16 @@ export function InvestingPage() {
     queryKey: ['market', 'quotes', wanted],
     queryFn: () => quoteBus.quotes(wanted, { priority: PRIORITY.watchlist }),
     enabled: wanted.length > 0,
-    refetchInterval: cadenceFor(candles.regime, 0, { streaming: stream.live }).quotesMs,
+    refetchInterval: cadenceFor(candles.regime, 0, { streaming: live }).quotesMs,
   });
 
-  // A successful REST sweep is newer than every overlay kept from the prior
-  // sweep. Dropping those overlays is what lets polling recover a dead stream
-  // instead of leaving its last tick painted forever.
+  // Quotes do not carry their own market timestamp. React Query's update time
+  // is therefore the best sweep boundary available here; it is milliseconds,
+  // while the stream contract uses seconds. A tick without a timestamp stays
+  // visible because it cannot honestly be ordered against the sweep.
   useEffect(() => {
-    if (quotes.dataUpdatedAt) stream.discardTicks();
-  }, [quotes.dataUpdatedAt, stream.discardTicks]);
+    if (quotes.dataUpdatedAt) discardTicksBefore(quotes.dataUpdatedAt / 1000);
+  }, [quotes.dataUpdatedAt, discardTicksBefore]);
 
   // The reasons decision 8.8 sends beside the quotes that worked. They reached
   // the page and stopped there, so a refused row showed the same "·" as one
@@ -145,8 +146,8 @@ export function InvestingPage() {
   // The swept quotes with every tick since laid over them. The sweep is the
   // row; the stream only moves the price on it.
   const bySymbol = useMemo(
-    () => applyTicks(swept, [...stream.ticks.values()]),
-    [swept, stream.ticks],
+    () => applyTicks(swept, [...ticks.values()]),
+    [swept, ticks],
   );
   const tapeQuotes = useMemo(
     () => wanted.flatMap((wantedSymbol) => {

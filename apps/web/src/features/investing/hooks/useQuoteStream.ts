@@ -8,9 +8,15 @@ import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch
  *
  * Deliberately knows nothing about quotes. The sweep is what a row is built
  * from — it has the previous close, the name and the currency — and this is
- * only what has happened since. The owner discards the overlay after every
- * successful sweep, so a dead stream cannot keep its final tick painted over a
- * newer REST answer.
+ * only what has happened since. Keeping them apart means a refetch cannot be
+ * undone by a stale tick, a tick cannot be mistaken for a fetched answer, and
+ * the page can ask whether the stream is alive *before* it decides how often to
+ * sweep, which is the order those two facts actually depend on each other in.
+ *
+ * A sweep later discards only overlays whose exchange timestamp predates that
+ * sweep. Untimestamped ticks are retained: their order against REST cannot be
+ * proved, and replacing a potentially newer live reading with an older sweep is
+ * the worse visible failure.
  *
  * Ticks are coalesced to one render per animation frame. The API already sends
  * at most one message per symbol per quarter second, but several symbols moving
@@ -24,8 +30,8 @@ import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch
 export type QuoteStreamState = {
   ticks: Map<string, Tick>;
   live: boolean;
-  /** A REST sweep supersedes every overlay it already had. */
-  discardTicks: () => void;
+  /** Drops only ticks known to predate a REST sweep (seconds since epoch). */
+  discardTicksBefore: (sweepAt: number) => void;
 };
 
 export function useQuoteStream(symbols: string[]): QuoteStreamState {
@@ -36,8 +42,13 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   // that held them, which is new on every render of the page above.
   const key = symbols.join(',');
   const frame = useRef(0);
-  const discardTicks = useCallback(() => {
-    setTicks((current) => (current.size ? new Map() : current));
+  const discardTicksBefore = useCallback((sweepAt: number) => {
+    setTicks((current) => {
+      const next = new Map(
+        [...current].filter(([, tick]) => tick.time === null || tick.time > sweepAt),
+      );
+      return next.size === current.size ? current : next;
+    });
   }, []);
 
   useEffect(() => {
@@ -110,5 +121,5 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
     };
   }, [key]);
 
-  return { ticks, live: connection.value, discardTicks };
+  return { ticks, live: connection.value, discardTicksBefore };
 }

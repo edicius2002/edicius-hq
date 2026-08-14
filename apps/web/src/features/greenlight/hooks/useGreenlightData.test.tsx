@@ -21,8 +21,8 @@ const STORED: GreenlightState = {
 };
 
 /** Fake KV endpoint. `readFails` makes the initial GET fail without breaking writes. */
-function stubApi(options: { readFails?: boolean; writeDelayMs?: number } = {}) {
-  let stored: GreenlightState = structuredClone(STORED);
+function stubApi(options: { readFails?: boolean; writeDelayMs?: number; stored?: GreenlightState } = {}) {
+  let stored: GreenlightState = structuredClone(options.stored ?? STORED);
   const writes: GreenlightState[] = [];
 
   vi.stubGlobal(
@@ -64,7 +64,17 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe('useGreenlightData storage sync', () => {
   it('does not lose a write when two toggles are fired back to back', async () => {
-    const api = stubApi({ writeDelayMs: 20 });
+    const api = stubApi({
+      writeDelayMs: 20,
+      stored: {
+        ...STORED,
+        stats: {
+          ...STORED.stats,
+          '2026-05-16': { Deliverable: { amount: 390, details: [] }, currency: 'USD' },
+          '2026-06-20': { Deliverable: { amount: 1950, details: [] }, currency: 'USD' },
+        },
+      },
+    });
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
 
     await waitFor(() => expect(result.current.state.widgets['2026-04']).toEqual(['vscode']));
@@ -138,12 +148,12 @@ describe('useGreenlightData storage sync', () => {
  * Importing a CSV is the only operation in this app that can destroy years of
  * data, and until now nothing exercised the destructive half of it.
  *
- * Verified by mutation before writing these: swapping the two arguments at the
- * `mergeCurrentMonthStats` call — which discards every other month and keeps
- * only the CSV — passed all 497 tests.
+ * Verified by mutation before writing these: dropping the "keep weeks the CSV
+ * does not mention" loop — which would replace the whole document with the
+ * CSV — used to pass every test that did not import.
  */
 describe('importing a CSV', () => {
-  const OTHER_MONTH = '2026-04-17';
+  const OTHER_WEEK_DAY = '2026-04-17';
 
   /** One deliverable row, in the month the clock says we are in. */
   function csvForThisMonth(day = 15) {
@@ -156,8 +166,7 @@ describe('importing a CSV', () => {
     };
   }
 
-  it('keeps the other months when replacing only the current one', async () => {
-    // The whole point of `current-month`: April must survive an August import.
+  it('keeps weeks the CSV does not mention', async () => {
     const api = stubApi();
     const csv = csvForThisMonth();
 
@@ -168,18 +177,21 @@ describe('importing a CSV', () => {
       await result.current.importCsv({
         fileName: 'x.csv',
         content: csv.text,
-        replaceMode: 'current-month',
       });
     });
 
     await waitFor(() => expect(Object.keys(api.stored.stats)).toContain(csv.date));
-    expect(Object.keys(api.stored.stats)).toContain(OTHER_MONTH);
-    expect(api.stored.stats[OTHER_MONTH]).toEqual(STORED.stats[OTHER_MONTH]);
+    expect(Object.keys(api.stored.stats)).toContain(OTHER_WEEK_DAY);
+    expect(api.stored.stats[OTHER_WEEK_DAY]).toEqual(STORED.stats[OTHER_WEEK_DAY]);
+    expect(api.stored.meta?.replaceMode).toBe('weeks');
   });
 
-  it('replaces everything when told to replace everything', async () => {
-    // The other mode is destructive on purpose, and must stay that way.
+  it('seeds the whole document when there is nothing stored yet', async () => {
+    // Replace all exists only as this empty-store seed: there is no history to
+    // protect, so the CSV *is* the document. With data, the same function
+    // rebuilds weeks instead — there is no longer a switch that can wipe them.
     const api = stubApi();
+    api.stored.stats = {};
     const csv = csvForThisMonth();
 
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
@@ -189,16 +201,16 @@ describe('importing a CSV', () => {
       await result.current.importCsv({
         fileName: 'x.csv',
         content: csv.text,
-        replaceMode: 'all',
       });
     });
 
-    await waitFor(() => expect(Object.keys(api.stored.stats)).not.toContain(OTHER_MONTH));
+    await waitFor(() => expect(Object.keys(api.stored.stats)).toEqual([csv.date]));
+    expect(api.stored.meta?.replaceMode).toBe('all');
   });
 
-  it('keeps the markers whichever mode was used', async () => {
-    // The status line promises "Markers were kept"; nothing checked it.
+  it('keeps the markers after a week rebuild', async () => {
     const api = stubApi();
+    api.stored.markers = ['2026-04-13'];
     const csv = csvForThisMonth();
 
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
@@ -208,12 +220,11 @@ describe('importing a CSV', () => {
       await result.current.importCsv({
         fileName: 'x.csv',
         content: csv.text,
-        replaceMode: 'all',
       });
     });
 
     await waitFor(() => expect(api.stored.meta?.fileName).toBe('x.csv'));
-    expect(api.stored.markers).toEqual(STORED.markers);
+    expect(api.stored.markers).toEqual(['2026-04-13']);
   });
 });
 
@@ -302,5 +313,19 @@ describe('reading damaged stored data', () => {
     await waitFor(() => expect(result.current.isFetching).toBe(false));
 
     expect(result.current.state.markers).toEqual([]);
+  });
+
+  it('drops a widget whose month has no weeks with data', async () => {
+    stubStored({
+      stats: { '2026-04-17': { Deliverable: { amount: 388, details: [] }, currency: 'USD' } },
+      meta: null,
+      markers: [],
+      widgets: { '2026-04': ['vscode'], '2026-05': ['cursor'] },
+    });
+
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+    await waitFor(() => expect(result.current.isFetching).toBe(false));
+
+    expect(result.current.state.widgets).toEqual({ '2026-04': ['vscode'] });
   });
 });

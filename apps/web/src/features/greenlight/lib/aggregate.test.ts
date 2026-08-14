@@ -5,7 +5,6 @@ import {
   buildMonthlySeries,
   buildWeeklySeries,
 } from '@/features/greenlight/lib/aggregate';
-import { currentMonthKey, currentMonthLabel, mergeCurrentMonthStats } from '@/features/greenlight/lib/merge';
 import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
 import { buildSegmentSummaries } from '@/features/greenlight/lib/segments';
 import type { DayStats } from '@/features/greenlight/model/types';
@@ -75,35 +74,6 @@ describe('Greenlight aggregation (Thursday-of-week months)', () => {
     expect(byKey['2026-08']).toBeCloseTo(1733.44);
     expect(monthly.map((point) => point.key)).toEqual(grouped.map((month) => month.key));
     expect(monthly.map((point) => point.amount)).toEqual(grouped.map((month) => month.amount));
-  });
-
-  it('merges current-month replace and rejects empty month', () => {
-    const existing = {
-      '2026-04-10': day(100),
-      '2026-05-01': day(420),
-    };
-    const incoming = {
-      '2026-05-08': day(560),
-      '2026-06-01': day(999),
-    };
-
-    const { merged, replacedDays } = mergeCurrentMonthStats(existing, incoming, '2026-05');
-    expect(replacedDays).toBe(1);
-    expect(merged['2026-04-10']).toBeTruthy();
-    expect(merged['2026-05-01']).toBeUndefined();
-    expect(merged['2026-05-08']?.Deliverable.amount).toBe(560);
-    expect(merged['2026-06-01']).toBeUndefined();
-
-    const empty = mergeCurrentMonthStats(existing, { '2026-06-01': day(1) }, '2026-05');
-    expect(empty.replacedDays).toBe(0);
-    expect(empty.merged['2026-04-10']).toBeTruthy();
-    expect(empty.merged['2026-05-01']).toBeUndefined();
-  });
-
-  it('labels the clock month the same way the radio does', () => {
-    const now = new Date(2026, 7, 14);
-    expect(currentMonthKey(now)).toBe('2026-08');
-    expect(currentMonthLabel(now)).toBe('August 2026');
   });
 
   it('builds segment summaries from markers', () => {

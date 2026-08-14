@@ -12,10 +12,10 @@ const META: GreenlightMeta = {
   fileName: 'TimeRecords.csv',
   rowsRead: 23,
   daysGenerated: 17,
-  replaceMode: 'all',
+  replaceMode: 'weeks',
   updatedAt: '2026-08-14T12:00:00.000Z',
   statusTitle: 'Updated from CSV',
-  statusDetail: 'Replaced all data with 17 day(s) from 23 rows. Markers were kept.',
+  statusDetail: 'Rebuilt 12 week(s) from the CSV (17 day(s)). Other weeks were kept. Markers were kept.',
 };
 
 function day(amount: number): DayStats {
@@ -45,14 +45,9 @@ const JULY_CSV_WITHOUT_FIRST = [
 function renderPanel(overrides: Partial<ComponentProps<typeof ImportPanel>> = {}) {
   const onImport = vi.fn();
   const onClear = vi.fn();
-  const onReplaceModeChange = vi.fn();
   const onParseError = vi.fn();
   render(
     <ImportPanel
-      replaceMode="all"
-      onReplaceModeChange={onReplaceModeChange}
-      replaceMonthLabel="August 2026"
-      monthKey="2026-08"
       stats={{}}
       meta={META}
       isImporting={false}
@@ -64,7 +59,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ImportPanel>> = {}
       {...overrides}
     />,
   );
-  return { onImport, onClear, onReplaceModeChange, onParseError };
+  return { onImport, onClear, onParseError };
 }
 
 describe('ImportPanel', () => {
@@ -72,16 +67,22 @@ describe('ImportPanel', () => {
     renderPanel();
     expect(screen.getByText('TimeRecords.csv')).toBeInTheDocument();
     expect(
-      screen.getByText('Replaced all data with 17 day(s) from 23 rows. Markers were kept.'),
+      screen.getByText(
+        'Rebuilt 12 week(s) from the CSV (17 day(s)). Other weeks were kept. Markers were kept.',
+      ),
     ).toBeInTheDocument();
   });
 
-  it('names the clock month on the current-month radio and says it is a replace', () => {
-    renderPanel({ replaceMode: 'current-month' });
-    expect(screen.getByLabelText('Replace August 2026 only')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Replaces August 2026 entirely — days missing from the CSV are removed/),
-    ).toBeInTheDocument();
+  it('offers Replace all only when there is nothing stored yet', () => {
+    renderPanel({ hasData: false, stats: {}, meta: null });
+    expect(screen.getByText('Replace all')).toBeInTheDocument();
+    expect(screen.getByText(/this CSV becomes the whole document/i)).toBeInTheDocument();
+  });
+
+  it('does not offer Replace all once there are stored days', () => {
+    renderPanel({ hasData: true, stats: JULY_STATS });
+    expect(screen.queryByText('Replace all')).toBeNull();
+    expect(screen.getByText(/Rebuilds every week the CSV mentions/)).toBeInTheDocument();
   });
 
   it('exposes Select CSV as a labelled file input (keyboard-reachable)', () => {
@@ -91,12 +92,10 @@ describe('ImportPanel', () => {
     expect(getComputedStyle(input).display).not.toBe('none');
   });
 
-  it('shows that 1 July would disappear before current-month replace writes', async () => {
+  it('shows that 1 July would disappear before the week rebuild writes', async () => {
     const user = userEvent.setup();
     const { onImport } = renderPanel({
-      replaceMode: 'current-month',
-      replaceMonthLabel: 'July 2026',
-      monthKey: '2026-07',
+      hasData: true,
       stats: JULY_STATS,
     });
 
@@ -111,17 +110,16 @@ describe('ImportPanel', () => {
     expect(onImport).toHaveBeenCalledOnce();
   });
 
-  it('does not offer Replace when the CSV matches stored days', async () => {
+  it('does not offer Replace when the CSV matches stored days of those weeks', async () => {
     const user = userEvent.setup();
     const { onImport } = renderPanel({
-      replaceMode: 'current-month',
-      monthKey: '2026-07',
-      replaceMonthLabel: 'July 2026',
+      hasData: true,
       stats: {
         '2026-07-05': day(390),
         '2026-07-06': day(1408.42),
         '2026-07-21': day(2275.14),
         '2026-07-28': day(1113.4),
+        '2026-04-17': day(388),
       },
     });
 
@@ -134,62 +132,16 @@ describe('ImportPanel', () => {
   it('leaves data untouched when the import confirm is cancelled', async () => {
     const user = userEvent.setup();
     const { onImport } = renderPanel({
-      replaceMode: 'current-month',
-      monthKey: '2026-07',
+      hasData: true,
       stats: JULY_STATS,
     });
 
     await user.upload(screen.getByLabelText('Select CSV'), csvFile(JULY_CSV_WITHOUT_FIRST));
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    const alert = await screen.findByRole('alert');
+    await user.click(within(alert).getByRole('button', { name: 'Cancel' }));
 
     expect(onImport).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).toBeNull();
-  });
-
-  it('recomputes the preview when the replace mode changes', async () => {
-    const user = userEvent.setup();
-    const onReplaceModeChange = vi.fn();
-    const stats = { ...JULY_STATS, '2026-04-17': day(388) };
-    const { rerender } = render(
-      <ImportPanel
-        replaceMode="all"
-        onReplaceModeChange={onReplaceModeChange}
-        replaceMonthLabel="July 2026"
-        monthKey="2026-07"
-        stats={stats}
-        meta={META}
-        isImporting={false}
-        isClearing={false}
-        hasData
-        onImport={vi.fn()}
-        onParseError={vi.fn()}
-        onClear={vi.fn()}
-      />,
-    );
-
-    await user.upload(screen.getByLabelText('Select CSV'), csvFile(JULY_CSV_WITHOUT_FIRST));
-    expect(await screen.findByRole('alert')).toHaveTextContent('17/04');
-
-    rerender(
-      <ImportPanel
-        replaceMode="current-month"
-        onReplaceModeChange={onReplaceModeChange}
-        replaceMonthLabel="July 2026"
-        monthKey="2026-07"
-        stats={stats}
-        meta={META}
-        isImporting={false}
-        isClearing={false}
-        hasData
-        onImport={vi.fn()}
-        onParseError={vi.fn()}
-        onClear={vi.fn()}
-      />,
-    );
-
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('01/07');
-    expect(alert).not.toHaveTextContent('17/04');
   });
 
   it('asks before clearing, and does nothing until confirmed', async () => {

@@ -46,4 +46,34 @@ describe('MarketRail', () => {
 
     expect(screen.queryByRole('region', { name: 'Markets' })).not.toBeInTheDocument();
   });
+
+  it('uses roving focus and activates tabs with the standard keys', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MarketRail
+        regime="regular"
+        statusLabel="Market open"
+        watchlist={<p>Followed symbols</p>}
+        positions={<p>Held positions</p>}
+      />,
+    );
+
+    const watchlist = screen.getByRole('tab', { name: 'Watchlist' });
+    const positions = screen.getByRole('tab', { name: 'Positions' });
+    watchlist.focus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(positions).toHaveFocus();
+    expect(positions).toHaveAttribute('aria-selected', 'true');
+    expect(watchlist).toHaveAttribute('tabindex', '-1');
+
+    await user.keyboard('{Home}');
+    expect(watchlist).toHaveFocus();
+    expect(watchlist).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{End}');
+    expect(positions).toHaveFocus();
+    expect(positions).toHaveAttribute('aria-selected', 'true');
+  });
 });

@@ -32,6 +32,8 @@ function chartProps(over: Partial<React.ComponentProps<typeof CandleChart>> = {}
   return {
     bars: bars(),
     viewKey: 'AAPL:1d',
+    symbol: 'AAPL',
+    timeframe: '1d',
     isGhost: () => false,
     formatTime: (bar: Bar) => `bar ${bar.time}`,
     ...over,
@@ -72,13 +74,61 @@ describe('CandleChart live-edge follow', () => {
   it('follows the latest candles again after changing series', () => {
     const { container, rerender } = render(<CandleChart {...chartProps()} />);
 
-    rerender(
-      <CandleChart
-        {...chartProps({ viewKey: 'AAPL:1h', bars: bars(300) })}
-      />,
-    );
+    rerender(<CandleChart {...chartProps({ viewKey: 'AAPL:1h', bars: bars(300) })} />);
     fireEvent.pointerMove(surface(container), { clientX: 799, clientY: 10 });
 
     expect(screen.getByText('bar 299')).toBeInTheDocument();
+  });
+
+  it('describes the visible range and reads candles with the keyboard', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+
+    expect(target).toHaveAttribute('role', 'region');
+    expect(target).toHaveAttribute('aria-roledescription', 'candlestick chart');
+    expect(target).toHaveAttribute('aria-label', expect.stringContaining('AAPL 1d chart'));
+    expect(target).toHaveAttribute('aria-label', expect.stringContaining('bar 80 to bar 199'));
+
+    target.focus();
+    fireEvent.keyDown(target, { key: 'ArrowLeft' });
+
+    expect(screen.getByText('bar 198')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Open 100\.00, high 110\.00, low 90\.00, close 105\.00/),
+    ).toBeInTheDocument();
+    expect(target).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Viewing historical candles'),
+    );
+  });
+
+  it('offers the visible OHLC data table only on request', () => {
+    render(<CandleChart {...chartProps({ bars: bars(3) })} />);
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+
+    expect(screen.getByRole('table')).toHaveAccessibleName(/AAPL 1d visible candle data/);
+    expect(screen.getAllByRole('row')).toHaveLength(4);
+    expect(screen.getByRole('button', { name: 'Hide data table' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('pans and zooms by keyboard without stealing the latest edge back', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+    target.focus();
+
+    fireEvent.keyDown(target, { key: 'PageUp' });
+    expect(target).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Viewing historical candles'),
+    );
+
+    fireEvent.keyDown(target, { key: '+' });
+    fireEvent.keyDown(target, { key: 'End' });
+    expect(screen.getByText('bar 199')).toBeInTheDocument();
   });
 });

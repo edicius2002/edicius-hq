@@ -144,12 +144,14 @@
   border-radius: 9px;
   display: grid;
   flex: 1 1 0;
-  gap: 5px;
+  gap: 4px;
   grid-template-rows: auto auto 112px auto;
   justify-items: center;
-  max-width: 185px;
-  min-width: 7.5rem;
-  padding: 8px 6px 7px;
+  /* No fixed week width: 4–5 clusters share the month cell so two months fit
+     in ~1116px of list (1536px CSS viewport after sidebar + paddings). */
+  min-width: 0;
+  max-width: 7.5rem;
+  padding: 6px 4px 5px;
   text-align: center;
 }
 
@@ -216,12 +218,12 @@
   align-items: center;
   cursor: pointer;
   display: flex;
-  flex: 0 0 1.5rem;
+  flex: 0 0 1.25rem;
   flex-direction: column;
   margin: 0;
   padding: 0;
   position: relative;
-  width: 1.5rem;
+  width: 1.25rem;
 }
 
 .markerSlot::before {
@@ -260,11 +262,13 @@
   width: 0;
 }
 
-.markerSlot:hover .markerHandle {
+.markerSlot:hover .markerHandle,
+.markerSlot:focus-visible .markerHandle {
   opacity: 1;
 }
 
-.markerSlot:hover .markerLine {
+.markerSlot:hover .markerLine,
+.markerSlot:focus-visible .markerLine {
   border-color: rgba(255, 255, 255, 0.25);
 }
 
@@ -286,14 +290,16 @@
 }
 
 /*
- * A 4-week month is 4 clusters of ~180px, so it needs ~690px of content before it
- * wraps. Two of those plus the 60px padding gutter make a 1440px list, and the
- * panel (40) + main (80) + sidebar (300) padding around it put the cutoff at
- * ~1860px; 1900 leaves a little slack. Measured at the current --font-size-base —
- * retune both queries here if that token changes, since px media queries do not
- * scale with the root font.
+ * Two month cells is the default. Week cards flex (min-width: 0, max 7.5rem)
+ * instead of reserving ~185px each, so a 4-week month fits in ~530px.
+ *
+ * Real screens (125% Windows scale): 1536px and 1707px CSS. After sidebar
+ * (15rem), main padding (2× space-6) and panel padding (2× space-4) the list
+ * is ~1116px / ~1287px — two columns of ~528px / ~613px. Collapse below
+ * 1280px CSS viewport (~860px of list), not 1900. px queries do not scale
+ * with --font-size-base; retune if that token or the chrome widths change.
  */
-@media (max-width: 1900px) {
+@media (max-width: 1279px) {
   .list {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -325,7 +331,7 @@
   }
 }
 
-/* One column still needs those ~690px, which runs out around 1110px of viewport. */
+/* Stack weeks when a single column can no longer hold four compact clusters. */
 @media (max-width: 1150px) {
   .weeks {
     flex-direction: column;

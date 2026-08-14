@@ -5,7 +5,7 @@ import {
   buildMonthlySeries,
   buildWeeklySeries,
 } from '@/features/greenlight/lib/aggregate';
-import { mergeCurrentMonthStats } from '@/features/greenlight/lib/merge';
+import { currentMonthKey, currentMonthLabel, mergeCurrentMonthStats } from '@/features/greenlight/lib/merge';
 import { buildSegmentSummaries } from '@/features/greenlight/lib/segments';
 import type { DayStats } from '@/features/greenlight/model/types';
 
@@ -62,6 +62,12 @@ describe('Greenlight aggregation (legacy parity)', () => {
     expect(() => mergeCurrentMonthStats(existing, { '2026-06-01': day(1) }, '2026-05')).toThrow(
       /current month/,
     );
+  });
+
+  it('labels the clock month the same way the radio does', () => {
+    const now = new Date(2026, 7, 14);
+    expect(currentMonthKey(now)).toBe('2026-08');
+    expect(currentMonthLabel(now)).toBe('August 2026');
   });
 
   it('builds segment summaries from markers', () => {

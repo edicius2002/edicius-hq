@@ -44,11 +44,30 @@
 }
 
 .fileButton {
+  position: relative;
   cursor: pointer;
 }
 
+/*
+ * Clipped, not `display: none`: the control stays in the tab order so keyboard
+ * users can reach Select CSV. `:focus-within` paints the outline on the label.
+ */
 .fileButton input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.fileButton:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .fileDisabled {
@@ -64,4 +83,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.modeHint,
+.statusDetail {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.statusDetail {
+  color: var(--color-text);
+}
+
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  background: var(--color-danger-soft);
+}
+
+.confirm p {
+  flex: 1 1 12rem;
+  margin: 0;
+  font-size: 0.85rem;
 }

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+} from 'react';
 
 import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
 import { useElementSize } from '@/shared/lib/useElementSize';
@@ -30,6 +38,7 @@ import {
   facingAnchors,
   flowLabelPoint,
   flowPath,
+  sizeOf,
 } from '@/features/finance/lib/geometry';
 import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import {
@@ -77,6 +86,8 @@ type FlowCanvasProps = {
   onCreateFrame: (rect: Rect) => void;
   onMoveFrame: (id: FrameId, position: Point) => void;
   onResizeFrame: (id: FrameId, position: Point, size: Size) => void;
+  /** Keeps keyboard connect/cancel on the same state as the toolbar and pointer anchors. */
+  onConnectModeChange?: (active: boolean) => void;
   /**
    * Chrome pinned to the top-left of the window. A readout about the diagram
    * belongs over the diagram, where the eye already is — in the toolbar it was
@@ -130,6 +141,11 @@ type FrameResize = {
 /** A frame being drawn: two world corners, until the pointer comes up. */
 type FrameDraft = { pointerId: number; start: Point; current: Point };
 
+type Direction = 'left' | 'right' | 'up' | 'down';
+
+const FINE_STEP = 10;
+const COARSE_STEP = 50;
+
 export function FlowCanvas({
   diagram,
   selection,
@@ -142,6 +158,7 @@ export function FlowCanvas({
   onCreateFrame,
   onMoveFrame,
   onResizeFrame,
+  onConnectModeChange = () => undefined,
   status,
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
@@ -152,6 +169,34 @@ export function FlowCanvas({
   const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
   const [frameResize, setFrameResize] = useState<FrameResize | null>(null);
   const [draft, setDraft] = useState<FrameDraft | null>(null);
+  // Keyboard mutations get the same optimistic drawing guarantee as pointer
+  // drags. They clear as soon as the document catches up or changes underneath.
+  const [keyboardNodePosition, setKeyboardNodePosition] = useState<{
+    nodeId: NodeId;
+    position: Point;
+  } | null>(null);
+  const [keyboardFrameRect, setKeyboardFrameRect] = useState<{
+    frameId: FrameId;
+    rect: Rect;
+  } | null>(null);
+  const [keyboardConnecting, setKeyboardConnecting] = useState(false);
+  const [anchorCursor, setAnchorCursor] = useState<Anchor>('r');
+  const [announcement, setAnnouncement] = useState('Canvas ready. Press ? for keyboard shortcuts.');
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const wasConnecting = useRef(connectMode);
+
+  useEffect(() => {
+    setKeyboardNodePosition(null);
+    setKeyboardFrameRect(null);
+  }, [diagram]);
+
+  useEffect(() => {
+    // A completed or externally cancelled connection releases the keyboard
+    // sub-mode too. Starting it locally is safe: the ref avoids clearing it in
+    // the render before FinancePage has received the mode update.
+    if (wasConnecting.current && !connectMode) setKeyboardConnecting(false);
+    wasConnecting.current = connectMode;
+  }, [connectMode]);
 
   // A switched-off holding keeps its amount but leaves the canvas.
   const nodes = diagram.nodeOrder
@@ -159,7 +204,13 @@ export function FlowCanvas({
     .filter((node) => node && (node.kind !== 'holding' || node.active))
     // Drawn where the gesture has taken it rather than where the document has
     // got to, so it keeps up with the pointer instead of with the network.
-    .map((node) => (drag?.nodeId === node.id ? { ...node, position: drag.position } : node));
+    .map((node) => {
+      if (drag?.nodeId === node.id) return { ...node, position: drag.position };
+      if (keyboardNodePosition?.nodeId === node.id) {
+        return { ...node, position: keyboardNodePosition.position };
+      }
+      return node;
+    });
   // Everything that draws a node reads it from here, so the flows and the
   // minimap travel with it rather than staying behind on the stored position.
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -173,6 +224,10 @@ export function FlowCanvas({
     if (frameDrag?.frameId === frame.id) return { ...frame, position: frameDrag.position };
     if (frameResize?.frameId === frame.id) {
       const { left, top, width, height } = frameResize.rect;
+      return { ...frame, position: { x: left, y: top }, size: { width, height } };
+    }
+    if (keyboardFrameRect?.frameId === frame.id) {
+      const { left, top, width, height } = keyboardFrameRect.rect;
       return { ...frame, position: { x: left, y: top }, size: { width, height } };
     }
     return frame;
@@ -403,6 +458,233 @@ export function FlowCanvas({
     }
   }
 
+  /*
+   * Keyboard model
+   * --------------
+   * The viewport is the one tab stop for diagram objects. Arrow keys choose a
+   * node by its spatial neighbour, rather than `nodeOrder`; F and E cycle
+   * frames and flows; the selected item receives the same `selection` state as
+   * a pointer click. This keeps a 32-node diagram navigable without making its
+   * nodes, anchors, SVG paths, and minimap hundreds of stops long. If a selected
+   * item disappears after another action, the effect below clears selection and
+   * leaves focus on this viewport, where the user can continue navigating.
+   */
+  // Memoised so the effects that call it can name it as a dependency: declared
+  // plain, it was a new function on every render and listing it would have run
+  // them every time.
+  const focusCanvas = useCallback(() => {
+    viewportRef.current?.focus({ preventScroll: true });
+  }, [viewportRef]);
+
+  useEffect(() => {
+    if (!selection) return;
+    const present =
+      (selection.type === 'node' && nodes.some((node) => node.id === selection.id)) ||
+      (selection.type === 'frame' && frames.some((frame) => frame.id === selection.id)) ||
+      (selection.type === 'flow' && flows.some((flow) => flow.id === selection.id));
+    if (present) return;
+    onSelect(null);
+    setAnnouncement('The selected item was removed. Canvas selection cleared.');
+    focusCanvas();
+  }, [focusCanvas, frames, nodes, flows, onSelect, selection]);
+
+  useEffect(() => {
+    if (!selection) return;
+    setAnnouncement(`${selectionDescription(selection, diagram)} selected.`);
+  }, [diagram, selection]);
+
+  function selectNode(node: FinanceNode) {
+    onSelect({ type: 'node', id: node.id });
+    setAnnouncement(`${nodeDescription(node)} selected.`);
+    focusCanvas();
+  }
+
+  function moveSelected(direction: Direction, step: number) {
+    const delta = directionDelta(direction, step);
+    if (selection?.type === 'node') {
+      const node = nodeById.get(selection.id);
+      if (!node) return;
+      const position = { x: node.position.x + delta.x, y: node.position.y + delta.y };
+      setKeyboardNodePosition({ nodeId: node.id, position });
+      onMoveNode(node.id, position);
+      setAnnouncement(`${nodeDescription(node)} moved ${direction} ${step} pixels.`);
+      return;
+    }
+    if (selection?.type === 'frame') {
+      const frame = frames.find((item) => item.id === selection.id);
+      if (!frame) return;
+      const rect = {
+        left: frame.position.x + delta.x,
+        top: frame.position.y + delta.y,
+        width: frame.size.width,
+        height: frame.size.height,
+      };
+      setKeyboardFrameRect({ frameId: frame.id, rect });
+      onMoveFrame(frame.id, { x: rect.left, y: rect.top });
+      setAnnouncement(`Frame ${frame.name || 'Frame'} moved ${direction} ${step} pixels.`);
+      return;
+    }
+    setAnnouncement('Select a node or frame before moving it.');
+  }
+
+  function resizeSelectedFrame(direction: Direction, step: number) {
+    if (selection?.type !== 'frame') {
+      setAnnouncement('Select a frame before resizing it.');
+      return;
+    }
+    const frame = frames.find((item) => item.id === selection.id);
+    if (!frame) return;
+    const edge: Record<Direction, ResizeEdge> = {
+      left: 'w',
+      right: 'e',
+      up: 'n',
+      down: 's',
+    };
+    const next = resizeRect(frameRect(frame), edge[direction], directionDelta(direction, step));
+    const rect = {
+      left: Math.round(next.left),
+      top: Math.round(next.top),
+      width: Math.round(next.width),
+      height: Math.round(next.height),
+    };
+    setKeyboardFrameRect({ frameId: frame.id, rect });
+    onResizeFrame(frame.id, { x: rect.left, y: rect.top }, { width: rect.width, height: rect.height });
+    setAnnouncement(`Frame ${frame.name || 'Frame'} resized ${direction} ${step} pixels.`);
+  }
+
+  function createKeyboardFrame() {
+    const selectedNode = selection?.type === 'node' ? nodeById.get(selection.id) : undefined;
+    const size = selectedNode ? sizeOf(selectedNode, contentOf(selectedNode)) : FRAME_MIN_SIZE;
+    const rect = selectedNode
+      ? {
+          left: selectedNode.position.x - 24,
+          top: selectedNode.position.y - 24,
+          width: Math.max(FRAME_MIN_SIZE.width, size.width + 48),
+          height: Math.max(FRAME_MIN_SIZE.height, size.height + 48),
+        }
+      : {
+          left: Math.round((viewportSize.width / 2 - FRAME_MIN_SIZE.width / 2 - camera.x) / camera.zoom),
+          top: Math.round((viewportSize.height / 2 - FRAME_MIN_SIZE.height / 2 - camera.y) / camera.zoom),
+          ...FRAME_MIN_SIZE,
+        };
+    onCreateFrame(rect);
+    setAnnouncement(
+      selectedNode
+        ? `Frame created around ${nodeDescription(selectedNode)}. Press F to select frames.`
+        : 'Frame created at the centre of the current view. Press F to select frames.',
+    );
+  }
+
+  function chooseAnchor() {
+    if (!keyboardConnecting || selection?.type !== 'node') return;
+    if (connectFrom?.nodeId === selection.id) {
+      setAnnouncement('Choose a different destination node, or press Escape to cancel connecting.');
+      return;
+    }
+    onAnchorClick(selection.id, anchorCursor);
+    setAnnouncement(
+      connectFrom
+        ? `Connecting to ${nodeDescription(nodeById.get(selection.id) ?? diagram.nodes[selection.id])} at ${anchorCursor}.`
+        : `Source anchor ${anchorCursor} chosen. Use arrows to select the destination, A to choose its anchor, then Enter.`,
+    );
+  }
+
+  function onCanvasKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Chrome controls and the help's close button keep their native keyboard
+    // behaviour. Diagram commands are only for the viewport's own focus.
+    if (event.target !== event.currentTarget) return;
+    const key = event.key.toLowerCase();
+
+    if (event.key === '?') {
+      event.preventDefault();
+      setShortcutsOpen((open) => !open);
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (shortcutsOpen) {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        return;
+      }
+      if (keyboardConnecting || connectMode) {
+        event.preventDefault();
+        setKeyboardConnecting(false);
+        onConnectModeChange(false);
+        setAnnouncement('Connecting cancelled.');
+      }
+      return;
+    }
+
+    if (key === 'c') {
+      event.preventDefault();
+      if (selection?.type !== 'node') {
+        setAnnouncement('Select a source node with the arrow keys before connecting.');
+        return;
+      }
+      setKeyboardConnecting(true);
+      onConnectModeChange(true);
+      setAnnouncement(
+        connectFrom
+          ? `Destination ${nodeDescription(nodeById.get(selection.id) ?? diagram.nodes[selection.id])}. Press A to choose its anchor, then Enter.`
+          : `Connecting from ${nodeDescription(nodeById.get(selection.id) ?? diagram.nodes[selection.id])}. Press A to choose an anchor, then Enter.`,
+      );
+      return;
+    }
+
+    if (keyboardConnecting && key === 'a') {
+      event.preventDefault();
+      const next = nextAnchor(anchorCursor);
+      setAnchorCursor(next);
+      setAnnouncement(`Anchor ${next}. Press Enter to choose it.`);
+      return;
+    }
+    if (keyboardConnecting && event.key === 'Enter') {
+      event.preventDefault();
+      chooseAnchor();
+      return;
+    }
+
+    if (key === 'f') {
+      event.preventDefault();
+      if (event.shiftKey) createKeyboardFrame();
+      else selectNextFrame(frames, selection, onSelect, setAnnouncement);
+      return;
+    }
+    if (key === 'e') {
+      event.preventDefault();
+      selectNextFlow(flows, nodeById, selection, onSelect, setAnnouncement);
+      return;
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setCamera(fitCamera(content, viewportSize));
+      setAnnouncement('Diagram fitted to view.');
+      return;
+    }
+
+    const direction = keyDirection(event.key);
+    if (!direction) return;
+    event.preventDefault();
+    const step = event.altKey ? COARSE_STEP : FINE_STEP;
+    if (event.ctrlKey && event.shiftKey) {
+      resizeSelectedFrame(direction, step);
+      return;
+    }
+    if (event.shiftKey) {
+      moveSelected(direction, step);
+      return;
+    }
+    if (event.ctrlKey) {
+      const delta = directionDelta(direction, Math.max(viewportSize.width, viewportSize.height) * 0.1);
+      setCamera((current) => ({ ...current, x: current.x - delta.x, y: current.y - delta.y }));
+      setAnnouncement(`View moved ${direction}.`);
+      return;
+    }
+    const next = directionalNode(nodes, selection?.type === 'node' ? selection.id : null, direction);
+    if (next) selectNode(next);
+    else setAnnouncement(`No node ${direction} of the current selection.`);
+  }
+
   return (
     <div
       ref={viewportRef}
@@ -419,8 +701,19 @@ export function FlowCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={endGesture}
       onPointerCancel={endGesture}
+      onKeyDown={onCanvasKeyDown}
+      tabIndex={0}
+      role="region"
+      aria-label="Diagram canvas"
+      aria-describedby="finance-canvas-keyboard-description"
       aria-busy={isRestoringCamera || undefined}
     >
+      <div className={styles.srOnly} aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
+      <span id="finance-canvas-keyboard-description" className={styles.srOnly}>
+        Use arrow keys to select nearby nodes. Press question mark for all canvas keyboard shortcuts.
+      </span>
       {isRestoringCamera ? (
         <div className={styles.restoringMessage}>Restoring diagram view…</div>
       ) : null}
@@ -440,7 +733,11 @@ export function FlowCanvas({
             frame={frame}
             summary={selectFrameSummary(diagram, membership.get(frame.id) ?? [])}
             selected={selection?.type === 'frame' && selection.id === frame.id}
-            onSelect={() => onSelect({ type: 'frame', id: frame.id })}
+            onSelect={() => {
+              onSelect({ type: 'frame', id: frame.id });
+              setAnnouncement(`Frame ${frame.name || 'Frame'} selected.`);
+              focusCanvas();
+            }}
             onMoveStart={(event) => startFrameDrag(frame, event)}
             onResizeStart={(edge, event) => startFrameResize(frame, edge, event)}
           />
@@ -491,13 +788,21 @@ export function FlowCanvas({
                 <path
                   className={styles.edgeHit}
                   d={path}
-                  onPointerDown={() => onSelect({ type: 'flow', id: flow.id })}
+                  onPointerDown={() => {
+                    onSelect({ type: 'flow', id: flow.id });
+                    setAnnouncement(`${flowDescription(flow, nodeById)} selected.`);
+                    focusCanvas();
+                  }}
                 />
                 <path
                   className={`${styles.edge} ${isSelected ? styles.edgeSelected : ''}`}
                   d={path}
                   markerEnd="url(#flowArrow)"
-                  onPointerDown={() => onSelect({ type: 'flow', id: flow.id })}
+                  onPointerDown={() => {
+                    onSelect({ type: 'flow', id: flow.id });
+                    setAnnouncement(`${flowDescription(flow, nodeById)} selected.`);
+                    focusCanvas();
+                  }}
                 />
                 {flow.amount !== null && flow.amount > 0 ? (
                   <FlowLabel x={label.x} y={label.y} flow={flow} source={source} target={target} />
@@ -520,7 +825,12 @@ export function FlowCanvas({
             accountSummary={
               node.kind === 'account' ? selectAccountSummary(diagram, node.id) : undefined
             }
-            onSelect={() => onSelect({ type: 'node', id: node.id })}
+            keyboardAnchor={
+              keyboardConnecting && selection?.type === 'node' && selection.id === node.id
+                ? anchorCursor
+                : undefined
+            }
+            onSelect={() => selectNode(node)}
             onDragStart={(event) => startDrag(node.id, event)}
             onAnchorClick={(anchor) => onAnchorClick(node.id, anchor)}
           />
@@ -573,6 +883,31 @@ export function FlowCanvas({
         </button>
       </div>
 
+      <div className={styles.keyboardHelp}>
+        <button
+          type="button"
+          className={styles.control}
+          aria-expanded={shortcutsOpen}
+          aria-controls="finance-canvas-keyboard-help"
+          onClick={() => setShortcutsOpen((open) => !open)}
+        >
+          Keyboard shortcuts
+        </button>
+        {shortcutsOpen ? (
+          <section id="finance-canvas-keyboard-help" className={styles.shortcuts} aria-label="Canvas keyboard shortcuts">
+            <strong>Canvas keyboard shortcuts</strong>
+            <span>Arrows: select the nearest node in that direction.</span>
+            <span>Shift + arrows: move selected node or frame; add Alt for 50px steps.</span>
+            <span>Ctrl + Shift + arrows: resize selected frame; add Alt for 50px steps.</span>
+            <span>C, A, Enter: connect, choose anchor, and confirm; Escape cancels.</span>
+            <span>F: next frame. Shift + F: create a frame. E: next flow. Ctrl + arrows: pan. Home: fit.</span>
+            <button type="button" className={styles.closeHelp} onClick={() => setShortcutsOpen(false)}>
+              Close shortcuts
+            </button>
+          </section>
+        ) : null}
+      </div>
+
       {nodes.length || frames.length ? (
         <CanvasMinimap
           nodes={nodes}
@@ -586,6 +921,113 @@ export function FlowCanvas({
       ) : null}
     </div>
   );
+}
+
+function keyDirection(key: string): Direction | null {
+  if (key === 'ArrowLeft') return 'left';
+  if (key === 'ArrowRight') return 'right';
+  if (key === 'ArrowUp') return 'up';
+  if (key === 'ArrowDown') return 'down';
+  return null;
+}
+
+function directionDelta(direction: Direction, step: number): Point {
+  if (direction === 'left') return { x: -step, y: 0 };
+  if (direction === 'right') return { x: step, y: 0 };
+  if (direction === 'up') return { x: 0, y: -step };
+  return { x: 0, y: step };
+}
+
+function orderedByPosition<T extends { id: string; position: Point }>(items: readonly T[]): T[] {
+  return [...items].sort(
+    (a, b) => a.position.y - b.position.y || a.position.x - b.position.x || a.id.localeCompare(b.id),
+  );
+}
+
+/** The nearest candidate in the requested half-plane, favouring forward progress. */
+function directionalNode(nodes: FinanceNode[], selectedId: string | null, direction: Direction): FinanceNode | null {
+  const ordered = orderedByPosition(nodes);
+  if (!ordered.length) return null;
+  const current = selectedId ? nodes.find((node) => node.id === selectedId) : undefined;
+  if (!current) return ordered[0];
+  const axis = directionDelta(direction, 1);
+  const candidates = nodes
+    .map((node) => {
+      const dx = node.position.x - current.position.x;
+      const dy = node.position.y - current.position.y;
+      const forward = dx * axis.x + dy * axis.y;
+      const sideways = Math.abs(dx * axis.y - dy * axis.x);
+      return { node, forward, sideways };
+    })
+    .filter((candidate) => candidate.forward > 0)
+    .sort(
+      (a, b) =>
+        a.forward * 2 + a.sideways - (b.forward * 2 + b.sideways) ||
+        a.node.id.localeCompare(b.node.id),
+    );
+  return candidates[0]?.node ?? null;
+}
+
+function nextAnchor(anchor: Anchor): Anchor {
+  const anchors: Anchor[] = ['tl', 't', 'tr', 'r', 'br', 'b', 'bl', 'l'];
+  return anchors[(anchors.indexOf(anchor) + 1) % anchors.length];
+}
+
+function nodeDescription(node: FinanceNode | undefined): string {
+  if (!node) return 'selected node';
+  const kind = node.kind[0].toUpperCase() + node.kind.slice(1);
+  return `${kind} ${node.name || (node.kind === 'holding' ? node.asset : kind)}`;
+}
+
+function flowDescription(flow: Flow, nodes: Map<string, FinanceNode>): string {
+  return `Flow from ${nodeDescription(nodes.get(flow.from))} to ${nodeDescription(nodes.get(flow.to))}`;
+}
+
+function selectionDescription(selection: Exclude<Selection, null>, diagram: Diagram): string {
+  if (selection.type === 'node') return nodeDescription(diagram.nodes[selection.id]);
+  if (selection.type === 'frame') return `Frame ${diagram.frames[selection.id]?.name || 'Frame'}`;
+  const flow = diagram.flows[selection.id];
+  if (!flow) return 'Flow';
+  return flowDescription(flow, new Map<string, FinanceNode>(Object.entries(diagram.nodes)));
+}
+
+function selectNextFrame(
+  frames: Frame[],
+  selection: Selection,
+  onSelect: (selection: Selection) => void,
+  announce: (message: string) => void,
+) {
+  const ordered = orderedByPosition(frames);
+  if (!ordered.length) {
+    announce('There are no frames in this diagram. Press Shift and F to create one.');
+    return;
+  }
+  const index = selection?.type === 'frame' ? ordered.findIndex((frame) => frame.id === selection.id) : -1;
+  const frame = ordered[(index + 1) % ordered.length];
+  onSelect({ type: 'frame', id: frame.id });
+  announce(`Frame ${frame.name || 'Frame'} selected.`);
+}
+
+function selectNextFlow(
+  flows: Flow[],
+  nodes: Map<string, FinanceNode>,
+  selection: Selection,
+  onSelect: (selection: Selection) => void,
+  announce: (message: string) => void,
+) {
+  const ordered = [...flows].sort((a, b) => {
+    const sourceA = nodes.get(a.from)?.position ?? { x: 0, y: 0 };
+    const sourceB = nodes.get(b.from)?.position ?? { x: 0, y: 0 };
+    return sourceA.y - sourceB.y || sourceA.x - sourceB.x || a.id.localeCompare(b.id);
+  });
+  if (!ordered.length) {
+    announce('There are no flows in this diagram.');
+    return;
+  }
+  const index = selection?.type === 'flow' ? ordered.findIndex((flow) => flow.id === selection.id) : -1;
+  const flow = ordered[(index + 1) % ordered.length];
+  onSelect({ type: 'flow', id: flow.id });
+  announce(`${flowDescription(flow, nodes)} selected. Tab reaches its properties and actions.`);
 }
 
 /**

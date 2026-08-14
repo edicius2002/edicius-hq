@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { describe, expect, it } from 'vitest';
 
 import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
 import { buildWeeklySeries, computeTotals } from '@/features/greenlight/lib/aggregate';
+
+// Loaded through the bundler rather than `node:fs`: `src` is browser code and
+// its tsconfig types it as such, so a test reaching for the filesystem builds
+// under Vitest and fails the app's own `tsc -b`.
+import TIME_RECORDS_EXPORT from './fixtures/timerecords-sample.csv?raw';
 
 const SAMPLE_CSV = `Date,Record Type,Amount,Currency,Notes
 2026-05-04,Deliverable,1000,USD,"Attempter: 2
@@ -14,11 +15,6 @@ Reviewer: 1"
 2026-05-06,Expense,999,USD,should be ignored
 2026-05-11,Deliverable,500,USD,Attempter: 1
 `;
-
-const TIME_RECORDS_EXPORT = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/timerecords-sample.csv'),
-  'utf8',
-);
 
 describe('Greenlight CSV import', () => {
   it('imports deliverable rows with ES/EN aliases and aggregates by day', () => {

@@ -111,6 +111,22 @@ export function removePosition(portfolio: Portfolio, symbol: string): Portfolio 
   return positions.length === portfolio.positions.length ? portfolio : { version: 1, positions };
 }
 
+/** Move one position to where another sits, preserving the stored order. */
+export function reorderPositions(portfolio: Portfolio, from: string, to: string): Portfolio {
+  const source = from.trim().toUpperCase();
+  const target = to.trim().toUpperCase();
+  if (source === target) return portfolio;
+
+  const fromIndex = portfolio.positions.findIndex((position) => position.symbol === source);
+  const toIndex = portfolio.positions.findIndex((position) => position.symbol === target);
+  if (fromIndex < 0 || toIndex < 0) return portfolio;
+
+  const positions = [...portfolio.positions];
+  const [moved] = positions.splice(fromIndex, 1);
+  positions.splice(toIndex, 0, moved);
+  return { version: 1, positions };
+}
+
 export type Valuation = {
   position: Position;
   currency: string;

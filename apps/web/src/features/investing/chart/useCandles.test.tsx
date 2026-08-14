@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useCandles } from '@/features/investing/chart/useCandles';
+import { candleRefetchInterval, useCandles } from '@/features/investing/chart/useCandles';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -25,6 +25,11 @@ const barsResponse = {
 };
 
 describe('useCandles', () => {
+  it('keeps 24/7 instruments polling while the US market is closed', () => {
+    expect(candleRefetchInterval('closed', '1m', false)).toBe(10_000);
+    expect(candleRefetchInterval('closed', '1m', true)).toBe(false);
+  });
+
   it('keeps a loaded chart when a background refresh fails', async () => {
     const fetch = vi
       .fn()

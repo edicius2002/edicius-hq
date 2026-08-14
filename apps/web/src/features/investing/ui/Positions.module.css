@@ -32,6 +32,7 @@
 }
 
 .row {
+  position: relative;
   display: flex;
   align-items: center;
   border-radius: var(--radius);
@@ -45,15 +46,22 @@
   background: var(--color-surface-soft);
 }
 
+.dragging {
+  opacity: 0.5;
+}
+
 .pick {
   display: grid;
-  /* Each half of the row is centered, so the holding reads as one compact
-     statement rather than two competing left- and right-aligned columns. */
+  grid-template-areas:
+    'symbol holding'
+    'value return';
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 var(--space-2);
   flex: 1;
   min-width: 0;
-  padding: var(--space-2);
+  /* Actions occupy their own reserved edge, rather than covering the holding
+     or return when they appear on hover. */
+  padding: var(--space-2) calc(var(--space-2) + 3.5rem) var(--space-2) var(--space-2);
   border: 0;
   background: none;
   color: inherit;
@@ -64,19 +72,27 @@
 }
 
 .symbol {
+  grid-area: symbol;
   color: var(--color-text);
   font-size: 0.74rem;
   font-weight: 700;
+  text-align: center;
 }
 
 .holding,
 .waiting {
+  justify-self: center;
+  width: 100%;
   overflow: hidden;
   color: var(--color-muted);
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.holding {
+  grid-area: holding;
 }
 
 .waiting {
@@ -88,6 +104,7 @@
 }
 
 .value {
+  grid-area: value;
   color: var(--color-text);
   font-size: 0.74rem;
   font-variant-numeric: tabular-nums;
@@ -101,6 +118,14 @@
   text-align: center;
 }
 
+.pick > .up,
+.pick > .down {
+  grid-area: return;
+  justify-self: center;
+  width: 100%;
+  white-space: nowrap;
+}
+
 .up {
   color: var(--color-income);
 }
@@ -110,9 +135,14 @@
 }
 
 .actions {
+  position: absolute;
+  z-index: 1;
+  right: var(--space-1);
   display: flex;
   gap: 2px;
-  padding-right: var(--space-2);
+  padding: var(--space-1);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
   /* Revealed on approach rather than always there: two glyphs per row would
      compete with the numbers, which are what the panel is for. */
   opacity: 0;
@@ -219,16 +249,21 @@
 
 .total {
   display: grid;
+  grid-template-areas:
+    'label value'
+    'label change';
   grid-template-columns: 1fr auto;
   gap: 0 var(--space-2);
-  margin-top: var(--space-2);
-  padding: var(--space-2);
-  /* A rule above it, because a total is a different kind of statement from the
-     rows it sums. */
-  border-top: 1px solid var(--color-border);
+  align-items: center;
+  margin-bottom: var(--space-3);
+  padding: 0 var(--space-2) var(--space-3);
+  /* The summary leads the list now, so its rule points down to the positions it
+     describes rather than back at content above it. */
+  border-bottom: 1px solid var(--color-border);
 }
 
 .totalLabel {
+  grid-area: label;
   color: var(--color-muted);
   font-size: 0.66rem;
   font-weight: 700;
@@ -237,10 +272,17 @@
 }
 
 .totalValue {
+  grid-area: value;
   color: var(--color-text);
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.total > .up,
+.total > .down {
+  grid-area: change;
   text-align: right;
 }
 

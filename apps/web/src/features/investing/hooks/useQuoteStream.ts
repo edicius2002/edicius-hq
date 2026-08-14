@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { openQuoteStream, type Tick } from '@/features/investing/data/quoteStream';
 import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch';
@@ -8,10 +8,9 @@ import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch
  *
  * Deliberately knows nothing about quotes. The sweep is what a row is built
  * from — it has the previous close, the name and the currency — and this is
- * only what has happened since. Keeping them apart means a refetch cannot be
- * undone by a stale tick, a tick cannot be mistaken for a fetched answer, and
- * the page can ask whether the stream is alive *before* it decides how often to
- * sweep, which is the order those two facts actually depend on each other in.
+ * only what has happened since. The owner discards the overlay after every
+ * successful sweep, so a dead stream cannot keep its final tick painted over a
+ * newer REST answer.
  *
  * Ticks are coalesced to one render per animation frame. The API already sends
  * at most one message per symbol per quarter second, but several symbols moving
@@ -25,6 +24,8 @@ import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch
 export type QuoteStreamState = {
   ticks: Map<string, Tick>;
   live: boolean;
+  /** A REST sweep supersedes every overlay it already had. */
+  discardTicks: () => void;
 };
 
 export function useQuoteStream(symbols: string[]): QuoteStreamState {
@@ -35,6 +36,9 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   // that held them, which is new on every render of the page above.
   const key = symbols.join(',');
   const frame = useRef(0);
+  const discardTicks = useCallback(() => {
+    setTicks((current) => (current.size ? new Map() : current));
+  }, []);
 
   useEffect(() => {
     if (!key) {
@@ -67,7 +71,17 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
 
       setTicks((current) => {
         const next = new Map(current);
-        for (const [symbol, tick] of batch) next.set(symbol, tick);
+        for (const [symbol, tick] of batch) {
+          const previous = next.get(symbol);
+          if (
+            !previous ||
+            tick.time === null ||
+            previous.time === null ||
+            tick.time >= previous.time
+          ) {
+            next.set(symbol, tick);
+          }
+        }
         return next;
       });
     };
@@ -96,5 +110,5 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
     };
   }, [key]);
 
-  return { ticks, live: connection.value };
+  return { ticks, live: connection.value, discardTicks };
 }

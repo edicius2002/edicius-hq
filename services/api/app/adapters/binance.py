@@ -63,7 +63,17 @@ def parse_quote(symbol: str, payload: Any) -> Quote:
         currency=QUOTE_CURRENCY,
         previous_close=previous,
         provider=PROVIDER,
+        # Binance stamps the close of its rolling ticker window in milliseconds;
+        # its ticks and our public contract use Unix seconds.
+        time=_timestamp_seconds(payload.get("closeTime")),
     )
+
+
+def _timestamp_seconds(value: object) -> float | None:
+    try:
+        return float(value) / 1000 if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 async def fetch_bars(client: httpx.AsyncClient, symbol: str, timeframe: Timeframe) -> list[Bar]:

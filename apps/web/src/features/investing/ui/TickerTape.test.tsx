@@ -15,6 +15,7 @@ function quote(symbol: string, over: Partial<Quote> = {}): Quote {
     change: 1,
     changePercent: 1.01,
     provider: 'test',
+    time: 100,
     marketState: 'REGULAR',
     name: symbol,
     extended: false,

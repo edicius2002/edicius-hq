@@ -32,6 +32,7 @@ const FAILURE_LABEL: Record<string, string> = {
   'no-price': 'no price',
   unreachable: 'unreachable',
   'upstream-error': 'upstream error',
+  'batch-limit': 'request limit',
 };
 
 type WatchlistProps = {

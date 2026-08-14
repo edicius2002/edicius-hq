@@ -34,6 +34,10 @@ class Quote:
     # than stored, so it can never disagree with the price beside it.
     previous_close: float | None
     provider: str
+    # The provider's market timestamp, in Unix seconds. It is deliberately
+    # nullable: making up a client-side time would make it incomparable with
+    # streaming ticks from the exchange.
+    time: float | None = None
     # What the exchange says about its own session — REGULAR, PRE, POST,
     # POSTPOST, CLOSED. Absent from providers that have no session to report.
     market_state: str | None = None

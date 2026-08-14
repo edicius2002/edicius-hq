@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe('useQuoteStream', () => {
-  it('keeps a tick that arrived after the sweep data, while discarding an older one', () => {
+  it('keeps a tick that arrived while the sweep was in flight', () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -27,11 +27,13 @@ describe('useQuoteStream', () => {
       options.onTicks([
         {
           symbol: 'AAPL',
-          price: 311,
+          price: 312,
           marketState: 'REGULAR',
           extended: false,
           changePercent: 4,
-          time: 100,
+          // Newer than the market snapshot (100), although the response is
+          // applied after this tick arrived.
+          time: 101,
         },
         {
           symbol: 'MSFT',
@@ -39,8 +41,7 @@ describe('useQuoteStream', () => {
           marketState: 'REGULAR',
           extended: false,
           changePercent: 4,
-          // Arrived while the sweep was in flight, after its data timestamp.
-          time: 101,
+          time: 100,
         },
         {
           symbol: 'NVDA',
@@ -57,11 +58,36 @@ describe('useQuoteStream', () => {
 
     const { result } = renderHook(() => useQuoteStream(['AAPL']));
 
-    expect(result.current.ticks.get('AAPL')?.price).toBe(311);
-    act(() => result.current.discardTicksBefore(100));
+    expect(result.current.ticks.get('AAPL')?.price).toBe(312);
+    act(() => result.current.discardTicksBefore(new Map([['AAPL', 100], ['MSFT', 100], ['NVDA', 100]]), 999));
+
+    expect(result.current.ticks.get('AAPL')?.price).toBe(312);
+    expect(result.current.ticks.has('MSFT')).toBe(false);
+    expect(result.current.ticks.get('NVDA')?.price).toBe(500);
+  });
+
+  it('falls back to the response-arrival boundary only when a quote has no market time', () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    stream.open.mockImplementation((_symbols: string[], options: QuoteStreamOptions) => {
+      options.onTicks([
+        {
+          symbol: 'AAPL',
+          price: 311,
+          marketState: 'REGULAR',
+          extended: false,
+          changePercent: 4,
+          time: 100,
+        },
+      ]);
+      return vi.fn();
+    });
+
+    const { result } = renderHook(() => useQuoteStream(['AAPL']));
+    act(() => result.current.discardTicksBefore(new Map([['AAPL', null]]), 100));
 
     expect(result.current.ticks.has('AAPL')).toBe(false);
-    expect(result.current.ticks.get('MSFT')?.price).toBe(412);
-    expect(result.current.ticks.get('NVDA')?.price).toBe(500);
   });
 });

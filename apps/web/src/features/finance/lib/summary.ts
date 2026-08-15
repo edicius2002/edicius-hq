@@ -5,7 +5,6 @@ import {
   CHIPS_PER_LINE,
   HOLDING_CONTENT_WIDTH,
   NODE_FONT,
-  sizeOf,
   textWidth,
   type NodeContent,
 } from '@/features/finance/lib/geometry';
@@ -365,15 +364,6 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
   }
 
   const summary = selectAccountSummary(diagram, node.id);
-  const holdings = selectHoldingsOfAccount(diagram, node.id).filter((holding) => holding.active);
-  const holdingSpanWidth = holdings.length
-    ? Math.max(
-        ...holdings.map(
-          (holding) =>
-            holding.position.x + sizeOf(holding, selectNodeContent(diagram, holding)).width,
-        ),
-      ) - Math.min(...holdings.map((holding) => holding.position.x))
-    : 0;
   const chips = summary.remaining
     .filter((total) => !allocated.some((item) => item.asset === total.asset))
     .map((total) => total.asset);
@@ -382,12 +372,14 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
     allocatedRows: allocated.length,
     extraRow: summary.incoming.count + summary.outgoing.count > 0,
     // An account is never narrower than a holding it owns: the two are read as
-    // one stack, and a parent thinner than its child reads as a mistake.
+    // one stack, and a parent thinner than its child reads as a mistake. Where
+    // those holdings happen to sit is not part of it — an account says what it
+    // holds, and two accounts saying the same thing are the same width however
+    // far apart their holdings have been dragged.
     minimumWidth: Math.max(
       HOLDING_CONTENT_WIDTH,
       intrinsicWidth(node.name || 'Account', chips, allocated),
     ),
-    holdingSpanWidth,
   };
 }
 

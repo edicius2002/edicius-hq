@@ -157,8 +157,7 @@ export function allocatedHeight(blocks: number): number {
  *
  * Both boxes that carry rows are measured from what they say and clamped to
  * this: a job showing one balance chip has no more business reserving 240px
- * than an account with one holding did. Holdings can bring an account below it
- * as well, and never above; see `holdingSpanWidth`.
+ * than an account with one holding did.
  */
 export const NODE_WIDTH: Record<NodeKind, number> = {
   job: 240,
@@ -251,30 +250,32 @@ export type NodeContent = {
   /** A holding with a fee on either side, or an account that has seen traffic. */
   extraRow?: boolean;
   /**
-   * The smallest width the node's own rendered rows need. This is separate from
-   * holdings: an account may be narrow on its own but need to span a wide
-   * arrangement of the holdings it owns.
+   * The width this node's own rendered rows need — its name, its chips, its
+   * allocation lines. It is the whole of the width: where a node's holdings sit
+   * is not part of what it says.
    */
   minimumWidth?: number;
-  /** The real horizontal extent of an account's active holdings. */
-  holdingSpanWidth?: number;
 };
 
 /**
- * How wide a box that carries rows is drawn: what its own content needs, or the
- * span of the holdings under it, whichever is larger — and never more than the
- * kind's bound.
+ * How wide a box that carries rows is drawn: what its own content needs, and no
+ * more than the kind's bound.
  *
- * Both ends are clamped, and for the same reason. `NODE_WIDTH` is the widest
- * the kind is ever drawn, so neither a long name nor holdings dragged apart may
- * buy width past it; a caller that measured nothing gets the empty box rather
- * than the bound, because "I did not look" is not the same as "it is full".
+ * A node's width used to take the horizontal span of the holdings under it as
+ * well, so that a single column need not reserve the full 240. Measuring the
+ * content properly is what that was really after, and doing both left distance
+ * still buying width — an account whose holdings had been dragged apart came
+ * out 7px wider than one saying exactly the same thing, which reads as
+ * misalignment rather than as information. On the real diagram it was the only
+ * thing separating BCP from Scotiabank.
+ *
+ * Both ends are clamped. `NODE_WIDTH` is the widest the kind is ever drawn, so
+ * no measurement may buy width past it; a caller that measured nothing gets the
+ * empty box rather than the bound, because "I did not look" is not the same
+ * answer as "it is full".
  */
 function contentWidth(kind: 'job' | 'account', content: NodeContent): number {
-  const bound = NODE_WIDTH[kind];
-  const own = Math.min(content.minimumWidth ?? EMPTY_NODE_CONTENT_WIDTH, bound);
-  const span = Math.min(content.holdingSpanWidth ?? 0, bound);
-  return Math.max(own, span);
+  return Math.min(content.minimumWidth ?? EMPTY_NODE_CONTENT_WIDTH, NODE_WIDTH[kind]);
 }
 
 export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {

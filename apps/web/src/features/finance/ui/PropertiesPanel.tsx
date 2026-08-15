@@ -101,12 +101,7 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
       {node.kind === 'holding' ? <HoldingFields node={node} actions={actions} /> : null}
 
       <Field label="Notes">
-        <input
-          className={styles.input}
-          value={node.notes}
-          placeholder="Optional"
-          onChange={(event) => actions.setNotes(node.id, event.target.value)}
-        />
+        <NotesInput value={node.notes} onChange={(notes) => actions.setNotes(node.id, notes)} />
       </Field>
     </div>
   );
@@ -229,6 +224,31 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {label}
       {children}
     </label>
+  );
+}
+
+/**
+ * Notes, for a node or for a flow.
+ *
+ * A box rather than a line, because of what people actually write in it. On the
+ * real document the notes are running logs — `10/07 - 2000  10/08 - 2011.90`,
+ * `07/08 - USD +785.58` — entries appended over weeks to a field that showed
+ * one line at a time and scrolled sideways to read any of it.
+ *
+ * Three lines to start and a grip to take it further: how much a note has to
+ * say is the reader's business, not the layout's. The panel holds a fixed
+ * height and scrolls what does not fit, so a note dragged tall costs the panel
+ * a scrollbar rather than costing the canvas its width.
+ */
+function NotesInput({ value, onChange }: { value: string; onChange: (notes: string) => void }) {
+  return (
+    <textarea
+      className={styles.notes}
+      value={value}
+      rows={3}
+      placeholder="Optional"
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }
 
@@ -584,11 +604,9 @@ function FlowFields({
       </Field>
 
       <Field label="Notes">
-        <input
-          className={styles.input}
+        <NotesInput
           value={flow.notes}
-          placeholder="Optional"
-          onChange={(event) => actions.updateFlow(flow.id, { notes: event.target.value })}
+          onChange={(notes) => actions.updateFlow(flow.id, { notes })}
         />
       </Field>
     </div>

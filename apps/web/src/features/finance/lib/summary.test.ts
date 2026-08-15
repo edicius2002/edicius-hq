@@ -118,6 +118,72 @@ describe('account node geometry', () => {
     expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 194);
     expect(sizeOf(accountNode, content).width).toBe(240);
   });
+
+  it('reserves both chip columns once there is a second asset', () => {
+    // The chips are a fixed two-column grid. Measuring one and drawing two left
+    // a two-asset account 124px wide with both of its amounts ellipsised.
+    const one = contentFor(holding('h1', 'a1', 'USD', 1200, { position }));
+    const two = contentFor(
+      holding('h1', 'a1', 'USD', 1200, { position }),
+      holding('h2', 'a1', 'PEN', 800, { position }),
+    );
+
+    expect(two.content.minimumWidth).toBeGreaterThan(one.content.minimumWidth ?? 0);
+    // Two columns of `USD 99,999.99` (102px each) plus the 7px between them and
+    // the box chrome — and still under the bound, which an account never buys
+    // its way past.
+    expect(two.content.minimumWidth).toBe(233);
+    expect(sizeOf(two.account, two.content).width).toBeLessThanOrEqual(240);
+  });
+});
+
+describe('job node geometry', () => {
+  const balance = (asset: string, amount: number): Balance => ({ asset, amount, active: true });
+
+  function contentFor(node: FinanceNode) {
+    return selectNodeContent(diagram([node]), node);
+  }
+
+  it('shrinks a one-balance job to the chip it shows', () => {
+    const node = job('Salary', [balance('USD', 3200)]);
+    const content = contentFor(node);
+
+    // One chip spans both columns, so the box only has to hold `USD 99,999.99`.
+    expect(sizeOf(node, content).width).toBe(124);
+    // Which is about half the 240 a job took whatever it held.
+    expect(sizeOf(node, content).width).toBeLessThan(240 / 1.9);
+  });
+
+  it('grows for a second balance, and stops at the bound', () => {
+    const one = job('Salary', [balance('USD', 3200)]);
+    const two = job('Salary', [balance('USD', 3200), balance('PEN', 1500)]);
+    const many = job(
+      'Salary',
+      ['USD', 'PEN', 'EUR', 'GBP'].map((asset) => balance(asset, 10)),
+    );
+
+    expect(sizeOf(two, contentFor(two)).width).toBeGreaterThan(sizeOf(one, contentFor(one)).width);
+    // A third chip starts a second line rather than a third column, so the
+    // width settles once both columns are reserved.
+    expect(sizeOf(many, contentFor(many)).width).toBe(sizeOf(two, contentFor(two)).width);
+    expect(sizeOf(many, contentFor(many)).width).toBeLessThanOrEqual(240);
+  });
+
+  it('holds a name longer than its balances', () => {
+    const node = job('Contract work for a very long client name', [balance('USD', 1)]);
+
+    expect(sizeOf(node, contentFor(node)).width).toBe(240);
+  });
+
+  it('keeps an empty job wide enough for the line it does show', () => {
+    const node = job('New job', []);
+    const content = contentFor(node);
+
+    // "No assets yet" is still a row, and still has to fit.
+    expect(content.assetRows).toBe(0);
+    expect(sizeOf(node, content).width).toBeGreaterThanOrEqual(115);
+    expect(sizeOf(node, content).width).toBeLessThan(240);
+  });
 });
 
 describe('selectAvailable', () => {

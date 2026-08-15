@@ -25,8 +25,13 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     globals: false,
     // Shell navigation takes 6.1–6.4s on this repository's /mnt/d drvfs mount,
-    // versus 3.2–3.7s on native Linux; a full drvfs run has reached 20.9s while
-    // workers contend for that mount. Thirty seconds covers both without making a hung interaction wait a minute.
-    testTimeout: 30_000,
+    // versus 3.2–3.7s on native Linux, and 16.8s in a full parallel run — the
+    // routes are code-split, so each first visit compiles a chunk off that
+    // mount. The default 5s is a render budget and this is filesystem latency,
+    // which is why the whole suite gets the allowance rather than one test.
+    // Forty-five seconds holds the four-route walk at its measured worst with
+    // room over `ROUTE_LOAD_MS` in `App.test.tsx`, and still fails a hung
+    // interaction inside a minute.
+    testTimeout: 45_000,
   },
 });

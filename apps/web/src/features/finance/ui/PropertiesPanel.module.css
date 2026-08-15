@@ -56,7 +56,8 @@
 }
 
 .input,
-.select {
+.select,
+.notes {
   appearance: none;
   background: var(--color-bg-2);
   border: 1px solid var(--color-border);
@@ -69,9 +70,33 @@
 }
 
 .input:focus-visible,
-.select:focus-visible {
+.select:focus-visible,
+.notes:focus-visible {
   border-color: var(--color-accent);
   outline: none;
+}
+
+/*
+ * The one control here that the reader gets to resize.
+ *
+ * Vertically only: the panel's width is a layout decision — it is what the
+ * canvas beside it does not get — and a horizontal grip would let a note take
+ * that width away. Height is the note's own business, and the panel scrolls
+ * what does not fit.
+ *
+ * `line-height` is stated rather than inherited because `.field` sets a smaller
+ * font for its label; without it the rows a `rows={3}` box reserves would be
+ * measured against a line the text does not use.
+ */
+.notes {
+  line-height: 1.4;
+  resize: vertical;
+  /*
+   * Two of its own lines, plus the padding and border the box counts inside its
+   * height: 2 × 0.82 × 1.4 + 0.7 + 0.1. Dragged all the way down it stops at
+   * two lines rather than at the single one this replaces.
+   */
+  min-height: 3.1rem;
 }
 
 .row {

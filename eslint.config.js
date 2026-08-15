@@ -16,6 +16,11 @@ export default tseslint.config(
       '**/coverage/**',
       'services/api/.local-data/**',
       '.local-data/**',
+      // Git worktrees, so every file under here is a second copy of a file
+      // already linted at the root. Left in, `npm run lint` reported 135 errors
+      // against `.ccb/workspaces/worker3` — a checkout of this same repository —
+      // and none of them could be fixed from a path anybody edits.
+      '.ccb/**',
     ],
   },
   js.configs.recommended,

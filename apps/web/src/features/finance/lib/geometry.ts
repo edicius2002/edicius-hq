@@ -50,7 +50,7 @@ const FONT = {
   /** Smaller than the numbers it introduces. A name is a label, not a figure. */
   name: 12,
   /**
-   * The figure a holding exists to show. Its smaller 100px footprint needs a
+   * The figure a holding exists to show. Its smaller 93px footprint needs a
    * quieter 12px figure, which still leads the compact box without clipping a
    * five-figure amount.
    */
@@ -320,9 +320,9 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
  * 107px for a box whose worst case is 70.
  */
 export const NODE_SIZE: Record<NodeKind, Size> = {
-  // Widths here are true upper bounds: `sizeOf` clamps both a node's own
-  // content and any holdings' span to them, so nothing a diagram contains can
-  // be drawn wider than the box reserved for it before it was read.
+  // Widths here are true upper bounds: `sizeOf` clamps a node's measured
+  // content to them, so nothing a diagram contains can be drawn wider than the
+  // box reserved for it before it was read.
   job: { width: NODE_WIDTH.job, height: heightOf(['name', 'operations'], balancesHeight(1)) },
   account: {
     width: NODE_WIDTH.account,

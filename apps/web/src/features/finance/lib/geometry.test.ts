@@ -179,6 +179,14 @@ describe('a box that follows its rows', () => {
     fees: { in: null, out: null },
     position: { x: 0, y: 0 },
   });
+  const job = (): FinanceNode => ({
+    id: 'j1',
+    kind: 'job',
+    name: 'Job',
+    notes: '',
+    balances: [],
+    position: { x: 0, y: 0 },
+  });
 
   it('reserves at least what a row actually takes', () => {
     /*
@@ -275,6 +283,27 @@ describe('a box that follows its rows', () => {
     // of them across six columns used to stretch their account to 779px.
     expect(twoColumns.width).toBe(NODE_SIZE.account.width);
     expect(scattered.width).toBe(NODE_SIZE.account.width);
+  });
+
+  it('measures a job from its own rows, the way an account is measured', () => {
+    // A job has no holdings, so its content is the whole of its width. It used
+    // to take the full 240 whatever it said — the same slack the accounts were
+    // sized out of, left on the one kind nobody measured.
+    const narrow = sizeOf(job(), { minimumWidth: 124, assetRows: 1 });
+    const unmeasured = sizeOf(job(), {});
+
+    expect(narrow.width).toBe(124);
+    expect(narrow.width).toBeLessThan(NODE_SIZE.job.width);
+    // A caller with no diagram to ask gets the empty box, not the bound: "I did
+    // not look" is not the same answer as "it is full".
+    expect(unmeasured.width).toBeLessThan(NODE_SIZE.job.width);
+  });
+
+  it('never lets content widen a node past the bound reserved for it', () => {
+    // The clamp lives here rather than in the caller, so no measurement — a
+    // long name, a wide allocation row — can outgrow `NODE_SIZE`.
+    expect(sizeOf(job(), { minimumWidth: 900 }).width).toBe(NODE_SIZE.job.width);
+    expect(sizeOf(account(), { minimumWidth: 900 }).width).toBe(NODE_SIZE.account.width);
   });
 
   it('reserves the tallest case for anything that has to guess', () => {

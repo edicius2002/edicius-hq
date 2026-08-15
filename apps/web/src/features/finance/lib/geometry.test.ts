@@ -257,32 +257,22 @@ describe('a box that follows its rows', () => {
     expect(sizeOf(holding(), {}).width).toBeLessThan(100);
   });
 
-  it('lets its holdings narrow an account, never widen it', () => {
+  it('measures an account from what it says, not from where its holdings sit', () => {
+    // Width once followed the holdings' horizontal span as well. Distance is not
+    // content: it stretched an account across whatever gap its holdings had been
+    // dragged to — 779px for twelve of them over six columns — and once capped,
+    // all it still bought was 7px between two accounts saying the same thing.
     const ownContent = HOLDING_CONTENT_WIDTH;
-    const oneColumn = sizeOf(account(), { minimumWidth: ownContent, holdingSpanWidth: ownContent });
-    const overlapping = sizeOf(account(), {
-      minimumWidth: ownContent,
-      holdingSpanWidth: ownContent + 18,
-    });
-    const twoColumns = sizeOf(account(), {
-      minimumWidth: ownContent,
-      holdingSpanWidth: ownContent + 194,
-    });
-    const scattered = sizeOf(account(), {
-      minimumWidth: ownContent,
-      holdingSpanWidth: 779,
-    });
+    const narrow = sizeOf(account(), { minimumWidth: ownContent, assetRows: 1 });
 
-    // A single column stops reserving the full width, which is the whole point
-    // of measuring the holdings at all.
-    expect(oneColumn.width).toBe(ownContent);
-    expect(overlapping.width).toBe(ownContent + 18);
-
-    // Past the account's own width the span stops counting: distance between
-    // holdings is empty space, not content the box has to hold. Dragging twelve
-    // of them across six columns used to stretch their account to 779px.
-    expect(twoColumns.width).toBe(NODE_SIZE.account.width);
-    expect(scattered.width).toBe(NODE_SIZE.account.width);
+    expect(narrow.width).toBe(ownContent);
+    expect(narrow.width).toBeLessThan(NODE_SIZE.account.width);
+    // The width is a function of `minimumWidth` alone: the rows a node shows
+    // change how tall it is, never how wide.
+    expect(sizeOf(account(), { minimumWidth: ownContent, assetRows: 8 }).width).toBe(narrow.width);
+    expect(sizeOf(account(), { minimumWidth: ownContent, assetRows: 8 }).height).toBeGreaterThan(
+      narrow.height,
+    );
   });
 
   it('measures a job from its own rows, the way an account is measured', () => {
@@ -314,13 +304,12 @@ describe('a box that follows its rows', () => {
     expect(NODE_SIZE.account.height).toBe(
       sizeOf(account(), { assetRows: 1, extraRow: true }).height,
     );
-    // A new account has no known holding positions. The static size therefore
-    // reserves its widest intrinsic content, while a known holding span may be
-    // wider without any finite upper bound.
+    // Placing a node happens before anything has measured it, so the reserved
+    // width has to be the widest its content can ever ask for.
     expect(NODE_SIZE.account.width).toBe(240);
-    expect(
-      sizeOf(account(), { minimumWidth: NODE_SIZE.account.width, holdingSpanWidth: 0 }).width,
-    ).toBe(NODE_SIZE.account.width);
+    expect(sizeOf(account(), { minimumWidth: NODE_SIZE.account.width }).width).toBe(
+      NODE_SIZE.account.width,
+    );
   });
 });
 

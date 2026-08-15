@@ -70,10 +70,19 @@ describe('ownerFrameOf', () => {
 
   it('leaves a node it only overlaps', () => {
     let diagram = withJob(createEmptyDiagram('d'), 'j1', { x: 200, y: 200 });
-    // Cuts through the node rather than enclosing it.
-    diagram = withFrame(diagram, 'f1', { x: 160, y: 160 }, { width: 200, height: 200 });
+    const node = nodeRect(diagram.nodes.j1);
+    // Cuts through the node rather than enclosing it — measured from the box
+    // itself, because a node is only as wide as its content: written down, this
+    // frame stopped cutting anything the moment an empty job stopped taking the
+    // full 240, and quietly became the contained case.
+    diagram = withFrame(
+      diagram,
+      'f1',
+      { x: node.left + node.width / 2, y: 160 },
+      { width: 200, height: 200 },
+    );
 
-    expect(nodeRect(diagram.nodes.j1).width).toBeGreaterThan(0);
+    expect(node.width).toBeGreaterThan(0);
     expect(ownerFrameOf(diagram, diagram.nodes.j1)).toBeNull();
   });
 

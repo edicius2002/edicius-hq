@@ -123,6 +123,15 @@ const ROW_GAP = 4;
 export const CHIPS_PER_LINE = 2;
 const CHIP_GAP = 3;
 
+/**
+ * The gap *between* the two chip columns, which is not the gap between lines.
+ *
+ * `.balances` states `gap: 3px 7px`. Height only ever needed the row half; a
+ * width measured from a single chip is what let a two-asset box reserve one
+ * column and draw two, ellipsising both amounts it exists to show.
+ */
+export const CHIP_COLUMN_GAP = 7;
+
 export function balancesHeight(assets: number): number {
   const lines = Math.ceil(assets / CHIPS_PER_LINE);
   return lines * ROW.balance + Math.max(0, lines - 1) * CHIP_GAP;
@@ -143,13 +152,16 @@ export function allocatedHeight(blocks: number): number {
   return blocks * ROW.allocation + Math.max(0, blocks - 1) * CHIP_GAP;
 }
 
+/**
+ * The widest each kind is ever drawn — an upper bound, not the width itself.
+ *
+ * Both boxes that carry rows are measured from what they say and clamped to
+ * this: a job showing one balance chip has no more business reserving 240px
+ * than an account with one holding did. Holdings can bring an account below it
+ * as well, and never above; see `holdingSpanWidth`.
+ */
 export const NODE_WIDTH: Record<NodeKind, number> = {
   job: 240,
-  /**
-   * The widest an account is ever drawn. Holdings can only bring it below this
-   * — a single column need not reserve the full width — never above it; see
-   * `holdingSpanWidth`.
-   */
   account: 240,
   holding: 93,
 };
@@ -171,16 +183,17 @@ export function textWidth(characters: number, font: number): number {
   return Math.ceil(characters * font * TEXT_CHARACTER_EM);
 }
 
-/** Text width plus the node's horizontal padding and borders. */
-export function nodeTextWidth(text: string, font: number): number {
-  return textWidth(text.length, font) + BOX_HORIZONTAL_CHROME;
+/** A box around content of this width: its horizontal padding and borders. */
+export function boxWidth(content: number): number {
+  return Math.ceil(content) + BOX_HORIZONTAL_CHROME;
 }
 
 /** Width needed by the holding amount, including the node's horizontal chrome. */
-export const HOLDING_CONTENT_WIDTH =
-  textWidth(MAX_HOLDING_AMOUNT_CHARACTERS, FONT.amount) + BOX_HORIZONTAL_CHROME;
-const EMPTY_ACCOUNT_CONTENT_WIDTH =
-  textWidth('No assets yet'.length, FONT.muted) + BOX_HORIZONTAL_CHROME;
+export const HOLDING_CONTENT_WIDTH = boxWidth(
+  textWidth(MAX_HOLDING_AMOUNT_CHARACTERS, FONT.amount),
+);
+/** Both a job and an account say "No assets yet" when they hold nothing. */
+const EMPTY_NODE_CONTENT_WIDTH = boxWidth(textWidth('No assets yet'.length, FONT.muted));
 
 /**
  * The shortest a box can be and still read.
@@ -238,14 +251,31 @@ export type NodeContent = {
   /** A holding with a fee on either side, or an account that has seen traffic. */
   extraRow?: boolean;
   /**
-   * The smallest width the account's own rendered rows need. This is separate
-   * from holdings: an account may be narrow on its own but need to span a wide
+   * The smallest width the node's own rendered rows need. This is separate from
+   * holdings: an account may be narrow on its own but need to span a wide
    * arrangement of the holdings it owns.
    */
   minimumWidth?: number;
   /** The real horizontal extent of an account's active holdings. */
   holdingSpanWidth?: number;
 };
+
+/**
+ * How wide a box that carries rows is drawn: what its own content needs, or the
+ * span of the holdings under it, whichever is larger — and never more than the
+ * kind's bound.
+ *
+ * Both ends are clamped, and for the same reason. `NODE_WIDTH` is the widest
+ * the kind is ever drawn, so neither a long name nor holdings dragged apart may
+ * buy width past it; a caller that measured nothing gets the empty box rather
+ * than the bound, because "I did not look" is not the same as "it is full".
+ */
+function contentWidth(kind: 'job' | 'account', content: NodeContent): number {
+  const bound = NODE_WIDTH[kind];
+  const own = Math.min(content.minimumWidth ?? EMPTY_NODE_CONTENT_WIDTH, bound);
+  const span = Math.min(content.holdingSpanWidth ?? 0, bound);
+  return Math.max(own, span);
+}
 
 export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
   // No `kind` row: the label is drawn in the top padding, in the corner.
@@ -270,20 +300,14 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
   const chips = assets > 0 ? balancesHeight(assets) : allocated > 0 ? 0 : ROW.muted;
   const blocks = allocatedHeight(allocated);
   const gapBetween = chips > 0 && blocks > 0 ? CHIP_GAP : 0;
-  // The holdings' span can only ever make an account *narrower*. Left to widen
-  // it, distance became width: holdings dragged apart stretched their account
-  // across the gap between them — one real diagram reached 779px of mostly air
-  // for twelve holdings spread over six columns. The point of measuring them
-  // was to stop a single column reserving the full 240, not to let an
-  // arrangement grow past what the account itself is ever drawn as.
-  const intrinsicWidth =
-    node.kind === 'account'
-      ? Math.max(
-          content.minimumWidth ?? EMPTY_ACCOUNT_CONTENT_WIDTH,
-          Math.min(content.holdingSpanWidth ?? 0, NODE_WIDTH.account),
-        )
-      : NODE_WIDTH.job;
-  return { width: intrinsicWidth, height: heightOf(rows, chips + blocks + gapBetween) };
+  // A job is measured the same way an account is. It used to take the full 240
+  // whatever it held, which on the real diagram meant a box more than twice as
+  // wide as the single balance chip inside it — the same slack the accounts
+  // were sized out of, left behind on the one kind that was not touched.
+  return {
+    width: contentWidth(node.kind, content),
+    height: heightOf(rows, chips + blocks + gapBetween),
+  };
 }
 
 /**
@@ -295,11 +319,11 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
  * 107px for a box whose worst case is 70.
  */
 export const NODE_SIZE: Record<NodeKind, Size> = {
+  // Widths here are true upper bounds: `sizeOf` clamps both a node's own
+  // content and any holdings' span to them, so nothing a diagram contains can
+  // be drawn wider than the box reserved for it before it was read.
   job: { width: NODE_WIDTH.job, height: heightOf(['name', 'operations'], balancesHeight(1)) },
   account: {
-    // A true upper bound again: the holdings' span is clamped to this in
-    // `sizeOf`, so no arrangement of them can make an account wider than the
-    // box its own content is measured against.
     width: NODE_WIDTH.account,
     height: heightOf(['name', 'operations'], balancesHeight(1)),
   },

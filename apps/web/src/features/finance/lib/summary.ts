@@ -1,8 +1,12 @@
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import {
+  boxWidth,
+  CHIP_COLUMN_GAP,
+  CHIPS_PER_LINE,
   HOLDING_CONTENT_WIDTH,
-  nodeTextWidth,
+  NODE_FONT,
   sizeOf,
+  textWidth,
   type NodeContent,
 } from '@/features/finance/lib/geometry';
 import type {
@@ -345,52 +349,102 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
   const allocated = selectAssetAllocations(diagram, node);
 
   if (node.kind === 'job') {
-    const active = node.balances.filter((balance) => balance.active).length;
+    const chips = node.balances
+      .filter(
+        (balance) => balance.active && !allocated.some((item) => item.asset === balance.asset),
+      )
+      .map((balance) => balance.asset);
     // An allocated asset is drawn as its own two-line block, so it leaves the
     // chips rather than wrapping among them.
-    return { assetRows: active - allocated.length, allocatedRows: allocated.length };
+    return {
+      assetRows: chips.length,
+      allocatedRows: allocated.length,
+      // A job holds no holdings, so its own rows are the whole of its width.
+      minimumWidth: intrinsicWidth(node.name || 'Job', chips, allocated),
+    };
   }
 
   const summary = selectAccountSummary(diagram, node.id);
   const holdings = selectHoldingsOfAccount(diagram, node.id).filter((holding) => holding.active);
   const holdingSpanWidth = holdings.length
     ? Math.max(
-        ...holdings.map((holding) => holding.position.x + sizeOf(holding, selectNodeContent(diagram, holding)).width),
+        ...holdings.map(
+          (holding) =>
+            holding.position.x + sizeOf(holding, selectNodeContent(diagram, holding)).width,
+        ),
       ) - Math.min(...holdings.map((holding) => holding.position.x))
     : 0;
-  const chipWidth = Math.max(
-    textWidthForAccount('No assets yet', 'muted'),
-    ...summary.remaining.map((total) =>
-      textWidthForAccount(`${total.asset} ${'9'.repeat('99,999.99'.length)}`, 'balance'),
-    ),
-  );
-  const allocationWidth = Math.max(
-    0,
-    ...allocated.map((item) =>
-      textWidthForAccount(
-        `${item.asset} ${'9'.repeat('99,999.99'.length)} / ${'9'.repeat('99,999.99'.length)} 100%`,
-        'allocation',
-      ),
-    ),
-  );
-  const nameWidth = textWidthForAccount(node.name || 'Account', 'name');
+  const chips = summary.remaining
+    .filter((total) => !allocated.some((item) => item.asset === total.asset))
+    .map((total) => total.asset);
   return {
-    assetRows: summary.remaining.length - allocated.length,
+    assetRows: chips.length,
     allocatedRows: allocated.length,
     extraRow: summary.incoming.count + summary.outgoing.count > 0,
-    minimumWidth: Math.min(
-      240,
-      Math.max(HOLDING_CONTENT_WIDTH, nameWidth, chipWidth, allocationWidth),
+    // An account is never narrower than a holding it owns: the two are read as
+    // one stack, and a parent thinner than its child reads as a mistake.
+    minimumWidth: Math.max(
+      HOLDING_CONTENT_WIDTH,
+      intrinsicWidth(node.name || 'Account', chips, allocated),
     ),
     holdingSpanWidth,
   };
 }
 
-/** Mirrors geometry's conservative text metric without introducing a DOM read. */
-function textWidthForAccount(
-  text: string,
-  row: 'muted' | 'name' | 'balance' | 'allocation',
+/**
+ * The longest figure a chip or an allocation promises to fit, as digits.
+ *
+ * The same worst case the holding box is sized for, and worst case on purpose:
+ * a width taken from the amount currently typed would make the box twitch on
+ * every keystroke. It settles once, at the widest number Finance promises.
+ */
+const WORST_AMOUNT = '9'.repeat('99,999.99'.length);
+
+/**
+ * The narrowest a job or an account can be drawn without clipping what it says.
+ *
+ * Every block inside the box is measured, and the widest one wins — the name,
+ * the chip columns, and the allocation lines are all full-width children of the
+ * same grid, so the box has to hold the largest of them and no more.
+ *
+ * Conservative text metrics, no DOM: this runs for every node on every render
+ * of the canvas, and a layout pass here is exactly what `geometry.ts` exists to
+ * avoid. `sizeOf` clamps the result to the kind's bound, so the caller cannot
+ * widen a node past what the diagram reserves for it.
+ */
+function intrinsicWidth(
+  name: string,
+  chips: readonly AssetCode[],
+  allocated: readonly AssetAllocation[],
 ): number {
-  const font = row === 'muted' ? 11 : row === 'allocation' ? 10 : 12;
-  return nodeTextWidth(text, font);
+  const nameWidth = textWidth(name.length, NODE_FONT.name);
+
+  // Chips sit two to a line in a fixed two-column grid, so two of them need
+  // both columns *and* the gap between. Measuring one and drawing two is what
+  // left a two-asset account 124px wide with both its amounts ellipsised.
+  const columns = Math.min(chips.length, CHIPS_PER_LINE);
+  const widestChip = chips.length
+    ? Math.max(
+        ...chips.map((asset) => textWidth(`${asset} ${WORST_AMOUNT}`.length, NODE_FONT.balance)),
+      )
+    : 0;
+  const chipsWidth = widestChip * columns + CHIP_COLUMN_GAP * Math.max(0, columns - 1);
+
+  // One line, full width: symbol, remaining over total, and the share still free.
+  const allocationWidth = allocated.length
+    ? Math.max(
+        ...allocated.map((item) =>
+          textWidth(
+            `${item.asset} ${WORST_AMOUNT} / ${WORST_AMOUNT} 100%`.length,
+            NODE_FONT.allocation,
+          ),
+        ),
+      )
+    : 0;
+
+  // Nothing to show is still a line: "No assets yet".
+  const emptyWidth =
+    chips.length || allocated.length ? 0 : textWidth('No assets yet'.length, NODE_FONT.muted);
+
+  return boxWidth(Math.max(nameWidth, chipsWidth, allocationWidth, emptyWidth));
 }

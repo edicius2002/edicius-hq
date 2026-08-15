@@ -94,29 +94,28 @@ describe('account node geometry', () => {
       holding('h1', 'a1', 'USD', 12005.13, { position: { x: 0, y: 0 } }),
     );
 
-    expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH);
+    expect(content.minimumWidth).toBeGreaterThanOrEqual(HOLDING_CONTENT_WIDTH);
     expect(sizeOf(accountNode, content).width).toBeLessThan(240);
   });
 
-  it('uses the holdings bounding box, including overlap rather than exact x columns', () => {
-    const { content } = contentFor(
+  it('is the same width wherever its holdings have been dragged', () => {
+    // The real diagram: Scotiabank's two holdings sit 18px apart and BCP's 194,
+    // and the accounts say exactly the same thing — two chips. Following the
+    // holdings' span made the first 233px and the second 240, which reads as
+    // misalignment rather than as information. Distance is not content.
+    const stacked = contentFor(
       holding('left', 'a1', 'USD', 0, { position: { x: -153, y: 0 } }),
       holding('right', 'a1', 'PEN', 0, { position: { x: -135, y: 0 } }),
     );
-
-    expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 18);
-  });
-
-  it('reports the real span of separated holdings but is not widened past 240', () => {
-    const { account: accountNode, content } = contentFor(
+    const spread = contentFor(
       holding('left', 'a1', 'USD', 0, { position: { x: -581, y: 0 } }),
       holding('right', 'a1', 'PEN', 0, { position: { x: -387, y: 0 } }),
     );
 
-    // The measurement stays honest — this really is how far apart they sit —
-    // and `sizeOf` is what decides the span cannot buy width beyond the box.
-    expect(content.holdingSpanWidth).toBe(HOLDING_CONTENT_WIDTH + 194);
-    expect(sizeOf(accountNode, content).width).toBe(240);
+    expect(sizeOf(spread.account, spread.content).width).toBe(
+      sizeOf(stacked.account, stacked.content).width,
+    );
+    expect(sizeOf(spread.account, spread.content).width).toBeLessThan(240);
   });
 
   it('reserves both chip columns once there is a second asset', () => {

@@ -42,8 +42,16 @@ beforeEach(() => {
  * compiles on demand — not on a render. The default one-second budget is a
  * render budget, and on a loaded machine the first visit to a route overruns
  * it, which made this the only intermittently red test in the suite.
+ *
+ * Ten seconds was still short of what this repository's `/mnt/d` drvfs mount
+ * does under a full parallel run: measured, the four-tab walk takes 16.8s and
+ * dies waiting for Investing, the largest chunk of the four. It passes in 3.2s
+ * on a native Linux filesystem. A ceiling is not a delay — an arriving route
+ * resolves immediately — so it is set well clear of the measurement rather than
+ * beside it, and under the 45s `testTimeout` in `vite.config.ts`, which has to
+ * cover all four waits in one test.
  */
-const ROUTE_LOAD_MS = 10_000;
+const ROUTE_LOAD_MS = 25_000;
 
 function arrivesAt(name: string) {
   return screen.findByRole('heading', { name }, { timeout: ROUTE_LOAD_MS });

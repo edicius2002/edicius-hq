@@ -151,15 +151,13 @@ export function InvestingPage() {
 
   // The swept quotes with every tick since laid over them. The sweep is the
   // row; the stream only moves the price on it.
-  const bySymbol = useMemo(
-    () => applyTicks(swept, [...ticks.values()]),
-    [swept, ticks],
-  );
+  const bySymbol = useMemo(() => applyTicks(swept, [...ticks.values()]), [swept, ticks]);
   const tapeQuotes = useMemo(
-    () => wanted.flatMap((wantedSymbol) => {
-      const quote = bySymbol.get(wantedSymbol);
-      return quote ? [quote] : [];
-    }),
+    () =>
+      wanted.flatMap((wantedSymbol) => {
+        const quote = bySymbol.get(wantedSymbol);
+        return quote ? [quote] : [];
+      }),
     [wanted, bySymbol],
   );
 

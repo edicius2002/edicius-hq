@@ -118,13 +118,6 @@ export function AirfarePage() {
     return map;
   }, [latest, insights, selectedKey]);
 
-  // Sorted by code so the suggestion list has a stable order rather than
-  // whatever order the archive happened to write them in.
-  const knownAirports = useMemo(
-    () => [...(airports.data?.values() ?? [])].sort((a, b) => a.code.localeCompare(b.code)),
-    [airports.data],
-  );
-
   const cities = useMemo(() => {
     const found = geometries.find((geometry) => geometry.id === selectedKey);
     return { from: found?.fromCity ?? null, to: found?.toCity ?? null };
@@ -218,7 +211,6 @@ export function AirfarePage() {
               }}
               onAdd={(route) => void watchlist.add(route)}
               onMove={(from, to) => void watchlist.move(from, to)}
-              airports={knownAirports}
             />
           </Panel>
 

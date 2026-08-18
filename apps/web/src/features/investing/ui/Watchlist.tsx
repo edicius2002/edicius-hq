@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { WatchlistEntry } from '@/features/investing/data/watchlist';
 import { formatPercent, formatAmount } from '@/shared/lib/money';
 import type { Quote } from '@/shared/api/market';
+import { useReorder } from '@/shared/lib/useReorder';
 
 import styles from './Watchlist.module.css';
 
@@ -58,7 +59,10 @@ export function Watchlist({
   onMove,
 }: WatchlistProps) {
   const flashes = useFlashes(quotes);
-  const [dragging, setDragging] = useState<string | null>(null);
+  const { dragging, rowProps } = useReorder({
+    order: entries.map((entry) => entry.symbol),
+    onMove,
+  });
 
   if (!entries.length) {
     return <p className={styles.empty}>Nothing followed yet. Search for a symbol to add one.</p>;
@@ -83,14 +87,7 @@ export function Watchlist({
             ]
               .filter(Boolean)
               .join(' ')}
-            draggable
-            onDragStart={() => setDragging(entry.symbol)}
-            onDragEnd={() => setDragging(null)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (dragging && dragging !== entry.symbol) onMove(dragging, entry.symbol);
-              setDragging(null);
-            }}
+            {...rowProps(entry.symbol)}
           >
             <button
               type="button"

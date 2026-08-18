@@ -15,6 +15,7 @@ import {
   formatSignedAmount,
 } from '@/shared/lib/money';
 import type { Quote } from '@/shared/api/market';
+import { useReorder } from '@/shared/lib/useReorder';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 
 import styles from './Positions.module.css';
@@ -50,7 +51,10 @@ export function Positions({
 }: PositionsProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [dragging, setDragging] = useState<string | null>(null);
+  const { dragging, rowProps } = useReorder({
+    order: portfolio.positions.map((position) => position.symbol),
+    onMove,
+  });
 
   const valued = portfolio.positions
     .map((position) => valuePosition(position, quotes.get(position.symbol)))
@@ -116,14 +120,7 @@ export function Positions({
                 className={`${styles.row} ${position.symbol === selected ? styles.selected : ''} ${
                   dragging === position.symbol ? styles.dragging : ''
                 }`}
-                draggable
-                onDragStart={() => setDragging(position.symbol)}
-                onDragEnd={() => setDragging(null)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  if (dragging && dragging !== position.symbol) onMove(dragging, position.symbol);
-                  setDragging(null);
-                }}
+                {...rowProps(position.symbol)}
               >
                 <button
                   type="button"

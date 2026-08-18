@@ -1,6 +1,7 @@
 import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import type { Airport } from '@/shared/api/fares';
+import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteList.module.css';
@@ -12,6 +13,7 @@ type RouteListProps = {
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
   onAdd: (route: FareRoute) => void;
+  onMove: (from: string, to: string) => void;
   /** Airports already collected, offered as suggestions in the fields. */
   airports?: Airport[];
 };
@@ -33,8 +35,17 @@ export function RouteList({
   onSelect,
   onRemove,
   onAdd,
+  onMove,
   airports = [],
 }: RouteListProps) {
+  // Order is not decoration here: the collector spends its daily request
+  // budget down the list, so dragging a route to the top says "poll this one
+  // first when there is not enough budget for everything".
+  const { dragging, rowProps } = useReorder({
+    order: routes.map(routeId),
+    onMove,
+  });
+
   return (
     <div className={styles.panel}>
       <RouteEditor today={today} onAdd={onAdd} airports={airports} />
@@ -47,7 +58,11 @@ export function RouteList({
             const id = routeId(route);
             const departed = route.flightDate < today;
             return (
-              <li key={id} className={styles.item}>
+              <li
+                key={id}
+                className={`${styles.item} ${dragging === id ? styles.dragging : ''}`}
+                {...rowProps(id)}
+              >
                 <button
                   type="button"
                   className={

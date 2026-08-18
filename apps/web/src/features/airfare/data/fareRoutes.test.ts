@@ -7,8 +7,10 @@ import {
   isCalendarDate,
   normalizeFareRoutes,
   removeRoute,
+  reorderRoutes,
   routeId,
   type FareRoute,
+  type FareRoutes,
 } from '@/features/airfare/data/fareRoutes';
 
 const LIM_SCL: FareRoute = {
@@ -132,5 +134,43 @@ describe('collectableRoutes', () => {
     // The departed one stays in the document — its history is still worth
     // reading — it is simply never asked about again.
     expect(document.routes).toHaveLength(3);
+  });
+});
+
+describe('reorderRoutes', () => {
+  const LIST = normalizeFareRoutes({
+    routes: [
+      { origin: 'LIM', destination: 'CUZ', flightDate: '2026-10-17' },
+      { origin: 'LIM', destination: 'SCL', flightDate: '2026-10-17' },
+      { origin: 'LIM', destination: 'MAD', flightDate: '2026-12-01' },
+    ],
+  });
+  const ids = (document: FareRoutes) => document.routes.map(routeId);
+
+  it('puts a route where another one sits rather than swapping them', () => {
+    // A drop between rows is a request for a position. Swapping would move the
+    // route that happened to be there, which nobody asked about.
+    const [cuz, scl, mad] = ids(LIST);
+    expect(ids(reorderRoutes(LIST, mad, cuz))).toEqual([mad, cuz, scl]);
+  });
+
+  it('moves a route down as readily as up', () => {
+    const [cuz, scl, mad] = ids(LIST);
+    expect(ids(reorderRoutes(LIST, cuz, mad))).toEqual([scl, mad, cuz]);
+  });
+
+  it('leaves the document alone when either end is unknown', () => {
+    expect(reorderRoutes(LIST, 'nope', ids(LIST)[0])).toBe(LIST);
+    expect(reorderRoutes(LIST, ids(LIST)[0], 'nope')).toBe(LIST);
+  });
+
+  it('is a no-op on a route dropped onto itself', () => {
+    expect(reorderRoutes(LIST, ids(LIST)[0], ids(LIST)[0])).toBe(LIST);
+  });
+
+  it('keeps every route it was given', () => {
+    const moved = reorderRoutes(LIST, ids(LIST)[2], ids(LIST)[0]);
+    expect(moved.routes).toHaveLength(LIST.routes.length);
+    expect(new Set(ids(moved))).toEqual(new Set(ids(LIST)));
   });
 });

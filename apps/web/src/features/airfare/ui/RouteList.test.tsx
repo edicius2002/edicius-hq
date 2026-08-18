@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -32,6 +32,7 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     onSelect: vi.fn(),
     onRemove: vi.fn(),
     onAdd: vi.fn(),
+    onMove: vi.fn(),
     ...overrides,
   };
   return { ...render(<RouteList {...props} />), props };
@@ -106,6 +107,32 @@ describe('RouteList', () => {
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(props.onAdd).toHaveBeenCalledWith(expect.objectContaining({ destination: 'MAD' }));
+  });
+
+  it('lets a route be dragged to another position', () => {
+    // Order is not decoration on this list: the collector spends its daily
+    // request budget down it, so dragging to the top is a statement about
+    // which route matters when the budget will not cover everything.
+    const { props } = renderList();
+    const rows = screen.getAllByRole('listitem');
+
+    fireEvent.dragStart(rows[1]);
+    fireEvent.drop(rows[0]);
+
+    expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-08-01|', 'LIM|CUZ|2026-10-17|');
+  });
+
+  it('reorders from the keyboard too', async () => {
+    // Neither list this mechanism came from could be reordered without a
+    // mouse. That is fixed in the shared hook, and asserted where it is used.
+    const user = userEvent.setup();
+    const { props } = renderList();
+
+    // The label is a span; the focusable thing is the row's own button.
+    screen.getByText('LIM → SCL').closest('button')!.focus();
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
+
+    expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-08-01|', 'LIM|CUZ|2026-10-17|');
   });
 
   it('still offers the fields when nothing is watched yet', () => {

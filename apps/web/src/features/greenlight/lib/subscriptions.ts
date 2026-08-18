@@ -76,7 +76,10 @@ export function mergeDetectedWidgets(existing: ToolWidgets, detected: ToolWidget
  * chart only lists Thursday-months that still have weeks) and blocks
  * `mergeDetectedWidgets` from reseeding that month if it returns.
  */
-export function pruneToolWidgets(widgets: ToolWidgets, stats: Record<string, DayStats>): ToolWidgets {
+export function pruneToolWidgets(
+  widgets: ToolWidgets,
+  stats: Record<string, DayStats>,
+): ToolWidgets {
   const months = new Set<string>();
   for (const date of Object.keys(stats)) {
     const week = calendarWeekForDate(date)?.key;

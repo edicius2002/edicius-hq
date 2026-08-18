@@ -21,7 +21,9 @@ const STORED: GreenlightState = {
 };
 
 /** Fake KV endpoint. `readFails` makes the initial GET fail without breaking writes. */
-function stubApi(options: { readFails?: boolean; writeDelayMs?: number; stored?: GreenlightState } = {}) {
+function stubApi(
+  options: { readFails?: boolean; writeDelayMs?: number; stored?: GreenlightState } = {},
+) {
   let stored: GreenlightState = structuredClone(options.stored ?? STORED);
   const writes: GreenlightState[] = [];
 

@@ -110,9 +110,8 @@ export function MoneyWeekChart({
                 const markerVars = isMarked
                   ? ({
                       '--marker-color':
-                        MARKER_SEGMENT_STYLES[
-                          (segmentIndex ?? 0) % MARKER_SEGMENT_STYLES.length
-                        ].color,
+                        MARKER_SEGMENT_STYLES[(segmentIndex ?? 0) % MARKER_SEGMENT_STYLES.length]
+                          .color,
                     } as CSSProperties)
                   : undefined;
 

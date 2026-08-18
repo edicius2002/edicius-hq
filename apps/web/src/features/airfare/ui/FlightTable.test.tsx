@@ -14,6 +14,7 @@ const SNAPSHOT: FareSnapshot = {
   destination: 'SCL',
   flightDate: '2026-10-16',
   returnDate: null,
+  insights: null,
   currency: 'USD',
   offers: [
     {
@@ -43,7 +44,7 @@ const SNAPSHOT: FareSnapshot = {
 
 describe('FlightTable', () => {
   it('shows each itinerary with its airline, departure time and stops', () => {
-    render(<FlightTable snapshot={SNAPSHOT} />);
+    render(<FlightTable snapshots={[SNAPSHOT]} />);
 
     const rows = screen.getAllByRole('row').slice(1);
     expect(rows).toHaveLength(2);
@@ -63,7 +64,7 @@ describe('FlightTable', () => {
   });
 
   it('says so when the latest observation is empty', () => {
-    render(<FlightTable snapshot={null} />);
+    render(<FlightTable snapshots={[]} />);
     expect(screen.getByText(/No itineraries/i)).toBeInTheDocument();
   });
 });

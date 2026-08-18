@@ -1,22 +1,29 @@
 import { useQuery } from '@tanstack/react-query';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
-import { fetchFareHistory, type FareSnapshot } from '@/shared/api/fares';
+import { fetchFareHistory, type FareHistoryResponse } from '@/shared/api/fares';
 
 /**
- * The archived observations for one route.
+ * The archive for one watched departure: our observations, the provider's own
+ * daily history behind them, and whether the collector has been looking.
  *
- * No `refetchInterval`. The series only changes when a collection pass runs,
- * which is once a day from a scheduled task — polling it would be requests
- * spent watching a file that is not moving.
+ * All three arrive together because they answer one question between them —
+ * what has this cost, what does it usually cost, and can this series be
+ * trusted — and because splitting them would be three requests for one page.
+ *
+ * No `refetchInterval`. The archive changes when a collection pass finds
+ * something, and a pass that finds nothing writes nothing; polling here would
+ * be requests spent watching a file that is deliberately not moving. The page
+ * invalidates this query after a manual collection instead.
  */
 export function useFareHistory(route: FareRoute | null) {
-  return useQuery<FareSnapshot[]>({
-    queryKey: ['fares', 'history', route?.origin, route?.destination],
+  return useQuery<FareHistoryResponse>({
+    queryKey: ['fares', 'history', route?.origin, route?.destination, route?.flightDate],
     queryFn: ({ signal }) =>
-      fetchFareHistory(route!.origin, route!.destination, { signal }).then(
-        (response) => response.snapshots,
-      ),
+      fetchFareHistory(route!.origin, route!.destination, {
+        flightDate: route!.flightDate,
+        signal,
+      }),
     enabled: route !== null,
   });
 }

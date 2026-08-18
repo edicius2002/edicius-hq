@@ -14,6 +14,16 @@ const VIEWPORT = {
 
 type PriceHistoryChartProps = {
   points: PricePoint[];
+  /**
+   * The provider's own daily series, drawn behind ours as context.
+   *
+   * Deliberately a separate prop rather than more `points`: it is one rounded
+   * integer a day, cheapest-only, with no airline and no departure time. On
+   * the same line it would quietly change what the line measures; behind it,
+   * it is two months of context a new route would otherwise take two months to
+   * earn.
+   */
+  baseline?: PricePoint[];
   currency: string;
   label: string;
 };
@@ -27,12 +37,23 @@ type PriceHistoryChartProps = {
  * screen reader can reach. `viewBox` with no fixed width does the responsive
  * part for free.
  */
-export function PriceHistoryChart({ points, currency, label }: PriceHistoryChartProps) {
-  const band = useMemo(() => priceBand(points), [points]);
+export function PriceHistoryChart({
+  points,
+  baseline = [],
+  currency,
+  label,
+}: PriceHistoryChartProps) {
+  // The band spans both series, or the context line would run off the top of
+  // a chart scaled to our own observations alone.
+  const band = useMemo(() => priceBand([...baseline, ...points]), [baseline, points]);
   const ticks = useMemo(() => priceTicks(band), [band]);
   const path = useMemo(() => linePath(points, band, VIEWPORT), [points, band]);
+  const baselinePath = useMemo(
+    () => (baseline.length > 1 ? linePath(baseline, band, VIEWPORT) : ''),
+    [baseline, band],
+  );
 
-  if (points.length === 0) {
+  if (points.length === 0 && baseline.length === 0) {
     return (
       <p className={styles.empty}>
         No observations yet. Run a collection pass and the first point lands here.
@@ -70,6 +91,14 @@ export function PriceHistoryChart({ points, currency, label }: PriceHistoryChart
           );
         })}
 
+        {/*
+          Behind our own line, and visibly a different kind of line: the
+          provider's history is a rounded daily figure, so drawing it solid
+          would invite reading it as the same measurement.
+        */}
+        {baselinePath ? (
+          <path className={styles.baseline} d={baselinePath} aria-hidden="true" />
+        ) : null}
         <path className={styles.line} d={path} />
 
         {points.map((point, index) => (

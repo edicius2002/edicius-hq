@@ -38,3 +38,22 @@
   margin: 0;
   color: var(--color-muted);
 }
+
+/*
+ * A move up and a move down must not read the same at a glance. Colour is not
+ * the only signal — the sign is in the text — because colour alone is not a
+ * signal for every reader.
+ */
+.up {
+  color: var(--color-negative, #b3261e);
+}
+
+.down {
+  color: var(--color-positive, #146c2e);
+}
+
+/* A flight that has left the board is still worth showing, and still worth
+   being obviously not on it. */
+.gone {
+  opacity: 0.55;
+}

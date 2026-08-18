@@ -25,6 +25,7 @@ from app.adapters.fares.models import (
 )
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
 from app.config import UPSTREAM_TIMEOUT_SECONDS
+from app.services import airport_search
 from app.services.fare_collector import CollectionReport, collect
 from app.services.fare_history import HISTORY
 
@@ -345,6 +346,45 @@ def get_airports() -> AirportsResponse:
             )
             for airport in sorted(HISTORY.airports().values(), key=lambda a: a.code)
         ]
+    )
+
+
+class AirportMatchModel(BaseModel):
+    code: str
+    city: str
+    country: str
+    name: str
+
+
+class AirportSearchResponse(BaseModel):
+    query: str
+    matches: list[AirportMatchModel]
+
+
+@router.get("/airports/search", response_model=AirportSearchResponse)
+def search_airports(
+    q: str = Query("", description="What has been typed so far"),
+    limit: int = Query(airport_search.DEFAULT_LIMIT, ge=1, le=25),
+) -> AirportSearchResponse:
+    """
+    Airports matching what is being typed, best match first.
+
+    Separate from `/airports`, which lists only what the archive has actually
+    collected. This one searches every airport with scheduled service, so a
+    route can be added to somewhere nobody has watched yet.
+
+    Server-side because the table is 71 kB gzipped: bundling it would roughly
+    double the airfare page for a feature most visits never touch, and it
+    costs about a kilobyte a keystroke here.
+    """
+    return AirportSearchResponse(
+        query=q,
+        matches=[
+            AirportMatchModel(
+                code=match.code, city=match.city, country=match.country, name=match.name
+            )
+            for match in airport_search.search(q, limit)
+        ],
     )
 
 

@@ -83,4 +83,4 @@ try {
   rmSync(staging, { recursive: true, force: true });
 }
 
-console.log('Done. The other platform\'s binaries were left untouched.');
+console.log("Done. The other platform's binaries were left untouched.");

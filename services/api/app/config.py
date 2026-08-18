@@ -122,3 +122,25 @@ UPSTREAM_TIMEOUT_SECONDS = 12.0
 # carries a Friday close across a long weekend without preserving old market
 # data indefinitely.
 MAX_STALE_BARS_SECONDS = 7 * 24 * 60 * 60
+
+
+def travelpayouts_token() -> str | None:
+    """
+    The Travelpayouts API token, or `None` when nobody has set one.
+
+    The repository's first credential. Absence is a configuration state rather
+    than a crash: the fare registry keeps a scraper that needs no token, so a
+    missing one has to degrade to "this provider is unavailable" and say so,
+    not take the process down at import time.
+    """
+    return os.getenv("TRAVELPAYOUTS_TOKEN", "").strip() or None
+
+
+def travelpayouts_marker() -> str | None:
+    """
+    The partner ID that goes with the token.
+
+    Optional, and deliberately separate from the token: the API answers without
+    it, just with prices drawn from everyone's searches rather than ours.
+    """
+    return os.getenv("TRAVELPAYOUTS_MARKER", "").strip() or None

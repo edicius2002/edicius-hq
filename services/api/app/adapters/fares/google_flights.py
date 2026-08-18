@@ -20,7 +20,7 @@ install. If this starts failing, that is the first thing to revisit.
 every field below is a position, and a Google refactor renumbers them without
 telling anyone. The failure mode is silent — zero offers, not an exception —
 which is exactly the shape of bug that goes unnoticed for a month. So drift is
-converted into a typed error here, and `tests/test_fares_google_flights.py`
+converted into a typed error here, and `tests/test_fares.py`
 pins the positions against a captured fixture.
 
 Rate discipline: one request per route per day, seconds apart. This endpoint is
@@ -35,7 +35,7 @@ from typing import Any
 
 import httpx
 
-from app.adapters.fares.models import FareError, FareOffer, FareQuery
+from app.adapters.fares.models import FareError, FareOffer, FareQuery, transport_reason
 from app.adapters.wire import (
     write_length_delimited,
     write_packed_varints,
@@ -234,7 +234,9 @@ async def fetch_offers(client: httpx.AsyncClient, query: FareQuery) -> list[Fare
     try:
         response = await client.get(URL, params=params, headers=HEADERS, follow_redirects=True)
     except httpx.HTTPError as exc:
-        raise FareError("unreachable", f"Google Flights could not be reached: {exc}") from exc
+        raise FareError(
+            "unreachable", f"Google Flights could not be reached: {transport_reason(exc)}"
+        ) from exc
 
     if response.status_code == 429:
         raise FareError("rate-limited", "Google Flights is rate limiting this address")

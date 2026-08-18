@@ -25,6 +25,18 @@ class FareError(Exception):
         self.route = route
 
 
+def transport_reason(exc: Exception) -> str:
+    """
+    Something worth printing about a failed request.
+
+    `str()` on an httpx transport error is often empty — a read timeout with no
+    arguments stringifies to nothing at all — and "could not be reached: " with
+    the reason missing is a report that costs a line and says less than silence.
+    Measured live on 2026-08-18, which is how this got noticed.
+    """
+    return str(exc) or type(exc).__name__
+
+
 @dataclass(frozen=True, slots=True)
 class FareQuery:
     """One route on one set of dates. `return_date` absent means one way."""

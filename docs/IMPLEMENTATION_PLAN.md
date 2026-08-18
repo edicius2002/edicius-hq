@@ -1,7 +1,7 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance complete. Investing under way — the data plane is in.
-> **Last updated:** 2026-08-07
+> **Status:** Finance complete. Investing under way — the data plane is in. Airfare added, AIR-01 in.
+> **Last updated:** 2026-08-17
 > **Review status:** INV-05, positions, in review ([#49](https://github.com/edicius2002/edicius-hq/issues/49)).
 > **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
 > **Next delivery:** INV-06, Pulse. One issue per slice, written before its work.
@@ -47,6 +47,7 @@ This file is the repository’s source of truth for confirmed product decisions,
 | 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                 |
 | 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                         |
 | 6     | **Investing**            | Markets UI, quote bus, candle cache via API, charts; Pulse as extra panels on `/investing`.                                                 |
+| 6b    | **Airfare**              | Fare watchlist, daily collection from a scraped provider, append-only price history, `/airfare`.                                            |
 | 7     | **Cloud**                | Supabase Auth (magic link), RLS, deploy.                                                                                                    |
 | 8     | **Cutover**              | Archive `ediciuscorp`.                                                                                                                      |
 
@@ -148,9 +149,12 @@ Desktop-first web suite for personal finance and markets. Medium-term: cloud dep
 | `/finance`    | `FinancePage`    | Title + “Coming soon.” | Flow diagram (FIN-\*) — **built**       |
 | `/greenlight` | `GreenlightPage` | Title + “Coming soon.” | CSV weekly analytics (GL-*) — **built** |
 | `/investing`  | `InvestingPage`  | Title + “Coming soon.” | Markets + Pulse panels (INV-_, PULSE-_) |
+| `/airfare`    | `AirfarePage`    | —                      | Fare watchlist + price history (AIR-\*) |
 | `*`           | `NotFoundPage`   | —                      | —                                       |
 
-Sidebar: **Dashboard · Finance · Greenlight · Investing** only.
+Sidebar: **Dashboard · Finance · Greenlight · Investing · Airfare**.
+
+Airfare is the fifth tab and the first addition to the four this plan fixed in phase 2. It is a tab rather than a panel on an existing page — unlike Pulse, which decision 2.6 refused a route of its own — because it shares no domain object, no provider and no store with any of them; see decision 12.1.
 
 **Pulse** is not a tab or route. Fear & Greed and Sentiment are **additional Investing panels** under `features/investing/pulse/`, rendered on `/investing` only.
 
@@ -162,6 +166,7 @@ Sidebar: **Dashboard · Finance · Greenlight · Investing** only.
 | Greenlight           | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, persistence; no real CSVs in git |
 | Investing            | Ticker, chart, TA, watchlist, heatmap, alerts, portfolio, etc.; data-plane rules apply                |
 | Pulse (on Investing) | Fear & Greed composite + components + Sentiment panels                                                |
+| Airfare              | Route watchlist, daily fare collection, append-only history, per-airline and per-departure detail     |
 
 ---
 
@@ -268,6 +273,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 | INV-00      | Coming soon on Investing                                                            |
 | INV-01…07   | Full markets — one per delivery slice, expanded below                               |
 | PULSE-01…05 | Fear & Greed / Sentiment panels on `/investing`                                     |
+| AIR-01…04   | Fare watchlist, collector, price history, `/airfare` page                           |
 | API-01…08   | Health, Yahoo/charts/fundamentals/market, storage KV                                |
 | DATA-01…05  | Storage facade, allowlist, magic link, RLS, local without login                     |
 
@@ -416,6 +422,33 @@ data nobody has yet shown to arrive reliably.
 
 **Out of scope for the phase:** alerts that fire while the tab is closed, which would need a process
 running outside the browser; that is a cloud-phase question, not a markets one.
+
+---
+
+### 6b — Airfare
+
+- [x] AIR-01 — provider adapter, archive, collector, `/airfare`
+
+Not one of the phases this plan fixed in step 2, and the reason it exists is a question the four
+tabs could not answer: what a route costs over time. Nobody sells that history. Amadeus shut its
+self-service portal on 2026-07-17, Kiwi's Tequila went invite-only, Skyscanner is partnership-only
+and Duffel's free tier serves an invented airline. The history is not fetched, it is **accumulated**
+— one observation a day, starting the day the collector first runs.
+
+| ID     | Slice                 | Scope                                                                                                     |
+| ------ | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| AIR-01 | **Watch and collect** | Google Flights adapter, append-only JSONL archive, paced collector, `/airfare` with watchlist and history |
+| AIR-02 | **Second provider**   | A provider that is not a scraper, behind the same adapter seam, for continuity when the scraper breaks    |
+| AIR-03 | **Alerts**            | A fare below its own median, reported where it can be seen without opening the tab                        |
+| AIR-04 | **Departure curve**   | Price against days-to-departure across dates, rather than one series per departure                        |
+
+**AIR-01 is a day one and nothing before it.** Every later slice reads the archive, and an archive
+started a month later is a month of prices that no longer exist. The scraper is the fragile part and
+is known to be: it reads an untagged array by position, so it is behind `adapters/fares/registry`
+from the first commit and its drift is a typed error rather than an empty list (12.4).
+
+**Out of scope:** running the collector in the cloud, which needs a provider that is not a scraper
+first (12.3), and booking anything at all — this observes prices, it does not buy tickets.
 
 ---
 
@@ -674,6 +707,24 @@ A box's height follows what the node says, not what its kind could ever say
 
 ---
 
+### 12. Airfare
+
+| ID    | Decision                                                                                                             | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12.1  | Airfare is a **fifth tab**, not panels on an existing page.                                                          | Decision 2.6 refused Pulse a route because Pulse is markets data on a markets page. Airfare shares nothing with any existing tab: not a domain object, not a provider, not a store. Folding it into Investing would be putting flights on a page about equities because both have prices, which is the reasoning 8.5 already rejected for holdings and positions.                                                                                                     |
+| 12.2  | The price history is **accumulated, not fetched**. One observation per route per day.                                | No source sells a fare history at any price we would pay. Measured 2026-08-17: Amadeus Self-Service decommissioned 2026-07-17, Kiwi Tequila invite-only, Skyscanner partnership-only with a multi-week review, Duffel's sandbox serves a fictional airline. SerpApi resells Google's own `price_history` but at 250 searches a month free, and GCP credits cannot pay for it — it has no Cloud Marketplace listing, and a GCP free trial blocks Marketplace outright. |
+| 12.3  | The first provider is a **Google Flights scraper**, and the seam for a second one exists before the second one does. | It is the only free source that returns the full itinerary list with carrier and departure time, which is the granularity the feature is for. Measured from a residential address: plain `httpx` with a browser User-Agent answered 200 on LIM-CUZ, LIM-SCL, LIM-MIA and LIM-MAD with no consent page. It is also the piece most likely to break, so `adapters/fares/registry` exists from the first commit rather than after the first breakage.                     |
+| 12.4  | Parse drift is a **typed error**, never an empty result.                                                             | The payload is an untagged array read by position. When Google renumbers it the request still succeeds and the page still parses — it simply yields nothing, which is indistinguishable from a quiet week on a route. `parse-drift` separates "we can no longer read this" from `no-offers`, which is Google saying there are no flights. Same reasoning applied to the archive: every line unreadable is logged as an error, not a warning.                          |
+| 12.5  | The archive **appends**; it does not replace. JSONL under `.local-data/fares/`, one file per route.                  | `BarCache` replaces a whole series on every write, which is right when upstream is the authority and our copy is a convenience. Here we are the authority — nobody else remembers what LIM-SCL cost on a Tuesday — so a write that replaces is a write that destroys. Recorded in ADR 0002 because it departs from the store the data plane already had.                                                                                                              |
+| 12.6  | A watched route is a route **and a departure date**.                                                                 | The price of "LIM to SCL" is not a thing; the price of "LIM to SCL on 16 October" is. One archive file holds every date ever watched for a pair, so the series is filtered by departure before it is charted — otherwise the step between an October fare and a December one is drawn as a price movement.                                                                                                                                                            |
+| 12.7  | Departure times are **wall clock with no zone**, and never go through `Date`.                                        | The provider reports what the departure board says and no offset. Attaching one would be an invention that later arithmetic takes seriously, and parsing it in the browser would move a 00:15 Lima departure by the reader's own distance from Lima. Rendered as text, end to end.                                                                                                                                                                                    |
+| 12.8  | Defaults are **LIM and USD**.                                                                                        | Where this reader flies from. USD rather than PEN because a history is read across months and a local-currency series moves when the exchange rate moves, which looks exactly like a fare change and is not one.                                                                                                                                                                                                                                                      |
+| 12.9  | The collector runs **locally, on a schedule, from a residential address**. Cloud is deferred, not merely unbuilt.    | Google fingerprints datacenter addresses — the concern 8.4 recorded and 10.6 built a probe for, arriving here as a hard constraint rather than a suspicion. A Cloud Run job would meet a consent wall, so moving the schedule to GCP means changing the provider first (AIR-02). The collector is a stateless command so that move is a host change and not a rewrite.                                                                                                |
+| 12.10 | Requests are **paced and sequential**, six seconds apart, one pass a day.                                            | The endpoint is unmetered for us, which makes staying quiet our job rather than Google's. A watchlist is tens of routes, so concurrency buys seconds and risks the address. One pass a day is also what the archive assumes: two would put two points on one date and flatter the series with detail it does not have.                                                                                                                                                |
+| 12.11 | The protobuf writer lives in `adapters/wire`, beside the reader that was already there.                              | Yahoo's socket answers in protobuf and Google Flights takes a search as one. Two modules called "just enough protobuf" in one repository is the duplication 3.9 was written about, in a different costume. Reader and writer are genuinely different halves of one format, so they share a file and a docstring.                                                                                                                                                      |
+| 12.12 | The chart is **SVG in the DOM**, not the canvas Investing uses.                                                      | 8.9 chose canvas for candles and was right: thousands of bars, pan and zoom. This draws a handful of points a month. In the DOM every one is a node a test can find and a screen reader can reach, and `viewBox` does the responsive part for free. `airfare/lib/scales` is its own for the same reason — features do not import features, and there is no zoom window here to share.                                                                                 |
+| 12.13 | The repository's first credential lives in `.env`, and `scripts/api.mjs` is what loads it.                           | `.env` existed for Docker Compose and Vite, and nothing put it in front of the Python process — a token written there would have looked configured and done nothing, which is the same silent failure 12.4 and ADR 0002 were each written about. `process.loadEnvFile` never overrides a shell variable, so a one-off run can still pass its own token. Nothing about the token is prefixed `VITE_`: that prefix is what ships a value to the browser.                |
+
 ### Superseded decisions
 
 | ID  | Change                                                             | When       |
@@ -729,3 +780,5 @@ A box's height follows what the node says, not what its kind could ever say
 | 2026-08-08 | Upstream reachability probe, for the datacenter assumption 8.4 recorded and never tested (10.6, 10.7).              |
 | 2026-08-08 | Probe run from a runner: Yahoo fine and faster, Binance 451 on both surfaces (8.39). Not the feared answer.         |
 | 2026-08-15 | Finance sizing: content widths, two-column chips, and notes boxes (11.35–11.38).                                    |
+| 2026-08-17 | Airfare added as a fifth tab (12.1–12.12): fares are accumulated daily because no source sells the history.         |
+| 2026-08-17 | AIR-01 delivered: Google Flights adapter, append-only archive (ADR 0002), paced collector, `/airfare`.              |

@@ -16,6 +16,8 @@ type RouteEditorProps = {
   onAdd: (route: FareRoute) => void;
   /** Today, `YYYY-MM-DD`. Passed in rather than read, so tests do not drift. */
   today: string;
+  /** Absent when the form is always on screen, as it is in its own tests. */
+  onCancel?: () => void;
 };
 
 /**
@@ -25,7 +27,7 @@ type RouteEditorProps = {
  * entry silently: a route that vanishes on save looks like a broken button,
  * and the reader has no way to learn that `2026-02-31` was the problem.
  */
-export function RouteEditor({ onAdd, today }: RouteEditorProps) {
+export function RouteEditor({ onAdd, today, onCancel }: RouteEditorProps) {
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState('');
   const [flightDate, setFlightDate] = useState('');
@@ -114,9 +116,16 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
           onChange={(event) => setReturnDate(event.target.value)}
         />
       </div>
-      <Button type="submit" variant="primary">
-        Watch route
-      </Button>
+      <div className={styles.actions}>
+        <Button type="submit" variant="primary" size="small">
+          Watch route
+        </Button>
+        {onCancel ? (
+          <Button variant="ghost" size="small" onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
+      </div>
       {error ? (
         <p className={styles.error} role="alert">
           {error}

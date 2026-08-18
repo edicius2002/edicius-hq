@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RouteGeometry } from '@/features/airfare/lib/geo';
@@ -99,6 +100,61 @@ describe('RouteMap', () => {
     // yet, and an empty map is a normal state rather than a broken one.
     renderMap({ routes: [] });
     expect(within(screen.getByRole('list')).queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('dashes the arcs on the globe and draws them solid when flat', () => {
+    // A dash reads as depth on a curved, busy surface. On a flat map it only
+    // fragments a line that already reads perfectly well.
+    const { container, rerender } = renderMap();
+    expect(container.querySelectorAll('[class*="dashed"]').length).toBeGreaterThan(0);
+
+    rerender(
+      <RouteMap
+        routes={[LIM_CUZ, LIM_MAD]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        tones={new Map()}
+        projection="mercator"
+        onProjectionChange={vi.fn()}
+      />,
+    );
+    expect(container.querySelectorAll('[class*="dashed"]')).toHaveLength(0);
+  });
+
+  it('names the continents on the globe and not on the flat map', () => {
+    // Ours, because a blank basemap has no symbol layers. On Mercator the
+    // shapes are recognisable without them and the labels only add noise.
+    const { rerender } = renderMap();
+    expect(screen.getByText('South America')).toBeInTheDocument();
+
+    rerender(
+      <RouteMap
+        routes={[LIM_CUZ]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        tones={new Map()}
+        projection="mercator"
+        onProjectionChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('South America')).not.toBeInTheDocument();
+  });
+
+  it('offers zoom, and refuses to reset a view nobody has moved', () => {
+    renderMap();
+    expect(screen.getByRole('button', { name: /zoom in/i })).toBeEnabled();
+    // Zoomed all the way out already, so there is nothing to go back to.
+    expect(screen.getByRole('button', { name: /zoom out/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /reset the view/i })).toBeDisabled();
+  });
+
+  it('lets the view be reset once it has been zoomed', async () => {
+    const user = userEvent.setup();
+    renderMap();
+    await user.click(screen.getByRole('button', { name: /zoom in/i }));
+
+    expect(screen.getByRole('button', { name: /reset the view/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /zoom out/i })).toBeEnabled();
   });
 
   it('does not crash without a canvas context', () => {

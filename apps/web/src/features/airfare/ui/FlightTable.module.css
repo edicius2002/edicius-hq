@@ -45,11 +45,11 @@
  * signal for every reader.
  */
 .up {
-  color: var(--color-negative, #b3261e);
+  color: var(--color-expense);
 }
 
 .down {
-  color: var(--color-positive, #146c2e);
+  color: var(--color-income);
 }
 
 /* A flight that has left the board is still worth showing, and still worth

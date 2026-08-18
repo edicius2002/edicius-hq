@@ -300,11 +300,19 @@ def searched_for(request: httpx.Request) -> str:
     """
     The route a request is asking about.
 
-    It is not in the URL in any readable form — the whole search is a base64
-    protobuf in `?tfs=` — so a handler that wants to answer differently per
-    route has to decode it, exactly as Google does.
+    For Google Flights it is not in the URL in any readable form — the whole
+    search is a base64 protobuf in `?tfs=` — so a handler that wants to answer
+    differently per route has to decode it, exactly as Google does.
+
+    Travelpayouts spells the same thing in plain query parameters, and a
+    handler has to cope with both: the registry falls back from one to the
+    other, so a single handler can be asked the same question twice by two
+    different providers.
     """
-    return base64.b64decode(request.url.params["tfs"]).decode("latin-1")
+    tfs = request.url.params.get("tfs")
+    if tfs is None:
+        return f"{request.url.params.get('origin', '')}-{request.url.params.get('destination', '')}"
+    return base64.b64decode(tfs).decode("latin-1")
 
 
 def test_collect_archives_every_route_it_could_fetch(tmp_path):
@@ -346,6 +354,11 @@ def test_a_refused_route_is_reported_beside_the_ones_that_worked(tmp_path):
         async with transport(handler) as client:
             return await collect(
                 [FareQuery("LIM", "SCL", "2026-10-16"), FareQuery("LIM", "VVI", "2026-10-16")],
+                # No fallback here: this test is about what the collector does
+                # with a refusal, and a second provider quietly rescuing the
+                # route would test the registry instead. The fallback has its
+                # own tests.
+                fallback=None,
                 history=history,
                 client=client,
                 gap_seconds=0,

@@ -37,6 +37,7 @@ from typing import Any
 import httpx
 
 from app.adapters.fares.models import (
+    Airport,
     FareError,
     FareInsights,
     FareOffer,
@@ -98,6 +99,14 @@ _INSIGHT_TYPICAL = 2
 _INSIGHT_USUAL_LOW = 4
 _INSIGHT_USUAL_HIGH = 5
 _INSIGHT_HISTORY = 10
+
+# `payload[1][0]` lists the airports the query named, each as
+# `[[code, _], name, [_, city, images], [lat, lng], countryCode, _, country]`.
+_AIRPORT_BLOCK = 1
+_AIRPORT_NAME = 1
+_AIRPORT_PLACE = 2
+_AIRPORT_POINT = 3
+_AIRPORT_COUNTRY = 6
 
 
 def _airport(code: str) -> bytes:
@@ -254,6 +263,56 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
         return None
 
 
+def parse_airports(payload: Any) -> list[Airport]:
+    """
+    Where the queried airports are, or an empty list.
+
+    Never raises. A search that answers with itineraries but no airport block
+    is still a good observation — the coordinates are a bonus this feature did
+    not have at all until it noticed they were already arriving.
+    """
+    try:
+        rows = payload[_AIRPORT_BLOCK][0]
+    except (IndexError, KeyError, TypeError):
+        return []
+    if not isinstance(rows, list):
+        return []
+
+    found: list[Airport] = []
+    for row in rows:
+        try:
+            node = row[0]
+            code = node[0][0]
+            point = node[_AIRPORT_POINT]
+            latitude, longitude = point[0], point[1]
+        except (IndexError, KeyError, TypeError):
+            continue
+        if not isinstance(code, str) or len(code.strip()) != 3:
+            continue
+        if isinstance(latitude, bool) or not isinstance(latitude, (int, float)):
+            continue
+        if isinstance(longitude, bool) or not isinstance(longitude, (int, float)):
+            continue
+        if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+            continue
+
+        def text(value: Any) -> str | None:
+            return value.strip() or None if isinstance(value, str) else None
+
+        place = node[_AIRPORT_PLACE] if len(node) > _AIRPORT_PLACE else None
+        found.append(
+            Airport(
+                code=code.strip().upper(),
+                name=text(node[_AIRPORT_NAME]) if len(node) > _AIRPORT_NAME else None,
+                city=text(place[1]) if isinstance(place, list) and len(place) > 1 else None,
+                country=text(node[_AIRPORT_COUNTRY]) if len(node) > _AIRPORT_COUNTRY else None,
+                latitude=float(latitude),
+                longitude=float(longitude),
+            )
+        )
+    return found
+
+
 def parse_history(payload: Any) -> list[PricePoint]:
     """
     The daily series Google ships with the search, or an empty list.
@@ -366,6 +425,7 @@ async def fetch_search(client: httpx.AsyncClient, query: FareQuery) -> SearchRes
         offers=parse_payload(payload, query.currency.upper()),
         history=parse_history(payload),
         insights=parse_insights(payload),
+        airports=parse_airports(payload),
     )
 
 

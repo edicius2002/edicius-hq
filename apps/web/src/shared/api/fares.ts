@@ -69,6 +69,14 @@ export type CollectRouteResult = {
   flightDate: string;
   returnDate: string | null;
   ok: boolean;
+  /**
+   * Who answered this route, or `null` when nobody did. Not always the
+   * provider the pass asked for: a route the primary could not read is served
+   * by the fallback, and the two answer different questions — one a live
+   * itinerary list, the other a cached cheapest-of-the-day. A reader that
+   * cannot tell them apart is reading a series that quietly changed meaning.
+   */
+  source: string | null;
   offers: number;
   cheapest: number | null;
   currency: string | null;
@@ -79,7 +87,14 @@ export type CollectRouteResult = {
 export type CollectResponse = {
   startedAt: string;
   finishedAt: string;
-  source: string;
+  /**
+   * The provider the pass asked for. `sources` containing anything else means
+   * a route fell back — which is how the page can report it without naming a
+   * provider it is not supposed to know about.
+   */
+  primary: string;
+  /** Every provider that actually answered, in first-use order. */
+  sources: string[];
   collected: number;
   failed: number;
   results: CollectRouteResult[];

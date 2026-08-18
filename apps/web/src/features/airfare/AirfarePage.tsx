@@ -12,6 +12,7 @@ import {
   priceStats,
   snapshotsFor,
 } from '@/features/airfare/lib/series';
+import { CollectionSummary } from '@/features/airfare/ui/CollectionSummary';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { PriceHistoryChart } from '@/features/airfare/ui/PriceHistoryChart';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
@@ -80,7 +81,6 @@ export function AirfarePage() {
   const currency = selected?.currency ?? 'USD';
   const daysOut =
     selected && latest ? daysBeforeDeparture(latest.capturedAt, selected.flightDate) : null;
-  const failures = collect.data?.results.filter((result) => !result.ok) ?? [];
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
@@ -198,25 +198,7 @@ export function AirfarePage() {
             — decisions 8.8 and 8.41. Hiding the refusals would make a scraper
             that stopped working look like a week of unchanged prices.
           */}
-          {collect.data ? (
-            <Panel>
-              <h2 className={styles.panelTitle}>Last collection</h2>
-              <p className={styles.note}>
-                {collect.data.collected} collected, {collect.data.failed} failed, via{' '}
-                {collect.data.source}.
-              </p>
-              {failures.length > 0 ? (
-                <ul className={styles.failures}>
-                  {failures.map((failure) => (
-                    <li key={`${failure.origin}-${failure.destination}-${failure.flightDate}`}>
-                      {failure.origin} → {failure.destination} ({failure.flightDate}):{' '}
-                      {failure.errorCode} — {failure.errorMessage}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </Panel>
-          ) : null}
+          {collect.data ? <CollectionSummary report={collect.data} /> : null}
 
           {collect.isError ? (
             <Panel>

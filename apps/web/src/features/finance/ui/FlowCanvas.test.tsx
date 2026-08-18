@@ -5,8 +5,23 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
-import { addAccount, addFrame, addHolding, addJob, connect, updateFlow } from '@/features/finance/lib/operations';
-import type { Anchor, Diagram, FrameId, NodeId, Point, Rect, Size } from '@/features/finance/model/types';
+import {
+  addAccount,
+  addFrame,
+  addHolding,
+  addJob,
+  connect,
+  updateFlow,
+} from '@/features/finance/lib/operations';
+import type {
+  Anchor,
+  Diagram,
+  FrameId,
+  NodeId,
+  Point,
+  Rect,
+  Size,
+} from '@/features/finance/model/types';
 import { NO_FINANCE_CAMERA_VIEWS } from '@/features/finance/lib/cameraViews';
 
 import { FlowCanvas, type Selection } from './FlowCanvas';
@@ -188,14 +203,20 @@ describe('canvas keyboard route', () => {
       name: 'Savings',
     });
     const { container } = render(
-      <KeyboardCanvas diagram={diagram} onCreateFrame={onCreateFrame} onResizeFrame={onResizeFrame} />,
+      <KeyboardCanvas
+        diagram={diagram}
+        onCreateFrame={onCreateFrame}
+        onResizeFrame={onResizeFrame}
+      />,
       { wrapper: TestWrapper },
     );
     const viewport = viewportOf(container);
     viewport.focus();
 
     fireEvent.keyDown(viewport, { key: 'f', shiftKey: true });
-    expect(onCreateFrame).toHaveBeenCalledWith(expect.objectContaining({ width: 180, height: 150 }));
+    expect(onCreateFrame).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 180, height: 150 }),
+    );
 
     fireEvent.keyDown(viewport, { key: 'f' });
     fireEvent.keyDown(viewport, { key: 'ArrowRight', ctrlKey: true, shiftKey: true });

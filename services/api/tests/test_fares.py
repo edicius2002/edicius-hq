@@ -119,7 +119,7 @@ def test_fixture_parses_into_offers_with_airline_and_departure_time():
     html = read_fixture("google_flights_lim_scl.html")
     offers = google_flights.parse_payload(google_flights.extract_payload(html), "USD")
 
-    assert [o.price for o in offers] == [125.0, 125.0]
+    assert [o.price for o in offers] == [124.64, 124.64]
     first = offers[0]
     assert first.airline == "LA"
     assert first.airline_name == "LATAM"
@@ -323,7 +323,7 @@ def test_collect_archives_every_route_it_could_fetch(tmp_path):
     report = asyncio.run(run())
     assert report.collected == 2
     assert report.failed == 0
-    assert report.results[0].cheapest == 125.0
+    assert report.results[0].cheapest == 124.64
     assert report.results[0].offers == 2
     assert len(history.read("LIM", "SCL")) == 1
     assert len(history.read("LIM", "MAD")) == 1
@@ -383,3 +383,47 @@ def test_collect_reports_a_route_google_has_no_flights_for(tmp_path):
     report = asyncio.run(run())
     assert report.results[0].error_code == "no-offers"
     assert history.read("LIM", "IPC") == []
+
+
+# --------------------------------------------------------- price to the cent --
+
+
+def test_the_price_is_read_to_the_cent_not_to_the_dollar():
+    """
+    `itinerary[1][0][1]` is what the page prints, rounded. The token beside it
+    carries the same fare as `{units, decimals, currency}`.
+
+    Measured 2026-08-18: two LIM-CUZ offers that both displayed 64 were 63.34
+    and 63.36. Rounding merges distinct fares, and the whole job of this
+    archive is noticing when a fare moves.
+    """
+    offers = google_flights.parse_payload(
+        google_flights.extract_payload(read_fixture("google_flights_lim_scl.html")), "USD"
+    )
+    assert offers[0].price == 124.64
+
+
+def test_an_unreadable_price_token_costs_precision_and_not_the_offer():
+    """The rounded integer is always there, so a token we cannot read degrades."""
+    assert google_flights._exact_price("not-base64-at-all!!") is None
+    assert google_flights._exact_price("") is None
+    assert google_flights._exact_price(None) is None
+
+
+def test_the_free_history_is_read_as_daily_points():
+    payload = google_flights.extract_payload(read_fixture("google_flights_lim_scl.html"))
+    history = google_flights.parse_history(payload)
+    # The fixture was trimmed for the parser tests; whatever it holds, the
+    # contract is the shape rather than the count.
+    for point in history:
+        assert len(point.date) == 10 and point.date[4] == "-"
+        assert point.price > 0
+
+
+def test_a_payload_without_an_insight_block_is_not_an_error():
+    """
+    Absent is normal. The block thins out past roughly 280 days ahead and is
+    gone by 330, and a route we watch a year out must still collect.
+    """
+    assert google_flights.parse_history([None, None, None, [[]]]) == []
+    assert google_flights.parse_insights([None, None, None, [[]]]) is None

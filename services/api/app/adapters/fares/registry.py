@@ -15,7 +15,7 @@ router, the collector or the page.
 import httpx
 
 from app.adapters.fares import google_flights
-from app.adapters.fares.models import FareError, FareOffer, FareQuery
+from app.adapters.fares.models import FareError, FareOffer, FareQuery, SearchResult
 
 DEFAULT_PROVIDER = google_flights.PROVIDER
 
@@ -24,6 +24,18 @@ PROVIDERS = (google_flights.PROVIDER,)
 
 def normalize_code(code: str) -> str:
     return code.strip().upper()
+
+
+async def fetch_search(
+    client: httpx.AsyncClient,
+    query: FareQuery,
+    *,
+    provider: str = DEFAULT_PROVIDER,
+) -> SearchResult:
+    """Everything one search answered with, from whichever provider is wired."""
+    if provider == google_flights.PROVIDER:
+        return await google_flights.fetch_search(client, query)
+    raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
 
 
 async def fetch_offers(
@@ -44,5 +56,6 @@ __all__ = [
     "FareOffer",
     "FareQuery",
     "fetch_offers",
+    "fetch_search",
     "normalize_code",
 ]

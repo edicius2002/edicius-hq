@@ -31,12 +31,22 @@ job to throttle us.
 import base64
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
-from app.adapters.fares.models import FareError, FareOffer, FareQuery
+from app.adapters.fares.models import (
+    FareError,
+    FareInsights,
+    FareOffer,
+    FareQuery,
+    PricePoint,
+    SearchResult,
+)
 from app.adapters.wire import (
+    WireError,
+    read_message,
     write_length_delimited,
     write_packed_varints,
     write_string,
@@ -72,6 +82,22 @@ _LEG_DURATION = 11
 _LEG_DEPARTURE_DATE = 20
 _LEG_ARRIVAL_DATE = 21
 _LEG_FLIGHT = 22  # [airline_iata, flight_number, _, airline_name]
+
+# `itinerary[1]` is `[[null, rounded_price], "<base64 protobuf>"]`. The integer
+# is what the page prints; the token carries the same price to the cent, which
+# is the one worth archiving — measured 2026-08-18, two LIM-CUZ offers that both
+# displayed 64 were 63.34 and 63.36, so the rounding merges distinct fares.
+_PRICE_TOKEN_DETAIL = 3  # nested message: {1: units, 2: decimals, 3: currency}
+_PRICE_UNITS = 1
+_PRICE_DECIMALS = 2
+
+# The insight block. `payload[5][10][0]` is 61 `[epoch_ms, price]` pairs spaced
+# exactly 24h and ending today, scoped to this search rather than the route.
+_INSIGHT_BLOCK = 5
+_INSIGHT_TYPICAL = 2
+_INSIGHT_USUAL_LOW = 4
+_INSIGHT_USUAL_HIGH = 5
+_INSIGHT_HISTORY = 10
 
 
 def _airport(code: str) -> bytes:
@@ -161,11 +187,38 @@ def _stamp(date: Any, time: Any) -> str | None:
     return f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}"
 
 
+def _exact_price(node: Any) -> float | None:
+    """
+    The price to the cent, out of the token beside the rounded one.
+
+    Returns `None` rather than raising: the rounded integer is always there, so
+    a token we cannot read costs precision and not the observation. Both
+    standard and URL-safe base64 decode this to the same bytes (checked across
+    three routes), and padding is restored because Google strips it.
+    """
+    if not isinstance(node, str) or not node:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(node + "=" * (-len(node) % 4))
+        detail = read_message(raw).get(_PRICE_TOKEN_DETAIL)
+        if not isinstance(detail, bytes):
+            return None
+        inner = read_message(detail)
+        units, decimals = inner.get(_PRICE_UNITS), inner.get(_PRICE_DECIMALS)
+        if not isinstance(units, int) or not isinstance(decimals, int):
+            return None
+        if decimals < 0 or decimals > 6:
+            return None
+        return units / (10**decimals)
+    except (ValueError, WireError):
+        return None
+
+
 def _offer(itinerary: Any, currency: str) -> FareOffer | None:
     """One itinerary, or `None` when it does not have the shape we depend on."""
     try:
         flight = itinerary[0]
-        price = itinerary[1][0][1]
+        price = _exact_price(itinerary[1][1]) or itinerary[1][0][1]
         legs = flight[2]
         first, last = legs[0], legs[-1]
 
@@ -201,6 +254,62 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
         return None
 
 
+def parse_history(payload: Any) -> list[PricePoint]:
+    """
+    The daily series Google ships with the search, or an empty list.
+
+    Absent is normal, not broken: it thins out past roughly 280 days ahead and
+    is gone by 330, so this never raises. The stamps are local midnight at the
+    origin, and the date is taken from the stamp as-is rather than converted —
+    a conversion would shift every point by the reader's own distance from Lima.
+    """
+    try:
+        rows = payload[_INSIGHT_BLOCK][_INSIGHT_HISTORY][0]
+    except (IndexError, KeyError, TypeError):
+        return []
+    if not isinstance(rows, list):
+        return []
+
+    points: list[PricePoint] = []
+    for row in rows:
+        try:
+            stamp, price = row[0], row[1]
+        except (IndexError, KeyError, TypeError):
+            continue
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
+            continue
+        if isinstance(price, bool) or not isinstance(price, (int, float)) or price <= 0:
+            continue
+        moment = datetime.fromtimestamp(stamp / 1000, UTC)
+        points.append(PricePoint(date=moment.date().isoformat(), price=float(price)))
+    return points
+
+
+def parse_insights(payload: Any) -> FareInsights | None:
+    """What this search usually costs, when the payload says."""
+
+    def value(index: int) -> float | None:
+        try:
+            node = payload[_INSIGHT_BLOCK][index]
+        except (IndexError, KeyError, TypeError):
+            return None
+        if not isinstance(node, list) or len(node) < 2:
+            return None
+        found = node[1]
+        if isinstance(found, bool) or not isinstance(found, (int, float)):
+            return None
+        return float(found)
+
+    insights = FareInsights(
+        typical=value(_INSIGHT_TYPICAL),
+        usual_low=value(_INSIGHT_USUAL_LOW),
+        usual_high=value(_INSIGHT_USUAL_HIGH),
+    )
+    if insights.typical is None and insights.usual_low is None and insights.usual_high is None:
+        return None
+    return insights
+
+
 def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
     try:
         rows = payload[3][0]
@@ -225,7 +334,16 @@ def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
     return sorted(offers, key=lambda offer: offer.price)
 
 
-async def fetch_offers(client: httpx.AsyncClient, query: FareQuery) -> list[FareOffer]:
+async def fetch_search(client: httpx.AsyncClient, query: FareQuery) -> SearchResult:
+    """
+    One request, everything it answered with.
+
+    The itinerary list, the 60-day daily history and the insight block all
+    arrive in the same response. Fetching them separately would spend a second
+    request on data already downloaded, and requests are the scarce resource
+    here — the endpoint is unmetered, so the only budget is how much traffic
+    this address can send before Google stops answering it.
+    """
     params = {
         "tfs": build_tfs(query),
         "hl": "en",
@@ -243,4 +361,14 @@ async def fetch_offers(client: httpx.AsyncClient, query: FareQuery) -> list[Fare
     if "consent.google.com" in str(response.url):
         raise FareError("blocked", "Google Flights redirected to consent; this address is flagged")
 
-    return parse_payload(extract_payload(response.text), query.currency.upper())
+    payload = extract_payload(response.text)
+    return SearchResult(
+        offers=parse_payload(payload, query.currency.upper()),
+        history=parse_history(payload),
+        insights=parse_insights(payload),
+    )
+
+
+async def fetch_offers(client: httpx.AsyncClient, query: FareQuery) -> list[FareOffer]:
+    """Just the itineraries, for callers that want a live look and nothing else."""
+    return (await fetch_search(client, query)).offers

@@ -64,6 +64,60 @@ class FareOffer:
 
 
 @dataclass(frozen=True, slots=True)
+class PricePoint:
+    """
+    One day and one price, from the history Google ships with every search.
+
+    Measured 2026-08-18: the payload carries 61 of these, spaced exactly 24
+    hours, ending today, and scoped to the search rather than the route — two
+    departure dates on one route return different series. The value is always
+    an integer: this series is rounded where `FareOffer.price` is not, so the
+    two must never be drawn as the same kind of measurement.
+    """
+
+    #: `YYYY-MM-DD`. The stamps arrive as local midnight at the origin.
+    date: str
+    price: float
+
+
+@dataclass(frozen=True, slots=True)
+class FareInsights:
+    """
+    Google's own sense of what this search usually costs.
+
+    Useful as a second yardstick — it answers "is today cheap for this route"
+    with two months of context we did not have to collect. Every field is
+    optional because the block is absent on thin routes and beyond roughly 330
+    days out.
+
+    The payload carries a fifth number next to these whose definition could not
+    be pinned down from three routes (60 against a typical of 48 reported -13,
+    which is not the percentage). It is deliberately not stored: a number we
+    cannot define is a number nobody can read later.
+    """
+
+    typical: float | None = None
+    usual_low: float | None = None
+    usual_high: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    """
+    Everything one search answered with.
+
+    One request returns the itinerary list, the 60-day history and the
+    insights, so one call returns all three. Splitting them into separate
+    functions would invite a second request for data we already downloaded —
+    and requests are the scarce thing here, not parsing.
+    """
+
+    offers: list[FareOffer]
+    history: list[PricePoint] = field(default_factory=list)
+    insights: FareInsights | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class FareSnapshot:
     """
     Every offer a provider had for one route on one flight date, at one moment.
@@ -80,6 +134,8 @@ class FareSnapshot:
     return_date: str | None
     currency: str
     offers: list[FareOffer] = field(default_factory=list)
+    #: What the provider says this search usually costs, when it says anything.
+    insights: FareInsights | None = None
 
     @property
     def route(self) -> str:

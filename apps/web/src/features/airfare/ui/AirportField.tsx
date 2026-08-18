@@ -41,15 +41,24 @@ export function AirportField({ id, label, value, placeholder, onChange }: Airpor
   // input has nowhere to go but sideways.
   const [flip, setFlip] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
-  // Set while a suggestion is being taken, so accepting one does not
-  // immediately re-open the list with a search for the code just chosen.
-  const chosen = useRef(false);
+  /*
+   * The last value this field has already accounted for.
+   *
+   * Seeded with whatever it was given, so a field that arrives pre-filled —
+   * origin always does — does not search on mount and pop a list open over the
+   * map before anyone has typed. Updated when a suggestion is taken, so
+   * accepting `MAD` does not immediately search for `MAD`.
+   *
+   * A "first run" flag would have been the obvious way to do this and would
+   * have been wrong: StrictMode runs effects twice in development, the ref
+   * survives the simulated remount, and the second run sails past the guard.
+   * Comparing values has no such seam.
+   */
+  const settled = useRef(value);
 
   useEffect(() => {
-    if (chosen.current) {
-      chosen.current = false;
-      return;
-    }
+    if (value === settled.current) return;
+    settled.current = value;
     const query = value.trim();
     if (query.length < 2) {
       setMatches([]);
@@ -86,7 +95,7 @@ export function AirportField({ id, label, value, placeholder, onChange }: Airpor
   }, [open, matches]);
 
   function take(match: AirportMatch) {
-    chosen.current = true;
+    settled.current = match.code;
     onChange(match.code);
     setOpen(false);
     setMatches([]);

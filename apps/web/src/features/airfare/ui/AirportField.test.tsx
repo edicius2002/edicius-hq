@@ -22,10 +22,22 @@ function stubSearch(matches = MATCHES) {
   return fetchMock;
 }
 
+/**
+ * Mounts empty and then sets the value, because that is what typing looks like
+ * from the component's side — and because a value that is simply *there* on
+ * mount deliberately does not search. The origin field starts pre-filled, and
+ * popping a suggestion list open over the map before anyone has typed is not
+ * what a suggestion list is for.
+ */
 function renderField(value = '', onChange = vi.fn()) {
   const view = render(
-    <AirportField id="test-origin" label="Origin" value={value} onChange={onChange} />,
+    <AirportField id="test-origin" label="Origin" value="" onChange={onChange} />,
   );
+  if (value) {
+    view.rerender(
+      <AirportField id="test-origin" label="Origin" value={value} onChange={onChange} />,
+    );
+  }
   return { ...view, onChange };
 }
 
@@ -65,6 +77,17 @@ describe('AirportField', () => {
     await vi.advanceTimersByTimeAsync(400);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not search a value that was simply there when it mounted', async () => {
+    // The origin field arrives pre-filled with the default airport. Searching
+    // for it on mount opened a list over the map before anyone had typed.
+    const fetchMock = stubSearch();
+    render(<AirportField id="test-origin" label="Origin" value="LIM" onChange={vi.fn()} />);
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
   it('takes a suggestion with the keyboard', async () => {

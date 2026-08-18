@@ -8,6 +8,7 @@ export const STORAGE_KEYS = [
   'drawings',
   'indicators',
   'finance-camera-views',
+  'airfare-routes',
 ] as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[number];

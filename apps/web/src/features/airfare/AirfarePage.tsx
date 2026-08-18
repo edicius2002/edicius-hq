@@ -12,7 +12,6 @@ import { latestSnapshot, snapshotsFor } from '@/features/airfare/lib/series';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
-import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
 import { collectFares, type Airport, type CollectResponse } from '@/shared/api/fares';
@@ -156,6 +155,7 @@ export function AirfarePage() {
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
             <Button
               variant="primary"
+              size="small"
               onClick={() => collect.mutate()}
               disabled={collect.isPending || watchlist.collectable.length === 0}
             >
@@ -209,12 +209,8 @@ export function AirfarePage() {
                 if (id === selectedId) setSelectedId(null);
                 void watchlist.remove(id);
               }}
+              onAdd={(route) => void watchlist.add(route)}
             />
-          </Panel>
-
-          <Panel>
-            <h2 className={styles.panelTitle}>Add a route</h2>
-            <RouteEditor today={today} onAdd={(route) => void watchlist.add(route)} />
           </Panel>
 
           {/*

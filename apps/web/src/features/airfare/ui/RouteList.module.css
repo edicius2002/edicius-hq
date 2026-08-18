@@ -54,3 +54,22 @@
   margin: 0;
   color: var(--color-muted);
 }
+
+/*
+ * List and adder in one panel. The adder replaces its own trigger rather than
+ * appearing below it, so the panel does not jump when it opens.
+ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.addButton {
+  align-self: flex-start;
+}
+
+.adder {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}

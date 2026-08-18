@@ -1,0 +1,180 @@
+/*
+ * The map's own palette, defined here rather than inline so the canvas can
+ * read the same tokens the SVG does — `getComputedStyle` on the stage returns
+ * whichever theme is live, and neither surface has to know which that is.
+ */
+
+.map {
+  /*
+   * Built out of the app's own neutrals rather than a cartographer's blue.
+   * Water reads as *below* the page and land as *above* it, which is enough
+   * separation to read a coastline without importing a second palette that
+   * would fight the one every other page uses.
+   */
+  --map-ocean: color-mix(in srgb, var(--color-bg) 62%, #000);
+  --map-ocean-lit: color-mix(in srgb, var(--color-surface-soft) 70%, #1b3a55);
+  --map-land: color-mix(in srgb, var(--color-surface-soft) 55%, var(--color-muted));
+  --map-coast: color-mix(in srgb, var(--color-muted) 65%, var(--color-surface));
+  --map-graticule: color-mix(in srgb, var(--color-muted) 16%, transparent);
+  --map-halo: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --arc-neutral: var(--color-accent);
+  --arc-cheap: var(--color-income);
+  --arc-dear: var(--color-expense);
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.switch {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.switch button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.switch button[aria-pressed='true'] {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.switch button:focus-visible {
+  outline: 2px solid var(--color-accent, currentColor);
+  outline-offset: 2px;
+}
+
+.stage {
+  position: relative;
+  min-height: 460px;
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  touch-action: none;
+}
+
+.grabbable {
+  cursor: grab;
+}
+
+.grabbable:active {
+  cursor: grabbing;
+}
+
+.canvas,
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay {
+  pointer-events: none;
+}
+
+/*
+ * Hidden during a drag, when the arcs are drawn on the canvas instead. Not
+ * `display: none` — that would drop the nodes and force a full re-layout when
+ * the pointer comes back up.
+ */
+.hidden {
+  visibility: hidden;
+}
+
+/*
+ * Static dashes. Nothing on this map animates on its own: the render loop only
+ * runs while a pointer is down, so an idle map costs nothing.
+ */
+.arc {
+  fill: none;
+  stroke: var(--arc-neutral);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 5 5;
+  opacity: 0.85;
+}
+
+.cheap {
+  stroke: var(--arc-cheap);
+}
+
+.dear {
+  stroke: var(--arc-dear);
+}
+
+.active {
+  stroke-width: 3;
+  opacity: 1;
+  stroke-dasharray: 7 4;
+}
+
+/* A wide invisible twin, so a 1.6px arc is still something a pointer can hit. */
+.hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.hit:hover + .arc {
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.node {
+  fill: var(--arc-neutral);
+  stroke: var(--color-surface);
+  stroke-width: 1.2;
+}
+
+.home {
+  fill: var(--color-text);
+  stroke: var(--color-surface);
+  stroke-width: 1.2;
+}
+
+.label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  fill: var(--color-muted);
+  /* A halo in the ground colour, painted under the glyphs — the cartographic
+     fix for two labels that land on top of each other. */
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch button {
+    transition: none;
+  }
+}

@@ -35,6 +35,22 @@ export type FareOffer = {
   currency: string;
 };
 
+/**
+ * Where an IATA code actually is.
+ *
+ * Collected free with every search — the provider ships coordinates, city and
+ * country for the airports in the query. Without this the app would need a
+ * bundled airport table larger than the map library that consumes it.
+ */
+export type Airport = {
+  code: string;
+  name: string | null;
+  city: string | null;
+  country: string | null;
+  latitude: number;
+  longitude: number;
+};
+
 /** What the provider says this search usually costs. Context, not measurement. */
 export type FareInsights = {
   typical: number | null;
@@ -87,6 +103,8 @@ export type FareHistoryResponse = {
   snapshots: FareSnapshot[];
   baseline: FarePricePoint[];
   health: WatchHealth;
+  /** Only this route's two ends. The map asks for the rest separately. */
+  airports: Airport[];
 };
 
 export type FareSearchResponse = {
@@ -157,6 +175,18 @@ export function fetchFareHistory(
   return apiRequest<FareHistoryResponse>(`/api/fares/history?${query}`, {
     signal: options.signal,
   });
+}
+
+/**
+ * Every airport the archive knows, for drawing every watched route at once.
+ *
+ * Separate from the history call because that one only knows about its own two
+ * ends, and the map needs both ends of all of them.
+ */
+export function fetchAirports(
+  options: { signal?: AbortSignal } = {},
+): Promise<{ airports: Airport[] }> {
+  return apiRequest<{ airports: Airport[] }>('/api/fares/airports', { signal: options.signal });
 }
 
 export function searchFares(

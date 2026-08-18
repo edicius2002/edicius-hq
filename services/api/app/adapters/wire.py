@@ -1,16 +1,22 @@
 """
-Just enough protobuf to read one message.
+Just enough protobuf to read one message, and to write one.
 
-Yahoo's streaming endpoint answers in base64-encoded protobuf. Pulling in a
-protobuf runtime and a generated schema for a single message shape would be a
-dependency, a build step and a `.proto` file to keep in sync with an endpoint
-that is undocumented and can change without notice — for something the wire
-format itself makes readable in fifty lines.
+Two undocumented upstreams speak it. Yahoo's streaming endpoint *answers* in
+base64-encoded protobuf, and Google Flights takes its whole search as one in the
+`?tfs=` query parameter. Pulling in a protobuf runtime and generated schemas for
+two message shapes would be a dependency, a build step and two `.proto` files to
+keep in sync with endpoints that can change without notice — for something the
+wire format itself makes readable in a hundred lines.
 
-So this reads fields by number and type and hands back a plain dict. It does not
-know what a Ticker is; that belongs with the adapter that asked. Unknown fields
-are skipped rather than rejected, because an upstream that adds one should not
-take the price with it.
+The reader takes fields by number and type and hands back a plain dict. It does
+not know what a Ticker is; that belongs with the adapter that asked. Unknown
+fields are skipped rather than rejected, because an upstream that adds one
+should not take the price with it.
+
+The writer is deliberately thinner than the reader: it emits the fields it is
+told to, in the order it is told to, and knows nothing about messages or
+defaults. Composing a message is the caller's job, because the caller is the one
+holding the schema.
 
 The wire format: https://protobuf.dev/programming-guides/encoding/
 """
@@ -136,3 +142,50 @@ def as_float(value: object) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     return None
+
+
+# --- writing ---------------------------------------------------------------
+#
+# Nothing below reads. A message is built by concatenating field bytes in
+# field-number order, which is what a real protobuf writer emits and what keeps
+# our output comparable against a reference implementation.
+
+
+def write_varint(value: int) -> bytes:
+    """Base-128, low group first, continuation bit set on every group but the last."""
+    if value < 0:
+        raise WireError("varint is unsigned here; no field we write is ever negative")
+    out = bytearray()
+    while True:
+        group = value & 0x7F
+        value >>= 7
+        out.append(group | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
+def _write_tag(number: int, kind: int) -> bytes:
+    if number <= 0:
+        raise WireError("field number 0 is not valid")
+    return write_varint(number << 3 | kind)
+
+
+def write_length_delimited(number: int, payload: bytes) -> bytes:
+    """A nested message, a string, or a packed repeated field."""
+    return _write_tag(number, _LENGTH) + write_varint(len(payload)) + payload
+
+
+def write_string(number: int, value: str) -> bytes:
+    return write_length_delimited(number, value.encode("utf-8"))
+
+
+def write_varint_field(number: int, value: int) -> bytes:
+    return _write_tag(number, _VARINT) + write_varint(value)
+
+
+def write_packed_varints(number: int, values: list[int]) -> bytes:
+    """
+    A repeated scalar, packed — proto3's default, and what Google's parser
+    expects for the passenger list it is used for.
+    """
+    return write_length_delimited(number, b"".join(write_varint(v) for v in values))

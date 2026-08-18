@@ -548,7 +548,11 @@ export function FlowCanvas({
       height: Math.round(next.height),
     };
     setKeyboardFrameRect({ frameId: frame.id, rect });
-    onResizeFrame(frame.id, { x: rect.left, y: rect.top }, { width: rect.width, height: rect.height });
+    onResizeFrame(
+      frame.id,
+      { x: rect.left, y: rect.top },
+      { width: rect.width, height: rect.height },
+    );
     setAnnouncement(`Frame ${frame.name || 'Frame'} resized ${direction} ${step} pixels.`);
   }
 
@@ -563,8 +567,12 @@ export function FlowCanvas({
           height: Math.max(FRAME_MIN_SIZE.height, size.height + 48),
         }
       : {
-          left: Math.round((viewportSize.width / 2 - FRAME_MIN_SIZE.width / 2 - camera.x) / camera.zoom),
-          top: Math.round((viewportSize.height / 2 - FRAME_MIN_SIZE.height / 2 - camera.y) / camera.zoom),
+          left: Math.round(
+            (viewportSize.width / 2 - FRAME_MIN_SIZE.width / 2 - camera.x) / camera.zoom,
+          ),
+          top: Math.round(
+            (viewportSize.height / 2 - FRAME_MIN_SIZE.height / 2 - camera.y) / camera.zoom,
+          ),
           ...FRAME_MIN_SIZE,
         };
     onCreateFrame(rect);
@@ -675,12 +683,19 @@ export function FlowCanvas({
       return;
     }
     if (event.ctrlKey) {
-      const delta = directionDelta(direction, Math.max(viewportSize.width, viewportSize.height) * 0.1);
+      const delta = directionDelta(
+        direction,
+        Math.max(viewportSize.width, viewportSize.height) * 0.1,
+      );
       setCamera((current) => ({ ...current, x: current.x - delta.x, y: current.y - delta.y }));
       setAnnouncement(`View moved ${direction}.`);
       return;
     }
-    const next = directionalNode(nodes, selection?.type === 'node' ? selection.id : null, direction);
+    const next = directionalNode(
+      nodes,
+      selection?.type === 'node' ? selection.id : null,
+      direction,
+    );
     if (next) selectNode(next);
     else setAnnouncement(`No node ${direction} of the current selection.`);
   }
@@ -712,7 +727,8 @@ export function FlowCanvas({
         {announcement}
       </div>
       <span id="finance-canvas-keyboard-description" className={styles.srOnly}>
-        Use arrow keys to select nearby nodes. Press question mark for all canvas keyboard shortcuts.
+        Use arrow keys to select nearby nodes. Press question mark for all canvas keyboard
+        shortcuts.
       </span>
       {isRestoringCamera ? (
         <div className={styles.restoringMessage}>Restoring diagram view…</div>
@@ -894,14 +910,24 @@ export function FlowCanvas({
           Keyboard shortcuts
         </button>
         {shortcutsOpen ? (
-          <section id="finance-canvas-keyboard-help" className={styles.shortcuts} aria-label="Canvas keyboard shortcuts">
+          <section
+            id="finance-canvas-keyboard-help"
+            className={styles.shortcuts}
+            aria-label="Canvas keyboard shortcuts"
+          >
             <strong>Canvas keyboard shortcuts</strong>
             <span>Arrows: select the nearest node in that direction.</span>
             <span>Shift + arrows: move selected node or frame; add Alt for 50px steps.</span>
             <span>Ctrl + Shift + arrows: resize selected frame; add Alt for 50px steps.</span>
             <span>C, A, Enter: connect, choose anchor, and confirm; Escape cancels.</span>
-            <span>F: next frame. Shift + F: create a frame. E: next flow. Ctrl + arrows: pan. Home: fit.</span>
-            <button type="button" className={styles.closeHelp} onClick={() => setShortcutsOpen(false)}>
+            <span>
+              F: next frame. Shift + F: create a frame. E: next flow. Ctrl + arrows: pan. Home: fit.
+            </span>
+            <button
+              type="button"
+              className={styles.closeHelp}
+              onClick={() => setShortcutsOpen(false)}
+            >
               Close shortcuts
             </button>
           </section>
@@ -940,12 +966,17 @@ function directionDelta(direction: Direction, step: number): Point {
 
 function orderedByPosition<T extends { id: string; position: Point }>(items: readonly T[]): T[] {
   return [...items].sort(
-    (a, b) => a.position.y - b.position.y || a.position.x - b.position.x || a.id.localeCompare(b.id),
+    (a, b) =>
+      a.position.y - b.position.y || a.position.x - b.position.x || a.id.localeCompare(b.id),
   );
 }
 
 /** The nearest candidate in the requested half-plane, favouring forward progress. */
-function directionalNode(nodes: FinanceNode[], selectedId: string | null, direction: Direction): FinanceNode | null {
+function directionalNode(
+  nodes: FinanceNode[],
+  selectedId: string | null,
+  direction: Direction,
+): FinanceNode | null {
   const ordered = orderedByPosition(nodes);
   if (!ordered.length) return null;
   const current = selectedId ? nodes.find((node) => node.id === selectedId) : undefined;
@@ -1002,7 +1033,8 @@ function selectNextFrame(
     announce('There are no frames in this diagram. Press Shift and F to create one.');
     return;
   }
-  const index = selection?.type === 'frame' ? ordered.findIndex((frame) => frame.id === selection.id) : -1;
+  const index =
+    selection?.type === 'frame' ? ordered.findIndex((frame) => frame.id === selection.id) : -1;
   const frame = ordered[(index + 1) % ordered.length];
   onSelect({ type: 'frame', id: frame.id });
   announce(`Frame ${frame.name || 'Frame'} selected.`);
@@ -1024,7 +1056,8 @@ function selectNextFlow(
     announce('There are no flows in this diagram.');
     return;
   }
-  const index = selection?.type === 'flow' ? ordered.findIndex((flow) => flow.id === selection.id) : -1;
+  const index =
+    selection?.type === 'flow' ? ordered.findIndex((flow) => flow.id === selection.id) : -1;
   const flow = ordered[(index + 1) % ordered.length];
   onSelect({ type: 'flow', id: flow.id });
   announce(`${flowDescription(flow, nodes)} selected. Tab reaches its properties and actions.`);
@@ -1093,7 +1126,11 @@ function FlowLabel({
           {label}
         </tspan>
       ) : null}
-      <tspan className={styles.edgeLabelAmount} x={x} dy={hasLabel ? '1.2em' : charged ? '-0.35em' : '0'}>
+      <tspan
+        className={styles.edgeLabelAmount}
+        x={x}
+        dy={hasLabel ? '1.2em' : charged ? '-0.35em' : '0'}
+      >
         {formatAssetAmount(flow.asset, breakdown.gross)}
       </tspan>
       {charged ? (

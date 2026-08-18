@@ -217,6 +217,7 @@ export function AirfarePage() {
                 void watchlist.remove(id);
               }}
               onAdd={(route) => void watchlist.add(route)}
+              onMove={(from, to) => void watchlist.move(from, to)}
               airports={knownAirports}
             />
           </Panel>

@@ -140,6 +140,30 @@ export function addRoute(document: FareRoutes, route: FareRoute): FareRoutes {
   return { ...document, routes: [...document.routes, normalized] };
 }
 
+/**
+ * Move one watched route to where another sits.
+ *
+ * Same contract as `investing/data/watchlist.reorder`, and the same reason: a
+ * drop between rows is a request for a position, not a swap with whatever
+ * happened to be there.
+ *
+ * The order matters beyond taste — the collector spends its daily request
+ * budget down the list, so a route the reader dragged to the top is one they
+ * have said should be polled first when the budget will not cover everything.
+ */
+export function reorderRoutes(document: FareRoutes, from: string, to: string): FareRoutes {
+  if (from === to) return document;
+
+  const fromIndex = document.routes.findIndex((route) => routeId(route) === from);
+  const toIndex = document.routes.findIndex((route) => routeId(route) === to);
+  if (fromIndex < 0 || toIndex < 0) return document;
+
+  const routes = [...document.routes];
+  const [moved] = routes.splice(fromIndex, 1);
+  routes.splice(toIndex, 0, moved);
+  return { ...document, routes };
+}
+
 export function removeRoute(document: FareRoutes, id: string): FareRoutes {
   const routes = document.routes.filter((route) => routeId(route) !== id);
   return routes.length === document.routes.length ? document : { ...document, routes };

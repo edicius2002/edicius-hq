@@ -106,6 +106,10 @@ class RouteResultModel(BaseModel):
     flightDate: str
     returnDate: str | None
     ok: bool
+    # Who answered this route. Not always the provider asked for: a route the
+    # primary could not read is served by the fallback, and the two answer
+    # different questions, so the client has to be able to tell them apart.
+    source: str | None
     offers: int
     cheapest: float | None
     currency: str | None
@@ -118,7 +122,12 @@ class RouteResultModel(BaseModel):
 class CollectResponse(BaseModel):
     startedAt: str
     finishedAt: str
-    source: str
+    # The provider the pass asked for. `sources` holding anything else means
+    # something fell back, which the client can see without naming a provider.
+    primary: str
+    # Every provider that actually answered, in first-use order. Empty when
+    # nothing was collected.
+    sources: list[str]
     collected: int
     failed: int
     results: list[RouteResultModel]
@@ -155,7 +164,8 @@ def _report_model(report: CollectionReport) -> CollectResponse:
     return CollectResponse(
         startedAt=report.started_at,
         finishedAt=report.finished_at,
-        source=report.source,
+        primary=report.primary,
+        sources=report.sources,
         collected=report.collected,
         failed=report.failed,
         results=[
@@ -165,6 +175,7 @@ def _report_model(report: CollectionReport) -> CollectResponse:
                 flightDate=result.flight_date,
                 returnDate=result.return_date,
                 ok=result.ok,
+                source=result.source,
                 offers=result.offers,
                 cheapest=result.cheapest,
                 currency=result.currency,

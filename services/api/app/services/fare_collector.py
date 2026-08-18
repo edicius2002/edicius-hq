@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 import httpx
 
 from app.adapters.fares.models import FareError, FareQuery, FareSnapshot
-from app.adapters.fares.registry import DEFAULT_PROVIDER, fetch_offers
+from app.adapters.fares.registry import DEFAULT_PROVIDER, FALLBACK_PROVIDER, fetch_with_fallback
 from app.config import UPSTREAM_TIMEOUT_SECONDS
 from app.services.fare_history import HISTORY, FareHistory
 
@@ -45,6 +45,11 @@ class RouteResult:
     flight_date: str
     return_date: str | None
     ok: bool
+    #: Who actually answered. Not always the provider the pass asked for: a
+    #: route that fell back carries the fallback's name, because a cached
+    #: cheapest-of-the-day and a live itinerary list are different observations
+    #: and the archive has to be able to say which one it holds.
+    source: str | None = None
     offers: int = 0
     cheapest: float | None = None
     currency: str | None = None
@@ -61,7 +66,17 @@ class RouteResult:
 class CollectionReport:
     started_at: str
     finished_at: str
-    source: str
+    #: The provider the pass asked for. Kept beside `sources` so a reader can
+    #: work out that something fell back without knowing any provider's name —
+    #: which is decision 8.3's whole point, and the page is a caller like any
+    #: other.
+    primary: str
+    #: Every provider that actually answered during the pass, in the order they
+    #: were first used. A list rather than a single name because a pass can be
+    #: served by both, and "via google-flights" over a report that half came
+    #: from somewhere else is the kind of true-sounding summary this feature
+    #: keeps having to refuse.
+    sources: list[str]
     results: list[RouteResult]
 
     @property
@@ -81,6 +96,7 @@ async def collect(
     queries: list[FareQuery],
     *,
     provider: str = DEFAULT_PROVIDER,
+    fallback: str | None = FALLBACK_PROVIDER,
     history: FareHistory | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
@@ -102,15 +118,21 @@ async def collect(
         for index, query in enumerate(queries):
             if index:
                 await asyncio.sleep(gap_seconds)
-            results.append(await _collect_one(session, query, provider, store))
+            results.append(await _collect_one(session, query, provider, fallback, store))
     finally:
         if owned:
             await session.aclose()
 
+    used: list[str] = []
+    for result in results:
+        if result.source and result.source not in used:
+            used.append(result.source)
+
     report = CollectionReport(
         started_at=started_at,
         finished_at=_now(),
-        source=provider,
+        primary=provider,
+        sources=used,
         results=results,
     )
     logger.info(
@@ -123,11 +145,13 @@ async def _collect_one(
     client: httpx.AsyncClient,
     query: FareQuery,
     provider: str,
+    fallback: str | None,
     store: FareHistory,
 ) -> RouteResult:
     def outcome(
         *,
         ok: bool,
+        source: str | None = None,
         offers: int = 0,
         cheapest: float | None = None,
         currency: str | None = None,
@@ -147,6 +171,7 @@ async def _collect_one(
             flight_date=query.flight_date,
             return_date=query.return_date,
             ok=ok,
+            source=source,
             offers=offers,
             cheapest=cheapest,
             currency=currency,
@@ -155,14 +180,16 @@ async def _collect_one(
         )
 
     try:
-        offers = await fetch_offers(client, query, provider=provider)
+        answered_by, offers = await fetch_with_fallback(
+            client, query, provider=provider, fallback=fallback
+        )
     except FareError as error:
         logger.warning("fare collection refused %s: %s", query.route, error.message)
         return outcome(ok=False, error_code=error.code, error_message=error.message)
 
     snapshot = FareSnapshot(
         captured_at=_now(),
-        source=provider,
+        source=answered_by,
         origin=query.origin,
         destination=query.destination,
         flight_date=query.flight_date,
@@ -180,6 +207,7 @@ async def _collect_one(
     cheapest = snapshot.cheapest
     return outcome(
         ok=True,
+        source=answered_by,
         offers=len(offers),
         cheapest=cheapest.price if cheapest else None,
         currency=snapshot.currency,

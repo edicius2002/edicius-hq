@@ -308,9 +308,13 @@ _EXTENDED_TIME_FIELD = {
 
 def _timestamp(value: object) -> float | None:
     """An upstream timestamp, or an explicit absence when it cannot be read."""
+    # Same narrowing as `binance._timestamp_seconds`: the `except TypeError`
+    # this replaces was invisible to mypy, which saw only `float(object)`.
+    if not isinstance(value, int | float | str):
+        return None
     try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
+        return float(value)
+    except ValueError:
         return None
 
 

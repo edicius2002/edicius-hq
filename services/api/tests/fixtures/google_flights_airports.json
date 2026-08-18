@@ -1,0 +1,49 @@
+[
+ null,
+ [
+  [
+   [
+    [
+     [
+      "LIM",
+      0
+     ],
+     "New Jorge Chávez International Airport",
+     [
+      "/m/0lpfh",
+      "Lima",
+      []
+     ],
+     [
+      -12.021944,
+      -77.114444
+     ],
+     "PE",
+     0,
+     "Peru"
+    ]
+   ],
+   [
+    [
+     [
+      "SCL",
+      0
+     ],
+     "Arturo Merino Benitez International Airport",
+     [
+      "/m/0dlqv",
+      "Santiago",
+      []
+     ],
+     [
+      -33.394444,
+      -70.793889
+     ],
+     "CL",
+     0,
+     "Chile"
+    ]
+   ]
+  ]
+ ]
+]

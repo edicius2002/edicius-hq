@@ -95,6 +95,17 @@ class PricePointModel(BaseModel):
     price: float
 
 
+class AirportModel(BaseModel):
+    """Where an IATA code is. Collected free with every search."""
+
+    code: str
+    name: str | None
+    city: str | None
+    country: str | None
+    latitude: float
+    longitude: float
+
+
 class WatchHealthModel(BaseModel):
     """
     Whether the collector has been looking, separately from what it found.
@@ -120,6 +131,9 @@ class HistoryResponse(BaseModel):
     # context for the series rather than part of it.
     baseline: list[PricePointModel]
     health: WatchHealthModel
+    # Only the two ends of this route. The client draws a line between them;
+    # it has no use for an atlas.
+    airports: list[AirportModel]
 
 
 class SearchResponse(BaseModel):
@@ -275,6 +289,7 @@ def get_history(
     origin, destination = normalize_code(origin), normalize_code(destination)
     snapshots = HISTORY.read(origin, destination, since=since, until=until)
     checks = HISTORY.checks(origin, destination)
+    known = HISTORY.airports()
     return HistoryResponse(
         origin=origin,
         destination=destination,
@@ -283,12 +298,53 @@ def get_history(
             PricePointModel(date=point.date, price=point.price)
             for point in HISTORY.read_baseline(origin, destination, flightDate)
         ],
+        airports=[
+            AirportModel(
+                code=airport.code,
+                name=airport.name,
+                city=airport.city,
+                country=airport.country,
+                latitude=airport.latitude,
+                longitude=airport.longitude,
+            )
+            for code in (origin, destination)
+            if (airport := known.get(code)) is not None
+        ],
         health=WatchHealthModel(
             lastCheckedAt=str(checks[-1].get("at")) if checks else None,
             checks=len(checks),
             changes=sum(1 for row in checks if row.get("outcome") == "changed"),
             errors=sum(1 for row in checks if row.get("outcome") == "error"),
         ),
+    )
+
+
+class AirportsResponse(BaseModel):
+    airports: list[AirportModel]
+
+
+@router.get("/airports", response_model=AirportsResponse)
+def get_airports() -> AirportsResponse:
+    """
+    Every airport the archive has ever seen, with coordinates.
+
+    The map draws one arc per watched route, so it needs both ends of all of
+    them at once — the per-route history call only knows about its own two.
+    This is a handful of entries collected free from the searches themselves,
+    which is why there is no atlas bundled anywhere in this repository.
+    """
+    return AirportsResponse(
+        airports=[
+            AirportModel(
+                code=airport.code,
+                name=airport.name,
+                city=airport.city,
+                country=airport.country,
+                latitude=airport.latitude,
+                longitude=airport.longitude,
+            )
+            for airport in sorted(HISTORY.airports().values(), key=lambda a: a.code)
+        ]
     )
 
 

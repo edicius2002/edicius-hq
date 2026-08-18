@@ -267,6 +267,12 @@ async def _collect_one(
         insights=result.insights,
     )
 
+    # Airports are folded in on every pass. It is a dictionary write of a
+    # handful of entries, and it means a route added today has coordinates
+    # from its very first collection rather than from whenever someone
+    # remembered to backfill them.
+    store.merge_airports(result.airports)
+
     seeded = 0
     if result.history and not store.has_baseline(
         query.origin, query.destination, query.flight_date

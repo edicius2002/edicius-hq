@@ -14,7 +14,9 @@ collector.
 """
 
 import asyncio
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -387,8 +389,6 @@ def transport(handler):
 
 
 def test_a_pass_polls_only_what_is_due_and_says_what_it_skipped(tmp_path):
-    from pathlib import Path
-
     html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
         encoding="utf-8"
     )
@@ -420,8 +420,6 @@ def test_a_second_look_writes_a_heartbeat_and_no_snapshot(tmp_path):
     whether one was due — and the heartbeat carries the real clock, which a
     test cannot move.
     """
-    from pathlib import Path
-
     html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
         encoding="utf-8"
     )
@@ -447,8 +445,6 @@ def test_a_second_look_writes_a_heartbeat_and_no_snapshot(tmp_path):
 
 
 def test_the_free_history_is_seeded_once_and_not_on_every_poll(tmp_path):
-    from pathlib import Path
-
     html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
         encoding="utf-8"
     )
@@ -474,3 +470,50 @@ def test_the_free_history_is_seeded_once_and_not_on_every_poll(tmp_path):
 
     report = asyncio.run(run())
     assert report.results[0].seeded == 0
+
+
+# ----------------------------------------------------------------- airports --
+
+
+def test_airports_arrive_with_the_search_and_are_kept(tmp_path):
+    """
+    Before this the repository knew `LIM` only as three letters matching a
+    regular expression. The coordinates were arriving in every response and
+    being discarded, and any map would have needed a bundled lookup table
+    heavier than the map itself.
+    """
+    from app.adapters.fares import google_flights
+
+    payload = json.loads(
+        (Path(__file__).parent / "fixtures" / "google_flights_airports.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    airports = google_flights.parse_airports(payload)
+    codes = {airport.code for airport in airports}
+    assert {"LIM", "SCL"} <= codes
+
+    lima = next(airport for airport in airports if airport.code == "LIM")
+    assert -13 < lima.latitude < -11
+    assert -78 < lima.longitude < -76
+
+    history = FareHistory(tmp_path)
+    assert history.merge_airports(airports) == len(airports)
+    # Seeing them again is not seeing new ones.
+    assert history.merge_airports(airports) == 0
+    assert history.airports()["LIM"].city
+
+
+def test_a_payload_without_airports_is_not_an_error():
+    from app.adapters.fares import google_flights
+
+    assert google_flights.parse_airports([None, None]) == []
+    assert google_flights.parse_airports("nonsense") == []
+
+
+def test_a_coordinate_off_the_planet_is_dropped():
+    """Repair what you can, drop what you cannot, invent nothing."""
+    from app.adapters.fares import google_flights
+
+    payload = [None, [[[[["XXX", 0], "Nowhere", ["/m", "Nowhere"], [999.0, 0.0], "ZZ", 0, "Z"]]]]]
+    assert google_flights.parse_airports(payload) == []

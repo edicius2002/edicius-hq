@@ -43,7 +43,13 @@ import json
 import logging
 from pathlib import Path
 
-from app.adapters.fares.models import FareInsights, FareOffer, FareSnapshot, PricePoint
+from app.adapters.fares.models import (
+    Airport,
+    FareInsights,
+    FareOffer,
+    FareSnapshot,
+    PricePoint,
+)
 from app.config import fares_dir
 
 logger = logging.getLogger(__name__)
@@ -454,6 +460,79 @@ class FareHistory:
     def has_baseline(self, origin: str, destination: str, flight_date: str) -> bool:
         """Whether this departure has already been seeded, so we seed it once."""
         return bool(self.read_baseline(origin, destination, flight_date))
+
+    # ----------------------------------------------------------- airports --
+    #
+    # One small file for the whole archive rather than one per route: an
+    # airport is a fact about the world, not about a route, and LIM appearing
+    # in nine watched pairs should not be nine copies that can disagree.
+    #
+    # This is the one part of the archive that is genuinely re-fetchable — an
+    # airport does not move — so it is written whole, like `BarCache` and
+    # unlike the observations.
+
+    @property
+    def airports_path(self) -> Path:
+        return self.directory / "airports.json"
+
+    def merge_airports(self, airports: list[Airport]) -> int:
+        """Fold newly seen airports in, returning how many were new."""
+        if not airports:
+            return 0
+        known = self.airports()
+        before = len(known)
+        for airport in airports:
+            known[airport.code] = airport
+        rows = {
+            code: {
+                "code": airport.code,
+                "name": airport.name,
+                "city": airport.city,
+                "country": airport.country,
+                "latitude": airport.latitude,
+                "longitude": airport.longitude,
+            }
+            for code, airport in sorted(known.items())
+        }
+        path = self.airports_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+            temporary.replace(path)
+        except OSError as error:
+            # Coordinates are what a map needs, not what an observation needs.
+            # Losing them must not cost the snapshot behind them.
+            logger.warning("fare history could not write airports: %s", error)
+            return 0
+        return len(known) - before
+
+    def airports(self) -> dict[str, Airport]:
+        path = self.airports_path
+        if not path.exists():
+            return {}
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(rows, dict):
+            return {}
+        found: dict[str, Airport] = {}
+        for code, row in rows.items():
+            if not isinstance(row, dict):
+                continue
+            latitude, longitude = row.get("latitude"), row.get("longitude")
+            if not isinstance(latitude, int | float) or not isinstance(longitude, int | float):
+                continue
+            found[str(code)] = Airport(
+                code=str(code),
+                name=row.get("name"),
+                city=row.get("city"),
+                country=row.get("country"),
+                latitude=float(latitude),
+                longitude=float(longitude),
+            )
+        return found
 
     def routes(self) -> list[tuple[str, str]]:
         """Which routes have any history at all."""

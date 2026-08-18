@@ -16,7 +16,13 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.adapters.fares.models import FareError, FareOffer, FareQuery, FareSnapshot
+from app.adapters.fares.models import (
+    FareError,
+    FareInsights,
+    FareOffer,
+    FareQuery,
+    FareSnapshot,
+)
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
 from app.config import UPSTREAM_TIMEOUT_SECONDS
 from app.services.fare_collector import CollectionReport, collect
@@ -62,6 +68,14 @@ class OfferModel(BaseModel):
     currency: str
 
 
+class InsightsModel(BaseModel):
+    """What the provider says this search usually costs."""
+
+    typical: float | None
+    usualLow: float | None
+    usualHigh: float | None
+
+
 class SnapshotModel(BaseModel):
     capturedAt: str
     source: str
@@ -70,13 +84,42 @@ class SnapshotModel(BaseModel):
     flightDate: str
     returnDate: str | None
     currency: str
+    insights: InsightsModel | None
     offers: list[OfferModel]
+
+
+class PricePointModel(BaseModel):
+    """One day of the provider's own history. Rounded, cheapest only."""
+
+    date: str
+    price: float
+
+
+class WatchHealthModel(BaseModel):
+    """
+    Whether the collector has been looking, separately from what it found.
+
+    A stretch of the archive with no snapshots means either no price movement
+    or no collector, and a series whose gaps are ambiguous is a series nobody
+    should trust. These come from the heartbeats, which are written on every
+    poll whatever the outcome.
+    """
+
+    lastCheckedAt: str | None
+    checks: int
+    changes: int
+    errors: int
 
 
 class HistoryResponse(BaseModel):
     origin: str
     destination: str
     snapshots: list[SnapshotModel]
+    # The provider's own daily series, kept separate from our snapshots
+    # because it is one rounded integer a day with no airline and no time —
+    # context for the series rather than part of it.
+    baseline: list[PricePointModel]
+    health: WatchHealthModel
 
 
 class SearchResponse(BaseModel):
@@ -106,6 +149,12 @@ class RouteResultModel(BaseModel):
     flightDate: str
     returnDate: str | None
     ok: bool
+    # Whether this look wrote a snapshot. False when the board had not moved,
+    # which at a half-hourly cadence is most looks.
+    changed: bool
+    # Days of provider history folded in — non-zero essentially only the first
+    # time a departure is watched.
+    seeded: int
     offers: int
     cheapest: float | None
     currency: str | None
@@ -115,13 +164,22 @@ class RouteResultModel(BaseModel):
     errorMessage: str | None
 
 
+class SkippedModel(BaseModel):
+    what: str
+    reason: str
+
+
 class CollectResponse(BaseModel):
     startedAt: str
     finishedAt: str
     source: str
     collected: int
+    changed: int
     failed: int
     results: list[RouteResultModel]
+    # Departures deliberately not polled and why. A pass that silently skips
+    # half a watchlist reads exactly like a healthy one.
+    skipped: list[SkippedModel]
 
 
 def _offer_model(offer: FareOffer) -> OfferModel:
@@ -138,9 +196,20 @@ def _offer_model(offer: FareOffer) -> OfferModel:
     )
 
 
+def _insights_model(insights: FareInsights | None) -> InsightsModel | None:
+    if insights is None:
+        return None
+    return InsightsModel(
+        typical=insights.typical,
+        usualLow=insights.usual_low,
+        usualHigh=insights.usual_high,
+    )
+
+
 def _snapshot_model(snapshot: FareSnapshot) -> SnapshotModel:
     return SnapshotModel(
         capturedAt=snapshot.captured_at,
+        insights=_insights_model(snapshot.insights),
         source=snapshot.source,
         origin=snapshot.origin,
         destination=snapshot.destination,
@@ -157,7 +226,9 @@ def _report_model(report: CollectionReport) -> CollectResponse:
         finishedAt=report.finished_at,
         source=report.source,
         collected=report.collected,
+        changed=report.changed,
         failed=report.failed,
+        skipped=[SkippedModel(what=what, reason=reason) for what, reason in report.skipped],
         results=[
             RouteResultModel(
                 origin=result.origin,
@@ -165,6 +236,8 @@ def _report_model(report: CollectionReport) -> CollectResponse:
                 flightDate=result.flight_date,
                 returnDate=result.return_date,
                 ok=result.ok,
+                changed=result.changed,
+                seeded=result.seeded,
                 offers=result.offers,
                 cheapest=result.cheapest,
                 currency=result.currency,
@@ -190,15 +263,32 @@ def _query_from(body: RouteBody) -> FareQuery:
 def get_history(
     origin: str = Query(..., min_length=3, max_length=3),
     destination: str = Query(..., min_length=3, max_length=3),
+    flightDate: str | None = Query(
+        None,
+        min_length=10,
+        max_length=10,
+        description="Which departure's baseline to return; snapshots are unfiltered",
+    ),
     since: str | None = Query(None, description="Inclusive capturedAt prefix, e.g. 2026-08"),
     until: str | None = Query(None, description="Inclusive capturedAt prefix"),
 ) -> HistoryResponse:
     origin, destination = normalize_code(origin), normalize_code(destination)
     snapshots = HISTORY.read(origin, destination, since=since, until=until)
+    checks = HISTORY.checks(origin, destination)
     return HistoryResponse(
         origin=origin,
         destination=destination,
         snapshots=[_snapshot_model(snapshot) for snapshot in snapshots],
+        baseline=[
+            PricePointModel(date=point.date, price=point.price)
+            for point in HISTORY.read_baseline(origin, destination, flightDate)
+        ],
+        health=WatchHealthModel(
+            lastCheckedAt=str(checks[-1].get("at")) if checks else None,
+            checks=len(checks),
+            changes=sum(1 for row in checks if row.get("outcome") == "changed"),
+            errors=sum(1 for row in checks if row.get("outcome") == "error"),
+        ),
     )
 
 

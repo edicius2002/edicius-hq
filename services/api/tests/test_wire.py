@@ -10,9 +10,9 @@ renamed field would have passed every test and broken the page.
 These assert the literal keys, because the literal keys are the contract.
 """
 
+import asyncio
 import json
 import os
-import asyncio
 from unittest import mock
 
 import pytest

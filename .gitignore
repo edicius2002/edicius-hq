@@ -50,6 +50,11 @@ services/api/.local-data/
 # Keep deliberate examples only
 !examples/
 !examples/**/*.csv
+
+# Reference data that ships with the code. The blanket rule above exists so a
+# bank export can never be committed by accident; this is a public-domain
+# airport table, and it has to be in the repository for the search to work.
+!services/api/app/data/*.tsv
 !examples/**/*.json
 
 # Test fixtures: structure of a real export, none of its data. Anything added

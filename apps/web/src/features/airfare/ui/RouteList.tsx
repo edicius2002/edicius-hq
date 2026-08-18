@@ -1,7 +1,6 @@
-import { useState } from 'react';
-
 import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
+import type { Airport } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteList.module.css';
@@ -13,16 +12,19 @@ type RouteListProps = {
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
   onAdd: (route: FareRoute) => void;
+  /** Airports already collected, offered as suggestions in the fields. */
+  airports?: Airport[];
 };
 
 /**
- * The watchlist, and the form that adds to it.
+ * The watchlist, with the fields that add to it standing above it.
  *
- * One panel rather than two. Adding a route and reviewing the routes are the
- * same task a minute apart, and splitting them meant the form sat permanently
- * open below the list taking as much room as the list itself — a five-field
- * form is not something anyone needs in view while reading prices. It folds
- * away behind one control instead, and opens where the new route will appear.
+ * One panel rather than two, and the fields stay on screen rather than folding
+ * away: adding a route is the thing this panel is *for*, and a control that
+ * has to be opened before it can be used is one more step in front of the only
+ * action here. They are laid out to cost less height than two list entries —
+ * origin and destination on one row because they are one decision, the dates
+ * below because they are the next.
  */
 export function RouteList({
   routes,
@@ -31,11 +33,12 @@ export function RouteList({
   onSelect,
   onRemove,
   onAdd,
+  airports = [],
 }: RouteListProps) {
-  const [adding, setAdding] = useState(false);
-
   return (
     <div className={styles.panel}>
+      <RouteEditor today={today} onAdd={onAdd} airports={airports} />
+
       {routes.length === 0 ? (
         <p className={styles.empty}>No routes watched yet.</p>
       ) : (
@@ -78,28 +81,6 @@ export function RouteList({
             );
           })}
         </ul>
-      )}
-
-      {adding ? (
-        <div className={styles.adder}>
-          <RouteEditor
-            today={today}
-            onAdd={(route) => {
-              onAdd(route);
-              setAdding(false);
-            }}
-            onCancel={() => setAdding(false)}
-          />
-        </div>
-      ) : (
-        <Button
-          variant="secondary"
-          size="small"
-          className={styles.addButton}
-          onClick={() => setAdding(true)}
-        >
-          + Watch another route
-        </Button>
       )}
     </div>
   );

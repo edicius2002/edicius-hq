@@ -70,3 +70,17 @@
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
+
+/* The row being carried. Faded rather than hidden, so the gap it leaves is
+   still readable as "this is where it came from". */
+.dragging {
+  opacity: 0.45;
+}
+
+.item {
+  cursor: grab;
+}
+
+.item:active {
+  cursor: grabbing;
+}

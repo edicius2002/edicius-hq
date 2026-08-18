@@ -7,6 +7,7 @@ import {
   FARE_ROUTES_KEY,
   normalizeFareRoutes,
   removeRoute,
+  reorderRoutes,
   routeId,
   type FareRoute,
   type FareRoutes,
@@ -41,6 +42,7 @@ export function useFareRoutes(today: string) {
 
     add: (route: FareRoute) => store.edit((current) => addRoute(current, route)),
     remove: (id: string) => store.edit((current) => removeRoute(current, id)),
+    move: (from: string, to: string) => store.edit((current) => reorderRoutes(current, from, to)),
     idOf: routeId,
   };
 }

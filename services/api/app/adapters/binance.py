@@ -70,9 +70,15 @@ def parse_quote(symbol: str, payload: Any) -> Quote:
 
 
 def _timestamp_seconds(value: object) -> float | None:
+    # `except TypeError` was the guard against a payload that hands back a list
+    # or a dict here, but a type checker cannot read a guard written that way —
+    # it only sees `float(object)`. Narrowing first says the same thing where
+    # mypy can see it, and `None` still falls straight through.
+    if not isinstance(value, int | float | str):
+        return None
     try:
-        return float(value) / 1000 if value is not None else None
-    except (TypeError, ValueError):
+        return float(value) / 1000
+    except ValueError:
         return None
 
 

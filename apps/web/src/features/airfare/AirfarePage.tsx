@@ -52,11 +52,23 @@ export function AirfarePage() {
   const snapshots = useMemo(
     () =>
       selected && history.data
-        ? snapshotsFor(history.data, selected.flightDate, selected.returnDate)
+        ? snapshotsFor(history.data.snapshots, selected.flightDate, selected.returnDate)
         : [],
     [history.data, selected],
   );
   const points = useMemo(() => cheapestSeries(snapshots), [snapshots]);
+  // The provider's own daily series, and whether the collector has been
+  // looking. Both arrive with the history, so neither costs a request.
+  const baseline = useMemo(
+    () =>
+      (history.data?.baseline ?? []).map((point) => ({
+        capturedAt: point.date,
+        price: point.price,
+        currency: selected?.currency ?? 'USD',
+      })),
+    [history.data, selected],
+  );
+  const health = history.data?.health ?? null;
   const stats = useMemo(() => priceStats(points), [points]);
   const latest = useMemo(() => latestSnapshot(snapshots), [snapshots]);
   const carriers = useMemo(() => byAirline(latest), [latest]);
@@ -166,13 +178,38 @@ export function AirfarePage() {
 
                 <PriceHistoryChart
                   points={points}
+                  baseline={baseline}
                   currency={currency}
                   label={`Cheapest fare for ${routeLabel(selected)} departing ${selected.flightDate}`}
                 />
 
+                {baseline.length > 0 ? (
+                  <p className={styles.note}>
+                    The dashed line is the provider's own daily history — {baseline.length} day
+                    {baseline.length === 1 ? '' : 's'} of it, rounded and cheapest-only, seeded when
+                    this route was first watched.
+                  </p>
+                ) : null}
+
                 {daysOut !== null ? (
                   <p className={styles.note}>
                     Last observed {daysOut} day{daysOut === 1 ? '' : 's'} before departure.
+                  </p>
+                ) : null}
+
+                {/*
+                  A run of the archive with no new points means either no price
+                  movement or no collector, and only the heartbeat count tells
+                  them apart. Saying so is what makes the quiet readable.
+                */}
+                {health ? (
+                  <p className={styles.note}>
+                    {health.checks} look{health.checks === 1 ? '' : 's'} taken, {health.changes} of
+                    them found a change
+                    {health.errors > 0 ? `, ${health.errors} failed` : ''}
+                    {health.lastCheckedAt
+                      ? `. Last looked at ${health.lastCheckedAt.slice(0, 16).replace('T', ' ')}.`
+                      : '.'}
                   </p>
                 ) : null}
               </>
@@ -183,7 +220,7 @@ export function AirfarePage() {
 
           <Panel>
             <h2 className={styles.panelTitle}>Latest itineraries</h2>
-            <FlightTable snapshot={latest} />
+            <FlightTable snapshots={snapshots} />
             {carriers.length > 0 ? (
               <p className={styles.note}>
                 {carriers.length} carrier{carriers.length === 1 ? '' : 's'}, cheapest{' '}

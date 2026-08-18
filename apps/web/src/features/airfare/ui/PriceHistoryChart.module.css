@@ -46,3 +46,15 @@
   margin: 0;
   color: var(--color-muted);
 }
+
+/*
+ * The provider's own history: dashed and faint, because it is one rounded
+ * number a day with no airline behind it. Same axis, different kind of claim.
+ */
+.baseline {
+  fill: none;
+  stroke: var(--color-text-muted, #79747e);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}

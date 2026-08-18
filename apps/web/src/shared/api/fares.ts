@@ -35,6 +35,39 @@ export type FareOffer = {
   currency: string;
 };
 
+/** What the provider says this search usually costs. Context, not measurement. */
+export type FareInsights = {
+  typical: number | null;
+  usualLow: number | null;
+  usualHigh: number | null;
+};
+
+/**
+ * One day of the provider's own history.
+ *
+ * Rounded to the whole unit and cheapest-only, with no airline and no
+ * departure time — so it belongs behind our own series as context, never on
+ * the same line as it.
+ */
+export type FarePricePoint = {
+  date: string;
+  price: number;
+};
+
+/**
+ * Whether the collector has been looking, separately from what it found.
+ *
+ * A stretch of archive with no snapshots means either no price movement or no
+ * collector. These counts come from the heartbeat written on every poll, and
+ * they are what makes the difference visible.
+ */
+export type WatchHealth = {
+  lastCheckedAt: string | null;
+  checks: number;
+  changes: number;
+  errors: number;
+};
+
 export type FareSnapshot = {
   /** When the price was observed. The axis of the whole feature. */
   capturedAt: string;
@@ -44,6 +77,7 @@ export type FareSnapshot = {
   flightDate: string;
   returnDate: string | null;
   currency: string;
+  insights: FareInsights | null;
   offers: FareOffer[];
 };
 
@@ -51,6 +85,8 @@ export type FareHistoryResponse = {
   origin: string;
   destination: string;
   snapshots: FareSnapshot[];
+  baseline: FarePricePoint[];
+  health: WatchHealth;
 };
 
 export type FareSearchResponse = {
@@ -69,6 +105,10 @@ export type CollectRouteResult = {
   flightDate: string;
   returnDate: string | null;
   ok: boolean;
+  /** Whether this look wrote a snapshot. False when the board had not moved. */
+  changed: boolean;
+  /** Days of provider history folded in — non-zero only on a first look. */
+  seeded: number;
   offers: number;
   cheapest: number | null;
   currency: string | null;
@@ -76,13 +116,21 @@ export type CollectRouteResult = {
   errorMessage: string | null;
 };
 
+export type SkippedRoute = {
+  what: string;
+  reason: string;
+};
+
 export type CollectResponse = {
   startedAt: string;
   finishedAt: string;
   source: string;
   collected: number;
+  changed: number;
   failed: number;
   results: CollectRouteResult[];
+  /** Departures deliberately not polled, and why. */
+  skipped: SkippedRoute[];
 };
 
 export type RouteRequest = {
@@ -96,9 +144,13 @@ export type RouteRequest = {
 export function fetchFareHistory(
   origin: string,
   destination: string,
-  options: { since?: string; until?: string; signal?: AbortSignal } = {},
+  options: { flightDate?: string; since?: string; until?: string; signal?: AbortSignal } = {},
 ): Promise<FareHistoryResponse> {
   const query = new URLSearchParams({ origin, destination });
+  // Snapshots come back for the whole route; the baseline is per departure,
+  // because two departure dates are two different series and the provider
+  // reports a separate history for each.
+  if (options.flightDate) query.set('flightDate', options.flightDate);
   if (options.since) query.set('since', options.since);
   if (options.until) query.set('until', options.until);
 

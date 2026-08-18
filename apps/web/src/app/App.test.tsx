@@ -44,12 +44,13 @@ beforeEach(() => {
  * it, which made this the only intermittently red test in the suite.
  *
  * Ten seconds was still short of what this repository's `/mnt/d` drvfs mount
- * does under a full parallel run: measured, the four-tab walk takes 16.8s and
+ * does under a full parallel run: measured, the tab walk takes 16.8s over four
+ * routes and
  * dies waiting for Investing, the largest chunk of the four. It passes in 3.2s
  * on a native Linux filesystem. A ceiling is not a delay — an arriving route
  * resolves immediately — so it is set well clear of the measurement rather than
  * beside it, and under the 45s `testTimeout` in `vite.config.ts`, which has to
- * cover all four waits in one test.
+ * cover every wait in one test — five of them since Airfare joined the walk.
  */
 const ROUTE_LOAD_MS = 25_000;
 
@@ -76,7 +77,7 @@ describe('Shell navigation', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('API online');
   });
 
-  it('navigates between the four sidebar tabs', async () => {
+  it('navigates between the five sidebar tabs', async () => {
     const user = userEvent.setup();
     renderAt('/dashboard');
 
@@ -91,6 +92,9 @@ describe('Shell navigation', () => {
 
     await user.click(within(nav).getByRole('link', { name: 'Investing' }));
     expect(await arrivesAt('Investing')).toBeInTheDocument();
+
+    await user.click(within(nav).getByRole('link', { name: 'Airfare' }));
+    expect(await arrivesAt('Airfare')).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('link', { name: 'Dashboard' }));
     expect(await arrivesAt('Dashboard')).toBeInTheDocument();

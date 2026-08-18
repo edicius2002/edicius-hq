@@ -9,6 +9,7 @@ const navItems = [
   { to: '/finance', label: 'Finance' },
   { to: '/greenlight', label: 'Greenlight' },
   { to: '/investing', label: 'Investing' },
+  { to: '/airfare', label: 'Airfare' },
 ] as const;
 
 export function Sidebar() {

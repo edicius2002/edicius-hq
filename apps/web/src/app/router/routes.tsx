@@ -17,6 +17,9 @@ const GreenlightPage = lazy(() =>
 const InvestingPage = lazy(() =>
   import('@/features/investing/InvestingPage').then((m) => ({ default: m.InvestingPage })),
 );
+const AirfarePage = lazy(() =>
+  import('@/features/airfare/AirfarePage').then((m) => ({ default: m.AirfarePage })),
+);
 
 export const appRoutes: RouteObject[] = [
   {
@@ -29,6 +32,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'finance', element: <FinancePage /> },
       { path: 'greenlight', element: <GreenlightPage /> },
       { path: 'investing', element: <InvestingPage /> },
+      { path: 'airfare', element: <AirfarePage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

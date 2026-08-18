@@ -52,58 +52,65 @@ describe('RouteList', () => {
     expect(screen.getByText('Departed')).toBeInTheDocument();
   });
 
-  it('keeps the add form folded away until it is asked for', () => {
-    // A five-field form is not something anyone needs in view while reading
-    // prices, and open by default it took as much room as the list itself.
+  it('keeps the fields on screen rather than behind a control', () => {
+    // Adding a route is what this panel is for. A form that has to be opened
+    // first puts a step in front of the only action here.
     renderList();
-    expect(screen.queryByRole('form', { name: /add a route/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /watch another route/i })).toBeInTheDocument();
-  });
-
-  it('opens the form in place of its own trigger', async () => {
-    const user = userEvent.setup();
-    renderList();
-    await user.click(screen.getByRole('button', { name: /watch another route/i }));
-
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
-    // Replaced rather than pushed down, so the panel does not jump.
-    expect(screen.queryByRole('button', { name: /watch another route/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Origin')).toBeInTheDocument();
+    expect(screen.getByLabelText('Return (optional)')).toBeInTheDocument();
   });
 
-  it('closes the form again on cancel, adding nothing', async () => {
+  it('adds a route from the fields', async () => {
     const user = userEvent.setup();
     const { props } = renderList();
-    await user.click(screen.getByRole('button', { name: /watch another route/i }));
-    await user.click(screen.getByRole('button', { name: /cancel/i }));
-
-    expect(screen.queryByRole('form', { name: /add a route/i })).not.toBeInTheDocument();
-    expect(props.onAdd).not.toHaveBeenCalled();
-  });
-
-  it('adds a route and folds the form away again', async () => {
-    const user = userEvent.setup();
-    const { props } = renderList();
-    await user.click(screen.getByRole('button', { name: /watch another route/i }));
 
     await user.clear(screen.getByLabelText('Origin'));
     await user.type(screen.getByLabelText('Origin'), 'LIM');
     await user.type(screen.getByLabelText('Destination'), 'MAD');
-    // The date input takes a value rather than keystrokes; typing into it is
-    // locale-dependent and this assertion is not about the date picker.
     const departure = screen.getByLabelText('Departure');
     await user.clear(departure);
     await user.type(departure, '2026-12-01');
-    await user.click(screen.getByRole('button', { name: /watch route/i }));
+    await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(props.onAdd).toHaveBeenCalledWith(
       expect.objectContaining({ origin: 'LIM', destination: 'MAD', flightDate: '2026-12-01' }),
     );
-    expect(screen.queryByRole('form', { name: /add a route/i })).not.toBeInTheDocument();
   });
 
-  it('still offers the form when nothing is watched yet', () => {
+  it('suggests the airports already collected without demanding one of them', async () => {
+    // A shortcut, never a gate. The archive learns an airport the first time a
+    // route through it is collected, so this list starts tiny — and a code it
+    // has never heard of has to stay watchable.
+    const user = userEvent.setup();
+    const { props, container } = renderList({
+      airports: [
+        {
+          code: 'CUZ',
+          name: 'Alejandro Velasco Astete',
+          city: 'Cusco',
+          country: 'Peru',
+          latitude: -13.5,
+          longitude: -71.9,
+        },
+      ],
+    });
+
+    expect(container.querySelector('datalist option[value="CUZ"]')).not.toBeNull();
+    expect(screen.getByLabelText('Origin')).toHaveAttribute('list', 'airfare-known-airports');
+
+    await user.type(screen.getByLabelText('Destination'), 'MAD');
+    const departure = screen.getByLabelText('Departure');
+    await user.clear(departure);
+    await user.type(departure, '2026-12-01');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(props.onAdd).toHaveBeenCalledWith(expect.objectContaining({ destination: 'MAD' }));
+  });
+
+  it('still offers the fields when nothing is watched yet', () => {
     renderList({ routes: [] });
     expect(screen.getByText(/no routes watched yet/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /watch another route/i })).toBeInTheDocument();
+    expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
   });
 });

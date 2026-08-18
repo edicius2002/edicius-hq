@@ -27,7 +27,8 @@ const environment = globalThis as typeof globalThis & {
     stdout?: { write: (line: string) => boolean };
   };
 };
-const describePerformance = environment.process?.env?.FINANCE_PERF === '1' ? describe : describe.skip;
+const describePerformance =
+  environment.process?.env?.FINANCE_PERF === '1' ? describe : describe.skip;
 
 function report(measurement: Record<string, string | number>): void {
   const line = JSON.stringify(measurement);
@@ -65,7 +66,8 @@ function realisticDiagram(nodeCount: number): Diagram {
   }));
   const holdings: HoldingNode[] = Array.from({ length: holdingCount }, (_, index) => {
     const accountIndex = index < 12 ? 0 : 1 + ((index - 12) % Math.max(1, accountCount - 1));
-    const localIndex = index < 12 ? index : Math.floor((index - 12) / Math.max(1, accountCount - 1));
+    const localIndex =
+      index < 12 ? index : Math.floor((index - 12) / Math.max(1, accountCount - 1));
     const owner = accounts[accountIndex];
     const xOffset =
       accountIndex === 0
@@ -240,39 +242,45 @@ function dragCost(diagram: Diagram): number {
 }
 
 describePerformance('FlowCanvas performance baseline', () => {
-  it.each([100, 500])('%i nodes', (nodeCount) => {
-    const diagram = realisticDiagram(nodeCount);
-    const accounts = diagram.nodeOrder.map((id) => diagram.nodes[id]).filter((node) => node.kind === 'account');
-    const accountGeometry = sampled(() => {
-      for (const account of accounts) selectNodeContent(diagram, account);
-    });
-    const nodeContent = sampled(() => nodeContentCost(diagram));
-    const allocations = sampled(() => allocationCost(diagram));
-    const accountSummaries = sampled(() => accountSummaryCost(diagram, accounts));
-    const memberships = sampled(() => frameMembership(diagram));
-    const oneSelectorPass = sampled(() => selectorPass(diagram));
-    const repeatedSelectors = sampled(() => repeatedSelectorPass(diagram));
-    const cachedSelectors = sampled(() => cachedSelectorPass(diagram));
-    const render = renderCost(diagram);
-    const drag = dragCost(diagram);
-    const memoizableSaving = ((repeatedSelectors - cachedSelectors) / repeatedSelectors) * 100;
+  it.each([100, 500])(
+    '%i nodes',
+    (nodeCount) => {
+      const diagram = realisticDiagram(nodeCount);
+      const accounts = diagram.nodeOrder
+        .map((id) => diagram.nodes[id])
+        .filter((node) => node.kind === 'account');
+      const accountGeometry = sampled(() => {
+        for (const account of accounts) selectNodeContent(diagram, account);
+      });
+      const nodeContent = sampled(() => nodeContentCost(diagram));
+      const allocations = sampled(() => allocationCost(diagram));
+      const accountSummaries = sampled(() => accountSummaryCost(diagram, accounts));
+      const memberships = sampled(() => frameMembership(diagram));
+      const oneSelectorPass = sampled(() => selectorPass(diagram));
+      const repeatedSelectors = sampled(() => repeatedSelectorPass(diagram));
+      const cachedSelectors = sampled(() => cachedSelectorPass(diagram));
+      const render = renderCost(diagram);
+      const drag = dragCost(diagram);
+      const memoizableSaving = ((repeatedSelectors - cachedSelectors) / repeatedSelectors) * 100;
 
-    report({
-      scenario: `${nodeCount} nodes (${accounts.length} accounts, ${nodeCount - accounts.length} holdings)`,
-      accountGeometryMs: Number(accountGeometry.toFixed(2)),
-      nodeContentMs: Number(nodeContent.toFixed(2)),
-      assetAllocationsMs: Number(allocations.toFixed(2)),
-      accountSummariesMs: Number(accountSummaries.toFixed(2)),
-      frameMembershipMs: Number(memberships.toFixed(2)),
-      selectorPassMs: Number(oneSelectorPass.toFixed(2)),
-      repeatedSelectorsMs: Number(repeatedSelectors.toFixed(2)),
-      cachedSelectorsMs: Number(cachedSelectors.toFixed(2)),
-      estimatedMemoizableSelectorSavingPct: Number(memoizableSaving.toFixed(1)),
-      fullRenderMs: Number(render.toFixed(2)),
-      sustained20MoveDragMs: Number(drag.toFixed(2)),
-    });
+      report({
+        scenario: `${nodeCount} nodes (${accounts.length} accounts, ${nodeCount - accounts.length} holdings)`,
+        accountGeometryMs: Number(accountGeometry.toFixed(2)),
+        nodeContentMs: Number(nodeContent.toFixed(2)),
+        assetAllocationsMs: Number(allocations.toFixed(2)),
+        accountSummariesMs: Number(accountSummaries.toFixed(2)),
+        frameMembershipMs: Number(memberships.toFixed(2)),
+        selectorPassMs: Number(oneSelectorPass.toFixed(2)),
+        repeatedSelectorsMs: Number(repeatedSelectors.toFixed(2)),
+        cachedSelectorsMs: Number(cachedSelectors.toFixed(2)),
+        estimatedMemoizableSelectorSavingPct: Number(memoizableSaving.toFixed(1)),
+        fullRenderMs: Number(render.toFixed(2)),
+        sustained20MoveDragMs: Number(drag.toFixed(2)),
+      });
 
-    expect(render).toBeGreaterThan(0);
-    expect(drag).toBeGreaterThan(0);
-  }, 60_000);
+      expect(render).toBeGreaterThan(0);
+      expect(drag).toBeGreaterThan(0);
+    },
+    60_000,
+  );
 });

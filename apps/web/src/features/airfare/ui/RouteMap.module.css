@@ -29,7 +29,16 @@
 
 .toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.zoomGroup {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
 }
 
 .switch {
@@ -116,8 +125,28 @@
   stroke: var(--arc-neutral);
   stroke-width: 1.6;
   stroke-linecap: round;
-  stroke-dasharray: 5 5;
   opacity: 0.85;
+}
+
+/*
+ * Dashed on the globe, where the surface is curved and busy and a dash reads
+ * as depth. Solid on the flat map, where it would only fragment a line that
+ * already reads perfectly well.
+ */
+.dashed {
+  stroke-dasharray: 5 5;
+}
+
+/*
+ * The half that has gone round the back. Faint rather than gone: the globe is
+ * glass, and an endpoint you spun away from is still one you are watching.
+ */
+.behind {
+  opacity: 0.28;
+}
+
+.behind .label {
+  opacity: 0.8;
 }
 
 .cheap {
@@ -131,7 +160,15 @@
 .active {
   stroke-width: 3;
   opacity: 1;
+}
+
+.active.dashed {
   stroke-dasharray: 7 4;
+}
+
+/* Selection still shows through the glass, just quietly. */
+.active.behind {
+  opacity: 0.45;
 }
 
 /* A wide invisible twin, so a 1.6px arc is still something a pointer can hit. */
@@ -177,4 +214,20 @@
   .switch button {
     transition: none;
   }
+}
+
+/*
+ * Continent names. Ours, because a blank basemap has no symbol layers — the
+ * one thing mapcn's tiles gave that nothing else here does, and seven fixed
+ * points is the whole of it.
+ */
+.continent {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-anchor: middle;
+  fill: var(--color-muted);
+  opacity: 0.5;
+  pointer-events: none;
 }

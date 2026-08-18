@@ -42,6 +42,7 @@ function snapshot(
     destination: 'SCL',
     flightDate: '2026-10-16',
     returnDate: null,
+    insights: null,
     currency: 'USD',
     offers: prices.map((price) => offer(price)),
     ...over,

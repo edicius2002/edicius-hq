@@ -1,3 +1,4 @@
+import { trackFlights, variation, type FlightTrack } from '@/features/airfare/lib/flights';
 import { departureClock, formatDuration } from '@/features/airfare/lib/series';
 import type { FareSnapshot } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
@@ -5,7 +6,7 @@ import { formatMoney } from '@/shared/lib/money';
 import styles from './FlightTable.module.css';
 
 type FlightTableProps = {
-  snapshot: FareSnapshot | null;
+  snapshots: FareSnapshot[];
 };
 
 /** `0` reads as a number where "Direct" reads as a fact about the flight. */
@@ -15,23 +16,51 @@ function stopsLabel(transfers: number): string {
 }
 
 /**
- * Every itinerary in the most recent observation, by airline and departure time.
+ * How a flight's price has moved since it was last something else.
  *
- * The chart answers "is it cheaper than usual"; this answers "cheaper on what".
- * A route whose median fell because one carrier added a red-eye is a different
- * story from one where every carrier dropped, and only this table tells them
- * apart.
+ * An em dash rather than `0%` when a flight has only ever been seen at one
+ * price: "has not moved" and "has only been observed once" are different
+ * facts, and printing 0% would claim a steadiness nobody watched.
  */
-export function FlightTable({ snapshot }: FlightTableProps) {
-  if (!snapshot || snapshot.offers.length === 0) {
-    return <p className={styles.empty}>No itineraries in the latest observation.</p>;
+function moveLabel(track: FlightTrack): string {
+  const percent = variation(track.previousPrice, track.price);
+  if (percent === null) return '—';
+  const rounded = percent.toFixed(1);
+  return `${percent > 0 ? '+' : ''}${rounded}%`;
+}
+
+function moveClass(track: FlightTrack): string | undefined {
+  const percent = variation(track.previousPrice, track.price);
+  if (percent === null || percent === 0) return undefined;
+  return percent > 0 ? styles.up : styles.down;
+}
+
+/**
+ * Every flight the archive has seen for this route, and what each one has done.
+ *
+ * The chart answers "is the route cheaper than usual"; this answers "cheaper on
+ * what, and which ones moved". A route whose cheapest fare fell because one
+ * carrier added a red-eye is a completely different story from one where every
+ * carrier dropped, and only a per-flight view tells them apart.
+ *
+ * Flights that have left the board stay in the table, marked. A departure that
+ * stopped being sold is one of the more useful things this archive can tell
+ * you, and dropping it would make the route look like it never had one.
+ */
+export function FlightTable({ snapshots }: FlightTableProps) {
+  const tracks = trackFlights(snapshots);
+  if (tracks.length === 0) {
+    return <p className={styles.empty}>No itineraries observed yet.</p>;
   }
+
+  const latest = [...snapshots].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)).at(-1);
+  const showing = tracks.filter((track) => track.present).length;
 
   return (
     <table className={styles.table}>
       <caption className={styles.caption}>
-        Itineraries observed on {snapshot.capturedAt.slice(0, 10)} for departure{' '}
-        {snapshot.flightDate}
+        {showing} of {tracks.length} itineraries on the board, last observed{' '}
+        {latest?.capturedAt.slice(0, 16).replace('T', ' ')} for departure {latest?.flightDate}
       </caption>
       <thead>
         <tr>
@@ -43,22 +72,28 @@ export function FlightTable({ snapshot }: FlightTableProps) {
           <th scope="col" className={styles.numeric}>
             Price
           </th>
+          <th scope="col" className={styles.numeric}>
+            Change
+          </th>
         </tr>
       </thead>
       <tbody>
-        {snapshot.offers.map((offer, index) => (
-          <tr key={`${offer.airline}-${offer.flightNumber ?? index}-${offer.departureAt}`}>
+        {tracks.map((track) => (
+          <tr key={track.key} className={track.present ? undefined : styles.gone}>
             {/*
               Rendered as text, never through `Date`. `departureAt` is wall
               clock at the airport with no zone, so parsing it here would shift
               a 00:15 departure by the reader's own offset from Lima.
             */}
-            <td>{departureClock(offer.departureAt)}</td>
-            <td>{offer.airlineName ?? offer.airline}</td>
-            <td>{offer.flightNumber ? `${offer.airline} ${offer.flightNumber}` : offer.airline}</td>
-            <td>{stopsLabel(offer.transfers)}</td>
-            <td>{formatDuration(offer.durationMinutes)}</td>
-            <td className={styles.numeric}>{formatMoney(offer.price, offer.currency)}</td>
+            <td>{departureClock(track.departureAt)}</td>
+            <td>{track.airlineName ?? track.airline}</td>
+            <td>{track.flightNumber ? `${track.airline} ${track.flightNumber}` : track.airline}</td>
+            <td>{stopsLabel(track.transfers)}</td>
+            <td>{formatDuration(track.durationMinutes)}</td>
+            <td className={styles.numeric}>{formatMoney(track.price, track.currency)}</td>
+            <td className={`${styles.numeric} ${moveClass(track) ?? ''}`.trim()}>
+              {track.present ? moveLabel(track) : 'off the board'}
+            </td>
           </tr>
         ))}
       </tbody>

@@ -110,7 +110,10 @@ describe('applyTicks', () => {
   it('keeps the newest tick for a symbol when a batch is out of order', () => {
     const before = new Map([['AAPL', quote()]]);
 
-    const after = applyTicks(before, [tick({ price: 320, time: 20 }), tick({ price: 315, time: 10 })]);
+    const after = applyTicks(before, [
+      tick({ price: 320, time: 20 }),
+      tick({ price: 315, time: 10 }),
+    ]);
 
     expect(after.get('AAPL')?.price).toBe(320);
   });

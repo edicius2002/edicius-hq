@@ -59,7 +59,16 @@ describe('useQuoteStream', () => {
     const { result } = renderHook(() => useQuoteStream(['AAPL']));
 
     expect(result.current.ticks.get('AAPL')?.price).toBe(312);
-    act(() => result.current.discardTicksBefore(new Map([['AAPL', 100], ['MSFT', 100], ['NVDA', 100]]), 999));
+    act(() =>
+      result.current.discardTicksBefore(
+        new Map([
+          ['AAPL', 100],
+          ['MSFT', 100],
+          ['NVDA', 100],
+        ]),
+        999,
+      ),
+    );
 
     expect(result.current.ticks.get('AAPL')?.price).toBe(312);
     expect(result.current.ticks.has('MSFT')).toBe(false);

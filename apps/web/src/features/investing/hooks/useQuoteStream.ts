@@ -42,29 +42,32 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   // that held them, which is new on every render of the page above.
   const key = symbols.join(',');
   const frame = useRef(0);
-  const discardTicksBefore = useCallback((sweepTimes: Map<string, number | null>, fallbackAt: number) => {
-    setTicks((current) => {
-      let changed = false;
-      const next = new Map<string, Tick>();
-      for (const [symbol, tick] of current) {
-        const quoteTime = sweepTimes.get(symbol);
-        // No quote means no REST value can supersede the overlay. A tick with
-        // no exchange timestamp cannot be ordered honestly, so it stays too.
-        if (quoteTime === undefined || tick.time === null) {
-          next.set(symbol, tick);
-          continue;
-        }
+  const discardTicksBefore = useCallback(
+    (sweepTimes: Map<string, number | null>, fallbackAt: number) => {
+      setTicks((current) => {
+        let changed = false;
+        const next = new Map<string, Tick>();
+        for (const [symbol, tick] of current) {
+          const quoteTime = sweepTimes.get(symbol);
+          // No quote means no REST value can supersede the overlay. A tick with
+          // no exchange timestamp cannot be ordered honestly, so it stays too.
+          if (quoteTime === undefined || tick.time === null) {
+            next.set(symbol, tick);
+            continue;
+          }
 
-        // A missing provider timestamp degrades to React Query's arrival time.
-        // It is less precise (browser vs. exchange clock), but is the best
-        // available boundary until the upstream supplies a market timestamp.
-        const boundary = quoteTime ?? fallbackAt;
-        if (tick.time > boundary) next.set(symbol, tick);
-        else changed = true;
-      }
-      return changed ? next : current;
-    });
-  }, []);
+          // A missing provider timestamp degrades to React Query's arrival time.
+          // It is less precise (browser vs. exchange clock), but is the best
+          // available boundary until the upstream supplies a market timestamp.
+          const boundary = quoteTime ?? fallbackAt;
+          if (tick.time > boundary) next.set(symbol, tick);
+          else changed = true;
+        }
+        return changed ? next : current;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!key) {

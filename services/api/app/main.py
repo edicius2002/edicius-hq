@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.streams import CompositeStream
 from app.config import CORS_ORIGINS, kv_dir
-from app.routers import health, kv, market
+from app.routers import fares, health, kv, market
+from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.services.kv_store import ensure_kv_dir
 from app.services.stream_hub import HUB
@@ -35,8 +36,9 @@ async def lifespan(_app: FastAPI):
     yield
     logger.info("api stopping")
     await HUB.stop()
-    # The shared upstream client outlives a request but not the process.
+    # The shared upstream clients outlive a request but not the process.
     await close_client()
+    await close_fares_client()
 
 
 app = FastAPI(title="Edicius HQ API", version="0.0.0", lifespan=lifespan)
@@ -50,6 +52,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(kv.router)
 app.include_router(market.router)
+app.include_router(fares.router)
 
 
 @app.get("/")

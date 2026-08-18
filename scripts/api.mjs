@@ -78,7 +78,7 @@ const ARGS = {
    * reaches the script rather than npm.
    */
   'fares-collect': [['../../scripts/fares-collect.py', ...process.argv.slice(3)]],
-  'fares-check': [['../../scripts/gflights-check.py', ...process.argv.slice(3)]],
+  'fares-check': [['../../scripts/providers-check.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

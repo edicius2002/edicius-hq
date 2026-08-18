@@ -64,6 +64,26 @@ class FareOffer:
 
 
 @dataclass(frozen=True, slots=True)
+class Airport:
+    """
+    Where an IATA code actually is.
+
+    Google ships this with every search — `payload[1]` carries the code, the
+    full name, the city, the country and the coordinates for each airport in
+    the query. Before this the repository knew `LIM` only as three letters that
+    matched a regular expression, and any map would have needed a bundled
+    lookup table larger than the map library itself.
+    """
+
+    code: str
+    name: str | None
+    city: str | None
+    country: str | None
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True, slots=True)
 class PricePoint:
     """
     One day and one price, from the history Google ships with every search.
@@ -115,6 +135,8 @@ class SearchResult:
     offers: list[FareOffer]
     history: list[PricePoint] = field(default_factory=list)
     insights: FareInsights | None = None
+    #: The airports named in the query, with coordinates. Free with the search.
+    airports: list[Airport] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

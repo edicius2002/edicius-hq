@@ -14,6 +14,7 @@ ALLOWED_KV_KEYS = frozenset(
         "indicators",
         "chart-views",
         "finance-camera-views",
+        "airfare-routes",
     }
 )
 
@@ -38,6 +39,19 @@ def kv_dir() -> Path:
 def bars_dir() -> Path:
     """Path B: a cache of public market data, never user state."""
     return local_data_dir() / "bars"
+
+
+def fares_dir() -> Path:
+    """
+    Path B as well, but an archive rather than a cache.
+
+    Bars can always be refetched, so `bars_dir` may be deleted at any time. A
+    fare snapshot cannot: the price on a given day exists nowhere else once the
+    day passes, which is the whole point of collecting them. Same data plane,
+    different disposability, so a separate directory — nothing that prunes the
+    cache should ever find this.
+    """
+    return local_data_dir() / "fares"
 
 
 # How many symbols one quote request may carry. Upstream is asked per symbol,

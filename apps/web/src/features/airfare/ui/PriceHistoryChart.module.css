@@ -53,7 +53,7 @@
  */
 .baseline {
   fill: none;
-  stroke: var(--color-text-muted, #79747e);
+  stroke: var(--color-muted);
   stroke-width: 1.5;
   stroke-dasharray: 4 4;
   opacity: 0.6;

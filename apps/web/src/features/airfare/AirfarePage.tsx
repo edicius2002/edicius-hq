@@ -2,29 +2,37 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
-import {
-  byAirline,
-  cheapestSeries,
-  daysBeforeDeparture,
-  latestSnapshot,
-  priceStats,
-  snapshotsFor,
-} from '@/features/airfare/lib/series';
+import { bucketBaseline, bucketSnapshots, type Granularity } from '@/features/airfare/lib/buckets';
+import { variation } from '@/features/airfare/lib/flights';
+import { routeGeometries } from '@/features/airfare/lib/geo';
+import { latestSnapshot, snapshotsFor } from '@/features/airfare/lib/series';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
-import { PriceHistoryChart } from '@/features/airfare/ui/PriceHistoryChart';
+import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
+import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
-import { collectFares, type CollectResponse } from '@/shared/api/fares';
-import { formatMoney, formatSignedAmount, NO_VALUE } from '@/shared/lib/money';
+import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
+import { collectFares, type Airport, type CollectResponse } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 import { SaveStatus } from '@/shared/ui/SaveStatus';
-import { Stat } from '@/shared/ui/Stat';
 
 import styles from './ui/AirfarePage.module.css';
+
+// A shared empty map rather than `new Map()` inline: a fresh object every
+// render would make `useMemo` recompute the whole geometry set on every keypress
+// elsewhere on the page.
+const EMPTY_AIRPORTS = new Map<string, Airport>();
+
+const GRANULARITIES: { value: Granularity; label: string }[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+];
 
 /** Today as a calendar date, in the reader's own zone — which is when they fly. */
 function todayIso(): string {
@@ -40,12 +48,16 @@ export function AirfarePage() {
   // looking at, and nothing here needs the clock to be live.
   const [today] = useState(todayIso);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [projection, setProjection] = useState<Projection>('globe');
+  const [granularity, setGranularity] = useState<Granularity>('day');
 
   const watchlist = useFareRoutes(today);
+  const airports = useAirports();
   const queryClient = useQueryClient();
 
   const selected: FareRoute | null =
     watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
+  const selectedKey = selected ? routeId(selected) : null;
 
   const history = useFareHistory(selected);
 
@@ -56,22 +68,61 @@ export function AirfarePage() {
         : [],
     [history.data, selected],
   );
-  const points = useMemo(() => cheapestSeries(snapshots), [snapshots]);
-  // The provider's own daily series, and whether the collector has been
-  // looking. Both arrive with the history, so neither costs a request.
-  const baseline = useMemo(
-    () =>
-      (history.data?.baseline ?? []).map((point) => ({
-        capturedAt: point.date,
-        price: point.price,
-        currency: selected?.currency ?? 'USD',
-      })),
-    [history.data, selected],
-  );
-  const health = history.data?.health ?? null;
-  const stats = useMemo(() => priceStats(points), [points]);
   const latest = useMemo(() => latestSnapshot(snapshots), [snapshots]);
-  const carriers = useMemo(() => byAirline(latest), [latest]);
+  const insights = latest?.insights ?? null;
+  const health = history.data?.health ?? null;
+  const currency = selected?.currency ?? 'USD';
+
+  const ourBuckets = useMemo(
+    () => bucketSnapshots(snapshots, granularity),
+    [snapshots, granularity],
+  );
+  const baselineBuckets = useMemo(
+    () => bucketBaseline(history.data?.baseline ?? [], granularity),
+    [history.data, granularity],
+  );
+
+  const geometries = useMemo(
+    () =>
+      routeGeometries(
+        watchlist.routes.map((route) => ({
+          id: routeId(route),
+          origin: route.origin,
+          destination: route.destination,
+        })),
+        airports.data ?? EMPTY_AIRPORTS,
+      ),
+    [watchlist.routes, airports.data],
+  );
+
+  /*
+   * Only the open route is coloured by how far it sits from its usual price.
+   *
+   * Colouring every arc would mean a history request per watched route — the
+   * page holds one route's archive at a time by design. A summary endpoint
+   * would fix that; until there is one, a neutral arc honestly means "not
+   * looked up" rather than "around usual".
+   */
+  const tones = useMemo(() => {
+    const map = new Map<string, string>();
+    const cheapest = latest?.offers.length
+      ? Math.min(...latest.offers.map((offer) => offer.price))
+      : null;
+    const typical = insights?.typical ?? null;
+    if (selectedKey && cheapest !== null && typical !== null) {
+      const delta = variation(typical, cheapest);
+      map.set(
+        selectedKey,
+        delta === null ? 'neutral' : delta <= -8 ? 'cheap' : delta >= 8 ? 'dear' : 'neutral',
+      );
+    }
+    return map;
+  }, [latest, insights, selectedKey]);
+
+  const cities = useMemo(() => {
+    const found = geometries.find((geometry) => geometry.id === selectedKey);
+    return { from: found?.fromCity ?? null, to: found?.toCity ?? null };
+  }, [geometries, selectedKey]);
 
   const collect = useMutation<CollectResponse>({
     mutationFn: () =>
@@ -85,20 +136,21 @@ export function AirfarePage() {
         })),
       ),
     // The archive just grew, so every route's series is stale — including ones
-    // the reader is not looking at, which they may switch to in a second.
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['fares', 'history'] }),
+    // the reader is not looking at, which they may switch to in a second. A
+    // pass can also be the first to learn where a new airport is.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
+      void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+    },
   });
 
-  const currency = selected?.currency ?? 'USD';
-  const daysOut =
-    selected && latest ? daysBeforeDeparture(latest.capturedAt, selected.flightDate) : null;
   const failures = collect.data?.results.filter((result) => !result.ok) ?? [];
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
       <PageHeader
         title="Airfare"
-        subtitle="Track what a route costs, one observation a day."
+        subtitle="Watch what a route costs, and notice when it moves."
         actions={
           <div className={styles.collectRow}>
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
@@ -113,13 +165,44 @@ export function AirfarePage() {
         }
       />
 
-      <div className={styles.layout}>
-        <div className={styles.column}>
+      {/* Map and its route detail on the left, the watchlist on the right. */}
+      <div className={styles.top}>
+        <div className={styles.stack}>
+          <Panel>
+            <RouteMap
+              routes={geometries}
+              selectedId={selectedKey}
+              onSelect={setSelectedId}
+              tones={tones}
+              projection={projection}
+              onProjectionChange={setProjection}
+            />
+            {geometries.length < watchlist.routes.length ? (
+              <p className={styles.note}>
+                {watchlist.routes.length - geometries.length} route
+                {watchlist.routes.length - geometries.length === 1 ? '' : 's'} not drawn yet —
+                coordinates arrive with a route&rsquo;s first collection.
+              </p>
+            ) : null}
+          </Panel>
+
+          <Panel>
+            <RouteDetail
+              route={selected}
+              latest={latest}
+              insights={insights}
+              health={health}
+              cities={cities}
+            />
+          </Panel>
+        </div>
+
+        <div className={styles.stack}>
           <Panel>
             <h2 className={styles.panelTitle}>Watched routes</h2>
             <RouteList
               routes={watchlist.routes}
-              selectedId={selected ? routeId(selected) : null}
+              selectedId={selectedKey}
               today={today}
               onSelect={setSelectedId}
               onRemove={(id) => {
@@ -133,102 +216,6 @@ export function AirfarePage() {
             <h2 className={styles.panelTitle}>Add a route</h2>
             <RouteEditor today={today} onAdd={(route) => void watchlist.add(route)} />
           </Panel>
-        </div>
-
-        <div className={styles.column}>
-          <Panel>
-            <h2 className={styles.panelTitle}>
-              {selected
-                ? `${routeLabel(selected)} · departs ${selected.flightDate}`
-                : 'Price history'}
-            </h2>
-
-            {selected ? (
-              <>
-                <div className={styles.stats}>
-                  <Stat
-                    label="Latest"
-                    value={stats ? formatMoney(stats.latest, currency) : NO_VALUE}
-                    tone="accent"
-                  />
-                  <Stat
-                    label="Lowest seen"
-                    value={stats ? formatMoney(stats.lowest, currency) : NO_VALUE}
-                    tone="income"
-                  />
-                  <Stat
-                    label="Highest seen"
-                    value={stats ? formatMoney(stats.highest, currency) : NO_VALUE}
-                    tone="expense"
-                  />
-                  <Stat
-                    label="Vs median"
-                    value={
-                      stats?.deltaVsMedian === null || stats === null
-                        ? NO_VALUE
-                        : formatSignedAmount(stats.deltaVsMedian)
-                    }
-                    // Below its own median is the buy signal, so it reads as income.
-                    tone={
-                      stats?.deltaVsMedian != null && stats.deltaVsMedian < 0 ? 'income' : 'default'
-                    }
-                  />
-                  <Stat label="Observations" value={stats?.observations ?? 0} />
-                </div>
-
-                <PriceHistoryChart
-                  points={points}
-                  baseline={baseline}
-                  currency={currency}
-                  label={`Cheapest fare for ${routeLabel(selected)} departing ${selected.flightDate}`}
-                />
-
-                {baseline.length > 0 ? (
-                  <p className={styles.note}>
-                    The dashed line is the provider's own daily history — {baseline.length} day
-                    {baseline.length === 1 ? '' : 's'} of it, rounded and cheapest-only, seeded when
-                    this route was first watched.
-                  </p>
-                ) : null}
-
-                {daysOut !== null ? (
-                  <p className={styles.note}>
-                    Last observed {daysOut} day{daysOut === 1 ? '' : 's'} before departure.
-                  </p>
-                ) : null}
-
-                {/*
-                  A run of the archive with no new points means either no price
-                  movement or no collector, and only the heartbeat count tells
-                  them apart. Saying so is what makes the quiet readable.
-                */}
-                {health ? (
-                  <p className={styles.note}>
-                    {health.checks} look{health.checks === 1 ? '' : 's'} taken, {health.changes} of
-                    them found a change
-                    {health.errors > 0 ? `, ${health.errors} failed` : ''}
-                    {health.lastCheckedAt
-                      ? `. Last looked at ${health.lastCheckedAt.slice(0, 16).replace('T', ' ')}.`
-                      : '.'}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className={styles.note}>Add a route to start building its history.</p>
-            )}
-          </Panel>
-
-          <Panel>
-            <h2 className={styles.panelTitle}>Latest itineraries</h2>
-            <FlightTable snapshots={snapshots} />
-            {carriers.length > 0 ? (
-              <p className={styles.note}>
-                {carriers.length} carrier{carriers.length === 1 ? '' : 's'}, cheapest{' '}
-                {carriers[0].airlineName ?? carriers[0].airline} at{' '}
-                {formatMoney(carriers[0].cheapest, currency)}.
-              </p>
-            ) : null}
-          </Panel>
 
           {/*
             A collection pass reports what it could not do beside what it could
@@ -239,8 +226,9 @@ export function AirfarePage() {
             <Panel>
               <h2 className={styles.panelTitle}>Last collection</h2>
               <p className={styles.note}>
-                {collect.data.collected} collected, {collect.data.failed} failed, via{' '}
-                {collect.data.source}.
+                {collect.data.collected} looked at, {collect.data.changed} changed,{' '}
+                {collect.data.failed} failed
+                {collect.data.skipped.length > 0 ? `, ${collect.data.skipped.length} not due` : ''}.
               </p>
               {failures.length > 0 ? (
                 <ul className={styles.failures}>
@@ -264,6 +252,44 @@ export function AirfarePage() {
           ) : null}
         </div>
       </div>
+
+      {/* The analysis runs the full width, under both columns. */}
+      <Panel>
+        <div className={styles.analysisHead}>
+          <h2 className={styles.panelTitle}>
+            {selected
+              ? `${routeLabel(selected)} · departs ${selected.flightDate}`
+              : 'Price analysis'}
+          </h2>
+          <div className={styles.switch} role="group" aria-label="Group observations by">
+            {GRANULARITIES.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={granularity === option.value}
+                onClick={() => setGranularity(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <PriceBandChart
+          ours={ourBuckets}
+          baseline={baselineBuckets}
+          currency={currency}
+          granularity={granularity}
+          label={
+            selected
+              ? `Cheapest fare for ${routeLabel(selected)} departing ${selected.flightDate}, by ${granularity}`
+              : 'Price analysis'
+          }
+        />
+
+        <h3 className={styles.subTitle}>Every flight seen on this route</h3>
+        <FlightTable snapshots={snapshots} />
+      </Panel>
     </section>
   );
 }

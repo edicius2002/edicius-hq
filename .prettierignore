@@ -7,3 +7,8 @@ services/api/.local-data
 package-lock.json
 *.min.js
 apps/web/public
+.ccb
+
+# Captured upstream responses. Reformatting one would change the bytes the
+# parser tests pin against, which is the whole point of keeping it verbatim.
+services/api/tests/fixtures

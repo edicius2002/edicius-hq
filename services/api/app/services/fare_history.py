@@ -14,16 +14,36 @@ JSONL, one file per route, appended:
 - A corrupt line is skipped rather than fatal, for the same reason `BarCache`
   treats an unreadable file as a miss: one bad row must not cost the history.
 
-Compaction is deliberately absent. One snapshot per route per day is a few
-hundred lines a year; at that size a reader that streams is simpler than any
-rotation scheme, and the scheme can be added when there is something to rotate.
+Three kinds of file, because polling often and recording everything are not the
+same thing:
+
+- `LIM-CUZ.jsonl` — a snapshot, written **only when something moved**. Measured
+  2026-08-18: four of five real snapshots were identical to the one before, two
+  of them taken 23 seconds and 8 minutes apart. At a half-hourly cadence a
+  by-the-clock archive would be almost entirely duplicates — 110 MB per route
+  per year of them — and the ADR's own note said this design does not hold up
+  "at a hundred routes polled hourly". Writing on change instead turns the file
+  into the record of what changed, which is the question being asked of it.
+
+- `checks/LIM-CUZ.jsonl` — one short line per poll, always. Without it a gap in
+  the snapshots is ambiguous between "nothing moved" and "the collector was
+  down for a week", and those must never look alike.
+
+- `state/LIM-CUZ.json` — the fingerprint of the last snapshot per departure
+  date, so deciding whether to write costs a small read instead of a scan of
+  the whole history. Purely derived: delete it and the next poll writes one
+  extra snapshot, which is the whole cost.
+
+Compaction is still absent, and now it can stay absent: writing on change is
+what keeps the file small enough not to need it.
 """
 
+import hashlib
 import json
 import logging
 from pathlib import Path
 
-from app.adapters.fares.models import FareOffer, FareSnapshot
+from app.adapters.fares.models import FareInsights, FareOffer, FareSnapshot, PricePoint
 from app.config import fares_dir
 
 logger = logging.getLogger(__name__)
@@ -37,7 +57,15 @@ class FareHistory:
     def directory(self) -> Path:
         return self._dir if self._dir is not None else fares_dir()
 
-    def _path_for(self, origin: str, destination: str) -> Path:
+    @property
+    def checks_directory(self) -> Path:
+        return self.directory / "checks"
+
+    @property
+    def state_directory(self) -> Path:
+        return self.directory / "state"
+
+    def _stem(self, origin: str, destination: str) -> str:
         """
         A file name that cannot read like a way out of this directory.
 
@@ -49,7 +77,16 @@ class FareHistory:
         for code in (origin, destination):
             safe = "".join(c for c in code.upper() if c.isalnum()) or "UNKNOWN"
             parts.append(safe)
-        return self.directory / f"{parts[0]}-{parts[1]}.jsonl"
+        return f"{parts[0]}-{parts[1]}"
+
+    def _path_for(self, origin: str, destination: str) -> Path:
+        return self.directory / f"{self._stem(origin, destination)}.jsonl"
+
+    def _checks_path(self, origin: str, destination: str) -> Path:
+        return self.checks_directory / f"{self._stem(origin, destination)}.jsonl"
+
+    def _state_path(self, origin: str, destination: str) -> Path:
+        return self.state_directory / f"{self._stem(origin, destination)}.json"
 
     def append(self, snapshot: FareSnapshot) -> None:
         path = self._path_for(snapshot.origin, snapshot.destination)
@@ -61,6 +98,7 @@ class FareHistory:
             "flightDate": snapshot.flight_date,
             "returnDate": snapshot.return_date,
             "currency": snapshot.currency,
+            "insights": _insights_row(snapshot.insights),
             "offers": [_offer_row(offer) for offer in snapshot.offers],
         }
         try:
@@ -132,6 +170,291 @@ class FareHistory:
         snapshots.sort(key=lambda snapshot: snapshot.captured_at)
         return snapshots
 
+    def fingerprint(self, snapshot: FareSnapshot) -> str:
+        """
+        What "the same observation" means.
+
+        Every flight's identity and price, and nothing else. Verified stable
+        against real snapshots: 25 of 33 flights kept the same
+        (airline, number, departure) key across a whole day, and the ones that
+        did not had genuinely rotated off the board.
+
+        Deliberately excludes `capturedAt`, which always differs, and the
+        insight block, which drifts on its own and would make every poll look
+        like a fare change.
+        """
+        rows = sorted(
+            f"{offer.airline}|{offer.flight_number or ''}|{offer.departure_at}|{offer.price}"
+            for offer in snapshot.offers
+        )
+        return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+
+    def _read_state(self, origin: str, destination: str) -> dict[str, str]:
+        try:
+            found = json.loads(self._state_path(origin, destination).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(found, dict):
+            return {}
+        return {str(k): str(v) for k, v in found.items() if isinstance(v, str)}
+
+    def _write_state(self, origin: str, destination: str, state: dict[str, str]) -> None:
+        path = self._state_path(origin, destination)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        except OSError as error:
+            # Derived data. Losing it costs one redundant snapshot on the next
+            # poll, which is why this warns where a failed append raises.
+            logger.warning(
+                "fare history could not update state for %s-%s: %s", origin, destination, error
+            )
+
+    def append_if_changed(self, snapshot: FareSnapshot) -> bool:
+        """
+        Write the snapshot only if it says something new. Returns whether it did.
+
+        Compared against the last snapshot stored for this exact departure
+        date, not for the route: two dates on one route are two series, and a
+        change in one is not a change in the other.
+        """
+        state = self._read_state(snapshot.origin, snapshot.destination)
+        current = self.fingerprint(snapshot)
+        if state.get(snapshot.flight_date) == current:
+            return False
+        self.append(snapshot)
+        state[snapshot.flight_date] = current
+        self._write_state(snapshot.origin, snapshot.destination, state)
+        return True
+
+    def record_check(
+        self,
+        origin: str,
+        destination: str,
+        flight_date: str,
+        *,
+        at: str,
+        outcome: str,
+        offers: int = 0,
+        cheapest: float | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        """
+        One line saying we looked, whatever came of it.
+
+        This is what makes a quiet stretch of the archive readable. Without it,
+        a month with no snapshots means either a month with no price movement
+        or a month with no collector, and the difference is the whole
+        trustworthiness of the series.
+        """
+        row: dict[str, object] = {
+            "at": at,
+            "flightDate": flight_date,
+            "outcome": outcome,
+            "offers": offers,
+        }
+        if cheapest is not None:
+            row["cheapest"] = cheapest
+        if error_code is not None:
+            row["errorCode"] = error_code
+        path = self._checks_path(origin, destination)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError as error:
+            # A lost heartbeat costs an ambiguous gap, not an observation.
+            logger.warning(
+                "fare history could not record a check for %s-%s: %s", origin, destination, error
+            )
+
+    def last_checked(self) -> dict[tuple[str, str, str], str]:
+        """
+        When each watched departure was last looked at, from the heartbeats.
+
+        The scheduler wants this and nothing else, so it reads the small files
+        rather than the archive — at a half-hourly cadence that is the
+        difference between scanning a day and scanning a year.
+        """
+        directory = self.checks_directory
+        if not directory.exists():
+            return {}
+        seen: dict[tuple[str, str, str], str] = {}
+        for path in sorted(directory.glob("*.jsonl")):
+            origin, _, destination = path.stem.partition("-")
+            if not origin or not destination:
+                continue
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                    key = (origin, destination, str(row["flightDate"]))
+                    at = str(row["at"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if at > seen.get(key, ""):
+                    seen[key] = at
+        return seen
+
+    def checks(self, origin: str, destination: str) -> list[dict[str, object]]:
+        """Every look taken at a route, oldest first, unreadable lines skipped."""
+        path = self._checks_path(origin, destination)
+        if not path.exists():
+            return []
+        found: list[dict[str, object]] = []
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as error:
+            logger.error(
+                "fare history could not read checks for %s-%s: %s", origin, destination, error
+            )
+            return []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                found.append(row)
+        found.sort(key=lambda row: str(row.get("at", "")))
+        return found
+
+    # ------------------------------------------------------------ baseline --
+    #
+    # Google ships a 61-point daily series with every search, covering the
+    # sixty days up to today and scoped to the exact departure being watched.
+    # It is kept apart from the snapshots on purpose: it is one rounded integer
+    # per day with no airline, no departure time and no cents, so drawing it on
+    # the same line as our own observations would quietly change what the line
+    # measures. Beside them it is worth a great deal — a route added today
+    # starts with two months of context instead of one point.
+    #
+    # Unlike the snapshots, this is *re-fetchable*, which is the same
+    # distinction ADR 0002 drew between `bars/` and `fares/`: Google can answer
+    # again for any day still inside its window. But the window rolls, so days
+    # that fall out of it survive only here. Merge, never replace.
+
+    def _baseline_path(self, origin: str, destination: str) -> Path:
+        return self.baseline_directory / f"{self._stem(origin, destination)}.jsonl"
+
+    @property
+    def baseline_directory(self) -> Path:
+        return self.directory / "baseline"
+
+    def merge_baseline(
+        self,
+        origin: str,
+        destination: str,
+        flight_date: str,
+        points: list[PricePoint],
+        *,
+        source: str,
+        currency: str,
+    ) -> int:
+        """
+        Fold a provider's own history in, keeping anything it has forgotten.
+
+        Returns how many days are new to us. A day we already hold is
+        overwritten by the fresh value rather than duplicated: it is the same
+        provider answering about the same day, so the later answer is the one
+        to keep.
+        """
+        if not points:
+            return 0
+        existing = {
+            (str(row.get("flightDate")), str(row.get("date"))): row
+            for row in self._read_baseline_rows(origin, destination)
+        }
+        before = len(existing)
+        for point in points:
+            existing[(flight_date, point.date)] = {
+                "flightDate": flight_date,
+                "date": point.date,
+                "price": point.price,
+                "currency": currency,
+                "source": source,
+            }
+        rows = sorted(existing.values(), key=lambda row: (str(row["flightDate"]), str(row["date"])))
+
+        path = self._baseline_path(origin, destination)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(
+                "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        except OSError as error:
+            # Written whole rather than appended, because merging is the point —
+            # so unlike `append` this one needs the rename to be atomic.
+            logger.error(
+                "fare history could not write the baseline for %s-%s: %s",
+                origin,
+                destination,
+                error,
+            )
+            raise
+        return len(existing) - before
+
+    def _read_baseline_rows(self, origin: str, destination: str) -> list[dict[str, object]]:
+        path = self._baseline_path(origin, destination)
+        if not path.exists():
+            return []
+        rows: list[dict[str, object]] = []
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as error:
+            logger.error(
+                "fare history could not read the baseline for %s-%s: %s",
+                origin,
+                destination,
+                error,
+            )
+            return []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and "date" in row and "price" in row:
+                rows.append(row)
+        return rows
+
+    def read_baseline(
+        self, origin: str, destination: str, flight_date: str | None = None
+    ) -> list[PricePoint]:
+        """The provider's own daily series, oldest first, one departure at a time."""
+        points = []
+        for row in self._read_baseline_rows(origin, destination):
+            if flight_date is not None and str(row.get("flightDate")) != flight_date:
+                continue
+            price = row.get("price")
+            # Narrowed before `float`, not guarded after it: the same reason
+            # `binance._timestamp_seconds` was rewritten — an `except` a type
+            # checker cannot read is a guard only half the readers can see.
+            if isinstance(price, bool) or not isinstance(price, int | float | str):
+                continue
+            try:
+                points.append(PricePoint(date=str(row["date"]), price=float(price)))
+            except (KeyError, ValueError):
+                continue
+        points.sort(key=lambda point: point.date)
+        return points
+
+    def has_baseline(self, origin: str, destination: str, flight_date: str) -> bool:
+        """Whether this departure has already been seeded, so we seed it once."""
+        return bool(self.read_baseline(origin, destination, flight_date))
+
     def routes(self) -> list[tuple[str, str]]:
         """Which routes have any history at all."""
         directory = self.directory
@@ -143,6 +466,26 @@ class FareHistory:
             if origin and destination:
                 found.append((origin, destination))
         return found
+
+
+def _insights_row(insights: FareInsights | None) -> dict[str, object] | None:
+    if insights is None:
+        return None
+    return {
+        "typical": insights.typical,
+        "usualLow": insights.usual_low,
+        "usualHigh": insights.usual_high,
+    }
+
+
+def _insights_from(row: object) -> FareInsights | None:
+    if not isinstance(row, dict):
+        return None
+    return FareInsights(
+        typical=row.get("typical"),
+        usual_low=row.get("usualLow"),
+        usual_high=row.get("usualHigh"),
+    )
 
 
 def _offer_row(offer: FareOffer) -> dict[str, object]:
@@ -194,6 +537,7 @@ def _snapshot_from(line: str) -> FareSnapshot | None:
             flight_date=str(row["flightDate"]),
             return_date=row.get("returnDate"),
             currency=str(row["currency"]),
+            insights=_insights_from(row.get("insights")),
             offers=[_offer_from(offer) for offer in row.get("offers", [])],
         )
     except (ValueError, KeyError, TypeError):

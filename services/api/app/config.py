@@ -122,3 +122,58 @@ UPSTREAM_TIMEOUT_SECONDS = 12.0
 # carries a Friday close across a long weekend without preserving old market
 # data indefinitely.
 MAX_STALE_BARS_SECONDS = 7 * 24 * 60 * 60
+
+
+# --------------------------------------------------------------- airfare ----
+#
+# Every bound below was measured on 2026-08-18 against the live endpoint rather
+# than assumed, except the request budget, which is explicitly a judgement.
+
+# How far ahead Google will answer at all. +330 days returned 23 itineraries;
+# +340, +348, +355 and +370 all answered `upstream-error`. A watched departure
+# beyond this is not a slow route, it is a route that can never collect.
+MAX_DEPARTURE_HORIZON_DAYS = 330
+
+# The free daily history thins out long before the booking horizon does: 61
+# points at +200 days, 52 at +280, none at all by +330. Past this, expect to
+# start a series from scratch.
+HISTORY_HORIZON_DAYS = 200
+
+# Polling floor. Not a machine limit — a data one. Two snapshots 23 seconds
+# apart were identical, and so were two 8 minutes apart; the first change
+# appeared across 11.5 hours. Below half an hour the marginal information is
+# close to zero, and 15 minutes is the point past which we would only be
+# spending the one budget that matters.
+MIN_POLL_MINUTES = 15
+
+# Polling ceiling. Slower than daily puts us below the resolution of the
+# history Google gives away for free, which is already one point per day.
+MAX_POLL_MINUTES = 24 * 60
+
+# How many upstream requests one day may spend. This one is a judgement, not a
+# measurement: the endpoint is unmetered and the real limit is how much traffic
+# this address can send before Google stops answering, which is unknown and
+# deliberately unprobed — finding it costs exactly the asset it protects. 300 is
+# the order of a person researching flights hard, against the 2 a day this
+# started at.
+DEFAULT_DAILY_REQUEST_BUDGET = 300
+
+# Cadence against how far away the departure is, as (days out, minutes between
+# polls). The shape follows the measurement: at 14 days out a fare moved on 27%
+# of days with a median jump of 14%, while at 150 days it moved on 22% of days
+# by 1.7% — the same frequency carrying a twentieth of the news.
+DEFAULT_CADENCE_MINUTES: tuple[tuple[int, int], ...] = (
+    (14, 30),
+    (45, 60),
+    (120, 240),
+    (MAX_DEPARTURE_HORIZON_DAYS, 24 * 60),
+)
+
+
+def daily_request_budget() -> int:
+    """How many upstream requests a day may spend, floor of 1."""
+    raw = os.getenv("FARES_DAILY_REQUEST_BUDGET", "").strip()
+    try:
+        return max(1, int(raw)) if raw else DEFAULT_DAILY_REQUEST_BUDGET
+    except ValueError:
+        return DEFAULT_DAILY_REQUEST_BUDGET

@@ -62,8 +62,12 @@ export function planGreenlightImport({
   const { merged: nextStats, replacedWeeks } = mergeWeekStats(existing, incoming);
   const weekSet = new Set(replacedWeeks);
 
-  const existingDates = Object.keys(existing).filter((date) => inReplacedWeeks(date, weekSet)).sort();
-  const nextDates = Object.keys(nextStats).filter((date) => inReplacedWeeks(date, weekSet)).sort();
+  const existingDates = Object.keys(existing)
+    .filter((date) => inReplacedWeeks(date, weekSet))
+    .sort();
+  const nextDates = Object.keys(nextStats)
+    .filter((date) => inReplacedWeeks(date, weekSet))
+    .sort();
   const existingSet = new Set(existingDates);
   const nextSet = new Set(nextDates);
 
@@ -123,7 +127,10 @@ function formatRemoved(removed: ImportDayRemove[], currency: string, locale?: st
 }
 
 /** One-glance copy for the confirm panel. Pass a locale in tests. */
-export function formatImportPlan(plan: ImportPlan, locale?: string): {
+export function formatImportPlan(
+  plan: ImportPlan,
+  locale?: string,
+): {
   headline: string;
   removedLine: string | null;
 } {

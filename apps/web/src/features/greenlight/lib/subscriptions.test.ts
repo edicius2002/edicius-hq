@@ -90,7 +90,9 @@ Expense,2026-04-17T00:00,10,USD,1. VSCode Copilot
       );
       expect(pruned).toEqual({ '2026-04': ['vscode'] });
       // The empty May entry used to block reseeding forever.
-      expect(mergeDetectedWidgets(pruned, { '2026-05': ['vscode'] })['2026-05']).toEqual(['vscode']);
+      expect(mergeDetectedWidgets(pruned, { '2026-05': ['vscode'] })['2026-05']).toEqual([
+        'vscode',
+      ]);
     });
 
     it('keeps an emptied month that still has weeks, so a manual removal survives', () => {

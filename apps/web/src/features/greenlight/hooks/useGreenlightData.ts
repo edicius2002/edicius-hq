@@ -99,10 +99,7 @@ export function useGreenlightData() {
         return {
           stats,
           markers: normalizeMarkers(current.markers, stats),
-          widgets: pruneToolWidgets(
-            mergeDetectedWidgets(current.widgets, imported.widgets),
-            stats,
-          ),
+          widgets: pruneToolWidgets(mergeDetectedWidgets(current.widgets, imported.widgets), stats),
           meta: {
             fileName,
             rowsRead: imported.rowsRead,

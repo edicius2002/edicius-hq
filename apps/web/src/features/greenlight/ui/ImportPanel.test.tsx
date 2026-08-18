@@ -15,7 +15,8 @@ const META: GreenlightMeta = {
   replaceMode: 'weeks',
   updatedAt: '2026-08-14T12:00:00.000Z',
   statusTitle: 'Updated from CSV',
-  statusDetail: 'Rebuilt 12 week(s) from the CSV (17 day(s)). Other weeks were kept. Markers were kept.',
+  statusDetail:
+    'Rebuilt 12 week(s) from the CSV (17 day(s)). Other weeks were kept. Markers were kept.',
 };
 
 function day(amount: number): DayStats {

@@ -91,7 +91,12 @@ export function ImportPanel({
   }
 
   function handleConfirm() {
-    if (pending?.kind === 'import' && pendingFile && importPlan && importPlanHasChanges(importPlan)) {
+    if (
+      pending?.kind === 'import' &&
+      pendingFile &&
+      importPlan &&
+      importPlanHasChanges(importPlan)
+    ) {
       const file = pendingFile;
       setPending(null);
       setPendingFile(null);
@@ -136,7 +141,11 @@ export function ImportPanel({
           />
         </label>
 
-        <Button variant="danger" disabled={!hasData || busy || previewOpen} onClick={handleClearClick}>
+        <Button
+          variant="danger"
+          disabled={!hasData || busy || previewOpen}
+          onClick={handleClearClick}
+        >
           Clear
         </Button>
 

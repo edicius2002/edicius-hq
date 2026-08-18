@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MODES = ['dev', 'test', 'lint', 'format', 'typecheck'];
+const MODES = ['dev', 'test', 'lint', 'format', 'typecheck', 'fares-collect', 'fares-check'];
 
 const mode = process.argv[2];
 if (!MODES.includes(mode)) {
@@ -13,6 +13,17 @@ if (!MODES.includes(mode)) {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const apiRoot = path.join(repoRoot, 'services', 'api');
+
+/*
+ * `.env` was a Docker Compose and Vite file until the collector needed a
+ * credential, and nothing loaded it into the Python process — a token written
+ * there would have sat in the file doing nothing while looking configured,
+ * which is the silent failure this feature keeps having to design against.
+ * `loadEnvFile` fills in what is missing and never overrides a shell variable,
+ * so `TRAVELPAYOUTS_TOKEN=... npm run fares:collect` still wins for one run.
+ */
+const envFile = path.join(repoRoot, '.env');
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 const isWin = process.platform === 'win32';
 const venvPython = path.join(
   apiRoot,
@@ -60,6 +71,14 @@ const ARGS = {
     ['-m', 'ruff', 'check', ...PY_TARGETS, '--fix'],
     ['-m', 'ruff', 'format', ...PY_TARGETS],
   ],
+  /*
+   * The two airfare scripts live at the repo root but import `app.*`, so they
+   * need this interpreter and not whatever is on PATH — the same reason every
+   * mode above goes through it. Extra argv is forwarded so `-- --dry-run`
+   * reaches the script rather than npm.
+   */
+  'fares-collect': [['../../scripts/fares-collect.py', ...process.argv.slice(3)]],
+  'fares-check': [['../../scripts/gflights-check.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

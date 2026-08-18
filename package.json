@@ -24,6 +24,8 @@
     "test:api": "npm run api:test",
     "api:dev": "node scripts/api.mjs dev",
     "api:test": "node scripts/api.mjs test",
+    "fares:collect": "node scripts/api.mjs fares-collect",
+    "fares:check": "node scripts/api.mjs fares-check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

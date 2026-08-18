@@ -1,0 +1,97 @@
+.figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.axis {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: var(--color-muted);
+  text-anchor: end;
+}
+
+/* Our own observations: filled range, solid median. */
+.band {
+  fill: var(--color-accent);
+  opacity: 0.16;
+  stroke: none;
+}
+
+.middle {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.point circle {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+  stroke-width: 1.5;
+}
+
+/*
+ * The provider's own history. Dashed and muted on purpose: it is one rounded
+ * integer a day with no airline behind it, so it shares the axis and must not
+ * share the line.
+ */
+.baseline {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  opacity: 0.7;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  font-size: 0.76rem;
+  color: var(--color-muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend i {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.keyOurs i {
+  background: var(--color-accent);
+}
+
+.keyBaseline i {
+  height: 0;
+  border-top: 2px dashed var(--color-muted);
+  opacity: 0.7;
+}

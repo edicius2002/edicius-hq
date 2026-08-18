@@ -79,36 +79,6 @@ describe('RouteList', () => {
     );
   });
 
-  it('suggests the airports already collected without demanding one of them', async () => {
-    // A shortcut, never a gate. The archive learns an airport the first time a
-    // route through it is collected, so this list starts tiny — and a code it
-    // has never heard of has to stay watchable.
-    const user = userEvent.setup();
-    const { props, container } = renderList({
-      airports: [
-        {
-          code: 'CUZ',
-          name: 'Alejandro Velasco Astete',
-          city: 'Cusco',
-          country: 'Peru',
-          latitude: -13.5,
-          longitude: -71.9,
-        },
-      ],
-    });
-
-    expect(container.querySelector('datalist option[value="CUZ"]')).not.toBeNull();
-    expect(screen.getByLabelText('Origin')).toHaveAttribute('list', 'airfare-known-airports');
-
-    await user.type(screen.getByLabelText('Destination'), 'MAD');
-    const departure = screen.getByLabelText('Departure');
-    await user.clear(departure);
-    await user.type(departure, '2026-12-01');
-    await user.click(screen.getByRole('button', { name: /add route/i }));
-
-    expect(props.onAdd).toHaveBeenCalledWith(expect.objectContaining({ destination: 'MAD' }));
-  });
-
   it('lets a route be dragged to another position', () => {
     // Order is not decoration on this list: the collector spends its daily
     // request budget down it, so dragging to the top is a statement about

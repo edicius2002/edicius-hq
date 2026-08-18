@@ -1,6 +1,5 @@
 import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
-import type { Airport } from '@/shared/api/fares';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
 
@@ -14,8 +13,6 @@ type RouteListProps = {
   onRemove: (id: string) => void;
   onAdd: (route: FareRoute) => void;
   onMove: (from: string, to: string) => void;
-  /** Airports already collected, offered as suggestions in the fields. */
-  airports?: Airport[];
 };
 
 /**
@@ -36,7 +33,6 @@ export function RouteList({
   onRemove,
   onAdd,
   onMove,
-  airports = [],
 }: RouteListProps) {
   // Order is not decoration here: the collector spends its daily request
   // budget down the list, so dragging a route to the top says "poll this one
@@ -48,7 +44,7 @@ export function RouteList({
 
   return (
     <div className={styles.panel}>
-      <RouteEditor today={today} onAdd={onAdd} airports={airports} />
+      <RouteEditor today={today} onAdd={onAdd} />
 
       {routes.length === 0 ? (
         <p className={styles.empty}>No routes watched yet.</p>

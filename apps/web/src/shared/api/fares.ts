@@ -189,6 +189,37 @@ export function fetchAirports(
   return apiRequest<{ airports: Airport[] }>('/api/fares/airports', { signal: options.signal });
 }
 
+/** One airport a search box can offer. */
+export type AirportMatch = {
+  code: string;
+  city: string;
+  country: string;
+  name: string;
+};
+
+/**
+ * Airports matching what is being typed, best match first.
+ *
+ * Distinct from `fetchAirports`, which lists only what the archive has
+ * actually collected. This one searches every airport with scheduled service,
+ * so a route can be added to somewhere nobody has watched yet.
+ *
+ * The table lives on the server: 4,162 airports is 71 kB gzipped, which would
+ * have roughly doubled this page's download for a feature most visits never
+ * touch. A keystroke costs about a kilobyte against localhost instead.
+ */
+export function searchAirports(
+  query: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<{ query: string; matches: AirportMatch[] }> {
+  const params = new URLSearchParams({ q: query });
+  if (options.limit) params.set('limit', String(options.limit));
+  return apiRequest<{ query: string; matches: AirportMatch[] }>(
+    `/api/fares/airports/search?${params}`,
+    { signal: options.signal },
+  );
+}
+
 export function searchFares(
   route: RouteRequest,
   options: { signal?: AbortSignal } = {},

@@ -49,6 +49,7 @@ can ask for `2027-03` where it used to ask for `2027-03-09`.
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.adapters.fares.models import (
@@ -61,6 +62,33 @@ from app.adapters.fares.models import (
 from app.config import fares_dir
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class BaselinePoint:
+    """
+    One stored baseline row: which departure, when it was priced, and at what.
+
+    Deliberately not `adapters.fares.models.PricePoint`, which is what the
+    provider's payload parses into and knows only a date and a price — the
+    departure is a fact about the *search* that produced the series, so the
+    adapter genuinely does not have it and the archive does. Widening
+    `PricePoint` instead would have given every parsed point a departure field
+    that is empty everywhere except after a round trip through this file, which
+    is a type that lies about what the parser returns.
+
+    Both dates are `YYYY-MM-DD` and neither is ever parsed: `date` is when the
+    provider priced the departure, `flight_date` is the departure itself, and
+    the difference between them in whole days is the lead time the client plots
+    a fare against.
+    """
+
+    #: The departure this price was quoted for.
+    flight_date: str
+    #: When it was quoted. Local midnight at the origin, as the provider sends.
+    date: str
+    price: float
+
 
 # Which reader produced a stored fingerprint. Bumped whenever a change to the
 # parser or to `fingerprint` moves the hash on boards that did not move — the
@@ -500,7 +528,7 @@ class FareHistory:
 
     def read_baseline(
         self, origin: str, destination: str, departure: str | None = None
-    ) -> list[PricePoint]:
+    ) -> list[BaselinePoint]:
         """
         The provider's own daily series, oldest first, for one departure or one
         month of them.
@@ -511,10 +539,23 @@ class FareHistory:
         works because these keys are `YYYY-MM-DD` and sort and truncate the way
         the calendar does — the same property that keeps `read`'s `since` and
         `until` free of any date parsing.
+
+        A `BaselinePoint` rather than the adapter's `PricePoint` — 12.171. The
+        stored row has always carried the departure it was priced for, because
+        `merge_baseline` keys on it; the read side was dropping it on the way
+        out, which left a caller holding a month of these unable to say which
+        of the thirty-one departures any one of them belonged to. That is the
+        one fact a lead-time axis is built from.
+
+        Sorted by departure and then by observation date, so a month of them
+        reads as thirty-one series laid end to end rather than as one series
+        that jumps back in time thirty times. Within a departure the order is
+        the one it always was.
         """
         points = []
         for row in self._read_baseline_rows(origin, destination):
-            if departure is not None and not str(row.get("flightDate")).startswith(departure):
+            flight_date = str(row.get("flightDate", ""))
+            if departure is not None and not flight_date.startswith(departure):
                 continue
             price = row.get("price")
             # Narrowed before `float`, not guarded after it: the same reason
@@ -523,10 +564,14 @@ class FareHistory:
             if isinstance(price, bool) or not isinstance(price, int | float | str):
                 continue
             try:
-                points.append(PricePoint(date=str(row["date"]), price=float(price)))
+                points.append(
+                    BaselinePoint(
+                        flight_date=flight_date, date=str(row["date"]), price=float(price)
+                    )
+                )
             except (KeyError, ValueError):
                 continue
-        points.sort(key=lambda point: point.date)
+        points.sort(key=lambda point: (point.flight_date, point.date))
         return points
 
     def has_baseline(self, origin: str, destination: str, flight_date: str) -> bool:

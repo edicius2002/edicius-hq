@@ -5,20 +5,18 @@ import {
   formatReading,
   readingPrefix,
   routeId,
-  routeLabel,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
-import { bucketBaseline, bucketSnapshots, type Granularity } from '@/features/airfare/lib/buckets';
+import { type Granularity } from '@/features/airfare/lib/buckets';
 import { routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
-import { FlightScatterChart } from '@/features/airfare/ui/FlightScatterChart';
+import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
-import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
@@ -36,28 +34,6 @@ import styles from './ui/AirfarePage.module.css';
 // elsewhere on the page.
 const EMPTY_AIRPORTS = new Map<string, Airport>();
 
-const GRANULARITIES: { value: Granularity; label: string }[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-];
-
-/**
- * Two charts over one archive, and the reader picks which — 12.140.
- *
- * They are drawn on two different kinds of time and neither can be folded into
- * the other. "Price history" is observation time: what the cheapest fare was on
- * each day we looked. "Flights" is departure time: every itinerary in the
- * watched month, on the day and at the hour it leaves. A single chart would
- * have needed one x axis to mean both.
- */
-type ChartView = 'history' | 'flights';
-
-const VIEWS: { value: ChartView; label: string }[] = [
-  { value: 'history', label: 'Price history' },
-  { value: 'flights', label: 'Flights' },
-];
-
 /** Today as a calendar date, in the reader's own zone — which is when they fly. */
 function todayIso(): string {
   const now = new Date();
@@ -73,8 +49,10 @@ export function AirfarePage() {
   const [today] = useState(todayIso);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
+  // The granularity is the page's rather than the analysis panel's because the
+  // flight table under that panel is grouped by it too: two owners would let
+  // the chart and the table disagree about what a week is.
   const [granularity, setGranularity] = useState<Granularity>('day');
-  const [view, setView] = useState<ChartView>('history');
 
   const watchlist = useFareRoutes(today);
   const airports = useAirports();
@@ -114,16 +92,6 @@ export function AirfarePage() {
   const latest = useMemo(() => cheapestDeparture(snapshots), [snapshots]);
   const insights = latest?.insights ?? null;
   const health = history.data?.health ?? null;
-  const currency = selected?.currency ?? 'USD';
-
-  const ourBuckets = useMemo(
-    () => bucketSnapshots(snapshots, granularity),
-    [snapshots, granularity],
-  );
-  const baselineBuckets = useMemo(
-    () => bucketBaseline(history.data?.baseline ?? [], granularity),
-    [history.data, granularity],
-  );
 
   const geometries = useMemo(
     () =>
@@ -348,77 +316,20 @@ export function AirfarePage() {
         />
       </Panel>
 
-      {/* The analysis runs the full width, under both columns. */}
+      {/*
+        The analysis runs the full width, under both columns. Its own component
+        since 12.170: the three views, the two switches and the period the
+        reader is on are one mechanism, and the period has to outlive the view
+        that shows it — which it cannot do if it is state inside one of them.
+      */}
       <Panel>
-        <div className={styles.analysisHead}>
-          <h2 className={styles.panelTitle}>
-            {selected ? `${routeLabel(selected)} · ${formatReading(selected)}` : 'Price analysis'}
-          </h2>
-          {/*
-            Two switches, in the order the questions come: which chart, then how
-            wide a period. The granularity drives both views and the table, so
-            flipping the chart never moves the period the reader was on.
-          */}
-          <div className={styles.switches}>
-            <div className={styles.switch} role="group" aria-label="Chart">
-              {VIEWS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={view === option.value}
-                  onClick={() => setView(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div className={styles.switch} role="group" aria-label="Group observations by">
-              {GRANULARITIES.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={granularity === option.value}
-                  onClick={() => setGranularity(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {view === 'history' ? (
-          <PriceBandChart
-            ours={ourBuckets}
-            baseline={baselineBuckets}
-            currency={currency}
-            granularity={granularity}
-            label={
-              selected
-                ? `Cheapest fare for ${routeLabel(selected)} departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}, by ${granularity}`
-                : 'Price analysis'
-            }
-          />
-        ) : (
-          /*
-            Keyed by route so the scatter's own period anchor resets when the
-            reader opens a different watch. The anchor is a departure day, and a
-            day carried over from another route's month would resolve to that
-            route's earliest period anyway — but silently, which reads as the
-            arrows having lost their place.
-          */
-          <FlightScatterChart
-            key={selectedKey ?? 'none'}
-            snapshots={snapshots}
-            granularity={granularity}
-            currency={currency}
-            label={
-              selected
-                ? `Every flight for ${routeLabel(selected)} departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}, by departure time`
-                : 'Flights by departure time'
-            }
-          />
-        )}
+        <AnalysisPanel
+          route={selected}
+          snapshots={snapshots}
+          baseline={history.data?.baseline ?? []}
+          granularity={granularity}
+          onGranularityChange={setGranularity}
+        />
       </Panel>
 
       {/*

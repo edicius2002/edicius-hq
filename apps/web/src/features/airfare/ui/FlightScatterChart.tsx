@@ -73,6 +73,13 @@ type FlightScatterChartProps = {
   snapshots: FareSnapshot[];
   granularity: Granularity;
   currency: string;
+  /**
+   * The departure day the reader is anchored on, held by the panel above —
+   * 12.170. Null means "the earliest period that holds flights", which is
+   * where a reader who has not stepped anywhere starts.
+   */
+  anchor: string | null;
+  onAnchorChange: (day: string) => void;
   label: string;
 };
 
@@ -104,18 +111,26 @@ export function FlightScatterChart({
   snapshots,
   granularity,
   currency,
+  anchor,
+  onAnchorChange,
   label,
 }: FlightScatterChartProps) {
   /*
-   * The departure day the reader is anchored on, not an index into the periods.
+   * The anchor is a prop rather than state here — 12.170.
    *
-   * The granularity switch rebuilds the periods under this state, and an index
-   * kept across a week → day flip would point at the seventh day of the month
-   * rather than at the day being read — the stale-index failure the price
-   * chart's crosshair already names. A day survives the flip, and `activeKey`
-   * falls back on its own when the anchor means nothing on the route now open.
+   * It is still a departure day rather than an index into the periods, for
+   * 12.143's reason: the granularity switch rebuilds the periods under it, and
+   * an index kept across a week → day flip points at the seventh day of the
+   * month rather than at the day being read. What changed is where it is kept.
+   * Held here it died with this subtree, and the chart switch above unmounts
+   * this subtree — so a reader who walked to the ninth departure, glanced at
+   * the price history and came back was silently returned to the first. The
+   * panel that owns the switch owns the period now.
+   *
+   * The crosshair stays state, because it is about this canvas and nothing
+   * else: a pointer position on a chart that is not on screen is not a fact
+   * worth keeping.
    */
-  const [anchor, setAnchor] = useState<string | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
   const help = useId();
   const status = useId();
@@ -225,7 +240,7 @@ export function FlightScatterChart({
     if (target === null) return;
     const day = firstDayIn(days, target, granularity);
     if (day === null) return;
-    setAnchor(day);
+    onAnchorChange(day);
     setCursor(null);
   };
 

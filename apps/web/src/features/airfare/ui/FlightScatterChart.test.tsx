@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Granularity } from '@/features/airfare/lib/buckets';
@@ -90,16 +91,36 @@ const WEEK = [
   ]),
 ];
 
-function chart(props: Partial<Parameters<typeof FlightScatterChart>[0]> = {}) {
-  return render(
+/**
+ * The chart with an anchor of its own, which the panel above it now holds.
+ *
+ * Stepping a period is a message rather than a state change here — 12.170 — so
+ * a chart rendered on its own would step once and come back to where it was.
+ * This wrapper is the smallest thing that keeps the arrows working: it holds
+ * the day the chart hands out and hands it straight back. That the *panel*
+ * holds it across a change of view is `AnalysisPanel.test.tsx`'s business.
+ */
+function Harness({
+  snapshots = WEEK,
+  granularity = 'week',
+  ...rest
+}: Partial<Parameters<typeof FlightScatterChart>[0]>) {
+  const [anchor, setAnchor] = useState<string | null>(null);
+  return (
     <FlightScatterChart
-      snapshots={WEEK}
-      granularity="week"
+      snapshots={snapshots}
+      granularity={granularity}
       currency="USD"
+      anchor={anchor}
+      onAnchorChange={setAnchor}
       label="Every flight for LIM to SCL departing in March 2027"
-      {...props}
-    />,
+      {...rest}
+    />
   );
+}
+
+function chart(props: Partial<Parameters<typeof FlightScatterChart>[0]> = {}) {
+  return render(<Harness {...props} />);
 }
 
 function dots(container: HTMLElement): SVGCircleElement[] {

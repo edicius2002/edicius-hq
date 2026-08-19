@@ -24,7 +24,7 @@ import pytest
 from app.adapters.fares.models import FareInsights, FareOffer, FareQuery, FareSnapshot, PricePoint
 from app.config import MAX_DEPARTURE_HORIZON_DAYS, MAX_POLL_MINUTES, MIN_POLL_MINUTES
 from app.services.fare_collector import FareWatch, collect, collect_due, expand
-from app.services.fare_history import FareHistory
+from app.services.fare_history import BaselinePoint, FareHistory
 from app.services.fare_schedule import (
     clamp_minutes,
     days_until,
@@ -520,7 +520,10 @@ def test_the_provider_history_is_kept_apart_from_our_snapshots(tmp_path):
         "LIM", "CUZ", "2026-10-17", points, source="google-flights-history", currency="USD"
     )
     assert added == 2
-    assert history.read_baseline("LIM", "CUZ", "2026-10-17") == points
+    assert history.read_baseline("LIM", "CUZ", "2026-10-17") == [
+        BaselinePoint("2026-10-17", "2026-06-19", 46.0),
+        BaselinePoint("2026-10-17", "2026-06-20", 44.0),
+    ]
     assert history.read("LIM", "CUZ") == []
 
 
@@ -564,7 +567,9 @@ def test_a_day_answered_twice_is_updated_rather_than_duplicated(tmp_path):
             source="google-flights-history",
             currency="USD",
         )
-    assert history.read_baseline("LIM", "CUZ", "2026-10-17") == [PricePoint("2026-06-19", 48.0)]
+    assert history.read_baseline("LIM", "CUZ", "2026-10-17") == [
+        BaselinePoint("2026-10-17", "2026-06-19", 48.0)
+    ]
 
 
 def test_two_departures_keep_separate_baselines(tmp_path):

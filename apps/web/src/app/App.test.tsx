@@ -107,17 +107,29 @@ describe('Shell navigation', () => {
 });
 
 describe('Investing chart-first workspace', () => {
-  it('keeps watchlist and positions in one switchable market rail', async () => {
-    const user = userEvent.setup();
+  it('sits the watchlist beside the chart and the positions under both of them', async () => {
     renderAt('/investing');
     await arrivesAt('Investing');
 
-    expect(screen.getByRole('tab', { name: 'Watchlist' })).toHaveAttribute('aria-selected', 'true');
-    await user.click(screen.getByRole('tab', { name: 'Positions' }));
+    const chart = screen.getByRole('region', { name: 'AAPL chart' });
+    const watchlist = screen.getByRole('region', { name: 'Watchlist' });
+    const positions = screen.getByRole('region', { name: 'Positions' });
 
-    expect(screen.getByRole('tab', { name: 'Positions' })).toHaveAttribute('aria-selected', 'true');
+    // Sharing a parent is what makes them two cells of one grid row, and two
+    // cells of one row is the only arrangement in which they share a height.
+    expect(watchlist.parentElement).toBe(chart.parentElement);
+
+    // The positions are outside that row, so nothing constrains them to the
+    // rail's column: they run the width of both cells beneath it.
+    expect(positions.parentElement).not.toBe(chart.parentElement);
+    expect(chart.parentElement?.contains(positions)).toBe(false);
+    expect(
+      positions.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+
+    // Both lists are on screen at once, which is the point of the rearrangement.
     expect(screen.getByText('Nothing held yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: 'Search a symbol' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Search a symbol' })).toBeInTheDocument();
   });
 
   it('can devote the workspace to the chart and returns with Escape', async () => {
@@ -128,7 +140,8 @@ describe('Investing chart-first workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Focus chart' }));
 
     expect(screen.getByRole('region', { name: 'Focused investing chart' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Markets' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Watchlist' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Positions' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Exit focus' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -137,19 +150,22 @@ describe('Investing chart-first workspace', () => {
     await user.keyboard('{Escape}');
 
     expect(screen.getByRole('heading', { name: 'Investing' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Markets' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Watchlist' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Positions' })).toBeInTheDocument();
   });
 
-  it('collapses and restores the market rail without entering focus mode', async () => {
+  it('collapses and restores both market lists without entering focus mode', async () => {
     const user = userEvent.setup();
     renderAt('/investing');
     await arrivesAt('Investing');
 
     await user.click(screen.getByRole('button', { name: 'Hide markets' }));
-    expect(screen.queryByRole('region', { name: 'Markets' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Watchlist' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Positions' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Show markets' }));
-    expect(screen.getByRole('region', { name: 'Markets' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Watchlist' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Positions' })).toBeInTheDocument();
   });
 });
 

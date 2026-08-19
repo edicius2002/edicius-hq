@@ -307,23 +307,53 @@
   text-transform: uppercase;
 }
 
-/* The decision is based on the usable page width, not the viewport. The app
-   sidebar and main padding consume 19rem before this workspace sees a pixel. */
-@container (max-width: 58rem) {
+/*
+ * Both thresholds below are in **pixels on purpose**, and this is the one rule
+ * in the file worth reading twice.
+ *
+ * The decision is made on the usable page width, not the viewport: the app
+ * sidebar and the main padding take 19rem before this workspace sees a pixel,
+ * which is why it is a container query at all. But a font-relative length in a
+ * container condition does not resolve against the container — it resolves
+ * against the root, and this app sets `--font-size-base: 125%`, so a rem there
+ * is 20px. The previous `58rem` was almost certainly written believing it read
+ * 928px; it read 1160px. Measured on a 1536px window the page is 1141px wide,
+ * so the query matched, the single-column rule won, and the side-by-side
+ * layout this file is built around could not be reached below a window of
+ * roughly 1590px. Pixels cannot be read two ways.
+ *
+ * 980px is derived, not chosen: 640px of chart — twice the side column, because
+ * the chart is what the page is for — plus the 20px gap, plus the 320px the
+ * side track takes whenever there is room for it. Under that the chart would
+ * be the smaller half of its own page, so the two stack instead.
+ */
+@container (max-width: 980px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Stacked under the chart there is no row height to share, so the panel goes
-     back to being as tall as its rows need, up to the same ceiling it had. */
+  /*
+   * Full width, like the positions below it. It was capped at 36rem and pushed
+   * to the right — inherited from the wrapper this panel replaced, where it
+   * kept a tabbed rail from stretching. Stacked under a full-width chart it
+   * read as a half-width panel hugging the right edge with nothing beside it.
+   *
+   * There is no row height to share here either, so the panel goes back to
+   * being as tall as its rows need, up to the ceiling it always had.
+   */
   .side {
-    width: min(100%, 36rem);
-    justify-self: end;
     max-height: 32rem;
   }
 }
 
-@container (max-width: 48rem) {
+/*
+ * 600px is where the chart stops being a chart: its tall floor is 28rem = 560px
+ * and the panel spends 40px on padding, so at any page narrower than that the
+ * frame is taller than it is wide and a candle series has nowhere to run.
+ * The shorter clamp gives the height back. (Was `48rem` — 960px under the same
+ * arithmetic as above, close enough to the stacking threshold to be pointless.)
+ */
+@container (max-width: 600px) {
   .chartPanel {
     --investing-chart-height: clamp(24rem, 62vh, 38rem);
   }

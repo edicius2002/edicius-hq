@@ -39,8 +39,9 @@ import styles from './RouteMap.module.css';
  * costs no script at all and a drag gets the whole frame budget. That is the
  * half of decision 12.23 that is kept.
  *
- * The half that is not: the globe's dashes now flow, from each route's origin
- * towards its destination. It is a declarative `stroke-dashoffset` animation
+ * The half that is not: the globe's dashes flow, from origin towards
+ * destination, on the one route the reader has open — every other arc stays
+ * dashed and still. It is a declarative `stroke-dashoffset` animation
  * on the paths — the browser's own animation timeline drives it, no JavaScript
  * runs per frame and no component re-renders per frame, which is why it can be
  * added without taking the idle cost back. The phase that keeps one route's
@@ -819,6 +820,18 @@ export function RouteMap({
           {arcs.map(({ route, line }) => {
             const stroke = colours.get(route.id) ?? DEFAULT_ARC;
             const selected = selectedId === route.id;
+            /*
+             * Only the open route's dashes move, and only on the globe.
+             *
+             * The flat map's arcs are solid and have nothing to flow; the
+             * others are dashed and still. The route drawn here is the
+             * outbound leg — the map has always drawn one arc per route, from
+             * origin to destination, and a return date adds a second date to
+             * the row rather than a second curve to the map. So "the outbound
+             * leg flows" is a description of what is on screen, not a
+             * direction that had to be chosen between two.
+             */
+            const flowing = isGlobe && selected;
             return (
               <g key={route.id} role="listitem">
                 {runsFor(line.coordinates).map((run, index) => {
@@ -842,7 +855,7 @@ export function RouteMap({
                         // geometry, recomputed with the geometry: a stylesheet
                         // cannot know how far along its own arc a run begins.
                         style={
-                          isGlobe ? { stroke, animationDelay: flowDelay(run.before) } : { stroke }
+                          flowing ? { stroke, animationDelay: flowDelay(run.before) } : { stroke }
                         }
                         className={[
                           styles.arc,
@@ -850,7 +863,11 @@ export function RouteMap({
                           // and busy; solid on the flat map, where a dash only
                           // fragments a line that already reads. Only a dash
                           // can show flow, so only the globe's arcs do.
-                          isGlobe ? `${styles.dashed} ${styles.flow}` : '',
+                          isGlobe ? styles.dashed : '',
+                          // And only the open one of those. Nine arcs all
+                          // flowing at once is a page of moving parts with no
+                          // one of them pointed at; one is a direction.
+                          flowing ? styles.flow : '',
                           selected ? styles.active : '',
                         ]
                           .filter(Boolean)

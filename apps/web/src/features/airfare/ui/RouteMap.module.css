@@ -197,8 +197,11 @@
 
 /*
  * Its own class rather than folded into `.dashed`, because the two are
- * separately switchable and one of them has to be: reduced motion stops the
- * flow and keeps the dash.
+ * separately switchable and both of them have to be: reduced motion stops the
+ * flow and keeps the dash, and only the open route carries this class at all —
+ * every other arc on the globe is `.dashed` without it, refining 12.70. Nine
+ * lines moving at once is a page of activity with nothing singled out; one
+ * moving line is the route the reader has open, saying which way it goes.
  *
  * `animation-delay` is set per path, inline, from `flowDelay` — one route can
  * be several paths once the limb has cut it, and the delay is what makes them
@@ -235,7 +238,9 @@
  * `7 4` before there was anything moving, and 4 + 7 is 11: an 11-unit pattern
  * under an animation that travels 10 units a cycle slides backwards a unit
  * every time round, which reads as the one route the reader has opened
- * flowing the wrong way.
+ * flowing the wrong way. The open route is now the only one that flows, so
+ * this pattern and the animation are always on the same path — the agreement
+ * matters more than it did, not less.
  */
 .active.dashed {
   stroke-dasharray: 7 3;

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import type { RowReport } from '@/features/airfare/lib/rowReport';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 
@@ -31,8 +32,11 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     colours: new Map<string, string>(),
     selectedId: null,
     today: TODAY,
+    collecting: [] as readonly string[],
+    reports: new Map<string, RowReport>(),
     onSelect: vi.fn(),
     onRemove: vi.fn(),
+    onCollect: vi.fn(),
     onAdd: vi.fn(),
     onMove: vi.fn(),
     ...overrides,
@@ -160,6 +164,88 @@ describe('RouteList', () => {
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
 
     expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-08-01|', 'LIM|CUZ|2026-10-17|');
+  });
+
+  it('offers each row its own collection, named for the route it would collect', () => {
+    // "Collect" on its own would be nine identical buttons in the
+    // accessibility tree, and the mark that carries it visually says nothing
+    // out loud at all.
+    renderList();
+    expect(
+      screen.getByRole('button', { name: 'Collect LIM → CUZ on 2026-10-17 now' }),
+    ).toBeInTheDocument();
+  });
+
+  it('collects the route whose own control was pressed', async () => {
+    const user = userEvent.setup();
+    const { props } = renderList();
+
+    await user.click(screen.getByRole('button', { name: /^Collect LIM → CUZ/ }));
+
+    expect(props.onCollect).toHaveBeenCalledTimes(1);
+    expect(props.onCollect).toHaveBeenCalledWith(ROUTES[0]);
+  });
+
+  it('offers no collection for a route that has already departed', () => {
+    // The provider answers nothing about a flight that has left, so there is
+    // no press to invite. Absent rather than disabled: the row already says
+    // "Departed", and a greyed button beside it only raises the question.
+    renderList();
+    expect(screen.queryByRole('button', { name: /^Collect LIM → SCL/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Stop watching LIM → SCL/ })).toBeInTheDocument();
+  });
+
+  it('holds down only the row whose own collection is in flight', () => {
+    // One row's press must not reach across and grey out the rest. The
+    // watchlist is a list of independent routes and this is a per-route
+    // action.
+    renderList({ collecting: [routeId(ROUTES[0])] });
+
+    const busy = screen.getByRole('button', { name: /^Collecting LIM → CUZ/ });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    // Removing is a different action on the same row and stays available: a
+    // route can be dropped from the watchlist mid-look.
+    expect(screen.getByRole('button', { name: /^Stop watching LIM → CUZ/ })).toBeEnabled();
+  });
+
+  it('leaves every other row pressable while one is collecting', () => {
+    const third: FareRoute = {
+      origin: 'LIM',
+      destination: 'MAD',
+      flightDate: '2026-12-01',
+      returnDate: null,
+      currency: 'USD',
+    };
+    renderList({ routes: [...ROUTES, third], collecting: [routeId(ROUTES[0])] });
+
+    expect(screen.getByRole('button', { name: /^Collecting LIM → CUZ/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Collect LIM → MAD/ })).toBeEnabled();
+  });
+
+  it('reports what the collection came back with on the row that asked', () => {
+    // A press that quietly does nothing is a broken button as far as the
+    // reader is concerned — decisions 8.8 and 8.41, the same rule the pass
+    // itself follows.
+    renderList({
+      reports: new Map([
+        [routeId(ROUTES[0]), { ok: true, text: 'Collected: 14 flights, cheapest $412.00.' }],
+      ]),
+    });
+    expect(screen.getByText('Collected: 14 flights, cheapest $412.00.')).toBeInTheDocument();
+  });
+
+  it('says a refusal out loud rather than dropping it', () => {
+    renderList({
+      reports: new Map([
+        [routeId(ROUTES[0]), { ok: false, text: 'Refused: no-offers — nothing on that day.' }],
+      ]),
+    });
+    const line = screen.getByText('Refused: no-offers — nothing on that day.');
+    expect(line.className).toMatch(/refused/);
+    // The region has to be in the document before its text changes, or a
+    // screen reader has nothing to notice. Every row carries an empty one.
+    expect(line).toHaveAttribute('aria-live', 'polite');
   });
 
   it('still offers the fields when nothing is watched yet', () => {

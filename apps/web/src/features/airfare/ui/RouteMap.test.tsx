@@ -248,9 +248,77 @@ describe('RouteMap', () => {
   });
 
   it('starts an arc that is wholly in view at the start of the pattern', () => {
-    const { container } = renderMap({ routes: [LIM_CUZ] });
+    // Opened, because only the open route flows now.
+    const { container } = renderMap({ routes: [LIM_CUZ], selectedId: LIM_CUZ.id });
     const arc = container.querySelector('[class*="flow"]') as SVGElement;
     expect(arc.style.animationDelay).toBe(flowDelay(0));
+  });
+
+  it('flows the route the reader has open and leaves every other one still', () => {
+    /*
+     * Nine arcs leaving one city, all of them moving, is a page of activity
+     * with nothing singled out. One moving line is the route that is open,
+     * saying which way it goes — which is what the flow was for.
+     *
+     * jsdom does no layout and runs no animation, so what is checked is the
+     * class that carries the keyframes and the phase set beside it. That the
+     * dashes actually travel is not provable here.
+     */
+    const { container } = renderMap({ routes: [LIM_CUZ, LIM_MAD], selectedId: LIM_CUZ.id });
+
+    const flowing = [...container.querySelectorAll('[class*="flow"]')];
+    expect(flowing.length).toBeGreaterThan(0);
+    for (const arc of flowing) {
+      expect(arc.closest('g[role="listitem"]')).toBe(
+        container.querySelector(`[aria-label="Lima to Cusco"]`)?.closest('g[role="listitem"]'),
+      );
+    }
+
+    // Madrid keeps its dashes and loses its clock.
+    const madrid = container
+      .querySelector('[aria-label="Lima to Madrid"]')
+      ?.closest('g[role="listitem"]') as SVGElement;
+    expect(madrid.querySelectorAll('[class*="flow"]')).toHaveLength(0);
+    expect(madrid.querySelectorAll('[class*="dashed"]').length).toBeGreaterThan(0);
+    for (const arc of madrid.querySelectorAll('path[class*="arc"]')) {
+      expect((arc as SVGElement).style.animationDelay).toBe('');
+    }
+  });
+
+  it('moves the flow to whichever route is opened next', () => {
+    // The animation belongs to the selection, not to a route, so it has to
+    // travel when the selection does.
+    const { container, rerender } = renderMap({
+      routes: [LIM_CUZ, LIM_MAD],
+      selectedId: LIM_CUZ.id,
+    });
+    rerender(
+      <RouteMap
+        routes={[LIM_CUZ, LIM_MAD]}
+        selectedId={LIM_MAD.id}
+        onSelect={vi.fn()}
+        colours={new Map()}
+        projection="globe"
+        onProjectionChange={vi.fn()}
+      />,
+    );
+
+    const cusco = container
+      .querySelector('[aria-label="Lima to Cusco"]')
+      ?.closest('g[role="listitem"]') as SVGElement;
+    const madrid = container
+      .querySelector('[aria-label="Lima to Madrid"]')
+      ?.closest('g[role="listitem"]') as SVGElement;
+    expect(cusco.querySelectorAll('[class*="flow"]')).toHaveLength(0);
+    expect(madrid.querySelectorAll('[class*="flow"]').length).toBeGreaterThan(0);
+  });
+
+  it('leaves the whole globe still when no route is open', () => {
+    // Nothing selected is a real state — it is what the page shows before the
+    // watchlist has loaded — and it should cost no animation at all.
+    const { container } = renderMap({ routes: [LIM_CUZ, LIM_MAD], selectedId: null });
+    expect(container.querySelectorAll('[class*="flow"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[class*="dashed"]').length).toBeGreaterThan(0);
   });
 
   it('picks up the phase the hidden half of an arc carried round the back', () => {
@@ -262,7 +330,7 @@ describe('RouteMap', () => {
      * with the limb as the globe turns rather than staying on the arc. The
      * hidden length is counted, so they stay put.
      */
-    const { container } = renderMap({ routes: [NRT_LIM] });
+    const { container } = renderMap({ routes: [NRT_LIM], selectedId: NRT_LIM.id });
     const arcs = [...container.querySelectorAll('[class*="flow"]')] as SVGElement[];
     expect(arcs).toHaveLength(1);
     expect(arcs[0].style.animationDelay).not.toBe(flowDelay(0));
@@ -270,8 +338,9 @@ describe('RouteMap', () => {
 
   it('leaves the flat map still, because a solid line cannot show flow', () => {
     // Mercator arcs are solid by decision, so there is nothing to animate and
-    // no phase to give them.
-    const { container } = renderMap({ projection: 'mercator' });
+    // no phase to give them — including the open one, which is the case that
+    // would break if the flow were hung on the selection alone.
+    const { container } = renderMap({ projection: 'mercator', selectedId: LIM_CUZ.id });
     expect(container.querySelectorAll('[class*="flow"]')).toHaveLength(0);
     for (const arc of container.querySelectorAll('[class*="arc"]')) {
       expect((arc as SVGElement).style.animationDelay).toBe('');

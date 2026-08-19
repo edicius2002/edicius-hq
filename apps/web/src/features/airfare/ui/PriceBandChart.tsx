@@ -1,7 +1,7 @@
 import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
-import type { Bucket, Granularity } from '@/features/airfare/lib/buckets';
-import { spanOf } from '@/features/airfare/lib/buckets';
+import type { Bucket, BucketAxis } from '@/features/airfare/lib/buckets';
+import { contiguousRuns, spanOf } from '@/features/airfare/lib/buckets';
 import {
   clampToTrack,
   nearestBucket,
@@ -58,7 +58,12 @@ type PriceBandChartProps = {
   ours: Bucket[];
   baseline: Bucket[];
   currency: string;
-  granularity: Granularity;
+  /**
+   * What the x axis is a chart of — 12.170. The geometry below is the same
+   * whether the buckets are calendar periods or days before departure; the
+   * axis supplies the words and the direction.
+   */
+  axis: BucketAxis;
   label: string;
 };
 
@@ -89,19 +94,22 @@ type Cursor = { index: number; y: number | null };
  * reasons: a period where the expensive itineraries sold out reads exactly like
  * a quiet one if all you plot is the cheapest.
  *
+ * **Two axes, one chart — 12.170.** The buckets arrive already gathered, and
+ * whether they were gathered by the day we looked or by how far ahead of
+ * departure the price was seen is `axis`'s business rather than this file's.
+ * Everything that differs between the two views is in that object: what one
+ * bucket is called, how a key is spelled out under the crosshair, and which
+ * way the axis runs. Forking this component instead would have meant two
+ * copies of the crosshair, and the two bugs 12.61 and 12.62 record were both
+ * in the crosshair.
+ *
  * SVG, so every period is a node a test can find and a screen reader can read
  * — decision 12.12, the same choice as the rest of this feature's charts. The
  * crosshair is drawn into the same SVG for that reason: on a canvas it would
  * be pixels, and the price under the pointer is a number somebody may want to
  * copy or hear read out.
  */
-export function PriceBandChart({
-  ours,
-  baseline,
-  currency,
-  granularity,
-  label,
-}: PriceBandChartProps) {
+export function PriceBandChart({ ours, baseline, currency, axis, label }: PriceBandChartProps) {
   const span = useMemo(() => spanOf(ours, baseline), [ours, baseline]);
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const help = useId();
@@ -115,9 +123,7 @@ export function PriceBandChart({
     const low = Math.max(0, span.low - padding);
     const high = span.high + padding;
 
-    const keys = [...new Set([...baseline, ...ours].map((bucket) => bucket.key))].sort((a, b) =>
-      a.localeCompare(b),
-    );
+    const keys = [...new Set([...baseline, ...ours].map((bucket) => bucket.key))].sort(axis.order);
     const inner = {
       width: VIEW.width - VIEW.pad.left - VIEW.pad.right,
       height: VIEW.height - VIEW.pad.top - VIEW.pad.bottom,
@@ -135,22 +141,44 @@ export function PriceBandChart({
       return low + Math.min(Math.max(ratio, 0), 1) * (high - low);
     };
 
+    /*
+     * A path per run of neighbouring buckets, never one path across the lot.
+     *
+     * A period nobody observed is a hole in a series, and a single `d` drawn
+     * straight through it claims the fare moved evenly across a stretch we
+     * never looked at. Two subpaths in one `d` leave the hole as a hole, which
+     * is the honest drawing and the one the lead-time axis needs — our own
+     * archive reaches 31 of that axis's 91 buckets, so most of it is a period
+     * we have no figure for.
+     */
     const line = (series: Bucket[], pick: (bucket: Bucket) => number) =>
-      series
-        .map(
-          (bucket, index) =>
-            `${index ? 'L' : 'M'}${x(bucket.key).toFixed(1)},${y(pick(bucket)).toFixed(1)}`,
+      contiguousRuns(keys, series)
+        .map((run) =>
+          run
+            .map(
+              (bucket, index) =>
+                `${index ? 'L' : 'M'}${x(bucket.key).toFixed(1)},${y(pick(bucket)).toFixed(1)}`,
+            )
+            .join(''),
         )
         .join('');
 
-    const band =
-      ours.length > 1
-        ? `${line(ours, (bucket) => bucket.high)}${ours
+    const band = contiguousRuns(keys, ours)
+      .filter((run) => run.length > 1)
+      .map(
+        (run) =>
+          `${run
+            .map(
+              (bucket, index) =>
+                `${index ? 'L' : 'M'}${x(bucket.key).toFixed(1)},${y(bucket.high).toFixed(1)}`,
+            )
+            .join('')}${run
             .slice()
             .reverse()
             .map((bucket) => `L${x(bucket.key).toFixed(1)},${y(bucket.low).toFixed(1)}`)
-            .join('')}Z`
-        : '';
+            .join('')}Z`,
+      )
+      .join('');
 
     const ticks = [low, (low + high) / 2, high];
     return {
@@ -166,7 +194,7 @@ export function PriceBandChart({
       baseline: line(baseline, (b) => b.middle),
       ticks,
     };
-  }, [span, ours, baseline]);
+  }, [span, ours, baseline, axis]);
 
   /*
    * The crosshair, resolved against the geometry that exists right now.
@@ -182,9 +210,7 @@ export function PriceBandChart({
       ? cursor.index
       : null;
   const reading =
-    geometry && active !== null
-      ? readingAt(geometry.keys[active], ours, baseline, granularity)
-      : null;
+    geometry && active !== null ? readingAt(geometry.keys[active], ours, baseline, axis) : null;
 
   if (!geometry) {
     return (
@@ -195,7 +221,7 @@ export function PriceBandChart({
     );
   }
 
-  const unit = granularity === 'day' ? 'day' : granularity === 'week' ? 'week' : 'month';
+  const unit = axis.unit.one;
 
   const hairX = active === null ? 0 : geometry.positions[active];
   // A keyboard reader has no pointer height, so the horizontal hairline sits on
@@ -250,7 +276,7 @@ export function PriceBandChart({
         viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
         role="img"
         tabIndex={0}
-        aria-label={`${label}. ${ours.length} ${unit}${ours.length === 1 ? '' : 's'} observed, from ${formatMoney(geometry.low, currency)} to ${formatMoney(geometry.high, currency)}.`}
+        aria-label={`${label}. ${ours.length} ${ours.length === 1 ? axis.unit.one : axis.unit.many} observed, from ${formatMoney(geometry.low, currency)} to ${formatMoney(geometry.high, currency)}.`}
         aria-describedby={`${help} ${status}`}
         onPointerMove={trackPointer}
         onPointerLeave={() => setCursor(null)}
@@ -280,10 +306,20 @@ export function PriceBandChart({
           <path d={geometry.baseline} className={styles.baseline} aria-hidden="true" />
         ) : null}
         {geometry.band ? (
-          <path d={geometry.band} className={styles.band} aria-hidden="true" />
+          <path
+            d={geometry.band}
+            className={styles.band}
+            aria-hidden="true"
+            data-testid="ours-band"
+          />
         ) : null}
         {geometry.ours ? (
-          <path d={geometry.ours} className={styles.middle} aria-hidden="true" />
+          <path
+            d={geometry.ours}
+            className={styles.middle}
+            aria-hidden="true"
+            data-testid="ours-line"
+          />
         ) : null}
 
         {ours.map((bucket) => (
@@ -424,7 +460,7 @@ export function PriceBandChart({
           <i /> Our observations — range and median per {unit}
         </span>
         <span className={styles.keyBaseline}>
-          <i /> What the provider says it usually costs — one rounded figure a day
+          <i /> {axis.baselineLegend}
         </span>
       </figcaption>
     </figure>

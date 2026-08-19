@@ -64,8 +64,17 @@ export type FareInsights = {
  * Rounded to the whole unit and cheapest-only, with no airline and no
  * departure time — so it belongs behind our own series as context, never on
  * the same line as it.
+ *
+ * `flightDate` is which departure the figure priced. A watched month brings
+ * back one of these series per day of it, so `date` alone is not a key: the
+ * same observation date arrives thirty-one times with thirty-one prices. The
+ * pair is also the only thing a lead-time axis can be drawn from — the whole
+ * days between the two are how far ahead of the flight that price was seen.
  */
 export type FarePricePoint = {
+  /** `YYYY-MM-DD`. The departure this figure priced. */
+  flightDate: string;
+  /** `YYYY-MM-DD`. When it was priced. */
   date: string;
   price: number;
 };

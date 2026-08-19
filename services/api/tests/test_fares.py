@@ -739,3 +739,31 @@ def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_p
 
     ninth = client.get("/api/fares/history?origin=LIM&destination=SCL&departure=2027-03-09")
     assert [point["price"] for point in ninth.json()["baseline"]] == [210.0]
+
+
+def test_a_baseline_figure_says_which_departure_it_priced(monkeypatch, tmp_path):
+    """
+    12.171. A watched month brings back one of these series per departure, so
+    the same observation date arrives thirty-one times with thirty-one prices.
+    Without the departure beside it the client cannot tell those rows apart —
+    and cannot work out how far ahead of the flight any of them was quoted,
+    which is the whole of what a lead-time axis is drawn on.
+    """
+    from app.adapters.fares.models import PricePoint
+
+    history = FareHistory(tmp_path)
+    for departure, price in (("2027-03-09", 210.0), ("2027-03-10", 240.0)):
+        history.merge_baseline(
+            "LIM", "SCL", departure, [PricePoint("2026-08-18", price)], source="s", currency="USD"
+        )
+    monkeypatch.setattr(fares_router, "HISTORY", history)
+
+    baseline = (
+        TestClient(app)
+        .get("/api/fares/history?origin=LIM&destination=SCL&departure=2027-03")
+        .json()["baseline"]
+    )
+    assert [(point["flightDate"], point["date"]) for point in baseline] == [
+        ("2027-03-09", "2026-08-18"),
+        ("2027-03-10", "2026-08-18"),
+    ]

@@ -1,9 +1,4 @@
-import {
-  boundsLabel,
-  periodBounds,
-  type Bucket,
-  type Granularity,
-} from '@/features/airfare/lib/buckets';
+import type { Bucket, BucketAxis } from '@/features/airfare/lib/buckets';
 import { NO_VALUE, formatMoney } from '@/shared/lib/money';
 
 /**
@@ -45,9 +40,9 @@ export function nearestBucket(positions: number[], x: number): number | null {
 /** Everything the chart is drawing at one period, as one object to render. */
 export type CrosshairReading = {
   key: string;
-  /** The short form the axis uses — `08-18`, `2026 wk 34`, `2026-08`. */
+  /** The short form the axis uses — `08-18`, `2026 wk 34`, `189–195d ahead`. */
   label: string;
-  /** The same period spelled out with both its boundaries. */
+  /** The same period spelled out — both its clocks, or both its lead days. */
   period: string;
   /** Our own band and its middle, or null where only the provider has a figure. */
   ours: { low: number; high: number; middle: number; count: number } | null;
@@ -63,13 +58,20 @@ export type CrosshairReading = {
  * history and our own archive starts the day a route was added, so index 3 of
  * one is not index 3 of the other. A period drawn from only one of them is a
  * real period and gets a reading with the other half null — that is the case
- * the reader most wants named, not hidden.
+ * the reader most wants named, not hidden. On the lead-time axis that is the
+ * common case rather than the edge: 60 of that axis's 91 buckets are lead
+ * times our own collector has never reached, and every one of them has to read
+ * as "not observed" rather than borrow the figure drawn beside it.
+ *
+ * The period is spelled by the axis rather than by `periodBounds` — 12.170.
+ * A lead-time key names whole days before departure and has no clocks to
+ * state, and a chart that assumed a calendar here would caption it with one.
  */
 export function readingAt(
   key: string,
   ours: Bucket[],
   baseline: Bucket[],
-  granularity: Granularity,
+  axis: BucketAxis,
 ): CrosshairReading | null {
   const mine = ours.find((bucket) => bucket.key === key) ?? null;
   const theirs = baseline.find((bucket) => bucket.key === key) ?? null;
@@ -78,7 +80,7 @@ export function readingAt(
   return {
     key,
     label: mine?.label ?? theirs?.label ?? key,
-    period: boundsLabel(periodBounds(key, granularity)),
+    period: axis.spell(key),
     ours:
       mine === null
         ? null

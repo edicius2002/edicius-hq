@@ -101,8 +101,20 @@ class SnapshotModel(BaseModel):
 
 
 class PricePointModel(BaseModel):
-    """One day of the provider's own history. Rounded, cheapest only."""
+    """
+    One day of the provider's own history. Rounded, cheapest only.
 
+    `flightDate` is the departure the figure was quoted for — 12.171. A watched
+    month brings back thirty-one of these series at once, and without it the
+    client holds 1,914 rows it cannot separate: the same observation date
+    appears once per departure, so `date` alone is not a key and the difference
+    the client actually wants — how far ahead of departure the price was seen —
+    is not computable at all.
+    """
+
+    #: `YYYY-MM-DD`. Which departure this figure priced.
+    flightDate: str
+    #: `YYYY-MM-DD`. When it was priced.
     date: str
     price: float
 
@@ -349,7 +361,7 @@ def get_history(
         destination=destination,
         snapshots=[_snapshot_model(snapshot) for snapshot in snapshots],
         baseline=[
-            PricePointModel(date=point.date, price=point.price)
+            PricePointModel(flightDate=point.flight_date, date=point.date, price=point.price)
             for point in HISTORY.read_baseline(origin, destination, departure)
         ],
         airports=[

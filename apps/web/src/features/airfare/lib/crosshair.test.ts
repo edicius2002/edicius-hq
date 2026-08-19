@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Bucket } from '@/features/airfare/lib/buckets';
+import { calendarAxis, type Bucket } from '@/features/airfare/lib/buckets';
 import {
   TAG_CHAR_WIDTH,
   TAG_PADDING,
@@ -62,7 +62,7 @@ describe('readingAt', () => {
   const baseline = [bucket('2026-08-16', 90, 90, 90, 1), bucket('2026-08-18', 96, 96, 96, 1)];
 
   it('reports both series at one period, and says which whole day it is', () => {
-    expect(readingAt('2026-08-18', ours, baseline, 'day')).toEqual({
+    expect(readingAt('2026-08-18', ours, baseline, calendarAxis('day'))).toEqual({
       key: '2026-08-18',
       label: '08-18',
       period: 'on 18/08/2026, 00:00 to 23:59',
@@ -76,24 +76,24 @@ describe('readingAt', () => {
     // day the route was added, so index 0 of one is not index 0 of the other.
     // Read by position, this period would borrow the provider's 16 August
     // figure and attach it to the 17th.
-    const reading = readingAt('2026-08-17', ours, baseline, 'day');
+    const reading = readingAt('2026-08-17', ours, baseline, calendarAxis('day'));
     expect(reading?.baseline).toBeNull();
     expect(reading?.ours?.middle).toBe(125);
   });
 
   it('still reports a period only the provider reached', () => {
-    const reading = readingAt('2026-08-16', ours, baseline, 'day');
+    const reading = readingAt('2026-08-16', ours, baseline, calendarAxis('day'));
     expect(reading?.ours).toBeNull();
     expect(reading?.baseline).toBe(90);
   });
 
   it('has nothing to say about a period neither series drew', () => {
-    expect(readingAt('2026-08-19', ours, baseline, 'day')).toBeNull();
+    expect(readingAt('2026-08-19', ours, baseline, calendarAxis('day'))).toBeNull();
   });
 
   it('spells a week out as its Monday to its Sunday, the same rule the table uses', () => {
     const week = [{ ...bucket('2026-W34', 118, 160, 132, 5), label: '2026 wk 34' }];
-    expect(readingAt('2026-W34', week, [], 'week')?.period).toBe(
+    expect(readingAt('2026-W34', week, [], calendarAxis('week'))?.period).toBe(
       'between 17/08/2026 00:00 and 23/08/2026 23:59',
     );
   });
@@ -105,7 +105,7 @@ describe('readingSentence', () => {
       '2026-08-18',
       [bucket('2026-08-18', 130, 160, 139, 2)],
       [bucket('2026-08-18', 96, 96, 96, 1)],
-      'day',
+      calendarAxis('day'),
     );
     expect(readingSentence(reading!, 'USD')).toBe(
       '08-18, on 18/08/2026, 00:00 to 23:59. $130.00 to $160.00, median $139.00, across 2 observations. provider baseline $96.00.',
@@ -116,13 +116,23 @@ describe('readingSentence', () => {
     // A period the provider's sixty days never reached is a fact about the
     // baseline, and a sentence that simply stopped would read as though the
     // two series agreed.
-    const reading = readingAt('2026-08-18', [bucket('2026-08-18', 130, 160, 139, 1)], [], 'day');
+    const reading = readingAt(
+      '2026-08-18',
+      [bucket('2026-08-18', 130, 160, 139, 1)],
+      [],
+      calendarAxis('day'),
+    );
     expect(readingSentence(reading!, 'USD')).toContain('provider baseline —.');
     expect(readingSentence(reading!, 'USD')).toContain('across 1 observation.');
   });
 
   it('says so when only the provider has a figure for the period', () => {
-    const reading = readingAt('2026-08-18', [], [bucket('2026-08-18', 96, 96, 96, 1)], 'day');
+    const reading = readingAt(
+      '2026-08-18',
+      [],
+      [bucket('2026-08-18', 96, 96, 96, 1)],
+      calendarAxis('day'),
+    );
     expect(readingSentence(reading!, 'USD')).toContain('nothing of our own observed');
   });
 });

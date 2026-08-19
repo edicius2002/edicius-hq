@@ -32,6 +32,16 @@ export type Subdivisions = {
   country: string;
   /** Every internal boundary once, as a `MultiLineString` a `geoPath` can stroke. */
   borders: { type: 'MultiLineString'; coordinates: LngLat[][] } | null;
+  /**
+   * The country itself at 1:10m, for the fill and the coastline both.
+   *
+   * The bundled atlas is 1:110m, whose median segment is 63 km — fifteen
+   * pixels at 8x and sixty-one at 32x, which is a straight run where there
+   * should be a coast. This is the same shape at the resolution the borders
+   * inside it already have, and it is one geometry rather than two because a
+   * fill and an outline that disagree are worse than either.
+   */
+  land: { type: 'MultiPolygon'; coordinates: LngLat[][][] } | null;
   labels: SubdivisionLabel[];
 };
 
@@ -55,25 +65,37 @@ export function readSubdivisions(response: SubdivisionsResponse | null): Subdivi
   }
 
   let borders: Subdivisions['borders'] = null;
+  let land: Subdivisions['land'] = null;
   try {
-    const topology = response.borders as { objects?: { borders?: unknown } } | undefined;
-    if (topology?.objects?.borders) {
-      const converted = feature(
-        topology as never,
-        topology.objects.borders as never,
-      ) as unknown as {
-        geometry?: { type: string; coordinates: LngLat[][] };
-      };
-      if (converted.geometry?.type === 'MultiLineString' && converted.geometry.coordinates.length) {
-        borders = { type: 'MultiLineString', coordinates: converted.geometry.coordinates };
-      }
+    const topology = response.borders as
+      { objects?: { borders?: unknown; land?: unknown } } | undefined;
+    const read = (name: 'borders' | 'land') => {
+      const object = topology?.objects?.[name];
+      if (!object) return null;
+      return (feature(topology as never, object as never) as unknown as { geometry?: unknown })
+        .geometry as { type: string; coordinates: unknown } | undefined;
+    };
+
+    const line = read('borders');
+    if (line?.type === 'MultiLineString' && (line.coordinates as LngLat[][]).length) {
+      borders = { type: 'MultiLineString', coordinates: line.coordinates as LngLat[][] };
+    }
+
+    const area = read('land');
+    // `mergeArcs` yields a Polygon when a country is one piece and a
+    // MultiPolygon when it is not, and the map only wants to know one shape.
+    if (area?.type === 'MultiPolygon' && (area.coordinates as LngLat[][][]).length) {
+      land = { type: 'MultiPolygon', coordinates: area.coordinates as LngLat[][][] };
+    } else if (area?.type === 'Polygon' && (area.coordinates as LngLat[][]).length) {
+      land = { type: 'MultiPolygon', coordinates: [area.coordinates as LngLat[][]] };
     }
   } catch {
     // A file that will not convert is a build that went wrong, and the map is
     // not the place to find that out. `test_geography.py` is.
     borders = null;
+    land = null;
   }
 
-  if (!borders && labels.length === 0) return null;
-  return { country: response.country, borders, labels };
+  if (!borders && !land && labels.length === 0) return null;
+  return { country: response.country, borders, land, labels };
 }

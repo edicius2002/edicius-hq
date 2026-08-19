@@ -38,11 +38,12 @@ class SubdivisionLabelModel(BaseModel):
 
 class SubdivisionsResponse(BaseModel):
     country: str
-    #: TopoJSON, and deliberately not modelled further. A topology is arcs,
-    #: transforms and index arrays; a Pydantic mirror of it would restate the
-    #: format's own specification, cost a full re-validation of 170 kB on every
-    #: request, and check nothing the client is not already trusting the
-    #: geometry for.
+    #: TopoJSON with two objects over one set of arcs: `borders`, the
+    #: boundaries between two subdivisions, and `land`, the country itself.
+    #: Deliberately not modelled further — a topology is arcs, transforms and
+    #: index arrays, and a Pydantic mirror of it would restate the format's own
+    #: specification, cost a full re-validation of 600 kB on every request, and
+    #: check nothing the client is not already trusting the geometry for.
     borders: dict[str, Any]
     labels: list[SubdivisionLabelModel] = Field(default_factory=list)
 

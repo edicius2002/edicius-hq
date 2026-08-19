@@ -18,12 +18,22 @@ const PERU: SubdivisionsResponse = {
   country: '604',
   borders: {
     type: 'Topology',
-    objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+    objects: {
+      borders: { type: 'MultiLineString', arcs: [[0]] },
+      land: { type: 'MultiPolygon', arcs: [[[1]]] },
+    },
     arcs: [
       [
         [-76, -6],
         [-74, -8],
         [-73, -11],
+      ],
+      [
+        [-81, -2],
+        [-69, -2],
+        [-69, -18],
+        [-81, -18],
+        [-81, -2],
       ],
     ],
   },
@@ -61,6 +71,37 @@ describe('readSubdivisions', () => {
       { name: 'Loreto', at: [-74.4242, -4.0942], area: 0.0092493 },
       { name: 'Cusco', at: [-72.1831, -13.1676], area: 0.0018352 },
     ]);
+  });
+
+  it('reads the country outline that comes with the borders', () => {
+    /*
+     * The bundled atlas is 1:110m, whose median segment is 63 km — sixty-one
+     * pixels at the 32x ceiling, which is a straight run where a coast should
+     * be. This is the same country at the resolution its own provincial
+     * borders already have, and it arrives in the same file for that reason:
+     * a coast and the borders inside it that came from different sources would
+     * not meet.
+     */
+    const read = readSubdivisions(PERU);
+    expect(read?.land?.type).toBe('MultiPolygon');
+    expect(read?.land?.coordinates[0][0]).toHaveLength(5);
+  });
+
+  it('takes a one-piece country as a MultiPolygon anyway', () => {
+    // `mergeArcs` yields a Polygon for a country that is a single piece and a
+    // MultiPolygon for one that is not, and the map wants one shape of thing.
+    const read = readSubdivisions({
+      ...PERU,
+      borders: {
+        ...(PERU.borders as object),
+        objects: {
+          borders: { type: 'MultiLineString', arcs: [[0]] },
+          land: { type: 'Polygon', arcs: [[1]] },
+        },
+      },
+    });
+    expect(read?.land?.type).toBe('MultiPolygon');
+    expect(read?.land?.coordinates).toHaveLength(1);
   });
 
   it('has nothing to draw for a country that has no subdivisions', () => {

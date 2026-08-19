@@ -486,12 +486,16 @@ describe('RouteMap', () => {
    * Six notches of wheel over the middle of the frame, and then long enough
    * for the map to settle and ask.
    *
-   * The wheel rather than the keyboard because it moves further per event:
-   * each notch applies one easing step the instant it arrives, so two of them
-   * already have the target at the 8x ceiling and the scale past the crossover
-   * without waiting on a frame — which jsdom does not promise. Over the
-   * middle, so the zoom anchors on the point the globe is already turned to
-   * and Peru stays under it.
+   * Five notches of a size that puts the *target* near 7.4x, rather than two
+   * big ones that would peg it at the 32x ceiling. Both would clear the 4.6x
+   * crossover, but the ceiling is not where these tests want to be: at 32x a
+   * 540px frame spans four degrees, so Peru's own centroid and half its
+   * departments fall outside it, and a name that is culled for being off the
+   * frame looks exactly like a name that was refused for want of room.
+   *
+   * The wheel rather than the keyboard because it moves further per event, and
+   * over the middle, so the zoom anchors on the point the globe is already
+   * turned to and Peru stays under it.
    *
    * Two `act` blocks, not one. Dispatching the events and then awaiting a
    * timer inside the *same* async act leaves the wheel handler's work
@@ -501,7 +505,7 @@ describe('RouteMap', () => {
    */
   async function closeInOnPeru(stage: HTMLElement) {
     await act(async () => {
-      for (let notch = 0; notch < 6; notch += 1) wheel(stage, -1000, [480, 270]);
+      for (let notch = 0; notch < 5; notch += 1) wheel(stage, -200, [480, 270]);
     });
     // Past the 320ms the wheel holds the map "moving" and the 250ms it then
     // has to sit still before it asks.
@@ -832,6 +836,42 @@ describe('RouteMap', () => {
     expect(grew).toBeGreaterThan(1.05);
     // Nowhere near the 1.49 the notch asked for.
     expect(grew).toBeLessThan(1.2);
+  });
+
+  it('goes further in than the old ceiling let it', async () => {
+    /*
+     * The ceiling moved from 8x to 32x, and the check is arithmetic rather
+     * than a peek at the constant. jsdom measures the stage at 960x540, so the
+     * globe's radius is `0.42 x 540 x zoom`, and Lima and Cusco — 570 km apart,
+     * 0.0895 radians — are 162px apart at the old 8x ceiling. Any wider than
+     * that is a scale the map could not previously reach at all.
+     *
+     * **Six moderate notches, not two hard ones, and no frame is waited for.**
+     * Each wheel event applies one easing step the instant it arrives — 20.5%
+     * of the distance to the target — so the scale a gesture reaches without a
+     * single frame having run is entirely determined by how the *target*
+     * climbs. Two notches of -1000 peg the target at 32 immediately, and
+     * `aimZoom` then refuses every further notch because the target has not
+     * moved, which leaves the scale at 8.4 and this test one pixel from
+     * failing. Six notches of -300 walk the target up instead and put the
+     * scale at about 12.5 on the events alone. That distinction is not
+     * academic: written the first way this passed on its own and failed in a
+     * full run, because jsdom had no spare frames under load.
+     */
+    const { container } = renderMap({ routes: [LIM_CUZ] });
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    const spread = () => {
+      const xs = [...container.querySelectorAll('circle')].map((dot) =>
+        Number(dot.getAttribute('cx')),
+      );
+      return Math.max(...xs) - Math.min(...xs);
+    };
+
+    await act(async () => {
+      for (let notch = 0; notch < 6; notch += 1) wheel(stage, -300, [480, 270]);
+    });
+
+    expect(spread()).toBeGreaterThan(200);
   });
 
   it('zooms by how hard the wheel was turned, not once per event', async () => {

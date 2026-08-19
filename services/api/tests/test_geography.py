@@ -9,6 +9,10 @@ on them. A three-shape fixture would never have caught a build that quietly
 wrote 167 empty files.
 """
 
+import itertools
+import math
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -74,6 +78,54 @@ def test_the_biggest_subdivision_is_offered_first():
     assert areas == sorted(areas, reverse=True)
 
 
+def test_every_country_also_ships_its_own_outline_at_the_same_resolution():
+    """
+    The bundled atlas is 1:110m, whose median segment is 63 km — sixty-one
+    pixels at the map's 32x ceiling, which reads as a straight line where a
+    coast should be. So a country's own outline is served with the borders
+    inside it, dissolved out of the same units, which is what guarantees the
+    coast and the provincial borders meet: taken from `countries-50m` instead
+    they would not, and every coastal province would hang off the edge of its
+    own country.
+    """
+    for country in (PERU, CHILE, SPAIN, UNITED_STATES, JAPAN):
+        objects = get(country).json()["borders"]["objects"]
+        assert objects["land"]["type"] in ("MultiPolygon", "Polygon"), country
+        assert objects["land"]["arcs"], country
+
+
+def test_the_outline_covers_the_whole_country_and_not_just_its_mainland():
+    # Chile runs from 17 degrees south to past 55, and an outline that stopped
+    # at the mainland would drop Tierra del Fuego and the Juan Fernandez
+    # islands - which are exactly the pieces the coarse atlas already loses.
+    _, south, _, north = get(CHILE).json()["borders"]["bbox"]
+    assert south < -54
+    assert north > -18
+
+
+def test_the_outline_and_the_borders_share_one_set_of_arcs():
+    """
+    One topology, not two. It halves what the coast costs where a provincial
+    border runs down to it, and more to the point it is what makes the two
+    meet exactly rather than nearly.
+    """
+    body = get(PERU).json()["borders"]
+    used = set()
+
+    def walk(arcs):
+        if arcs and isinstance(arcs[0], int):
+            used.update(index if index >= 0 else ~index for index in arcs)
+        else:
+            for nested in arcs:
+                walk(nested)
+
+    for obj in body["objects"].values():
+        walk(obj["arcs"])
+    # Every arc in the file is reached by one of the two objects: the build
+    # prunes the rest, which for Chile was 93% of them.
+    assert used == set(range(len(body["arcs"])))
+
+
 def test_only_the_borders_between_two_subdivisions_are_shipped():
     """
     The coastline is already on screen, drawn from the bundled 1:110m outlines,
@@ -90,6 +142,71 @@ def test_only_the_borders_between_two_subdivisions_are_shipped():
 
 
 # ------------------------------------------------------------- the fallback --
+
+
+def _decode(topology) -> list[list[list[float]]]:
+    """TopoJSON delta-encoded arcs, back to longitude and latitude."""
+    scale_x, scale_y = topology["transform"]["scale"]
+    shift_x, shift_y = topology["transform"]["translate"]
+    arcs = []
+    for arc in topology["arcs"]:
+        x = y = 0
+        points = []
+        for dx, dy in arc:
+            x += dx
+            y += dy
+            points.append([x * scale_x + shift_x, y * scale_y + shift_y])
+        arcs.append(points)
+    return arcs
+
+
+def _segments_km(topology) -> list[float]:
+    lengths = []
+    for arc in _decode(topology):
+        for (lon1, lat1), (lon2, lat2) in itertools.pairwise(arc):
+            phi1, phi2 = math.radians(lat1), math.radians(lat2)
+            haversine = (
+                math.sin((phi2 - phi1) / 2) ** 2
+                + math.cos(phi1) * math.cos(phi2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+            )
+            km = 2 * math.asin(min(1.0, math.sqrt(haversine))) * 6371
+            if km > 0:
+                lengths.append(km)
+    return sorted(lengths)
+
+
+# The map's zoom stops at 32x on a stage at least 460px on its short side, so
+# the globe's radius never passes 0.42 x 460 x 32 = 6182px and one pixel is
+# 6371 / 6182 km of ground.
+KM_PER_PIXEL_AT_FULL_ZOOM = 6371 / (0.42 * 460 * 32)
+
+
+@pytest.mark.parametrize("country", [PERU, CHILE, SPAIN, UNITED_STATES, JAPAN])
+def test_the_geometry_is_cut_fine_enough_for_the_zoom_the_map_allows(country):
+    """
+    The data and the zoom ceiling have to be regenerated together, and this is
+    what says so if they are not.
+
+    A vertex spacing of a few pixels is a visibly faceted coastline. The
+    threshold this ships at leaves the median segment at 1.5-2.2 km against
+    1.03 km to the pixel; the 1e-8 it was cut at when zoom stopped at 8x gives
+    about 3.3 km, which is three pixels and plainly polygonal. Three is the
+    line: past it, somebody has rebuilt coarser than the map can now show.
+    """
+    segments = _segments_km(get(country).json()["borders"])
+    median = segments[len(segments) // 2]
+    assert median / KM_PER_PIXEL_AT_FULL_ZOOM < 3.0, f"{country}: {median:.2f} km a segment"
+
+
+def test_the_source_is_the_floor_and_the_data_sits_just_above_it():
+    """
+    Not cut finer than the source can carry, either. Raw 1:10m Natural Earth
+    measures 2.61 km to a segment on average and 1.62 km at the median, so a
+    file whose median came out far under a kilometre would mean the build had
+    started inventing vertices rather than keeping them.
+    """
+    segments = _segments_km(get(PERU).json()["borders"])
+    assert 0.5 < segments[len(segments) // 2] < 4.0
 
 
 def test_a_country_natural_earth_does_not_divide_answers_404():

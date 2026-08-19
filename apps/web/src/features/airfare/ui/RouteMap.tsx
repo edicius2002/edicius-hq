@@ -12,7 +12,7 @@ import {
   type LngLat,
   type RouteGeometry,
 } from '@/features/airfare/lib/geo';
-import { COUNTRIES, countryAt } from '@/features/airfare/lib/countries';
+import { COUNTRIES, countryAt, outlineOf } from '@/features/airfare/lib/countries';
 import {
   type Boxed,
   CONTINENTS,
@@ -102,7 +102,17 @@ const BOUNDARIES = mesh(
   (worldAtlas as never as { objects: { countries: never } }).objects.countries,
 );
 
-const ZOOM = { min: 1, max: 8 };
+/**
+ * How far in the map goes.
+ *
+ * 32x, not the 8x it was. The stage is at least 460px on its short side and
+ * the globe's radius is `0.42 x 460 x zoom`, so the short side spans 1,896 km
+ * at 8x and 474 km at 32x, and the ground under one pixel goes from 4.12 km to
+ * 1.03 km. Both geometry layers were re-cut to meet it — decision 12.131 for
+ * the served outlines, and 12.130 for what the bundled 1:110m base can no
+ * longer be asked to do on its own.
+ */
+const ZOOM = { min: 1, max: 32 };
 
 /**
  * How much one notch of wheel changes the scale.
@@ -183,6 +193,48 @@ export function RouteMap({
    */
   const [focus, setFocus] = useState<string | null>(null);
   const { data: subdivisions } = useSubdivisions(focus);
+
+  /**
+   * The coarse shape the finer one replaces, and everything that touches it.
+   *
+   * Both come off the bundled atlas and neither changes while the reader stays
+   * over the same country, so this is worked out when the focus moves and not
+   * once a frame — the neighbour search walks all 177 bounding boxes, which is
+   * nothing once and real work sixty times a second.
+   */
+  /*
+   * Which country is actually being redrawn, which is not the same as which
+   * one the reader is over. A country Natural Earth does not divide resolves
+   * to `null` and must keep every bit of its coarse self — its borders in the
+   * mesh and its outline in the fill. Keying off the response rather than off
+   * the focus is what makes the fallback silent here too.
+   */
+  const swapped = subdivisions?.land ? subdivisions.country : null;
+
+  const coarse = useMemo(() => (swapped ? outlineOf(swapped) : null), [swapped]);
+
+  /**
+   * Every national border except the swapped country's own.
+   *
+   * A mesh again, for 12.50's reason, but built without the edges that touch
+   * the country being redrawn — those are stroked from the finer outline
+   * instead. Dropping them is what keeps a shared border from being painted
+   * twice at two resolutions, which would read as a doubled line wherever the
+   * two generalizations part company, and they part company by a median of
+   * 1.5 to 5.2 km.
+   *
+   * Recomputed only when the focus moves. It walks the whole 1:110m topology,
+   * which is a few milliseconds once and unaffordable per frame.
+   */
+  const boundaries = useMemo(() => {
+    if (!swapped) return BOUNDARIES;
+    return mesh(
+      worldAtlas as never,
+      (worldAtlas as never as { objects: { countries: never } }).objects.countries,
+      (left: { id?: string | number }, right: { id?: string | number }) =>
+        String(left.id) !== swapped && String(right.id) !== swapped,
+    );
+  }, [swapped]);
 
   const arcs = useMemo(
     () => routes.map((route) => ({ route, line: greatCircle(route.from, route.to) })),
@@ -267,11 +319,47 @@ export function RouteMap({
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, rect.width, rect.height);
 
+    /**
+     * The water, painted the same way wherever it is asked for.
+     *
+     * Its own function because it is needed twice: once as the ground
+     * everything sits on, and again inside the clip that lifts a country's
+     * coarse outline off the map before its finer one goes down. Both calls
+     * build the gradient from the same projection coordinates, so the second
+     * one lands exactly on top of the first and the seam is invisible.
+     */
+    const paintWater = () => {
+      if (projection === 'globe') {
+        const [cx, cy] = projections.current.globe.translate();
+        const radius = projections.current.globe.scale();
+        const face = context.createRadialGradient(
+          cx - radius * 0.35,
+          cy - radius * 0.4,
+          radius * 0.1,
+          cx,
+          cy,
+          radius,
+        );
+        face.addColorStop(0, readToken(stage, '--map-ocean-lit'));
+        face.addColorStop(1, readToken(stage, '--map-ocean'));
+        context.fillStyle = face;
+        context.beginPath();
+        context.arc(cx, cy, radius, 0, Math.PI * 2);
+        context.fill();
+        return;
+      }
+      context.beginPath();
+      path({ type: 'Sphere' });
+      context.fillStyle = readToken(stage, '--map-ocean');
+      context.fill();
+    };
+
     if (projection === 'globe') {
       const [cx, cy] = projections.current.globe.translate();
       const radius = projections.current.globe.scale();
       // The halo just outside the limb is most of what makes a flat disc read
-      // as a sphere, and it costs one gradient.
+      // as a sphere, and it costs one gradient. Outside the globe, so it is
+      // not part of `paintWater` and never repainted inside a country.
       const halo = context.createRadialGradient(cx, cy, radius * 0.96, cx, cy, radius * 1.16);
       halo.addColorStop(0, readToken(stage, '--map-halo'));
       halo.addColorStop(1, 'transparent');
@@ -279,27 +367,8 @@ export function RouteMap({
       context.beginPath();
       context.arc(cx, cy, radius * 1.16, 0, Math.PI * 2);
       context.fill();
-
-      const face = context.createRadialGradient(
-        cx - radius * 0.35,
-        cy - radius * 0.4,
-        radius * 0.1,
-        cx,
-        cy,
-        radius,
-      );
-      face.addColorStop(0, readToken(stage, '--map-ocean-lit'));
-      face.addColorStop(1, readToken(stage, '--map-ocean'));
-      context.fillStyle = face;
-      context.beginPath();
-      context.arc(cx, cy, radius, 0, Math.PI * 2);
-      context.fill();
-    } else {
-      context.beginPath();
-      path({ type: 'Sphere' });
-      context.fillStyle = readToken(stage, '--map-ocean');
-      context.fill();
     }
+    paintWater();
 
     /*
      * Land as one flat mass, then every boundary once on top — mapcn's own
@@ -309,10 +378,53 @@ export function RouteMap({
      * place names it was the busiest thing on screen and the only one carrying
      * nothing.
      */
+    const land = readToken(stage, '--map-land');
     context.beginPath();
     path(WORLD);
-    context.fillStyle = readToken(stage, '--map-land');
+    context.fillStyle = land;
     context.fill();
+
+    /*
+     * One country, redrawn from the finer outline the API served for it.
+     *
+     * The bundled 1:110m base has a median segment of 63 km. That is fifteen
+     * pixels at 8x, where it read as a coastline; at 32x it is sixty-one, and
+     * a coast becomes a run of long straight lines. So the country the reader
+     * has closed in on is redrawn at 1:10m — the same resolution as the
+     * subdivision borders inside it, from the same file, which is what stops
+     * the two disagreeing at the shore.
+     *
+     * Two resolutions cannot simply be laid over one another. Measured, the
+     * coarse and fine outlines of these countries sit a median of 1.5 to 5.2
+     * km apart and up to 31 km at the worst vertex, so painting the fine shape
+     * on top would leave the coarse one showing past it into the sea, and
+     * painting it *instead* would open a strip of ocean along every frontier
+     * where the neighbour's own coarse border had been generalised inland.
+     * Hence the three steps, inside a clip of the coarse shape: put the water
+     * back, lay the fine country down, then paint the neighbours' coarse land
+     * back over whatever the fine country does not claim. Nothing outside the
+     * coarse outline is touched, so the rest of the map is exactly as it was.
+     */
+    const swap = coarse ? subdivisions : null;
+    if (swap?.land && coarse) {
+      context.save();
+      context.beginPath();
+      path(coarse.shape as never);
+      context.clip();
+
+      paintWater();
+
+      context.beginPath();
+      path(swap.land);
+      context.fillStyle = land;
+      context.fill();
+
+      context.beginPath();
+      for (const neighbour of coarse.neighbours) path(neighbour as never);
+      context.fillStyle = land;
+      context.fill();
+      context.restore();
+    }
 
     /*
      * The subdivisions of the one country the reader has closed in on, under
@@ -347,8 +459,12 @@ export function RouteMap({
       context.restore();
     }
 
-    context.beginPath();
-    path(BOUNDARIES);
+    /*
+     * Every national border once — minus the swapped country's own, which is
+     * stroked from the finer outline instead. `boundaries` is the coarse mesh
+     * with every edge touching that country filtered out, so the line is drawn
+     * exactly once either way and never twice at two different resolutions.
+     */
     context.strokeStyle = readToken(stage, '--map-border');
     /*
      * Borders hold their weight as the globe grows, up to a point: a hairline
@@ -358,8 +474,11 @@ export function RouteMap({
      */
     context.lineWidth = Math.min(1.7, 0.85 + zoom.current * 0.18);
     context.lineJoin = 'round';
+    context.beginPath();
+    path(boundaries);
+    if (swap?.land) path(swap.land);
     context.stroke();
-  }, [fit, projection, subdivisions]);
+  }, [fit, projection, subdivisions, coarse, boundaries]);
 
   useEffect(() => {
     draw();

@@ -125,6 +125,53 @@ const BOXED: { shape: CountryShape; bounds: [[number, number], [number, number]]
   (shape) => ({ shape, bounds: geoBounds(shape as never) }),
 );
 
+/**
+ * The bundled outline of one country, and of everything that touches it.
+ *
+ * Both halves are what make it possible to draw one country at a finer
+ * resolution than the map around it. A finer outline does not coincide with
+ * the 1:110m one: measured against the served 1:10m geometry the two sit a
+ * median of 1.5 to 5.2 km apart depending on the country, and up to 31 km at
+ * the worst vertex — five pixels typically at 32x, and thirty at worst. So the
+ * coarse shape is the region that has to be repainted, and the neighbours are
+ * what has to be painted back inside it: without them, every stretch where a
+ * neighbour's own 1:110m border was generalised inland shows as a strip of
+ * ocean running along an international frontier.
+ *
+ * Neighbours by overlapping bounds rather than by shared arcs. It is the same
+ * cheap test `countryAt` uses, a bounding box is the only thing this module
+ * has already computed, and being generous costs nothing — a shape that is
+ * near without touching only paints land that was going to be painted anyway.
+ */
+export function outlineOf(id: string): { shape: object; neighbours: object[] } | null {
+  const found = BOXED.find((each) => each.shape.id !== undefined && String(each.shape.id) === id);
+  if (!found) return null;
+  const neighbours = BOXED.filter(
+    (other) => other !== found && overlaps(found.bounds, other.bounds),
+  ).map((other) => other.shape as object);
+  return { shape: found.shape, neighbours };
+}
+
+function overlaps(
+  one: [[number, number], [number, number]],
+  other: [[number, number], [number, number]],
+): boolean {
+  const [[west, south], [east, north]] = one;
+  const [[otherWest, otherSouth], [otherEast, otherNorth]] = other;
+  if (south > otherNorth || north < otherSouth) return false;
+  // Longitude wraps, and either box may be the one crossing the antimeridian,
+  // so this asks whether *neither* lies wholly to one side of the other rather
+  // than comparing edges directly.
+  const spans = (from: number, to: number, at: number) =>
+    from <= to ? at >= from && at <= to : at >= from || at <= to;
+  return (
+    spans(west, east, otherWest) ||
+    spans(west, east, otherEast) ||
+    spans(otherWest, otherEast, west) ||
+    spans(otherWest, otherEast, east)
+  );
+}
+
 export function countryAt(point: LngLat): PlaceLabel | null {
   const [longitude, latitude] = point;
   for (const { shape, bounds } of BOXED) {

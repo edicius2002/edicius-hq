@@ -13,10 +13,17 @@ The same argument `airport_search` makes for the airport table, one order of
 magnitude further along: reference data that ships with the code, in
 `app/data`, rather than anything the collector accumulates in `.local-data`.
 
-Each file holds the *internal* borders only, already meshed so a border between
-two provinces is one line rather than two, plus a name, a centroid and a solid
-angle per subdivision. `scripts/build-subdivisions.mjs` writes them and carries
-the reasoning for what it throws away.
+Each file holds two geometries over one shared set of arcs — the borders
+*between* two subdivisions, already meshed so a shared one is a single line,
+and the country's own outline dissolved out of the same units — plus a name, a
+centroid and a solid angle per subdivision.
+
+The outline is there because the map's zoom ceiling is 32x, where a pixel is
+1.03 km and the bundled 1:110m atlas has a median segment of 63 km: sixty-one
+pixels, which reads as a straight line where a coast should be. Dissolving the
+admin-1 units is what keeps it honest — a 1:50m coast under 1:10m provincial
+borders would not meet them. `scripts/build-subdivisions.mjs` writes the files
+and carries the rest of the reasoning.
 
 Source: Natural Earth 1:10m Admin 1 - States, Provinces. Public domain, no
 attribution required, verified at naturalearthdata.com/about/terms-of-use on

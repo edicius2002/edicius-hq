@@ -49,7 +49,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { geoArea, geoCentroid } from 'd3-geo';
-import { meshArcs, quantize } from 'topojson-client';
+import { mergeArcs, meshArcs, quantize } from 'topojson-client';
 import { presimplify, simplify, sphericalTriangleArea } from 'topojson-simplify';
 import { topology } from 'topojson-server';
 
@@ -67,29 +67,44 @@ const BASE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/mas
  * How much detail a border keeps, as the area in steradians of the smallest
  * triangle a retained vertex may make with its neighbours.
  *
- * Derived from the tightest view this map allows rather than chosen by eye.
- * Zoom stops at 8x and the stage is at least 460px on its short side, so the
- * globe's radius never exceeds a few thousand pixels: at 0.42 x 460 x 8 that
- * is 1546px, one screen pixel is 1/1546 rad, and a pixel of ground is 4.1 km.
- * At 1e-8 the retained vertices average 4.0 km apart — about a pixel at the
- * closest anyone can get. Halving it to 2e-9 buys 2.8 km spacing, which no
- * view can resolve, and costs 26% more on disk.
+ * Derived from the tightest view this map allows. Zoom stops at 32x (12.130)
+ * and the stage is at least 460px on its short side, so the globe's radius
+ * never exceeds 0.42 x 460 x 32 = 6182px, one screen pixel is 1/6182 rad, and
+ * a pixel of ground is 1.03 km.
  *
- * For scale: the 1:110m national borders these lines sit inside have a median
- * segment of 63 km, so a subdivision border is already fifteen times the
- * detail of the country border around it.
+ * **The source runs out before we do, and that is the finding here.** Measured
+ * over the five report countries with no simplification and no quantization at
+ * all, raw 1:10m Natural Earth has a mean segment of 2.61 km and a median of
+ * 1.62 km — 2.5 and 1.6 pixels at 32x. There is no threshold that reaches one
+ * pixel, because the vertices do not exist. So this is set just above the
+ * floor rather than at a target: 1e-9 leaves the coastline at 2.51 km against
+ * the source's own 2.45 km, 2% coarser for 0.39 MB less on disk, where 1e-8 —
+ * which was right when zoom stopped at 8x — gives 3.28 km, a third worse and
+ * plainly faceted at this scale.
+ *
+ * Internal borders sit at 3.60 km against a source floor of 3.36 km. They read
+ * coarser than the coast and mostly should: a long straight run on the Peru
+ * side of the Amazon, or along a US state line, is a border that genuinely is
+ * straight, not a curve that has been flattened.
  */
-const SIMPLIFY = 1e-8;
+const SIMPLIFY = 1e-9;
 
 /**
- * Coordinates per axis after quantization, across each country's *own* extent.
+ * How coarse a quantization step is allowed to be on the ground, in degrees.
  *
- * Per file rather than worldwide, which is what makes one constant right for
- * both Peru and Russia: 1e4 steps across Peru's 12 degrees of longitude is
- * 130m, and across Russia's 170 degrees it is 1.9 km — in both cases finer
- * than the simplification above has already left the geometry.
+ * `quantize` divides a topology's own bounding box into a fixed number of
+ * steps, so one constant count means one thing for Peru's 12 degrees and quite
+ * another for Russia's 170: at 1e4 steps Peru rounds to 130m and Russia to
+ * 1.9 km, and at 32x that second figure is nearly two pixels of error on top
+ * of geometry that only has 1.6 km of detail to begin with. The step count is
+ * therefore derived per country from its own extent, so what is held constant
+ * is the thing that matters — half a pixel of ground at the closest zoom this
+ * map allows, which at 1.03 km per pixel is about 0.005 degrees.
  */
-const QUANTIZE = 1e4;
+const QUANTIZE_DEGREES = 0.005;
+
+/** Never fewer steps than this, so a tiny country is not quantized to nothing. */
+const MIN_QUANTIZE = 1e3;
 
 async function source(name) {
   mkdirSync(CACHE, { recursive: true });
@@ -129,30 +144,59 @@ function mainland(geometry) {
 }
 
 /**
- * The mesh's own arcs, renumbered so every arc the mesh does not use can go.
+ * The arcs these objects actually use, renumbered so every other one can go.
  *
- * `meshArcs` returns indices into the whole topology, and the whole topology
- * is mostly coastline this file has no use for — for Chile that is 93% of the
- * arcs. There is no published helper for dropping them, and leaving them costs
- * fourteen times the bytes.
+ * `meshArcs` and `mergeArcs` return indices into the whole topology, and the
+ * whole topology holds every unit's full outline. There is no published helper
+ * for dropping the unused ones, and leaving them in costs several times the
+ * bytes — for the internal borders alone that was fourteen times.
  */
-function onlyMeshArcs(topo, meshed) {
+function onlyUsedArcs(topo, objects) {
   const used = new Set();
-  for (const line of meshed.arcs) for (const index of line) used.add(index < 0 ? ~index : index);
+  const walk = (arcs) => {
+    if (typeof arcs[0] === 'number') for (const index of arcs) used.add(index < 0 ? ~index : index);
+    else for (const nested of arcs) walk(nested);
+  };
+  for (const object of Object.values(objects)) if (object.arcs.length) walk(object.arcs);
+
   const order = [...used].sort((left, right) => left - right);
   const renumbered = new Map(order.map((old, index) => [old, index]));
-  return {
-    type: 'Topology',
-    objects: {
-      borders: {
-        type: meshed.type,
-        arcs: meshed.arcs.map((line) =>
-          line.map((index) => (index < 0 ? ~renumbered.get(~index) : renumbered.get(index))),
-        ),
-      },
-    },
-    arcs: order.map((index) => topo.arcs[index]),
-  };
+  const renumber = (arcs) =>
+    typeof arcs[0] === 'number'
+      ? arcs.map((index) => (index < 0 ? ~renumbered.get(~index) : renumbered.get(index)))
+      : arcs.map(renumber);
+
+  const kept = {};
+  for (const [name, object] of Object.entries(objects)) {
+    if (!object.arcs.length) continue;
+    kept[name] = { type: object.type, arcs: renumber(object.arcs) };
+  }
+  const arcs = order.map((index) => topo.arcs[index]);
+  // Its own extent, not the one it was cut out of: `quantize` divides the
+  // bounding box it is handed, so a stale one would spend half its steps on
+  // geometry that is no longer in the file.
+  const bbox = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const arc of arcs)
+    for (const [longitude, latitude] of arc) {
+      if (longitude < bbox[0]) bbox[0] = longitude;
+      if (latitude < bbox[1]) bbox[1] = latitude;
+      if (longitude > bbox[2]) bbox[2] = longitude;
+      if (latitude > bbox[3]) bbox[3] = latitude;
+    }
+  return { type: 'Topology', bbox, objects: kept, arcs };
+}
+
+/**
+ * How many quantization steps this country's own extent earns.
+ *
+ * See `QUANTIZE_DEGREES`: what is held constant is the ground a step covers,
+ * not the number of steps, so Peru is not stored a hundred times finer than
+ * Russia for no reason and Russia is not stored two pixels coarse.
+ */
+function stepsFor(topo) {
+  const [west, south, east, north] = topo.bbox;
+  const span = Math.max(east - west, north - south);
+  return Math.max(MIN_QUANTIZE, Math.ceil(span / QUANTIZE_DEGREES));
 }
 
 const [admin1, admin0] = await Promise.all([source(SOURCES.admin1), source(SOURCES.admin0)]);
@@ -205,19 +249,32 @@ for (const [id, features] of [...byCountry].sort(([left], [right]) => left.local
   );
   const meshed = meshArcs(simplified, simplified.objects.subdivisions, (a, b) => a !== b);
   /*
+   * The country's own outline, dissolved out of the units that tile it.
+   *
+   * Not a second download and not a second source: the admin-1 units of a
+   * country cover it exactly, so merging them *is* the national outline, at
+   * the same 1:10m as the borders drawn inside it. Taking it from
+   * `countries-50m` instead was the obvious move and is wrong twice over —
+   * 1:50m is a 5 km resolution where 32x reads 1.03 km to the pixel, and a
+   * 1:50m coast under 1:10m provincial borders would not meet them, leaving
+   * every coastal province hanging off the edge of its own country.
+   */
+  const merged = mergeArcs(simplified, simplified.objects.subdivisions.geometries);
+  /*
    * A country whose first level is one unit — Monaco, Singapore, the Falklands
    * — has no border between two of anything, and its one name would only
-   * repeat the country's. No file, and the map falls back to the country name
-   * it already had.
+   * repeat the country's. No file, and the map keeps the country name and the
+   * bundled 1:110m outline it already had.
    */
   if (meshed.arcs.length === 0) {
     bordersless += 1;
     continue;
   }
 
+  const pruned = onlyUsedArcs(simplified, { borders: meshed, land: merged });
   const body = {
     country: id,
-    borders: quantize(onlyMeshArcs(simplified, meshed), QUANTIZE),
+    borders: quantize(pruned, stepsFor(pruned)),
     labels: features
       .map((unit) => ({
         name: unit.properties.name ?? unit.properties.name_en ?? null,

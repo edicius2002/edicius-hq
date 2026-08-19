@@ -3,7 +3,7 @@ import { feature } from 'topojson-client';
 import { describe, expect, it } from 'vitest';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
-import { COUNTRIES, countryAt } from '@/features/airfare/lib/countries';
+import { COUNTRIES, countryAt, outlineOf } from '@/features/airfare/lib/countries';
 import { facesViewer, type LngLat } from '@/features/airfare/lib/geo';
 import {
   CONTINENTS,
@@ -414,6 +414,46 @@ describe('countryAt', () => {
      */
     expect(countryAt([170, 66])?.name).toBe('Russia');
     expect(countryAt([37.6, 55.75])?.name).toBe('Russia');
+  });
+});
+
+describe('outlineOf', () => {
+  /*
+   * What a country's finer outline has to be painted over, and what has to be
+   * painted back inside it. The map draws one country at 1:10m on a 1:110m
+   * base, and the two do not coincide.
+   */
+
+  it('finds the bundled shape the finer one replaces', () => {
+    expect(outlineOf('604')).not.toBeNull();
+    expect(outlineOf('840')).not.toBeNull();
+  });
+
+  it('hands back everything that touches it, which is what fills the seam', () => {
+    /*
+     * Without the neighbours, every stretch where their own coarse border was
+     * generalised inland shows as a strip of ocean along an international
+     * frontier. Peru's are the five countries it borders.
+     */
+    const peru = outlineOf('604');
+    const names = (peru?.neighbours ?? []).map(
+      (shape) => (shape as { properties: { name: string } }).properties.name,
+    );
+    for (const neighbour of ['Brazil', 'Bolivia', 'Ecuador', 'Colombia', 'Chile']) {
+      expect(names).toContain(neighbour);
+    }
+    expect(names).not.toContain('Peru');
+  });
+
+  it('does not call the whole world a neighbour', () => {
+    // The bounds test is deliberately generous — a shape that is near without
+    // touching only repaints land that was going to be painted anyway — but a
+    // rule that returned all 177 would be repainting the map twice a frame.
+    expect(outlineOf('604')?.neighbours.length).toBeLessThan(30);
+  });
+
+  it('has nothing to say about a country the atlas does not carry', () => {
+    expect(outlineOf('999')).toBeNull();
   });
 });
 

@@ -22,10 +22,13 @@ export type SubdivisionsResponse = {
   /** ISO 3166-1 numeric, the id the bundled country outlines carry. */
   country: string;
   /**
-   * A TopoJSON topology whose one object, `borders`, is a `MultiLineString` of
-   * the boundaries *between* two subdivisions. The coastline is not in it: the
-   * map already draws that from the bundled 1:110m outlines, and a second one
-   * four hundred times finer would not agree with the first.
+   * A TopoJSON topology with two objects, sharing one set of arcs.
+   *
+   * `borders` is a `MultiLineString` of the boundaries *between* two
+   * subdivisions. `land` is a `MultiPolygon` of the country itself, dissolved
+   * out of the same units — which is why the two always meet: a 1:50m coast
+   * under 1:10m provincial borders would leave every coastal province hanging
+   * off the edge of its own country.
    */
   borders: unknown;
   labels: SubdivisionLabel[];

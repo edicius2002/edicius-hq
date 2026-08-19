@@ -254,10 +254,9 @@
 }
 
 /*
- * A first-row panel: whichever of the two has more to say sets the height and
- * the other fills it. The cap is what the rail already had — a fifty-symbol
- * list should not drag the row past the window — and inside it only the rows
- * scroll.
+ * A first-row panel. The chart sets the height of the row and this fills it,
+ * however many symbols are followed — see `.scroller` for the part that makes
+ * that true, which is not the part it looks like.
  */
 .side {
   display: flex;
@@ -266,8 +265,6 @@
      the ellipsis that exists to stop it. */
   min-width: 0;
   min-height: 0;
-  max-height: calc(100vh - var(--space-6));
-  max-height: calc(100dvh - var(--space-6));
 }
 
 .positionsPanel {
@@ -279,12 +276,33 @@
   display: none;
 }
 
+/*
+ * The rows scroll inside the height the row settled on, and `contain: size` is
+ * what actually delivers that — `flex: 1 1 0` alone does not.
+ *
+ * A zero flex basis looks like it should keep the rows from pushing the panel
+ * taller, and it does not: the intrinsic height of a column flex container is
+ * computed from its items' max-content *contributions*, and for a growable
+ * item that contribution is its whole content however small the basis. So a
+ * watchlist longer than the chart grew the grid row and left the chart panel
+ * with empty space under it — the ragged gap this layout exists to remove,
+ * arriving from the other side. `overflow-y: auto` does not help either: a
+ * scroll container's automatic *minimum* size is zero, but its max-content
+ * size is still all of its content.
+ *
+ * Size containment says the quiet part out loud: size this box as if it were
+ * empty. The contribution is then genuinely zero, the chart alone sets the row,
+ * and `flex: 1 1 0` spends the height that leaves. It is a much older feature
+ * than the `container-type` this file already depends on, so it costs no
+ * support the page was not already spending.
+ *
+ * The one thing it cannot survive is a parent with no height to give — see the
+ * stacked case below, which hands the job back to the content.
+ */
 .scroller {
-  /* `flex: 1 1 0` rather than `1 1 auto`: with a zero basis the rows do not
-     push the panel taller before the row has settled on a height, so a short
-     list still stretches to the chart and a long one scrolls within it. */
   flex: 1 1 0;
   min-height: 0;
+  contain: size;
   padding-right: 2px;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -333,15 +351,21 @@
   }
 
   /*
-   * Full width, like the positions below it. It was capped at 36rem and pushed
-   * to the right — inherited from the wrapper this panel replaced, where it
-   * kept a tabbed rail from stretching. Stacked under a full-width chart it
-   * read as a half-width panel hugging the right edge with nothing beside it.
+   * The watchlist keeps the full width here, like the positions below it. It
+   * used to be capped at 36rem and pushed to the right — inherited from the
+   * wrapper this panel replaced, where that kept a tabbed rail from stretching
+   * — and under a full-width chart it read as a half-width panel hugging the
+   * right edge with nothing beside it. So nothing in this block constrains it.
    *
-   * There is no row height to share here either, so the panel goes back to
-   * being as tall as its rows need, up to the ceiling it always had.
+   * There is no row height to share here, and that is why the size containment
+   * has to come off: a box sized as if it were empty, inside a panel with no
+   * height of its own to hand down, is a box of no height at all — the list
+   * would vanish rather than scroll. Stacked, the rows set their own height
+   * again and stop at a ceiling instead.
    */
-  .side {
+  .scroller {
+    flex: 0 1 auto;
+    contain: none;
     max-height: 32rem;
   }
 }

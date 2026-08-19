@@ -19,6 +19,8 @@ this address — on news that is not there. Everything is configurable because a
 watchlist is personal; the bounds are not, because they came from the endpoint.
 """
 
+import calendar
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -29,10 +31,37 @@ from app.config import (
     MIN_POLL_MINUTES,
 )
 
+#: `YYYY-MM`, and nothing that only starts like one. `2027-3` would format
+#: back into `2027-3-01`, which is a departure no provider will parse.
+MONTH_PATTERN = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+
 
 def clamp_minutes(minutes: int) -> int:
     """A poll interval the endpoint and the data both justify."""
     return max(MIN_POLL_MINUTES, min(MAX_POLL_MINUTES, int(minutes)))
+
+
+def month_dates(month: str) -> list[str]:
+    """
+    Every departure in a `YYYY-MM` month, in order.
+
+    This is the whole of what 12.110 added to the scheduler: a watched month is
+    expanded here and everything downstream still reasons about one departure
+    at a time, which is why `poll_minutes`, `within_horizon` and `due_now` are
+    untouched by the change. The month gets no cadence of its own — each of its
+    days is measured against today separately, so the near end of a month can
+    be on the half-hourly rate while the far end is still daily.
+
+    The length comes from `calendar` rather than a table of twelve numbers, so
+    February 2028 is 29 days without anybody remembering to say so. An
+    unreadable month yields nothing rather than raising: the caller reports it
+    as a skip with a reason, which is more useful than a stack trace in a
+    scheduled task.
+    """
+    if not isinstance(month, str) or not MONTH_PATTERN.fullmatch(month):
+        return []
+    span = calendar.monthrange(int(month[:4]), int(month[5:]))[1]
+    return [f"{month}-{day:02d}" for day in range(1, span + 1)]
 
 
 def days_until(departure: str, today: date) -> int | None:

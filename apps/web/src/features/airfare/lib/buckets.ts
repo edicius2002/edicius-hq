@@ -183,6 +183,13 @@ function summarise(key: string, granularity: Granularity, prices: number[]): Buc
  * `high` are the range of *the cheapest fare over the period* — not the range
  * of every itinerary on the board. Those are different questions, and this one
  * is the one the series has always answered.
+ *
+ * Since 12.110 a period holds every departure in the watched month as well as
+ * every observation of them, so a day's band is the cheapest and dearest that
+ * *any day in March* could be had for on that date. That is a wider band than
+ * it used to be and it is the right one: the reader is choosing a departure
+ * inside the month, and the spread between its best and worst day is the whole
+ * thing they are choosing between.
  */
 export function bucketSnapshots(snapshots: FareSnapshot[], granularity: Granularity): Bucket[] {
   const groups = new Map<string, number[]>();
@@ -203,9 +210,13 @@ export function bucketSnapshots(snapshots: FareSnapshot[], granularity: Granular
  * The provider's own daily history, gathered the same way.
  *
  * Kept in its own function and its own series because it is one rounded
- * integer per day with no airline and no departure time. At day granularity it
- * can only ever be a line — a single value has no band — which is exactly why
- * it is drawn behind ours rather than merged into it.
+ * integer per day with no airline and no departure time, which is why it is
+ * drawn behind ours rather than merged into it.
+ *
+ * The provider reports a separate series per departure, so a watched month
+ * brings back one per day of it and a bucket does get a band — the same band
+ * `bucketSnapshots` now produces, and for the same reason. Before 12.110 a
+ * single departure gave one value a day and this could only ever be a line.
  */
 export function bucketBaseline(points: FarePricePoint[], granularity: Granularity): Bucket[] {
   const groups = new Map<string, number[]>();

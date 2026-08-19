@@ -1,5 +1,6 @@
 import {
-  formatFlightDate,
+  formatFlightMonth,
+  monthOf,
   routeId,
   routeLabel,
   type FareRoute,
@@ -28,7 +29,7 @@ type RouteListProps = {
    *
    * Takes the route rather than its id, unlike `onRemove`: removing is an edit
    * to the stored document and the id is the whole of it, while a collection
-   * needs both ends, both dates and the currency. The row is holding all of
+   * needs both ends, the month and the currency. The row is holding all of
    * that already, so passing the id would only make the page look it up again.
    */
   onCollect: (route: FareRoute) => void;
@@ -75,8 +76,8 @@ function CollectMark({ busy }: { busy: boolean }) {
  * away: adding a route is the thing this panel is *for*, and a control that
  * has to be opened before it can be used is one more step in front of the only
  * action here. They are laid out to cost less height than two list entries —
- * origin and destination on one row because they are one decision, the dates
- * below because they are the next.
+ * origin and destination on one row because they are one decision, the month
+ * below because it is the next.
  */
 export function RouteList({
   routes,
@@ -109,7 +110,10 @@ export function RouteList({
         <ul className={styles.list}>
           {routes.map((route) => {
             const id = routeId(route);
-            const departed = route.flightDate < today;
+            // A month is over only once the calendar has left it. Half a month
+            // can be in the past and the rest still worth collecting, which is
+            // a distinction the collector draws day by day and this row cannot.
+            const departed = route.month < monthOf(today);
             const busy = collecting.includes(id);
             const report = reports.get(id) ?? null;
             return (
@@ -152,33 +156,25 @@ export function RouteList({
                     </span>
                     <span className={styles.dates}>
                       {/*
-                        Up for the way out, down for the way back. The arrows
-                        are hidden from the accessibility tree and the words
-                        carried beside them, because "up arrow 2026-10-17" is
-                        not what a departure date sounds like.
+                        One leg where there used to be two: 12.113 dropped the
+                        return, and 12.110 made the remaining one a month. The
+                        arrow stays hidden from the accessibility tree with the
+                        word carried beside it, because "up arrow March 2027"
+                        is not what a departure sounds like.
                       */}
                       <span className={styles.leg}>
                         <span className={styles.arrow} aria-hidden="true">
                           ↑
                         </span>
-                        <span className={styles.sr}>departs</span>
-                        {formatFlightDate(route.flightDate)}
+                        <span className={styles.sr}>departs in</span>
+                        {formatFlightMonth(route.month)}
                       </span>
-                      {route.returnDate ? (
-                        <span className={styles.leg}>
-                          <span className={styles.arrow} aria-hidden="true">
-                            ↓
-                          </span>
-                          <span className={styles.sr}>returns</span>
-                          {formatFlightDate(route.returnDate)}
-                        </span>
-                      ) : null}
                     </span>
                     {/*
-                      A departed route keeps its history — that is the point of
-                      an archive — but nothing more will be collected for it,
-                      and saying so is cheaper than letting the reader wonder
-                      why its series stopped.
+                      A month that has been and gone keeps its history — that
+                      is the point of an archive — but nothing more will be
+                      collected for it, and saying so is cheaper than letting
+                      the reader wonder why its series stopped.
                     */}
                     {departed ? <span className={styles.departed}>Departed</span> : null}
                   </button>
@@ -200,8 +196,8 @@ export function RouteList({
                       aria-busy={busy || undefined}
                       aria-label={
                         busy
-                          ? `Collecting ${routeLabel(route)} on ${route.flightDate}`
-                          : `Collect ${routeLabel(route)} on ${route.flightDate} now`
+                          ? `Collecting ${routeLabel(route)} in ${formatFlightMonth(route.month)}`
+                          : `Collect ${routeLabel(route)} in ${formatFlightMonth(route.month)} now`
                       }
                     >
                       <CollectMark busy={busy} />
@@ -211,7 +207,7 @@ export function RouteList({
                     variant="ghost"
                     size="small"
                     onClick={() => onRemove(id)}
-                    aria-label={`Stop watching ${routeLabel(route)} on ${route.flightDate}`}
+                    aria-label={`Stop watching ${routeLabel(route)} in ${formatFlightMonth(route.month)}`}
                   >
                     Remove
                   </Button>

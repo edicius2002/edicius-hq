@@ -12,14 +12,15 @@ import { collectFares, type CollectResponse } from '@/shared/api/fares';
 /**
  * Collecting one watched route on its own, from the row it sits on.
  *
- * **An explicit press is not the scheduler, and does not have to wait for it.**
- * The cadence in `fare_schedule.due_now` (12.10, 12.17) exists to spend a daily
- * request budget where the prices actually move; a person pressing a button on
- * one row has already decided where to spend one. It needs no new endpoint to
- * say so: `POST /api/fares/collect` calls the collector's unconditional
- * `collect`, never `collect_due`, so the routes it is handed are polled and
- * nothing is measured against a clock. A second endpoint would have been a
- * duplicate of one that already behaves the way this control needs.
+ * **A press now runs the schedule rather than bypassing it** — 12.111,
+ * superseding the second half of 12.90. That decision was right while a press
+ * bought one request: someone who has decided where to spend one should not be
+ * argued with by a cadence table. Under 12.110 a row is a month and the same
+ * press buys up to thirty-one, which is a tenth of the day's budget per click
+ * — so `POST /api/fares/collect` calls `collect_due` and the press collects
+ * every departure that has news in it and declines the rest. What it declined
+ * comes back in `skipped` and the row says so, which is why `describeCollection`
+ * has always had that branch.
  *
  * **One mutation, many rows.** A hook cannot be called in a loop, so per-row
  * state lives here as two collections keyed by `routeId`: which presses are in
@@ -68,8 +69,7 @@ export function useRouteCollection(): RouteCollection {
         {
           origin: route.origin,
           destination: route.destination,
-          flightDate: route.flightDate,
-          returnDate: route.returnDate,
+          month: route.month,
           currency: route.currency,
         },
       ]),

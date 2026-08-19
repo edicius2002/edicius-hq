@@ -4,7 +4,8 @@ import {
   DEFAULT_CURRENCY,
   DEFAULT_ORIGIN,
   isAirportCode,
-  isCalendarDate,
+  isMonth,
+  monthOf,
   normalizeCode,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
@@ -30,21 +31,37 @@ type RouteEditorProps = {
 /**
  * The fields that add a route, always on screen at the top of the watchlist.
  *
- * Origin and destination on one row because they are one decision; the dates
- * below them because they are the next one; the button last. Four inputs and a
+ * Origin and destination on one row because they are one decision; the month
+ * below them because it is the next one; the button last. Three inputs and a
  * control, sized so the whole thing costs less vertical room than two entries
  * of the list it sits above.
  *
+ * **The Departure field is a month, and Return is gone** — 12.110 and 12.113.
+ * The month is what the watch is now: the collector expands it into its
+ * departures, so asking for one day here would be asking the reader to choose
+ * the thing the page exists to work out for them. Return went with it because
+ * a return date belongs to one departure, and a month has thirty-one — one
+ * shared return would be thirty wrong trips, and a return that moved with each
+ * departure would be a trip *length*, which is a different product. The owner
+ * has put return legs out of scope; when they come back they will come back as
+ * a length, and this form will grow a number of nights rather than a date.
+ *
+ * The airport comboboxes are untouched.
+ *
  * It validates before it submits rather than letting the normalizer drop a bad
  * entry silently: a route that vanishes on save looks like a broken button,
- * and the reader has no way to learn that `2026-02-31` was the problem.
+ * and the reader has no way to learn that `2026-13` was the problem.
  */
 export function RouteEditor({ onAdd, today }: RouteEditorProps) {
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState('');
-  const [flightDate, setFlightDate] = useState('');
-  const [returnDate, setReturnDate] = useState('');
+  const [month, setMonth] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // The earliest month still worth watching is the one we are in: some of its
+  // days have gone, but the rest have not, and the collector skips the gone
+  // ones by name.
+  const thisMonth = monthOf(today);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -57,30 +74,24 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
       setError('Origin and destination are the same airport.');
       return;
     }
-    if (!isCalendarDate(flightDate)) {
-      setError('Departure date must be a real date.');
+    if (!isMonth(month)) {
+      setError('Departure month must be a real month.');
       return;
     }
-    if (flightDate < today) {
-      setError('That departure has already left.');
-      return;
-    }
-    if (returnDate && (!isCalendarDate(returnDate) || returnDate < flightDate)) {
-      setError('Return date must be a real date on or after the departure.');
+    if (month < thisMonth) {
+      setError('That month is over.');
       return;
     }
 
     onAdd({
       origin: normalizeCode(origin),
       destination: normalizeCode(destination),
-      flightDate,
-      returnDate: returnDate || null,
+      month,
       currency: DEFAULT_CURRENCY,
     });
 
     setDestination('');
-    setFlightDate('');
-    setReturnDate('');
+    setMonth('');
     setError(null);
   }
 
@@ -112,27 +123,31 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
         />
       </div>
 
-      <div className={styles.row}>
-        <div className={styles.field}>
-          <label htmlFor="airfare-departure">Departure</label>
-          <input
-            id="airfare-departure"
-            type="date"
-            value={flightDate}
-            min={today}
-            onChange={(event) => setFlightDate(event.target.value)}
-          />
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="airfare-return">Return (optional)</label>
-          <input
-            id="airfare-return"
-            type="date"
-            value={returnDate}
-            min={flightDate || today}
-            onChange={(event) => setReturnDate(event.target.value)}
-          />
-        </div>
+      {/*
+        On its own row rather than in a `.row` pair. There is no second date to
+        stand beside it since 12.113 dropped the return leg, and a single field
+        in a two-column grid is a half-width control with a hole next to it.
+      */}
+      <div className={styles.field}>
+        <label htmlFor="airfare-departure">Departure month</label>
+        {/*
+          `type="month"` rather than a pair of selects: it is the one control
+          whose value is already `YYYY-MM`, which is what is stored, so the form
+          never converts and so never has a chance to shift a month the way
+          `new Date('2027-03')` would west of Greenwich.
+
+          A browser without it degrades to a text box that still takes
+          `2027-03`, which the submit guard checks anyway. `min` is what stops
+          a past month in a browser that has the control; the guard is what
+          stops it in one that does not.
+        */}
+        <input
+          id="airfare-departure"
+          type="month"
+          value={month}
+          min={thisMonth}
+          onChange={(event) => setMonth(event.target.value)}
+        />
       </div>
 
       {error ? (

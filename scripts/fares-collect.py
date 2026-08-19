@@ -10,6 +10,12 @@ running would lose it for good.
     npm run fares:collect -- --dry-run
     npm run fares:collect -- --all          # ignore the cadence, poll everything
 
+**A watched route is a city pair and a month** — 12.110 — so a pass expands
+each month into its departures and schedules every one of them separately.
+Thirty-one days spread over thirty-one distances get thirty-one intervals: the
+near end of a month can be on the half-hourly rate while the far end is still
+daily.
+
 **It is safe to run often, and meant to be.** The pass decides for itself what
 is due: each departure has a poll interval that depends on how far away it is,
 and one that is not due yet is reported as skipped rather than fetched. Running
@@ -17,6 +23,11 @@ this every fifteen minutes does not mean fifteen-minute traffic — it means the
 near departures get looked at every half hour and a departure five months out
 gets looked at once a day. Measured 2026-08-18: a fare 14 days out moved on 27%
 of days by a median 14%, while one 150 days out moved on 22% of days by 1.7%.
+
+`--dry-run` prints what a month costs per day under that cadence, which is the
+number to look at before adding one: a month whose first day is a week away
+costs 936 requests a day against a budget of 300, and the same month at 200
+days out costs 31.
 
     schtasks /create /tn "Edicius airfare" /tr ^
       "cmd /c cd /d D:\\Work\\research\\edicius-hq && npm run fares:collect" ^
@@ -36,17 +47,17 @@ import argparse
 import asyncio
 import json
 import sys
-from datetime import UTC, datetime
+from collections import Counter
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.adapters.fares.models import FareQuery  # noqa: E402
 from app.config import MAX_DEPARTURE_HORIZON_DAYS, daily_request_budget, kv_dir  # noqa: E402
-from app.services.fare_collector import collect, collect_due  # noqa: E402
+from app.services.fare_collector import FareWatch, collect, collect_due, expand  # noqa: E402
 from app.services.fare_history import HISTORY  # noqa: E402
-from app.services.fare_schedule import days_until, poll_minutes  # noqa: E402
+from app.services.fare_schedule import days_until, month_dates, poll_minutes  # noqa: E402
 
 # Windows consoles default to cp1252, which cannot encode an arrow or an
 # accented airline name — and a scheduled task that dies on its own summary
@@ -77,48 +88,74 @@ def load_routes() -> list[dict[str, object]]:
     return [route for route in routes or [] if isinstance(route, dict)]
 
 
-def to_queries(routes: list[dict[str, object]]) -> tuple[list[FareQuery], list[str]]:
+def to_watches(routes: list[dict[str, object]]) -> tuple[list[FareWatch], list[str]]:
     """
-    Watched departures worth asking about, and the ones that are not.
+    Watched months worth asking about, and the ones that are not.
 
-    A departure that has left returns nothing every day forever, and one past
-    the horizon Google will answer for — measured at 330 days — never collects
-    at all. Both are dropped here with a reason rather than becoming a daily
-    failure line that nobody can act on.
+    Only whole months are dropped here — one nobody can read, and one the
+    calendar has finished with, which returns nothing every day forever. The
+    days *inside* a month are not judged at this level: a month can be half
+    departed and half collectable, and deciding one day at a time is
+    `collect_due`'s job because it is the side that reports what it skipped.
+
+    The document may still carry the pre-12.110 `flightDate` shape if the
+    browser has not rewritten it yet, and the month that date falls in is
+    stated by the value rather than guessed — same repair the web normalizer
+    makes, for the same reason.
     """
     today = datetime.now(UTC).date()
-    queries: list[FareQuery] = []
+    this_month = today.strftime("%Y-%m")
+    watches: list[FareWatch] = []
     dropped: list[str] = []
     for route in routes:
-        flight_date = str(route.get("flightDate", ""))
         origin = str(route.get("origin", "")).upper()
         destination = str(route.get("destination", "")).upper()
-        label = f"{origin}-{destination} {flight_date}"
+        stored = route.get("month")
+        legacy = str(route.get("flightDate", ""))
+        # Same rule as the web normalizer, deliberately: a month is repaired
+        # out of a departure date only when that date is a real one.
+        # `2026-02-31` is a typo, so it is not evidence of February either —
+        # two sides reading one document must not disagree about which entries
+        # survive it.
+        repaired = legacy[:7] if days_until(legacy, today) is not None else legacy
+        month = str(stored) if stored else repaired
+        label = f"{origin}-{destination} {month}"
 
-        days_out = days_until(flight_date, today)
-        if days_out is None:
-            dropped.append(f"{label}: unreadable date")
+        if not month_dates(month):
+            dropped.append(f"{label}: unreadable month")
             continue
-        if days_out < 0:
-            dropped.append(f"{label}: departed")
-            continue
-        if days_out > MAX_DEPARTURE_HORIZON_DAYS:
-            dropped.append(
-                f"{label}: {days_out}d out, past the {MAX_DEPARTURE_HORIZON_DAYS}d horizon"
-            )
+        if month < this_month:
+            dropped.append(f"{label}: the month is over")
             continue
 
-        return_date = route.get("returnDate")
-        queries.append(
-            FareQuery(
+        watches.append(
+            FareWatch(
                 origin=origin,
                 destination=destination,
-                flight_date=flight_date,
-                return_date=str(return_date) if return_date else None,
+                month=month,
                 currency=str(route.get("currency", "USD")).upper(),
             )
         )
-    return queries, dropped
+    return watches, dropped
+
+
+def per_day(watch: FareWatch, today: date) -> tuple[int, int]:
+    """
+    How many departures in this month are collectable, and what they cost a day.
+
+    The second number is the one worth reading before adding a month: it is the
+    sum over its days of `1440 / poll_minutes(days_out)`, which is the traffic
+    this one watch will generate every day until it departs. It climbs steeply
+    as the month approaches, because the cadence table does.
+    """
+    collectable = requests = 0
+    for flight_date in month_dates(watch.month):
+        days_out = days_until(flight_date, today)
+        if days_out is None or days_out < 0 or days_out > MAX_DEPARTURE_HORIZON_DAYS:
+            continue
+        collectable += 1
+        requests += 24 * 60 // poll_minutes(days_out)
+    return collectable, requests
 
 
 def main() -> int:
@@ -131,7 +168,10 @@ def main() -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Ignore the cadence and poll every watched departure.",
+        help=(
+            "Ignore the cadence and poll every departure in every watched "
+            "month. One month is up to 31 requests and three minutes of pacing."
+        ),
     )
     parser.add_argument(
         "--gap",
@@ -143,34 +183,53 @@ def main() -> int:
 
     today = datetime.now(UTC).date()
     routes = load_routes()
-    queries, dropped = to_queries(routes)
+    watches, dropped = to_watches(routes)
 
-    print(f"watchlist: {len(routes)} route(s), {len(queries)} watchable, {len(dropped)} dropped")
+    print(f"watchlist: {len(routes)} route(s), {len(watches)} watchable, {len(dropped)} dropped")
     for reason in dropped:
         print(f"  -- {reason}")
-    for query in queries:
-        days_out = days_until(query.flight_date, today) or 0
+
+    budget = daily_request_budget()
+    demand = 0
+    for watch in watches:
+        collectable, requests = per_day(watch, today)
+        demand += requests
         print(
-            f"  {query.origin} -> {query.destination}  departs {query.flight_date}  "
-            f"({days_out}d out, every {poll_minutes(days_out)} min)"
+            f"  {watch.origin} -> {watch.destination}  departs in {watch.month}  "
+            f"({collectable} of {len(month_dates(watch.month))} day(s) collectable, "
+            f"{requests} request(s)/day)"
         )
-    if not queries:
+    if not watches:
         print("nothing to do")
         return 0
 
+    # The cadence is what makes a month affordable, so the arithmetic is
+    # printed rather than trusted. Over budget is not an error here: the pass
+    # keeps the nearest departures and reports the rest as `over-budget`, which
+    # is the honest shape of "you are watching more than 300 a day of".
+    fit = "fits" if demand <= budget else "OVER"
+    print(f"\ncadence demand: {demand} request(s)/day against a budget of {budget} -- {fit}")
+
     if args.dry_run:
-        print(f"dry run; budget is {daily_request_budget()} request(s)/day")
+        print("dry run; nothing was fetched")
         return 0
 
     kwargs = {} if args.gap is None else {"gap_seconds": args.gap}
     if args.all:
-        report = asyncio.run(collect(queries, **kwargs))
+        queries, unreadable = expand(watches)
+        for what in unreadable:
+            print(f"  -- {what}: unreadable month")
+        report = asyncio.run(collect(list(queries.values()), **kwargs))
     else:
-        report = asyncio.run(collect_due(queries, **kwargs))
+        report = asyncio.run(collect_due(watches, **kwargs))
 
     print()
-    for what, reason in report.skipped:
-        print(f"  --    {what}  {reason}")
+    # Grouped rather than listed. A month expands to thirty-one departures and
+    # a healthy daily pass skips thirty of them, so printing one line each
+    # would bury the results under the routine — while a count per reason still
+    # says everything 8.8 asks for, which is what was skipped and why.
+    for reason, count in sorted(Counter(reason for _, reason in report.skipped).items()):
+        print(f"  --    {count} departure(s)  {reason}")
     for result in report.results:
         if result.ok:
             price = f"{result.currency} {result.cheapest:.2f}" if result.cheapest else "no price"
@@ -188,7 +247,7 @@ def main() -> int:
 
     print(
         f"\n{len(report.results)} looked at, {report.changed} changed, "
-        f"{report.failed} failed, {len(report.skipped)} not due -> {HISTORY.directory}"
+        f"{report.failed} failed, {len(report.skipped)} skipped -> {HISTORY.directory}"
     )
     # A non-zero exit is what makes a silent scheduled task visible: Task
     # Scheduler records the code, so a week of drift shows up in its history

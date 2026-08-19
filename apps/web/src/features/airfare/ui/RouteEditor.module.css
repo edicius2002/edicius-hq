@@ -39,9 +39,10 @@
 }
 
 /*
- * Two fields to a row. Origin and destination are one decision, the dates are
- * the next, and the whole form is meant to cost less height than two entries
- * of the list it stands above.
+ * The pair of airports, side by side because they are one decision. The month
+ * below them stands on its own — 12.113 took the return leg away, so there is
+ * no second date to fill the other column, and the whole form is meant to cost
+ * less height than two entries of the list it stands above.
  */
 .row {
   display: grid;

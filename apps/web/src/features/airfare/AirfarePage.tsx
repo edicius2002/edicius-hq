@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import {
-  formatFlightDate,
+  formatFlightMonth,
   routeId,
   routeLabel,
   type FareRoute,
@@ -14,7 +14,7 @@ import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection'
 import { bucketBaseline, bucketSnapshots, type Granularity } from '@/features/airfare/lib/buckets';
 import { routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
-import { latestSnapshot, snapshotsFor } from '@/features/airfare/lib/series';
+import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
@@ -72,13 +72,14 @@ export function AirfarePage() {
   const history = useFareHistory(selected);
 
   const snapshots = useMemo(
-    () =>
-      selected && history.data
-        ? snapshotsFor(history.data.snapshots, selected.flightDate, selected.returnDate)
-        : [],
+    () => (selected && history.data ? snapshotsFor(history.data.snapshots, selected.month) : []),
     [history.data, selected],
   );
-  const latest = useMemo(() => latestSnapshot(snapshots), [snapshots]);
+  // The board the detail panel describes: the cheapest departure in the
+  // watched month as it was last seen, not the last snapshot written — that
+  // one belongs to whichever departure the collector reached last, which says
+  // something about the pacing and nothing about the fares.
+  const latest = useMemo(() => cheapestDeparture(snapshots), [snapshots]);
   const insights = latest?.insights ?? null;
   const health = history.data?.health ?? null;
   const currency = selected?.currency ?? 'USD';
@@ -135,8 +136,7 @@ export function AirfarePage() {
         watchlist.collectable.map((route) => ({
           origin: route.origin,
           destination: route.destination,
-          flightDate: route.flightDate,
-          returnDate: route.returnDate,
+          month: route.month,
           currency: route.currency,
         })),
       ),
@@ -150,6 +150,26 @@ export function AirfarePage() {
   });
 
   const failures = collect.data?.results.filter((result) => !result.ok) ?? [];
+
+  /*
+   * The skips of a pass, counted by reason.
+   *
+   * A watched month expands to thirty-one departures and a daily cadence polls
+   * one at a time, so `skipped` is routinely the longer of the two lists — the
+   * old line read "62 not due" and named a reason it had not checked. Counting
+   * them keeps 8.8 honest without printing sixty lines: "60 not-due, 2
+   * departed" is the whole of what happened.
+   */
+  const skipSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of collect.data?.skipped ?? []) {
+      counts.set(entry.reason, (counts.get(entry.reason) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([reason, count]) => `${count} ${reason}`)
+      .join(', ');
+  }, [collect.data]);
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
@@ -239,10 +259,17 @@ export function AirfarePage() {
         {collect.data ? (
           <Panel>
             <h2 className={styles.panelTitle}>Last collection</h2>
+            {/*
+              "departures", not "routes": since 12.110 one watched route is a
+              month and a pass counts the days inside it. The skipped figure
+              carries its reasons rather than assuming "not due" — a month
+              expands across the horizon and the days past it are skipped for a
+              reason nobody can fix by waiting.
+            */}
             <p className={styles.note}>
-              {collect.data.collected} looked at, {collect.data.changed} changed,{' '}
-              {collect.data.failed} failed
-              {collect.data.skipped.length > 0 ? `, ${collect.data.skipped.length} not due` : ''}.
+              {collect.data.collected} departure{collect.data.collected === 1 ? '' : 's'} looked at,{' '}
+              {collect.data.changed} changed, {collect.data.failed} failed
+              {skipSummary ? `, ${skipSummary}` : ''}.
             </p>
             {failures.length > 0 ? (
               <ul className={styles.failures}>
@@ -286,7 +313,7 @@ export function AirfarePage() {
         <div className={styles.analysisHead}>
           <h2 className={styles.panelTitle}>
             {selected
-              ? `${routeLabel(selected)} · ${formatFlightDate(selected.flightDate)}`
+              ? `${routeLabel(selected)} · ${formatFlightMonth(selected.month)}`
               : 'Price analysis'}
           </h2>
           <div className={styles.switch} role="group" aria-label="Group observations by">
@@ -310,7 +337,7 @@ export function AirfarePage() {
           granularity={granularity}
           label={
             selected
-              ? `Cheapest fare for ${routeLabel(selected)} departing ${selected.flightDate}, by ${granularity}`
+              ? `Cheapest fare for ${routeLabel(selected)} departing in ${formatFlightMonth(selected.month)}, by ${granularity}`
               : 'Price analysis'
           }
         />
@@ -326,7 +353,11 @@ export function AirfarePage() {
         under a chart of one day would be two answers to one question.
       */}
       <Panel>
-        <h2 className={styles.panelTitle}>Flights seen on this route</h2>
+        <h2 className={styles.panelTitle}>
+          {selected
+            ? `Flights seen departing in ${formatFlightMonth(selected.month)}`
+            : 'Flights seen on this route'}
+        </h2>
         <FlightTable snapshots={snapshots} granularity={granularity} />
       </Panel>
     </section>

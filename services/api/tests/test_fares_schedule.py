@@ -15,7 +15,7 @@ collector.
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -23,12 +23,13 @@ import pytest
 
 from app.adapters.fares.models import FareInsights, FareOffer, FareQuery, FareSnapshot, PricePoint
 from app.config import MAX_DEPARTURE_HORIZON_DAYS, MAX_POLL_MINUTES, MIN_POLL_MINUTES
-from app.services.fare_collector import collect, collect_due
+from app.services.fare_collector import FareWatch, collect, collect_due, expand
 from app.services.fare_history import FareHistory
 from app.services.fare_schedule import (
     clamp_minutes,
     days_until,
     due_now,
+    month_dates,
     poll_minutes,
     within_horizon,
 )
@@ -408,6 +409,72 @@ def test_two_departures_keep_separate_baselines(tmp_path):
     assert not history.has_baseline("LIM", "CUZ", "2027-01-01")
 
 
+def test_a_month_of_baselines_can_be_read_as_a_month(tmp_path):
+    """
+    The archive did not have to move for 12.110 — 12.112.
+
+    It was already keyed by departure inside a file named for the city pair, so
+    a watched month is only more departures in the same file. All the read side
+    needed was a prefix, and `2026-10` is a prefix of every departure in
+    October the way `2026-10-17` is a prefix of one of them.
+    """
+    history = FareHistory(tmp_path)
+    for departure, price in (("2026-10-17", 46.0), ("2026-10-18", 51.0), ("2026-11-02", 57.0)):
+        history.merge_baseline(
+            "LIM", "CUZ", departure, [PricePoint("2026-06-19", price)], source="s", currency="USD"
+        )
+
+    october = history.read_baseline("LIM", "CUZ", "2026-10")
+    assert sorted(point.price for point in october) == [46.0, 51.0]
+    # One day of it still reads as one day.
+    assert history.read_baseline("LIM", "CUZ", "2026-10-17")[0].price == 46.0
+    # And the whole pair still reads as the whole pair.
+    assert len(history.read_baseline("LIM", "CUZ")) == 3
+
+
+def test_health_counts_only_the_month_being_asked_about(tmp_path):
+    """
+    A pair watched across two months must not report April's looks under
+    March's heading — the figure the reader trusts a series by would be
+    counting a series they are not looking at.
+    """
+    history = FareHistory(tmp_path)
+    history.record_check("LIM", "CUZ", "2026-10-17", at="2026-08-18T12:00:00+00:00", outcome="ok")
+    history.record_check("LIM", "CUZ", "2026-10-18", at="2026-08-18T12:00:06+00:00", outcome="ok")
+    history.record_check("LIM", "CUZ", "2026-11-02", at="2026-08-18T12:00:12+00:00", outcome="ok")
+
+    assert len(history.checks("LIM", "CUZ", "2026-10")) == 2
+    assert len(history.checks("LIM", "CUZ", "2026-10-17")) == 1
+    assert len(history.checks("LIM", "CUZ")) == 3
+
+
+# --------------------------------------------------------------- the month ---
+
+
+def test_a_month_expands_into_the_days_the_calendar_actually_has():
+    assert month_dates("2026-10")[0] == "2026-10-01"
+    assert month_dates("2026-10")[-1] == "2026-10-31"
+    assert len(month_dates("2026-11")) == 30
+    # Asked of the calendar rather than looked up in a table of twelve numbers,
+    # so a leap year is right without anybody remembering to say so.
+    assert len(month_dates("2028-02")) == 29
+    assert len(month_dates("2026-02")) == 28
+
+
+def test_a_month_that_is_not_one_expands_to_nothing_rather_than_to_nonsense():
+    # `2026-3` would format back into `2026-3-01`, a departure no provider will
+    # parse — and the caller reports the refusal rather than sending it.
+    for not_a_month in ("2026-3", "2026-13", "2026-00", "2026-10-17", "soon", ""):
+        assert month_dates(not_a_month) == []
+
+
+def test_expanding_a_month_names_it_when_it_cannot_be_read():
+    """8.8 and 8.41: a watch that vanishes between the list and the report."""
+    queries, unreadable = expand([FareWatch("LIM", "SCL", "2026-10"), FareWatch("LIM", "MAD", "?")])
+    assert len(queries) == 31
+    assert unreadable == ["LIM-MAD ?"]
+
+
 # ------------------------------------------------------------- collect_due ---
 
 
@@ -420,14 +487,19 @@ def test_a_pass_polls_only_what_is_due_and_says_what_it_skipped(tmp_path):
         encoding="utf-8"
     )
     history = FareHistory(tmp_path)
-    history.record_check(
-        "LIM", "MAD", "2027-01-15", at="2026-08-18T11:59:00+00:00", outcome="unchanged"
-    )
+    # Every departure in January bar one was looked at a minute ago, so the
+    # month is due for exactly one of its thirty-one days.
+    for day in range(1, 32):
+        if day == 15:
+            continue
+        history.record_check(
+            "LIM", "MAD", f"2027-01-{day:02d}", at="2026-08-18T11:59:00+00:00", outcome="unchanged"
+        )
 
     async def run():
         async with transport(lambda request: httpx.Response(200, text=html)) as client:
             return await collect_due(
-                [FareQuery("LIM", "SCL", "2026-10-17"), FareQuery("LIM", "MAD", "2027-01-15")],
+                [FareWatch("LIM", "MAD", "2027-01")],
                 now=NOW,
                 history=history,
                 client=client,
@@ -435,8 +507,111 @@ def test_a_pass_polls_only_what_is_due_and_says_what_it_skipped(tmp_path):
             )
 
     report = asyncio.run(run())
-    assert [r.destination for r in report.results] == ["SCL"]
-    assert report.skipped == [("LIM-MAD 2027-01-15", "not-due")]
+    # One departure polled and thirty declined, each of them by name.
+    assert [r.flight_date for r in report.results] == ["2027-01-15"]
+    assert len(report.skipped) == 30
+    assert {reason for _, reason in report.skipped} == {"not-due"}
+    assert ("LIM-MAD 2027-01-01", "not-due") in report.skipped
+
+
+def test_a_half_departed_month_polls_the_rest_and_names_the_days_it_skipped(tmp_path):
+    """
+    A month is not collectable or not — half of it can be behind us.
+
+    NOW is the 18th of August, so the first seventeen days of the month have
+    gone and the rest have not. Each one is refused by name rather than the
+    whole watch being dropped, because "August collected nothing" and "August
+    is half over" are different things and only one of them is a fault.
+    """
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+    history = FareHistory(tmp_path)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-08")],
+                now=NOW,
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    departed = [what for what, reason in report.skipped if reason == "departed"]
+    assert len(departed) == 17
+    assert "LIM-SCL 2026-08-01" in departed
+    assert "LIM-SCL 2026-08-17" in departed
+    # The 18th onwards were never looked at, so all fourteen are polled.
+    assert [result.flight_date for result in report.results] == [
+        f"2026-08-{day:02d}" for day in range(18, 32)
+    ]
+
+
+def test_a_month_past_the_horizon_is_refused_a_day_at_a_time_and_says_why(tmp_path):
+    """
+    Measured: +330 days returned itineraries and +340 answered an error. A
+    month straddling that edge collects its near days and refuses the rest —
+    and "beyond-horizon" is a different answer from "not due", because waiting
+    will never fix it.
+    """
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+    history = FareHistory(tmp_path)
+    edge = TODAY + timedelta(days=MAX_DEPARTURE_HORIZON_DAYS)
+    month = f"{edge.year:04d}-{edge.month:02d}"
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", month)],
+                now=NOW,
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    beyond = [what for what, reason in report.skipped if reason == "beyond-horizon"]
+    assert len(beyond) == len(month_dates(month)) - edge.day
+    assert [result.flight_date for result in report.results][-1] == edge.isoformat()
+
+
+def test_a_pass_spends_its_budget_on_the_nearest_departures_first(tmp_path):
+    """
+    A month of thirty-one days against a budget of three.
+
+    Truncating is not a failure mode here, it is the design: the near
+    departures are the ones the measurement says actually move, so a pass that
+    cannot afford everything keeps those and reports the rest as `over-budget`.
+    The next pass picks them up, because the archive remembers what was looked
+    at rather than the pass remembering what it meant to do.
+    """
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+    history = FareHistory(tmp_path)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10")],
+                now=NOW,
+                budget=3,
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert [result.flight_date for result in report.results] == [
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-03",
+    ]
+    assert sum(1 for _, reason in report.skipped if reason == "over-budget") == 28
 
 
 def test_a_second_look_writes_a_heartbeat_and_no_snapshot(tmp_path):
@@ -524,7 +699,7 @@ def test_the_free_history_is_seeded_once_and_not_on_every_poll(tmp_path):
     async def run():
         async with transport(lambda request: httpx.Response(200, text=html)) as client:
             return await collect_due(
-                [FareQuery("LIM", "SCL", "2026-08-25")],
+                [FareWatch("LIM", "SCL", "2026-08")],
                 now=NOW,
                 history=history,
                 client=client,
@@ -532,7 +707,8 @@ def test_the_free_history_is_seeded_once_and_not_on_every_poll(tmp_path):
             )
 
     report = asyncio.run(run())
-    assert report.results[0].seeded == 0
+    seeded = next(r for r in report.results if r.flight_date == "2026-08-25")
+    assert seeded.seeded == 0
 
 
 # ----------------------------------------------------------------- airports --

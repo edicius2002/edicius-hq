@@ -18,13 +18,17 @@ function offer(overrides: Partial<FareOffer> = {}): FareOffer {
   };
 }
 
-function snapshot(capturedAt: string, offers: FareOffer[]): FareSnapshot {
+function snapshot(
+  capturedAt: string,
+  offers: FareOffer[],
+  flightDate = '2026-10-17',
+): FareSnapshot {
   return {
     capturedAt,
     source: 'google-flights',
     origin: 'LIM',
     destination: 'CUZ',
-    flightDate: '2026-10-17',
+    flightDate,
     returnDate: null,
     currency: 'USD',
     insights: null,
@@ -88,6 +92,25 @@ describe('trackFlights', () => {
     const gone = tracks.find((track) => track.flightNumber === '7031');
     expect(gone?.present).toBe(false);
     expect(tracks[0].present).toBe(true);
+  });
+
+  it('judges presence per departure, not against whichever day was polled last', () => {
+    /*
+     * 12.115. A watched month is polled one departure at a time, so the newest
+     * snapshot in the file belongs to whichever day the pass reached last.
+     * Measuring presence against that one snapshot alone would mark every
+     * flight on the other thirty days as gone, on the strength of nothing but
+     * the order the collector ran in — and "this flight left the board" is
+     * exactly the fact the table exists to report.
+     */
+    const tracks = trackFlights([
+      snapshot('2026-08-18T04:00:00+00:00', [offer({ flightNumber: '7029' })], '2026-10-17'),
+      // A different departure, looked at afterwards. Its board says nothing
+      // about the 17th's.
+      snapshot('2026-08-18T04:00:06+00:00', [offer({ flightNumber: '8100' })], '2026-10-18'),
+    ]);
+
+    expect(tracks.every((track) => track.present)).toBe(true);
   });
 
   it('orders the flights still on the board before the ones that left', () => {

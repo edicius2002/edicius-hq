@@ -17,11 +17,14 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from app.adapters import wire
 from app.adapters.fares import google_flights
 from app.adapters.fares.models import FareError, FareOffer, FareQuery, FareSnapshot
-from app.services.fare_collector import collect
+from app.main import app
+from app.routers import fares as fares_router
+from app.services.fare_collector import CollectionReport, FareWatch, collect
 from app.services.fare_history import FareHistory
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -568,3 +571,102 @@ def test_a_payload_without_an_insight_block_is_not_an_error():
     """
     assert google_flights.parse_history([None, None, None, [[]]]) == []
     assert google_flights.parse_insights([None, None, None, [[]]]) is None
+
+
+# --- the endpoint ------------------------------------------------------------
+
+
+def stub_pass(skipped=None):
+    """A collector that reaches nothing and reports what it was handed."""
+    seen: dict[str, object] = {}
+
+    async def fake_collect_due(watched, **kwargs):
+        seen["watched"] = watched
+        seen["budget"] = kwargs.get("budget")
+        return CollectionReport(
+            started_at="2026-08-19T14:00:00+00:00",
+            finished_at="2026-08-19T14:00:06+00:00",
+            source="google-flights",
+            results=[],
+            skipped=list(skipped or []),
+        )
+
+    return seen, fake_collect_due
+
+
+def test_the_collect_endpoint_takes_a_month_and_refuses_anything_else(monkeypatch):
+    """
+    The client sends what the reader watches — a city pair and a month, 12.110.
+
+    It no longer knows which departures exist inside one, and it should not:
+    expanding a month is the collector's job because only the collector can
+    also report the days it decided to leave alone, and why.
+
+    A typo is a 422 the client can show rather than a month that silently
+    expands to nothing.
+    """
+    seen, fake = stub_pass()
+    monkeypatch.setattr(fares_router, "collect_due", fake)
+    client = TestClient(app)
+
+    ok = client.post(
+        "/api/fares/collect",
+        json={"routes": [{"origin": "lim", "destination": "scl", "month": "2027-03"}]},
+    )
+    assert ok.status_code == 200
+    assert seen["watched"] == [FareWatch(origin="LIM", destination="SCL", month="2027-03")]
+    # Capped per call, not per day: forty paced requests is four minutes, which
+    # is what fits inside the client's own deadline.
+    assert seen["budget"] == fares_router.MAX_COLLECT_REQUESTS
+
+    for bad in ("2027-3", "2027-13", "2027-03-09", "soon"):
+        refused = client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": bad}]},
+        )
+        assert refused.status_code == 422, bad
+
+
+def test_the_collect_endpoint_runs_the_schedule_rather_than_bypassing_it(monkeypatch):
+    """
+    12.111, superseding the second half of 12.90.
+
+    A press used to buy one request, and someone who has decided where to spend
+    one should not be argued with by a cadence table. Under 12.110 the same
+    press buys up to thirty-one — a tenth of the day's budget per click — so it
+    runs the schedule and reports what it declined, which is what stops a press
+    that collected nothing from looking like a broken button.
+    """
+    _, fake = stub_pass(skipped=[("LIM-SCL 2027-03-01", "not-due")])
+    monkeypatch.setattr(fares_router, "collect_due", fake)
+    client = TestClient(app)
+
+    answer = client.post(
+        "/api/fares/collect",
+        json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+    )
+    assert answer.status_code == 200
+    assert answer.json()["skipped"] == [{"what": "LIM-SCL 2027-03-01", "reason": "not-due"}]
+
+
+def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_path):
+    """
+    `departure` is a prefix — 12.112. `2027-03` selects the month a route is
+    now watched by and `2027-03-09` still selects one departure, because these
+    keys are `YYYY-MM-DD` and truncate the way the calendar does.
+    """
+    from app.adapters.fares.models import PricePoint
+
+    history = FareHistory(tmp_path)
+    for departure, price in (("2027-03-09", 210.0), ("2027-03-10", 240.0), ("2027-04-02", 900.0)):
+        history.merge_baseline(
+            "LIM", "SCL", departure, [PricePoint("2026-08-18", price)], source="s", currency="USD"
+        )
+    monkeypatch.setattr(fares_router, "HISTORY", history)
+    client = TestClient(app)
+
+    march = client.get("/api/fares/history?origin=LIM&destination=SCL&departure=2027-03")
+    assert [point["price"] for point in march.json()["baseline"]] == [210.0, 240.0]
+
+    ninth = client.get("/api/fares/history?origin=LIM&destination=SCL&departure=2027-03-09")
+    assert [point["price"] for point in ninth.json()["baseline"]] == [210.0]

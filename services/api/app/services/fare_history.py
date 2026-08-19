@@ -36,6 +36,14 @@ same thing:
 
 Compaction is still absent, and now it can stay absent: writing on change is
 what keeps the file small enough not to need it.
+
+**12.110 changed the watch from a departure to a month and this file did not
+have to move** — 12.112. Every one of the four kinds above is already keyed by
+`flightDate` inside a file named for the city pair, so thirty-one departures
+coexist in it exactly as two used to; the layout was per-pair-per-departure all
+along and a month is only more departures. The change is on the read side and
+amounts to two prefix filters, on `read_baseline` and on `checks`, so a caller
+can ask for `2027-03` where it used to ask for `2027-03-09`.
 """
 
 import hashlib
@@ -349,8 +357,17 @@ class FareHistory:
                     seen[key] = at
         return seen
 
-    def checks(self, origin: str, destination: str) -> list[dict[str, object]]:
-        """Every look taken at a route, oldest first, unreadable lines skipped."""
+    def checks(
+        self, origin: str, destination: str, departure: str | None = None
+    ) -> list[dict[str, object]]:
+        """
+        Every look taken at a route, oldest first, unreadable lines skipped.
+
+        `departure` narrows to one departure or, as a prefix, to one watched
+        month — same rule as `read_baseline`. Without it the health figures on
+        a pair watched across two months would count both, and a reader looking
+        at March would be told how often the collector had looked at April.
+        """
         path = self._checks_path(origin, destination)
         if not path.exists():
             return []
@@ -369,8 +386,11 @@ class FareHistory:
                 row = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(row, dict):
-                found.append(row)
+            if not isinstance(row, dict):
+                continue
+            if departure is not None and not str(row.get("flightDate", "")).startswith(departure):
+                continue
+            found.append(row)
         found.sort(key=lambda row: str(row.get("at", "")))
         return found
 
@@ -479,12 +499,22 @@ class FareHistory:
         return rows
 
     def read_baseline(
-        self, origin: str, destination: str, flight_date: str | None = None
+        self, origin: str, destination: str, departure: str | None = None
     ) -> list[PricePoint]:
-        """The provider's own daily series, oldest first, one departure at a time."""
+        """
+        The provider's own daily series, oldest first, for one departure or one
+        month of them.
+
+        `departure` is matched as a **prefix**, which is the whole of what
+        12.110 needed from this file: `2027-03-09` still selects one departure,
+        and `2027-03` selects the month a route is now watched by. A prefix
+        works because these keys are `YYYY-MM-DD` and sort and truncate the way
+        the calendar does — the same property that keeps `read`'s `since` and
+        `until` free of any date parsing.
+        """
         points = []
         for row in self._read_baseline_rows(origin, destination):
-            if flight_date is not None and str(row.get("flightDate")) != flight_date:
+            if departure is not None and not str(row.get("flightDate")).startswith(departure):
                 continue
             price = row.get("price")
             # Narrowed before `float`, not guarded after it: the same reason

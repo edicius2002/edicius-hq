@@ -15,3 +15,9 @@ apps/web/public
 # Captured upstream responses. Reformatting one would change the bytes the
 # parser tests pin against, which is the whole point of keeping it verbatim.
 services/api/tests/fixtures
+
+# Generated geography: 167 TopoJSON files written by `scripts/build-subdivisions`.
+# Pretty-printing them would multiply 2.1 MB by about three for the benefit of
+# nobody — they are read by a projection, not by a person, and the only
+# meaningful diff on one is that it was rebuilt.
+services/api/app/data/subdivisions

@@ -28,6 +28,16 @@
   --map-ocean-lit: color-mix(in srgb, var(--color-bg) 45%, #22303c);
   --map-land: color-mix(in srgb, #404040 94%, var(--color-surface-soft));
   --map-border: color-mix(in srgb, #171717 92%, var(--color-bg));
+  /*
+   * A subdivision border, which has to read as *inside* the country border it
+   * sits within rather than beside it. Half the separation: measured, the
+   * national line is 1.68 against the land and this one is 1.34, so the two
+   * are never mistaken for each other and neither disappears. Width does the
+   * other half of the work — see the canvas, where this is stroked at 0.55 of
+   * the national width. Colour alone was not enough at 8x, where every line on
+   * the map is at its heaviest.
+   */
+  --map-border-inner: color-mix(in srgb, var(--map-border) 50%, var(--map-land));
   --map-halo: color-mix(in srgb, var(--color-accent) 12%, transparent);
   /*
    * The fallback only. Each arc is stroked with its own colour from
@@ -331,7 +341,8 @@
  * across a fast drag.
  */
 .continent,
-.country {
+.country,
+.subdivision {
   font-family: var(--font-sans);
   text-anchor: middle;
   pointer-events: none;
@@ -345,7 +356,8 @@
  * — a zoom press, a change of projection — and those happen at rest.
  */
 .settled .continent,
-.settled .country {
+.settled .country,
+.settled .subdivision {
   transition: opacity 160ms ease-out;
 }
 
@@ -368,10 +380,39 @@
   stroke-linejoin: round;
 }
 
+/*
+ * A province, a department, a prefecture. The rung below a country, and it
+ * says so twice over: two points smaller, barely tracked out, and in the muted
+ * ink rather than the full one. Measured on the land it is drawn on, a country
+ * name is 9.25:1 and this is 4.80:1 — the same halving the border colours use,
+ * so the two layers relate to each other the same way whichever of them the
+ * reader is looking at.
+ *
+ * 8px, and the smallest thing on the map. It is not only hierarchy: the room
+ * a name needs is its own box, and both sides of that box fall with the face,
+ * so a point down from the country rung asks 21% less ground of every
+ * department — which at the zoom cap is part of the difference between Peru
+ * showing nine names and eighteen, the rest of it being that the threshold is
+ * now sized per name at all.
+ * The width this is worth is mirrored in `TYPE.subdivision`, which is what
+ * `roomForName` measures against; the two have to agree, and a stylesheet
+ * cannot be read from a test here for the reason decision 12.70 records.
+ */
+.subdivision {
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  fill: var(--color-muted);
+  paint-order: stroke;
+  stroke: var(--map-land);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .switch button,
   .settled .continent,
-  .settled .country {
+  .settled .country,
+  .settled .subdivision {
     transition: none;
   }
 

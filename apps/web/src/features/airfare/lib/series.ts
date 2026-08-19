@@ -154,6 +154,24 @@ export function departureDay(iso: string): string {
   return iso.split('T')[0] ?? '';
 }
 
+/**
+ * When something was observed, written the way this reader writes a date.
+ *
+ * `18/08/2026 19:45`, to match the dates in the watchlist — the same view was
+ * showing `17/10/2026` beside `2026-08-18 19:45`, which is two conventions for
+ * the same kind of thing. A string split rather than a `Date` for the reason
+ * above it: this stamp is wall clock and must not be shifted into the reader's
+ * own zone.
+ */
+export function formatStamp(iso: string): string {
+  const [date, time] = iso.split('T');
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '');
+  if (!parts) return iso;
+  const [, year, month, day] = parts;
+  const clock = time ? ` ${time.slice(0, 5)}` : '';
+  return `${day}/${month}/${year}${clock}`;
+}
+
 /** `215` → `3h 35m`, which is how long a flight is actually described. */
 export function formatDuration(minutes: number | null): string {
   if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) return '—';

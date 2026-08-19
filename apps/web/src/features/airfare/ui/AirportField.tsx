@@ -29,17 +29,26 @@ type AirportFieldProps = {
   value: string;
   placeholder?: string;
   onChange: (code: string) => void;
+  /**
+   * Which edge of the field the list is pinned to; it grows away from that
+   * edge. `right` opens it leftwards, which is what the field at the end of a
+   * row needs.
+   */
+  align?: 'left' | 'right';
 };
 
-export function AirportField({ id, label, value, placeholder, onChange }: AirportFieldProps) {
+export function AirportField({
+  id,
+  label,
+  value,
+  placeholder,
+  onChange,
+  align = 'left',
+}: AirportFieldProps) {
   const listId = useId();
   const [matches, setMatches] = useState<AirportMatch[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  // Set when the list would run off the right edge — the destination field
-  // sits at the end of a two-column row, and a suggestion list wider than its
-  // input has nowhere to go but sideways.
-  const [flip, setFlip] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   /*
    * The last value this field has already accounted for.
@@ -85,21 +94,11 @@ export function AirportField({ id, label, value, placeholder, onChange }: Airpor
     };
   }, [value]);
 
-  // Measured after paint rather than guessed from column position: the field
-  // does not know where on the page it has been placed, and should not have to.
-  useEffect(() => {
-    const list = listRef.current;
-    if (!open || !list) return;
-    const rect = list.getBoundingClientRect();
-    setFlip(rect.right > window.innerWidth - 8);
-  }, [open, matches]);
-
   function take(match: AirportMatch) {
     settled.current = match.code;
     onChange(match.code);
     setOpen(false);
     setMatches([]);
-    setFlip(false);
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -143,7 +142,7 @@ export function AirportField({ id, label, value, placeholder, onChange }: Airpor
         {open && matches.length > 0 ? (
           <ul
             ref={listRef}
-            className={flip ? `${styles.list} ${styles.flipped}` : styles.list}
+            className={align === 'right' ? `${styles.list} ${styles.leftwards}` : styles.list}
             id={listId}
             role="listbox"
             aria-label={`${label} suggestions`}

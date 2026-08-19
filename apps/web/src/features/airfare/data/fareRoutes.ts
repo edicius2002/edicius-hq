@@ -80,6 +80,24 @@ export function routeLabel(route: FareRoute): string {
 }
 
 /**
+ * A stored date, written the way this reader writes one.
+ *
+ * `YYYY-MM-DD` is what goes to disk and what sorts and compares correctly, so
+ * it stays that everywhere except on screen. The conversion is a string split
+ * rather than a `Date`: parsing `2026-10-17` gives midnight UTC, and rendering
+ * that anywhere west of Greenwich — Lima, for one — shows the 16th.
+ *
+ * Anything that is not a plain calendar date comes back untouched, because a
+ * date the reader can see and puzzle over beats a silent blank.
+ */
+export function formatFlightDate(iso: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!parts) return iso;
+  const [, year, month, day] = parts;
+  return `${day}/${month}/${year}`;
+}
+
+/**
  * Parse whatever storage returns.
  *
  * Same guard the other documents use: repair what can be repaired, drop what

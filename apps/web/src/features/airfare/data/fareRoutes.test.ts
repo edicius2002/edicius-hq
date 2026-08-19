@@ -4,6 +4,7 @@ import {
   addRoute,
   collectableRoutes,
   EMPTY_FARE_ROUTES,
+  formatFlightDate,
   isCalendarDate,
   normalizeFareRoutes,
   removeRoute,
@@ -172,5 +173,28 @@ describe('reorderRoutes', () => {
     const moved = reorderRoutes(LIST, ids(LIST)[2], ids(LIST)[0]);
     expect(moved.routes).toHaveLength(LIST.routes.length);
     expect(new Set(ids(moved))).toEqual(new Set(ids(LIST)));
+  });
+});
+
+describe('formatFlightDate', () => {
+  it('writes a stored date the way this reader writes one', () => {
+    expect(formatFlightDate('2026-10-17')).toBe('17/10/2026');
+  });
+
+  it('does not go through a Date, which would move the day west of Greenwich', () => {
+    /*
+     * `new Date('2026-01-01')` is midnight UTC, and rendering that in Lima —
+     * the default origin of this whole feature — shows the 31st of December.
+     * A string split cannot make that mistake.
+     */
+    expect(formatFlightDate('2026-01-01')).toBe('01/01/2026');
+    expect(formatFlightDate('2026-12-31')).toBe('31/12/2026');
+  });
+
+  it('hands back anything that is not a plain calendar date, untouched', () => {
+    // A date the reader can see and puzzle over beats a silent blank.
+    for (const odd of ['', 'tomorrow', '2026-13-40x', '17/10/2026']) {
+      expect(formatFlightDate(odd)).toBe(odd);
+    }
   });
 });

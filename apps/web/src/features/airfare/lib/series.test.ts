@@ -8,6 +8,7 @@ import {
   departureClock,
   departureDay,
   formatDuration,
+  formatStamp,
   latestSnapshot,
   median,
   priceStats,
@@ -192,5 +193,32 @@ describe('daysBeforeDeparture', () => {
     expect(daysBeforeDeparture('2026-08-17T12:00:00+00:00', '2026-10-16')).toBe(60);
     expect(daysBeforeDeparture('2026-10-16T06:00:00+00:00', '2026-10-16')).toBe(0);
     expect(daysBeforeDeparture('nope', '2026-10-16')).toBeNull();
+  });
+});
+
+describe('formatStamp', () => {
+  it('writes an observation the way this reader writes a date', () => {
+    // The same view was showing `17/10/2026` beside `2026-08-18 19:45`, which
+    // is two conventions for the same kind of thing.
+    expect(formatStamp('2026-08-18T19:45:03')).toBe('18/08/2026 19:45');
+  });
+
+  it('does not shift the clock into the reader’s own zone', () => {
+    /*
+     * A string split, not a `Date`. These stamps are wall clock; parsing
+     * `2026-01-01T00:15` and rendering it in Lima would move it to the 31st of
+     * December at 19:15.
+     */
+    expect(formatStamp('2026-01-01T00:15:00')).toBe('01/01/2026 00:15');
+    expect(formatStamp('2026-12-31T23:50:00')).toBe('31/12/2026 23:50');
+  });
+
+  it('copes with a bare date, and with a stamp carrying an offset', () => {
+    expect(formatStamp('2026-08-18')).toBe('18/08/2026');
+    expect(formatStamp('2026-08-18T19:45:03-05:00')).toBe('18/08/2026 19:45');
+  });
+
+  it('hands back anything it cannot read, untouched', () => {
+    for (const odd of ['', 'yesterday', '18/08/2026']) expect(formatStamp(odd)).toBe(odd);
   });
 });

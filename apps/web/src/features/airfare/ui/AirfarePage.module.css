@@ -10,15 +10,40 @@
  */
 .top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  /* Wider than it was: a route is one line now, and the line carries a
+     colour, a pair and up to two dates. */
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
   gap: var(--space-5);
-  align-items: start;
+  /*
+   * Deliberately *not* `align-items: start`. The map and the watchlist are the
+   * two cells of the first row, and letting the row stretch them is the whole
+   * reason they end up the same height.
+   */
+  align-items: stretch;
+  min-width: 0;
 }
 
-.stack {
-  display: grid;
-  gap: var(--space-5);
+/*
+ * A first-row panel. Whichever of the two has more to say sets the height and
+ * the other fills it, rather than one column running long beside a short one.
+ */
+.tall {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.panelHead .panelTitle {
+  margin: 0;
 }
 
 .analysisHead {
@@ -32,13 +57,6 @@
 
 .analysisHead .panelTitle {
   margin: 0;
-}
-
-.subTitle {
-  margin: var(--space-5) 0 var(--space-3);
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--color-muted);
 }
 
 .switch {

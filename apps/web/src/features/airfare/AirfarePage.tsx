@@ -8,6 +8,7 @@ import {
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
+import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
@@ -67,6 +68,11 @@ export function AirfarePage() {
   const selectedKey = selected ? routeId(selected) : null;
 
   const history = useFareHistory(selected);
+  // Beside the archive rather than inside the panel that draws it: the two are
+  // the same kind of thing — one route's data, fetched where the route is
+  // chosen — and the panel stays a component that is handed everything it
+  // draws. `useFareCalendar` records why it is not gated on the open view.
+  const calendar = useFareCalendar(selected);
 
   /*
    * What this route is being read as: its month, or the one day inside it the
@@ -327,6 +333,8 @@ export function AirfarePage() {
           route={selected}
           snapshots={snapshots}
           baseline={history.data?.baseline ?? []}
+          curve={calendar.data?.latest ?? null}
+          curveLoading={calendar.isPending}
           granularity={granularity}
           onGranularityChange={setGranularity}
         />

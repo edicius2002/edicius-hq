@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import type { Granularity } from '@/features/airfare/lib/buckets';
 import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
-import type { FareOffer, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
+import type { CalendarCurve, FareOffer, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
 /**
  * The panel that holds the three views, the two switches, and the period.
@@ -78,6 +78,33 @@ for (let day = 1; day <= 31; day += 1) {
 }
 
 /**
+ * A booking horizon short enough to assert on: a fortnight of departures with
+ * the 24th unsold and the 25th never answered for.
+ */
+const CURVE: CalendarCurve = {
+  capturedAt: '2026-08-19T15:49:46+00:00',
+  source: 'google-flights',
+  currency: 'USD',
+  fromDate: '2026-08-19',
+  toDate: '2026-09-01',
+  prices: [
+    { departureDate: '2026-08-19', price: 164.88 },
+    { departureDate: '2026-08-20', price: 119.5 },
+    { departureDate: '2026-08-21', price: 96.2 },
+    { departureDate: '2026-08-22', price: 88.4 },
+    { departureDate: '2026-08-23', price: 41.24 },
+    { departureDate: '2026-08-24', price: null },
+    { departureDate: '2026-08-26', price: 62.94 },
+    { departureDate: '2026-08-27', price: 62.94 },
+    { departureDate: '2026-08-28', price: 62.94 },
+    { departureDate: '2026-08-29', price: 62.94 },
+    { departureDate: '2026-08-30', price: 62.94 },
+    { departureDate: '2026-08-31', price: 62.94 },
+    { departureDate: '2026-09-01', price: 62.94 },
+  ],
+};
+
+/**
  * The page's half of the arrangement: the granularity is the page's, because
  * the flight table under this panel is grouped by it too.
  */
@@ -93,6 +120,8 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
         route={route}
         snapshots={MONTH}
         baseline={BASELINE}
+        curve={CURVE}
+        curveLoading={false}
         granularity={granularity}
         onGranularityChange={setGranularity}
         {...props}
@@ -213,13 +242,44 @@ describe('what the panel says it is showing', () => {
 });
 
 describe('the three views', () => {
-  it('offers all three and opens on the price history', () => {
+  it('offers all four and opens on the price history', () => {
     render(<Harness />);
     expect(screen.getByRole('button', { name: 'Price history' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
+    for (const name of ['Price history', 'Lead time', 'Flights', 'Departure dates']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
     expect(screen.getByText(/the x axis is when the price was observed/)).toBeInTheDocument();
+  });
+
+  it('draws the whole booking horizon on which departure date', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Departure dates' }));
+
+    expect(screen.getByText(/the x axis is which departure date/)).toBeInTheDocument();
+    const chart = screen.getByRole('img');
+    expect(chart.getAttribute('aria-label')).toContain('by departure date');
+    // The domain is the curve's own window, both ends written out under the plot.
+    expect(screen.getByTestId('axis-from')).toHaveTextContent('19/08/2026');
+    expect(screen.getByTestId('axis-to')).toHaveTextContent('01/09/2026');
+  });
+
+  it('keeps the two absences apart on the view the page actually renders', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Departure dates' }));
+
+    // The 24th was answered for and had nothing to sell; the 25th never came
+    // back at all. Wired end to end, they are still two different marks.
+    expect(screen.getByTestId('hole-unsold')).toBeInTheDocument();
+    expect(screen.getByTestId('hole-unanswered')).toBeInTheDocument();
+  });
+
+  it('says the horizon has never been collected rather than drawing an empty one', () => {
+    render(<Harness curve={null} curveLoading={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Departure dates' }));
+    expect(screen.getByText(/No booking horizon collected for this route yet/)).toBeInTheDocument();
   });
 
   it('leaves the observation-time chart drawn on observation time', () => {

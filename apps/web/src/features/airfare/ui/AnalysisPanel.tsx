@@ -13,9 +13,10 @@ import {
   type Granularity,
 } from '@/features/airfare/lib/buckets';
 import { leadAxis, leadBaseline, leadSnapshots } from '@/features/airfare/lib/leadTime';
+import { CalendarCurveChart } from '@/features/airfare/ui/CalendarCurveChart';
 import { FlightScatterChart } from '@/features/airfare/ui/FlightScatterChart';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
-import type { FarePricePoint, FareSnapshot } from '@/shared/api/fares';
+import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
 import styles from './AnalysisPanel.module.css';
 
@@ -26,25 +27,36 @@ const GRANULARITIES: { value: Granularity; label: string }[] = [
 ];
 
 /**
- * Three charts over one archive, and the reader picks which — 12.140, widened
- * by 12.170.
+ * Four charts over one route, and the reader picks which — 12.140, widened by
+ * 12.170 and again by 12.190.
  *
- * They are drawn on three different kinds of time and none of them folds into
- * another. "Price history" is **observation** time: what the cheapest fare was
- * on each day we looked, which answers "is this fare rising or falling as we
- * watch it". "Lead time" is **days before departure**: the same fares placed
- * by how far ahead of the flight they were seen, which answers "how far ahead
- * should I buy". "Flights" is **departure** time: every itinerary in the
- * watched month, on the day and at the hour it leaves, which answers "which
- * departure do I book". One chart would have needed one x axis to mean three
- * things at once.
+ * "Price history" is **observation** time: what the cheapest fare was on each
+ * day we looked, which answers "is this fare rising or falling as we watch it".
+ * "Lead time" is **days before departure**: the same fares placed by how far
+ * ahead of the flight they were seen, which answers "how far ahead should I
+ * buy". "Flights" is **departure** time: every itinerary in the watched month,
+ * on the day and at the hour it leaves, which answers "which departure do I
+ * book". "Departure dates" is departure time too, across the whole booking
+ * horizon rather than one watched month: one cheapest fare for every day out to
+ * where the provider stops answering, which answers "which month should I fly
+ * in at all". One chart would have needed one x axis to mean four things.
+ *
+ * **The last two are the same axis at two scales, and that is the weak seam in
+ * this switch** — 12.197. Price history and lead time really are different
+ * clocks; flights and departure dates are both "which departure", one inside a
+ * month and one across 331 days. Four peers where two of them are one axis
+ * split by scope is a shape that may want to become a single Departures view
+ * with a zoom. It is recorded rather than acted on, because merging them is a
+ * design change nobody asked for and the placement of the calendar is itself
+ * provisional.
  */
-type ChartView = 'history' | 'lead' | 'flights';
+type ChartView = 'history' | 'lead' | 'flights' | 'calendar';
 
 const VIEWS: { value: ChartView; label: string }[] = [
   { value: 'history', label: 'Price history' },
   { value: 'lead', label: 'Lead time' },
   { value: 'flights', label: 'Flights' },
+  { value: 'calendar', label: 'Departure dates' },
 ];
 
 /** Which clock the chart under the switches is drawn on, said in full. */
@@ -52,12 +64,18 @@ const WHAT: Record<ChartView, string> = {
   history: 'Across the days we looked — the x axis is when the price was observed.',
   lead: 'Across the run-up to departure — the x axis is whole days before the flight, not dates.',
   flights: 'Across the month being flown — the x axis is when each itinerary departs.',
+  calendar:
+    'Across the whole booking horizon — the x axis is which departure date, every month out to where the provider stops answering.',
 };
 
 type AnalysisPanelProps = {
   route: FareRoute | null;
   snapshots: FareSnapshot[];
   baseline: FarePricePoint[];
+  /** The booking horizon as last collected, or null where there is none yet. */
+  curve: CalendarCurve | null;
+  /** True while that request is in flight, so "never collected" is not claimed early. */
+  curveLoading: boolean;
   granularity: Granularity;
   onGranularityChange: (granularity: Granularity) => void;
 };
@@ -83,6 +101,8 @@ export function AnalysisPanel({
   route,
   snapshots,
   baseline,
+  curve,
+  curveLoading,
   granularity,
   onGranularityChange,
 }: AnalysisPanelProps) {
@@ -226,7 +246,7 @@ export function AnalysisPanel({
               : 'Fares by days before departure'
           }
         />
-      ) : (
+      ) : view === 'flights' ? (
         /*
           Keyed by route so the crosshair the reader left on a flight resets
           when they open a different watch. The period does not reset with it
@@ -242,6 +262,24 @@ export function AnalysisPanel({
           onAnchorChange={setAnchor}
           label={
             route ? `Every flight for ${where}, by departure time` : 'Flights by departure time'
+          }
+        />
+      ) : (
+        /*
+          Keyed by route for the scatter's reason, and it takes no anchor at
+          all: this chart draws the whole horizon in one frame, so there is no
+          period to be on and nothing for the arrows to step to. Its own state
+          is the crosshair and nothing else.
+        */
+        <CalendarCurveChart
+          key={routeKey ?? 'none'}
+          curve={curve}
+          granularity={granularity}
+          loading={curveLoading}
+          label={
+            route
+              ? `Cheapest fare for ${routeLabel(route)} by departure date, across the whole booking horizon`
+              : 'Fares by departure date'
           }
         />
       )}

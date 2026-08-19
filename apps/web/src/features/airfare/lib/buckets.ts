@@ -163,10 +163,19 @@ function labelFor(key: string, granularity: Granularity): string {
   return key.slice(5); // MM-DD; the year is on the axis, not on every tick
 }
 
-function summarise(key: string, granularity: Granularity, prices: number[]): Bucket {
+/**
+ * One period's prices reduced to the five numbers a chart draws.
+ *
+ * The label is handed in rather than derived, because since 12.170 a bucket
+ * key is not always a calendar key: the lead-time axis buckets by whole days
+ * before departure and spells its own periods. Everything else about a bucket
+ * — that it is a band and a middle, and that the middle is a median — is the
+ * same measurement whichever axis it lands on, and belongs in one place.
+ */
+export function summarise(key: string, label: string, prices: number[]): Bucket {
   return {
     key,
-    label: labelFor(key, granularity),
+    label,
     low: Math.min(...prices),
     high: Math.max(...prices),
     // Median rather than mean: one collection during a fare glitch should not
@@ -174,6 +183,81 @@ function summarise(key: string, granularity: Granularity, prices: number[]): Buc
     middle: median(prices),
     count: prices.length,
   };
+}
+
+/* ------------------------------------------------------ how an axis reads -- */
+
+/**
+ * What a chart of these buckets is a chart *of* — 12.170.
+ *
+ * `PriceBandChart` draws a band, a middle and the provider's line behind them,
+ * and none of that geometry cares whether the x axis is calendar time or days
+ * before departure. What differs is entirely words and order: what one bucket
+ * is called, what a key covers when it is spelled out under the crosshair, and
+ * which way the axis runs. Passing those in as a value is what lets the two
+ * views share one chart rather than become two components that drift apart —
+ * the lead-time view inherits 12.61's crosshair and 12.62's tag placement
+ * instead of having to earn them again.
+ *
+ * `order` is not decoration. The calendar axis runs oldest to newest, which is
+ * ascending on its keys; the lead-time axis runs *furthest ahead* to the day
+ * of departure, which is descending on its own. A chart that sorted its keys
+ * one fixed way could only ever draw one of them the right way round.
+ */
+export type BucketAxis = {
+  /** The noun for one bucket, singular and plural — `week`, `lead week`. */
+  unit: { one: string; many: string };
+  /** What a key covers, spelled out for the readout and the live region. */
+  spell: (key: string) => string;
+  /** The order the keys are drawn in, left to right. */
+  order: (a: string, b: string) => number;
+  /** What the second, dashed series is — the legend line under the chart. */
+  baselineLegend: string;
+};
+
+/**
+ * Calendar time: the axis this chart has always been drawn on.
+ *
+ * Kept as a value with the same shape as `leadAxis` rather than left implicit,
+ * so neither view is the special case — the observation-time view reads
+ * exactly as it did, and the difference between the two is one object.
+ */
+export function calendarAxis(granularity: Granularity): BucketAxis {
+  return {
+    unit: { one: granularity, many: `${granularity}s` },
+    spell: (key) => boundsLabel(periodBounds(key, granularity)),
+    order: (a, b) => a.localeCompare(b),
+    baselineLegend: 'What the provider says it usually costs — one rounded figure a day',
+  };
+}
+
+/**
+ * A series split into runs of buckets that are neighbours on the axis.
+ *
+ * Drawn as one path, a series with a hole in it is a straight line across the
+ * hole — and a straight line between two observations is a claim that the fare
+ * moved evenly through a period nobody looked at. On the lead-time axis that
+ * is not a corner case: our own archive reaches 31 of the 91 lead days the
+ * provider's does, so most of that axis is a stretch we have never observed
+ * and the band has to stop rather than stretch across it.
+ *
+ * `keys` is the merged axis — every key either series puts on it — so
+ * adjacency means "nothing is drawn between these two", not "these two dates
+ * are consecutive". A period neither series reached is not on the axis at all
+ * and so cannot make a hole.
+ */
+export function contiguousRuns(keys: string[], series: Bucket[]): Bucket[][] {
+  const rank = new Map(keys.map((key, index) => [key, index]));
+  const runs: Bucket[][] = [];
+  let last: number | null = null;
+  for (const bucket of series) {
+    const index = rank.get(bucket.key);
+    if (index === undefined) continue;
+    if (last !== null && index === last + 1) runs[runs.length - 1].push(bucket);
+    else runs.push([bucket]);
+    last = index;
+  }
+  return runs;
 }
 
 /**
@@ -202,7 +286,7 @@ export function bucketSnapshots(snapshots: FareSnapshot[], granularity: Granular
     else groups.set(key, [offer.price]);
   }
   return [...groups.entries()]
-    .map(([key, prices]) => summarise(key, granularity, prices))
+    .map(([key, prices]) => summarise(key, labelFor(key, granularity), prices))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -227,7 +311,7 @@ export function bucketBaseline(points: FarePricePoint[], granularity: Granularit
     else groups.set(key, [point.price]);
   }
   return [...groups.entries()]
-    .map(([key, prices]) => summarise(key, granularity, prices))
+    .map(([key, prices]) => summarise(key, labelFor(key, granularity), prices))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Bucket } from '@/features/airfare/lib/buckets';
+import { calendarAxis, type Bucket } from '@/features/airfare/lib/buckets';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 
 /**
@@ -54,7 +54,7 @@ function chart(props: Partial<Parameters<typeof PriceBandChart>[0]> = {}) {
       ours={OURS}
       baseline={BASELINE}
       currency="USD"
-      granularity="day"
+      axis={calendarAxis('day')}
       label="Cheapest fare for LIM to CUZ"
       {...props}
     />,
@@ -201,7 +201,7 @@ describe('PriceBandChart crosshair', () => {
         ours={[]}
         baseline={[]}
         currency="USD"
-        granularity="day"
+        axis={calendarAxis('day')}
         label="Cheapest fare for LIM to CUZ"
       />,
     );
@@ -219,7 +219,7 @@ describe('PriceBandChart crosshair', () => {
         ours={OURS}
         baseline={BASELINE}
         currency="USD"
-        granularity="day"
+        axis={calendarAxis('day')}
         label="Cheapest fare for LIM to CUZ"
       />,
     );
@@ -232,10 +232,71 @@ describe('PriceBandChart crosshair', () => {
         ours={[bucket('2026-08', '2026-08', 118, 160, 131)]}
         baseline={[]}
         currency="USD"
-        granularity="month"
+        axis={calendarAxis('month')}
         label="Cheapest fare for LIM to CUZ"
       />,
     );
     expect(screen.queryByTestId('crosshair')).not.toBeInTheDocument();
+  });
+});
+
+describe('a period we never observed', () => {
+  /** How many separate strokes a `d` is: one `M` starts each of them. */
+  function strokes(d: string | null): number {
+    return (d ?? '').split('M').length - 1;
+  }
+
+  it('is a break in our band and our line, not a straight run across it', () => {
+    // A single path through a hole claims the fare moved evenly through a
+    // period nobody looked at. On the lead-time axis this is the ordinary case
+    // rather than the edge — our archive reaches a third of the lead days the
+    // provider's does — but it is the same lie on either axis.
+    render(
+      <PriceBandChart
+        ours={[
+          bucket('2026-08-17', '08-17', 118, 142, 125),
+          bucket('2026-08-18', '08-18', 130, 160, 139),
+          bucket('2026-08-20', '08-20', 121, 150, 133),
+          bucket('2026-08-21', '08-21', 124, 152, 136),
+        ]}
+        // The collector was down on the 19th; the provider was not, so the
+        // period is on the axis and our two figures for it are simply absent.
+        baseline={[bucket('2026-08-19', '08-19', 96, 96, 96)]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+
+    expect(strokes(screen.getByTestId('ours-line').getAttribute('d'))).toBe(2);
+    expect(strokes(screen.getByTestId('ours-band').getAttribute('d'))).toBe(2);
+  });
+
+  it('is still one unbroken stroke while nothing is missing', () => {
+    render(
+      <PriceBandChart
+        ours={OURS}
+        baseline={BASELINE}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    expect(strokes(screen.getByTestId('ours-line').getAttribute('d'))).toBe(1);
+    expect(strokes(screen.getByTestId('ours-band').getAttribute('d'))).toBe(1);
+  });
+
+  it('says so in words rather than borrowing the figure beside it', () => {
+    render(
+      <PriceBandChart
+        ours={[bucket('2026-08-17', '08-17', 118, 142, 125)]}
+        baseline={[bucket('2026-08-19', '08-19', 96, 96, 96)]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    fireEvent.pointerMove(screen.getByRole('img'), { clientX: 744, clientY: 100 });
+    expect(screen.getByRole('status')).toHaveTextContent('nothing of our own observed');
   });
 });

@@ -5,19 +5,18 @@ import {
   formatReading,
   readingPrefix,
   routeId,
-  routeLabel,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
-import { bucketBaseline, bucketSnapshots, type Granularity } from '@/features/airfare/lib/buckets';
+import { type Granularity } from '@/features/airfare/lib/buckets';
 import { routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
+import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
-import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
@@ -35,12 +34,6 @@ import styles from './ui/AirfarePage.module.css';
 // elsewhere on the page.
 const EMPTY_AIRPORTS = new Map<string, Airport>();
 
-const GRANULARITIES: { value: Granularity; label: string }[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-];
-
 /** Today as a calendar date, in the reader's own zone — which is when they fly. */
 function todayIso(): string {
   const now = new Date();
@@ -56,6 +49,9 @@ export function AirfarePage() {
   const [today] = useState(todayIso);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
+  // The granularity is the page's rather than the analysis panel's because the
+  // flight table under that panel is grouped by it too: two owners would let
+  // the chart and the table disagree about what a week is.
   const [granularity, setGranularity] = useState<Granularity>('day');
 
   const watchlist = useFareRoutes(today);
@@ -96,16 +92,6 @@ export function AirfarePage() {
   const latest = useMemo(() => cheapestDeparture(snapshots), [snapshots]);
   const insights = latest?.insights ?? null;
   const health = history.data?.health ?? null;
-  const currency = selected?.currency ?? 'USD';
-
-  const ourBuckets = useMemo(
-    () => bucketSnapshots(snapshots, granularity),
-    [snapshots, granularity],
-  );
-  const baselineBuckets = useMemo(
-    () => bucketBaseline(history.data?.baseline ?? [], granularity),
-    [history.data, granularity],
-  );
 
   const geometries = useMemo(
     () =>
@@ -330,36 +316,19 @@ export function AirfarePage() {
         />
       </Panel>
 
-      {/* The analysis runs the full width, under both columns. */}
+      {/*
+        The analysis runs the full width, under both columns. Its own component
+        since 12.170: the three views, the two switches and the period the
+        reader is on are one mechanism, and the period has to outlive the view
+        that shows it — which it cannot do if it is state inside one of them.
+      */}
       <Panel>
-        <div className={styles.analysisHead}>
-          <h2 className={styles.panelTitle}>
-            {selected ? `${routeLabel(selected)} · ${formatReading(selected)}` : 'Price analysis'}
-          </h2>
-          <div className={styles.switch} role="group" aria-label="Group observations by">
-            {GRANULARITIES.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={granularity === option.value}
-                onClick={() => setGranularity(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <PriceBandChart
-          ours={ourBuckets}
-          baseline={baselineBuckets}
-          currency={currency}
+        <AnalysisPanel
+          route={selected}
+          snapshots={snapshots}
+          baseline={history.data?.baseline ?? []}
           granularity={granularity}
-          label={
-            selected
-              ? `Cheapest fare for ${routeLabel(selected)} departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}, by ${granularity}`
-              : 'Price analysis'
-          }
+          onGranularityChange={setGranularity}
         />
       </Panel>
 

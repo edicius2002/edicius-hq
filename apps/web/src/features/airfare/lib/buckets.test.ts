@@ -5,9 +5,12 @@ import {
   bucketBaseline,
   bucketKey,
   bucketSnapshots,
+  calendarAxis,
+  contiguousRuns,
   isoWeekKey,
   periodBounds,
   spanOf,
+  type Bucket,
 } from '@/features/airfare/lib/buckets';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
@@ -177,10 +180,13 @@ describe('bucketSnapshots', () => {
 });
 
 describe('bucketBaseline', () => {
+  // Every row carries the departure it priced — 12.171 — and this axis ignores
+  // it: the calendar chart is drawn on when the price was *observed*, whichever
+  // of the month's thirty-one departures it was quoted for.
   const points = [
-    { date: '2026-08-17', price: 46 },
-    { date: '2026-08-18', price: 60 },
-    { date: '2026-09-01', price: 52 },
+    { flightDate: '2027-03-09', date: '2026-08-17', price: 46 },
+    { flightDate: '2027-03-09', date: '2026-08-18', price: 60 },
+    { flightDate: '2027-03-09', date: '2026-09-01', price: 52 },
   ];
 
   it('is a line at day granularity, because one value has no band', () => {
@@ -199,11 +205,65 @@ describe('bucketBaseline', () => {
 describe('spanOf', () => {
   it('covers both series so the provider line cannot run off the top', () => {
     const ours = bucketSnapshots([snapshot('2026-08-18T04:00:00+00:00', 100)], 'day');
-    const theirs = bucketBaseline([{ date: '2026-08-18', price: 300 }], 'day');
+    const theirs = bucketBaseline(
+      [{ flightDate: '2027-03-09', date: '2026-08-18', price: 300 }],
+      'day',
+    );
     expect(spanOf(ours, theirs)).toEqual({ low: 100, high: 300 });
   });
 
   it('is null when there is nothing to scale to', () => {
     expect(spanOf([], [])).toBeNull();
+  });
+});
+
+describe('contiguousRuns', () => {
+  const band = (key: string): Bucket => ({
+    key,
+    label: key,
+    low: 1,
+    high: 2,
+    middle: 1.5,
+    count: 1,
+  });
+
+  it('is one run while nothing on the axis is missing from the series', () => {
+    const keys = ['a', 'b', 'c'];
+    expect(contiguousRuns(keys, keys.map(band)).map((run) => run.map((b) => b.key))).toEqual([
+      ['a', 'b', 'c'],
+    ]);
+  });
+
+  it('breaks where a period on the axis has nothing of ours in it', () => {
+    // Drawn as one path, a series with a hole in it is a straight line across
+    // the hole — a claim that the fare moved evenly through a period nobody
+    // looked at. Two runs leave the hole a hole.
+    const keys = ['a', 'b', 'c', 'd'];
+    expect(
+      contiguousRuns(keys, [band('a'), band('c'), band('d')]).map((run) => run.map((b) => b.key)),
+    ).toEqual([['a'], ['c', 'd']]);
+  });
+
+  it('is a run of one where a bucket has no neighbour at all', () => {
+    const keys = ['a', 'b', 'c', 'd', 'e'];
+    expect(contiguousRuns(keys, [band('b'), band('d')])).toHaveLength(2);
+  });
+
+  it('ignores a bucket the axis never gave a place to', () => {
+    expect(contiguousRuns(['a', 'b'], [band('a'), band('z')])).toEqual([[band('a')]]);
+  });
+});
+
+describe('calendarAxis', () => {
+  it('runs oldest to newest, which is ascending on a calendar key', () => {
+    expect(['2026-08-19', '2026-08-17'].sort(calendarAxis('day').order)).toEqual([
+      '2026-08-17',
+      '2026-08-19',
+    ]);
+  });
+
+  it('spells a period out with both its clocks, exactly as the table captions it', () => {
+    expect(calendarAxis('day').spell('2026-08-18')).toBe('on 18/08/2026, 00:00 to 23:59');
+    expect(calendarAxis('week').unit).toEqual({ one: 'week', many: 'weeks' });
   });
 });

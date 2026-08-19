@@ -1,0 +1,73 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+/*
+ * Two switches side by side, wrapping together rather than one under the other.
+ * At the narrow end of the panel they stack, which is why this is a flex row
+ * with a gap and not a second element in `.head` — that one already pushes its
+ * children to opposite edges, and the pair belongs together.
+ */
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.switch {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.switch button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.switch button[aria-pressed='true'] {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.switch button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/*
+ * What the reader is looking at, in one sentence under the switches.
+ *
+ * The three views are drawn on three different clocks and the axis labels are
+ * short by necessity — `194d ahead` has to fit seven times across 620 units.
+ * A line that names the clock in full is what keeps a short label from being
+ * the only thing standing between a lead time and a date.
+ */
+.what {
+  margin: 0 0 var(--space-3);
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}

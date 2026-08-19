@@ -71,6 +71,24 @@ describe('snapshotsFor', () => {
     ];
     expect(snapshotsFor(all, '2026-10')).toHaveLength(2);
   });
+
+  it('narrows onto one departure when handed a focused day instead of a month', () => {
+    /*
+     * The whole of what a focus date does to the read side — 12.131. It is the
+     * same filter and the same call; only the prefix is a character longer,
+     * because `2026-10-17` starts with `2026-10` the way the calendar says it
+     * should. Everything downstream — the detail panel's board, the chart, the
+     * flight table — follows without knowing a focus exists.
+     */
+    const all = [
+      snapshot('2026-08-17T12:00:00+00:00', [125], { flightDate: '2026-10-16' }),
+      snapshot('2026-08-17T12:00:00+00:00', [190], { flightDate: '2026-10-17' }),
+      snapshot('2026-08-17T12:00:00+00:00', [640], { flightDate: '2026-11-01' }),
+    ];
+    const focused = snapshotsFor(all, '2026-10-17');
+    expect(focused).toHaveLength(1);
+    expect(focused[0].offers[0].price).toBe(190);
+  });
 });
 
 describe('latestPerDeparture', () => {

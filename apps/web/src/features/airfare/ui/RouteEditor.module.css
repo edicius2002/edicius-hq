@@ -39,10 +39,18 @@
 }
 
 /*
- * The pair of airports, side by side because they are one decision. The month
- * below them stands on its own — 12.113 took the return leg away, so there is
- * no second date to fill the other column, and the whole form is meant to cost
- * less height than two entries of the list it stands above.
+ * Two fields side by side because they are one decision: the pair of airports.
+ * It is the only row left. 12.113 emptied the column beside the departure when
+ * it took the return leg away, 12.130 filled it with the optional day, and
+ * 12.180 folded that day and the month back into one control — so the departure
+ * is full width again, on its own line under the airports. The form is the same
+ * two lines tall either way, which is what keeps it under the two list entries
+ * it stands above.
+ *
+ * The `min-width: 0` override that used to live here went with the second
+ * column. It existed because `min-width: 8rem` — 160px plus 26px of chrome —
+ * overflowed the 174px a column has at the panel's 20rem floor; a full-width
+ * field has 358px and the declared minimum is no longer fighting anything.
  */
 .row {
   display: grid;

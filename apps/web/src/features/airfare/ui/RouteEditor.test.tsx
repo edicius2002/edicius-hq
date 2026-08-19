@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { ADD_ROUTE_FORM_ID, RouteEditor } from '@/features/airfare/ui/RouteEditor';
 
 /**
@@ -47,7 +48,9 @@ afterEach(() => {
  * silently stop working.
  */
 function renderEditor() {
-  const onAdd = vi.fn();
+  // Typed rather than a bare `vi.fn()`, so a test can read a field off what
+  // was handed over without the route arriving as `any`.
+  const onAdd = vi.fn<(route: FareRoute) => void>();
   return {
     ...render(
       <>
@@ -59,6 +62,20 @@ function renderEditor() {
     ),
     onAdd,
   };
+}
+
+/**
+ * Submit the way a browser without `type="date"` would.
+ *
+ * `min` and `max` on the control are one of the two guards, and pressing the
+ * button only ever exercises that one — jsdom implements interactive
+ * constraint validation, so a value outside the bounds never reaches `submit`
+ * and the form has no chance to speak. Dispatching the event directly is what
+ * a text-box fallback does: no constraints, straight into the handler. That is
+ * the guard these tests are about, and the only way to see it work.
+ */
+function submitPastTheBrowser() {
+  fireEvent.submit(screen.getByRole('form', { name: /add a route to watch/i }));
 }
 
 async function suggestionsFor(label: RegExp, typed: string) {
@@ -136,27 +153,114 @@ describe('RouteEditor', () => {
     expect(listFor(/origin/i)?.className).not.toMatch(/leftwards/);
   });
 
-  it('takes the two ends and the month and hands over a route', async () => {
+  it('asks for one exact departure date rather than a month and a day', () => {
+    // 12.180, superseding the pair 12.130 shipped. The reader has an answer to
+    // "which day are you flying"; they do not have a separate answer to "which
+    // month", and asking twice is how the two came to be able to disagree.
+    renderEditor();
+    expect(screen.getByLabelText(/departure date/i)).toHaveAttribute('type', 'date');
+    expect(screen.queryByLabelText(/departure month/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^day/i)).not.toBeInTheDocument();
+  });
+
+  it('derives the watched month from the date and sends the date as the focus', async () => {
+    // The month is still the whole of what gets collected — all thirty-one of
+    // its departures. The date says which one the reader means to take.
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
     await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.type(screen.getByLabelText(/departure month/i), '2026-11');
+    await user.type(screen.getByLabelText(/departure date/i), '2026-11-09');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(onAdd).toHaveBeenCalledWith({
       origin: 'LIM',
       destination: 'MAD',
       month: '2026-11',
+      focusDate: '2026-11-09',
       currency: 'USD',
     });
   });
 
-  it('offers a month to depart in rather than a day', () => {
-    // 12.110: the watch is a month, and asking for a day here would be asking
-    // the reader to choose the thing the page exists to work out for them.
+  it('cannot hand over a month and a focus that disagree, whatever is typed', async () => {
+    /*
+     * What the two-control arrangement had to guard against, and could only
+     * guard against: a day left standing when the month moved out from under
+     * it, invisible on screen because `type="date"` renders `09/11/2026` the
+     * same way whichever month sits above it. There is no second control to
+     * fall out of step with now — the month is a function of the date, taken
+     * from the value being submitted — so this asserts the property rather
+     * than the guard that used to defend it. Typed across three months in a
+     * row, which is exactly the sequence that used to strand a day.
+     */
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+    const date = screen.getByLabelText(/departure date/i);
+
+    for (const typed of ['2026-11-09', '2026-12-09', '2027-01-31']) {
+      // Retyped each time: a successful add clears the fields behind it, which
+      // is the state the stranded day used to survive.
+      await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+      await user.clear(date);
+      await user.type(date, typed);
+      await user.click(screen.getByRole('button', { name: /add route/i }));
+    }
+
+    for (const [route] of onAdd.mock.calls) {
+      expect(route.focusDate?.slice(0, 7)).toBe(route.month);
+    }
+    expect(onAdd.mock.calls.map(([route]) => route.month)).toEqual([
+      '2026-11',
+      '2026-12',
+      '2027-01',
+    ]);
+  });
+
+  it('bounds the picker at today and at the far end of what can be collected', () => {
+    /*
+     * Both ends are on the control, so the picker will not offer a day the
+     * collector could never do anything with. 330 days past 2026-08-18 is
+     * 2027-07-14 — the horizon the API measured, copied to the web side so the
+     * refusal happens in front of the reader rather than in a skip list.
+     */
     renderEditor();
-    expect(screen.getByLabelText(/departure month/i)).toHaveAttribute('type', 'month');
+    const date = screen.getByLabelText(/departure date/i);
+    expect(date).toHaveAttribute('min', '2026-08-18');
+    expect(date).toHaveAttribute('max', '2027-07-14');
+  });
+
+  it('says a day has gone rather than adding a departure nothing can collect', async () => {
+    // A day behind today would be refused by the collector on every pass
+    // forever, and nothing on the page would tell the reader it was the day.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure date/i), '2026-08-03');
+    submitPastTheBrowser();
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('That day has gone.');
+  });
+
+  it('refuses a date past the horizon in words instead of dropping it later', async () => {
+    /*
+     * The other half of the same argument, and the half the form did not make
+     * before: a month past the horizon was accepted, and every one of its
+     * departures came back `beyond-horizon` on every pass with nothing on
+     * screen connecting that to the date that had been typed. The reason names
+     * the last day that works, because "too far" without a number leaves the
+     * reader guessing at a bound they cannot see.
+     */
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure date/i), '2027-08-01');
+    submitPastTheBrowser();
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('14/07/2027');
   });
 
   it('has no return field at all, rather than one that is ignored', () => {
@@ -166,35 +270,37 @@ describe('RouteEditor', () => {
     expect(screen.queryByLabelText(/return/i)).not.toBeInTheDocument();
   });
 
-  it('will not add a month the calendar has finished with', async () => {
+  it('asks for the day in its own voice rather than the browser bubble', async () => {
     /*
-     * Two guards, and this proves both ends of the outcome rather than one of
-     * the mechanisms. `min` on the control is what a browser enforces — which
-     * is why no `role="alert"` appears here, the submit event never fires —
-     * and the check inside `submit` is what catches the same value where
-     * `type="month"` is not supported and degrades to a text box.
+     * The date is required and there is no `required` attribute saying so. A
+     * native constraint would stop the submit event firing, answer in the
+     * browser's own bubble, and pre-empt the airport checks that come first —
+     * making this the one refusal in the form that arrives somewhere else.
      */
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
     await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.type(screen.getByLabelText(/departure month/i), '2026-07');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
+    expect(screen.getByLabelText(/departure date/i)).not.toHaveAttribute('required');
     expect(onAdd).not.toHaveBeenCalled();
-    expect(screen.getByLabelText(/departure month/i)).toHaveAttribute('min', '2026-08');
+    expect(screen.getByRole('alert')).toHaveTextContent('Pick the day you mean to fly.');
   });
 
   it('says which field is wrong rather than letting the route vanish', async () => {
     // A route that disappears on save looks like a broken button, and the
-    // reader has no way to learn that the month was the problem.
+    // reader has no way to learn which field was the problem. The airports are
+    // checked before the date, so an empty form complains about them first.
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
-    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure date/i), '2026-11-09');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(onAdd).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Departure month must be a real month.');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Origin and destination must be three-letter IATA codes.',
+    );
   });
 });

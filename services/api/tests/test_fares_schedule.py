@@ -164,6 +164,179 @@ def test_the_budget_keeps_the_near_departures_and_drops_the_far_ones():
     assert over == ["2027-01-15"]
 
 
+def transport(handler):
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_the_focused_departure_survives_a_budget_that_cuts_the_rest():
+    """
+    The whole reason a reading preference is stored rather than kept in the UI.
+
+    Two months of March 2027 against a budget of three. Plain nearest-first
+    ordering would spend all three on the 1st, 2nd and 3rd of the month and
+    report the reader's own flight on the 20th as `over-budget` — every pass,
+    forever, because the next pass would make the same choice. The focus is
+    ordered ahead of the distance so the day they mean to take is bought first
+    and the remaining budget falls back to nearest-first behind it.
+    """
+    watched = [("LIM", "MAD", f"2027-03-{day:02d}") for day in range(1, 32)]
+    plan = due_now(
+        watched,
+        {},
+        NOW,
+        budget=3,
+        focused=frozenset({("LIM", "MAD", "2027-03-20")}),
+    )
+
+    ready = [d.flight_date for d in plan if d.ready]
+    assert ready == ["2027-03-20", "2027-03-01", "2027-03-02"]
+    assert "2027-03-20" not in [d.flight_date for d in plan if d.reason == "over-budget"]
+    # And without it the reader's flight is exactly what gets dropped.
+    plain = due_now(watched, {}, NOW, budget=3)
+    assert "2027-03-20" not in [d.flight_date for d in plain if d.ready]
+
+
+def test_ten_watched_routes_is_where_the_budget_starts_dropping_a_departure():
+    """
+    What actually makes the focus ordering bite, at the real budget of 300.
+
+    Measured 2026-08-19 and pinned here because the docstring 12.134 first
+    carried got it wrong: it compared a day's worth of requests against
+    `budget`, which is a per-pass ceiling. A pass has exactly as many
+    candidates as there are watched departures, so the arithmetic is 300 / 31 =
+    9.67 and the threshold is a watchlist of ten routes. Nine never truncates;
+    ten always can, and the day the reader named is the one it reaches last.
+    """
+    days = month_dates("2027-03")
+    assert len(days) == 31
+
+    def sweep(routes: int) -> tuple[str, str]:
+        watched = [("LIM", f"D{i:02d}", day) for i in range(routes) for day in days]
+        star = watched[-1]
+        plain = {
+            (d.origin, d.destination, d.flight_date): d
+            for d in due_now(watched, {}, NOW, budget=300)
+        }
+        kept = {
+            (d.origin, d.destination, d.flight_date): d
+            for d in due_now(watched, {}, NOW, budget=300, focused=frozenset({star}))
+        }
+        return plain[star].reason, kept[star].reason
+
+    assert sweep(9) == ("never-collected", "never-collected")
+    assert sweep(10) == ("over-budget", "never-collected")
+    assert sweep(12) == ("over-budget", "never-collected")
+
+
+def test_the_truncation_threshold_does_not_move_with_the_calendar():
+    """
+    The claim 12.134 originally made, and the one the measurement refutes.
+
+    Two watched months are 62 candidates in a pass whether the flight is most
+    of a year away or next week, so 300 is never spent and nothing is ever
+    dropped. What climbs with the date is the number of *passes* a day, which
+    `poll_minutes` decides and this ceiling never sees.
+    """
+    watched = [
+        (o, d, day) for o, d in (("LIM", "SCL"), ("LIM", "MAD")) for day in month_dates("2027-03")
+    ]
+    assert len(watched) == 62
+
+    for when in ("2026-08-19", "2026-11-24", "2027-02-01", "2027-03-01"):
+        moment = datetime.fromisoformat(f"{when}T12:00:00+00:00")
+        plan = due_now(watched, {}, moment, budget=300)
+        assert [d for d in plan if d.reason == "over-budget"] == [], when
+
+
+def test_a_focus_buys_a_place_in_the_queue_and_not_a_faster_cadence():
+    """
+    12.135, and the arithmetic is the argument.
+
+    A departure 150 days out moved on 22% of days by a median 1.7%, so polling
+    it every half hour would spend 47 of its 48 daily requests rewriting the
+    same number. Starring a date does not change what the endpoint answers, so
+    the focused day gets the interval its distance earns and is skipped by name
+    when it is not due, exactly like the thirty days beside it.
+    """
+    key = ("LIM", "MAD", "2027-01-15")
+    seen = {key: "2026-08-18T11:59:00+00:00"}
+    (due,) = due_now([key], seen, NOW, focused=frozenset({key}))
+
+    assert due.focused is True
+    assert due.every_minutes == poll_minutes(days_until("2027-01-15", TODAY))
+    assert not due.ready and due.reason == "not-due"
+
+
+def test_a_focused_departure_that_has_gone_is_reported_departed_like_any_other():
+    """
+    A real case by March, and it must not be rescued by the ordering.
+
+    Being kept first is about a truncation, not about skipping the rules, so
+    readiness is the outer sort key and a departed day is never ready. It comes
+    back named and with its reason, which is what lets the page say so instead
+    of leaving the reader to work it out from a series that stopped.
+    """
+    key = ("LIM", "MAD", "2026-08-01")
+    (due,) = due_now([key], {}, NOW, budget=1, focused=frozenset({key}))
+    assert due.focused is True
+    assert not due.ready and due.reason == "departed"
+
+
+def test_a_pass_keeps_the_focused_departure_when_the_budget_will_not_stretch(tmp_path):
+    """
+    The same ordering through `collect_due`, where the watch names its own day.
+
+    `collect_due` derives the focus set from membership in the expanded month,
+    so a watch cannot star a departure it is not collecting — there is no
+    second containment rule to disagree with the first.
+    """
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+    history = FareHistory(tmp_path)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10", focus="2026-10-28")],
+                now=NOW,
+                budget=2,
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert [result.flight_date for result in report.results] == ["2026-10-28", "2026-10-01"]
+    assert ("LIM-SCL 2026-10-28", "over-budget") not in report.skipped
+
+
+def test_a_focus_outside_its_own_month_is_ignored_rather_than_collected(tmp_path):
+    """
+    Nothing can send one — the normalizer drops it and the router 422s it — so
+    this is the last line rather than the first. Pulling `2026-11-04` into a
+    pass over October would collect a departure nobody is watching.
+    """
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+    history = FareHistory(tmp_path)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10", focus="2026-11-04")],
+                now=NOW,
+                budget=2,
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert [result.flight_date for result in report.results] == ["2026-10-01", "2026-10-02"]
+
+
 # ------------------------------------------------------- writing on change ----
 
 
@@ -476,10 +649,6 @@ def test_expanding_a_month_names_it_when_it_cannot_be_read():
 
 
 # ------------------------------------------------------------- collect_due ---
-
-
-def transport(handler):
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 def test_a_pass_polls_only_what_is_due_and_says_what_it_skipped(tmp_path):

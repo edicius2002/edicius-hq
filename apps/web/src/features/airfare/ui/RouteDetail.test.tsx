@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares';
@@ -70,6 +71,8 @@ function renderDetail(overrides: Partial<React.ComponentProps<typeof RouteDetail
       insights={INSIGHTS}
       health={HEALTH}
       cities={{ from: 'Lima', to: 'Arequipa' }}
+      today="2026-08-19"
+      onClearFocus={() => {}}
       {...overrides}
     />,
   );
@@ -108,6 +111,60 @@ describe('RouteDetail', () => {
      */
     renderDetail();
     expect(screen.getByText('Cheapest on 06/12/2026')).toBeInTheDocument();
+  });
+
+  it('names the focused day in the heading where the month would be', () => {
+    // 12.130, and it is not only the heading that moves: the figures under it
+    // are drawn from `readingPrefix`, which narrows the same way.
+    renderDetail({ route: { ...ROUTE, focusDate: '2026-12-06' } });
+    const heading = screen.getByRole('heading', { level: 3 });
+    expect(heading.textContent?.replace(/\s+/g, ' ')).toBe('LIM → AQP 06/12/2026');
+  });
+
+  it('drops the "cheapest on" line under a focus, which would say it twice', () => {
+    // The same date three lines apart reads as two facts that happen to agree
+    // rather than as one.
+    renderDetail({ route: { ...ROUTE, focusDate: '2026-12-06' } });
+    expect(screen.queryByText(/cheapest on 06\/12\/2026/i)).not.toBeInTheDocument();
+    // Without a focus the heading names a month, so the line is the only thing
+    // saying which of its thirty-one boards the figures belong to.
+    renderDetail();
+    expect(screen.getByText('Cheapest on 06/12/2026')).toBeInTheDocument();
+  });
+
+  it('says a focused day has departed rather than showing a frozen price as a live one', () => {
+    /*
+     * 12.133. The focus is not dropped when its day passes — the archive it
+     * points at is still the archive of the flight the reader meant to take,
+     * and a stored value that vanished because the page was opened a day later
+     * would be a document editing itself. Every figure below it is frozen at
+     * the last look before departure, so the panel has to say so.
+     */
+    const gone = renderDetail({
+      route: { ...ROUTE, focusDate: '2026-08-18' },
+      today: '2026-08-19',
+    });
+    expect(screen.getByText(/that day has departed/i)).toBeInTheDocument();
+
+    // Unmounted rather than rendered beside it: two panels in one document
+    // would let either of them satisfy the query below.
+    gone.unmount();
+    renderDetail({ route: { ...ROUTE, focusDate: '2026-12-06' }, today: '2026-08-19' });
+    expect(screen.queryByText(/that day has departed/i)).not.toBeInTheDocument();
+  });
+
+  it('offers the way back to the whole month, and only when there is a focus', async () => {
+    // A focus changes the entire panel, the chart and the table, so a state
+    // that could not be undone without deleting the route would be a trap.
+    const onClearFocus = vi.fn();
+    const focused = renderDetail({ route: { ...ROUTE, focusDate: '2026-12-06' }, onClearFocus });
+
+    await userEvent.click(screen.getByRole('button', { name: /read the whole month/i }));
+    expect(onClearFocus).toHaveBeenCalledOnce();
+
+    focused.unmount();
+    renderDetail();
+    expect(screen.queryByRole('button', { name: /read the whole month/i })).not.toBeInTheDocument();
   });
 
   it('says nothing about a last look when nothing has looked yet', () => {

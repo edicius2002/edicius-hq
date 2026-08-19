@@ -70,6 +70,45 @@ function skipSummary(route: FareRoute, response: CollectResponse): string {
 }
 
 /**
+ * Whether the pass in hand is the one this row asked for.
+ *
+ * A press that arrives while a pass is running is answered with that pass
+ * rather than starting a second one — 12.210, because the collector's gap
+ * paces one loop and two would halve it. `watching` is how the row finds out,
+ * and a row that reported somebody else's pass as its own would be the
+ * quietest lie this control could tell.
+ */
+function isOurPass(route: FareRoute, response: CollectResponse): boolean {
+  return response.watching.includes(skipPrefix(route));
+}
+
+/** What the row says about a pass that started somewhere else. */
+function notOurPass(response: CollectResponse): RowReport {
+  const others = response.watching.join(', ') || 'another month';
+  return {
+    ok: false,
+    text: `A collection of ${others} is already running; this one was not started.`,
+  };
+}
+
+/**
+ * A pass that is still going, counted rather than described — 12.210.
+ *
+ * The denominator is real: the server settles which departures it means to
+ * poll before it sends the first request, precisely so this line does not have
+ * to say "some of an unknown number" for the first four minutes.
+ */
+export function describeProgress(route: FareRoute, response: CollectResponse): RowReport {
+  if (!isOurPass(route, response)) return notOurPass(response);
+  const total = response.polling;
+  const of = total === null ? '' : ` of ${total}`;
+  return {
+    ok: true,
+    text: `Collecting: ${response.completed}${of} departure${total === 1 ? '' : 's'} so far.`,
+  };
+}
+
+/**
  * The outcome of one month's collection pass, for the row that asked for it.
  *
  * The `skipped` branch stopped being a contingency when 12.111 put the
@@ -87,6 +126,13 @@ export function describeCollection(
   response: CollectResponse,
   locale?: string,
 ): RowReport {
+  if (!isOurPass(route, response)) return notOurPass(response);
+  // The pass fell over as a whole, which is a different fact from every route
+  // in it being refused and has to read as one — 12.210.
+  if (response.state === 'failed') {
+    return { ok: false, text: `The pass failed: ${response.error ?? 'no reason given'}` };
+  }
+
   const results = response.results.filter((candidate) => isSameRoute(candidate, route));
   const skipped = skipSummary(route, response);
 

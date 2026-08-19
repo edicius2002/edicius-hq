@@ -37,6 +37,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 import httpx
 
@@ -62,7 +63,47 @@ logger = logging.getLogger(__name__)
 
 # Seconds between upstream requests. Slow enough to look like a person browsing,
 # fast enough that a twenty-route watchlist finishes in a couple of minutes.
-REQUEST_GAP_SECONDS = 6.0
+#
+# **Six until 12.211, and the six was never measured.** Timing a real pass put
+# 86.5% of its wall clock inside this sleep: ten paced requests took 62.5s, of
+# which 54.1s was here, 6.3s was the upstream and 0.03s was parsing. Sleeping
+# *is* the cost of a manual retrieval; everything else is rounding.
+#
+# Three is what was measured rather than what was hoped for. Twelve requests at
+# three seconds and twelve more at two came back clean — no 429, no consent
+# redirect, no `ErrorResponse`, and mean latency that *fell* as the gap closed
+# (0.630s at six, 0.421s at three, 0.394s at two) because a warm connection is
+# the only thing the spacing was changing. A throttle looks like the opposite.
+# Two was clean too and is deliberately not taken: three is the pace with the
+# most evidence behind it, and leaving the measured floor unused is the margin.
+#
+# What this does **not** rest on is daily volume, which nobody here has probed.
+# The saving grace is that it does not have to: the pace changes how tightly the
+# day's requests are packed and not how many there are. A watchlist that spent
+# 66 requests a day at six seconds spends the same 66 at three.
+REQUEST_GAP_SECONDS = 3.0
+
+
+class PassObserver(Protocol):
+    """
+    Somewhere for a pass to say what it is doing while it is still doing it.
+
+    A collection pass is minutes long and the report only exists at the end of
+    it, which was fine while a browser sat blocked on the answer and is not
+    fine now that one does not — 12.210. Progress is a separate concern from
+    the report, so it arrives by a separate route rather than by making
+    `CollectionReport` mutable half-way through and hoping every reader knows
+    which half they have.
+
+    Both methods are called from the collector's own task and must not block:
+    they are for recording what happened, not for reacting to it.
+    """
+
+    def planned(self, *, polling: int, skipped: list[tuple[str, str]]) -> None:
+        """How many departures this pass means to poll, before the first one."""
+
+    def collected(self, result: "RouteResult") -> None:
+        """One departure has come back, whatever it came back with."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +201,7 @@ async def collect(
     history: FareHistory | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
+    observer: PassObserver | None = None,
 ) -> CollectionReport:
     """
     Fetch every query once and append what came back.
@@ -178,7 +220,10 @@ async def collect(
         for index, query in enumerate(queries):
             if index:
                 await asyncio.sleep(gap_seconds)
-            results.append(await _collect_one(session, query, provider, store))
+            result = await _collect_one(session, query, provider, store)
+            results.append(result)
+            if observer is not None:
+                observer.collected(result)
     finally:
         if owned:
             await session.aclose()
@@ -240,6 +285,7 @@ async def collect_due(
     history: FareHistory | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
+    observer: PassObserver | None = None,
 ) -> CollectionReport:
     """
     One pass over only the departures that are actually due.
@@ -299,15 +345,23 @@ async def collect_due(
     )
 
     queries = [by_key[(d.origin, d.destination, d.flight_date)] for d in plan if d.ready]
+    # Settled before the first request rather than after the last, because a
+    # pass that now runs unattended has to be able to say what it is not going
+    # to do at the moment it starts — otherwise the only honest progress figure
+    # for the first four minutes is "unknown".
+    skipped = [(what, "unreadable-month") for what in unreadable]
+    skipped += [(f"{d.route} {d.flight_date}", d.reason) for d in plan if not d.ready]
+    if observer is not None:
+        observer.planned(polling=len(queries), skipped=skipped)
+
     report = await collect(
         queries,
         provider=provider,
         history=store,
         client=client,
         gap_seconds=gap_seconds,
+        observer=observer,
     )
-    skipped = [(what, "unreadable-month") for what in unreadable]
-    skipped += [(f"{d.route} {d.flight_date}", d.reason) for d in plan if not d.ready]
     return CollectionReport(
         started_at=report.started_at,
         finished_at=report.finished_at,
@@ -332,8 +386,9 @@ async def collect_due(
 # the news is, and the near end is already on the half-hourly board cadence for
 # the month the reader is actually watching; what this adds is the far months,
 # which move by under 2% a day. Daily is also the resolution of the free history
-# in `MAX_POLL_MINUTES`, so anything slower would be below it. 12.10's pacing is
-# unchanged: sequential, six seconds apart, in the same pass.
+# in `MAX_POLL_MINUTES`, so anything slower would be below it. 12.10's pacing
+# still governs: sequential, `REQUEST_GAP_SECONDS` apart, in the same pass — the
+# gap itself is three since 12.211 and the shape of it has not moved.
 
 
 @dataclass(frozen=True, slots=True)

@@ -602,11 +602,25 @@ class FareHistory:
         return self.directory / "airports.json"
 
     def merge_airports(self, airports: list[Airport]) -> int:
-        """Fold newly seen airports in, returning how many were new."""
+        """
+        Fold newly seen airports in, returning how many were new.
+
+        **A merge that changes nothing writes nothing** — 12.213. This is
+        called once per upstream request and the table it maintains has one row
+        per airport ever seen, so after a route's first look every later call
+        rewrites the identical four entries. Measured on the owner's machine
+        the median cost of that is 2.8ms, which is nothing; the tail is not,
+        because the write goes through a temporary file and a rename and those
+        two syscalls were seen taking 1.6s and 4.9s under a live pass. Skipping
+        a write nobody asked for removes the tail without changing what the
+        file ever holds.
+        """
         if not airports:
             return 0
         known = self.airports()
         before = len(known)
+        if all(known.get(airport.code) == airport for airport in airports):
+            return 0
         for airport in airports:
             known[airport.code] = airport
         rows = {

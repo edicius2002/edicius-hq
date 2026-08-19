@@ -31,14 +31,22 @@ function result(overrides: Partial<CollectRouteResult> = {}): CollectRouteResult
 
 function report(overrides: Partial<CollectResponse> = {}): CollectResponse {
   return {
+    state: 'finished',
     startedAt: '2026-08-19T14:00:00+00:00',
     finishedAt: '2026-08-19T14:00:06+00:00',
     source: 'google',
+    // The pass covers the route these tests ask about. A row only reads a pass
+    // that names its own month — 12.210 — so leaving this out would make every
+    // case below assert the "somebody else's pass" branch by accident.
+    watching: ['LIM-CUZ 2026-10'],
+    polling: 1,
+    completed: 1,
     collected: 1,
     changed: 0,
     failed: 0,
     results: [],
     skipped: [],
+    error: null,
     ...overrides,
   };
 }

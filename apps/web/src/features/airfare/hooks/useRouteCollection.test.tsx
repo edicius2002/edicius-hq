@@ -32,16 +32,21 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-/** One collection pass over one watched month, as the server would report it. */
+/** One finished collection pass over one watched month, as the server reports it. */
 function passOver(route: FareRoute, overrides: Record<string, unknown> = {}) {
   return {
+    state: 'finished',
     startedAt: '2026-08-19T14:00:00+00:00',
     finishedAt: '2026-08-19T14:00:01+00:00',
     source: 'google',
+    watching: [`${route.origin}-${route.destination} ${route.month}`],
+    polling: 1,
+    completed: 1,
     collected: 1,
     changed: 1,
     failed: 0,
     skipped: [],
+    error: null,
     results: [
       {
         origin: route.origin,
@@ -94,6 +99,43 @@ function stubCollect() {
   };
 }
 
+/**
+ * A press that starts a pass, and a progress endpoint that answers a scripted
+ * sequence — 12.210.
+ *
+ * The two calls are told apart by method rather than by URL: they are the same
+ * URL by design, since one document describes a pass whether or not it has
+ * finished. Each `GET` takes the next answer in the list and the last one
+ * repeats, so a test says how the pass unfolds and not how many times the hook
+ * is allowed to look.
+ */
+function stubPassInProgress(started: unknown, progress: unknown[]) {
+  const polls: number[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') return Response.json(started);
+      const next = progress[Math.min(polls.length, progress.length - 1)];
+      polls.push(1);
+      return Response.json(next);
+    }),
+  );
+  return { polls };
+}
+
+/** A pass that has started and not finished. */
+function passRunning(route: FareRoute, overrides: Record<string, unknown> = {}) {
+  return {
+    ...passOver(route),
+    state: 'running',
+    finishedAt: null,
+    polling: 31,
+    completed: 0,
+    results: [],
+    ...overrides,
+  };
+}
+
 describe('collecting one watched route from its own row', () => {
   it('asks for that route alone, month and currency included', async () => {
     // The bulk button sends the whole collectable list; a row press must send
@@ -119,10 +161,11 @@ describe('collecting one watched route from its own row', () => {
   it('sends the focused day beside the month, and nothing when there is none', async () => {
     /*
      * The focus has to travel over the wire rather than staying in the browser
-     * — 12.134. A press buys up to thirty-one departures against a
-     * forty-request ceiling, so it can already truncate, and only the server
-     * knows which days it could not afford. It cannot keep the reader's own
-     * day first unless it is told which day that is.
+     * — 12.134. A press buys up to thirty-one departures and a pass can still
+     * truncate, at the request budget since 12.210 removed the forty-request
+     * ceiling, and only the server knows which days it could not afford. It
+     * cannot keep the reader's own day first unless it is told which day that
+     * is.
      */
     const api = stubCollect();
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
@@ -223,6 +266,100 @@ describe('collecting one watched route from its own row', () => {
     expect(report.ok).toBe(false);
     expect(report.text).toContain('Too many routes');
     expect(result.current.collecting).toEqual([]);
+  });
+
+  it('watches a pass the press only started, and reports it when it ends', async () => {
+    /*
+     * 12.210, and the whole of what it buys. The press used to hold the
+     * connection open for the length of the collection, which put the
+     * browser's five-minute deadline in charge of how much of a watchlist one
+     * press could cover — forty paced requests was as much as fitted, and the
+     * owner's two watched months expand to sixty-two departures. A press that
+     * returns immediately has no deadline to fit inside, so the row has to
+     * keep watching rather than keep waiting.
+     */
+    vi.useFakeTimers();
+    try {
+      stubPassInProgress(passRunning(LIM_CUZ), [
+        passRunning(LIM_CUZ, { completed: 4 }),
+        passOver(LIM_CUZ),
+      ]);
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+      act(() => result.current.collect(LIM_CUZ));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Still working, and the row says how far through rather than spinning.
+      expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
+      expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('0 of 31');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('4 of 31');
+      // The row is still working: a pass in flight must not read as a finished
+      // one, which is the failure the whole progress document exists to avoid.
+      expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('1 departure looked at');
+      expect(result.current.collecting).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says so when the press was answered with somebody else’s pass', async () => {
+    /*
+     * One pass runs at a time — 12.210 — because the collector's gap paces one
+     * loop and two loops would halve it with nobody having decided to. A press
+     * that meets a running pass is handed that pass, and a row that reported
+     * it as its own would be claiming to have collected a month nobody looked
+     * at. `watching` is the only thing that tells them apart.
+     */
+    const elsewhere = { ...passRunning(LIM_CUZ), watching: ['LIM-MAD 2026-12'] };
+    stubPassInProgress(elsewhere, [elsewhere]);
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+    act(() => result.current.collect(LIM_CUZ));
+
+    await waitFor(() => expect(result.current.reports.has(routeId(LIM_CUZ))).toBe(true));
+    const report = result.current.reports.get(routeId(LIM_CUZ))!;
+    expect(report.ok).toBe(false);
+    expect(report.text).toContain('LIM-MAD 2026-12');
+    expect(report.text).toContain('already running');
+  });
+
+  it('reports a pass that fell over as a failure rather than as a quiet nothing', async () => {
+    // 8.8. A background task that dies has nowhere to raise, so the state it
+    // leaves behind is the only thing that can say what happened.
+    vi.useFakeTimers();
+    try {
+      stubPassInProgress(passRunning(LIM_CUZ), [
+        {
+          ...passOver(LIM_CUZ),
+          state: 'failed',
+          results: [],
+          error: 'RuntimeError: the archive volume went away',
+        },
+      ]);
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+      act(() => result.current.collect(LIM_CUZ));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+
+      const report = result.current.reports.get(routeId(LIM_CUZ))!;
+      expect(report.ok).toBe(false);
+      expect(report.text).toContain('the archive volume went away');
+      expect(result.current.collecting).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('drops a row’s report when the row goes', async () => {

@@ -14,6 +14,7 @@ collector.
 """
 
 import asyncio
+import dataclasses
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -915,6 +916,44 @@ def test_airports_arrive_with_the_search_and_are_kept(tmp_path):
     # Seeing them again is not seeing new ones.
     assert history.merge_airports(airports) == 0
     assert history.airports()["LIM"].city
+
+
+def test_seeing_the_same_airports_again_does_not_rewrite_the_file(tmp_path):
+    """
+    12.213. `merge_airports` runs once per upstream request, and after a
+    route's first look every later call has the identical handful of entries
+    to fold in — so every later call was rewriting the file with what it
+    already held.
+
+    Measured on the owner's machine the median cost of that is 2.8ms, which is
+    nothing, and the tail is not: the write goes through a temporary file and a
+    rename, and those two syscalls were seen taking 1.6s and 4.9s inside a live
+    pass. A count of zero was already returned and is not what this is about —
+    the old code returned zero *after* writing.
+
+    Asserted by leaving a mark in the file rather than by watching a
+    timestamp: a modification time has a resolution this test would race, and
+    a byte that survives is unambiguous.
+    """
+    from app.adapters.fares.models import Airport
+
+    airports = [
+        Airport(code="LIM", name="Jorge Chávez", city="Lima", country="PE", latitude=-12.0, longitude=-77.1),
+    ]
+    history = FareHistory(tmp_path)
+    assert history.merge_airports(airports) == 1
+
+    marked = history.airports_path.read_text(encoding="utf-8") + "\n"
+    history.airports_path.write_text(marked, encoding="utf-8")
+
+    assert history.merge_airports(airports) == 0
+    assert history.airports_path.read_text(encoding="utf-8") == marked
+
+    # An airport that genuinely moved is still written, or the saving would be
+    # bought by dropping the data.
+    moved = [dataclasses.replace(airports[0], city="Callao")]
+    assert history.merge_airports(moved) == 0
+    assert history.airports()["LIM"].city == "Callao"
 
 
 def test_a_payload_without_airports_is_not_an_error():

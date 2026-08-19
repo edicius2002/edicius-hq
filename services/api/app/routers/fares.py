@@ -26,8 +26,9 @@ from app.adapters.fares.models import (
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
 from app.config import UPSTREAM_TIMEOUT_SECONDS
 from app.services import airport_search
+from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
-from app.services.fare_collector import CollectionReport, FareWatch, collect_due
+from app.services.fare_collector import FareWatch
 from app.services.fare_history import HISTORY
 
 logger = logging.getLogger(__name__)
@@ -38,17 +39,21 @@ router = APIRouter(prefix="/api/fares", tags=["fares"])
 # more than anyone plans, and the bound that actually matters is the one below.
 MAX_COLLECT_MONTHS = 12
 
-# How many upstream requests one call may make, whatever it was handed. Since
-# 12.110 a single watched month expands to thirty-one departures, so the old
-# "forty routes" ceiling stopped bounding anything a caller could feel: two
-# months is sixty-two requests, and at the six-second pace that is over six
-# minutes of sleeping against a client that gives up at five.
+# There is deliberately no per-call request ceiling here any more — 12.210.
 #
-# Forty is that client deadline read backwards — 40 x 6s is four minutes, with
-# the rest of the five for the requests themselves. Everything past it comes
-# back as `over-budget` in `skipped` rather than as a truncated success, and
-# the next pass picks it up because the archive remembers what was looked at.
-MAX_COLLECT_REQUESTS = 40
+# There used to be, and it was forty, and forty was the browser's five-minute
+# deadline read backwards rather than a judgement about the upstream: forty
+# paced requests is four minutes, leaving the rest of the five for the requests
+# themselves. Under 12.110 the owner's two watched months expand to sixty-two
+# departures, so the cap meant a full manual refresh took two presses with a
+# person in between — a limit imposed by how long a `fetch` waits, on a pass
+# that no longer makes anyone wait.
+#
+# What bounds a pass now is `daily_request_budget()`, which `collect_due` falls
+# back to and which is what the bound should always have been. Note, as
+# `collect_due` already does, that nothing carries spend from one pass to the
+# next, so that budget is enforced per pass rather than per day; that gap
+# predates this and is not closed here.
 
 _client: httpx.AsyncClient | None = None
 
@@ -245,9 +250,41 @@ class SkippedModel(BaseModel):
 
 
 class CollectResponse(BaseModel):
-    startedAt: str
-    finishedAt: str
+    """
+    A collection pass, whether or not it has finished — 12.210.
+
+    One document answers both the press that starts a pass and every poll that
+    follows it. Two shapes were the obvious alternative and would have been
+    worse: the client would then have to know which of them it was holding,
+    and the interesting moment — a pass half-way through, with four results in
+    and fifty-eight to go — is exactly the one neither shape describes on its
+    own.
+
+    Everything a finished pass used to say it still says. `results` and
+    `skipped` carry the same things they always did, which is what lets the
+    client's summary of a finished pass stay the function it already was.
+    """
+
+    #: `idle` before anything has ever run, then `running`, then `finished` or
+    #: `failed`. `failed` is the pass falling over, not a route being refused —
+    #: a refused route travels in `results` with its reason (8.8, 8.41).
+    state: str
+    #: `null` only while `state` is `idle`.
+    startedAt: str | None
+    #: `null` until the pass ends.
+    finishedAt: str | None
     source: str
+    #: What this pass covers, as `"ARI-SCL 2027-03"`. A press whose own route is
+    #: missing from here was answered with a pass that was already running
+    #: rather than served with one of its own, and the control that pressed has
+    #: no other way to tell.
+    watching: list[str]
+    #: How many departures the pass means to poll in total. `null` until the
+    #: plan is settled, which is a different fact from zero.
+    polling: int | None
+    #: How many of them have come back so far. Equal to `len(results)`, named
+    #: because a progress bar wants a number and not a list length.
+    completed: int
     collected: int
     changed: int
     failed: int
@@ -255,6 +292,8 @@ class CollectResponse(BaseModel):
     # Departures deliberately not polled and why. A pass that silently skips
     # half a watchlist reads exactly like a healthy one.
     skipped: list[SkippedModel]
+    #: Why the pass fell over, when it did.
+    error: str | None
 
 
 def _offer_model(offer: FareOffer) -> OfferModel:
@@ -295,14 +334,40 @@ def _snapshot_model(snapshot: FareSnapshot) -> SnapshotModel:
     )
 
 
-def _report_model(report: CollectionReport) -> CollectResponse:
+#: What `GET /collect` answers before anything has ever been collected. A pass
+#: that has never run is a fact, and 404 would make the client special-case an
+#: error for the ordinary state of a fresh install.
+IDLE = CollectResponse(
+    state="idle",
+    startedAt=None,
+    finishedAt=None,
+    source=DEFAULT_PROVIDER,
+    watching=[],
+    polling=None,
+    completed=0,
+    collected=0,
+    changed=0,
+    failed=0,
+    results=[],
+    skipped=[],
+    error=None,
+)
+
+
+def _pass_model(running: CollectionPass) -> CollectResponse:
+    report = running.as_report()
     return CollectResponse(
-        startedAt=report.started_at,
-        finishedAt=report.finished_at,
-        source=report.source,
+        state=running.state,
+        startedAt=running.started_at,
+        finishedAt=running.finished_at,
+        source=running.source,
+        watching=list(running.watching),
+        polling=running.polling,
+        completed=running.completed,
         collected=report.collected,
         changed=report.changed,
         failed=report.failed,
+        error=running.error,
         skipped=[SkippedModel(what=what, reason=reason) for what, reason in report.skipped],
         results=[
             RouteResultModel(
@@ -582,23 +647,35 @@ async def search(
     )
 
 
-@router.post("/collect", response_model=CollectResponse)
+@router.post("/collect", response_model=CollectResponse, status_code=status.HTTP_202_ACCEPTED)
 async def collect_routes(
     body: CollectBody,
     provider: str = Query(DEFAULT_PROVIDER),
 ) -> CollectResponse:
     """
-    Collect the departures inside these watched months that are due.
+    Start collecting the departures inside these watched months that are due.
 
-    **This now runs the schedule, where it used to bypass it** — 12.111,
-    superseding the second half of 12.90. That decision was right when a press
-    bought one request: a person who has decided where to spend one request
-    should not be argued with by a cadence table. Under 12.110 the same press
-    buys thirty-one, and a control that spends a tenth of the day's budget per
-    click is a control nobody can press twice — which is exactly what the
-    cadence exists to prevent. The press still does everything that would tell
-    the reader something new; it declines only the departures whose last look
-    is younger than their own interval, and it says so on the row.
+    **This returns as soon as the pass has started, not when it has finished**
+    — 12.210, superseding the synchronous half of 12.90. It answers 202 and a
+    `running` document; `GET /collect` is where the rest of the story is. The
+    pass itself is unchanged in every respect that touches the upstream: same
+    order, same schedule, same one-at-a-time loop at the same gap.
+
+    What it buys is that a pass no longer has to fit inside a browser's
+    patience. `MAX_COLLECT_REQUESTS` was forty because five minutes of `fetch`
+    divided by six seconds is forty, which made a sixty-two-departure watchlist
+    a two-press job for a reason that had nothing to do with fares. There is no
+    ceiling here now beyond the request budget.
+
+    **This still runs the schedule, where it once bypassed it** — 12.111,
+    unchanged. The press does everything that would tell the reader something
+    new and declines the departures whose last look is younger than their own
+    interval, saying so on the row. See 12.212 for why that is still the
+    behaviour now that a press is cheap to leave running.
+
+    A press that arrives while a pass is running gets that pass rather than a
+    second one, because the gap in `fare_collector` paces a loop and two loops
+    would halve it without anyone deciding to.
     """
     if provider not in PROVIDERS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider {provider!r}")
@@ -610,10 +687,23 @@ async def collect_routes(
             f"Too many months in one call; the limit is {MAX_COLLECT_MONTHS}",
         )
 
-    report = await collect_due(
-        [_watch_from(route) for route in body.routes],
-        budget=MAX_COLLECT_REQUESTS,
-        provider=provider,
-        client=get_client(),
+    return _pass_model(
+        RUNNER.start(
+            [_watch_from(route) for route in body.routes],
+            provider=provider,
+            client=get_client(),
+        )
     )
-    return _report_model(report)
+
+
+@router.get("/collect", response_model=CollectResponse)
+def collect_progress() -> CollectResponse:
+    """
+    How the current pass is getting on, or how the last one ended.
+
+    The same document `POST /collect` answers with, which is the whole point:
+    a client that can read the press's answer can read this one, and the
+    summary it builds for a finished pass is the function it already had.
+    """
+    running = RUNNER.current()
+    return IDLE if running is None else _pass_model(running)

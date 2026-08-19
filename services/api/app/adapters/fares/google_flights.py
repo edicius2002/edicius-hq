@@ -75,6 +75,19 @@ _PASSENGER_ADULT = 1
 
 _SCRIPT = re.compile(r'<script class="ds:1"[^>]*>(.*?)</script>', re.DOTALL)
 
+# The board arrives in two lists, and both of them are the board. `payload[2]`
+# is what the page prints under "Best departing flights"; `payload[3]` is
+# everything under "Other departing flights". Measured 2026-08-19 against two
+# captured responses: LIM-CUZ 2026-09-09 held 5 and 31 with no itinerary in
+# common, and LIM-MAD 2026-10-15 held 5 and 4, so reading only `payload[3]`
+# archived four of that board's nine itineraries. Both are read here.
+#
+# `payload[3]` is the required one. It is the whole board minus a handful, so
+# its disappearance is drift and is raised as such even when `payload[2]` still
+# has itineraries — see `parse_payload`.
+_BEST_BLOCK = 2
+_ALL_BLOCK = 3
+
 # Positions inside one itinerary's leg array. Named so a drift fix is a one-line
 # edit here rather than a hunt through the parser.
 _LEG_DEPARTURE_TIME = 8
@@ -369,28 +382,112 @@ def parse_insights(payload: Any) -> FareInsights | None:
     return insights
 
 
-def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
+#: A block that is not in the payload at all, as distinct from one Google
+#: filled with `null` to say it found nothing. The two mean opposite things and
+#: `None` cannot carry both.
+_ABSENT = object()
+
+
+def _itinerary_rows(payload: Any, index: int) -> Any:
+    """The rows of one itinerary block, `None` for empty, `_ABSENT` for missing."""
     try:
-        rows = payload[3][0]
-    except (IndexError, KeyError, TypeError) as exc:
+        rows = payload[index][0]
+    except (IndexError, KeyError, TypeError):
+        return _ABSENT
+    if rows is None:
+        return None
+    return rows if isinstance(rows, list) else _ABSENT
+
+
+def _read_rows(rows: Any, currency: str) -> list[FareOffer]:
+    if not isinstance(rows, list):
+        return []
+    return [offer for offer in (_offer(row, currency) for row in rows) if offer is not None]
+
+
+def _order(offer: FareOffer) -> tuple[float, str, str, str, str]:
+    """
+    A total order over a board, so two identical boards read identically.
+
+    Cheapest first is what the page wants, but price alone is not a total order
+    — thirteen LIM-CUZ itineraries shared 62.16 in one capture — and leaving
+    those thirteen in whatever order the two blocks happened to arrive in would
+    let the archive's change detection fire on Google reshuffling its own list.
+    The remaining fields are tiebreakers, not preferences.
+    """
+    return (
+        offer.price,
+        offer.departure_at,
+        offer.airline,
+        offer.flight_number or "",
+        offer.arrival_at or "",
+    )
+
+
+def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
+    """
+    Every itinerary on the board, cheapest first, each of them once.
+
+    Both blocks are read and merged. Duplicates are dropped on the whole offer
+    rather than on `(airline, flight_number, departure_at)`, which is what
+    `fare_history.fingerprint` and the web's `flightKey` treat as a flight's
+    identity: those name the *first leg*, and the LIM-MAD capture has two
+    genuinely different itineraries behind one such key — AV 50 to Bogota
+    continuing on AV 182 at 16:25 for 626.69, and the same AV 50 continuing on
+    AV 10 at 21:35 for 602.54. Deduplicating on the first leg would have thrown
+    one of those away, which is the same loss this fix exists to stop. The
+    whole offer is the safe key: two rows that agree on every field we record
+    are indistinguishable to everything downstream anyway, so collapsing them
+    loses nothing, while two rows that differ anywhere are kept.
+    """
+    rest = _itinerary_rows(payload, _ALL_BLOCK)
+    if rest is _ABSENT:
+        # Raised even when the best-departing block is full of itineraries. The
+        # alternative — returning those five — would archive a board missing
+        # the 86% that `payload[3]` carried on the measured LIM-CUZ search,
+        # with a heartbeat line saying the collection went fine. Decision 12.4:
+        # drift is a typed error, never a quiet partial answer.
         raise FareError(
             "parse-drift",
             "Google Flights payload no longer has itineraries where we look for them",
-        ) from exc
+        )
 
-    if rows is None:
-        # Google's own way of saying it found nothing. Distinct from drift, and
-        # a real answer for an unserved route on an unserved day.
+    best = _itinerary_rows(payload, _BEST_BLOCK)
+    if best is _ABSENT:
+        # Not drift. The captured LIM-SCL response has a literal `null` at
+        # `payload[2]`, so a board with no best-departing section is a shape
+        # Google really sends and not a renumbering.
+        best = None
+
+    if not best and not rest:
+        # Google's own way of saying it found nothing — either block empty or
+        # `null`. Distinct from drift, and a real answer for an unserved route
+        # on an unserved day.
         raise FareError("no-offers", "Google Flights found no itineraries for this search")
 
-    offers = [offer for offer in (_offer(row, currency) for row in rows) if offer is not None]
-    if rows and not offers:
+    best_offers = _read_rows(best, currency)
+    rest_offers = _read_rows(rest, currency)
+    if rest and not rest_offers:
         raise FareError(
             "parse-drift",
-            f"Google Flights returned {len(rows)} itineraries and none could be read; "
+            f"Google Flights returned {len(rest)} itineraries and none could be read; "
             "the payload layout has changed",
         )
-    return sorted(offers, key=lambda offer: offer.price)
+    if not best_offers and not rest_offers:
+        raise FareError(
+            "parse-drift",
+            f"Google Flights returned {len(best)} best-departing itineraries and none "
+            "could be read; the payload layout has changed",
+        )
+
+    seen: set[FareOffer] = set()
+    merged: list[FareOffer] = []
+    for offer in (*best_offers, *rest_offers):
+        if offer in seen:
+            continue
+        seen.add(offer)
+        merged.append(offer)
+    return sorted(merged, key=_order)
 
 
 async def fetch_search(client: httpx.AsyncClient, query: FareQuery) -> SearchResult:

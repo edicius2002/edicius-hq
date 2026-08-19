@@ -31,6 +31,18 @@ def read_fixture(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
+def read_payload(name: str):
+    """
+    A captured `ds:1` data array, already out of its page.
+
+    Kept as the array rather than as the 3.2 MB page it came in, for the same
+    reason `google_flights_airports.json` is: `extract_payload` has its own
+    tests, and pinning the parser does not need the megabytes of markup that
+    the extractor already proved it can get through.
+    """
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
 def offer(price: float, *, airline: str = "LA", departure: str = "2026-10-16T08:00") -> FareOffer:
     return FareOffer(
         airline=airline,
@@ -182,6 +194,135 @@ def test_one_bad_itinerary_does_not_cost_the_good_ones():
     payload[3][0].append(["broken"])
     offers = google_flights.parse_payload(payload, "USD")
     assert len(offers) == 2
+
+
+def test_the_captured_lim_scl_page_carries_no_best_departing_block_at_all():
+    """
+    Why that fixture's count did not move when the second block was read.
+
+    `payload[2]` is a literal `null` there, so the board really is the one list
+    — which is also the evidence that an absent best-departing block is a shape
+    Google sends rather than a renumbering to raise on.
+    """
+    payload = google_flights.extract_payload(read_fixture("google_flights_lim_scl.html"))
+    assert payload[2] is None
+    assert len(google_flights.parse_payload(payload, "USD")) == 2
+
+
+# --- both departing blocks -------------------------------------------------
+
+
+def test_a_thin_board_loses_more_than_half_of_itself_to_one_block():
+    """
+    The measurement this fix exists for.
+
+    LIM-MAD on 2026-10-15 puts five itineraries under "Best departing flights"
+    and four under everything else. Reading `payload[3]` alone archived four of
+    the nine that were on the board, every collection since the feature landed,
+    and nothing outside the page could have shown it.
+    """
+    payload = read_payload("google_flights_lim_mad_payload.json")
+    assert len(payload[google_flights._BEST_BLOCK][0]) == 5
+    assert len(payload[google_flights._ALL_BLOCK][0]) == 4
+
+    offers = google_flights.parse_payload(payload, "USD")
+    assert len(offers) == 9
+    prices = sorted(o.price for o in offers)
+    assert prices == [602.54, 602.54, 602.54, 626.69, 744.14, 744.14, 744.14, 791.34, 940.19]
+    # The cheapest fare happened to be in the block already read, so the
+    # headline figure was right and everything shaped stayed wrong: the median
+    # of the four archived offers was 767.74 against the board's real 744.14.
+    assert prices[len(prices) // 2] == 744.14
+
+
+def test_two_connections_behind_one_first_leg_both_survive_the_merge():
+    """
+    Why deduplication is not on (carrier, number, departure).
+
+    AV 50 leaves Lima for Bogota at 11:45 and is on this board twice: once
+    continuing to Madrid on AV 182 at 16:25 for 626.69, once on AV 10 at 21:35
+    for 602.54. They share a first leg and nothing else, and a merge keyed on
+    the first leg would have silently dropped one of them.
+    """
+    offers = google_flights.parse_payload(
+        read_payload("google_flights_lim_mad_payload.json"), "USD"
+    )
+    av50 = [o for o in offers if o.airline == "AV" and o.flight_number == "50"]
+    assert len(av50) == 2
+    assert {o.departure_at for o in av50} == {"2026-10-15T11:45"}
+    assert {o.arrival_at for o in av50} == {"2026-10-16T09:05", "2026-10-16T14:05"}
+    assert {o.price for o in av50} == {602.54, 626.69}
+
+
+def test_a_wide_board_keeps_every_itinerary_from_both_blocks():
+    """
+    LIM-CUZ on 2026-09-09: five best-departing and thirty-one others, with no
+    itinerary in common. Seven of the 43 rows are Sky Airline flights carrying
+    no price at all, which is why 43 rows read as 36 offers — an offer with no
+    price is not an observation, and dropping those is behaviour that predates
+    this fix.
+    """
+    payload = read_payload("google_flights_lim_cuz_payload.json")
+    assert len(payload[google_flights._BEST_BLOCK][0]) == 6
+    assert len(payload[google_flights._ALL_BLOCK][0]) == 37
+
+    offers = google_flights.parse_payload(payload, "USD")
+    assert len(offers) == 36
+    assert len({(o.airline, o.flight_number, o.departure_at, o.arrival_at) for o in offers}) == 36
+
+
+def test_an_itinerary_listed_in_both_blocks_is_reported_once():
+    """
+    Disjointness was observed, not promised.
+
+    It held on the two captured one-way searches and was never checked on a
+    round trip or a multi-stop search. A duplicate would move the count, the
+    median and the dearest fare all at once, so the merge is built not to
+    depend on it.
+    """
+    payload = read_payload("google_flights_lim_mad_payload.json")
+    before = len(google_flights.parse_payload(payload, "USD"))
+    payload[google_flights._BEST_BLOCK][0].append(payload[google_flights._ALL_BLOCK][0][0])
+    assert len(google_flights.parse_payload(payload, "USD")) == before
+
+
+def test_the_same_board_reads_the_same_whichever_order_google_sent_it_in():
+    """
+    Ordering noise must not reach the archive.
+
+    `fingerprint` sorts before hashing, so a reshuffle would not write a
+    snapshot — but the stored offer list, the flight table and every figure the
+    page prints read the order as given, and thirteen itineraries on the
+    LIM-CUZ board share one price.
+    """
+    payload = read_payload("google_flights_lim_cuz_payload.json")
+    straight = google_flights.parse_payload(payload, "USD")
+
+    payload[google_flights._BEST_BLOCK][0].reverse()
+    payload[google_flights._ALL_BLOCK][0].reverse()
+    assert google_flights.parse_payload(payload, "USD") == straight
+
+
+def test_losing_the_all_flights_block_is_drift_even_when_the_best_flights_remain():
+    """
+    Decision 12.4, applied to the half of the board that carries most of it.
+
+    Returning the five best-departing itineraries would archive a board missing
+    the thirty-one behind them and record the collection as healthy, which is
+    the silent partial answer the typed error exists to prevent.
+    """
+    payload = read_payload("google_flights_lim_cuz_payload.json")
+    payload[google_flights._ALL_BLOCK] = None
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "parse-drift"
+
+
+def test_a_best_departing_block_google_did_not_send_is_not_drift():
+    """The LIM-SCL capture proves this shape is real; refusing it would refuse it."""
+    payload = read_payload("google_flights_lim_mad_payload.json")
+    payload[google_flights._BEST_BLOCK] = None
+    assert len(google_flights.parse_payload(payload, "USD")) == 4
 
 
 # --- the archive -----------------------------------------------------------

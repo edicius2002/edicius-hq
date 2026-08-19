@@ -15,7 +15,14 @@ router, the collector or the page.
 import httpx
 
 from app.adapters.fares import google_flights
-from app.adapters.fares.models import FareError, FareOffer, FareQuery, SearchResult
+from app.adapters.fares.models import (
+    CalendarPrice,
+    CalendarQuery,
+    FareError,
+    FareOffer,
+    FareQuery,
+    SearchResult,
+)
 
 DEFAULT_PROVIDER = google_flights.PROVIDER
 
@@ -49,12 +56,42 @@ async def fetch_offers(
     raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
 
 
+async def fetch_calendar(
+    client: httpx.AsyncClient,
+    query: CalendarQuery,
+    *,
+    provider: str = DEFAULT_PROVIDER,
+) -> list[CalendarPrice]:
+    """
+    The cheapest fare on every departure date in a window.
+
+    A second seam beside `fetch_search` rather than a flag on it. A provider can
+    perfectly well answer one and not the other — this one exists because
+    Google's price graph does, and a replacement that could only price single
+    departures should be able to say so by not implementing this.
+    """
+    if provider == google_flights.PROVIDER:
+        return await google_flights.fetch_calendar(client, query)
+    raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
+
+
+#: How wide a window one calendar request may ask for, from whichever provider
+#: is wired. The caller splits the booking horizon by this and does not learn
+#: whose limit it is — decision 8.3 applies to a number as much as to a name.
+CALENDAR_RANGE_DAYS = google_flights.CALENDAR_RANGE_DAYS
+
+
 __all__ = [
+    "CALENDAR_RANGE_DAYS",
     "DEFAULT_PROVIDER",
     "PROVIDERS",
+    "CalendarPrice",
+    "CalendarQuery",
     "FareError",
     "FareOffer",
     "FareQuery",
+    "SearchResult",
+    "fetch_calendar",
     "fetch_offers",
     "fetch_search",
     "normalize_code",

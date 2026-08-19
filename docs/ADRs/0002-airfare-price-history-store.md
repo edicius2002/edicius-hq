@@ -57,6 +57,14 @@ One file holds every departure ever watched for a pair. Readers filter by `fligh
 
 What it does change is the volume, and the consequence below is now the number to watch rather than a comfortable one. Measured on the real archive on 2026-08-19: a snapshot is 780 bytes on a thin route (ARI-SCL) and 6.3 kB on a busy one (LIM-CUZ, 12 snapshots in 76 kB). A month watched at the daily cadence writes at most one per departure per day, so a busy pair can now write ~190 kB a day where it wrote ~6 kB — up to 70 MB a year for one route rather than 2. Writing only on change (12.16) is what keeps that a ceiling rather than a floor, and it is the reason compaction is still not needed; if the watchlist grows to months on busy pairs, this is the line that will move first.
 
+**Addendum, 2026-08-19 (12.153).** A second store now sits beside this one, under `.local-data/fares/calendar/`, and the reason it is beside rather than inside is worth recording here because this ADR is where the rule lives.
+
+Everything above is keyed by `(city pair, flightDate)` — snapshot, heartbeat, fingerprint state and baseline point alike — and section 5 is the decision that made it so. A calendar curve is not: it is one cheapest fare on each of three hundred and thirty-one departure dates, observed at one moment, so it is keyed by `(city pair, capturedAt)` and its dates are the payload. The concrete hazard is `last_checked()`, the reader the board scheduler runs on: it walks `checks/` and hands back a `(origin, destination, flightDate)` map, and a fifth kind of row in there would either need a key it cannot form or need that reader taught to skip it. Neither is a change worth making to the path that collects the reader's primary data.
+
+Everything else is the same, deliberately. Append-only JSONL, one file per city pair, a corrupt line skipped and a wholly unreadable file logged at error, a heartbeat on every look and a curve only when something moved, and the stored shape is the wire shape. `route_stem` — the guard that stops a route code reading as a path — is **imported** rather than reimplemented, which is the one piece of this that must never exist twice.
+
+The volume is smaller than the boards by a wide margin, which is what makes writing on change comfortable rather than necessary. Measured on the first real curve, ARI-SCL on 2026-08-19: 331 departure dates in 7,145 bytes. Written every day regardless that would be 2.6 MB a route a year, against the ~70 MB a busy watched month can now reach.
+
 ## Consequences
 
 **Good.**

@@ -75,12 +75,12 @@ describe('the departure axis', () => {
   it('says in words that this axis is which departure date, not when we looked', () => {
     chart();
     expect(screen.getByText(/Horizontal — which departure date/)).toBeInTheDocument();
-    // All four axes on this page are made of time, so the caption names all
-    // four rather than leaving the reader to tell them apart by tick label.
-    expect(screen.getByText(/when we looked/)).toBeInTheDocument();
-    expect(screen.getByText(/how long before the flight we looked/)).toBeInTheDocument();
-    expect(screen.getByText(/when the plane leaves/)).toBeInTheDocument();
+    // Every x axis on this panel is made of time, so the caption names the
+    // other two rather than leaving the reader to tell them apart by tick
+    // label: the near end of this chart's own zoom, and the other chart.
+    expect(screen.getByText(/when each plane leaves/)).toBeInTheDocument();
     expect(screen.getByText(/which day you fly/)).toBeInTheDocument();
+    expect(screen.getByText(/when we looked/)).toBeInTheDocument();
   });
 
   it('names the currency the curve itself carries rather than the page default', () => {

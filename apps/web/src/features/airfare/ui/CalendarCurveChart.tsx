@@ -97,12 +97,13 @@ function unitWord(granularity: Granularity): string {
 /**
  * What every departure date out to the horizon costs, drawn as one curve.
  *
- * **The horizontal axis is which departure date, and it is a fourth meaning of
- * time on this page.** The history chart's x is when we looked; the lead-time
- * view's is how long before the flight we looked; the scatter's is when the
- * plane leaves inside one period; this one is which day you would fly, across
- * the whole booking horizon at once. None folds into another, so the figure
- * says which it is in words rather than leaving it to the tick labels.
+ * **The horizontal axis is which departure date, and this is the far end of
+ * chart B's zoom — 12.203.** The scatter beside it is the same question at the
+ * near end: which departure, inside one watched month, at the hour the plane
+ * leaves. This one is which day you would fly, across the whole booking
+ * horizon at once, one cheapest fare a day. The other chart on the panel is
+ * drawn on a different clock entirely — when we looked — so the figure says
+ * which axis this is in words rather than leaving it to the tick labels.
  *
  * It is **not** a fourth `BucketAxis` on `PriceBandChart`, and that was checked
  * against that component rather than assumed. It builds its keys from the union
@@ -120,13 +121,13 @@ function unitWord(granularity: Granularity): string {
  * draw the eleven months it actually priced rather than sliding a day forward
  * every midnight.
  *
- * **There are no previous/next arrows.** The scatter has them because it draws
- * one period at a time out of a month and something has to step between them;
- * this draws the entire horizon in one frame, so an arrow would have nothing to
- * step to. The switch above still means something — it decides whether a point
- * is one date, a week of them or a month of them — but there is no second page
- * to reach. The arrow keys move the crosshair, which is the only stepping this
- * chart has.
+ * **There are no previous/next arrows.** The scatter at the other end of the
+ * zoom has them because it draws one period at a time out of a month and
+ * something has to step between them; this draws the entire horizon in one
+ * frame, so an arrow would have nothing to step to. The granularity switch
+ * above still means something — it decides whether a point is one date, a week
+ * of them or a month of them — but there is no second page to reach. The arrow
+ * keys move the crosshair, which is the only stepping this chart has.
  *
  * SVG, decision 12.12, and for the extra reason that the crosshair's numbers
  * are figures a reader may want read out rather than pixels.
@@ -563,19 +564,20 @@ export function CalendarCurveChart({
 
       {/*
         The axes in words. The reader asked for this specifically, and the page
-        has earned it: since 12.170 there are three other charts here and every
-        one of their x axes is made of time. Working out which is which from the
-        tick labels is exactly the mistake this sentence forecloses, and it
-        names all four rather than the two that existed when it was written.
+        has earned it: every x axis on this panel is made of time. Working out
+        which is which from the tick labels is exactly the mistake this sentence
+        forecloses. Since 12.201 it has two to tell apart rather than four —
+        the near end of this chart's own zoom, and the other chart entirely.
       */}
       <figcaption className={styles.legend}>
         <p className={styles.axesNote}>
           <strong>Horizontal — which departure date:</strong> every day from{' '}
           {formatFlightDate(curve.fromDate)} to {formatFlightDate(curve.toDate)}, the whole booking
           horizon at once. <strong>Vertical — the cheapest fare for that departure date</strong>, in{' '}
-          {currency}. Not the same axis as the charts beside it: price history plots{' '}
-          <em>when we looked</em>, lead time plots <em>how long before the flight we looked</em>,
-          flights plots <em>when the plane leaves</em>, this plots <em>which day you fly</em>.
+          {currency}. The same axis as the near end of this chart&rsquo;s own zoom, further out: the
+          watched month plots <em>when each plane leaves</em> inside one month, this plots{' '}
+          <em>which day you fly</em> across the whole horizon. The other chart on this panel is a
+          different clock — it plots <em>when we looked</em>.
         </p>
         <span className={styles.keys}>
           <span className={styles.keyCurve}>

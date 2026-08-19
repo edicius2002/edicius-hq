@@ -195,9 +195,10 @@ export function summarise(key: string, label: string, prices: number[]): Bucket 
  * before departure. What differs is entirely words and order: what one bucket
  * is called, what a key covers when it is spelled out under the crosshair, and
  * which way the axis runs. Passing those in as a value is what lets the two
- * views share one chart rather than become two components that drift apart —
- * the lead-time view inherits 12.61's crosshair and 12.62's tag placement
- * instead of having to earn them again.
+ * readings share one chart rather than become two components that drift apart
+ * — the lead-time reading inherits 12.61's crosshair and 12.62's tag placement
+ * instead of having to earn them again. Since 12.202 they are not two views
+ * either: one chart, and a control that says which way to read its axis.
  *
  * `order` is not decoration. The calendar axis runs oldest to newest, which is
  * ascending on its keys; the lead-time axis runs *furthest ahead* to the day
@@ -219,8 +220,8 @@ export type BucketAxis = {
  * Calendar time: the axis this chart has always been drawn on.
  *
  * Kept as a value with the same shape as `leadAxis` rather than left implicit,
- * so neither view is the special case — the observation-time view reads
- * exactly as it did, and the difference between the two is one object.
+ * so neither reading is the special case — observation time reads exactly as
+ * it did, and the difference between the two is one object.
  */
 export function calendarAxis(granularity: Granularity): BucketAxis {
   return {

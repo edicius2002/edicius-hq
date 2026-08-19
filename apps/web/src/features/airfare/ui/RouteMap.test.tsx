@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -91,6 +91,34 @@ const LIM_TOKYO: RouteGeometry = {
   fromCity: 'Lima',
   toCity: 'Tokyo',
 };
+
+/**
+ * A wheel notch over a given spot on the map.
+ *
+ * `offsetX`/`offsetY` again: the handler zooms about the point under the
+ * cursor, and jsdom leaves both at 0 however they are passed. A wheel test
+ * without them would only ever prove that zooming about the origin works.
+ */
+function wheel(target: Element, deltaY: number, at: [number, number]) {
+  const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY });
+  Object.defineProperty(event, 'offsetX', { get: () => at[0] });
+  Object.defineProperty(event, 'offsetY', { get: () => at[1] });
+  target.dispatchEvent(event);
+}
+
+/**
+ * Let the map's own frame run.
+ *
+ * A wheel notch only writes the new scale and wakes the loop; the drawing and
+ * the overlay's commit happen on the next frame, the same path a drag takes.
+ * Reading the DOM straight after the event measures whatever render the
+ * `moving` flag happened to cause, which is not the zoom.
+ */
+async function frame() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 24));
+  });
+}
 
 function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {}) {
   const props = {
@@ -201,9 +229,18 @@ describe('RouteMap', () => {
     'hands the continents over to country names as %s closes in',
     async (projection) => {
       const user = userEvent.setup();
-      renderMap({ projection });
-      const zoomIn = screen.getByRole('button', { name: /zoom in/i });
-      for (let press = 0; press < 3; press += 1) await user.click(zoomIn);
+      const { container } = renderMap({ projection });
+      const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+      stage.focus();
+      /*
+       * The keyboard route, since the plus and minus buttons are gone. Eight
+       * presses, not the five the target arithmetic suggests: zoom eases
+       * towards its target, and jsdom does not reliably run the frame loop
+       * that does the easing. Eight is past the handover on the immediate
+       * first step of each press alone — so the test does not care whether any
+       * frames ran, which is what stopped it flickering.
+       */
+      for (let press = 0; press < 8; press += 1) await user.keyboard('+');
 
       expect(screen.getByText('Peru')).toBeInTheDocument();
       expect(screen.queryByText('South America')).not.toBeInTheDocument();
@@ -364,21 +401,109 @@ describe('RouteMap', () => {
     expect(tokyo?.closest('g')?.getAttribute('class')).toContain('behind');
   });
 
-  it('offers zoom, and refuses to reset a view nobody has moved', () => {
+  it('offers no zoom buttons, and refuses to reset a view nobody has moved', () => {
+    /*
+     * Two buttons stepping the scale by a fixed factor are the mechanical feel
+     * this was meant to lose, and they zoom about the middle of the frame
+     * rather than about what the reader is looking at. Reset is the only
+     * control left.
+     */
     renderMap();
-    expect(screen.getByRole('button', { name: /zoom in/i })).toBeEnabled();
-    // Zoomed all the way out already, so there is nothing to go back to.
-    expect(screen.getByRole('button', { name: /zoom out/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /zoom in/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /zoom out/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /reset the view/i })).toBeDisabled();
   });
 
-  it('lets the view be reset once it has been zoomed', async () => {
+  it('keeps zoom reachable from the keyboard', async () => {
+    // With the buttons gone, a wheel is the only pointer route — and no route
+    // at all for someone who does not have one.
     const user = userEvent.setup();
-    renderMap();
-    await user.click(screen.getByRole('button', { name: /zoom in/i }));
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    stage.focus();
+    await user.keyboard('+');
 
     expect(screen.getByRole('button', { name: /reset the view/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /zoom out/i })).toBeEnabled();
+  });
+
+  it('zooms about the cursor, so the place under it stays under it', async () => {
+    /*
+     * Scaling about the middle of the frame slides the thing you are pointing
+     * at away exactly when you are trying to get closer to it. The globe has
+     * no pan to shift, so it has to *turn* to bring the point back.
+     */
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]')!;
+    const lima = () => {
+      const dot = container.querySelector('circle[class*="home"]')!;
+      return [Number(dot.getAttribute('cx')), Number(dot.getAttribute('cy'))] as const;
+    };
+
+    const [x, y] = lima();
+    wheel(stage, -240, [x, y]);
+    await frame();
+    const [movedX, movedY] = lima();
+
+    expect(Math.hypot(movedX - x, movedY - y)).toBeLessThan(2);
+    expect(screen.getByRole('button', { name: /reset the view/i })).toBeEnabled();
+  });
+
+  it('eases towards a notch rather than jumping to it', async () => {
+    /*
+     * The complaint that produced this: proportional was not enough. A mouse
+     * notch of 200 asks for 1.49×, and applying 1.49× in the frame the event
+     * arrives is a step however well chosen the factor is. One frame should
+     * cover about a fifth of the way — 16ms against a 70ms time constant.
+     */
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]')!;
+    const spread = () => {
+      const xs = [...container.querySelectorAll('circle')].map((d) => Number(d.getAttribute('cx')));
+      return Math.max(...xs) - Math.min(...xs);
+    };
+
+    const before = spread();
+    wheel(stage, -200, [480, 270]);
+    await frame();
+
+    const grew = spread() / before;
+    expect(grew).toBeGreaterThan(1.05);
+    // Nowhere near the 1.49 the notch asked for.
+    expect(grew).toBeLessThan(1.2);
+  });
+
+  it('zooms by how hard the wheel was turned, not once per event', async () => {
+    /*
+     * Exponential in the delta. A trackpad reports a few pixels per gesture
+     * and a mouse notch about a hundred, so a fixed factor per *event* gives
+     * the trackpad a crawl and the mouse a jump.
+     *
+     * One notch per render, rather than two into the same map: the overlay
+     * redraws from the frame loop, and jsdom does not run one here — so a
+     * second event into the same tree changes the projections without
+     * anything reading them again.
+     */
+    const spread = async (deltaY: number) => {
+      const { container, unmount } = renderMap();
+      const stage = container.querySelector('[class*="stage"]')!;
+      const width = () => {
+        const xs = [...container.querySelectorAll('circle')].map((d) =>
+          Number(d.getAttribute('cx')),
+        );
+        return Math.max(...xs) - Math.min(...xs);
+      };
+      const before = width();
+      wheel(stage, deltaY, [480, 270]);
+      await frame();
+      const grew = width() - before;
+      unmount();
+      return grew;
+    };
+
+    const gentle = await spread(-20);
+    const firm = await spread(-200);
+    expect(gentle).toBeGreaterThan(0);
+    expect(firm).toBeGreaterThan(gentle * 3);
   });
 
   it('does not crash without a canvas context', () => {

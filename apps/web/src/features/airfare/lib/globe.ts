@@ -186,6 +186,36 @@ export function countryFade(zoom: number): number {
   return clamp01((zoom - 1.6) / 1.2);
 }
 
+/* ------------------------------------------------------------------- zoom -- */
+
+/**
+ * How long the scale takes to catch up with where a gesture asked it to go.
+ *
+ * A time constant, not a duration: after `ZOOM_TAU` milliseconds roughly 63%
+ * of the remaining distance is gone, so a notch settles in about a fifth of a
+ * second and a stream of notches never queues up behind itself.
+ */
+export const ZOOM_TAU = 70;
+
+/**
+ * One frame of the scale easing towards its target.
+ *
+ * Applying a wheel notch in full, the instant it arrives, is what makes zoom
+ * feel mechanical however carefully the factor is chosen — a mouse notch is a
+ * 22% change and 22% in one frame is a step. A tile renderer does not do that:
+ * it sets a target and animates towards it, and so does this.
+ *
+ * Framed in elapsed time rather than per frame, so the speed is the same on a
+ * 60 Hz panel and a 144 Hz one. It snaps at the end because an exponential
+ * approach never actually arrives, and a scale that is forever a thousandth
+ * away keeps the render loop awake for nothing.
+ */
+export function approach(current: number, target: number, elapsed: number, tau = ZOOM_TAU): number {
+  if (elapsed <= 0 || current === target) return target === current ? target : current;
+  const next = current + (target - current) * (1 - Math.exp(-elapsed / tau));
+  return Math.abs(target - next) < target * 0.0005 ? target : next;
+}
+
 export type Boxed = { x: number; y: number; width: number; height: number };
 
 /**

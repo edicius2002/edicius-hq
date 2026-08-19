@@ -148,23 +148,7 @@ describe('Positions', () => {
 
   it('reorders positions by drag and drop', () => {
     const onMove = vi.fn();
-    const { container } = render(
-      <Positions
-        portfolio={{
-          version: 1,
-          positions: [
-            { symbol: 'AAPL', quantity: 1, averageCost: 100 },
-            { symbol: 'MSFT', quantity: 1, averageCost: 200 },
-          ],
-        }}
-        quotes={new Map()}
-        selected="AAPL"
-        onSelect={vi.fn()}
-        onEdit={vi.fn()}
-        onRemove={vi.fn()}
-        onMove={onMove}
-      />,
-    );
+    const { container } = render(<ThreeHoldings onMove={onMove} />);
 
     const rows = container.querySelectorAll('li[draggable="true"]');
     fireEvent.dragStart(rows[0]);
@@ -172,4 +156,71 @@ describe('Positions', () => {
 
     expect(onMove).toHaveBeenCalledWith('AAPL', 'MSFT');
   });
+
+  /*
+   * The cards wrap into a grid, so left and right are the axis a reader
+   * follows along a row. Both pairs of arrows mean one place earlier or later,
+   * for the reason `useReorder` records: how many cards a row holds is decided
+   * by `auto-fill` against the current width, so "a row up" is a different
+   * distance at every window size. jsdom lays nothing out, so what these can
+   * check is the callback, not where the card lands on screen.
+   */
+  it('moves a card one place later with Alt and the right arrow', async () => {
+    const user = userEvent.setup();
+    const onMove = vi.fn();
+    render(<ThreeHoldings onMove={onMove} />);
+
+    screen.getByRole('button', { name: /^MSFT/ }).focus();
+    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
+
+    expect(onMove).toHaveBeenCalledWith('MSFT', 'NVDA');
+  });
+
+  it('moves a card one place earlier with Alt and the left arrow', async () => {
+    const user = userEvent.setup();
+    const onMove = vi.fn();
+    render(<ThreeHoldings onMove={onMove} />);
+
+    screen.getByRole('button', { name: /^MSFT/ }).focus();
+    await user.keyboard('{Alt>}{ArrowLeft}{/Alt}');
+
+    expect(onMove).toHaveBeenCalledWith('MSFT', 'AAPL');
+  });
+
+  it('keeps the up and down arrows a reader already knows from the watchlist', async () => {
+    const user = userEvent.setup();
+    const onMove = vi.fn();
+    render(<ThreeHoldings onMove={onMove} />);
+
+    screen.getByRole('button', { name: /^MSFT/ }).focus();
+    await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
+
+    expect(onMove).toHaveBeenCalledWith('MSFT', 'NVDA');
+    expect(screen.getByRole('button', { name: /^MSFT/ }).closest('li')).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight',
+    );
+  });
 });
+
+/** Three unvalued holdings, which is enough to have a middle one to move. */
+function ThreeHoldings({ onMove }: { onMove: (from: string, to: string) => void }) {
+  return (
+    <Positions
+      portfolio={{
+        version: 1,
+        positions: [
+          { symbol: 'AAPL', quantity: 1, averageCost: 100 },
+          { symbol: 'MSFT', quantity: 1, averageCost: 200 },
+          { symbol: 'NVDA', quantity: 1, averageCost: 300 },
+        ],
+      }}
+      quotes={new Map()}
+      selected="AAPL"
+      onSelect={vi.fn()}
+      onEdit={vi.fn()}
+      onRemove={vi.fn()}
+      onMove={onMove}
+    />
+  );
+}

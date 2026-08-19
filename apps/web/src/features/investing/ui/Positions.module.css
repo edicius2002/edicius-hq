@@ -1,4 +1,32 @@
+/*
+ * A grid of cards, not a column of rows, and the column width is derived rather
+ * than chosen.
+ *
+ * The unit is the trap here — this app sets `--font-size-base: 125%`, so a rem
+ * is 20px, and decision 12.54 is the record of what happens when a length is
+ * written believing otherwise. Berkeley Mono advances 0.6em a character, the
+ * estimate 12.53 sized the watchlist column with and 12.62 checked against a
+ * real `getBBox` (30 predicted, 29.5 measured).
+ *
+ * The widest line a card has to print in full is the return, `+12,345.67 ·
+ * +123.45%` — 21 characters at 0.66rem, so 21 x 13.2 x 0.6 = 166px. The holding
+ * line is the same 21 characters at worst (`1,234.5678 @ 1,234.56`) and already
+ * ellipsizes, so it asks for nothing more. The symbol line is narrower even
+ * carrying the actions: `BTCUSDT` at 0.74rem is 62px beside the 60px gutter the
+ * hover pair needs, which is 122px. Add `var(--space-2)` of padding and a
+ * border either side and a card needs 188px, rounded up to the 9.5rem below.
+ *
+ * `auto-fill` then decides the count, because the count is not ours to decide:
+ * on the 1141px page 12.54 measured, less the panel's 20px padding either side,
+ * floor((1101 + 10) / (190 + 10)) is five across, and the same arithmetic gives
+ * four, three, two and one as the window narrows. `min(9.5rem, 100%)` is what
+ * makes the last of those true — a bare 9.5rem floor would overflow a panel
+ * narrower than one card rather than shrinking it.
+ */
 .list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(9.5rem, 100%), 1fr));
+  gap: var(--space-2);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -31,18 +59,26 @@
   background: var(--color-surface-soft);
 }
 
+/*
+ * A card now, so it carries its own edge: side by side in a grid, rows that
+ * were separated only by a hover tint read as one block of text.
+ */
 .row {
   position: relative;
   display: flex;
-  align-items: center;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius);
-}
-
-.row:hover {
   background: var(--color-bg-2);
 }
 
+.row:hover {
+  background: var(--color-surface-soft);
+}
+
+/* The selected card is found by its edge rather than by its fill, which hover
+   has already spent. */
 .selected {
+  border-color: var(--color-accent);
   background: var(--color-surface-soft);
 }
 
@@ -50,39 +86,42 @@
   opacity: 0.5;
 }
 
+/*
+ * Four lines down rather than the two-by-two it was: a card at the derived
+ * width has room for one figure across, and pairing them would have set the
+ * column at twice the widest line for no gain.
+ */
 .pick {
   display: grid;
-  grid-template-areas:
-    'symbol holding'
-    'value return';
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 var(--space-2);
+  gap: 2px;
+  align-content: start;
   flex: 1;
   min-width: 0;
-  /* Actions occupy their own reserved edge, rather than covering the holding
-     or return when they appear on hover. */
-  padding: var(--space-2) calc(var(--space-2) + 3.5rem) var(--space-2) var(--space-2);
+  padding: var(--space-2);
   border: 0;
   background: none;
   color: inherit;
   font: inherit;
-  align-items: center;
-  text-align: center;
+  /* Left, not centred: monospace figures already line up, and a ragged left
+     edge across five cards is the thing the eye trips on. */
+  text-align: left;
   cursor: pointer;
 }
 
 .symbol {
-  grid-area: symbol;
+  overflow: hidden;
+  /* The actions get their own reserved corner rather than covering the ticker
+     when they appear on hover. */
+  padding-right: 3rem;
   color: var(--color-text);
   font-size: 0.74rem;
   font-weight: 700;
-  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .holding,
 .waiting {
-  justify-self: center;
-  width: 100%;
   overflow: hidden;
   color: var(--color-muted);
   font-size: 0.66rem;
@@ -91,38 +130,24 @@
   white-space: nowrap;
 }
 
-.holding {
-  grid-area: holding;
-}
-
 .waiting {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  align-self: center;
   font-style: italic;
-  text-align: center;
 }
 
 .value {
-  grid-area: value;
   color: var(--color-text);
   font-size: 0.74rem;
   font-variant-numeric: tabular-nums;
-  text-align: center;
 }
 
 .up,
 .down {
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
-  text-align: center;
 }
 
 .pick > .up,
 .pick > .down {
-  grid-area: return;
-  justify-self: center;
-  width: 100%;
   white-space: nowrap;
 }
 
@@ -137,6 +162,7 @@
 .actions {
   position: absolute;
   z-index: 1;
+  top: var(--space-1);
   right: var(--space-1);
   display: flex;
   gap: 2px;
@@ -196,8 +222,19 @@
   box-shadow: 0 8px 24px var(--color-shadow);
 }
 
+/*
+ * Stacked, because the card it replaces is 190px wide and the row this used to
+ * be — ticker, two 5rem inputs and two buttons across — is nearer 300px. The
+ * alternative, letting the editing card span the whole grid row, moves every
+ * other card on screen the moment you click a pencil.
+ */
 .editForm {
-  display: flex;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.editForm .input {
+  width: 100%;
 }
 
 .field {

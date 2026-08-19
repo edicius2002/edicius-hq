@@ -20,10 +20,29 @@ import { useState, type DragEvent, type KeyboardEvent } from 'react';
  * between rows is a request for a position, not a swap.
  */
 
+/**
+ * Which arrows move a card, and what they mean.
+ *
+ * `vertical` is the list case and the default: up is earlier, down is later,
+ * and left and right belong to the page. `both` adds left and right with the
+ * *same* meaning — one place earlier, one place later — for a caller whose
+ * items wrap into a grid, where left and right are the axis the eye follows
+ * along a row and an arrow that did nothing would read as broken.
+ *
+ * Deliberately *not* "up moves a whole row up". How many cards sit in a row is
+ * decided by `auto-fill` against whatever width the panel happens to have, so
+ * that offset is three places at one window size and five at another, and
+ * nothing in the DOM tells this hook which it currently is. A shortcut whose
+ * effect changes when you resize the window is not one anybody can trust.
+ * Earlier and later are stable, and they are also what gets persisted.
+ */
+export type ReorderAxis = 'vertical' | 'both';
+
 export type ReorderOptions<T extends string> = {
   /** The ids in their current order. Needed to find a row's neighbour. */
   order: readonly T[];
   onMove: (from: T, to: T) => void;
+  axis?: ReorderAxis;
 };
 
 export type RowProps = {
@@ -36,7 +55,25 @@ export type RowProps = {
   'aria-keyshortcuts': string;
 };
 
-export function useReorder<T extends string>({ order, onMove }: ReorderOptions<T>) {
+const SHORTCUTS: Record<ReorderAxis, string> = {
+  vertical: 'Alt+ArrowUp Alt+ArrowDown',
+  both: 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight',
+};
+
+/** How far the pressed key moves the row: 0 means the key is not ours. */
+function offsetFor(key: string, axis: ReorderAxis): number {
+  if (key === 'ArrowUp') return -1;
+  if (key === 'ArrowDown') return 1;
+  if (axis === 'both' && key === 'ArrowLeft') return -1;
+  if (axis === 'both' && key === 'ArrowRight') return 1;
+  return 0;
+}
+
+export function useReorder<T extends string>({
+  order,
+  onMove,
+  axis = 'vertical',
+}: ReorderOptions<T>) {
   const [dragging, setDragging] = useState<T | null>(null);
 
   function move(id: T, offset: number): void {
@@ -61,13 +98,14 @@ export function useReorder<T extends string>({ order, onMove }: ReorderOptions<T
       },
       onKeyDown: (event: KeyboardEvent) => {
         if (!event.altKey) return;
-        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        const offset = offsetFor(event.key, axis);
+        if (offset === 0) return;
         // The row is usually a button inside a list; without this the page
         // scrolls under the reorder.
         event.preventDefault();
-        move(id, event.key === 'ArrowUp' ? -1 : 1);
+        move(id, offset);
       },
-      'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
+      'aria-keyshortcuts': SHORTCUTS[axis],
     };
   }
 

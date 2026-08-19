@@ -26,9 +26,16 @@ const NO_FOLLOWED_SYMBOLS = new Set<string>();
  * What you own, and what it is worth.
  *
  * Fed by the quotes the watchlist and tape already share, so a position moves
- * with the stream at no extra request. A row whose quote has not arrived says
+ * with the stream at no extra request. A card whose quote has not arrived says
  * so rather than valuing itself at zero — a total quietly missing one of its
  * holdings would be worse than one admitting it is still loading.
+ *
+ * A grid of cards rather than one holding a line, since 12.53 gave this panel
+ * the full page width: a column of eight rows across 1101px spends most of it
+ * on nothing, and a portfolio is read by comparing its holdings against each
+ * other, which is easier when more than three of them are on screen at once.
+ * The stylesheet derives the card width; `positionsGrid.test.ts` checks that
+ * derivation, because jsdom lays nothing out and cannot.
  */
 type PositionsProps = {
   portfolio: Portfolio;
@@ -54,6 +61,12 @@ export function Positions({
   const { dragging, rowProps } = useReorder({
     order: portfolio.positions.map((position) => position.symbol),
     onMove,
+    // Left and right as well as up and down, because the cards wrap: along a
+    // row the eye follows the horizontal axis, and an arrow pointing the way
+    // the next card sits that did nothing would read as a broken control. Both
+    // pairs mean the same one place earlier or later — see `useReorder` for why
+    // up is not "a whole row up".
+    axis: 'both',
   });
 
   const valued = portfolio.positions

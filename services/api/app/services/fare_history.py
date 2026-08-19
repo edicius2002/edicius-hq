@@ -105,6 +105,26 @@ class BaselinePoint:
 FINGERPRINT_RECIPE = 2
 
 
+def route_stem(origin: str, destination: str) -> str:
+    """
+    A file name that cannot read like a way out of this directory.
+
+    Same guard as `market_cache._path_for`, tightened: an IATA code is letters
+    and digits, so unlike a ticker there is no reason to allow a dot here at
+    all.
+
+    Module level rather than a method so `fare_calendar` can import it. A
+    directory-escape guard is exactly the kind of thing that must have one
+    implementation — a second store copying four lines of this would be a
+    second place for it to be got wrong.
+    """
+    parts = []
+    for code in (origin, destination):
+        safe = "".join(c for c in code.upper() if c.isalnum()) or "UNKNOWN"
+        parts.append(safe)
+    return f"{parts[0]}-{parts[1]}"
+
+
 class FareHistory:
     def __init__(self, directory: Path | None = None) -> None:
         self._dir = directory
@@ -122,18 +142,7 @@ class FareHistory:
         return self.directory / "state"
 
     def _stem(self, origin: str, destination: str) -> str:
-        """
-        A file name that cannot read like a way out of this directory.
-
-        Same guard as `market_cache._path_for`, tightened: an IATA code is
-        letters and digits, so unlike a ticker there is no reason to allow a
-        dot here at all.
-        """
-        parts = []
-        for code in (origin, destination):
-            safe = "".join(c for c in code.upper() if c.isalnum()) or "UNKNOWN"
-            parts.append(safe)
-        return f"{parts[0]}-{parts[1]}"
+        return route_stem(origin, destination)
 
     def _path_for(self, origin: str, destination: str) -> Path:
         return self.directory / f"{self._stem(origin, destination)}.jsonl"

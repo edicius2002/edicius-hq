@@ -8,8 +8,8 @@ import { cheapestOffer, daysBeforeDeparture } from '@/features/airfare/lib/serie
 import type { FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
 /**
- * The third axis of the same archive: **how far ahead of departure** a price
- * was seen — 12.170.
+ * The same archive read the other way round: **how far ahead of departure** a
+ * price was seen — 12.170, as 12.202 narrowed it.
  *
  * `buckets.ts` gathers observations by the calendar day we looked, and answers
  * "is this fare rising or falling as we watch it". `flightScatter.ts` places
@@ -18,6 +18,16 @@ import type { FarePricePoint, FareSnapshot } from '@/shared/api/fares';
  * for that the x axis has to be days until departure, and the same fare seen
  * on 19 August for a 1 March flight and for a 31 March flight is two different
  * points rather than one.
+ *
+ * That last sentence is also the limit on where this is honest, and since
+ * 12.204 the panel enforces it: for **one** departure date the lead is the
+ * observation date subtracted from the flight date, so this is a relabelling
+ * of the observation axis and the panel offers it as one. For a whole watched
+ * month it is not — a single look lands on thirty-one leads at once, and the
+ * curve through them is a curve across departure date wearing this axis's
+ * labels. The functions here are unchanged and still take whatever they are
+ * given; what changed is that the panel only asks for this reading where the
+ * route names the one flight it is about.
  *
  * That question is only askable at all because the provider's own history
  * carries a departure beside every figure — 12.171. Our own snapshots have

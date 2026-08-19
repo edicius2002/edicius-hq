@@ -88,13 +88,16 @@ type FlightScatterChartProps = {
  * departs and what it costs, with a dashed line through the cheapest flight of
  * each day.
  *
- * **The other axis of the same archive, and a second view rather than a
- * replacement — 12.140.** `PriceBandChart` plots observation time: what the
- * cheapest fare was on each day *we looked*. This one plots departure time:
- * which flight, on which day of the watched month, at what hour. The first
- * answers "is this route cheaper than it was", the second "which departure do I
- * book", and collapsing them into one chart would have made both unreadable —
- * the x axis would have had to mean two kinds of time at once.
+ * **The near end of chart B's zoom — 12.203, superseding 12.140's separate
+ * view.** `PriceBandChart` plots how one flight's price moved: what the
+ * cheapest fare was on each day we looked, or the same fares by how far ahead
+ * of the flight they were seen. This one plots departure time: which flight,
+ * on which day of the watched month, at what hour. The first answers "is this
+ * route cheaper than it was", the second "which departure do I book", and
+ * collapsing *those* into one chart would still make both unreadable — the x
+ * axis would have to mean two kinds of time at once. What did collapse is this
+ * chart and the calendar curve, which were always the same question at two
+ * scales: one watched month here, 331 departure dates there.
  *
  * The cloud is context and the dashed line is the shape. On a month there are
  * six to nine hundred dots, far more than anyone reads one at a time, and what

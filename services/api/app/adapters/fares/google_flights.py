@@ -38,6 +38,8 @@ import httpx
 
 from app.adapters.fares.models import (
     Airport,
+    CalendarPrice,
+    CalendarQuery,
     FareError,
     FareInsights,
     FareOffer,
@@ -529,3 +531,267 @@ async def fetch_search(client: httpx.AsyncClient, query: FareQuery) -> SearchRes
 async def fetch_offers(client: httpx.AsyncClient, query: FareQuery) -> list[FareOffer]:
     """Just the itineraries, for callers that want a live look and nothing else."""
     return (await fetch_search(client, query)).offers
+
+
+# ------------------------------------------------------------- calendar graph --
+#
+# The search above answers about **one** departure date, so a month of cheapest
+# fares costs thirty requests and a year costs three hundred and thirty. Google's
+# own price graph does not work that way: it asks one RPC for a whole range of
+# departure dates and gets one cheapest fare per day back. Measured 2026-08-19,
+# one request returned 181 dates.
+#
+# Kept in this module rather than in a `google_flights_calendar.py` beside it.
+# It is the same provider, the same User-Agent and the same rate discipline, and
+# it reads its price out of the very same base64 token as an itinerary does —
+# `_exact_price` applies here unchanged, which a second module could only reach
+# by exporting a private or copying it.
+#
+# **This is not `batchexecute`.** It is a direct RPC path. An earlier attempt
+# spent nine tries on `/_/FlightsFrontendUi/data/batchexecute` with rpcid
+# `YMjVO` and was answered HTTP 500 every time: right service, wrong transport.
+# The response envelope is batchexecute's, which is what made that plausible.
+#
+# **No session is needed.** Measured 2026-08-19 from this module's own client
+# with no cookies at all: HTTP 200 with a full 181-day answer. The capture this
+# was built from came from a signed-in browser, and that turned out not to
+# matter.
+
+CALENDAR_URL = (
+    "https://www.google.com/_/FlightsFrontendUi/data/"
+    "travel.frontend.flights.FlightsFrontendService/GetCalendarGraph"
+)
+
+# How many departure dates one request may ask for. Measured 2026-08-19 against
+# the live endpoint, LIM-CUZ: 21 dates answered, 181 dates answered, 331 dates
+# (the whole booking horizon) was refused with gRPC status 3, INVALID_ARGUMENT,
+# and an empty `ErrorResponse`. A 149-date window ending 330 days out answered
+# in full, which is what says the refusal was about the *width* of the range and
+# not about how far ahead its far end sits. So the true cap is somewhere in
+# 182..330 and was deliberately not bisected: knowing it exactly would not
+# change the design, because two windows already cover the horizon and one
+# cannot.
+CALENDAR_RANGE_DAYS = 181
+
+# A form POST, so the content type is stated rather than left to the client. The
+# rest is the search's headers, because it is the same address talking to the
+# same host and looking like two different clients would be worse than looking
+# like one.
+CALENDAR_HEADERS = {
+    **HEADERS,
+    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+}
+
+# The `)]}'` anti-JSON-hijacking guard Google puts in front of every RPC answer.
+_GUARD = ")]}'"
+
+# Positions inside one row of the graph: `["2026-12-09", null, [[null, 60],
+# "<token>"], 1]`. Same untagged-array hazard as the search payload, and the
+# same remedy — named here so drift is a one-line edit, pinned in the tests
+# against a captured response.
+_GRAPH_ROWS = 1  # data[1]; data[0] is a session block we have no use for
+_ROW_DATE = 0
+_ROW_PRICE = 2  # [[null, rounded], "<base64 protobuf>"] — an itinerary's shape
+
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def build_calendar_request(query: CalendarQuery) -> str:
+    """
+    The `f.req` form field: plain JSON, no protobuf anywhere.
+
+    Every number below is a position in an untagged array, so each one is named
+    rather than left as a literal in a nested list. The shape was captured from
+    a live page on 2026-08-19 and reproduced byte for byte before anything was
+    built on it.
+    """
+    leg = [
+        [[[query.origin.strip().upper(), 0]]],  # 0: origin
+        [[[query.destination.strip().upper(), 0]]],  # 1: destination
+        None,
+        0,
+        None,
+        None,
+        query.start,  # 6: the anchor departure, which we set to the range start
+        *([None] * 7),
+        3,
+    ]
+    search = [
+        None,
+        None,
+        _TRIP_ONE_WAY,  # 2: same trip-type enum the `?tfs=` writer uses
+        None,
+        [],
+        _SEAT_ECONOMY,  # 5
+        [_PASSENGER_ADULT, 0, 0, 0],  # 6: adults, children, infants in seat/lap
+        *([None] * 6),
+        [leg],  # 13
+        None,
+        None,
+        None,
+        1,
+    ]
+    # `[from, to]` is the whole reason this endpoint is worth having: it is the
+    # window of departure dates to price, and it is what turns thirty requests
+    # for a month into one.
+    inner = [None, search, [query.start, query.end]]
+    return json.dumps([None, json.dumps(inner, separators=(",", ":"))], separators=(",", ":"))
+
+
+def _rpc_frames(text: str) -> list[Any]:
+    """
+    The frames of one RPC answer, out from behind the guard.
+
+    Measured on three live responses on 2026-08-19: the body is `)]}'`, a blank
+    line, and then one JSON array — `[["wrb.fr", ...], ["di", n],
+    ["af.httprm", ...]]` — with no length prefix anywhere. The note this was
+    built from described a length line, which is the shape `batchexecute`
+    streams answers in, so both are read here rather than one being guessed at.
+    Six lines is a cheap price for not losing the whole feature to a transport
+    detail that was observed once and never since.
+    """
+    if not text.startswith(_GUARD):
+        raise FareError(
+            "unreadable",
+            "Google Flights answered the calendar RPC without its )]}' guard "
+            "(a challenge, a consent page, or a changed transport)",
+        )
+    body = text[len(_GUARD) :].strip()
+
+    frames: list[Any] = []
+    position = 0
+    while position < len(body):
+        newline = body.find("\n", position)
+        header = body[position:newline] if newline != -1 else ""
+        if newline != -1 and header.strip().isdigit():
+            size = int(header.strip())
+            chunk = body[newline + 1 : newline + 1 + size]
+            position = newline + 1 + size
+        else:
+            chunk = body[position:]
+            position = len(body)
+        try:
+            found = json.loads(chunk)
+        except ValueError:
+            continue
+        if isinstance(found, list):
+            frames.extend(found)
+
+    if not frames:
+        raise FareError("unreadable", "Google Flights calendar answer carried no readable frames")
+    return frames
+
+
+def _graph_data(frames: list[Any]) -> Any:
+    """
+    The one frame that carries the graph, or the reason there is not one.
+
+    A refused request comes back with the same envelope and the same `wrb.fr`
+    frame, only with `null` where the payload goes and a gRPC status in its
+    place — `[3]` for INVALID_ARGUMENT, which is what asking for too wide a
+    range earns. That is upstream saying no, and it must not read as drift.
+    """
+    for frame in frames:
+        if not isinstance(frame, list) or not frame or frame[0] != "wrb.fr":
+            continue
+        payload = frame[2] if len(frame) > 2 else None
+        if isinstance(payload, str) and payload:
+            try:
+                return json.loads(payload)
+            except ValueError as exc:
+                raise FareError(
+                    "unreadable", f"Google Flights calendar payload was not JSON: {exc}"
+                ) from exc
+        status = frame[5] if len(frame) > 5 else None
+        code = status[0] if isinstance(status, list) and status else None
+        raise FareError(
+            "upstream-error",
+            f"Google Flights refused the calendar request with status {code!r}"
+            + (" (the date range is too wide)" if code == 3 else ""),
+        )
+    raise FareError("unreadable", "Google Flights calendar answer had no wrb.fr frame")
+
+
+def parse_calendar(data: Any) -> list[CalendarPrice]:
+    """
+    One cheapest fare per departure date, in the order Google sent them.
+
+    Decision 12.4, and this endpoint needs it more than the search does: it is
+    undocumented, its request is a positional array, and its natural failure is
+    an empty list that would read as "no flights in the next eleven months"
+    rather than as "we stopped understanding the answer". So **zero dates is
+    never an answer here**. A date the provider priced at nothing is kept with a
+    `None` price, because a day with no flights and a day we never asked about
+    are different facts and only one of them is our gap.
+    """
+    rows = data[_GRAPH_ROWS] if isinstance(data, list) and len(data) > _GRAPH_ROWS else None
+    if not isinstance(rows, list) or not rows:
+        raise FareError(
+            "parse-drift",
+            "Google Flights calendar answered with no dates where the whole "
+            "range was expected; the payload layout has changed",
+        )
+
+    found: list[CalendarPrice] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) <= _ROW_PRICE:
+            continue
+        departure = row[_ROW_DATE]
+        if not isinstance(departure, str) or not _DATE.fullmatch(departure):
+            continue
+        node = row[_ROW_PRICE]
+        price: float | None = None
+        if isinstance(node, list) and node:
+            exact = _exact_price(node[1] if len(node) > 1 else None)
+            rounded = node[0][1] if isinstance(node[0], list) and len(node[0]) > 1 else None
+            if exact is not None:
+                price = exact
+            elif isinstance(rounded, (int, float)) and not isinstance(rounded, bool):
+                price = float(rounded)
+        found.append(CalendarPrice(departure_date=departure, price=price))
+
+    if not found:
+        raise FareError(
+            "parse-drift",
+            f"Google Flights calendar returned {len(rows)} rows and none of them "
+            "carried a departure date; the payload layout has changed",
+        )
+    if all(point.price is None for point in found):
+        # Not drift: every row was shaped the way we expect and simply had
+        # nothing to sell. A city pair with no service answers exactly this.
+        raise FareError(
+            "no-offers",
+            f"Google Flights has no fares on any of the {len(found)} dates asked about",
+        )
+    return found
+
+
+async def fetch_calendar(client: httpx.AsyncClient, query: CalendarQuery) -> list[CalendarPrice]:
+    """
+    One request, one cheapest fare per departure date in the window.
+
+    This carries one number a day and nothing else — no carrier, no times, no
+    itineraries — so it does not replace the search for a month somebody is
+    actually reading. It is what makes the other eleven months visible at all.
+    """
+    try:
+        response = await client.post(
+            CALENDAR_URL,
+            # Upper-case because that is the request that was validated live;
+            # `fetch_search` sends the lower-case form its own capture used.
+            params={"hl": "en", "gl": "us", "curr": query.currency.strip().upper()},
+            headers=CALENDAR_HEADERS,
+            data={"f.req": build_calendar_request(query)},
+            follow_redirects=True,
+        )
+    except httpx.HTTPError as exc:
+        raise FareError("unreachable", f"Google Flights could not be reached: {exc}") from exc
+
+    if response.status_code == 429:
+        raise FareError("rate-limited", "Google Flights is rate limiting this address")
+    if response.status_code >= 400:
+        raise FareError("upstream-error", f"Google Flights answered {response.status_code}")
+    if "consent.google.com" in str(response.url):
+        raise FareError("blocked", "Google Flights redirected to consent; this address is flagged")
+
+    return parse_calendar(_graph_data(_rpc_frames(response.text)))

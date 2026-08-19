@@ -16,6 +16,14 @@ Thirty-one days spread over thirty-one distances get thirty-one intervals: the
 near end of a month can be on the half-hourly rate while the far end is still
 daily.
 
+**Every other month is collected too, and far more cheaply.** A watched month
+gets a full board per departure; every remaining month out to the 330-day
+horizon gets one cheapest fare per departure date, from Google's own price
+graph. That is two requests per city pair per day for the whole year, against
+thirty for one month of boards, and it is what stops the eleven months nobody
+watched from being dark. It carries one number a day and nothing else — no
+carrier, no times, no itineraries — so it does not replace a board.
+
 **It is safe to run often, and meant to be.** The pass decides for itself what
 is due: each departure has a poll interval that depends on how far away it is,
 and one that is not due yet is reported as skipped rather than fetched. Running
@@ -55,7 +63,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
 from app.config import MAX_DEPARTURE_HORIZON_DAYS, daily_request_budget, kv_dir  # noqa: E402
-from app.services.fare_collector import FareWatch, collect, collect_due, expand  # noqa: E402
+from app.services.fare_collector import (  # noqa: E402
+    FareWatch,
+    calendar_windows,
+    collect,
+    collect_calendars,
+    collect_due,
+    expand,
+)
 from app.services.fare_history import HISTORY  # noqa: E402
 from app.services.fare_schedule import days_until, month_dates, poll_minutes  # noqa: E402
 
@@ -189,6 +204,15 @@ def main() -> int:
         default=None,
         help="Seconds between upstream requests. Lower it only for a test.",
     )
+    parser.add_argument(
+        "--no-calendar",
+        action="store_true",
+        help=(
+            "Skip the whole-horizon calendar pass. It is two requests per city "
+            "pair per day, so this is for isolating a board problem, not for "
+            "saving budget."
+        ),
+    )
     args = parser.parse_args()
 
     today = datetime.now(UTC).date()
@@ -217,6 +241,20 @@ def main() -> int:
         print("nothing to do")
         return 0
 
+    # The calendar is per city pair, not per watch: one curve covers every month
+    # at once, so two months on one pair are one collection. It is cheap enough
+    # that its whole cost is a rounding error against the boards above — the
+    # windows are what make it so, and they are printed for the same reason the
+    # cadence demand is.
+    pairs = {(watch.origin, watch.destination) for watch in watches}
+    windows = calendar_windows(datetime.now(UTC))
+    calendar_demand = len(pairs) * len(windows)
+    demand += calendar_demand
+    print(
+        f"  calendar: {len(pairs)} city pair(s) x {len(windows)} window(s) "
+        f"({windows[0][0]}..{windows[-1][1]}) = {calendar_demand} request(s)/day"
+    )
+
     # The cadence is what makes a month affordable, so the arithmetic is
     # printed rather than trusted. Over budget is not an error here: the pass
     # keeps the focused departures and then the nearest ones, and reports the
@@ -239,6 +277,38 @@ def main() -> int:
         report = asyncio.run(collect(list(queries.values()), **kwargs))
     else:
         report = asyncio.run(collect_due(watches, **kwargs))
+
+    if not args.no_calendar:
+        # After the boards, not before. A pass that runs out of goodwill with
+        # the upstream should lose the cheap thing that repeats tomorrow rather
+        # than the boards, which are the reader's primary data and are the only
+        # record of what today looked like.
+        calendar_kwargs = dict(kwargs)
+        if args.all:
+            # `--all` means "ignore the cadence", and the calendar's cadence is
+            # a single interval rather than a table. Zero minutes is what
+            # "however recently you last looked" reads as here.
+            calendar_kwargs["every_minutes"] = 0
+        calendar = asyncio.run(collect_calendars(watches, **calendar_kwargs))
+        print()
+        for route, reason in calendar.skipped:
+            print(f"  --      {route}  calendar {reason}")
+        for entry in calendar.results:
+            if entry.ok:
+                mark = "CHANGED" if entry.changed else "same   "
+                cheapest = (
+                    f"{entry.currency} {entry.cheapest:.2f} on {entry.cheapest_on}"
+                    if entry.cheapest is not None
+                    else "no price anywhere"
+                )
+                print(
+                    f"  {mark} {entry.route} calendar  {entry.priced} of {entry.dates} "
+                    f"day(s) priced, cheapest {cheapest}"
+                )
+            else:
+                print(
+                    f"  FAIL    {entry.route} calendar  {entry.error_code}: {entry.error_message}"
+                )
 
     print()
     # Grouped rather than listed. A month expands to thirty-one departures and

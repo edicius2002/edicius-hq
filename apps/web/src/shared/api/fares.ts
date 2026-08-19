@@ -116,6 +116,45 @@ export type FareHistoryResponse = {
   airports: Airport[];
 };
 
+/**
+ * One departure date and what the cheapest seat on it costs.
+ *
+ * `price` is `null` when the provider answered about the date and had nothing
+ * to sell. A date absent from the list altogether was never answered for. Those
+ * are two different facts — 12.154 — and the curve's `fromDate`/`toDate` are
+ * what tell them apart, which is why they travel together below.
+ */
+export type CalendarPoint = {
+  departureDate: string;
+  price: number | null;
+};
+
+/**
+ * One collection of the whole booking horizon: a cheapest fare per departure
+ * date, out to the day the provider stops answering.
+ *
+ * One number a day and nothing else — no carrier, no times, no itineraries —
+ * so it is not a board and cannot be drawn on the same axis as one.
+ */
+export type CalendarCurve = {
+  /** When this curve was collected. The chart's domain comes from the row, not from this. */
+  capturedAt: string;
+  source: string;
+  currency: string;
+  /** The window that was asked for, so a missing date reads as a gap in the answer. */
+  fromDate: string;
+  toDate: string;
+  prices: CalendarPoint[];
+};
+
+export type FareCalendarResponse = {
+  origin: string;
+  destination: string;
+  /** The newest curve, or null where this pair has never been collected. */
+  latest: CalendarCurve | null;
+  health: WatchHealth;
+};
+
 export type FareSearchResponse = {
   origin: string;
   destination: string;
@@ -210,6 +249,26 @@ export function fetchFareHistory(
   if (options.until) query.set('until', options.until);
 
   return apiRequest<FareHistoryResponse>(`/api/fares/history?${query}`, {
+    signal: options.signal,
+  });
+}
+
+/**
+ * The whole booking horizon for one city pair, as last collected.
+ *
+ * A separate call from `fetchFareHistory` because the server keeps them
+ * separate on purpose: one is a series of boards for the month somebody
+ * watches, the other is one number a day for all eleven they do not. There is
+ * no `departure` narrowing here — a curve spans every month at once, which is
+ * the whole of what it is for.
+ */
+export function fetchFareCalendar(
+  origin: string,
+  destination: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<FareCalendarResponse> {
+  const query = new URLSearchParams({ origin, destination });
+  return apiRequest<FareCalendarResponse>(`/api/fares/calendar?${query}`, {
     signal: options.signal,
   });
 }

@@ -36,17 +36,25 @@ the collector was down.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from app.adapters.fares.models import FareError, FareQuery, FareSnapshot
-from app.adapters.fares.registry import DEFAULT_PROVIDER, fetch_search
+from app.adapters.fares.models import CalendarQuery, FareError, FareQuery, FareSnapshot
+from app.adapters.fares.registry import (
+    CALENDAR_RANGE_DAYS,
+    DEFAULT_PROVIDER,
+    fetch_calendar,
+    fetch_search,
+)
 from app.config import (
+    CALENDAR_POLL_MINUTES,
     DEFAULT_CADENCE_MINUTES,
+    MAX_DEPARTURE_HORIZON_DAYS,
     UPSTREAM_TIMEOUT_SECONDS,
     daily_request_budget,
 )
+from app.services.fare_calendar import CALENDAR, CalendarCurve, FareCalendar
 from app.services.fare_history import HISTORY, FareHistory
 from app.services.fare_schedule import due_now, month_dates
 
@@ -306,6 +314,288 @@ async def collect_due(
         source=report.source,
         results=report.results,
         skipped=skipped,
+    )
+
+
+# ------------------------------------------------------------- the calendar --
+#
+# A watched month is collected board by board above. Every *other* month out to
+# the booking horizon is collected here, as one cheapest fare per departure
+# date, because Google's price graph answers a whole range in one request.
+#
+# **Cadence: once a day per route, and no new scheduler for it.** 12.17 says the
+# rate follows how far away the departure is, and that rule has nothing to grip
+# on here: one curve spans every distance from today to 330 days out at once, so
+# there is no single `days_out` to look up. What settles it is the same
+# measurement the cadence table came from — a fare 14 days out moved on 27% of
+# days by a median 14%, one 150 days out on 22% by 1.7%. The near end is where
+# the news is, and the near end is already on the half-hourly board cadence for
+# the month the reader is actually watching; what this adds is the far months,
+# which move by under 2% a day. Daily is also the resolution of the free history
+# in `MAX_POLL_MINUTES`, so anything slower would be below it. 12.10's pacing is
+# unchanged: sequential, six seconds apart, in the same pass.
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarResult:
+    origin: str
+    destination: str
+    ok: bool
+    #: Whether this look wrote a curve. False when nothing in the year moved.
+    changed: bool = False
+    #: How many departure dates came back, priced or not.
+    dates: int = 0
+    #: How many of them had a fare. A day with no flights is an answer.
+    priced: int = 0
+    cheapest: float | None = None
+    cheapest_on: str | None = None
+    currency: str | None = None
+    requests: int = 0
+    error_code: str | None = None
+    error_message: str | None = None
+
+    @property
+    def route(self) -> str:
+        return f"{self.origin}-{self.destination}"
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarReport:
+    started_at: str
+    finished_at: str
+    source: str
+    results: list[CalendarResult]
+    #: Routes looked at and not polled, with the reason. Same contract as
+    #: `CollectionReport.skipped` — 8.8 and 8.41.
+    skipped: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def collected(self) -> int:
+        return sum(1 for result in self.results if result.ok)
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for result in self.results if not result.ok)
+
+    @property
+    def requests(self) -> int:
+        return sum(result.requests for result in self.results)
+
+
+def calendar_windows(
+    today: datetime,
+    *,
+    horizon_days: int = MAX_DEPARTURE_HORIZON_DAYS,
+    width_days: int = CALENDAR_RANGE_DAYS,
+) -> list[tuple[str, str]]:
+    """
+    The whole booking horizon, cut into windows one request can carry.
+
+    Measured 2026-08-19: a 181-date window answered in full and the whole
+    331-date horizon was refused outright, so this is two requests per route and
+    cannot be one. The windows are contiguous and inclusive at both ends, which
+    is why the second starts the day after the first ends rather than repeating
+    a date — a repeated departure would be stored twice under one key and the
+    later answer would silently win.
+    """
+    start = today.date()
+    windows: list[tuple[str, str]] = []
+    offset = 0
+    while offset <= horizon_days:
+        last = min(offset + width_days - 1, horizon_days)
+        windows.append(
+            (
+                (start + timedelta(days=offset)).isoformat(),
+                (start + timedelta(days=last)).isoformat(),
+            )
+        )
+        offset = last + 1
+    return windows
+
+
+async def collect_calendars(
+    watched: list[FareWatch],
+    *,
+    now: datetime | None = None,
+    every_minutes: int = CALENDAR_POLL_MINUTES,
+    provider: str = DEFAULT_PROVIDER,
+    calendar: FareCalendar | None = None,
+    client: httpx.AsyncClient | None = None,
+    gap_seconds: float = REQUEST_GAP_SECONDS,
+) -> CalendarReport:
+    """
+    One cheapest fare per departure date, out to the horizon, per city pair.
+
+    Keyed by city pair and not by watch: a calendar covers every month at once,
+    so two watches on one pair are one collection. The months the reader
+    actually watches are collected board by board elsewhere and are not skipped
+    here — the curve is what makes the *other* eleven months visible, and having
+    both is what lets a reader see that the month they picked is the dear one.
+    """
+    store = calendar if calendar is not None else CALENDAR
+    moment = now if now is not None else datetime.now(UTC)
+    started_at = _now()
+
+    # `dict` rather than `set`, so the order a watchlist was written in is the
+    # order it is polled in. A set would reorder the pass every run and make two
+    # passes impossible to compare by eye.
+    pairs: dict[tuple[str, str], str] = {}
+    for watch in watched:
+        pairs.setdefault((watch.origin, watch.destination), watch.currency)
+
+    windows = calendar_windows(moment)
+    results: list[CalendarResult] = []
+    skipped: list[tuple[str, str]] = []
+
+    owned = client is None
+    session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
+    spent = 0
+    try:
+        for (origin, destination), currency in pairs.items():
+            if not store.due(origin, destination, moment, every_minutes=every_minutes):
+                skipped.append((f"{origin}-{destination}", "not-due"))
+                continue
+            if spent:
+                await asyncio.sleep(gap_seconds)
+            result = await _collect_calendar(
+                session, origin, destination, currency, windows, provider, store, gap_seconds
+            )
+            spent += result.requests
+            results.append(result)
+    finally:
+        if owned:
+            await session.aclose()
+
+    report = CalendarReport(
+        started_at=started_at,
+        finished_at=_now(),
+        source=provider,
+        results=results,
+        skipped=skipped,
+    )
+    logger.info(
+        "fare calendar pass finished: %d route(s) in %d request(s), %d changed, %d failed",
+        report.collected,
+        report.requests,
+        sum(1 for result in report.results if result.changed),
+        report.failed,
+    )
+    return report
+
+
+async def _collect_calendar(
+    client: httpx.AsyncClient,
+    origin: str,
+    destination: str,
+    currency: str,
+    windows: list[tuple[str, str]],
+    provider: str,
+    store: FareCalendar,
+    gap_seconds: float,
+) -> CalendarResult:
+    looked_at = _now()
+    points = []
+    requests = 0
+
+    for index, (start, end) in enumerate(windows):
+        if index:
+            await asyncio.sleep(gap_seconds)
+        requests += 1
+        try:
+            points.extend(
+                await fetch_calendar(
+                    client,
+                    CalendarQuery(
+                        origin=origin,
+                        destination=destination,
+                        start=start,
+                        end=end,
+                        currency=currency,
+                    ),
+                    provider=provider,
+                )
+            )
+        except FareError as error:
+            # The whole curve fails, not the window. Two windows are one
+            # observation of one year, and storing half of it would put a curve
+            # in the archive that stops in February for a reason the file does
+            # not record — exactly the quiet partial answer 12.4 forbids.
+            logger.warning(
+                "fare calendar refused %s-%s %s..%s: %s",
+                origin,
+                destination,
+                start,
+                end,
+                error.message,
+            )
+            store.record_check(
+                origin,
+                destination,
+                at=looked_at,
+                outcome="error",
+                error_code=error.code,
+            )
+            return CalendarResult(
+                origin=origin,
+                destination=destination,
+                ok=False,
+                requests=requests,
+                error_code=error.code,
+                error_message=error.message,
+            )
+
+    # One entry per departure date, whatever the windows did. They are built
+    # contiguous so an overlap should be impossible, but the stored row is a map
+    # keyed by date and would collapse a repeat silently — leaving the count in
+    # this report saying 42 where the archive holds 21. A number that disagrees
+    # with the file it describes is worse than either number alone.
+    by_date = {point.departure_date: point for point in points}
+    curve = CalendarCurve(
+        captured_at=looked_at,
+        source=provider,
+        origin=origin,
+        destination=destination,
+        currency=currency.upper(),
+        start=windows[0][0],
+        end=windows[-1][1],
+        prices=sorted(by_date.values(), key=lambda point: point.departure_date),
+    )
+    try:
+        changed = store.append_if_changed(curve)
+    except OSError as error:
+        store.record_check(
+            origin, destination, at=looked_at, outcome="error", error_code="write-failed"
+        )
+        return CalendarResult(
+            origin=origin,
+            destination=destination,
+            ok=False,
+            requests=requests,
+            error_code="write-failed",
+            error_message=str(error),
+        )
+
+    cheapest = curve.cheapest
+    priced = sum(1 for point in curve.prices if point.price is not None)
+    store.record_check(
+        origin,
+        destination,
+        at=looked_at,
+        outcome="changed" if changed else "unchanged",
+        dates=len(curve.prices),
+        cheapest=cheapest.price if cheapest else None,
+    )
+    return CalendarResult(
+        origin=origin,
+        destination=destination,
+        ok=True,
+        changed=changed,
+        dates=len(curve.prices),
+        priced=priced,
+        cheapest=cheapest.price if cheapest else None,
+        cheapest_on=cheapest.departure_date if cheapest else None,
+        currency=curve.currency,
+        requests=requests,
     )
 
 

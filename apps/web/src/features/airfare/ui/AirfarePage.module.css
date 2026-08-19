@@ -59,6 +59,19 @@
   margin: 0;
 }
 
+/*
+ * Two switches side by side, wrapping together rather than one under the other.
+ * At the narrow end of the panel they stack, which is why this is a flex row
+ * with a gap and not a second element in `.analysisHead` — that one already
+ * pushes its children to opposite edges, and the pair belongs together.
+ */
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
 .switch {
   display: inline-flex;
   gap: 3px;

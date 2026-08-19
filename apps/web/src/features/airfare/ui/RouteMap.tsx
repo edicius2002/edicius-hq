@@ -5,6 +5,7 @@ import { feature, mesh } from 'topojson-client';
 import versor from 'versor';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
+import { flowDelay, polylineLength } from '@/features/airfare/lib/arcFlow';
 import {
   facesViewer,
   greatCircle,
@@ -33,9 +34,18 @@ import styles from './RouteMap.module.css';
 /**
  * Watched routes as arcs, on a globe or flat.
  *
- * **Nothing here animates by itself.** The arcs are static; the only motion is
- * the one the reader causes. That buys the thing that matters most: the render
- * loop runs *only* while a pointer is down, so an idle map costs nothing.
+ * **No frame loop runs at rest.** `requestAnimationFrame` is started only
+ * while a pointer is down and stopped the moment it comes up, so an idle map
+ * costs no script at all and a drag gets the whole frame budget. That is the
+ * half of decision 12.23 that is kept.
+ *
+ * The half that is not: the globe's dashes now flow, from each route's origin
+ * towards its destination. It is a declarative `stroke-dashoffset` animation
+ * on the paths — the browser's own animation timeline drives it, no JavaScript
+ * runs per frame and no component re-renders per frame, which is why it can be
+ * added without taking the idle cost back. The phase that keeps one route's
+ * several runs reading as one flow is in `lib/arcFlow`; the animation itself
+ * is in the stylesheet, and it stops dead under `prefers-reduced-motion`.
  *
  * **The globe is glass.** An orthographic projection maps a point on the far
  * side to its *correct* screen position — the maths drops the depth, it does
@@ -621,7 +631,8 @@ export function RouteMap({
   const centre = rotation.current;
 
   /**
-   * The stretches of an arc that are actually drawn.
+   * The stretches of an arc that are actually drawn, and how far along the
+   * whole arc each one starts.
    *
    * On the globe, the near ones only. The split still happens — it is what
    * makes the line stop cleanly at the limb instead of at whichever sample
@@ -630,10 +641,34 @@ export function RouteMap({
    * and it crosses everything genuinely in front of it on the way. The
    * airports stay: a dot is a place, and knowing an endpoint is round the back
    * is worth something. A curve through it is not.
+   *
+   * `before` is what turns those several paths back into one flowing line.
+   * The stretches that were dropped still count towards it: the dash pattern
+   * is laid along the whole great circle, so a run that comes back into view
+   * at the far limb picks up the phase the hidden one carried round the back,
+   * and the pattern is continuous through a gap the reader cannot see. Without
+   * it every fragment starts its dashes at zero and a cut route reads as two
+   * unrelated lines that happen to touch the horizon.
+   *
+   * Lengths are measured on screen rather than on the sphere, because that is
+   * where the dashes are: the projection foreshortens an arc hard as it nears
+   * the limb, and a phase in radians would bunch the pattern up exactly there.
+   * Only the globe needs any of this — the flat map's arcs are solid.
    */
   function runsFor(coordinates: LngLat[]) {
-    if (!isGlobe) return [{ near: true, points: coordinates }];
-    return splitByHorizon(coordinates, centre).filter((run) => run.near);
+    if (!isGlobe) return [{ points: coordinates, before: 0 }];
+    const drawn: { points: LngLat[]; before: number }[] = [];
+    let before = 0;
+    for (const run of splitByHorizon(coordinates, centre)) {
+      if (run.near) drawn.push({ points: run.points, before });
+      before += polylineLength(
+        run.points.flatMap((point) => {
+          const xy = place(point);
+          return xy ? [xy] : [];
+        }),
+      );
+    }
+    return drawn;
   }
 
   /* --------------------------------------------------------------- names -- */
@@ -695,9 +730,9 @@ export function RouteMap({
     ] as const) {
       const xy = place(point);
       if (!xy) continue;
-      // Matching the dot and the code drawn below: left-anchored at `x + 7`.
+      // Matching the dot and the code drawn below: left-anchored at `x + 9`.
       const width = 12 + code.length * 6.4;
-      claimed.push({ x: xy[0] + 1 + width / 2, y: xy[1] + 3.5, width, height: 17 });
+      claimed.push({ x: xy[0] + 3 + width / 2, y: xy[1] + 3.5, width, height: 17 });
     }
   }
 
@@ -793,29 +828,29 @@ export function RouteMap({
                     <g key={index}>
                       {/*
                         A wide invisible twin, so a 1.6px arc is something a
-                        pointer can hit — and only on the near side. On the far
-                        side the arc is showing *through* the globe; picking it
-                        there would mean clicking a line you are looking at the
-                        back of, and it sits over whatever is genuinely in
-                        front of it.
+                        pointer can hit. Every run reaching here is a near one
+                        — the far side is not drawn at all, and picking a line
+                        you are looking at the back of would mean picking it
+                        over whatever is genuinely in front of it.
                       */}
-                      {run.near ? (
-                        <path
-                          d={d}
-                          className={styles.hit}
-                          data-route={route.id}
-                          aria-hidden="true"
-                        />
-                      ) : null}
+                      <path d={d} className={styles.hit} data-route={route.id} aria-hidden="true" />
                       <path
                         d={d}
-                        style={{ stroke }}
+                        // The delay is the phase, and the phase is what makes
+                        // a route the limb has cut in two flow as one line
+                        // rather than as two clocks. Inline because it is
+                        // geometry, recomputed with the geometry: a stylesheet
+                        // cannot know how far along its own arc a run begins.
+                        style={
+                          isGlobe ? { stroke, animationDelay: flowDelay(run.before) } : { stroke }
+                        }
                         className={[
                           styles.arc,
                           // Dashed on the globe, where the surface is curved
                           // and busy; solid on the flat map, where a dash only
-                          // fragments a line that already reads.
-                          isGlobe ? styles.dashed : '',
+                          // fragments a line that already reads. Only a dash
+                          // can show flow, so only the globe's arcs do.
+                          isGlobe ? `${styles.dashed} ${styles.flow}` : '',
                           selected ? styles.active : '',
                         ]
                           .filter(Boolean)
@@ -857,7 +892,14 @@ export function RouteMap({
                     style={isOrigin ? undefined : { fill: colours.get(route.id) ?? DEFAULT_ARC }}
                     className={isOrigin ? styles.home : styles.node}
                   />
-                  <text x={xy[0] + 7} y={xy[1] + 3.5} className={styles.label}>
+                  {/*
+                    Nine, not the seven it was. The ring is now painted outside
+                    the fill rather than half over it, so the marker's outer
+                    radius went from 5.4 to 6.2 at the origin — at `x + 7` the
+                    code would have been sitting 0.8 units off the ring, closer
+                    than it has ever been. Nine keeps the gap it had.
+                  */}
+                  <text x={xy[0] + 9} y={xy[1] + 3.5} className={styles.label}>
                     {code}
                   </text>
                 </g>

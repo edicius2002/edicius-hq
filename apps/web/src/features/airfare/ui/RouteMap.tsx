@@ -50,9 +50,13 @@ import styles from './RouteMap.module.css';
  * Watched routes as arcs, on a globe or flat.
  *
  * **No frame loop runs at rest.** `requestAnimationFrame` is started only
- * while a pointer is down and stopped the moment it comes up, so an idle map
- * costs no script at all and a drag gets the whole frame budget. That is the
- * half of decision 12.23 that is kept.
+ * while a pointer is down, or while a country's subdivisions are fading in,
+ * and stopped the moment neither is true — so an idle map costs no script at
+ * all and a drag gets the whole frame budget. That is the half of decision
+ * 12.23 that is kept. The arrival is the one addition and it is bounded by
+ * construction rather than by a timer: `arrivalFade` is clamped at 1, so the
+ * last country to land finishes `ARRIVAL_MS` after it lands and the loop
+ * switches itself off on the frame they all have.
  *
  * The half that is not: the globe's dashes flow, from origin towards
  * destination, on the one route the reader has open — every other arc stays
@@ -119,8 +123,8 @@ const BOUNDARIES = mesh(
  * 32x, not the 8x it was. The stage is at least 460px on its short side and
  * the globe's radius is `0.42 x 460 x zoom`, so the short side spans 1,896 km
  * at 8x and 474 km at 32x, and the ground under one pixel goes from 4.12 km to
- * 1.03 km. Both geometry layers were re-cut to meet it — decision 12.131 for
- * the served outlines, and 12.130 for what the bundled 1:110m base can no
+ * 1.03 km. Both geometry layers were re-cut to meet it — decision 12.165 for
+ * the served outlines, and 12.164 for what the bundled 1:110m base can no
  * longer be asked to do on its own.
  */
 const ZOOM = { min: 1, max: 32 };
@@ -149,6 +153,34 @@ const DEFAULT_ARC = 'var(--arc-neutral)';
 
 /** Looking at Lima, which is where every route on this page starts. */
 const HOME: [number, number, number] = [77, 6, 0];
+
+/**
+ * How long the map must sit still before it asks whose subdivisions to draw.
+ *
+ * The second of the three things damping this fetch. A reader spinning the
+ * globe crosses a dozen countries a second, and asking after each of them
+ * would be a dozen requests for geometry nobody looked at. The wheel already
+ * holds `moving` true for 320ms past the last notch, so by the time this timer
+ * starts the view has genuinely stopped; a quarter of a second past that is
+ * about the gap between two deliberate gestures, so a reader reaching for a
+ * second drag cancels the first one's question.
+ */
+const SETTLE_MS = 250;
+
+/**
+ * How long a country takes to arrive once its geometry is in hand.
+ *
+ * `SETTLE_MS`, and the same number on purpose: the map spends a quarter of a
+ * second holding still before it asks whose subdivisions to draw, and it gives
+ * the answer back over the same quarter of a second. A reader has already
+ * accepted that pause as the map deciding, so making the arrival its mirror is
+ * what turns a stack of separate events into one movement. It is also
+ * comfortably longer than the 160ms the stylesheet uses for the jumps geometry
+ * does not cover, which has less distance to travel: one opacity being
+ * corrected, rather than a country's name at full strength going out while a
+ * whole layer of borders comes in underneath it.
+ */
+const ARRIVAL_MS = SETTLE_MS;
 
 export type Projection = 'globe' | 'mercator';
 
@@ -223,6 +255,8 @@ export function RouteMap({
    * first view the reader stops on fanning out and the second one.
    */
   const [reached, setReached] = useState(false);
+  /** Whether the index has ever been in hand, so its arrival is told from a redraw. */
+  const indexed = useRef(false);
   const { data: catalogue } = useSubdivisionCatalogue(reached);
   const subdivisions = useSubdivisions(wanted);
 
@@ -239,6 +273,90 @@ export function RouteMap({
    */
   const fine = subdivisions.filter((each) => each.land);
   const swapped = fine.map((each) => each.country).join(',');
+
+  /**
+   * Which countries are drawn in detail right now, for the next plan to keep.
+   *
+   * A ref rather than a dependency of the settle effect, because that effect
+   * already re-runs on `tick` and a second changing input would only make it
+   * re-run for the same reason twice.
+   */
+  const drawn = useRef<readonly string[]>([]);
+  drawn.current = subdivisions.map((each) => each.country);
+
+  /* ------------------------------------------------------------ arrival -- */
+
+  /**
+   * When each country's detail landed, so that it can arrive by fading.
+   *
+   * The layer used to appear in one frame: the moment a country's geometry
+   * was in hand, its borders went to full strength and its own name dropped to
+   * whatever the handover left, both between one frame and the next. Measured
+   * cold in Chrome, the reader watched nothing at all for about 1.6s and then
+   * saw the whole view change at once — which is the reader's report that the
+   * appearance is neither fluid nor the same across countries, because a view
+   * assembled out of several instantaneous events has no shape a person can
+   * follow.
+   *
+   * Everything else on this map that appears, appears by fading, and the fade
+   * comes from the geometry rather than from a stylesheet — 12.27 for the
+   * names, 12.28 for the handover, `limbFade` and `roomFade` for both. This is
+   * that same rule extended to the one layer that was not using it. It cannot
+   * be a CSS transition for the reason 12.27 gives and one more: the borders
+   * are on the canvas, where there is no node for a stylesheet to hold.
+   */
+  const arrivedAt = useRef(new Map<string, number>());
+  /** Whether any country is still fading in, which is the only thing that keeps the loop awake. */
+  const [arriving, setArriving] = useState(false);
+
+  /**
+   * Motion the reader has asked not to see.
+   *
+   * Read here rather than in the stylesheet because this fade is computed in
+   * JavaScript, so the `prefers-reduced-motion` block that stops the arcs
+   * flowing cannot reach it. Read once: a reader does not change this setting
+   * mid-drag, and `matchMedia` in the render body would run sixty times a
+   * second.
+   */
+  const stillness = useRef<boolean | null>(null);
+  if (stillness.current === null) {
+    stillness.current =
+      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        : false;
+  }
+
+  /** How far into its arrival a country is, from 0 to 1. */
+  const arrivalFade = useCallback((country: string, at: number) => {
+    const since = arrivedAt.current.get(country);
+    if (since === undefined) return 0;
+    if (stillness.current) return 1;
+    return Math.min(1, (at - since) / ARRIVAL_MS);
+  }, []);
+
+  /*
+   * A country that has just landed starts its fade; one that has left the view
+   * forgets it had one.
+   *
+   * Forgetting matters: the geometry is cached forever, so a country the
+   * reader pans back onto would otherwise reappear in a single frame — the
+   * exact pop this removes — while a country that never left keeps the fade it
+   * already finished and does not start again.
+   */
+  useEffect(() => {
+    const at = performance.now();
+    const here = new Set(subdivisions.map((each) => each.country));
+    for (const country of arrivedAt.current.keys()) {
+      if (!here.has(country)) arrivedAt.current.delete(country);
+    }
+    let fresh = false;
+    for (const country of here) {
+      if (arrivedAt.current.has(country)) continue;
+      arrivedAt.current.set(country, at);
+      fresh = true;
+    }
+    if (fresh && !stillness.current) setArriving(true);
+  }, [subdivisions]);
 
   /**
    * The coarse shapes the finer ones replace, and everything that touches them.
@@ -496,10 +614,14 @@ export function RouteMap({
      * here, so what arrives is already a `MultiLineString` and the browser
      * never walks the topology.
      *
-     * One `stroke` for all of them rather than one each: the opacity is a
-     * property of the layer and not of a country, and stroking country by
-     * country under a `globalAlpha` would darken every place two of them
-     * overlapped on screen.
+     * One `stroke` for every country that has finished arriving, rather than
+     * one each: at rest the opacity is a property of the layer and not of a
+     * country, and stroking country by country under a `globalAlpha` would
+     * darken every place two of them overlapped on screen. A country still
+     * fading in gets its own pass because for those few frames the opacity
+     * *is* a property of that country — so the steady state is still the one
+     * stroke the frame budget was measured against, and the extra passes last
+     * as long as the fade and no longer.
      *
      * Opacity comes from the geometry, per frame, the same way a place name's
      * does — 12.27 — so the borders arrive as the countries' names leave
@@ -514,10 +636,10 @@ export function RouteMap({
           )
         : [];
     if (inside.length > 0) {
+      const at = performance.now();
+      const settled = inside.filter((each) => arrivalFade(each.country, at) >= 1);
+      const landing = inside.filter((each) => arrivalFade(each.country, at) < 1);
       context.save();
-      context.globalAlpha = inner;
-      context.beginPath();
-      for (const each of inside) path(each.borders);
       context.strokeStyle = readToken(stage, '--map-border-inner');
       // Just over half the national border's width, on top of a colour with
       // just over half its separation from the land. A subdivision line has to
@@ -525,7 +647,20 @@ export function RouteMap({
       // not enough to stop the two reading as the same line.
       context.lineWidth = Math.min(1.7, 0.85 + zoom.current * 0.18) * 0.55;
       context.lineJoin = 'round';
-      context.stroke();
+      if (settled.length > 0) {
+        context.globalAlpha = inner;
+        context.beginPath();
+        for (const each of settled) path(each.borders);
+        context.stroke();
+      }
+      for (const each of landing) {
+        const coming = arrivalFade(each.country, at);
+        if (coming <= 0) continue;
+        context.globalAlpha = inner * coming;
+        context.beginPath();
+        path(each.borders);
+        context.stroke();
+      }
       context.restore();
     }
 
@@ -557,25 +692,12 @@ export function RouteMap({
     path(boundaries);
     for (const each of fine) path(each.land);
     context.stroke();
-  }, [fit, projection, subdivisions, coarse, boundaries]);
+  }, [fit, projection, subdivisions, coarse, boundaries, arrivalFade]);
 
   useEffect(() => {
     draw();
     repaint((count) => count + 1);
   }, [draw]);
-
-  /**
-   * How long the map must sit still before it asks whose subdivisions to draw.
-   *
-   * The second of the three things damping this fetch. A reader spinning the
-   * globe crosses a dozen countries a second, and asking after each of them
-   * would be a dozen requests for geometry nobody looked at. The wheel already
-   * holds `moving` true for 320ms past the last notch, so by the time this
-   * timer starts the view has genuinely stopped; a quarter of a second past
-   * that is about the gap between two deliberate gestures, so a reader
-   * reaching for a second drag cancels the first one's question.
-   */
-  const SETTLE_MS = 250;
 
   /*
    * Which countries the camera has in front of it, and which of those the
@@ -608,30 +730,46 @@ export function RouteMap({
       return;
     }
     setReached(true);
-    const handle = setTimeout(() => {
-      const rect = stageRef.current?.getBoundingClientRect();
-      if (!rect || !rect.width || !rect.height) return;
-      const shown =
-        projection === 'globe' ? projections.current.globe : projections.current.mercator;
-      const invert = (at: [number, number]) => shown.invert?.(at) ?? null;
-      const middle = invert([rect.width / 2, rect.height / 2]);
-      // Open water, or a shape the atlas carries without a numeric code, both
-      // mean the middle has nothing to ask for — the rest of the view still
-      // does.
-      const centre =
-        middle && Number.isFinite(middle[0]) && Number.isFinite(middle[1])
-          ? (countryAt([middle[0], middle[1]])?.id ?? null)
-          : null;
-      const plan = planFanOut(countriesInView(invert, rect), centre, catalogue);
-      // Same set, same array: `useQueries` builds one query per entry and the
-      // map keys its canvas work off what comes back, so handing back a new
-      // array of the same ids would restart both for nothing.
-      setWanted((was) =>
-        was.length === plan.countries.length && was.every((id, at) => id === plan.countries[at])
-          ? was
-          : plan.countries,
-      );
-    }, SETTLE_MS);
+    /*
+     * The index landing is not the view moving, so it does not cost a settle.
+     *
+     * Measured cold in Chrome on the reader's own stage: the catalogue was
+     * asked for one settle after the zoom gate opened and answered in 4ms, and
+     * the first country was not asked for until 1,041ms after that — a whole
+     * second settle, waited out because this effect re-runs when `catalogue`
+     * changes and then starts the timer again from the top. The view had been
+     * still the entire time. A quarter of a second is a quarter of a second,
+     * and it is spent on the one gesture that has nothing cached.
+     */
+    const first = catalogue !== undefined && !indexed.current;
+    indexed.current = catalogue !== undefined;
+    const handle = setTimeout(
+      () => {
+        const rect = stageRef.current?.getBoundingClientRect();
+        if (!rect || !rect.width || !rect.height) return;
+        const shown =
+          projection === 'globe' ? projections.current.globe : projections.current.mercator;
+        const invert = (at: [number, number]) => shown.invert?.(at) ?? null;
+        const middle = invert([rect.width / 2, rect.height / 2]);
+        // Open water, or a shape the atlas carries without a numeric code, both
+        // mean the middle has nothing to ask for — the rest of the view still
+        // does.
+        const centre =
+          middle && Number.isFinite(middle[0]) && Number.isFinite(middle[1])
+            ? (countryAt([middle[0], middle[1]])?.id ?? null)
+            : null;
+        const plan = planFanOut(countriesInView(invert, rect), centre, catalogue, drawn.current);
+        // Same set, same array: `useQueries` builds one query per entry and the
+        // map keys its canvas work off what comes back, so handing back a new
+        // array of the same ids would restart both for nothing.
+        setWanted((was) =>
+          was.length === plan.countries.length && was.every((id, at) => id === plan.countries[at])
+            ? was
+            : plan.countries,
+        );
+      },
+      first ? 0 : SETTLE_MS,
+    );
     return () => clearTimeout(handle);
   }, [moving, tick, projection, catalogue]);
 
@@ -647,7 +785,7 @@ export function RouteMap({
   }, [draw]);
 
   /*
-   * A frame loop only while something is actually moving.
+   * A frame loop only while something is actually moving, or arriving.
    *
    * `flushSync` is what keeps the two surfaces together. `draw` paints the
    * canvas inside the frame callback, but a plain `repaint` only *schedules* a
@@ -657,11 +795,18 @@ export function RouteMap({
    * frame of slip at 60 Hz is small and completely visible: the map slides out
    * from under its own labels for as long as the drag lasts.
    *
-   * Committing synchronously costs the same work, just not deferred, and it
-   * only ever runs while a pointer is down.
+   * Committing synchronously costs the same work, just not deferred.
+   *
+   * **`arriving` does not take back "no frame loop at rest".** The loop it
+   * wakes is bounded by construction: `arrivalFade` is clamped at 1, the last
+   * country to land finishes `ARRIVAL_MS` after it lands, and the tick below
+   * switches the flag off the moment they all have. A quarter of a second of
+   * frames, once per fan-out, against a fade that has to come from the
+   * geometry — the borders are on the canvas, where there is no node for a
+   * stylesheet to transition. An idle map is still an idle map.
    */
   useEffect(() => {
-    if (!moving) return;
+    if (!moving && !arriving) return;
     let running = true;
     let last = 0;
     const tick = (now: number) => {
@@ -671,7 +816,14 @@ export function RouteMap({
       if (last) latestStep.current(Math.min(now - last, 50));
       last = now;
       draw();
-      flushSync(() => repaint((count) => count + 1));
+      const landed = drawn.current.every((country) => arrivalFade(country, performance.now()) >= 1);
+      flushSync(() => {
+        repaint((count) => count + 1);
+        // Switched off only once every country is fully lit, so the frame that
+        // stops the loop is already the frame that finished the fade — there
+        // is nothing left to draw after it.
+        if (landed) setArriving(false);
+      });
       requestAnimationFrame(tick);
     };
     const handle = requestAnimationFrame(tick);
@@ -679,7 +831,7 @@ export function RouteMap({
       running = false;
       cancelAnimationFrame(handle);
     };
-  }, [moving, draw]);
+  }, [moving, arriving, draw, arrivalFade]);
 
   /* --------------------------------------------------------------- input -- */
 
@@ -1004,11 +1156,29 @@ export function RouteMap({
    */
   const frame = size.current;
   const view: View = { globe: isGlobe, scale: place.scale(), rotation: centre };
+  // Read once per render rather than per name, so every name on a frame agrees
+  // about how far into an arrival that frame is.
+  const now = performance.now();
 
   type MapName = Boxed & { key: string; text: string; opacity: number; tier: NameTier };
   const names: MapName[] = [];
 
-  function offer(name: MapName['text'], at: LngLat, strength: number, tier: NameTier) {
+  /**
+   * One name offered to the map, under an identity that is its own.
+   *
+   * `id` rather than the text, and the two are only the same thing at the top
+   * two rungs. Seven continents and 177 countries are each named once; a
+   * viewport's worth of subdivisions is not — Misiones is a province of
+   * Argentina and a department of Paraguay, and at 20x both are on screen with
+   * 67px between them. Two React children under one key is unsupported, and
+   * what React 19 actually does with it is leave one of the two `<text>` nodes
+   * behind on every commit that drops it: measured in the browser, one drag
+   * across the Argentine-Paraguayan border left **eight** `Misiones` labels
+   * scattered over Brazil and the South Atlantic, none of them anywhere near
+   * the province, none of them ever moving again. That is the bug the reader
+   * reported as names getting stuck on the globe.
+   */
+  function offer(id: string, name: MapName['text'], at: LngLat, strength: number, tier: NameTier) {
     let opacity = strength;
     if (isGlobe) opacity *= limbFade(at, centre);
     if (opacity <= 0.01) return;
@@ -1021,7 +1191,7 @@ export function RouteMap({
     const inside = nudgeIntoFrame(xy, box, frame);
     if (!inside) return;
     names.push({
-      key: `${NAME_TIERS[tier].key}:${name}`,
+      key: `${NAME_TIERS[tier].key}:${id}`,
       text: name,
       x: inside[0],
       y: inside[1],
@@ -1052,7 +1222,8 @@ export function RouteMap({
   }
 
   const continents = continentFade(zoom.current) * 0.55;
-  for (const continent of CONTINENTS) offer(continent.name, continent.at, continents, 'continent');
+  for (const continent of CONTINENTS)
+    offer(continent.name, continent.name, continent.at, continents, 'continent');
 
   /*
    * A country whose subdivisions are on screen gives its name up to them, and
@@ -1070,16 +1241,28 @@ export function RouteMap({
    * detail without being told a number to trust.
    */
   const handover = subdivisionFade(zoom.current);
-  const naming = new Set(
-    subdivisions.filter((each) => each.labels.length > 0).map((each) => each.country),
+  const naming = new Map(
+    subdivisions
+      .filter((each) => each.labels.length > 0)
+      .map((each) => [each.country, arrivalFade(each.country, now)] as const),
   );
   const countries = countryFade(zoom.current) * 0.72;
   for (const country of COUNTRIES) {
     if (countries <= 0.01) break;
     const room = roomFade(screenArea(country.area, country.at, view));
     if (room <= 0) continue;
-    const giving = country.id !== null && naming.has(country.id) ? 1 - handover : 1;
-    offer(country.name, country.at, room * countries * giving, 'country');
+    // `handover * arrival`, so a country lets go of its name at exactly the
+    // rate its own borders are coming up underneath it. The two are one
+    // gesture rather than two: at any instant of the arrival the name has
+    // `1 - handover x arrival` and the borders have `inner x arrival`.
+    const arriving = (country.id !== null && naming.get(country.id)) || 0;
+    offer(
+      country.name,
+      country.name,
+      country.at,
+      room * countries * (1 - handover * arriving),
+      'country',
+    );
   }
 
   /*
@@ -1108,16 +1291,21 @@ export function RouteMap({
    * first.
    */
   if (handover > 0.01 && subdivisions.length > 0) {
-    const units = subdivisions.flatMap((each) => each.labels);
-    if (subdivisions.length > 1) units.sort((left, right) => right.area - left.area);
-    for (const unit of units) {
+    const units = subdivisions.flatMap((each) =>
+      // The country's own arrival carried on each of its units, so a fan-out
+      // that lands one country at a time reads as a wave rather than as a run
+      // of separate pops.
+      each.labels.map((label) => ({ label, arriving: arrivalFade(each.country, now) })),
+    );
+    if (subdivisions.length > 1) units.sort((left, right) => right.label.area - left.label.area);
+    for (const { label: unit, arriving } of units) {
       const box = nameBox(unit.name, 'subdivision');
       const room = roomFade(
         screenArea(unit.area, unit.at, view),
         roomForName(box.width, box.height),
       );
       if (room <= 0) continue;
-      offer(unit.name, unit.at, room * handover * 0.72, 'subdivision');
+      offer(unit.key, unit.name, unit.at, room * handover * 0.72 * arriving, 'subdivision');
     }
   }
   // Offered biggest first, so a bigger place keeps the ground it stands on.

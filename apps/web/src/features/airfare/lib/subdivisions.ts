@@ -21,6 +21,24 @@ import type { SubdivisionsResponse } from '@/shared/api/geography';
 
 /** One subdivision's name, where it goes, and the ground it stands on. */
 export type SubdivisionLabel = {
+  /**
+   * What tells this unit from every other one on the map, which its name does
+   * not.
+   *
+   * Forty-eight names in Natural Earth's admin-1 list belong to more than one
+   * country and fifteen countries repeat one inside themselves: Misiones is a
+   * province of Argentina and a department of Paraguay 237 km away, Amazonas
+   * belongs to four countries, La Paz to three, and Latvia has two Daugavpils
+   * five kilometres apart. Once the map fans out across a viewport those pairs
+   * are on screen together, and the name alone stopped being an identity.
+   *
+   * It is the country and this unit's place in that country's own file, so it
+   * is stable across frames and across sessions without the served files
+   * having to carry an id they do not have. Built here rather than in the
+   * render for the reason the whole module exists: once when the country
+   * lands, not sixty times a second.
+   */
+  key: string;
   name: string;
   at: LngLat;
   /** Solid angle in steradians — the same measure `PlaceLabel.area` carries. */
@@ -58,10 +76,18 @@ export function readSubdivisions(response: SubdivisionsResponse | null): Subdivi
   if (!response) return null;
 
   const labels: SubdivisionLabel[] = [];
-  for (const label of response.labels ?? []) {
+  for (const [at, label] of (response.labels ?? []).entries()) {
     if (!label?.name || !Array.isArray(label.at) || label.at.length !== 2) continue;
     if (!Number.isFinite(label.area) || label.area <= 0) continue;
-    labels.push({ name: label.name, at: [label.at[0], label.at[1]], area: label.area });
+    // The position in the served file, not the position among the ones that
+    // survived: a unit's key must not change because a neighbour in the same
+    // file was malformed.
+    labels.push({
+      key: `${response.country}:${at}`,
+      name: label.name,
+      at: [label.at[0], label.at[1]],
+      area: label.area,
+    });
   }
 
   let borders: Subdivisions['borders'] = null;

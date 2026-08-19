@@ -120,15 +120,54 @@ export function planFanOut(
   inView: readonly CountryInView[],
   centre: string | null,
   catalogue: Record<string, number> | undefined,
+  drawn: readonly string[] = [],
   budget: number = VIEW_BUDGET_BYTES,
 ): FanOut {
   if (!catalogue) {
-    return centre ? { countries: [centre], bytes: 0, refused: [] } : NOTHING;
+    /*
+     * The floor is a country, never nothing.
+     *
+     * It used to be the country under the middle of the frame and nothing
+     * else, which is right about the intent and wrong about the one view it
+     * has to hold in: a reader zooms about the point they are pointing at, so
+     * the middle of the frame after a wheel gesture is wherever the geometry
+     * put it, and over a coast or an ocean that is open water. Measured cold
+     * in Chrome, that is exactly what happened — the first settle after the
+     * zoom gate opened planned nothing at all, and the map drew no detail
+     * until the index landed and a later settle re-asked. The biggest country
+     * on screen is a worse guess than the middle and an incomparably better
+     * one than none.
+     */
+    const floor = centre ?? inView[0]?.id ?? null;
+    return floor ? { countries: [floor], bytes: 0, refused: [] } : NOTHING;
   }
 
+  /*
+   * A country already drawn in detail, and still in front of the reader, keeps
+   * its place ahead of a country that has not been drawn yet.
+   *
+   * The ranking is the on-screen area of *this* view, and every settle
+   * recomputes it from scratch — so a country that fitted at one zoom could be
+   * outbid at the next by a neighbour that had grown, and lose the borders the
+   * reader was already looking at. Nothing had changed about it except the
+   * company it was keeping. That is the sharpest form of the map not behaving
+   * the same for every country: the same country, detailed and then coarse
+   * again, while the reader was doing nothing but getting closer to it.
+   *
+   * It does not raise the budget and it does not exempt anybody from it —
+   * these countries are counted in bytes exactly as before, and the country
+   * under the middle of the frame is still pinned in front of all of them, so
+   * the one a reader has just zoomed into can never be crowded out by the ones
+   * they were shown a moment ago. What changes is only the order in which the
+   * same 256 kB is spent: on what is already on screen first, and on what is
+   * new with what is left.
+   */
+  const held = new Set(drawn);
+  const rest = inView.filter((each) => each.id !== centre && each.id in catalogue);
   const order = [
     ...(centre !== null && centre in catalogue ? [centre] : []),
-    ...inView.map((each) => each.id).filter((id) => id !== centre && id in catalogue),
+    ...rest.filter((each) => held.has(each.id)).map((each) => each.id),
+    ...rest.filter((each) => !held.has(each.id)).map((each) => each.id),
   ];
 
   const countries: string[] = [];

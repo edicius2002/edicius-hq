@@ -67,7 +67,7 @@ const BASE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/mas
  * How much detail a border keeps, as the area in steradians of the smallest
  * triangle a retained vertex may make with its neighbours.
  *
- * Derived from the tightest view this map allows. Zoom stops at 32x (12.130)
+ * Derived from the tightest view this map allows. Zoom stops at 32x (12.164)
  * and the stage is at least 460px on its short side, so the globe's radius
  * never exceeds 0.42 x 460 x 32 = 6182px, one screen pixel is 1/6182 rad, and
  * a pixel of ground is 1.03 km.

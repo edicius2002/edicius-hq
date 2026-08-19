@@ -521,10 +521,17 @@ describe('RouteMap', () => {
     await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
 
     await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
-    // One thing becoming another, not two things at once: past the crossover
-    // the country's own name is gone and the departments inside it are what
-    // is left.
-    expect(screen.queryByText('Peru')).not.toBeInTheDocument();
+    /*
+     * One thing becoming another, not two things at once: past the crossover
+     * the country's own name is gone and the departments inside it are what is
+     * left.
+     *
+     * Waited for rather than asserted straight away, because the becoming now
+     * takes `ARRIVAL_MS`: the departments fade up and Peru's own name fades
+     * down at exactly the same rate, so this is the *end* of a cross-fade and
+     * not a state the very next frame is in.
+     */
+    await waitFor(() => expect(screen.queryByText('Peru')).not.toBeInTheDocument());
     expect(subdivisionRequests.some((url) => url.includes('/api/geography/subdivisions/604'))).toBe(
       true,
     );
@@ -549,8 +556,17 @@ describe('RouteMap', () => {
     const LONG = 'Aisén del General Carlos Ibáñez del Campo';
     vi.stubGlobal(
       'fetch',
-      vi.fn(() =>
-        Promise.resolve(
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        // The index answered as an index. Answering it with a country's
+        // payload leaves `countries` empty, which is the map being told that
+        // nothing in the world has subdivisions — and it then correctly asks
+        // for none.
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
+        }
+        return Promise.resolve(
           Response.json({
             country: '604',
             borders: PERU_SUBDIVISIONS.borders,
@@ -562,8 +578,8 @@ describe('RouteMap', () => {
               { name: SHORT, at: [-77, -3], area: 0.001537 },
             ],
           }),
-        ),
-      ),
+        );
+      }),
     );
 
     const { container } = renderMap();
@@ -692,7 +708,9 @@ describe('RouteMap', () => {
     await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
 
     await waitFor(() => expect(screen.getByText('Napo')).toBeInTheDocument());
-    expect(screen.queryByText('Ecuador')).not.toBeInTheDocument();
+    // The end of each country's own cross-fade, which is `ARRIVAL_MS` after
+    // its geometry landed and not the frame after it.
+    await waitFor(() => expect(screen.queryByText('Ecuador')).not.toBeInTheDocument());
     expect(screen.queryByText('Peru')).not.toBeInTheDocument();
   });
 
@@ -797,6 +815,110 @@ describe('RouteMap', () => {
 
     await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /* ----------------------------------------------------------- arriving -- */
+
+  it('leaves no name behind when two subdivisions on screen are called the same thing', async () => {
+    /*
+     * The reader's report, reproduced: names of certain states and provinces
+     * getting stuck on the globe.
+     *
+     * A name was the whole of a label's identity, and it is not one. Misiones
+     * is a province of Argentina and a department of Paraguay 237 km away —
+     * one frame holds both — Amazonas belongs to four countries, La Paz to
+     * three, and Latvia has two Daugavpils five kilometres apart: forty-eight
+     * names in Natural Earth's admin-1 list are shared across countries and
+     * fifteen countries repeat one inside themselves. Two React children under
+     * one key is unsupported, and what React 19 does with it is leave one of
+     * the two `<text>` nodes behind on the commit that drops it — permanently,
+     * because reconciliation has lost track of it. Measured in Chrome on the
+     * reader's own stage, one drag away from the Argentine-Paraguayan border
+     * left **eight** stuck `Misiones` labels strewn across Brazil and the
+     * South Atlantic.
+     *
+     * Two labels of one name six degrees apart, which is 187px here — far more
+     * than either box is tall, so `withoutOverlaps` keeps both and the
+     * collision is real rather than hidden by the overlap rule. Then the map
+     * is taken back out past the crossover, where the whole rung is dropped:
+     * every one of them should go.
+     */
+    const TWINNED = 'Misiones';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
+        }
+        return Promise.resolve(
+          Response.json({
+            country: '604',
+            borders: PERU_SUBDIVISIONS.borders,
+            labels: [
+              { name: TWINNED, at: [-77, -9], area: 0.001537 },
+              { name: TWINNED, at: [-77, -3], area: 0.001537 },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    await closeInOnPeru(stage);
+    await waitFor(() => expect(screen.getAllByText(TWINNED)).toHaveLength(2));
+
+    // Back out to about 3x: past the 4.6x crossover, so the subdivision rung
+    // is gone, and short of 1.6x, so the country rung is still lit and there
+    // is something to compare an orphan against.
+    await act(async () => {
+      for (let notch = 0; notch < 3; notch += 1) wheel(stage, 150, [480, 270]);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+
+    await waitFor(() => expect(screen.getByText('Peru')).toBeInTheDocument());
+    expect(screen.queryAllByText(TWINNED)).toHaveLength(0);
+  });
+
+  it('brings a country in by fading rather than in the frame its geometry lands on', async () => {
+    /*
+     * The reader's other report: the detail appears neither fluidly nor at the
+     * same moment for every country.
+     *
+     * Half of that is what a fan-out is — several countries land when they
+     * land — and the half that was wrong is that each of them landed in a
+     * single frame. A country went from coarse-and-named to fine-and-divided
+     * between one frame and the next, so a view made of several arrivals read
+     * as a run of separate pops rather than as one thing filling in. Measured
+     * cold in Chrome on the reader's own 529x460 stage, the reader watched
+     * nothing at all for about 1.6s and then the whole view changed at once.
+     *
+     * Everything else on this map that appears, appears by fading, and the
+     * fade comes from the geometry — 12.27, 12.28, `limbFade`, `roomFade`.
+     * This is that rule reaching the one layer that was not using it, and the
+     * fade is a genuine cross-fade: for as long as Peru's own name is still
+     * lit, its departments are dimmer than they end up.
+     */
+    servingPeru();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    // A moment when both rungs are on the map at once, which is what a
+    // cross-fade *is* and which a layer that switches on has none of.
+    let midway = Number.NaN;
+    await waitFor(() => {
+      midway = Number((screen.getByText('Loreto') as unknown as SVGTextElement).style.opacity);
+      expect(screen.getByText('Peru')).toBeInTheDocument();
+    });
+
+    await waitFor(() => expect(screen.queryByText('Peru')).not.toBeInTheDocument());
+    const settled = Number((screen.getByText('Loreto') as unknown as SVGTextElement).style.opacity);
+    expect(midway).toBeGreaterThan(0);
+    expect(midway).toBeLessThan(settled);
   });
 
   it('asks for nothing at all while the globe is only being spun', async () => {

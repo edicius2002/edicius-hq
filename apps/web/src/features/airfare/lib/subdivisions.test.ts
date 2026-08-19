@@ -68,9 +68,56 @@ describe('readSubdivisions', () => {
     const read = readSubdivisions(PERU);
     expect(read?.country).toBe('604');
     expect(read?.labels).toEqual([
-      { name: 'Loreto', at: [-74.4242, -4.0942], area: 0.0092493 },
-      { name: 'Cusco', at: [-72.1831, -13.1676], area: 0.0018352 },
+      { key: '604:0', name: 'Loreto', at: [-74.4242, -4.0942], area: 0.0092493 },
+      { key: '604:1', name: 'Cusco', at: [-72.1831, -13.1676], area: 0.0018352 },
     ]);
+  });
+
+  it('gives two subdivisions of the same name two different keys', () => {
+    /*
+     * A name is not an identity on this map, and the reader found that out the
+     * hard way: forty-eight names in Natural Earth's admin-1 list belong to
+     * more than one country and fifteen countries repeat one inside
+     * themselves. Misiones is a province of Argentina and a department of
+     * Paraguay 237 km away — one frame holds both — and Latvia has two
+     * Daugavpils five kilometres apart.
+     *
+     * The key is the country and the unit's own place in that country's file,
+     * so it survives a name that is not unique in either direction, and it is
+     * the same key on the next frame and in the next session.
+     */
+    const both = readSubdivisions({
+      ...PERU,
+      country: '032',
+      labels: [
+        { name: 'Misiones', at: [-54.7, -26.9], area: 0.0007 },
+        { name: 'Misiones', at: [-57.0, -26.9], area: 0.0002 },
+      ],
+    });
+    expect(both?.labels.map((label) => label.key)).toEqual(['032:0', '032:1']);
+
+    const elsewhere = readSubdivisions({
+      ...PERU,
+      country: '600',
+      labels: [{ name: 'Misiones', at: [-57.0, -26.9], area: 0.0002 }],
+    });
+    // And across countries, which is the pair a fan-out actually puts on
+    // screen together.
+    expect(elsewhere?.labels[0].key).not.toBe(both?.labels[0].key);
+  });
+
+  it('numbers a key by the served file, not by the labels that survived it', () => {
+    // A unit's key must not move because a neighbour in the same file was
+    // malformed: the reader's view would change identity under them for a
+    // reason that has nothing to do with them.
+    const read = readSubdivisions({
+      ...PERU,
+      labels: [
+        { name: 'No area', at: [-74, -4], area: 0 },
+        { name: 'Loreto', at: [-74.4242, -4.0942], area: 0.0092493 },
+      ],
+    });
+    expect(read?.labels.map((label) => label.key)).toEqual(['604:1']);
   });
 
   it('reads the country outline that comes with the borders', () => {

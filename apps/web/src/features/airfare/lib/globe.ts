@@ -1,3 +1,5 @@
+import { geoPath, type GeoProjection } from 'd3-geo';
+
 import { facesViewer, type LngLat } from '@/features/airfare/lib/geo';
 
 /**
@@ -68,3 +70,30 @@ export const CONTINENTS: { name: string; at: LngLat }[] = [
   { name: 'Oceania', at: [140, -25] },
   { name: 'Antarctica', at: [10, -78] },
 ];
+
+/**
+ * How far the flat map may be dragged, which is up and down and no further
+ * than its own edges.
+ *
+ * Sideways is left out on purpose: the projection is fitted to the width of
+ * the frame, so dragging horizontally only ever swaps map for empty space.
+ * Vertically it is genuinely taller than the frame — Mercator stretches the
+ * poles — and there is something to reach.
+ *
+ * When the map is shorter than the frame there is nothing to scroll, so it
+ * sits centred rather than floating wherever it was let go.
+ */
+export function clampVertical(
+  mercator: GeoProjection,
+  frameHeight: number,
+  offset: number,
+): number {
+  const [[, top], [, bottom]] = geoPath(mercator).bounds({ type: 'Sphere' });
+  const height = bottom - top;
+  if (height <= frameHeight) return offset - (top + bottom) / 2 + frameHeight / 2;
+  // `top` and `bottom` already include the current offset, so the correction
+  // is relative to it.
+  if (top > 0) return offset - top;
+  if (bottom < frameHeight) return offset + (frameHeight - bottom);
+  return offset;
+}

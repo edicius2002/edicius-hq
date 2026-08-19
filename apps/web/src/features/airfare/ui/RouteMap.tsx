@@ -10,7 +10,7 @@ import {
   type LngLat,
   type RouteGeometry,
 } from '@/features/airfare/lib/geo';
-import { CONTINENTS, splitByHorizon } from '@/features/airfare/lib/globe';
+import { CONTINENTS, clampVertical, splitByHorizon } from '@/features/airfare/lib/globe';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteMap.module.css';
@@ -131,16 +131,24 @@ export function RouteMap({
     }
 
     const radius = Math.min(rect.width, rect.height) * 0.42 * zoom;
-    const centre: [number, number] = [
-      rect.width / 2 + pan.current.x,
-      rect.height / 2 + pan.current.y,
-    ];
+
+    // The globe is turned, not dragged, so panning never applies to it.
+    const middle: [number, number] = [rect.width / 2, rect.height / 2];
     for (const globe of [projections.current.globe, projections.current.glass]) {
-      globe.translate(centre).scale(radius).rotate(rotation.current);
+      globe.translate(middle).scale(radius).rotate(rotation.current);
     }
-    projections.current.mercator
-      .translate([centre[0], centre[1] + radius * 0.16])
+
+    const mercator = projections.current.mercator;
+    mercator
+      .translate([middle[0], middle[1] + pan.current.y])
       .scale(Math.min(rect.width / 6.3, radius * 0.6));
+    // Clamped after the fact rather than predicted: `geoMercator` runs to
+    // infinity at the poles and d3 cuts it off at a latitude of its own
+    // choosing, so the only honest source for how tall the map is right now
+    // is the projected sphere itself.
+    pan.current = { x: 0, y: clampVertical(mercator, rect.height, pan.current.y) };
+    mercator.translate([middle[0], middle[1] + pan.current.y]);
+
     return { rect, dpr };
   }, [zoom]);
 
@@ -280,7 +288,8 @@ export function RouteMap({
     const { offsetX, offsetY } = event.nativeEvent;
 
     if (held.kind === 'pan') {
-      pan.current = { x: held.from.x + (offsetX - held.x), y: held.from.y + (offsetY - held.y) };
+      // Vertical only; `fit` clamps it to the map's own edges.
+      pan.current = { x: 0, y: held.from.y + (offsetY - held.y) };
       return;
     }
 
@@ -330,7 +339,7 @@ export function RouteMap({
     repaint((tick) => tick + 1);
   }
 
-  const moved = zoom !== 1 || pan.current.x !== 0 || pan.current.y !== 0;
+  const moved = zoom !== 1 || Math.abs(pan.current.y) > 0.5;
 
   /* ----------------------------------------------------------------- svg -- */
 

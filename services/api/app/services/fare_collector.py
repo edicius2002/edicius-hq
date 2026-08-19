@@ -294,6 +294,10 @@ async def _collect_one(
             # cost the snapshot standing right behind it.
             seeded = 0
 
+    # Asked before the write, because writing is what replaces the old
+    # fingerprint with the new one and the question is about the old one.
+    rebaselined = store.is_rebaseline(snapshot)
+
     try:
         changed = store.append_if_changed(snapshot)
     except OSError as error:
@@ -315,7 +319,11 @@ async def _collect_one(
         query.destination,
         query.flight_date,
         at=looked_at,
-        outcome="changed" if changed else "unchanged",
+        # `rebaselined` rather than `changed`, so the one snapshot a reader
+        # change forces is not counted as a fare moving. `/fares/watch` counts
+        # only `changed`, which means the health figure stays honest without
+        # the archive hiding that the write happened.
+        outcome=("rebaselined" if rebaselined else "changed") if changed else "unchanged",
         offers=len(result.offers),
         cheapest=cheapest.price if cheapest else None,
     )

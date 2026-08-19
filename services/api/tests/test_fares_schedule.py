@@ -219,6 +219,33 @@ def test_the_fingerprint_ignores_when_it_was_captured(tmp_path):
     assert history.fingerprint(a) == history.fingerprint(b)
 
 
+def test_a_fingerprint_written_by_an_older_reader_is_recognised_as_such(tmp_path):
+    """
+    Otherwise a change to the parser reads as a change to the fares.
+
+    Reading Google's best-departing block added offers to every watched route
+    at once, so the next poll after it ships differs from the stored
+    fingerprint on all of them for a reason no airline had anything to do with.
+    A state file written before the recipe was numbered carries a bare digest,
+    which is what this recognises.
+    """
+    history = FareHistory(tmp_path)
+    board = snapshot(offer(100.0))
+    history.append_if_changed(board)
+    assert history.is_rebaseline(board) is False
+
+    (tmp_path / "state" / "LIM-CUZ.json").write_text(
+        json.dumps({"2026-10-17": "0123456789abcdef"}), encoding="utf-8"
+    )
+    assert history.is_rebaseline(board) is True
+
+
+def test_a_departure_never_seen_before_is_not_a_rebaseline(tmp_path):
+    """A first observation is news about the route, not news about the reader."""
+    history = FareHistory(tmp_path)
+    assert history.is_rebaseline(snapshot(offer(100.0))) is False
+
+
 def test_insights_drifting_alone_is_not_a_fare_change(tmp_path):
     """Otherwise every poll would look like news."""
     history = FareHistory(tmp_path)
@@ -442,6 +469,42 @@ def test_a_second_look_writes_a_heartbeat_and_no_snapshot(tmp_path):
     assert len(history.read("LIM", "SCL")) == 1
     assert len(history.checks("LIM", "SCL")) == 2
     assert [row["outcome"] for row in history.checks("LIM", "SCL")] == ["changed", "unchanged"]
+
+
+def test_the_first_pass_after_a_reader_change_is_not_recorded_as_a_fare_change(tmp_path):
+    """
+    The snapshot is written and the heartbeat says why.
+
+    `/fares/watch` counts `changed` heartbeats and reports them as this route's
+    changes. If the pass that first read the best-departing block wrote one of
+    those on every watched route, the archive would carry a spike nobody could
+    later tell from a real one — and the archive's whole value is that a change
+    means something.
+    """
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+    history = FareHistory(tmp_path)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect(
+                [FareQuery("LIM", "SCL", "2026-08-25")],
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    asyncio.run(run())
+    # A state file as an older reader left it: a bare digest, no recipe.
+    (tmp_path / "state" / "LIM-SCL.json").write_text(
+        json.dumps({"2026-08-25": "0123456789abcdef"}), encoding="utf-8"
+    )
+    report = asyncio.run(run())
+
+    assert report.results[0].changed is True
+    assert len(history.read("LIM", "SCL")) == 2
+    assert [row["outcome"] for row in history.checks("LIM", "SCL")][-1] == "rebaselined"
 
 
 def test_the_free_history_is_seeded_once_and_not_on_every_poll(tmp_path):

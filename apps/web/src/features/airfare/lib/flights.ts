@@ -11,14 +11,23 @@ import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
  * question the watchlist is actually for — *this* departure, on *this*
  * carrier, at *this* hour, has it moved.
  *
- * Identity is `airline + flight number + departure time`. Verified against
- * real snapshots on 2026-08-18: 25 of 33 flights kept that key across a whole
- * day, and every one that did not had genuinely rotated off the board.
+ * Identity is `airline + flight number + departure time + arrival time`.
+ * Verified against real snapshots on 2026-08-18: 25 of 33 flights kept the
+ * first three across a whole day, and every one that did not had genuinely
+ * rotated off the board.
+ *
+ * The arrival is there because the first three name the *first leg*, not the
+ * itinerary. A LIM-MAD board captured on 2026-08-19 offers AV 50 to Bogota
+ * twice, once continuing on AV 182 and once on AV 10, arriving five hours
+ * apart at different prices; without the arrival those two collapse into one
+ * row whose price history alternates between two different journeys. A
+ * schedule change to the arrival now reads as a new flight, which is the same
+ * trade the departure already made and the lesser of the two errors.
  */
 
 /** How a flight is recognised from one observation to the next. */
 export function flightKey(offer: FareOffer): string {
-  return `${offer.airline}|${offer.flightNumber ?? ''}|${offer.departureAt}`;
+  return `${offer.airline}|${offer.flightNumber ?? ''}|${offer.departureAt}|${offer.arrivalAt ?? ''}`;
 }
 
 export type FlightObservation = {

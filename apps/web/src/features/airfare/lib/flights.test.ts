@@ -38,7 +38,16 @@ describe('flightKey', () => {
   });
 
   it('survives a missing flight number rather than collapsing every such flight into one', () => {
-    expect(flightKey(offer({ flightNumber: null }))).toBe('JA||2026-10-17T19:55');
+    expect(flightKey(offer({ flightNumber: null }))).toBe('JA||2026-10-17T19:55|');
+  });
+
+  it('tells two connections behind one first leg apart', () => {
+    // A real LIM-MAD board offers AV 50 to Bogota twice, continuing on two
+    // different flights to Madrid five hours apart. Without the arrival they
+    // are one row whose price history alternates between two journeys.
+    const via182 = offer({ airline: 'AV', flightNumber: '50', arrivalAt: '2026-10-16T09:05' });
+    const via10 = offer({ airline: 'AV', flightNumber: '50', arrivalAt: '2026-10-16T14:05' });
+    expect(flightKey(via182)).not.toBe(flightKey(via10));
   });
 });
 

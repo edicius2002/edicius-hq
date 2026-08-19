@@ -54,6 +54,20 @@ from app.config import fares_dir
 
 logger = logging.getLogger(__name__)
 
+# Which reader produced a stored fingerprint. Bumped whenever a change to the
+# parser or to `fingerprint` moves the hash on boards that did not move — the
+# first such change was reading Google's best-departing block, which added
+# offers to nine watched routes at once and would otherwise have written
+# "changed" against all nine on the same minute.
+#
+# Carried as a `recipe:digest` prefix on the stored value rather than as a new
+# field in the state file, because the state file is a flat
+# `{flightDate: fingerprint}` map that several small methods read as
+# `dict[str, str]`, and nesting it to hold one integer would touch all of them
+# for no gain. A fingerprint written before this existed has no prefix, which
+# reads as an older recipe, which is exactly right.
+FINGERPRINT_RECIPE = 2
+
 
 class FareHistory:
     def __init__(self, directory: Path | None = None) -> None:
@@ -183,17 +197,45 @@ class FareHistory:
         Every flight's identity and price, and nothing else. Verified stable
         against real snapshots: 25 of 33 flights kept the same
         (airline, number, departure) key across a whole day, and the ones that
-        did not had genuinely rotated off the board.
+        did not had genuinely rotated off the board. The arrival joins them so
+        that this agrees with the web's `flightKey`, which needed it to tell
+        two connections behind one first leg apart.
 
         Deliberately excludes `capturedAt`, which always differs, and the
         insight block, which drifts on its own and would make every poll look
         like a fare change.
+
+        The `recipe:` prefix is what stops a change to this function from
+        reading as a change in the fares — see `FINGERPRINT_RECIPE`.
         """
         rows = sorted(
-            f"{offer.airline}|{offer.flight_number or ''}|{offer.departure_at}|{offer.price}"
+            f"{offer.airline}|{offer.flight_number or ''}|{offer.departure_at}"
+            f"|{offer.arrival_at or ''}|{offer.price}"
             for offer in snapshot.offers
         )
-        return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+        return f"{FINGERPRINT_RECIPE}:{digest}"
+
+    def is_rebaseline(self, snapshot: FareSnapshot) -> bool:
+        """
+        Whether the last fingerprint held for this departure predates the reader.
+
+        A poll that follows a change to the parser or to `fingerprint` will
+        differ from the stored value on every route at once, and it will differ
+        for a reason no fare had anything to do with. Recording that as a
+        change would put a spike through every series on the same minute and
+        leave nobody able to tell it from a real one, so the collector asks
+        this first and writes a different heartbeat when the answer is yes.
+
+        The snapshot is still written. Its contents genuinely differ from what
+        was archived — the old reader saw a partial board — and an archive that
+        skipped the first correct observation to keep its own history tidy
+        would be lying in the other direction.
+        """
+        stored = self._read_state(snapshot.origin, snapshot.destination).get(snapshot.flight_date)
+        if stored is None:
+            return False
+        return stored.split(":", 1)[0] != str(FINGERPRINT_RECIPE)
 
     def _read_state(self, origin: str, destination: str) -> dict[str, str]:
         try:

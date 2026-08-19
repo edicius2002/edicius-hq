@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { FareRoute } from '@/features/airfare/data/fareRoutes';
+import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 
 const TODAY = '2026-08-18';
@@ -27,6 +28,7 @@ const ROUTES: FareRoute[] = [
 function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> = {}) {
   const props = {
     routes: ROUTES,
+    colours: new Map<string, string>(),
     selectedId: null,
     today: TODAY,
     onSelect: vi.fn(),
@@ -35,14 +37,69 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     onMove: vi.fn(),
     ...overrides,
   };
-  return { ...render(<RouteList {...props} />), props };
+  // The submit button lives in the panel header on the page, tied to the form
+  // by its `form` attribute rather than by containment.
+  return {
+    ...render(
+      <>
+        <RouteList {...props} />
+        <button type="submit" form={ADD_ROUTE_FORM_ID}>
+          Add route
+        </button>
+      </>,
+    ),
+    props,
+  };
+}
+
+/**
+ * The row for a route, by its accessible name.
+ *
+ * The pair is no longer one text node — the arrow is its own element so it can
+ * be smaller than the codes, and a screen reader hears the word "to" instead
+ * of "right arrow" — so `getByText` cannot reach it: the default matcher only
+ * looks at an element's direct text children.
+ */
+function rowFor(origin: string, destination: string): HTMLElement {
+  const between = String.raw`\s+to\s+`;
+  return screen.getByRole('button', { name: new RegExp(origin + between + destination) });
 }
 
 describe('RouteList', () => {
   it('lists the watched routes', () => {
     renderList();
-    expect(screen.getByText('LIM → CUZ')).toBeInTheDocument();
-    expect(screen.getByText('LIM → SCL')).toBeInTheDocument();
+    expect(rowFor('LIM', 'CUZ')).toBeInTheDocument();
+    expect(rowFor('LIM', 'SCL')).toBeInTheDocument();
+  });
+
+  it('puts the whole route on one line, each leg named for a screen reader', () => {
+    /*
+     * The arrows carry the direction visually and are hidden from the
+     * accessibility tree — "up arrow 2026-10-17" is not what a departure date
+     * sounds like — so the words travel beside them instead.
+     */
+    renderList({
+      routes: [{ ...ROUTES[0], returnDate: '2026-10-28' }],
+    });
+    const row = rowFor('LIM', 'CUZ');
+    // Shown the way this reader writes a date; ISO is what goes to disk.
+    expect(row.textContent).toContain('departs17/10/2026');
+    expect(row.textContent).toContain('returns28/10/2026');
+    expect(row.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('says nothing about a return when there is not one', () => {
+    renderList({ routes: [{ ...ROUTES[0], returnDate: null }] });
+    expect(rowFor('LIM', 'CUZ').textContent).not.toContain('returns');
+  });
+
+  it('carries the colour its arc is drawn in', () => {
+    // Eight arcs leave Lima together; without this the reader cannot tell
+    // which line belongs to the row they are looking at.
+    const colours = new Map([[routeId(ROUTES[0]), '#5cb8ab']]);
+    renderList({ colours });
+    const swatch = rowFor('LIM', 'CUZ').querySelector('[class*="swatch"]') as HTMLElement;
+    expect(swatch.style.background).toBe('rgb(92, 184, 171)');
   });
 
   it('marks a route whose departure has passed', () => {
@@ -99,7 +156,7 @@ describe('RouteList', () => {
     const { props } = renderList();
 
     // The label is a span; the focusable thing is the row's own button.
-    screen.getByText('LIM → SCL').closest('button')!.focus();
+    rowFor('LIM', 'SCL').focus();
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
 
     expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-08-01|', 'LIM|CUZ|2026-10-17|');

@@ -1,7 +1,17 @@
+/*
+ * One strip across the page rather than a column.
+ *
+ * It runs the full width now, and at that width a stack of four figures and
+ * two notes is mostly empty space with the page pushed down behind it. Laid
+ * out sideways — who, then the numbers, then the footnotes — it says the same
+ * things in a third of the height, which is height the chart below gets back.
+ */
 .detail {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  /* Wide enough for the pair and its date on one line. */
+  grid-template-columns: minmax(13rem, auto) 1fr;
+  align-items: center;
+  gap: 10px var(--space-4);
   min-width: 0;
 }
 
@@ -19,7 +29,7 @@
 
 .pair {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -27,6 +37,15 @@
 .to {
   color: var(--color-muted);
   padding: 0 2px;
+}
+
+/* The departure, beside the pair and quieter than it. */
+.when {
+  margin-left: var(--space-2);
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .cities {
@@ -37,13 +56,47 @@
 
 .figures {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 12px 16px;
+  /*
+   * 8rem, and the unit matters: this app sets `--font-size-base: 125%`, so a
+   * rem is 20px and 9rem was 180 — one pixel-count too wide for four money
+   * figures to share a 736px row, which sent "Vs usual" onto a line of its
+   * own. 8rem is 160, and the widest label here ("Dearest on board") measures
+   * about 119.
+   */
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 8px var(--space-4);
   margin: 0;
-  padding: 12px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: var(--color-surface);
+  min-width: 0;
+}
+
+/*
+ * The second box runs under both columns: money on the top row beside the
+ * route, and everything about the board and the collector across the bottom.
+ */
+/*
+ * The second box runs under both columns. Its values are longer than the money
+ * ones — "18/08/2026 19:45" is about 169px — so it gets a wider minimum and a
+ * tighter row gap, and lands on two rows rather than one. Two rows of figures
+ * is still read at a glance; the two sentences this replaced were not.
+ */
+.wide {
+  grid-column: 1 / -1;
+  /*
+   * Six figures on one row now that the last look has moved up to the header.
+   * Measured: at 0.82rem the longest value, "JetSMART · 18:45", is about 157px
+   * and each of six columns gets 165 — with the 8.6rem this had before, one
+   * fell to a second line.
+   */
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 6px var(--space-4);
+}
+
+.wide dd {
+  font-size: 0.82rem;
 }
 
 .figures dt {
@@ -58,12 +111,21 @@
 .figures dd {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Stacked once there is no longer room to stand them side by side. */
+@media (max-width: 60rem) {
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
 }
 
 .big {
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   font-weight: 500;
   letter-spacing: -0.01em;
 }

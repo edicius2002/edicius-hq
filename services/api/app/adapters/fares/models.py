@@ -101,6 +101,53 @@ class PricePoint:
 
 
 @dataclass(frozen=True, slots=True)
+class CalendarQuery:
+    """
+    One city pair and a window of **departure dates** to price.
+
+    Deliberately not a `FareQuery` with two more fields. A query names one
+    departure and comes back with a board; this names a range and comes back
+    with one number per day inside it, so the two cannot share a result type
+    and sharing an argument type would only invite a caller to pass one where
+    the other is meant.
+    """
+
+    origin: str
+    destination: str
+    #: First departure date wanted, `YYYY-MM-DD`.
+    start: str
+    #: Last departure date wanted, inclusive.
+    end: str
+    currency: str = "USD"
+
+    @property
+    def route(self) -> str:
+        return f"{self.origin}-{self.destination}"
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarPrice:
+    """
+    One departure date and the cheapest fare on it, or no fare at all.
+
+    Not a `PricePoint`, whose `date` is *when a price was observed*. Here the
+    date is the day the flight leaves and the observation time belongs to the
+    whole curve. Drawing the two on one axis would silently mix "what this
+    route cost over the last sixty days" with "what each of the next eleven
+    months costs today".
+
+    `price` is `None` when the provider answered about the date and had nothing
+    to sell on it. That is a real answer and is kept rather than dropped: a
+    missing date and a date with no flights mean different things, and only one
+    of them is a gap in our own collection.
+    """
+
+    #: `YYYY-MM-DD`, the departure.
+    departure_date: str
+    price: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class FareInsights:
     """
     Google's own sense of what this search usually costs.

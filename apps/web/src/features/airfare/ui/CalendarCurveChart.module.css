@@ -1,0 +1,250 @@
+.figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* The crosshair follows a dragging finger instead of scrolling the page. */
+  touch-action: none;
+}
+
+.chart:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+/*
+ * The plot floor. Drawn solid where the grid lines are faint, because the hole
+ * marks hang under it and a rail with no rail is a row of loose glyphs nobody
+ * can tell from a very cheap fare.
+ */
+.floor {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.axis {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: var(--color-muted);
+}
+
+/*
+ * One series and no baseline behind it, so the curve takes the accent outright.
+ * Thinner than the history chart's median line: at 331 departure dates across
+ * 660 units this line turns hard and often, and two units of stroke fills the
+ * troughs it is drawn to show.
+ */
+.curve {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.band {
+  fill: var(--color-accent);
+  opacity: 0.16;
+  stroke: none;
+}
+
+.point circle {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+  stroke-width: 1.5;
+}
+
+.hole {
+  pointer-events: none;
+}
+
+/*
+ * The two absences, and they must not look alike — 12.154.
+ *
+ * Filled is an answer that came back empty; hollow is an answer that never
+ * came. Solid and outline is the widest difference two three-pixel marks can
+ * carry, and it survives both themes because one is a fill and the other a
+ * stroke of the same colour rather than two hues a reader has to compare.
+ */
+.unsold {
+  fill: var(--color-muted);
+}
+
+.unanswered {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-width: 1.2;
+  opacity: 0.85;
+}
+
+.crosshair {
+  pointer-events: none;
+}
+
+.hair {
+  stroke: var(--color-text);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+
+.marker {
+  fill: var(--color-surface);
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.tag {
+  fill: var(--color-text);
+}
+
+/*
+ * No `text-anchor` here, for `PriceBandChart.module.css`'s reason: a
+ * declaration on the shared class beats the presentation attribute the element
+ * asked for, and the leading digit of a label ends up painted outside its own
+ * plate. The anchor is a modifier, and the modifiers come after this rule so
+ * source order decides between equal specificities.
+ */
+.tagText {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: var(--color-surface);
+}
+
+.tagStart {
+  text-anchor: start;
+}
+
+.tagMiddle {
+  text-anchor: middle;
+}
+
+.tagEnd {
+  text-anchor: end;
+}
+
+.readout {
+  margin: 0;
+  min-height: 1.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  font-size: 0.78rem;
+  color: var(--color-text);
+}
+
+.readout strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.period,
+.hint,
+.absence {
+  color: var(--color-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--color-muted);
+}
+
+/*
+ * The axes in prose, above the key rather than beside it. Three charts on this
+ * page now share an x that looks like time and means three different things, so
+ * this sentence is content rather than decoration and gets the reading width to
+ * prove it.
+ */
+.axesNote {
+  margin: 0;
+  line-height: 1.5;
+  max-width: 78ch;
+}
+
+.axesNote strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.keys i {
+  flex: none;
+}
+
+.keyCurve i {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
+.keyBand i {
+  width: 18px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  opacity: 0.16;
+}
+
+/* The same solid-versus-hollow pair the marks use, at legend size. */
+.keyUnsold i {
+  width: 7px;
+  height: 7px;
+  background: var(--color-muted);
+}
+
+.keyUnanswered i {
+  width: 7px;
+  height: 7px;
+  border: 1.2px solid var(--color-muted);
+  border-radius: 50%;
+}
+
+.collected {
+  margin: 0;
+}

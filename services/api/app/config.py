@@ -170,6 +170,19 @@ DEFAULT_CADENCE_MINUTES: tuple[tuple[int, int], ...] = (
 )
 
 
+# How often a route's whole-horizon calendar is refreshed. One number, where
+# the boards above get a table, because a calendar curve spans every distance
+# from today to the horizon in one answer and so has no `days_out` to look up.
+#
+# Daily is the floor `MAX_POLL_MINUTES` already sets, and the measurement behind
+# the table is what says it is enough: the months this covers are the far ones,
+# which moved on 22% of days by a median 1.7%, while the near month the reader
+# is actually watching is already collected board by board every half hour.
+# Measured 2026-08-19, this costs 2 requests per route per day against a budget
+# of 300 — two windows, because the whole horizon in one request is refused.
+CALENDAR_POLL_MINUTES = 24 * 60
+
+
 def daily_request_budget() -> int:
     """How many upstream requests a day may spend, floor of 1."""
     raw = os.getenv("FARES_DAILY_REQUEST_BUDGET", "").strip()

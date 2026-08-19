@@ -26,6 +26,7 @@ from app.adapters.fares.models import (
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
 from app.config import UPSTREAM_TIMEOUT_SECONDS
 from app.services import airport_search
+from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import CollectionReport, FareWatch, collect_due
 from app.services.fare_history import HISTORY
 
@@ -376,6 +377,88 @@ def get_history(
             for code in (origin, destination)
             if (airport := known.get(code)) is not None
         ],
+        health=WatchHealthModel(
+            lastCheckedAt=str(checks[-1].get("at")) if checks else None,
+            checks=len(checks),
+            changes=sum(1 for row in checks if row.get("outcome") == "changed"),
+            errors=sum(1 for row in checks if row.get("outcome") == "error"),
+        ),
+    )
+
+
+class CalendarPointModel(BaseModel):
+    """
+    One departure date and the cheapest fare on it.
+
+    `price` is `null` when the provider answered about the date and had nothing
+    to sell. A date absent from the list altogether was never answered for —
+    the two are different facts and the window below is what tells them apart.
+    """
+
+    departureDate: str
+    price: float | None
+
+
+class CalendarCurveModel(BaseModel):
+    capturedAt: str
+    source: str
+    currency: str
+    #: The window that was asked for, so a missing date reads as a gap in the
+    #: answer rather than as a date nobody wanted.
+    fromDate: str
+    toDate: str
+    prices: list[CalendarPointModel]
+
+
+class CalendarResponse(BaseModel):
+    origin: str
+    destination: str
+    #: The most recent curve, or `null` when this pair has never been collected.
+    latest: CalendarCurveModel | None
+    health: WatchHealthModel
+
+
+@router.get("/calendar", response_model=CalendarResponse)
+def get_calendar(
+    origin: str = Query(..., min_length=3, max_length=3),
+    destination: str = Query(..., min_length=3, max_length=3),
+) -> CalendarResponse:
+    """
+    What every departure date out to the horizon costs, as last collected.
+
+    The counterpart to `/history`, and deliberately a different endpoint rather
+    than a field on it. `/history` answers "what has this route done over time"
+    for the month somebody watches; this answers "which day of which month is
+    cheap" for all eleven they do not. One is a series of boards, the other is
+    one number a day with no carrier and no times, and serving them together
+    would invite a client to draw them on one axis.
+
+    The latest curve only. The store keeps every one that was ever different,
+    so a series of curves can be served later without collecting anything
+    again — but nothing today reads more than the newest, and three hundred
+    points times a year of curves is not a payload to ship on speculation.
+    """
+    origin, destination = normalize_code(origin), normalize_code(destination)
+    curve = CALENDAR.latest(origin, destination)
+    checks = CALENDAR.checks(origin, destination)
+    return CalendarResponse(
+        origin=origin,
+        destination=destination,
+        latest=(
+            None
+            if curve is None
+            else CalendarCurveModel(
+                capturedAt=curve.captured_at,
+                source=curve.source,
+                currency=curve.currency,
+                fromDate=curve.start,
+                toDate=curve.end,
+                prices=[
+                    CalendarPointModel(departureDate=point.departure_date, price=point.price)
+                    for point in curve.prices
+                ],
+            )
+        ),
         health=WatchHealthModel(
             lastCheckedAt=str(checks[-1].get("at")) if checks else None,
             checks=len(checks),

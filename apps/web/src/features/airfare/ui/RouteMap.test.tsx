@@ -2,8 +2,23 @@ import { act, createEvent, fireEvent, render, screen, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { flowDelay } from '@/features/airfare/lib/arcFlow';
 import type { RouteGeometry } from '@/features/airfare/lib/geo';
 import { RouteMap } from '@/features/airfare/ui/RouteMap';
+
+/*
+ * What the arcs *look* like is not testable from here and is not tried.
+ *
+ * The dash pattern, the sign the offset travels to and the ring's paint order
+ * all live in the stylesheet. Vitest replaces a CSS module with a proxy over
+ * its class names, `?raw` is intercepted by the same extension check and hands
+ * back that proxy again, and reading the file with `node:fs` builds under
+ * Vitest and then fails `tsc -b` — `src` is browser code and its tsconfig
+ * types it as such, which is the reason `csv.test.ts` gives for the same
+ * choice. So those numbers are held by the comments beside them and by
+ * decision 12.70, and what is tested here is everything the DOM does carry:
+ * the direction the geometry runs in, and the phase each run is given.
+ */
 
 /**
  * jsdom gives this component no canvas — `getContext` returns null and the
@@ -80,6 +95,23 @@ function pointer(
   Object.defineProperty(event, 'offsetY', { get: () => at[1] });
   fireEvent(target, event);
 }
+
+/**
+ * The same track read the other way, so the *origin* is the end round the back.
+ *
+ * From the home view the arc leaves Tokyo behind the globe, crosses the limb
+ * and runs on to Lima — one drawn path, but one that begins part-way along its
+ * own great circle. It is the case the flow's phase exists for.
+ */
+const NRT_LIM: RouteGeometry = {
+  id: 'NRT-LIM-2026-11-28',
+  origin: 'NRT',
+  destination: 'LIM',
+  from: [140.3864, 35.7647],
+  to: [-77.114444, -12.021944],
+  fromCity: 'Tokyo',
+  toCity: 'Lima',
+};
 
 /** Lima to Tokyo goes round the back of the globe from the home view. */
 const LIM_TOKYO: RouteGeometry = {
@@ -196,6 +228,54 @@ describe('RouteMap', () => {
       />,
     );
     expect(container.querySelectorAll('[class*="dashed"]')).toHaveLength(0);
+  });
+
+  it('draws each arc from its origin, which is the way the dashes then run', () => {
+    /*
+     * Forwards along the path only means "towards the destination" because the
+     * path is sampled that way — `greatCircle` interpolates from `from` to
+     * `to`. Reverse that and the animation is still correct and the map is
+     * still wrong, so the geometry's own direction is checked rather than
+     * assumed: the first point of the arc is where the origin's dot is.
+     */
+    const { container } = renderMap({ routes: [LIM_CUZ] });
+    const arc = container.querySelector('[class*="arc"]')!;
+    const [x, y] = arc.getAttribute('d')!.slice(1).split('L')[0].split(',').map(Number);
+
+    const lima = container.querySelector('circle[class*="home"]')!;
+    expect(x).toBeCloseTo(Number(lima.getAttribute('cx')), 1);
+    expect(y).toBeCloseTo(Number(lima.getAttribute('cy')), 1);
+  });
+
+  it('starts an arc that is wholly in view at the start of the pattern', () => {
+    const { container } = renderMap({ routes: [LIM_CUZ] });
+    const arc = container.querySelector('[class*="flow"]') as SVGElement;
+    expect(arc.style.animationDelay).toBe(flowDelay(0));
+  });
+
+  it('picks up the phase the hidden half of an arc carried round the back', () => {
+    /*
+     * Tokyo to Lima leaves from behind the globe: the stretch before the limb
+     * is never drawn, and the run that comes into view begins part-way along
+     * its own great circle. Starting its dashes at zero would pin the pattern
+     * to the horizon instead of to the geography, so the dashes would slide
+     * with the limb as the globe turns rather than staying on the arc. The
+     * hidden length is counted, so they stay put.
+     */
+    const { container } = renderMap({ routes: [NRT_LIM] });
+    const arcs = [...container.querySelectorAll('[class*="flow"]')] as SVGElement[];
+    expect(arcs).toHaveLength(1);
+    expect(arcs[0].style.animationDelay).not.toBe(flowDelay(0));
+  });
+
+  it('leaves the flat map still, because a solid line cannot show flow', () => {
+    // Mercator arcs are solid by decision, so there is nothing to animate and
+    // no phase to give them.
+    const { container } = renderMap({ projection: 'mercator' });
+    expect(container.querySelectorAll('[class*="flow"]')).toHaveLength(0);
+    for (const arc of container.querySelectorAll('[class*="arc"]')) {
+      expect((arc as SVGElement).style.animationDelay).toBe('');
+    }
   });
 
   it('names the continents while the whole world is in view, either projection', () => {

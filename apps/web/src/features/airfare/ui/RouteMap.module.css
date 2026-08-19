@@ -143,10 +143,6 @@
   visibility: hidden;
 }
 
-/*
- * Static dashes. Nothing on this map animates on its own: the render loop only
- * runs while a pointer is down, so an idle map costs nothing.
- */
 .arc {
   fill: none;
   stroke: var(--arc-neutral);
@@ -159,9 +155,58 @@
  * Dashed on the globe, where the surface is curved and busy and a dash reads
  * as depth. Solid on the flat map, where it would only fragment a line that
  * already reads perfectly well.
+ *
+ * The period is 10 units, and `ARC_DASH_PERIOD` in `lib/arcFlow` says 10 as
+ * well. The flow's phase arithmetic is done in JavaScript against that number
+ * while the pattern it shifts lives here, so the two drifting apart is what
+ * would break the join at the limb — a phase computed against 10 laid over a
+ * pattern repeating every 11 slips a unit a cycle. Nothing automated holds the
+ * two together: see `lib/arcFlow` for why a test cannot read this file.
  */
 .dashed {
   stroke-dasharray: 5 5;
+}
+
+/*
+ * The dashes run from the origin to the destination, and nothing wakes React
+ * to do it — superseding the "nothing animates by itself" half of decision
+ * 12.23 while keeping the half that matters. There is still no frame loop at
+ * rest: `requestAnimationFrame` runs only while a pointer is down, no
+ * component re-renders per frame, and this animation is driven entirely by the
+ * browser's own animation timeline off a declarative rule.
+ *
+ * **To a negative offset, which is what runs it forwards.** A point at
+ * distance `s` along a path sits at pattern coordinate `s + offset`, so a
+ * given dash is at `s = coordinate - offset`: a falling offset carries every
+ * dash towards a larger `s`, which is towards the path's end. `greatCircle`
+ * samples from `from` to `to`, so the path's end is the destination. Reversing
+ * the sign here is invisible on LIM-CUZ and obviously wrong on LIM-MAD.
+ *
+ * The distance travelled per cycle is exactly one period, so the pattern lands
+ * back on itself and the loop has no seam.
+ */
+@keyframes flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/*
+ * Its own class rather than folded into `.dashed`, because the two are
+ * separately switchable and one of them has to be: reduced motion stops the
+ * flow and keeps the dash.
+ *
+ * `animation-delay` is set per path, inline, from `flowDelay` — one route can
+ * be several paths once the limb has cut it, and the delay is what makes them
+ * one flow instead of several. Linear, because an eased cycle would make the
+ * dashes hesitate once a second at a boundary that means nothing.
+ */
+.flow {
+  animation: flow 0.85s linear infinite;
 }
 
 /*
@@ -185,8 +230,15 @@
   opacity: 1;
 }
 
+/*
+ * A heavier dash for the open route, at the *same* 10-unit period. It read
+ * `7 4` before there was anything moving, and 4 + 7 is 11: an 11-unit pattern
+ * under an animation that travels 10 units a cycle slides backwards a unit
+ * every time round, which reads as the one route the reader has opened
+ * flowing the wrong way.
+ */
 .active.dashed {
-  stroke-dasharray: 7 4;
+  stroke-dasharray: 7 3;
 }
 
 /*
@@ -211,20 +263,42 @@
  * circle with a 2px white border. White rather than the surface colour on
  * purpose: the ring has to separate the dot from land, from ocean and from an
  * arc of its own colour passing under it, and only white is lighter than all
- * three on this ground.
+ * three on this ground. Measured: white is 10.60:1 on the land, 19.40:1 on the
+ * ocean and 15.71:1 on its lit side, and 2.21:1 against the palette's own
+ * worst entry.
+ *
+ * `paint-order: stroke` is what makes the colour readable, and it is the whole
+ * of the change. A stroke is centred on the circle's edge, so half of a 1.6
+ * ring is painted *inwards*, over the fill: an `r` of 4 was showing a coloured
+ * disc of 3.2, which is 32 square units of colour inside a 72 square unit
+ * marker — 44% of the dot. Painting the ring first and the fill over it leaves
+ * the whole of `r` coloured, and the stroke doubles to 3.2 so the half that
+ * survives is still the 1.6 mapcn's marker has. 50 square units of colour, up
+ * 56%, at a cost of 0.8 units on the marker's outside radius.
+ *
+ * The fill itself was already solid and already legible — every entry in
+ * `lib/palette` sits at 4.78:1 on the land, 8.74:1 on the ocean and 7.08:1 on
+ * its lit side, within 0.02 of each other because the palette is built to one
+ * perceived luminance. Nothing here touches those values: what was wrong was
+ * how much of the dot the colour was allowed to be.
  */
 .node {
   fill: var(--arc-neutral);
   stroke: #fff;
-  stroke-width: 1.6;
+  stroke-width: 3.2;
+  paint-order: stroke;
 }
 
 /* Lima, where every route starts. Left neutral: colouring it would claim it
-   belongs to one of them. */
+   belongs to one of them. Its ring earns nothing — `--color-text` against
+   white is 1.15:1 — but the fill is 9.20:1 on the land on its own, and giving
+   this one dot a ring of its own colour would be a second rule for a marker
+   that is already the easiest thing on the map to find. */
 .home {
   fill: var(--color-text);
   stroke: #fff;
-  stroke-width: 1.6;
+  stroke-width: 3.2;
+  paint-order: stroke;
 }
 
 .label {
@@ -294,5 +368,17 @@
   .settled .continent,
   .settled .country {
     transition: none;
+  }
+
+  /*
+   * Stopped, not slowed and not shortened. A reader who has asked for no
+   * motion is asking for none, and what is left when it stops is exactly the
+   * static dashed map decision 12.23 shipped. The direction does go with it —
+   * but it was never the only place that direction is stated: the arc is
+   * labelled "Lima to Madrid", in that order, and every route on the page
+   * leaves from the one neutral dot.
+   */
+  .flow {
+    animation: none;
   }
 }

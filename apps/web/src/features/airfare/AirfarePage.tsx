@@ -10,6 +10,7 @@ import {
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
+import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { bucketBaseline, bucketSnapshots, type Granularity } from '@/features/airfare/lib/buckets';
 import { routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
@@ -59,6 +60,10 @@ export function AirfarePage() {
   const watchlist = useFareRoutes(today);
   const airports = useAirports();
   const queryClient = useQueryClient();
+  // Per-row collection is its own hook, not more state on this page: the
+  // in-flight set, the reports and the mutation that keeps them in step are one
+  // mechanism, and the page's job is to hand it to the list.
+  const rowCollection = useRouteCollection();
 
   const selected: FareRoute | null =
     watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
@@ -208,11 +213,19 @@ export function AirfarePage() {
             colours={colours}
             selectedId={selectedKey}
             today={today}
+            collecting={rowCollection.collecting}
+            reports={rowCollection.reports}
             onSelect={setSelectedId}
             onRemove={(id) => {
               if (id === selectedId) setSelectedId(null);
+              // The report goes with the row. Route ids are content rather
+              // than handles — the same pair on the same dates rebuilds the
+              // same id — so a stale line would reappear under a route that
+              // had just been added back.
+              rowCollection.forget(id);
               void watchlist.remove(id);
             }}
+            onCollect={rowCollection.collect}
             onAdd={(route) => void watchlist.add(route)}
             onMove={(from, to) => void watchlist.move(from, to)}
           />

@@ -1,4 +1,9 @@
-import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import {
+  formatFlightDate,
+  routeId,
+  routeLabel,
+  type FareRoute,
+} from '@/features/airfare/data/fareRoutes';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
@@ -7,6 +12,8 @@ import styles from './RouteList.module.css';
 
 type RouteListProps = {
   routes: FareRoute[];
+  /** The colour this route's arc is drawn in, by route id. */
+  colours: Map<string, string>;
   selectedId: string | null;
   today: string;
   onSelect: (id: string) => void;
@@ -27,6 +34,7 @@ type RouteListProps = {
  */
 export function RouteList({
   routes,
+  colours,
   selectedId,
   today,
   onSelect,
@@ -67,10 +75,52 @@ export function RouteList({
                   aria-current={id === selectedId ? 'true' : undefined}
                   onClick={() => onSelect(id)}
                 >
-                  <span className={styles.pair}>{routeLabel(route)}</span>
+                  {/*
+                    The colour this route is drawn in on the map. Eight arcs
+                    leave Lima together, and without this the reader has no way
+                    to tell which line is the row they are looking at.
+                  */}
+                  <span
+                    className={styles.swatch}
+                    style={{ background: colours.get(id) ?? 'var(--color-muted)' }}
+                    aria-hidden="true"
+                  />
+                  {/*
+                    Split so the arrow can be smaller and quieter than the two
+                    codes — it is punctuation, not information. Read aloud it
+                    becomes the word, because "LIM right-arrow CUZ" is not how
+                    anyone says a route.
+                  */}
+                  <span className={styles.pair}>
+                    {route.origin}{' '}
+                    <span className={styles.to} aria-hidden="true">
+                      →
+                    </span>
+                    <span className={styles.sr}>to</span> {route.destination}
+                  </span>
                   <span className={styles.dates}>
-                    {route.flightDate}
-                    {route.returnDate ? ` → ${route.returnDate}` : ''}
+                    {/*
+                      Up for the way out, down for the way back. The arrows are
+                      hidden from the accessibility tree and the words carried
+                      beside them, because "up arrow 2026-10-17" is not what a
+                      departure date sounds like.
+                    */}
+                    <span className={styles.leg}>
+                      <span className={styles.arrow} aria-hidden="true">
+                        ↑
+                      </span>
+                      <span className={styles.sr}>departs</span>
+                      {formatFlightDate(route.flightDate)}
+                    </span>
+                    {route.returnDate ? (
+                      <span className={styles.leg}>
+                        <span className={styles.arrow} aria-hidden="true">
+                          ↓
+                        </span>
+                        <span className={styles.sr}>returns</span>
+                        {formatFlightDate(route.returnDate)}
+                      </span>
+                    ) : null}
                   </span>
                   {/*
                     A departed route keeps its history — that is the point of an

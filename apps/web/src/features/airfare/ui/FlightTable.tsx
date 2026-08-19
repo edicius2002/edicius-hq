@@ -1,7 +1,7 @@
 import { trackFlights, variation, type FlightTrack } from '@/features/airfare/lib/flights';
-import { departureClock, formatDuration } from '@/features/airfare/lib/series';
+import { departureClock, formatDuration, formatStamp } from '@/features/airfare/lib/series';
 import type { FareSnapshot } from '@/shared/api/fares';
-import { formatMoney } from '@/shared/lib/money';
+import { formatMoney, NO_VALUE } from '@/shared/lib/money';
 
 import styles from './FlightTable.module.css';
 
@@ -60,7 +60,8 @@ export function FlightTable({ snapshots }: FlightTableProps) {
     <table className={styles.table}>
       <caption className={styles.caption}>
         {showing} of {tracks.length} itineraries on the board, last observed{' '}
-        {latest?.capturedAt.slice(0, 16).replace('T', ' ')} for departure {latest?.flightDate}
+        {latest ? formatStamp(latest.capturedAt) : NO_VALUE} for departure{' '}
+        {latest ? formatStamp(latest.flightDate) : NO_VALUE}
       </caption>
       <thead>
         <tr>

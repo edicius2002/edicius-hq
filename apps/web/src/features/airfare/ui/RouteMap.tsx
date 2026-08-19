@@ -1,5 +1,6 @@
 import { geoGraticule10, geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { feature } from 'topojson-client';
 import versor from 'versor';
 import worldAtlas from 'world-atlas/countries-110m.json';
@@ -10,7 +11,20 @@ import {
   type LngLat,
   type RouteGeometry,
 } from '@/features/airfare/lib/geo';
-import { CONTINENTS, clampVertical, splitByHorizon } from '@/features/airfare/lib/globe';
+import { COUNTRIES } from '@/features/airfare/lib/countries';
+import {
+  type Boxed,
+  CONTINENTS,
+  type View,
+  clampPan,
+  continentFade,
+  countryFade,
+  limbFade,
+  roomFade,
+  screenArea,
+  splitByHorizon,
+  withoutOverlaps,
+} from '@/features/airfare/lib/globe';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteMap.module.css';
@@ -38,10 +52,17 @@ import styles from './RouteMap.module.css';
  * - **SVG** for the arcs, the airports and the continent names, so each stays
  *   a node a test can query and a screen reader can read — decision 12.12.
  *
- * The continent labels are ours. mapcn gets place names from its basemap's
- * symbol layers; with the blank style this repository requires, that basemap
- * is gone and its labels with it — for mapcn as much as for us. Seven
- * hand-placed points is the whole of what was lost, and it weighs nothing.
+ * **The place names are ours.** mapcn gets them from its basemap's symbol
+ * layers; with the blank style this repository requires, that basemap is gone
+ * and its labels with it — for mapcn as much as for us. Continents are seven
+ * hand-placed points. Countries are read off the outlines already bundled and
+ * already drawn, so 177 names cost no bytes at all.
+ *
+ * They arrive and leave by fading, and the fade comes from the geometry rather
+ * than from a stylesheet: opacity is recomputed every frame from how far a
+ * name is from the limb and how much room there is under it at this zoom. A
+ * CSS transition covers only the jumps geometry does not — a zoom button, a
+ * change of projection.
  */
 
 // 1:110m Natural Earth, bundled. 39 kB gzip, and it never touches the network.
@@ -55,6 +76,9 @@ const GRATICULE = geoGraticule10();
 
 const ZOOM = { min: 1, max: 8, step: 1.5, wheel: 1.12 };
 
+/** For a route the watchlist has no colour for, which should not happen. */
+const DEFAULT_ARC = 'var(--arc-neutral)';
+
 /** Looking at Lima, which is where every route on this page starts. */
 const HOME: [number, number, number] = [77, 6, 0];
 
@@ -64,8 +88,8 @@ type RouteMapProps = {
   routes: RouteGeometry[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  /** `cheap` | `dear` | `neutral` per route id, for the arc colour. */
-  tones: Map<string, string>;
+  /** A colour per route id, so one arc can be told from the next. */
+  colours: Map<string, string>;
   projection: Projection;
   onProjectionChange: (projection: Projection) => void;
 };
@@ -78,7 +102,7 @@ export function RouteMap({
   routes,
   selectedId,
   onSelect,
-  tones,
+  colours,
   projection,
   onProjectionChange,
 }: RouteMapProps) {
@@ -130,7 +154,8 @@ export function RouteMap({
       canvas.height = Math.max(1, Math.round(rect.height * dpr));
     }
 
-    const radius = Math.min(rect.width, rect.height) * 0.42 * zoom;
+    const fitted = Math.min(rect.width, rect.height) * 0.42;
+    const radius = fitted * zoom;
 
     // The globe is turned, not dragged, so panning never applies to it.
     const middle: [number, number] = [rect.width / 2, rect.height / 2];
@@ -138,16 +163,21 @@ export function RouteMap({
       globe.translate(middle).scale(radius).rotate(rotation.current);
     }
 
+    // Zoom multiplies the *unzoomed* fit rather than being capped by it. The
+    // old form took `min(width / 2π, radius * 0.6)` with the zoom already
+    // inside `radius`, so the cap — which is exactly the scale that fits 360°
+    // of longitude across the frame — bit at about 1.1× and the flat map
+    // stopped zooming there while the globe went on to 8×.
     const mercator = projections.current.mercator;
     mercator
-      .translate([middle[0], middle[1] + pan.current.y])
-      .scale(Math.min(rect.width / 6.3, radius * 0.6));
+      .translate([middle[0] + pan.current.x, middle[1] + pan.current.y])
+      .scale(Math.min(rect.width / (2 * Math.PI), fitted * 0.6) * zoom);
     // Clamped after the fact rather than predicted: `geoMercator` runs to
     // infinity at the poles and d3 cuts it off at a latitude of its own
-    // choosing, so the only honest source for how tall the map is right now
-    // is the projected sphere itself.
-    pan.current = { x: 0, y: clampVertical(mercator, rect.height, pan.current.y) };
-    mercator.translate([middle[0], middle[1] + pan.current.y]);
+    // choosing, so the only honest source for how big the map is right now is
+    // the projected sphere itself.
+    pan.current = clampPan(mercator, rect, pan.current);
+    mercator.translate([middle[0] + pan.current.x, middle[1] + pan.current.y]);
 
     return { rect, dpr };
   }, [zoom]);
@@ -233,14 +263,27 @@ export function RouteMap({
     return () => observer.disconnect();
   }, [draw]);
 
-  // A frame loop only while something is actually moving.
+  /*
+   * A frame loop only while something is actually moving.
+   *
+   * `flushSync` is what keeps the two surfaces together. `draw` paints the
+   * canvas inside the frame callback, but a plain `repaint` only *schedules* a
+   * React render, and React's scheduler runs on a task that the browser gets
+   * to after it has already painted — so the land moved this frame and the
+   * arcs, the airport codes and the place names moved on the next one. One
+   * frame of slip at 60 Hz is small and completely visible: the map slides out
+   * from under its own labels for as long as the drag lasts.
+   *
+   * Committing synchronously costs the same work, just not deferred, and it
+   * only ever runs while a pointer is down.
+   */
   useEffect(() => {
     if (!moving) return;
     let running = true;
     const tick = () => {
       if (!running) return;
       draw();
-      repaint((count) => count + 1);
+      flushSync(() => repaint((count) => count + 1));
       requestAnimationFrame(tick);
     };
     const handle = requestAnimationFrame(tick);
@@ -263,8 +306,27 @@ export function RouteMap({
 
   const gesture = useRef<Gesture | null>(null);
 
+  /**
+   * What was under the pointer when it went down, and where.
+   *
+   * Selection is decided on the way *up*, not with an `onClick` on the arc.
+   * The stage captures the pointer as soon as a drag starts, and a captured
+   * pointer sends its click to the capturing element rather than to the path
+   * it began on — so the arc's own click handler is unreliable exactly when
+   * the map is being used. Comparing where the press started and ended also
+   * gives the distinction that actually matters: a press that stayed put is a
+   * choice, a press that travelled is a drag.
+   */
+  const pressed = useRef<{ route: string | null; x: number; y: number } | null>(null);
+
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     const { offsetX, offsetY } = event.nativeEvent;
+    const target = event.target as Element | null;
+    pressed.current = {
+      route: target?.getAttribute?.('data-route') ?? null,
+      x: offsetX,
+      y: offsetY,
+    };
     if (projection === 'globe') {
       const inverted = projections.current.globe.invert?.([offsetX, offsetY]);
       if (!inverted) return;
@@ -288,8 +350,9 @@ export function RouteMap({
     const { offsetX, offsetY } = event.nativeEvent;
 
     if (held.kind === 'pan') {
-      // Vertical only; `fit` clamps it to the map's own edges.
-      pan.current = { x: 0, y: held.from.y + (offsetY - held.y) };
+      // Free in both directions; `fit` clamps it to the map's own edges, which
+      // at the default zoom leaves only up and down reachable.
+      pan.current = { x: held.from.x + (offsetX - held.x), y: held.from.y + (offsetY - held.y) };
       return;
     }
 
@@ -303,7 +366,16 @@ export function RouteMap({
     rotation.current = [next[0], next[1], 0];
   }
 
+  /** A press that has not travelled far enough to be a drag. */
+  const STILL = 4;
+
   function endGesture(event: React.PointerEvent<HTMLDivElement>) {
+    const press = pressed.current;
+    pressed.current = null;
+    if (press?.route) {
+      const { offsetX, offsetY } = event.nativeEvent;
+      if (Math.hypot(offsetX - press.x, offsetY - press.y) <= STILL) onSelect(press.route);
+    }
     if (!gesture.current) return;
     gesture.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -339,7 +411,11 @@ export function RouteMap({
     repaint((tick) => tick + 1);
   }
 
-  const moved = zoom !== 1 || Math.abs(pan.current.y) > 0.5;
+  // Rotation counts as having moved the view. Without it, spinning the globe
+  // halfway round the planet left "Reset the view" greyed out.
+  const turned = rotation.current.some((angle, axis) => Math.abs(angle - HOME[axis]) > 0.5);
+  const moved =
+    zoom !== 1 || turned || Math.abs(pan.current.x) > 0.5 || Math.abs(pan.current.y) > 0.5;
 
   /* ----------------------------------------------------------------- svg -- */
 
@@ -349,9 +425,99 @@ export function RouteMap({
   const svgPath = geoPath(place);
   const centre = rotation.current;
 
+  /**
+   * The stretches of an arc that are actually drawn.
+   *
+   * On the globe, the near ones only. The split still happens — it is what
+   * makes the line stop cleanly at the limb instead of at whichever sample
+   * happened to fall there — but the far half is dropped rather than dimmed.
+   * A faint line crossing the back of the globe reads as a line on the front,
+   * and it crosses everything genuinely in front of it on the way. The
+   * airports stay: a dot is a place, and knowing an endpoint is round the back
+   * is worth something. A curve through it is not.
+   */
   function runsFor(coordinates: LngLat[]) {
-    return isGlobe ? splitByHorizon(coordinates, centre) : [{ near: true, points: coordinates }];
+    if (!isGlobe) return [{ near: true, points: coordinates }];
+    return splitByHorizon(coordinates, centre).filter((run) => run.near);
   }
+
+  /* --------------------------------------------------------------- names -- */
+
+  /*
+   * Continents when you are looking at the world, countries once you have
+   * closed in far enough for a border to mean anything — and each name fading
+   * rather than blinking, whether it is leaving round the back of the globe or
+   * arriving because there is finally room for it.
+   *
+   * Recomputed every frame on purpose. That is what makes the fade come from
+   * the geometry itself: at 60 frames a second the opacity is a continuous
+   * function of where the globe is pointing, which no amount of CSS on a
+   * mounting and unmounting node can imitate.
+   */
+  const frame = size.current;
+  const view: View = { globe: isGlobe, scale: place.scale(), rotation: centre };
+
+  type MapName = Boxed & { key: string; text: string; opacity: number; country: boolean };
+  const names: MapName[] = [];
+
+  function offer(name: MapName['text'], at: LngLat, strength: number, country: boolean) {
+    const font = country ? 10 : 11;
+    // Letter-spacing is part of how wide a name is, and the continent names
+    // are tracked out a long way.
+    const spacing = country ? 0.8 : 1.98;
+    let opacity = strength;
+    if (isGlobe) opacity *= limbFade(at, centre);
+    if (opacity <= 0.01) return;
+    const xy = place(at);
+    if (!xy) return;
+    const width = name.length * (font * 0.58 + spacing);
+    const height = font * 1.7;
+    // Off the frame entirely. Worth checking: zoomed in, most of the world is.
+    if (xy[0] < -width || xy[0] > frame.width + width) return;
+    if (xy[1] < -height || xy[1] > frame.height + height) return;
+    names.push({
+      key: `${country ? 'n' : 'c'}:${name}`,
+      text: name,
+      x: xy[0],
+      y: xy[1],
+      width,
+      height,
+      opacity,
+      country,
+    });
+  }
+
+  /*
+   * The airport codes claim their ground first and never lose it. They are the
+   * data the map exists for; a continent name printed across LIM is decoration
+   * covering the thing being decorated.
+   */
+  const claimed: Boxed[] = [];
+  for (const { route } of arcs) {
+    for (const [point, code] of [
+      [route.from, route.origin],
+      [route.to, route.destination],
+    ] as const) {
+      const xy = place(point);
+      if (!xy) continue;
+      // Matching the dot and the code drawn below: left-anchored at `x + 7`.
+      const width = 12 + code.length * 6.4;
+      claimed.push({ x: xy[0] + 1 + width / 2, y: xy[1] + 3.5, width, height: 17 });
+    }
+  }
+
+  const continents = continentFade(zoom) * 0.55;
+  for (const continent of CONTINENTS) offer(continent.name, continent.at, continents, false);
+
+  const countries = countryFade(zoom) * 0.72;
+  for (const country of COUNTRIES) {
+    if (countries <= 0.01) break;
+    const room = roomFade(screenArea(country.area, country.at, view));
+    if (room <= 0) continue;
+    offer(country.name, country.at, room * countries, true);
+  }
+  // Offered biggest first, so a bigger place keeps the ground it stands on.
+  const shown = withoutOverlaps(names, claimed);
 
   return (
     <div className={styles.map}>
@@ -410,38 +576,27 @@ export function RouteMap({
       >
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
-          className={styles.overlay}
+          className={`${styles.overlay} ${moving ? '' : styles.settled}`}
           viewBox={`0 0 ${size.current.width || 1} ${size.current.height || 1}`}
           role="list"
           aria-label="Watched routes"
         >
-          {/*
-            Continent names first, so a label never sits on top of the data.
-            Only the ones facing the viewer: on the far side the name would
-            land over a different continent entirely.
-          */}
-          {isGlobe
-            ? CONTINENTS.filter((continent) => facesViewer(continent.at, centre)).map(
-                (continent) => {
-                  const xy = place(continent.at);
-                  if (!xy) return null;
-                  return (
-                    <text
-                      key={continent.name}
-                      x={xy[0]}
-                      y={xy[1]}
-                      className={styles.continent}
-                      aria-hidden="true"
-                    >
-                      {continent.name}
-                    </text>
-                  );
-                },
-              )
-            : null}
+          {/* Place names first, so one never sits on top of the data. */}
+          {shown.map((name) => (
+            <text
+              key={name.key}
+              x={name.x}
+              y={name.y}
+              className={name.country ? styles.country : styles.continent}
+              style={{ opacity: name.opacity }}
+              aria-hidden="true"
+            >
+              {name.text}
+            </text>
+          ))}
 
           {arcs.map(({ route, line }) => {
-            const tone = tones.get(route.id) ?? 'neutral';
+            const stroke = colours.get(route.id) ?? DEFAULT_ARC;
             const selected = selectedId === route.id;
             return (
               <g key={route.id} role="listitem">
@@ -450,22 +605,31 @@ export function RouteMap({
                   if (!d) return null;
                   return (
                     <g key={index}>
+                      {/*
+                        A wide invisible twin, so a 1.6px arc is something a
+                        pointer can hit — and only on the near side. On the far
+                        side the arc is showing *through* the globe; picking it
+                        there would mean clicking a line you are looking at the
+                        back of, and it sits over whatever is genuinely in
+                        front of it.
+                      */}
+                      {run.near ? (
+                        <path
+                          d={d}
+                          className={styles.hit}
+                          data-route={route.id}
+                          aria-hidden="true"
+                        />
+                      ) : null}
                       <path
                         d={d}
-                        className={styles.hit}
-                        onClick={() => onSelect(route.id)}
-                        aria-hidden="true"
-                      />
-                      <path
-                        d={d}
+                        style={{ stroke }}
                         className={[
                           styles.arc,
-                          styles[tone],
                           // Dashed on the globe, where the surface is curved
                           // and busy; solid on the flat map, where a dash only
                           // fragments a line that already reads.
                           isGlobe ? styles.dashed : '',
-                          run.near ? '' : styles.behind,
                           selected ? styles.active : '',
                         ]
                           .filter(Boolean)
@@ -502,6 +666,9 @@ export function RouteMap({
                     cx={xy[0]}
                     cy={xy[1]}
                     r={isOrigin ? 3.4 : 2.6}
+                    // The origin stays neutral: every route on this page leaves
+                    // from it, so colouring it would claim it belongs to one.
+                    style={isOrigin ? undefined : { fill: colours.get(route.id) ?? DEFAULT_ARC }}
                     className={isOrigin ? styles.home : styles.node}
                   />
                   <text x={xy[0] + 7} y={xy[1] + 3.5} className={styles.label}>

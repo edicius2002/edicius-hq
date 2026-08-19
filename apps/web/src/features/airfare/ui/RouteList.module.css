@@ -1,9 +1,18 @@
+/*
+ * The list takes the height the row settled on and scrolls inside it. The
+ * fields above stay put: they are what the panel is for, and a watchlist long
+ * enough to scroll is exactly when you least want them scrolled away.
+ */
 .list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .item {
@@ -14,14 +23,25 @@
 
 .route {
   flex: 1;
+  /*
+   * One line: swatch, pair, then the dates.
+   *
+   * `1fr` on the dates and `justify-content: center` inside them puts the
+   * departure in the middle of the row whether or not there is a return
+   * beside it, so a column of routes lines its dates up instead of having them
+   * drift with the length of each pair.
+   */
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   text-align: left;
   background: var(--color-bg-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: var(--space-2) var(--space-3);
+  padding: 5px var(--space-2);
   font: inherit;
   cursor: pointer;
 }
@@ -37,17 +57,75 @@
 }
 
 .pair {
-  font-size: 0.95rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* Punctuation, not information: smaller and quieter than the codes it joins. */
+.to {
+  font-size: 0.62rem;
+  color: var(--color-muted);
+  vertical-align: 1px;
+}
+
+/* The colour this route's arc is drawn in, so the list and the map agree. */
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.dates {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  /* Measured: with both legs shown the row had one pixel to spare at this
+     panel width, which is not room, it is a coincidence. */
+  gap: 7px;
+  min-width: 0;
 }
 
 .dates,
 .departed {
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.66rem;
+}
+
+.leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.arrow {
+  color: var(--color-accent);
+  font-size: 0.7rem;
+  line-height: 1;
 }
 
 .departed {
   color: var(--color-expense);
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
+/*
+ * Read aloud, never drawn. The arrows carry the meaning visually and are
+ * hidden from the accessibility tree; these words carry it for a screen
+ * reader, which would otherwise hear a bare date with no idea which leg.
+ */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .empty {
@@ -63,6 +141,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
 }
 
 /* A rule under the fields, so the list below reads as a separate thing. */

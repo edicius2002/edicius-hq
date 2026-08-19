@@ -17,14 +17,21 @@
   --map-coast: color-mix(in srgb, var(--color-muted) 65%, var(--color-surface));
   --map-graticule: color-mix(in srgb, var(--color-muted) 16%, transparent);
   --map-halo: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  /*
+   * The fallback only. Each arc is stroked with its own colour from
+   * `lib/palette`, because eight lines leaving Lima in the same accent are
+   * eight lines nobody can tell apart.
+   */
   --arc-neutral: var(--color-accent);
-  --arc-cheap: var(--color-income);
-  --arc-dear: var(--color-expense);
 
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  /* Fills the panel, so the globe grows into whatever height the row settles
+     on rather than leaving a gap under itself. */
+  flex: 1;
+  min-height: 0;
 }
 
 .toolbar {
@@ -76,6 +83,14 @@
 }
 
 .stage {
+  /*
+   * Nothing in here is text to be read; it is a map to be handled. Without
+   * this, dragging across a continent name or an airport code sweeps a
+   * selection highlight over it instead of turning the globe, and a
+   * double-click leaves half the labels highlighted blue.
+   */
+  user-select: none;
+  -webkit-user-select: none;
   position: relative;
   min-height: 460px;
   flex: 1;
@@ -138,23 +153,19 @@
 }
 
 /*
- * The half that has gone round the back. Faint rather than gone: the globe is
- * glass, and an endpoint you spun away from is still one you are watching.
+ * An airport that has gone round the back. Faint rather than gone: the globe
+ * is glass, and an endpoint you spun away from is still one you are watching.
+ *
+ * Only the dots and their codes. The arc between them is dropped at the limb
+ * instead — a faint curve across the back reads as a curve across the front,
+ * and it crosses everything genuinely in front of it on the way.
  */
 .behind {
-  opacity: 0.28;
+  opacity: 0.3;
 }
 
 .behind .label {
   opacity: 0.8;
-}
-
-.cheap {
-  stroke: var(--arc-cheap);
-}
-
-.dear {
-  stroke: var(--arc-dear);
 }
 
 .active {
@@ -166,12 +177,10 @@
   stroke-dasharray: 7 4;
 }
 
-/* Selection still shows through the glass, just quietly. */
-.active.behind {
-  opacity: 0.45;
-}
-
-/* A wide invisible twin, so a 1.6px arc is still something a pointer can hit. */
+/*
+ * A wide invisible twin, so a 1.6px arc is still something a pointer can hit.
+ * Drawn for the near side only — see the component.
+ */
 .hit {
   fill: none;
   stroke: transparent;
@@ -210,24 +219,59 @@
   stroke-linejoin: round;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .switch button {
-    transition: none;
-  }
+/*
+ * Place names. Ours, because a blank basemap has no symbol layers — the one
+ * thing mapcn's tiles gave that nothing else here does. The continents are
+ * seven fixed points; the countries are read off the outlines already drawn.
+ *
+ * Opacity is set inline, per frame, from the geometry: how far a name is from
+ * the limb, and how much room there is under it at this zoom. The transition
+ * below is only for the jumps geometry does not cover — pressing a zoom
+ * button, switching projection — and it is short enough not to smear a name
+ * across a fast drag.
+ */
+.continent,
+.country {
+  font-family: var(--font-sans);
+  text-anchor: middle;
+  pointer-events: none;
 }
 
 /*
- * Continent names. Ours, because a blank basemap has no symbol layers — the
- * one thing mapcn's tiles gave that nothing else here does, and seven fixed
- * points is the whole of it.
+ * Only while nothing is being dragged. During a drag the geometry sets opacity
+ * every frame, and a transition on top of that is a low-pass filter: the fade
+ * lags the rotation by its own duration, so the names drift behind the globe
+ * they belong to. The transition exists for the jumps geometry does not cover
+ * — a zoom press, a change of projection — and those happen at rest.
  */
+.settled .continent,
+.settled .country {
+  transition: opacity 160ms ease-out;
+}
+
 .continent {
-  font-family: var(--font-sans);
   font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  text-anchor: middle;
   fill: var(--color-muted);
-  opacity: 0.5;
-  pointer-events: none;
+}
+
+.country {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  fill: var(--color-text);
+  /* A halo in the land colour, painted under the glyphs, so a name stays
+     readable where it crosses a coastline onto the darker water. */
+  paint-order: stroke;
+  stroke: var(--map-land);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch button,
+  .settled .continent,
+  .settled .country {
+    transition: none;
+  }
 }

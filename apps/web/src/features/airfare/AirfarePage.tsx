@@ -1,17 +1,23 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import {
+  formatFlightDate,
+  routeId,
+  routeLabel,
+  type FareRoute,
+} from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { bucketBaseline, bucketSnapshots, type Granularity } from '@/features/airfare/lib/buckets';
-import { variation } from '@/features/airfare/lib/flights';
 import { routeGeometries } from '@/features/airfare/lib/geo';
+import { routeColour } from '@/features/airfare/lib/palette';
 import { latestSnapshot, snapshotsFor } from '@/features/airfare/lib/series';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
+import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
 import { collectFares, type Airport, type CollectResponse } from '@/shared/api/fares';
@@ -95,28 +101,23 @@ export function AirfarePage() {
   );
 
   /*
-   * Only the open route is coloured by how far it sits from its usual price.
+   * A colour per route, by its place in the watchlist.
    *
-   * Colouring every arc would mean a history request per watched route — the
-   * page holds one route's archive at a time by design. A summary endpoint
-   * would fix that; until there is one, a neutral arc honestly means "not
-   * looked up" rather than "around usual".
+   * This used to be a cheap/dear tone on the open route alone, which left
+   * every other arc in the same accent — and this page draws them all from one
+   * origin, so they left Lima as a fan of identical lines. Colour is identity
+   * now; how a fare sits against its usual price is the detail panel's job,
+   * where there is room to say it in words and a number.
+   *
+   * Built from the watchlist rather than from the drawn geometries, so a route
+   * whose coordinates have not arrived yet still holds its slot and the arcs
+   * do not renumber when one of them appears.
    */
-  const tones = useMemo(() => {
+  const colours = useMemo(() => {
     const map = new Map<string, string>();
-    const cheapest = latest?.offers.length
-      ? Math.min(...latest.offers.map((offer) => offer.price))
-      : null;
-    const typical = insights?.typical ?? null;
-    if (selectedKey && cheapest !== null && typical !== null) {
-      const delta = variation(typical, cheapest);
-      map.set(
-        selectedKey,
-        delta === null ? 'neutral' : delta <= -8 ? 'cheap' : delta >= 8 ? 'dear' : 'neutral',
-      );
-    }
+    watchlist.routes.forEach((route, index) => map.set(routeId(route), routeColour(index)));
     return map;
-  }, [latest, insights, selectedKey]);
+  }, [watchlist.routes]);
 
   const cities = useMemo(() => {
     const found = geometries.find((geometry) => geometry.id === selectedKey);
@@ -149,7 +150,6 @@ export function AirfarePage() {
     <section className={styles.page} aria-labelledby="page-title">
       <PageHeader
         title="Airfare"
-        subtitle="Watch what a route costs, and notice when it moves."
         actions={
           <div className={styles.collectRow}>
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
@@ -165,97 +165,115 @@ export function AirfarePage() {
         }
       />
 
-      {/* Map and its route detail on the left, the watchlist on the right. */}
+      {/*
+        Four cells, laid out in order: map and watchlist across the top row,
+        route detail and the collection report under them. The panels are grid
+        children rather than two stacked columns, which is what makes the map
+        and the watchlist share a row — and so a height — instead of each
+        column growing to its own content.
+      */}
       <div className={styles.top}>
-        <div className={styles.stack}>
-          <Panel>
-            <RouteMap
-              routes={geometries}
-              selectedId={selectedKey}
-              onSelect={setSelectedId}
-              tones={tones}
-              projection={projection}
-              onProjectionChange={setProjection}
-            />
-            {geometries.length < watchlist.routes.length ? (
-              <p className={styles.note}>
-                {watchlist.routes.length - geometries.length} route
-                {watchlist.routes.length - geometries.length === 1 ? '' : 's'} not drawn yet —
-                coordinates arrive with a route&rsquo;s first collection.
-              </p>
-            ) : null}
-          </Panel>
+        <Panel className={styles.tall}>
+          <RouteMap
+            routes={geometries}
+            selectedId={selectedKey}
+            onSelect={setSelectedId}
+            colours={colours}
+            projection={projection}
+            onProjectionChange={setProjection}
+          />
+          {geometries.length < watchlist.routes.length ? (
+            <p className={styles.note}>
+              {watchlist.routes.length - geometries.length} route
+              {watchlist.routes.length - geometries.length === 1 ? '' : 's'} not drawn yet —
+              coordinates arrive with a route&rsquo;s first collection.
+            </p>
+          ) : null}
+        </Panel>
 
-          <Panel>
-            <RouteDetail
-              route={selected}
-              latest={latest}
-              insights={insights}
-              health={health}
-              cities={cities}
-            />
-          </Panel>
-        </div>
-
-        <div className={styles.stack}>
-          <Panel>
+        <Panel className={styles.tall}>
+          <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
-            <RouteList
-              routes={watchlist.routes}
-              selectedId={selectedKey}
-              today={today}
-              onSelect={setSelectedId}
-              onRemove={(id) => {
-                if (id === selectedId) setSelectedId(null);
-                void watchlist.remove(id);
-              }}
-              onAdd={(route) => void watchlist.add(route)}
-              onMove={(from, to) => void watchlist.move(from, to)}
-            />
-          </Panel>
+            {/*
+              Outside the form it submits, which is what `form` is for: the
+              action belongs at the top of the panel it acts on, not buried
+              under the fields.
+            */}
+            <Button type="submit" form={ADD_ROUTE_FORM_ID} variant="primary" size="small">
+              Add route
+            </Button>
+          </header>
+          <RouteList
+            routes={watchlist.routes}
+            colours={colours}
+            selectedId={selectedKey}
+            today={today}
+            onSelect={setSelectedId}
+            onRemove={(id) => {
+              if (id === selectedId) setSelectedId(null);
+              void watchlist.remove(id);
+            }}
+            onAdd={(route) => void watchlist.add(route)}
+            onMove={(from, to) => void watchlist.move(from, to)}
+          />
+        </Panel>
 
-          {/*
+        {/*
             A collection pass reports what it could not do beside what it could
             — decisions 8.8 and 8.41. Hiding the refusals would make a scraper
             that stopped working look like a week of unchanged prices.
           */}
-          {collect.data ? (
-            <Panel>
-              <h2 className={styles.panelTitle}>Last collection</h2>
-              <p className={styles.note}>
-                {collect.data.collected} looked at, {collect.data.changed} changed,{' '}
-                {collect.data.failed} failed
-                {collect.data.skipped.length > 0 ? `, ${collect.data.skipped.length} not due` : ''}.
-              </p>
-              {failures.length > 0 ? (
-                <ul className={styles.failures}>
-                  {failures.map((failure) => (
-                    <li key={`${failure.origin}-${failure.destination}-${failure.flightDate}`}>
-                      {failure.origin} → {failure.destination} ({failure.flightDate}):{' '}
-                      {failure.errorCode} — {failure.errorMessage}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </Panel>
-          ) : null}
+        {collect.data ? (
+          <Panel>
+            <h2 className={styles.panelTitle}>Last collection</h2>
+            <p className={styles.note}>
+              {collect.data.collected} looked at, {collect.data.changed} changed,{' '}
+              {collect.data.failed} failed
+              {collect.data.skipped.length > 0 ? `, ${collect.data.skipped.length} not due` : ''}.
+            </p>
+            {failures.length > 0 ? (
+              <ul className={styles.failures}>
+                {failures.map((failure) => (
+                  <li key={`${failure.origin}-${failure.destination}-${failure.flightDate}`}>
+                    {failure.origin} → {failure.destination} ({failure.flightDate}):{' '}
+                    {failure.errorCode} — {failure.errorMessage}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Panel>
+        ) : null}
 
-          {collect.isError ? (
-            <Panel>
-              <p className={styles.note} role="alert">
-                The collection call failed: {collect.error.message}
-              </p>
-            </Panel>
-          ) : null}
-        </div>
+        {collect.isError ? (
+          <Panel>
+            <p className={styles.note} role="alert">
+              The collection call failed: {collect.error.message}
+            </p>
+          </Panel>
+        ) : null}
       </div>
+
+      {/*
+        The route's own figures, across the page and one strip tall. At this
+        width a stacked column of four numbers is mostly empty space with
+        everything below it pushed down.
+      */}
+      <Panel>
+        <RouteDetail
+          route={selected}
+          latest={latest}
+          insights={insights}
+          health={health}
+          cities={cities}
+        />
+      </Panel>
 
       {/* The analysis runs the full width, under both columns. */}
       <Panel>
         <div className={styles.analysisHead}>
           <h2 className={styles.panelTitle}>
             {selected
-              ? `${routeLabel(selected)} · departs ${selected.flightDate}`
+              ? `${routeLabel(selected)} · ${formatFlightDate(selected.flightDate)}`
               : 'Price analysis'}
           </h2>
           <div className={styles.switch} role="group" aria-label="Group observations by">
@@ -283,8 +301,15 @@ export function AirfarePage() {
               : 'Price analysis'
           }
         />
+      </Panel>
 
-        <h3 className={styles.subTitle}>Every flight seen on this route</h3>
+      {/*
+        Its own panel rather than a heading inside the chart's. The chart
+        answers "is this route cheaper than usual"; the table answers "cheaper
+        on what, and which ones moved". Two questions, two boxes.
+      */}
+      <Panel>
+        <h2 className={styles.panelTitle}>Every flight seen on this route</h2>
         <FlightTable snapshots={snapshots} />
       </Panel>
     </section>

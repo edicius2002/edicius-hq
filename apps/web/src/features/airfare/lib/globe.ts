@@ -1,4 +1,4 @@
-import { geoPath, type GeoProjection } from 'd3-geo';
+import { geoDistance, geoPath, type GeoProjection } from 'd3-geo';
 
 import { facesViewer, type LngLat } from '@/features/airfare/lib/geo';
 
@@ -72,28 +72,167 @@ export const CONTINENTS: { name: string; at: LngLat }[] = [
 ];
 
 /**
- * How far the flat map may be dragged, which is up and down and no further
- * than its own edges.
+ * How far the flat map may be dragged, which is never past its own edges.
  *
- * Sideways is left out on purpose: the projection is fitted to the width of
- * the frame, so dragging horizontally only ever swaps map for empty space.
- * Vertically it is genuinely taller than the frame — Mercator stretches the
- * poles — and there is something to reach.
+ * The rule is one rule on both axes: you may pull the map about, but not so
+ * far that empty space appears beside it. At the default zoom that reads as
+ * *vertical only*, because the projection is fitted to the width of the frame
+ * and there is nothing to reach sideways — the clamp works that out from the
+ * map's measured width rather than being told. Zoom in and the map is wider
+ * than the frame, so sideways becomes reachable on the same terms.
  *
- * When the map is shorter than the frame there is nothing to scroll, so it
- * sits centred rather than floating wherever it was let go.
+ * When an axis is shorter than the frame there is nothing to scroll, so the
+ * map sits centred on it rather than floating wherever it was let go.
  */
-export function clampVertical(
+export function clampPan(
   mercator: GeoProjection,
-  frameHeight: number,
-  offset: number,
-): number {
-  const [[, top], [, bottom]] = geoPath(mercator).bounds({ type: 'Sphere' });
-  const height = bottom - top;
-  if (height <= frameHeight) return offset - (top + bottom) / 2 + frameHeight / 2;
-  // `top` and `bottom` already include the current offset, so the correction
-  // is relative to it.
-  if (top > 0) return offset - top;
-  if (bottom < frameHeight) return offset + (frameHeight - bottom);
+  frame: { width: number; height: number },
+  offset: { x: number; y: number },
+): { x: number; y: number } {
+  const [[left, top], [right, bottom]] = geoPath(mercator).bounds({ type: 'Sphere' });
+  return {
+    x: clampAxis(left, right, frame.width, offset.x),
+    y: clampAxis(top, bottom, frame.height, offset.y),
+  };
+}
+
+/** `near` and `far` already include the current offset, so corrections are relative to it. */
+function clampAxis(near: number, far: number, frame: number, offset: number): number {
+  if (far - near <= frame) return offset - (near + far) / 2 + frame / 2;
+  if (near > 0) return offset - near;
+  if (far < frame) return offset + (frame - far);
   return offset;
+}
+
+/* ------------------------------------------------------------------ names -- */
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+/** Radians of approach to the limb over which a name fades out. About 16°. */
+const LIMB_BAND = 0.28;
+
+/**
+ * How solidly a name on the globe is facing the viewer, from 1 to 0.
+ *
+ * `facesViewer` answers the same question with a yes or a no, which is right
+ * for deciding whether to draw an arc at all and wrong for a label: at exactly
+ * 90° the name blinks out mid-rotation. Fading it over the last few degrees
+ * before the limb is what makes a turning globe read as turning rather than as
+ * a list of names being switched on and off.
+ */
+export function limbFade(point: LngLat, rotation: [number, number, number]): number {
+  const away = geoDistance(point, [-rotation[0], -rotation[1]]);
+  return clamp01((Math.PI / 2 - away) / LIMB_BAND);
+}
+
+export type View = {
+  globe: boolean;
+  /** The projection's own scale: globe radius, or Mercator's. */
+  scale: number;
+  rotation: [number, number, number];
+};
+
+/**
+ * Roughly how many square pixels a region of `area` steradians covers now.
+ *
+ * Both estimates are the projection's local area scale factor, which is
+ * `r²·cos θ` away from the centre of an orthographic and `s²·sec²φ` at
+ * latitude φ on a Mercator. Measured against `geoPath.area` on real countries
+ * they land within 5%, and they cost one cosine instead of streaming a
+ * polygon — which matters, because this runs per label per frame.
+ */
+export function screenArea(area: number, at: LngLat, view: View): number {
+  if (view.globe) {
+    const away = geoDistance(at, [-view.rotation[0], -view.rotation[1]]);
+    return area * view.scale ** 2 * Math.max(0, Math.cos(away));
+  }
+  const stretch = 1 / Math.cos((at[1] * Math.PI) / 180);
+  return area * view.scale ** 2 * stretch ** 2;
+}
+
+/** The room a country name wants under it before it is worth drawing, in px². */
+export const LABEL_ROOM = 2400;
+
+/**
+ * How far past the point of deserving a label a country is, from 0 to 1.
+ *
+ * Full strength at twice the room it needs. A zoom step is 1.5× linear and so
+ * 2.25× in area, which means a name fades in over a little less than one press
+ * of the button rather than appearing all at once.
+ */
+export function roomFade(area: number, needed: number = LABEL_ROOM): number {
+  return clamp01(area / needed - 1);
+}
+
+/**
+ * Continents giving way to countries as the view closes in.
+ *
+ * Both at once is clutter, and they answer different questions: the continent
+ * names orient you on a whole globe, the country names only mean anything once
+ * you can see a border. They cross over at about 2.2×, each half-lit, so the
+ * handover reads as one thing becoming another rather than as a switch.
+ *
+ * The zoom gate is why `roomFade` alone is not enough. Russia and Brazil have
+ * room for their names at the very first frame, and printing them next to
+ * SOUTH AMERICA is exactly the clutter this is meant to avoid.
+ */
+export function continentFade(zoom: number): number {
+  return clamp01((3 - zoom) / 1.2);
+}
+
+export function countryFade(zoom: number): number {
+  return clamp01((zoom - 1.6) / 1.2);
+}
+
+export type Boxed = { x: number; y: number; width: number; height: number };
+
+/**
+ * Names that are not sitting on top of each other, in the order they were
+ * offered — which is biggest first, so the bigger place keeps the ground.
+ *
+ * This is the one job a vector basemap's symbol layer does that geometry alone
+ * will not: without it, half a dozen European countries pile their names into
+ * the same square inch the moment the globe turns that way.
+ *
+ * `claimed` is ground that is already taken and cannot be won: the airport
+ * codes. They are the data this map exists for, so a decorative place name
+ * gives way to them rather than printing itself across LIM.
+ */
+export function withoutOverlaps<T extends Boxed>(
+  labels: T[],
+  claimed: Boxed[] = [],
+  nudges: number[] = NUDGES,
+): T[] {
+  const kept: T[] = [];
+  const taken: Boxed[] = [...claimed];
+  for (const label of labels) {
+    for (const nudge of nudges) {
+      const moved = nudge === 0 ? label : { ...label, y: label.y + nudge };
+      if (!taken.every((other) => apart(moved, other))) continue;
+      kept.push(moved);
+      taken.push(moved);
+      break;
+    }
+  }
+  return kept;
+}
+
+/**
+ * Where a blocked name is allowed to go instead, in order of preference.
+ *
+ * Dropping it outright is the wrong answer when the thing blocking it is an
+ * airport code: LIM sits almost exactly on the middle of South America, so the
+ * continent this reader is looking at would be the one continent with no name
+ * on it. Standard cartographic practice is that the label steps aside, and a
+ * step of one or two line heights is enough.
+ */
+const NUDGES = [0, -17, 17, -34, 34];
+
+function apart(one: Boxed, other: Boxed): boolean {
+  return (
+    Math.abs(one.x - other.x) * 2 >= one.width + other.width ||
+    Math.abs(one.y - other.y) * 2 >= one.height + other.height
+  );
 }

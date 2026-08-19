@@ -86,9 +86,16 @@
   white-space: nowrap;
 }
 
-/* Anchored to the field's right edge instead, when the left edge would push
-   the list off the page. */
-.flipped {
+/*
+ * Pinned to the field's right edge, so it grows leftwards.
+ *
+ * Told, not measured. The old version read the list's own rectangle after it
+ * had painted and moved it on the next frame — which meant the first open
+ * always drew off the right edge first, and drawing off the right edge is
+ * what puts a horizontal scrollbar on the page. Where a field sits in its row
+ * is something the caller knows for free.
+ */
+.leftwards {
   left: auto;
   right: 0;
 }

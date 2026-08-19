@@ -212,9 +212,32 @@ export type BucketAxis = {
   spell: (key: string) => string;
   /** The order the keys are drawn in, left to right. */
   order: (a: string, b: string) => number;
+  /**
+   * Where a key sits on the axis, in whole days, increasing left to right.
+   *
+   * **The axis is a measure and not a list — 12.231.** It used to be neither:
+   * the chart spaced buckets by their index in the sorted key list, so a
+   * one-day step and a fortnight the collector was down looked identical, and a
+   * period neither series reached had no width at all to be seen in. That is
+   * the same fault `contiguousRuns` was written for wearing a different hat —
+   * the break is drawn, but the distance across it was not.
+   *
+   * Days on both readings, which is what lets one component draw them. A
+   * calendar key is placed at the first day of what it covers; a lead key at
+   * *minus* its near end, because the lead axis counts down towards departure
+   * while every axis in this app runs forwards left to right.
+   */
+  position: (key: string) => number;
   /** What the second, dashed series is — the legend line under the chart. */
   baselineLegend: string;
 };
+
+/** `2026-08-17` → whole days since the epoch, by the rule the rest of this file splits dates by. */
+export function dayNumber(date: string): number {
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) return 0;
+  return Math.round(Date.UTC(year, month - 1, day) / DAY_MS);
+}
 
 /**
  * Calendar time: the axis this chart has always been drawn on.
@@ -228,6 +251,11 @@ export function calendarAxis(granularity: Granularity): BucketAxis {
     unit: { one: granularity, many: `${granularity}s` },
     spell: (key) => boundsLabel(periodBounds(key, granularity)),
     order: (a, b) => a.localeCompare(b),
+    // The first day of what the key covers, through `periodBounds` rather than
+    // through arithmetic of its own — the same inverse of `bucketKey` the
+    // caption and the crosshair go through, so no two of them can disagree
+    // about which Monday a week starts on.
+    position: (key) => dayNumber(periodBounds(key, granularity).from.slice(0, 10)),
     baselineLegend: 'What the provider says it usually costs — one rounded figure a day',
   };
 }
@@ -246,10 +274,20 @@ export function calendarAxis(granularity: Granularity): BucketAxis {
  * adjacency means "nothing is drawn between these two", not "these two dates
  * are consecutive". A period neither series reached is not on the axis at all
  * and so cannot make a hole.
+ *
+ * Generic in what a run holds since 12.230, and the reason is that the flight
+ * scatter needed the same answer for a different shape. Its dashed line runs
+ * through one *itinerary* per departure day and was emitting a single `M…L…L…`
+ * across days that were never collected — the one straight synthesised
+ * continuity left on the page. A second implementation of run-splitting is the
+ * thing this feature has spent 12.60 and 12.170 refusing to have, so the
+ * constraint was widened to "anything with a key" rather than the answer
+ * copied. `Bucket` satisfies it unchanged and every existing caller is
+ * untouched.
  */
-export function contiguousRuns(keys: string[], series: Bucket[]): Bucket[][] {
+export function contiguousRuns<T extends { key: string }>(keys: string[], series: T[]): T[][] {
   const rank = new Map(keys.map((key, index) => [key, index]));
-  const runs: Bucket[][] = [];
+  const runs: T[][] = [];
   let last: number | null = null;
   for (const bucket of series) {
     const index = rank.get(bucket.key);
@@ -288,6 +326,47 @@ export function bucketSnapshots(snapshots: FareSnapshot[], granularity: Granular
   }
   return [...groups.entries()]
     .map(([key, prices]) => summarise(key, labelFor(key, granularity), prices))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/* --------------------------------------------------- the other kind of gap -- */
+
+/**
+ * A period the collector reached and came back from with nothing on the board.
+ *
+ * **The two absences of 12.154, carried onto the observation axis — 12.232.**
+ * `bucketSnapshots` skips a snapshot with no offers, which is right as far as
+ * it goes: zero is a price and a chart would draw it as the best deal ever
+ * found. What went with it was the fact that we *asked*. A day the provider
+ * answered about and had nothing to sell came out of that filter identical to a
+ * day nobody ever looked at, and the horizon chart was the only view on this
+ * page that kept the two apart — even though the archive stores an empty board
+ * as an ordinary snapshot precisely so it can be told from a missing one.
+ *
+ * So the emptiness is counted here rather than dropped, and the chart draws it
+ * on a rail below the plot floor: a mark inside the plot at any height reads as
+ * a fare, which is exactly the confusion being fixed. There is no matching
+ * "never answered" count on this axis and there cannot be — nothing records the
+ * days we *meant* to look and did not. What says that instead is the axis
+ * itself, which since 12.231 is a measure: a stretch with nothing drawn on it
+ * is now visibly as long as it really was.
+ */
+export type UnsoldPeriod = {
+  key: string;
+  label: string;
+  /** How many boards came back empty in this period. */
+  count: number;
+};
+
+export function unsoldPeriods(snapshots: FareSnapshot[], granularity: Granularity): UnsoldPeriod[] {
+  const counts = new Map<string, number>();
+  for (const snapshot of snapshots) {
+    if (cheapestOffer(snapshot)) continue;
+    const key = bucketKey(snapshot.capturedAt, granularity);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, label: labelFor(key, granularity), count }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 

@@ -3,6 +3,7 @@ import {
   type Bucket,
   type BucketAxis,
   type Granularity,
+  type UnsoldPeriod,
 } from '@/features/airfare/lib/buckets';
 import { cheapestOffer, daysBeforeDeparture } from '@/features/airfare/lib/series';
 import type { FarePricePoint, FareSnapshot } from '@/shared/api/fares';
@@ -148,6 +149,20 @@ export function leadAxis(granularity: Granularity): BucketAxis {
     unit: UNIT[granularity],
     spell: (key) => leadPeriod(key, granularity),
     order: (a, b) => b.localeCompare(a),
+    /*
+     * Minus the near end, in days — 12.231.
+     *
+     * Negative because this axis is the one that counts down: left to right is
+     * time running forwards on every chart in this feature, and running
+     * forwards towards a departure means the lead shrinks. Negating it is what
+     * makes "further right" mean "later" here as it does everywhere else, so
+     * one scale serves both readings rather than one of them needing a flip.
+     *
+     * The far end rather than the near one, so a bucket sits at the edge its
+     * own label starts counting from: `189–195d ahead` is drawn at 195 days
+     * out, which is the left edge of the seven days it covers.
+     */
+    position: (key) => -(leadSpan(key, granularity)?.far ?? 0),
     baselineLegend:
       'What the provider charged at that lead time — one rounded figure per departure',
   };
@@ -188,6 +203,29 @@ export function leadSnapshots(snapshots: FareSnapshot[], granularity: Granularit
     if (key !== null) entries.push([key, offer.price]);
   }
   return gather(entries, granularity, axis);
+}
+
+/**
+ * The same empty boards `unsoldPeriods` counts, placed by lead time — 12.232.
+ *
+ * A board that came back with nothing on it still has a lead time, and the
+ * reason for keeping it is the reason that function gives: dropping it makes a
+ * run-up we asked about and found empty read exactly like a run-up nobody
+ * reached. On this axis that matters more rather than less, because two thirds
+ * of it is already stretches our own collector has never got to.
+ */
+export function leadUnsold(snapshots: FareSnapshot[], granularity: Granularity): UnsoldPeriod[] {
+  const counts = new Map<string, number>();
+  for (const snapshot of snapshots) {
+    if (cheapestOffer(snapshot)) continue;
+    const days = daysBeforeDeparture(snapshot.capturedAt, snapshot.flightDate);
+    const key = days === null ? null : leadKey(days, granularity);
+    if (key === null) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, label: leadLabel(key, granularity), count }))
+    .sort((a, b) => b.key.localeCompare(a.key));
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  absentDays,
   activeKey,
   axisDayLabel,
   axisTicks,
@@ -23,6 +24,7 @@ import {
   priceSpan,
   scatterWindow,
   stepKey,
+  windowDays,
   xOf,
   yOf,
   type Plot,
@@ -317,18 +319,51 @@ describe('the dashed line through the cheapest flight of each day', () => {
   const window = scatterWindow('2027-W10', 'week');
   const span = { low: 150, high: 450 };
 
-  const points = flightPoints(
-    [
-      snapshot('2027-03-09', '2026-08-01T09:00', [
-        offer({ price: 210, departureAt: '2027-03-09T19:55' }),
-        offer({ price: 380, departureAt: '2027-03-09T07:00', flightNumber: '4' }),
-      ]),
-      snapshot('2027-03-11', '2026-08-01T09:00', [
-        offer({ price: 260, departureAt: '2027-03-11T06:30', flightNumber: '5' }),
-      ]),
-    ],
-    window,
-  );
+  /**
+   * Seven departure days across the plot's 660 usable units, so one day is 94.3
+   * of them. Every honest segment of this line is exactly that wide: its nodes
+   * are one per day, and they are all drawn at the same hour in these fixtures
+   * so the width is the calendar step and nothing else.
+   */
+  const DAY_WIDTH = 660 / 7;
+
+  /** A day's board, every flight at a whole hour from 06:00 so the clock is not the variable. */
+  function board(day: string, prices: number[]): FareSnapshot {
+    return snapshot(
+      day,
+      '2026-08-01T09:00',
+      prices.map((price, index) =>
+        offer({
+          price,
+          departureAt: `${day}T${String(6 + index).padStart(2, '0')}:00`,
+          flightNumber: `${day}-${index}`,
+        }),
+      ),
+    );
+  }
+
+  /**
+   * How far each drawn segment reaches, horizontally.
+   *
+   * Widths rather than a count of subpaths, and that is the whole reason this
+   * helper exists: counting `M`s does not catch a line running through a hole.
+   * A single stroke straight across a missing day is one `M` exactly like a
+   * single stroke across a step, and the two are told apart only by how far one
+   * of their segments reaches. A segment that starts a new stroke draws nothing
+   * and is skipped.
+   */
+  function segments(path: string): number[] {
+    const nodes = [...path.matchAll(/([ML])(-?[\d.]+),/g)];
+    const widths: number[] = [];
+    for (let index = 1; index < nodes.length; index += 1) {
+      if (nodes[index][1] !== 'L') continue;
+      widths.push(Number(nodes[index][2]) - Number(nodes[index - 1][2]));
+    }
+    return widths;
+  }
+
+  const RUN = [board('2027-03-09', [380, 210]), board('2027-03-10', [260])];
+  const points = flightPoints(RUN, window);
 
   it('joins one node per day, in departure order', () => {
     expect(cheapestPath(points, window, span, PLOT).match(/[ML]/g)).toEqual(['M', 'L']);
@@ -340,19 +375,164 @@ describe('the dashed line through the cheapest flight of each day', () => {
     expect(path.startsWith(`M${xOf(cheapest.offset, window, PLOT).toFixed(1)},`)).toBe(true);
   });
 
+  it('stops at a departure day nobody ever collected rather than reaching across it', () => {
+    // The 8th and 9th were collected, the 10th never was, the 11th and 12th
+    // were. A line through the lot claims a fare moved evenly across a day
+    // nobody has ever priced.
+    const path = cheapestPath(
+      flightPoints(
+        [
+          board('2027-03-08', [240]),
+          board('2027-03-09', [210]),
+          board('2027-03-11', [260]),
+          board('2027-03-12', [255]),
+        ],
+        window,
+      ),
+      window,
+      span,
+      PLOT,
+    );
+
+    // The assertion that catches the old drawing, and it has to be this one:
+    // counting subpaths does not, because a single stroke straight through the
+    // missing day is one `M` exactly like a single stroke across a step.
+    // Nothing this line draws may reach further than one departure day.
+    expect(Math.max(...segments(path))).toBeLessThan(1.5 * DAY_WIDTH);
+    expect(segments(path)).toHaveLength(2);
+    for (const width of segments(path)) expect(width).toBeCloseTo(DAY_WIDTH, 0);
+  });
+
+  it('stops at a departure day whose board came back empty, the same as at one nobody asked about', () => {
+    // The 10th was asked about and had nothing to sell. That is a different
+    // fact from never having asked — the rail under the plot says which — but
+    // it is the same hole as far as the line is concerned, because there is no
+    // cheapest flight to draw through.
+    const path = cheapestPath(
+      flightPoints(
+        [
+          board('2027-03-08', [240]),
+          board('2027-03-09', [210]),
+          board('2027-03-10', []),
+          board('2027-03-11', [260]),
+          board('2027-03-12', [255]),
+        ],
+        window,
+      ),
+      window,
+      span,
+      PLOT,
+    );
+
+    expect(Math.max(...segments(path))).toBeLessThan(1.5 * DAY_WIDTH);
+    expect(segments(path)).toHaveLength(2);
+  });
+
+  it('leaves a day stranded between two holes out of the line altogether', () => {
+    // A run of one node has no line in it. The component rings every
+    // cheapest-of-day flight, so the day is still marked.
+    const path = cheapestPath(
+      flightPoints([board('2027-03-08', [240]), board('2027-03-12', [255])], window),
+      window,
+      span,
+      PLOT,
+    );
+    expect(path).toBe('');
+  });
+
   it('draws nothing when a single day cannot make a line', () => {
     const oneDay = scatterWindow('2027-03-09', 'day');
-    const onePoints = flightPoints(
-      [
-        snapshot('2027-03-09', '2026-08-01T09:00', [
-          offer({ price: 210, departureAt: '2027-03-09T19:55' }),
-          offer({ price: 380, departureAt: '2027-03-09T07:00', flightNumber: '4' }),
-        ]),
-      ],
-      oneDay,
-    );
+    const onePoints = flightPoints([board('2027-03-09', [380, 210])], oneDay);
     expect(cheapestPerDay(onePoints)).toHaveLength(1);
     expect(cheapestPath(onePoints, oneDay, span, PLOT)).toBe('');
+  });
+});
+
+describe('which departure days the frame covers', () => {
+  it('walks every date a window holds, holes included', () => {
+    expect(windowDays(scatterWindow('2027-W10', 'week'))).toEqual([
+      '2027-03-08',
+      '2027-03-09',
+      '2027-03-10',
+      '2027-03-11',
+      '2027-03-12',
+      '2027-03-13',
+      '2027-03-14',
+    ]);
+    expect(windowDays(scatterWindow('2027-03-09', 'day'))).toEqual(['2027-03-09']);
+  });
+
+  it('clips a week that runs past the end of the watched month', () => {
+    // March 2027's last ISO week is 29 March to 4 April. A month watch has
+    // never asked about April, so the frame must not draw four days of it.
+    const week = scatterWindow('2027-W13', 'week', { from: '2027-03-01', to: '2027-03-31' });
+    expect(week.from).toBe('2027-03-29T00:00');
+    expect(week.to).toBe('2027-03-31T23:59');
+    expect(week.days).toBe(3);
+    expect(axisTicks(week).map((tick) => tick.label)).toEqual(['29/03', '30/03', '31/03']);
+    expect(dayBoundaries(week)).toHaveLength(2);
+  });
+
+  it('clips a week that starts before the watched month begins', () => {
+    // 1 March 2027 is a Monday, so no week overhangs the front of that month —
+    // but April's first week runs from 29 March, and an April watch has no more
+    // business drawing March than a March one has drawing April.
+    const week = scatterWindow('2027-W13', 'week', { from: '2027-04-01', to: '2027-04-30' });
+    expect(week.from).toBe('2027-04-01T00:00');
+    expect(week.to).toBe('2027-04-04T23:59');
+    expect(week.days).toBe(4);
+  });
+
+  it('leaves a period wholly inside the watch exactly as it was', () => {
+    const week = scatterWindow('2027-W10', 'week', { from: '2027-03-01', to: '2027-03-31' });
+    expect(week.from).toBe('2027-03-08T00:00');
+    expect(week.to).toBe('2027-03-14T23:59');
+    expect(week.days).toBe(7);
+  });
+
+  it('keeps its own bounds where the watch and the period do not meet at all', () => {
+    // `activeKey` only ever hands over a period a departure day fell in, so
+    // this should not arise — and collapsing the frame to nothing rather than
+    // saying so would be a chart with no width.
+    const week = scatterWindow('2027-W10', 'week', { from: '2027-06-01', to: '2027-06-30' });
+    expect(week.days).toBe(7);
+  });
+});
+
+describe('a departure day inside the frame with no flight on it', () => {
+  const window = scatterWindow('2027-W10', 'week');
+
+  const snapshots = [
+    snapshot('2027-03-08', '2026-08-01T09:00', [
+      offer({ price: 240, departureAt: '2027-03-08T07:00', flightNumber: '1' }),
+    ]),
+    // Asked about, and the provider had nothing to sell.
+    snapshot('2027-03-09', '2026-08-01T09:00', []),
+    // The 10th to the 14th were never asked about at all.
+  ];
+
+  it('tells a board that came back empty from a day nobody asked about', () => {
+    const marks = absentDays(snapshots, window);
+    expect(marks.map((mark) => mark.day)).toEqual([
+      '2027-03-09',
+      '2027-03-10',
+      '2027-03-11',
+      '2027-03-12',
+      '2027-03-13',
+      '2027-03-14',
+    ]);
+    expect(marks.find((mark) => mark.day === '2027-03-09')!.answered).toBe(true);
+    expect(marks.filter((mark) => mark.answered)).toHaveLength(1);
+  });
+
+  it('says nothing about a day that has flights on it', () => {
+    expect(absentDays(snapshots, window).some((mark) => mark.day === '2027-03-08')).toBe(false);
+  });
+
+  it('places a mark in the middle of its own day rather than on the midnight beside it', () => {
+    const mark = absentDays(snapshots, window).find((day) => day.day === '2027-03-09')!;
+    // Day one of the window, plus half a day.
+    expect(mark.offset).toBe(1440 + 720);
   });
 });
 

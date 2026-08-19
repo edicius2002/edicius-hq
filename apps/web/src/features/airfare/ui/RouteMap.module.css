@@ -11,11 +11,23 @@
    * separation to read a coastline without importing a second palette that
    * would fight the one every other page uses.
    */
+  /*
+   * mapcn's own values, read from its source rather than guessed at: in dark
+   * it fills geography with `#404040` and separates it with `#171717`, a line
+   * *darker* than the land it cuts. Both are warmed a few percent towards this
+   * app's ground so a neutral grey does not read as cold against a brown page
+   * — measured after the warming, the pair sits at a contrast ratio of 1.70
+   * against mapcn's own 1.73, so what separates a border from its land here is
+   * the same relationship it has there.
+   *
+   * There is no graticule token any more. mapcn has no graticule, and neither
+   * does this: the grid was the busiest thing on a globe already carrying arcs
+   * and place names, and the only one carrying nothing.
+   */
   --map-ocean: color-mix(in srgb, var(--color-bg) 62%, #000);
-  --map-ocean-lit: color-mix(in srgb, var(--color-surface-soft) 70%, #1b3a55);
-  --map-land: color-mix(in srgb, var(--color-surface-soft) 55%, var(--color-muted));
-  --map-coast: color-mix(in srgb, var(--color-muted) 65%, var(--color-surface));
-  --map-graticule: color-mix(in srgb, var(--color-muted) 16%, transparent);
+  --map-ocean-lit: color-mix(in srgb, var(--color-bg) 45%, #22303c);
+  --map-land: color-mix(in srgb, #404040 94%, var(--color-surface-soft));
+  --map-border: color-mix(in srgb, #171717 92%, var(--color-bg));
   --map-halo: color-mix(in srgb, var(--color-accent) 12%, transparent);
   /*
    * The fallback only. Each arc is stroked with its own colour from
@@ -194,16 +206,25 @@
   opacity: 1;
 }
 
+/*
+ * A coloured dot with a white ring — mapcn's own marker, which is a 16px
+ * circle with a 2px white border. White rather than the surface colour on
+ * purpose: the ring has to separate the dot from land, from ocean and from an
+ * arc of its own colour passing under it, and only white is lighter than all
+ * three on this ground.
+ */
 .node {
   fill: var(--arc-neutral);
-  stroke: var(--color-surface);
-  stroke-width: 1.2;
+  stroke: #fff;
+  stroke-width: 1.6;
 }
 
+/* Lima, where every route starts. Left neutral: colouring it would claim it
+   belongs to one of them. */
 .home {
   fill: var(--color-text);
-  stroke: var(--color-surface);
-  stroke-width: 1.2;
+  stroke: #fff;
+  stroke-width: 1.6;
 }
 
 .label {

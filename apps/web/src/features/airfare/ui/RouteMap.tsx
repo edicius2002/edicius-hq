@@ -1,7 +1,7 @@
-import { geoGraticule10, geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
+import { geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { feature } from 'topojson-client';
+import { feature, mesh } from 'topojson-client';
 import versor from 'versor';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
@@ -16,6 +16,7 @@ import {
   type Boxed,
   CONTINENTS,
   type View,
+  approach,
   clampPan,
   continentFade,
   countryFade,
@@ -46,9 +47,12 @@ import styles from './RouteMap.module.css';
  *
  * Two surfaces:
  *
- * - **Canvas** for the sphere, the graticule and the land. Reprojecting a
- *   world outline every frame is the expensive part, and a 2D context absorbs
- *   it where thousands of DOM nodes would not.
+ * - **Canvas** for the sphere, the land and every country boundary.
+ *   Reprojecting a world outline every frame is the expensive part, and a 2D
+ *   context absorbs it where thousands of DOM nodes would not. There is no
+ *   graticule: mapcn has none, and on a globe already carrying arcs and place
+ *   names the grid was the busiest thing on screen and the only one carrying
+ *   nothing.
  * - **SVG** for the arcs, the airports and the continent names, so each stays
  *   a node a test can query and a screen reader can read — decision 12.12.
  *
@@ -72,9 +76,28 @@ const WORLD = feature(
   worldAtlas as never,
   (worldAtlas as never as { objects: { countries: never } }).objects.countries,
 );
-const GRATICULE = geoGraticule10();
+/*
+ * Every boundary once, drawn as a mesh rather than as each country's own
+ * outline. Two neighbours share a border, and stroking both polygons paints it
+ * twice — at half opacity that reads as a heavier line between France and
+ * Germany than along the Atlantic coast, which is backwards.
+ */
+const BOUNDARIES = mesh(
+  worldAtlas as never,
+  (worldAtlas as never as { objects: { countries: never } }).objects.countries,
+);
 
-const ZOOM = { min: 1, max: 8, step: 1.5, wheel: 1.12 };
+const ZOOM = { min: 1, max: 8 };
+
+/**
+ * How much one notch of wheel changes the scale.
+ *
+ * Exponential in the wheel delta rather than a fixed step per event, which is
+ * what makes it feel continuous: a trackpad reports deltas of a few pixels and
+ * a mouse notch reports about a hundred, so a fixed factor per *event* gives
+ * the trackpad a crawl and the mouse a jump. The same constant d3-zoom uses.
+ */
+const WHEEL_RATE = 0.002;
 
 /** For a route the watchlist has no colour for, which should not happen. */
 const DEFAULT_ARC = 'var(--arc-neutral)';
@@ -111,7 +134,27 @@ export function RouteMap({
   const rotation = useRef<[number, number, number]>([...HOME]);
   const pan = useRef({ x: 0, y: 0 });
   const size = useRef({ width: 0, height: 0 });
-  const [zoom, setZoom] = useState(1);
+  /*
+   * Zoom is a ref, not state.
+   *
+   * A wheel gesture fires dozens of events; as state each one was a React
+   * render before anything could be drawn. Held in a ref, the wheel handler
+   * only writes a number and the frame loop picks it up — the same path a drag
+   * takes, and the reason the two now feel alike.
+   */
+  const zoom = useRef(1);
+  /** Where a gesture has asked the scale to go; `zoom` eases towards it. */
+  const zoomTarget = useRef(1);
+  /**
+   * The screen point a zoom is pinned to, and the place that must stay under
+   * it.
+   *
+   * Captured once when the gesture starts and reapplied on every frame of the
+   * easing, rather than recomputed per step: recomputing accumulates each
+   * intermediate frame's error, and after a dozen of them the thing you were
+   * pointing at has quietly walked away.
+   */
+  const anchor = useRef<{ at: [number, number]; geo: [number, number] } | null>(null);
   const [moving, setMoving] = useState(false);
   const [, repaint] = useState(0);
 
@@ -155,7 +198,7 @@ export function RouteMap({
     }
 
     const fitted = Math.min(rect.width, rect.height) * 0.42;
-    const radius = fitted * zoom;
+    const radius = fitted * zoom.current;
 
     // The globe is turned, not dragged, so panning never applies to it.
     const middle: [number, number] = [rect.width / 2, rect.height / 2];
@@ -171,7 +214,7 @@ export function RouteMap({
     const mercator = projections.current.mercator;
     mercator
       .translate([middle[0] + pan.current.x, middle[1] + pan.current.y])
-      .scale(Math.min(rect.width / (2 * Math.PI), fitted * 0.6) * zoom);
+      .scale(Math.min(rect.width / (2 * Math.PI), fitted * 0.6) * zoom.current);
     // Clamped after the fact rather than predicted: `geoMercator` runs to
     // infinity at the poles and d3 cuts it off at a latitude of its own
     // choosing, so the only honest source for how big the map is right now is
@@ -180,7 +223,7 @@ export function RouteMap({
     mercator.translate([middle[0] + pan.current.x, middle[1] + pan.current.y]);
 
     return { rect, dpr };
-  }, [zoom]);
+  }, []);
 
   const draw = useCallback(() => {
     const fitted = fit();
@@ -232,18 +275,30 @@ export function RouteMap({
       context.fill();
     }
 
-    context.beginPath();
-    path(GRATICULE);
-    context.strokeStyle = readToken(stage, '--map-graticule');
-    context.lineWidth = 0.5;
-    context.stroke();
-
+    /*
+     * Land as one flat mass, then every boundary once on top — mapcn's own
+     * arrangement, read from its source: a monochrome fill with a separate
+     * near-background line, and no graticule anywhere. The grid of meridians
+     * and parallels went with it; on a globe carrying seven arcs and a dozen
+     * place names it was the busiest thing on screen and the only one carrying
+     * nothing.
+     */
     context.beginPath();
     path(WORLD);
     context.fillStyle = readToken(stage, '--map-land');
     context.fill();
-    context.strokeStyle = readToken(stage, '--map-coast');
-    context.lineWidth = 0.6;
+
+    context.beginPath();
+    path(BOUNDARIES);
+    context.strokeStyle = readToken(stage, '--map-border');
+    /*
+     * Borders hold their weight as the globe grows, up to a point: a hairline
+     * disappears when zoomed out and a fixed width turns into a ribbon when
+     * zoomed in. The colour relationship is already mapcn's — 1.70 against its
+     * 1.73, measured — so what has to carry the line at globe scale is width.
+     */
+    context.lineWidth = Math.min(1.7, 0.85 + zoom.current * 0.18);
+    context.lineJoin = 'round';
     context.stroke();
   }, [fit, projection]);
 
@@ -280,8 +335,13 @@ export function RouteMap({
   useEffect(() => {
     if (!moving) return;
     let running = true;
-    const tick = () => {
+    let last = 0;
+    const tick = (now: number) => {
       if (!running) return;
+      // Elapsed time, not a fixed step per frame, so the glide takes the same
+      // wall-clock time on a 60 Hz panel and on a 144 Hz one.
+      if (last) latestStep.current(Math.min(now - last, 50));
+      last = now;
       draw();
       flushSync(() => repaint((count) => count + 1));
       requestAnimationFrame(tick);
@@ -384,29 +444,161 @@ export function RouteMap({
     repaint((tick) => tick + 1);
   }
 
-  function nudgeZoom(factor: number) {
-    setZoom((current) => Math.min(ZOOM.max, Math.max(ZOOM.min, current * factor)));
+  /**
+   * Put the scale at `next` and bring the anchored place back under its point.
+   *
+   * Scaling about the middle of the frame slides the thing you are pointing at
+   * away exactly when you are trying to get closer to it. The two projections
+   * hold it still by different means: the flat map shifts its pan by however
+   * far the place moved, and the globe *turns*, because an orthographic has no
+   * pan and rotating is the only way to bring a place back to a fixed screen
+   * position.
+   */
+  function applyZoom(next: number) {
+    zoom.current = next;
+    fit();
+
+    const pinned = anchor.current;
+    if (!pinned) return;
+
+    if (projection === 'globe') {
+      const nowThere = projections.current.globe.invert?.(pinned.at);
+      if (!nowThere || !Number.isFinite(nowThere[0])) return;
+      const turned = versor.rotation(
+        versor.multiply(
+          versor(rotation.current),
+          // `delta(from, to)` turns the globe so `from` lands where `to` is.
+          // The pinned place has to end up where the cursor is, and what sits
+          // under the cursor right now is `nowThere`.
+          versor.delta(versor.cartesian(pinned.geo), versor.cartesian(nowThere)),
+        ),
+      );
+      // The third angle is dropped for the same reason as in a drag: letting
+      // it drift makes the globe tumble rather than turn.
+      rotation.current = [turned[0], turned[1], 0];
+    } else {
+      const where = projections.current.mercator(pinned.geo);
+      if (!where) return;
+      pan.current = {
+        x: pan.current.x + (pinned.at[0] - where[0]),
+        y: pan.current.y + (pinned.at[1] - where[1]),
+      };
+    }
+
+    /*
+     * Fit again, because the correction just moved the thing the projections
+     * were built from. Leaving it to the next frame was the bug that made
+     * anchoring look broken: the scale had changed but the rotation had not
+     * been applied, so every notch drew one frame of un-anchored zoom.
+     */
+    fit();
   }
 
-  // Attached by hand rather than through `onWheel`: React registers wheel
-  // listeners passively, and a passive listener cannot stop the page scrolling
-  // underneath the map.
+  /**
+   * One frame of the scale easing towards its target.
+   *
+   * Reached through a ref from the frame loop: the loop is started once, when
+   * something begins moving, and this function is rebuilt on every render — so
+   * a direct call there would freeze on whichever copy existed when the
+   * gesture started.
+   */
+  function stepZoom(elapsed: number) {
+    if (zoom.current === zoomTarget.current) return false;
+    applyZoom(approach(zoom.current, zoomTarget.current, elapsed));
+    if (zoom.current === zoomTarget.current) anchor.current = null;
+    return true;
+  }
+
+  const latestStep = useRef(stepZoom);
+  latestStep.current = stepZoom;
+
+  /** Ask for a new scale, pinned to a point, and let the easing take it there. */
+  function aimZoom(factor: number, at: [number, number]) {
+    const next = Math.min(ZOOM.max, Math.max(ZOOM.min, zoomTarget.current * factor));
+    if (next === zoomTarget.current) return false;
+
+    const shown = projection === 'globe' ? projections.current.globe : projections.current.mercator;
+    const geo = shown.invert?.(at);
+    if (geo && Number.isFinite(geo[0]) && Number.isFinite(geo[1])) {
+      anchor.current = { at, geo: [geo[0], geo[1]] };
+    }
+    zoomTarget.current = next;
+    // One step straight away, so the map answers a notch in the frame it
+    // arrived in rather than only once the loop wakes.
+    stepZoom(16);
+    return true;
+  }
+
+  /*
+   * The loop is kept alive for a moment after the last notch, so the frames
+   * during a wheel gesture come from the same place a drag's do — one draw and
+   * one synchronous commit per frame — instead of one render per event.
+   */
+  const wheelStop = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
+   * The handler goes through a ref so the listener itself can be attached
+   * once. It closes over `zoomAbout`, which is rebuilt on every render — an
+   * effect with no dependency array would therefore detach and reattach a
+   * listener sixty times a second during a drag, on the one component whose
+   * whole point is that a drag stays smooth.
+   */
+  const onWheel = (event: WheelEvent) => {
+    event.preventDefault();
+    // Exponential in the delta, so a trackpad's few pixels and a mouse notch's
+    // hundred read as the same gesture at different speeds.
+    const factor = Math.exp(-event.deltaY * WHEEL_RATE);
+    if (!aimZoom(factor, [event.offsetX, event.offsetY])) return;
+    setMoving(true);
+    if (wheelStop.current) clearTimeout(wheelStop.current);
+    // Long enough for the easing to arrive: about four time constants past the
+    // last notch, so the loop is never switched off mid-glide.
+    wheelStop.current = setTimeout(() => setMoving(false), 320);
+  };
+  const latestWheel = useRef(onWheel);
+  latestWheel.current = onWheel;
+
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const factor = event.deltaY < 0 ? ZOOM.wheel : 1 / ZOOM.wheel;
-      setZoom((current) => Math.min(ZOOM.max, Math.max(ZOOM.min, current * factor)));
+    // Attached by hand rather than through `onWheel`: React registers wheel
+    // listeners passively, and a passive listener cannot stop the page
+    // scrolling underneath the map.
+    const listener = (event: WheelEvent) => latestWheel.current(event);
+    stage.addEventListener('wheel', listener, { passive: false });
+    return () => {
+      stage.removeEventListener('wheel', listener);
+      if (wheelStop.current) clearTimeout(wheelStop.current);
     };
-    stage.addEventListener('wheel', onWheel, { passive: false });
-    return () => stage.removeEventListener('wheel', onWheel);
   }, []);
+
+  /*
+   * The wheel is not the only pointer, and it is no pointer at all for someone
+   * on a keyboard. With the plus and minus buttons gone, `+` and `-` on the
+   * focused map are what keeps zoom reachable without one.
+   */
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const step = event.key === '+' || event.key === '=' ? 1.3 : event.key === '-' ? 1 / 1.3 : null;
+    if (step === null) return;
+    event.preventDefault();
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    if (!aimZoom(step, [rect.width / 2, rect.height / 2])) return;
+    // Eased like the wheel, so the keyboard is the same gesture at a fixed
+    // size rather than the jump the wheel no longer makes.
+    setMoving(true);
+    if (wheelStop.current) clearTimeout(wheelStop.current);
+    wheelStop.current = setTimeout(() => setMoving(false), 320);
+    draw();
+    repaint((tick) => tick + 1);
+  }
 
   function reset() {
     rotation.current = [...HOME];
     pan.current = { x: 0, y: 0 };
-    setZoom(1);
+    zoom.current = 1;
+    zoomTarget.current = 1;
+    anchor.current = null;
     draw();
     repaint((tick) => tick + 1);
   }
@@ -415,7 +607,10 @@ export function RouteMap({
   // halfway round the planet left "Reset the view" greyed out.
   const turned = rotation.current.some((angle, axis) => Math.abs(angle - HOME[axis]) > 0.5);
   const moved =
-    zoom !== 1 || turned || Math.abs(pan.current.x) > 0.5 || Math.abs(pan.current.y) > 0.5;
+    Math.abs(zoomTarget.current - 1) > 0.001 ||
+    turned ||
+    Math.abs(pan.current.x) > 0.5 ||
+    Math.abs(pan.current.y) > 0.5;
 
   /* ----------------------------------------------------------------- svg -- */
 
@@ -506,10 +701,10 @@ export function RouteMap({
     }
   }
 
-  const continents = continentFade(zoom) * 0.55;
+  const continents = continentFade(zoom.current) * 0.55;
   for (const continent of CONTINENTS) offer(continent.name, continent.at, continents, false);
 
-  const countries = countryFade(zoom) * 0.72;
+  const countries = countryFade(zoom.current) * 0.72;
   for (const country of COUNTRIES) {
     if (countries <= 0.01) break;
     const room = roomFade(screenArea(country.area, country.at, view));
@@ -535,35 +730,22 @@ export function RouteMap({
           ))}
         </div>
 
-        <div className={styles.zoomGroup}>
-          <Button
-            variant="secondary"
-            size="small"
-            aria-label="Zoom out"
-            disabled={zoom <= ZOOM.min}
-            onClick={() => nudgeZoom(1 / ZOOM.step)}
-          >
-            &minus;
-          </Button>
-          <Button
-            variant="secondary"
-            size="small"
-            aria-label="Zoom in"
-            disabled={zoom >= ZOOM.max}
-            onClick={() => nudgeZoom(ZOOM.step)}
-          >
-            +
-          </Button>
-          <Button
-            variant="ghost"
-            size="small"
-            onClick={reset}
-            disabled={!moved}
-            aria-label="Reset the view"
-          >
-            Reset
-          </Button>
-        </div>
+        {/*
+          No plus and minus. Two buttons that step the scale by a fixed factor
+          are the mechanical feel this was asked to lose, and they zoom about
+          the middle of the frame rather than about what you are looking at.
+          The wheel does it continuously and about the cursor; `+` and `-` on
+          the focused map do it for anyone without one.
+        */}
+        <Button
+          variant="ghost"
+          size="small"
+          onClick={reset}
+          disabled={!moved}
+          aria-label="Reset the view"
+        >
+          Reset
+        </Button>
       </div>
 
       <div
@@ -573,6 +755,10 @@ export function RouteMap({
         onPointerMove={onPointerMove}
         onPointerUp={endGesture}
         onPointerCancel={endGesture}
+        onKeyDown={onKeyDown}
+        tabIndex={0}
+        role="application"
+        aria-label="Route map. Scroll or press plus and minus to zoom, drag to move."
       >
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
@@ -665,7 +851,7 @@ export function RouteMap({
                   <circle
                     cx={xy[0]}
                     cy={xy[1]}
-                    r={isOrigin ? 3.4 : 2.6}
+                    r={isOrigin ? 4.6 : 4}
                     // The origin stays neutral: every route on this page leaves
                     // from it, so colouring it would claim it belongs to one.
                     style={isOrigin ? undefined : { fill: colours.get(route.id) ?? DEFAULT_ARC }}

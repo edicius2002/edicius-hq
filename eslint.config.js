@@ -19,8 +19,11 @@ export default tseslint.config(
       // Git worktrees, so every file under here is a second copy of a file
       // already linted at the root. Left in, `npm run lint` reported 135 errors
       // against `.ccb/workspaces/worker3` — a checkout of this same repository —
-      // and none of them could be fixed from a path anybody edits.
+      // and none of them could be fixed from a path anybody edits. `.claude`
+      // holds the same kind of thing and was missed the first time: an agent
+      // working in its own worktree put 65 errors into a run of `lint` here.
       '.ccb/**',
+      '.claude/**',
     ],
   },
   js.configs.recommended,

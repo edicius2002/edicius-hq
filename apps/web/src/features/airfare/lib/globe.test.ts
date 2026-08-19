@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONTINENTS, splitByHorizon } from '@/features/airfare/lib/globe';
+import { CONTINENTS, ZOOM_TAU, approach, splitByHorizon } from '@/features/airfare/lib/globe';
 import { facesViewer, greatCircle, type LngLat } from '@/features/airfare/lib/geo';
 
 const LIMA: LngLat = [-77.114444, -12.021944];
@@ -80,5 +80,52 @@ describe('CONTINENTS', () => {
     expect(facesViewer(south.at, LOOKING_AT_LIMA)).toBe(true);
     const asia = CONTINENTS.find((continent) => continent.name === 'Asia')!;
     expect(facesViewer(asia.at, LOOKING_AT_LIMA)).toBe(false);
+  });
+});
+
+describe('approach', () => {
+  /*
+   * Applying a wheel notch in full the instant it arrives is what makes zoom
+   * feel mechanical however carefully the factor is chosen: a mouse notch is a
+   * 22% change, and 22% in one frame is a step. A tile renderer sets a target
+   * and animates towards it; so does this.
+   */
+
+  it('covers about two thirds of the distance in one time constant', () => {
+    expect(approach(1, 2, ZOOM_TAU)).toBeCloseTo(1 + (1 - Math.exp(-1)), 6);
+  });
+
+  it('moves only a fraction of the way in a single frame', () => {
+    // A 60 Hz frame is 16ms against a 70ms constant, so about a fifth.
+    const afterOneFrame = approach(1, 2, 16);
+    expect(afterOneFrame).toBeGreaterThan(1.15);
+    expect(afterOneFrame).toBeLessThan(1.25);
+  });
+
+  it('runs at the same speed whatever the frame rate', () => {
+    // Two 8ms frames on a 120 Hz panel must land where one 16ms frame does.
+    const oneStep = approach(1, 2, 16);
+    const twoSteps = approach(approach(1, 2, 8), 2, 8);
+    expect(twoSteps).toBeCloseTo(oneStep, 6);
+  });
+
+  it('arrives, rather than forever halving the gap', () => {
+    /*
+     * An exponential approach never actually reaches its target, and a scale
+     * that sits a thousandth away keeps the render loop awake for nothing.
+     */
+    let value = 1;
+    for (let frame = 0; frame < 40; frame += 1) value = approach(value, 2, 16);
+    expect(value).toBe(2);
+  });
+
+  it('goes down as readily as up', () => {
+    expect(approach(4, 1, 16)).toBeLessThan(4);
+    expect(approach(4, 1, 16)).toBeGreaterThan(1);
+  });
+
+  it('has nothing to do when it is already there', () => {
+    expect(approach(2.5, 2.5, 16)).toBe(2.5);
+    expect(approach(1, 2, 0)).toBe(1);
   });
 });

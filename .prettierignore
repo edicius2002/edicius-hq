@@ -9,6 +9,9 @@ package-lock.json
 apps/web/public
 .ccb
 
+# Worktrees: a second copy of files already checked at the root.
+.claude
+
 # Captured upstream responses. Reformatting one would change the bytes the
 # parser tests pin against, which is the whole point of keeping it verbatim.
 services/api/tests/fixtures

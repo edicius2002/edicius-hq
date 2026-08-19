@@ -10,7 +10,7 @@ import {
   formatReading,
   isCalendarDate,
   isMonth,
-  lastDayOf,
+  lastCollectableDay,
   normalizeFareRoutes,
   readingPrefix,
   removeRoute,
@@ -217,18 +217,31 @@ describe('the focus date', () => {
   });
 
   it('loads a route stored before it existed with no focus at all', () => {
-    // Every entry in the store today is one of these, and none of them must
-    // look broken. The `flightDate` of a pre-12.110 entry is deliberately not
-    // promoted into one either: it was the only day that entry could name
-    // rather than one chosen out of thirty-one, and a focus everybody has is a
-    // focus nobody chose.
+    /*
+     * Every entry in the store today is one of these, and none of them must
+     * look broken. 12.180 made the form ask for a date, so every route added
+     * from now on has a focus — and that must not reach backwards. The
+     * `flightDate` of a pre-12.110 entry is still deliberately not promoted
+     * into one: it was the only day that entry could name rather than one
+     * chosen out of thirty-one, and a focus the reader never picked, appearing
+     * on every stored route at once on the first read after an upgrade, is not
+     * a migration.
+     *
+     * Asserted whole rather than by `focusDate === undefined`, so a `focusDate:
+     * undefined` key — which would be written back into the document and come
+     * back as a key on the next read — fails here too.
+     */
     const { routes } = normalizeFareRoutes({
       routes: [
-        { origin: 'LIM', destination: 'SCL', month: '2026-10' },
+        { origin: 'LIM', destination: 'SCL', month: '2026-10', currency: 'USD' },
         { origin: 'LIM', destination: 'MAD', flightDate: '2026-10-16' },
       ],
     });
-    expect(routes.every((route) => route.focusDate === undefined)).toBe(true);
+    expect(routes).toEqual([
+      { origin: 'LIM', destination: 'SCL', month: '2026-10', currency: 'USD' },
+      { origin: 'LIM', destination: 'MAD', month: '2026-10', currency: 'USD' },
+    ]);
+    expect(routes.flatMap((route) => Object.keys(route))).not.toContain('focusDate');
   });
 
   it('is not part of what makes two entries the same watch', () => {
@@ -295,16 +308,30 @@ describe('setFocus', () => {
   });
 });
 
-describe('lastDayOf', () => {
-  it('asks the calendar rather than a table of twelve numbers', () => {
-    expect(lastDayOf('2026-10')).toBe('2026-10-31');
-    expect(lastDayOf('2026-11')).toBe('2026-11-30');
-    expect(lastDayOf('2026-02')).toBe('2026-02-28');
-    expect(lastDayOf('2028-02')).toBe('2028-02-29');
+describe('lastCollectableDay', () => {
+  it('lands 330 days ahead, rolling the month and the year on the way', () => {
+    // The horizon the API measured: +330 returned itineraries and +340 did
+    // not. 2026-08-19 plus 330 days is 2027-07-15, which crosses eleven month
+    // boundaries and one year end.
+    expect(lastCollectableDay('2026-08-19')).toBe('2027-07-15');
   });
 
-  it('hands back anything that is not a month, untouched', () => {
-    expect(lastDayOf('whenever')).toBe('whenever');
+  it('counts through a leap day rather than around it', () => {
+    // 2027-04-05 plus 330 days lands in 2028, whose February has 29 days —
+    // the arithmetic is a day count, so nothing has to remember that.
+    expect(lastCollectableDay('2027-04-05')).toBe('2028-02-29');
+  });
+
+  it('reads the same day in Lima as it does in UTC', () => {
+    // The whole reason `Date.UTC` and `getUTC*` are paired: built and read in
+    // the same frame, the answer cannot be shifted by the reader's zone. A
+    // date one day short of a month end is where a west-of-Greenwich slip
+    // would show.
+    expect(lastCollectableDay('2026-01-01')).toBe('2026-11-27');
+  });
+
+  it('hands back anything that is not a date, untouched', () => {
+    expect(lastCollectableDay('whenever')).toBe('whenever');
   });
 });
 

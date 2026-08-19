@@ -48,14 +48,21 @@ export type FareRoute = {
   month: string;
   /**
    * The one departure inside `month` this reader actually means to take,
-   * `YYYY-MM-DD` — 12.130.
+   * `YYYY-MM-DD` — 12.130, as 12.180 revised it.
    *
-   * Optional, and absent is the normal case: a month is what gets collected
-   * and a reader who has not picked a day has not lost anything. What the
-   * focus buys is the two things a month cannot say. It is what the page
-   * *reads* — `readingPrefix` narrows the detail, the chart and the flight
-   * table onto it — and it is what the collector keeps first when the day's
-   * request budget will not stretch to thirty-one departures.
+   * Still optional in the type, and the optionality now means something
+   * narrower than it did. Every route the form adds carries one, because the
+   * form asks for a date and derives the month from it — 12.180. What stays
+   * optional is the two shapes the form no longer produces: a route stored
+   * before 12.180 that has a month and never had a day, and one whose focus
+   * the reader took back from the detail panel. Both must keep working and
+   * neither may have a day invented for it, which is why this is not required
+   * and why the normalizer still takes no clock — 12.133.
+   *
+   * What the focus buys is the two things a month cannot say. It is what the
+   * page *reads* — `readingPrefix` narrows the detail, the chart and the
+   * flight table onto it — and it is what the collector keeps first when a
+   * pass's request budget will not stretch to every watched departure.
    *
    * It must fall inside `month`. That is not a convention the callers agree
    * to keep: `readingPrefix` only works because `2027-03-09` starts with
@@ -110,24 +117,44 @@ export function monthOf(iso: string): string {
 }
 
 /**
- * The last day a month actually has, as `YYYY-MM-DD`.
+ * How many days ahead the provider will answer about a departure at all.
  *
- * What bounds the day picker, so the browser itself refuses a focus outside
- * the watched month rather than the form catching it afterwards. Asked of the
- * calendar rather than a table of twelve numbers, so February 2028 is the 29th
- * without anybody remembering to say so — the same choice `month_dates` makes
- * on the server.
+ * The same 330 the API holds in `MAX_DEPARTURE_HORIZON_DAYS`, and the same
+ * measurement is written beside it: +330 days returned itineraries, while
+ * +340, +348, +355 and +370 all answered `upstream-error`.
+ *
+ * Copied across the boundary rather than fetched — 12.184. There is no config
+ * endpoint to ask, and adding one would put a round trip on every page load in
+ * front of a single integer that has moved once. The server stays the
+ * authority: a departure past this still comes back `beyond-horizon` in the
+ * collector's skip list whatever the form believes. What this copy buys is a
+ * refusal while the reader is still standing in front of the field that caused
+ * it, instead of a route that looks added and quietly never collects.
+ */
+export const COLLECTABLE_HORIZON_DAYS = 330;
+
+/**
+ * The furthest departure worth watching, as `YYYY-MM-DD`.
+ *
+ * What bounds the departure picker, so the browser itself refuses a date the
+ * provider will not answer about rather than the form catching it afterwards.
  *
  * `Date` appears here and it is safe, for the one reason it ever is: the value
- * is built with `Date.UTC` and read back through `getUTCDate`, so it is never
- * in a zone Lima could shift it out of. Day 0 of the next month is the last
- * day of this one.
+ * is built with `Date.UTC` and read back through the `getUTC*` accessors, so
+ * it is never in a zone Lima could shift it out of. Adding days to a UTC
+ * midnight rolls the month and the year for us, which is why the arithmetic is
+ * here rather than a string split — a day count is the one thing that cannot
+ * be done by slicing.
  */
-export function lastDayOf(month: string): string {
-  if (!isMonth(month)) return month;
-  const [year, index] = month.split('-').map(Number);
-  const day = new Date(Date.UTC(year, index, 0)).getUTCDate();
-  return `${month}-${String(day).padStart(2, '0')}`;
+export function lastCollectableDay(today: string): string {
+  if (!isCalendarDate(today)) return today;
+  const [year, month, day] = today.split('-').map(Number);
+  const last = new Date(Date.UTC(year, month - 1, day + COLLECTABLE_HORIZON_DAYS));
+  return [
+    last.getUTCFullYear(),
+    String(last.getUTCMonth() + 1).padStart(2, '0'),
+    String(last.getUTCDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 /** Three letters. Airports have digits in other coding schemes, IATA does not. */
@@ -274,10 +301,15 @@ export function formatReading(route: FareRoute): string {
  * wrong, so the weaker of the two goes and the route survives with no focus —
  * a shape the whole feature already handles, because most routes have it.
  *
- * A pre-12.110 `flightDate` is **not** promoted into a focus. It was the only
- * day that entry could name rather than one chosen out of thirty-one, so
- * reviving it would put a focus on every legacy route at once — and a focus
- * everybody has is a focus nobody chose.
+ * A pre-12.110 `flightDate` is **not** promoted into a focus, and 12.180 does
+ * not change that. The form now asks for a date and so gives every route it
+ * adds a focus — but that is a reader choosing a day, which is the whole of
+ * what a focus means. A legacy `flightDate` was the only day that entry could
+ * name rather than one picked out of thirty-one, and promoting it would put a
+ * focus the reader never chose on every stored route at once, silently, on the
+ * first read after an upgrade. This function still takes no clock and still
+ * writes nothing back by itself — 12.133 — so a route stored with a month and
+ * no focus loads with a month and no focus, untouched.
  */
 export function normalizeFareRoutes(value: unknown): FareRoutes {
   if (typeof value !== 'object' || value === null) return EMPTY_FARE_ROUTES;
@@ -375,11 +407,16 @@ export function addRoute(document: FareRoutes, route: FareRoute): FareRoutes {
   const id = routeId(normalized);
   if (document.routes.some((existing) => routeId(existing) === id)) {
     // Already watched. Still not a move — you asked for it to be present, not
-    // for it to jump to the end — but the focus travels, because this form is
+    // for it to jump to the end — but the focus travels, because the form is
     // the only control that names a day. Re-adding a watch you already have is
-    // how a day is put on it, and re-adding with the day left blank is how it
-    // comes off. With nothing to change it is the no-op it always was, down to
-    // returning the same document.
+    // how its day is moved to another one. It is no longer how a day comes
+    // *off*: under 12.180 the form's date is required, so it can never hand
+    // over a route with no focus, and the way back to the whole month is the
+    // detail panel's own control — 12.182. The `?? null` stays because this is
+    // a pure transition over a value and callers other than the form exist;
+    // making it unreachable in the UI is not a reason to let it invent a focus
+    // here instead. With nothing to change it is the no-op it always was, down
+    // to returning the same document.
     return setFocus(document, id, normalized.focusDate ?? null);
   }
   return { ...document, routes: [...document.routes, normalized] };

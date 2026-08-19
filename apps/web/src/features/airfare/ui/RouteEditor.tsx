@@ -3,10 +3,10 @@ import { useState, type FormEvent } from 'react';
 import {
   DEFAULT_CURRENCY,
   DEFAULT_ORIGIN,
+  formatFlightDate,
   isAirportCode,
   isCalendarDate,
-  isMonth,
-  lastDayOf,
+  lastCollectableDay,
   monthOf,
   normalizeCode,
   type FareRoute,
@@ -33,61 +33,68 @@ type RouteEditorProps = {
 /**
  * The fields that add a route, always on screen at the top of the watchlist.
  *
- * Origin and destination on one row because they are one decision; the month
- * and the day inside it on the next because they are the other one; the button
- * last. Four inputs and a control, sized so the whole thing costs less vertical
- * room than two entries of the list it sits above — which is why the day went
- * beside the month rather than under it.
+ * Origin and destination on one row because they are one decision; the
+ * departure date on the next because it is the other one; the button last.
+ * Three inputs and a control, sized so the whole thing costs less vertical
+ * room than two entries of the list it sits above.
  *
- * **The Departure field is a month, and Return is gone** — 12.110 and 12.113.
- * The month is what the watch is now: the collector expands it into its
- * departures, so asking for one day here would be asking the reader to choose
- * the thing the page exists to work out for them. Return went with it because
- * a return date belongs to one departure, and a month has thirty-one — one
- * shared return would be thirty wrong trips, and a return that moved with each
- * departure would be a trip *length*, which is a different product. The owner
- * has put return legs out of scope; when they come back they will come back as
- * a length, and this form will grow a number of nights rather than a date.
+ * **One date, and the month is derived from it** — 12.180, superseding the
+ * two-control arrangement 12.130 shipped. The reader is asked the question
+ * they actually have an answer to: the day they mean to fly. `monthOf` turns
+ * that into the watch, and the month is still the whole of what is collected —
+ * all thirty-one of its departures, unchanged. The date itself becomes the
+ * focus, which is what the detail panel, the chart and the flight table read,
+ * and what the collector keeps first when a pass cannot afford every departure
+ * it is watching.
  *
- * **The day beside the month is the focus date, and it is optional** — 12.130.
- * It does not change what is collected; the month still expands into every one
- * of its departures. It changes what the page reads, and it is what the
- * collector keeps first when the budget will not stretch to all of them.
+ * So every route added here has a focus, and that is a reversal of 12.130's
+ * "absent is the ordinary case" rather than a drift away from it. It is
+ * argued in 12.180 and the supersede row beside it. Absent is still a shape
+ * the model and the whole page handle, because two things still produce it: a
+ * route stored before this change, and a reader who pressed "Read the whole
+ * month" in the detail panel — which is now the only way back, 12.182.
+ *
+ * **Return is gone and is not coming back as a date** — 12.113. A return date
+ * belongs to one departure, and a month has thirty-one; the owner has put
+ * return legs out of scope, and when they return they will return as a number
+ * of nights rather than a second date.
  *
  * The airport comboboxes are untouched.
  *
  * It validates before it submits rather than letting the normalizer drop a bad
  * entry silently: a route that vanishes on save looks like a broken button,
- * and the reader has no way to learn that `2026-13` was the problem.
+ * and the reader has no way to learn which field was the problem.
  */
 export function RouteEditor({ onAdd, today }: RouteEditorProps) {
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState('');
-  const [month, setMonth] = useState('');
-  const [day, setDay] = useState('');
+  const [departure, setDeparture] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // The earliest month still worth watching is the one we are in: some of its
-  // days have gone, but the rest have not, and the collector skips the gone
-  // ones by name.
-  const thisMonth = monthOf(today);
-  const dayBounds = isMonth(month) ? { min: `${month}-01`, max: lastDayOf(month) } : null;
+  // The two ends of what can be collected at all. Today is included: a
+  // departure zero days out is inside the horizon and the collector polls it
+  // at the fastest rate it has. The far end is measured, not chosen — see
+  // `COLLECTABLE_HORIZON_DAYS`.
+  const lastDay = lastCollectableDay(today);
 
-  /**
-   * Moving the month takes the day with it.
+  /*
+   * There is no second control to keep in step, and that is the point.
    *
-   * A day left standing from the month before is the one state the invariant
-   * cannot survive — and it would be a *silent* break, because `type="date"`
-   * shows `09/03/2027` the same way whichever month is picked above it. The
-   * value is cleared rather than shifted into the new month: the 9th of March
-   * is not evidence about April, and guessing is what the normalizer's own
-   * rule forbids.
+   * The arrangement this replaces had a month above a day, and the state it
+   * could not survive was a day left standing when the month moved out from
+   * under it — a *silent* break, because `type="date"` renders `09/03/2027`
+   * identically whichever month is picked above it, so a reader looking at the
+   * form could not see that the two disagreed. It was guarded by clearing the
+   * day on every month change.
+   *
+   * A guard is weaker than an impossibility. With one field the month is a
+   * function of the date, recomputed at submit from the value being submitted,
+   * so there is no second value that can be stale and nothing to keep in step.
+   * The one thing that must not be lost with the guard is *why* it existed:
+   * whatever this form grows next, the month and the focus must never be two
+   * independently editable values, because a date control cannot show which
+   * month it belongs to and the disagreement would go unseen.
    */
-  function changeMonth(next: string) {
-    setMonth(next);
-    if (day && monthOf(day) !== next) setDay('');
-  }
-
   function submit(event: FormEvent) {
     event.preventDefault();
 
@@ -99,40 +106,55 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
       setError('Origin and destination are the same airport.');
       return;
     }
-    if (!isMonth(month)) {
-      setError('Departure month must be a real month.');
+    /*
+     * The date is required, and it is required here rather than by a `required`
+     * attribute on the control. A native constraint stops the submit event
+     * from firing at all and answers with the browser's own bubble, which
+     * would make this the one field in the form whose complaint arrives in a
+     * different place, in a different voice, and — because it pre-empts the
+     * event — ahead of the airport checks above it. One `role="alert"`, in
+     * document order, for every reason this form can refuse.
+     *
+     * The `min` and `max` guards below are declared on the control as well,
+     * and repeated here on purpose: the attributes stop a bad value being
+     * *picked*, and this stops one being *submitted* in a browser that
+     * degrades `type="date"` to a text box and enforces neither.
+     */
+    if (departure === '') {
+      setError('Pick the day you mean to fly.');
       return;
     }
-    if (month < thisMonth) {
-      setError('That month is over.');
+    if (!isCalendarDate(departure)) {
+      setError('Departure date must be a real date.');
+      return;
+    }
+    if (departure < today) {
+      setError('That day has gone.');
       return;
     }
     /*
-     * The day is optional, so an empty one is not an error — but a day that
-     * was typed and cannot be kept is. The normalizer would drop it and leave
-     * a route that looked added and quietly was not what was asked for, which
-     * is the same silence the month guard above exists to break.
+     * Refused here rather than accepted and dropped later. A departure past
+     * the horizon is not a route that collects slowly, it is one the provider
+     * answers nothing about — it would sit in the watchlist reporting
+     * `beyond-horizon` on every pass forever, and nothing on screen would tell
+     * the reader that the date was the reason.
      */
-    if (day && (!isCalendarDate(day) || monthOf(day) !== month)) {
-      setError('That day is not in the departure month.');
-      return;
-    }
-    if (day && day < today) {
-      setError('That day has gone.');
+    if (departure > lastDay) {
+      setError(`Fares are only on sale as far ahead as ${formatFlightDate(lastDay)}.`);
       return;
     }
 
     onAdd({
       origin: normalizeCode(origin),
       destination: normalizeCode(destination),
-      month,
-      ...(day ? { focusDate: day } : {}),
+      // Derived, never stored beside the date as a second editable value.
+      month: monthOf(departure),
+      focusDate: departure,
       currency: DEFAULT_CURRENCY,
     });
 
     setDestination('');
-    setMonth('');
-    setDay('');
+    setDeparture('');
     setError(null);
   }
 
@@ -164,82 +186,35 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
         />
       </div>
 
-      {/*
-        Back into a `.row` pair, and with the field that 12.113 emptied the
-        other half of now filled by something that belongs there: the month and
-        the day inside it are one decision about when to fly, the way the two
-        airports above are one decision about where.
-
-        Measured before it was moved, because a half-width control that
-        overflows is worse than a full-width one that does not. `tokens.css`
-        sets `--font-size-base: 125%`, so a rem is 20px. The panel column is
-        `minmax(20rem, 27rem)`; at the 27rem ceiling that is 540px, less 2px of
-        border and 2 x `--space-4` (20px) of padding, leaving 498px — two
-        columns of 244px with the row's `--space-2` (10px) between them. At the
-        20rem floor it is 358px of content and 174px a column. A native
-        `type="month"` or `type="date"` at this 0.9rem (18px) draws `March 2027`
-        or `09/03/2027` — ten characters, 108px at the 0.6em advance this font
-        stack uses — plus a picker button of about 20px, 24px of padding and 2px
-        of border: 154px, inside 174px at the floor and comfortable at the
-        ceiling. The `min-width: 8rem` these inputs carry for the full-width
-        case is what would have broken it, and it is dropped inside a row.
-      */}
-      <div className={styles.row}>
-        <div className={styles.field}>
-          <label htmlFor="airfare-departure">Departure month</label>
-          {/*
-            `type="month"` rather than a pair of selects: it is the one control
-            whose value is already `YYYY-MM`, which is what is stored, so the form
-            never converts and so never has a chance to shift a month the way
-            `new Date('2027-03')` would west of Greenwich.
-
-            A browser without it degrades to a text box that still takes
-            `2027-03`, which the submit guard checks anyway. `min` is what stops
-            a past month in a browser that has the control; the guard is what
-            stops it in one that does not.
-          */}
-          <input
-            id="airfare-departure"
-            type="month"
-            value={month}
-            min={thisMonth}
-            onChange={(event) => changeMonth(event.target.value)}
-          />
-        </div>
-
+      <div className={styles.field}>
+        <label htmlFor="airfare-departure">Departure date</label>
         {/*
-          The day inside that month, and it is allowed to stay empty — 12.130.
-          A route with no focus is the ordinary case and the month above is what
-          actually gets collected; this only says which of its departures the
-          reader means to take, which is what the detail, the chart and the
-          table then speak about, and which one survives when the day's request
-          budget will not cover thirty-one.
+          `type="date"` rather than three selects or a text box: its value is
+          already the stored `YYYY-MM-DD`, so nothing here ever parses a date
+          and nothing can shift one the way `new Date('2027-03-09')` shifts it
+          west of Greenwich — it is midnight UTC, which prints as the 8th in
+          Lima.
 
-          `type="date"` for the same reason the month is `type="month"`: its
-          value is already the stored `YYYY-MM-DD`, so nothing here parses a
-          date and nothing can shift one. `min` and `max` are the watched
-          month's own two ends, so the picker cannot offer a day outside it —
-          the browser enforcing the invariant that `readingPrefix` depends on,
-          with the submit guard behind it for a browser that degrades this to a
-          text box. Disabled until there is a month to be inside, because a
-          bounded control with no bounds yet is one that accepts anything.
+          Full width now that it is the only field on its row. The `min-width:
+          8rem` these inputs carry is 160px plus 26px of chrome, against the
+          358px of content the panel has at its 20rem floor: it fits with room
+          to spare, which is why the override the two-column arrangement needed
+          is gone rather than kept for a case that no longer exists.
 
-          "optional" is in the label rather than in a note underneath: a note
-          costs a line of a form measured to fit above the list, and a label is
-          what a screen reader reads before the field either way.
+          `min` and `max` are the ends of what can be collected, so the picker
+          itself will not offer a day that has gone or one the provider refuses
+          to answer about. Both are repeated in the submit guard for a browser
+          that degrades this to a text box and enforces neither. There is no
+          `required` beside them, and the reason is in `submit`.
         */}
-        <div className={styles.field}>
-          <label htmlFor="airfare-focus">Day (optional)</label>
-          <input
-            id="airfare-focus"
-            type="date"
-            value={day}
-            min={dayBounds?.min}
-            max={dayBounds?.max}
-            disabled={dayBounds === null}
-            onChange={(event) => setDay(event.target.value)}
-          />
-        </div>
+        <input
+          id="airfare-departure"
+          type="date"
+          value={departure}
+          min={today}
+          max={lastDay}
+          onChange={(event) => setDeparture(event.target.value)}
+        />
       </div>
 
       {error ? (

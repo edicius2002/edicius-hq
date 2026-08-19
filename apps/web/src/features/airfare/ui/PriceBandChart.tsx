@@ -5,26 +5,54 @@ import { spanOf } from '@/features/airfare/lib/buckets';
 import {
   clampToTrack,
   nearestBucket,
+  marginForPrices,
+  priceAxisTag,
   readingAt,
   readingSentence,
+  timeAxisTag,
+  type TagAnchor,
 } from '@/features/airfare/lib/crosshair';
 import { NO_VALUE, formatMoney } from '@/shared/lib/money';
 
 import styles from './PriceBandChart.module.css';
 
-const VIEW = { width: 760, height: 260, pad: { top: 14, right: 16, bottom: 30, left: 62 } };
+/**
+ * The gap between the price plate and the plot it labels.
+ *
+ * Left padding is derived from it rather than chosen: the margin has to hold
+ * the widest figure `formatMoney` can print for a watched route, and at 62 —
+ * the value this chart shipped with — it did not. `S/4,580.00` is an ordinary
+ * long-haul fare from this app's default origin and needs 70 units against the
+ * 52 that were there, so its leading `S` was painted outside the viewBox. The
+ * plot loses 22 units of width to the fix, about 3%, which is a cheap price
+ * for never clipping a price.
+ */
+const PRICE_GAP = 8;
+
+const VIEW = {
+  width: 760,
+  height: 260,
+  pad: { top: 14, right: 16, bottom: 30, left: marginForPrices(PRICE_GAP) },
+};
+
+/** The pinned axis plates: how tall, and where the text sits inside one. */
+const TAG = { height: 16, baseline: 11.5 };
 
 /**
- * The pinned axis labels, in view units.
+ * The anchor, as a class rather than as a `text-anchor` attribute.
  *
- * The time label's width is estimated from its own text because the three
- * granularities write very different things — `08-18` against `2026 wk 34` —
- * and a box sized for the longest would sit visibly off-centre under the
- * shortest. Six units a character is measured against the 10px axis font in
- * this viewBox; the constant is a floor so a two-character label still gets a
- * box rather than a sliver.
+ * This is the whole fix for a bug that shipped: `.tagText` set `text-anchor:
+ * end` in the stylesheet, and a CSS declaration beats a presentation attribute
+ * whatever its specificity — so `textAnchor="middle"` on the element was
+ * silently ignored and the time label hung off the left edge of its own plate.
+ * Going through a class means the anchor is decided in the same language that
+ * can override it, and `.tagText` no longer names an anchor at all.
  */
-const TAG = { height: 16, charWidth: 6, minWidth: 40, padding: 10 };
+const ANCHOR: Record<TagAnchor, string> = {
+  start: styles.tagStart,
+  middle: styles.tagMiddle,
+  end: styles.tagEnd,
+};
 
 type PriceBandChartProps = {
   ours: Bucket[];
@@ -180,9 +208,13 @@ export function PriceBandChart({
           ? geometry.y(reading.ours.middle)
           : VIEW.pad.top + (VIEW.height - VIEW.pad.top - VIEW.pad.bottom) / 2));
   const hairPrice = geometry.priceAt(hairY);
-  const timeTagWidth = Math.max(
-    TAG.minWidth,
-    (reading?.label.length ?? 0) * TAG.charWidth + TAG.padding,
+  const priceTagY = clampToTrack(hairY, TAG.height, VIEW.pad.top, VIEW.height - VIEW.pad.bottom);
+  const priceTag = priceAxisTag(VIEW.pad.left - PRICE_GAP, formatMoney(hairPrice, currency));
+  const timeTag = timeAxisTag(
+    hairX,
+    reading?.label ?? '',
+    VIEW.pad.left,
+    VIEW.width - VIEW.pad.right,
   );
 
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
@@ -234,7 +266,11 @@ export function PriceBandChart({
               y2={geometry.y(value)}
               className={styles.grid}
             />
-            <text x={VIEW.pad.left - 8} y={geometry.y(value) + 4} className={styles.axis}>
+            <text
+              x={VIEW.pad.left - PRICE_GAP}
+              y={geometry.y(value) + 4}
+              className={`${styles.axis} ${styles.tagEnd}`}
+            >
               {formatMoney(value, currency)}
             </text>
           </g>
@@ -268,8 +304,7 @@ export function PriceBandChart({
               key={key}
               x={geometry.x(key)}
               y={VIEW.height - 10}
-              className={styles.axis}
-              textAnchor={index === 0 ? 'start' : 'end'}
+              className={`${styles.axis} ${index === 0 ? styles.tagStart : styles.tagEnd}`}
             >
               {[...ours, ...baseline].find((bucket) => bucket.key === key)?.label ?? key}
             </text>
@@ -308,39 +343,36 @@ export function PriceBandChart({
             ) : null}
 
             <rect
-              x={2}
-              y={clampToTrack(hairY, TAG.height, VIEW.pad.top, VIEW.height - VIEW.pad.bottom)}
-              width={VIEW.pad.left - 8}
+              x={priceTag.x}
+              y={priceTagY}
+              width={priceTag.width}
               height={TAG.height}
               rx={3}
               className={styles.tag}
             />
             <text
-              x={VIEW.pad.left - 8}
-              y={
-                clampToTrack(hairY, TAG.height, VIEW.pad.top, VIEW.height - VIEW.pad.bottom) + 11.5
-              }
-              className={styles.tagText}
+              x={priceTag.textX}
+              y={priceTagY + TAG.baseline}
+              className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}`}
+              data-testid="price-tag-text"
             >
               {formatMoney(hairPrice, currency)}
             </text>
 
             <rect
-              x={clampToTrack(hairX, timeTagWidth, VIEW.pad.left, VIEW.width - VIEW.pad.right)}
+              x={timeTag.x}
               y={VIEW.height - VIEW.pad.bottom + 3}
-              width={timeTagWidth}
+              width={timeTag.width}
               height={TAG.height}
               rx={3}
               className={styles.tag}
+              data-testid="time-tag-plate"
             />
             <text
-              x={
-                clampToTrack(hairX, timeTagWidth, VIEW.pad.left, VIEW.width - VIEW.pad.right) +
-                timeTagWidth / 2
-              }
-              y={VIEW.height - VIEW.pad.bottom + 14.5}
-              className={styles.tagText}
-              textAnchor="middle"
+              x={timeTag.textX}
+              y={VIEW.height - VIEW.pad.bottom + 3 + TAG.baseline}
+              className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
+              data-testid="time-tag-text"
             >
               {reading.label}
             </text>

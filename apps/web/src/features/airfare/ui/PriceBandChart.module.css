@@ -31,11 +31,17 @@
   opacity: 0.55;
 }
 
+/*
+ * The anchor is a modifier here for the same reason it is on `.tagText`: this
+ * class carried `text-anchor: end`, which overrode the `textAnchor="start"` on
+ * the first label of the time axis and drew it leftwards from the plot's edge,
+ * on top of the price ticks. Price ticks want `end`, the opening time label
+ * wants `start`, so neither can be the shared default.
+ */
 .axis {
   font-family: var(--font-sans);
   font-size: 10px;
   fill: var(--color-muted);
-  text-anchor: end;
 }
 
 /* Our own observations: filled range, solid median. */
@@ -99,10 +105,35 @@
   fill: var(--color-text);
 }
 
+/*
+ * Deliberately no `text-anchor` here. A CSS declaration beats a presentation
+ * attribute whatever its specificity, so an anchor on this shared class
+ * silently overrode the `textAnchor` the time label was drawn with, and the
+ * leading `0` of `07-27` was painted nine units outside its own plate onto the
+ * dark plot. The anchor is a modifier class now, picked by whichever tag is
+ * being drawn, so the plate and the label are decided in one language.
+ *
+ * The modifiers are declared after this rule on purpose: they are single class
+ * selectors of equal specificity, so source order is what decides, and a
+ * `text-anchor` added back here would still lose to the one the element asked
+ * for. Nothing in jsdom applies these rules, so that ordering is the guard
+ * rather than a test.
+ */
 .tagText {
   font-family: var(--font-sans);
   font-size: 10px;
   fill: var(--color-surface);
+}
+
+.tagStart {
+  text-anchor: start;
+}
+
+.tagMiddle {
+  text-anchor: middle;
+}
+
+.tagEnd {
   text-anchor: end;
 }
 

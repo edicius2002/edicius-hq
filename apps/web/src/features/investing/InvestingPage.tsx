@@ -13,7 +13,6 @@ import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
-import { MarketRail } from '@/features/investing/ui/MarketRail';
 import { Positions } from '@/features/investing/ui/Positions';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
@@ -240,7 +239,10 @@ export function InvestingPage() {
                   type="button"
                   className={styles.viewControl}
                   aria-expanded={marketPanelOpen}
-                  aria-controls="market-panel"
+                  /* Both lists, not just the one beside the chart: the button
+                     has always meant "leave me the chart", and naming only the
+                     rail would have left the positions box behind. */
+                  aria-controls="market-panel positions-panel"
                   aria-label={marketPanelOpen ? 'Hide markets' : 'Show markets'}
                   title={marketPanelOpen ? 'Hide market panel' : 'Show market panel'}
                   onClick={() => setMarketPanelOpen((open) => !open)}
@@ -293,62 +295,89 @@ export function InvestingPage() {
           </p>
         </Panel>
 
-        <div className={styles.marketPanelSlot}>
-          <MarketRail
-            regime={candles.regime}
-            statusLabel={statusLabel}
-            hidden={!marketPanelOpen || chartFocused}
-            watchlist={
-              <div className={styles.column}>
-                <SymbolSearch
-                  following={new Set(watchlist.symbols)}
-                  onPick={(picked, name) => {
-                    void watchlist.add(picked, name);
-                    setSymbol(picked);
-                  }}
-                />
+        {/*
+          A sibling of the chart panel rather than a wrapper around a rail: the
+          two are the cells of one grid row, which is the only arrangement in
+          which they share a height. Nested in its own column, whichever list
+          was shorter left a ragged gap beside the other.
+        */}
+        <Panel
+          id="market-panel"
+          className={styles.side}
+          aria-labelledby="investing-watchlist-title"
+          hidden={!marketPanelOpen || chartFocused}
+        >
+          <div className={styles.railHeader}>
+            <h2 id="investing-watchlist-title" className={styles.panelTitle}>
+              Watchlist
+            </h2>
+            <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
+          </div>
 
-                {watchlist.isError ? (
-                  <p className={styles.error} role="alert">
-                    Could not load the watchlist.
-                  </p>
-                ) : (
-                  <Watchlist
-                    entries={watchlist.list.entries}
-                    quotes={bySymbol}
-                    failures={failures}
-                    selected={symbol}
-                    onSelect={setSymbol}
-                    onRemove={(picked) => void watchlist.remove(picked)}
-                    onMove={(from, to) => void watchlist.move(from, to)}
-                  />
-                )}
-              </div>
-            }
-            positions={
-              <div className={styles.column}>
-                {holdings.isError ? (
-                  <p className={styles.error} role="alert">
-                    Could not load your positions.
-                  </p>
-                ) : (
-                  <Positions
-                    portfolio={holdings.portfolio}
-                    quotes={bySymbol}
-                    selected={symbol}
-                    onSelect={setSymbol}
-                    onEdit={(picked, quantity, averageCost) =>
-                      void holdings.set(picked, quantity, averageCost)
-                    }
-                    onRemove={(picked) => void holdings.remove(picked)}
-                    onMove={(from, to) => void holdings.move(from, to)}
-                  />
-                )}
-              </div>
-            }
+          <SymbolSearch
+            following={new Set(watchlist.symbols)}
+            onPick={(picked, name) => {
+              void watchlist.add(picked, name);
+              setSymbol(picked);
+            }}
           />
-        </div>
+
+          {watchlist.isError ? (
+            <p className={styles.error} role="alert">
+              Could not load the watchlist.
+            </p>
+          ) : (
+            /* Only the rows scroll. The search field is what the panel is for,
+               and a list long enough to need scrolling is exactly when you
+               least want the way to add to it scrolled away. */
+            <div className={styles.scroller}>
+              <Watchlist
+                entries={watchlist.list.entries}
+                quotes={bySymbol}
+                failures={failures}
+                selected={symbol}
+                onSelect={setSymbol}
+                onRemove={(picked) => void watchlist.remove(picked)}
+                onMove={(from, to) => void watchlist.move(from, to)}
+              />
+            </div>
+          )}
+        </Panel>
       </div>
+
+      {/*
+        Outside the workspace grid, so it runs the full page width under both
+        of its cells. A holding is read as a row of figures across, which the
+        rail's column was too narrow to give it.
+      */}
+      <Panel
+        id="positions-panel"
+        className={styles.positionsPanel}
+        aria-labelledby="investing-positions-title"
+        hidden={!marketPanelOpen || chartFocused}
+      >
+        <h2 id="investing-positions-title" className={styles.panelTitle}>
+          Positions
+        </h2>
+
+        {holdings.isError ? (
+          <p className={styles.error} role="alert">
+            Could not load your positions.
+          </p>
+        ) : (
+          <Positions
+            portfolio={holdings.portfolio}
+            quotes={bySymbol}
+            selected={symbol}
+            onSelect={setSymbol}
+            onEdit={(picked, quantity, averageCost) =>
+              void holdings.set(picked, quantity, averageCost)
+            }
+            onRemove={(picked) => void holdings.remove(picked)}
+            onMove={(from, to) => void holdings.move(from, to)}
+          />
+        )}
+      </Panel>
     </section>
   );
 }

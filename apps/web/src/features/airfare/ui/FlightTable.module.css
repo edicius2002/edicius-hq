@@ -1,3 +1,69 @@
+.wrap {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/*
+ * One row of controls where there is room, wrapping to two where there is not.
+ *
+ * The minimum is measured against the widest option any of these selects can
+ * hold — `Afternoon 12–17`, fifteen characters. This app sets
+ * `--font-size-base: 125%`, so a rem is 20px and these controls are set at
+ * 0.85rem = 17px; a monospace advance is about 0.6em, which puts the text at
+ * ~153px, plus the horizontal padding and the disclosure arrow at ~45px. Ten
+ * rem is 200px, so the option never ellipsises and the seven filters fall into
+ * two tidy rows at panel width rather than five ragged ones.
+ */
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: end;
+}
+
+.filter {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.filter > span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.filter input,
+.filter select {
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: 0.85rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.filter input:focus-visible,
+.filter select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Aligned with the controls beside it rather than with their labels, which is
+   where the eye expects an action that acts on them. */
+.clear {
+  align-self: end;
+}
+
+.range {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -23,10 +89,55 @@
 .table th {
   color: var(--color-muted);
   font-weight: 500;
+  /* The button inside carries the padding, so the cell must not double it. */
+  padding: 0;
 }
 
 .table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/*
+ * The whole heading is the control, not an icon beside it: a 12px arrow is a
+ * target nobody can hit, and a `<th>` with a click handler is not in the tab
+ * order at all.
+ */
+.sort {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
+.numeric .sort {
+  justify-content: flex-end;
+}
+
+.sort:hover {
+  color: var(--color-text);
+}
+
+.sorted {
+  color: var(--color-text);
+}
+
+/* Dimmer than the label until the column is the one in force, so seven arrows
+   do not read as seven active sorts. */
+.arrow {
+  opacity: 0.5;
+  font-size: 0.8em;
+}
+
+.sorted .arrow {
+  opacity: 1;
 }
 
 .numeric {
@@ -37,6 +148,18 @@
 .empty {
   margin: 0;
   color: var(--color-muted);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.pageOf {
+  color: var(--color-muted);
+  font-size: 0.85rem;
 }
 
 /*

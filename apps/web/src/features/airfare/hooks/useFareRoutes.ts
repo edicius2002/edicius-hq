@@ -9,6 +9,7 @@ import {
   removeRoute,
   reorderRoutes,
   routeId,
+  setFocus,
   type FareRoute,
   type FareRoutes,
 } from '@/features/airfare/data/fareRoutes';
@@ -43,6 +44,15 @@ export function useFareRoutes(today: string) {
     add: (route: FareRoute) => store.edit((current) => addRoute(current, route)),
     remove: (id: string) => store.edit((current) => removeRoute(current, id)),
     move: (from: string, to: string) => store.edit((current) => reorderRoutes(current, from, to)),
+    /**
+     * Point one watch at a day inside its month, or at none — 12.130.
+     *
+     * A separate transition from `add` rather than an argument to it: adding
+     * is where a focus is *stated*, and this is where it is taken back, which
+     * the detail panel offers because that is the panel a focus changes.
+     */
+    focus: (id: string, date: string | null) =>
+      store.edit((current) => setFocus(current, id, date)),
     idOf: routeId,
   };
 }

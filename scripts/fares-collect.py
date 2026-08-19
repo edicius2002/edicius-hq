@@ -128,12 +128,22 @@ def to_watches(routes: list[dict[str, object]]) -> tuple[list[FareWatch], list[s
             dropped.append(f"{label}: the month is over")
             continue
 
+        # The focused departure, if the reader named one (12.130). Kept only
+        # when it is inside its own month, the same rule the web normalizer
+        # applies on read — the two sides must not disagree about which watches
+        # survive a document. A focus that has already departed is *not*
+        # dropped here: the collector reports it as `departed` by name, which
+        # is more use to a reader than its silent disappearance.
+        focus = route.get("focusDate")
+        focus = str(focus) if isinstance(focus, str) and focus[:7] == month else None
+
         watches.append(
             FareWatch(
                 origin=origin,
                 destination=destination,
                 month=month,
                 currency=str(route.get("currency", "USD")).upper(),
+                focus=focus,
             )
         )
     return watches, dropped
@@ -194,10 +204,14 @@ def main() -> int:
     for watch in watches:
         collectable, requests = per_day(watch, today)
         demand += requests
+        # The focus is printed beside the demand rather than in a line of its
+        # own: it is the day this month keeps when the sum below reads OVER,
+        # and the two numbers only mean anything read together.
+        starred = f"  focus {watch.focus}" if watch.focus else ""
         print(
             f"  {watch.origin} -> {watch.destination}  departs in {watch.month}  "
             f"({collectable} of {len(month_dates(watch.month))} day(s) collectable, "
-            f"{requests} request(s)/day)"
+            f"{requests} request(s)/day){starred}"
         )
     if not watches:
         print("nothing to do")
@@ -205,8 +219,11 @@ def main() -> int:
 
     # The cadence is what makes a month affordable, so the arithmetic is
     # printed rather than trusted. Over budget is not an error here: the pass
-    # keeps the nearest departures and reports the rest as `over-budget`, which
-    # is the honest shape of "you are watching more than 300 a day of".
+    # keeps the focused departures and then the nearest ones, and reports the
+    # rest as `over-budget` — which is the honest shape of "you are watching
+    # more than 300 a day of". The current watchlist is 62 a day; the same two
+    # months come to 302 on 2026-11-24 and 2,208 by the March they depart in,
+    # which is when the focus starts deciding something.
     fit = "fits" if demand <= budget else "OVER"
     print(f"\ncadence demand: {demand} request(s)/day against a budget of {budget} -- {fit}")
 

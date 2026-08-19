@@ -74,6 +74,11 @@ class FareWatch:
     #: `YYYY-MM`.
     month: str
     currency: str = "USD"
+    #: `YYYY-MM-DD` inside `month`, or None — the one departure the reader
+    #: actually means to take (12.130). It changes nothing about what is
+    #: expanded or how often each day is polled; it changes which day survives
+    #: a truncated pass (12.134).
+    focus: str | None = None
 
     @property
     def route(self) -> str:
@@ -244,18 +249,45 @@ async def collect_due(
     the reverse. The arithmetic settles it: a month whose first day is a week
     away costs 936 requests a day at the near rate applied throughout, against
     a 300 budget, while the same month at 200 days out costs 31.
+
+    A watch may name one of its own departures as the focus, and the only thing
+    that does here is put it at the front of the queue for the truncation —
+    12.134. It is not polled more often and it is not exempt from the cadence;
+    if it is not due it is skipped by name like any other day.
+
+    That truncation is reached by **watching more routes**, not by waiting.
+    `spend` below is a per-pass ceiling and one pass has as many candidates as
+    there are watched departures, so 300 / 31 is the whole of it: nine routes
+    never truncate and ten always can. Measured in `due_now`'s docstring, where
+    the ordering it decides lives.
+
+    `spend` also falls back to `daily_request_budget()`, which is a day's
+    figure being used as a pass's. Nothing here or anywhere else carries spend
+    from one pass to the next, so the daily budget the name promises is not
+    actually enforced — a gap from 12.111, named here rather than fixed here.
     """
     store = history if history is not None else HISTORY
     moment = now if now is not None else datetime.now(UTC)
     spend = budget if budget is not None else daily_request_budget()
 
     by_key, unreadable = expand(watched)
+    # Membership in `by_key` *is* the "inside its own month" check — it holds
+    # exactly the departures the watched month expanded into. Validating the
+    # focus separately would be a second rule that could disagree with the
+    # first, and a focus that fell outside its month would then either point at
+    # a day nobody is collecting or, worse, silently pull one in.
+    focused = frozenset(
+        (watch.origin, watch.destination, watch.focus)
+        for watch in watched
+        if watch.focus and (watch.origin, watch.destination, watch.focus) in by_key
+    )
     plan = due_now(
         list(by_key),
         store.last_checked(),
         moment,
         cadence=cadence,
         budget=spend,
+        focused=focused,
     )
 
     queries = [by_key[(d.origin, d.destination, d.flight_date)] for d in plan if d.ready]

@@ -107,7 +107,7 @@ describe('RouteList', () => {
     renderList();
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Origin')).toBeInTheDocument();
-    expect(screen.getByLabelText('Departure month')).toBeInTheDocument();
+    expect(screen.getByLabelText('Departure date')).toBeInTheDocument();
   });
 
   it('adds a route from the fields', async () => {
@@ -117,13 +117,20 @@ describe('RouteList', () => {
     await user.clear(screen.getByLabelText('Origin'));
     await user.type(screen.getByLabelText('Origin'), 'LIM');
     await user.type(screen.getByLabelText('Destination'), 'MAD');
-    const departure = screen.getByLabelText('Departure month');
+    const departure = screen.getByLabelText('Departure date');
     await user.clear(departure);
-    await user.type(departure, '2026-12');
+    await user.type(departure, '2026-12-09');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
+    // One field, and the month the panel goes on to collect is derived from it
+    // — 12.180. The date rides along as the focus.
     expect(props.onAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ origin: 'LIM', destination: 'MAD', month: '2026-12' }),
+      expect.objectContaining({
+        origin: 'LIM',
+        destination: 'MAD',
+        month: '2026-12',
+        focusDate: '2026-12-09',
+      }),
     );
   });
 

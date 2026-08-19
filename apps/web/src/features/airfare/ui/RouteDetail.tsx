@@ -1,28 +1,45 @@
-import { formatFlightDate, formatFlightMonth } from '@/features/airfare/data/fareRoutes';
+import {
+  focusDeparted,
+  formatFlightDate,
+  formatReading,
+  type FareRoute,
+} from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
 import { departureClock, formatStamp } from '@/features/airfare/lib/series';
 import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares';
 import { formatMoney, NO_VALUE } from '@/shared/lib/money';
+import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteDetail.module.css';
 
 type RouteDetailProps = {
-  route: { origin: string; destination: string; month: string; currency: string } | null;
+  route: FareRoute | null;
   latest: FareSnapshot | null;
   insights: FareInsights | null;
   health: WatchHealth | null;
   cities: { from: string | null; to: string | null };
+  /** Today, `YYYY-MM-DD`. Only used to say whether the focused day has gone. */
+  today: string;
+  /** Drop this route's focus and go back to reading the whole month. */
+  onClearFocus: () => void;
 };
 
 /**
  * What this route costs right now, and whether that is a lot.
  *
- * `latest` is the **cheapest departure in the watched month**, as that day was
- * last seen — see `cheapestDeparture`. Since 12.110 the panel is describing a
+ * `latest` is the **cheapest departure in whatever is being read**, as that day
+ * was last seen — see `cheapestDeparture`. Since 12.110 the panel describes a
  * month rather than a day, and the honest single board to put in front of the
  * reader is the one they would actually book: the newest snapshot of all would
  * belong to whichever departure the collector happened to reach last, which is
  * a fact about pacing rather than about fares.
+ *
+ * Under a focus date the set it reduces has one day in it, because the page
+ * narrowed it with `readingPrefix` before it got here — 12.131. So the same
+ * reduction gives "the cheapest day in March" and "the 9th of March", and this
+ * component does not have to know which question it is answering. What it does
+ * have to do is name the right one in the heading, which is why `route` is the
+ * whole route rather than a month.
  *
  * Two boxes of figures. The chart underneath answers "how has it moved"; this
  * answers "what is it, and should I care today" — which is the question a
@@ -40,7 +57,15 @@ type RouteDetailProps = {
  * two months of context on the day a route is added, where our own median needs
  * two months of collecting to mean anything.
  */
-export function RouteDetail({ route, latest, insights, health, cities }: RouteDetailProps) {
+export function RouteDetail({
+  route,
+  latest,
+  insights,
+  health,
+  cities,
+  today,
+  onClearFocus,
+}: RouteDetailProps) {
   if (!route) {
     return <p className={styles.empty}>Add a route to start building its history.</p>;
   }
@@ -58,29 +83,63 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
     <div className={styles.detail}>
       <header className={styles.head}>
         {/*
-          The departure month sits beside the pair rather than in a sentence
-          under it. "Departs" was doing no work: a route has one month, and it
-          is written next to the two airports it belongs to. A month name
-          rather than `03/2027` — 12.114 — so nothing on this page reads as a
-          day that is not one.
+          The departures sit beside the pair rather than in a sentence under
+          it. "Departs" was doing no work: a route has one month, and it is
+          written next to the two airports it belongs to. A month name rather
+          than `03/2027` — 12.114 — so nothing on this page reads as a day that
+          is not one.
+
+          With a focus date this becomes that day, `dd/mm/yyyy` — 12.130 — and
+          it is not only the heading that moves: the figures under it, the
+          chart and the flight table are all narrowed to the same departure by
+          `readingPrefix`. A heading naming a day over a month of numbers would
+          be worse than either.
         */}
         <h3 className={styles.pair}>
           {route.origin} <span className={styles.to}>→</span> {route.destination}{' '}
           {/* The space is deliberate: the gap beside it is a margin, and a
               margin is not something a screen reader can hear. */}
-          <span className={styles.when}>{formatFlightMonth(route.month)}</span>
+          <span className={styles.when}>{formatReading(route)}</span>
         </h3>
         <p className={styles.cities}>
           {cities.from ?? route.origin} to {cities.to ?? route.destination}
         </p>
+        {/*
+          A focused day that has already gone, said rather than left to be
+          worked out — 12.133. It is not dropped when it passes: the archive it
+          points at is still the archive of the flight the reader meant to
+          take, and a stored value that vanished because the page was opened a
+          day later would be a document editing itself. But every figure below
+          is then frozen at the last look before departure, and a panel that
+          did not say so would read as a live price.
+
+          The way back to the month is beside it and not only when the day has
+          gone, because a focus changes the whole panel and a state that cannot
+          be undone without deleting the route is a trap. It only clears the
+          focus; nothing collected is touched.
+        */}
+        {route.focusDate ? (
+          <p className={styles.cities}>
+            {focusDeparted(route, today) ? (
+              <span className={styles.dear}>That day has departed. </span>
+            ) : null}
+            <Button variant="ghost" size="small" onClick={onClearFocus}>
+              Read the whole month
+            </Button>
+          </p>
+        ) : null}
         {/*
           Which of the month's departures the figures below belong to, written
           `dd/mm/yyyy` like every other real date here — the month in the
           heading is spelled out precisely so these two can never be read as
           the same kind of thing. It is a line rather than a fifth figure
           because the figures box is measured to four across.
+
+          Absent under a focus, where the heading already names the only
+          departure there is: the same date twice, three lines apart, reads as
+          two facts that happen to agree rather than as one.
         */}
-        {latest ? (
+        {latest && !route.focusDate ? (
           <p className={styles.cities}>Cheapest on {formatFlightDate(latest.flightDate)}</p>
         ) : null}
         {health?.lastCheckedAt ? (

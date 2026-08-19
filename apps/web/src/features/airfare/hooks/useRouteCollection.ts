@@ -70,6 +70,10 @@ export function useRouteCollection(): RouteCollection {
           origin: route.origin,
           destination: route.destination,
           month: route.month,
+          // A press buys up to thirty-one departures against a forty-request
+          // ceiling, so a two-month press can already truncate. The focused
+          // day is what the pass keeps first when it does (12.134).
+          ...(route.focusDate ? { focusDate: route.focusDate } : {}),
           currency: route.currency,
         },
       ]),

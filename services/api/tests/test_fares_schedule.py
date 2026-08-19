@@ -196,6 +196,58 @@ def test_the_focused_departure_survives_a_budget_that_cuts_the_rest():
     assert "2027-03-20" not in [d.flight_date for d in plain if d.ready]
 
 
+def test_ten_watched_routes_is_where_the_budget_starts_dropping_a_departure():
+    """
+    What actually makes the focus ordering bite, at the real budget of 300.
+
+    Measured 2026-08-19 and pinned here because the docstring 12.134 first
+    carried got it wrong: it compared a day's worth of requests against
+    `budget`, which is a per-pass ceiling. A pass has exactly as many
+    candidates as there are watched departures, so the arithmetic is 300 / 31 =
+    9.67 and the threshold is a watchlist of ten routes. Nine never truncates;
+    ten always can, and the day the reader named is the one it reaches last.
+    """
+    days = month_dates("2027-03")
+    assert len(days) == 31
+
+    def sweep(routes: int) -> tuple[str, str]:
+        watched = [("LIM", f"D{i:02d}", day) for i in range(routes) for day in days]
+        star = watched[-1]
+        plain = {
+            (d.origin, d.destination, d.flight_date): d
+            for d in due_now(watched, {}, NOW, budget=300)
+        }
+        kept = {
+            (d.origin, d.destination, d.flight_date): d
+            for d in due_now(watched, {}, NOW, budget=300, focused=frozenset({star}))
+        }
+        return plain[star].reason, kept[star].reason
+
+    assert sweep(9) == ("never-collected", "never-collected")
+    assert sweep(10) == ("over-budget", "never-collected")
+    assert sweep(12) == ("over-budget", "never-collected")
+
+
+def test_the_truncation_threshold_does_not_move_with_the_calendar():
+    """
+    The claim 12.134 originally made, and the one the measurement refutes.
+
+    Two watched months are 62 candidates in a pass whether the flight is most
+    of a year away or next week, so 300 is never spent and nothing is ever
+    dropped. What climbs with the date is the number of *passes* a day, which
+    `poll_minutes` decides and this ceiling never sees.
+    """
+    watched = [
+        (o, d, day) for o, d in (("LIM", "SCL"), ("LIM", "MAD")) for day in month_dates("2027-03")
+    ]
+    assert len(watched) == 62
+
+    for when in ("2026-08-19", "2026-11-24", "2027-02-01", "2027-03-01"):
+        moment = datetime.fromisoformat(f"{when}T12:00:00+00:00")
+        plan = due_now(watched, {}, moment, budget=300)
+        assert [d for d in plan if d.reason == "over-budget"] == [], when
+
+
 def test_a_focus_buys_a_place_in_the_queue_and_not_a_faster_cadence():
     """
     12.135, and the arithmetic is the argument.

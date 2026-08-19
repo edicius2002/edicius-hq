@@ -254,6 +254,17 @@ async def collect_due(
     that does here is put it at the front of the queue for the truncation —
     12.134. It is not polled more often and it is not exempt from the cadence;
     if it is not due it is skipped by name like any other day.
+
+    That truncation is reached by **watching more routes**, not by waiting.
+    `spend` below is a per-pass ceiling and one pass has as many candidates as
+    there are watched departures, so 300 / 31 is the whole of it: nine routes
+    never truncate and ten always can. Measured in `due_now`'s docstring, where
+    the ordering it decides lives.
+
+    `spend` also falls back to `daily_request_budget()`, which is a day's
+    figure being used as a pass's. Nothing here or anywhere else carries spend
+    from one pass to the next, so the daily budget the name promises is not
+    actually enforced — a gap from 12.111, named here rather than fixed here.
     """
     store = history if history is not None else HISTORY
     moment = now if now is not None else datetime.now(UTC)

@@ -154,12 +154,31 @@ def due_now(
     dropped it while polling the other thirty would be spending the budget on
     everything except the answer that was asked for.
 
-    It costs nothing today. The current watchlist needs 62 requests a day
-    against a budget of 300 and nothing truncates at all; by 24 November 2026
-    the same two months cost 302 and this begins to decide something, and by
-    the March they depart in it is 2,208 against 300 and it decides it every
-    pass. Storing the focus rather than keeping it in the browser is what buys
-    that, and it is the only thing that does.
+    It costs nothing today, and what will change that is the **size of the
+    watchlist**, not the calendar. `budget` is a per-pass ceiling, and one pass
+    has exactly as many candidates as there are watched departures — thirty-one
+    per month — so the arithmetic is 300 / 31 and the answer is ten routes.
+    Measured 2026-08-19 by calling this function with every departure due, a
+    budget of 300 and one day focused:
+
+    | routes | departures | focused day without it | with it |
+    | ------ | ---------- | ---------------------- | ------- |
+    | 9      | 279        | `due`                  | `due`   |
+    | 10     | 310        | `over-budget`          | `due`   |
+    | 12     | 372        | `over-budget`          | `due`   |
+
+    The same sweep run against a `now` in February 2027 gave the same two rows:
+    the threshold does not move with the date, because the number of candidates
+    in a pass does not. Two watched months are 62 candidates whether the flight
+    is a year away or tomorrow, and 62 never truncates against 300.
+
+    The daily *totals* those two months cost do climb with the date — 62 a day
+    now, 302 by 24 November 2026, 2,208 by the March they depart in — and that
+    climb is real and is what `poll_minutes` exists for. It is not what this
+    ordering is for, and an earlier draft of this docstring said it was by
+    comparing a daily sum against a per-pass cap. See `daily_request_budget` in
+    `app.config`: nothing carries spend across passes, so the day's budget is
+    not enforced anywhere. That gap predates the focus and is not closed here.
 
     **A focus buys no faster cadence** — 12.135. `poll_minutes` is not
     consulted about it and does not know it exists. The measurement behind the

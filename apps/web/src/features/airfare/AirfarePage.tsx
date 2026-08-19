@@ -307,10 +307,14 @@ export function AirfarePage() {
         Its own panel rather than a heading inside the chart's. The chart
         answers "is this route cheaper than usual"; the table answers "cheaper
         on what, and which ones moved". Two questions, two boxes.
+
+        The same granularity drives both, so the switch above moves the table's
+        period with the chart's last bucket — a table of the whole archive
+        under a chart of one day would be two answers to one question.
       */}
       <Panel>
-        <h2 className={styles.panelTitle}>Every flight seen on this route</h2>
-        <FlightTable snapshots={snapshots} />
+        <h2 className={styles.panelTitle}>Flights seen on this route</h2>
+        <FlightTable snapshots={snapshots} granularity={granularity} />
       </Panel>
     </section>
   );

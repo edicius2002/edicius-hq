@@ -1,9 +1,19 @@
-import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { flowDelay } from '@/features/airfare/lib/arcFlow';
 import type { RouteGeometry } from '@/features/airfare/lib/geo';
+import { nameBox } from '@/features/airfare/lib/globe';
 import { RouteMap } from '@/features/airfare/ui/RouteMap';
 
 /*
@@ -54,7 +64,29 @@ beforeEach(() => {
     height: 540,
     toJSON: () => ({}),
   });
+  /*
+   * The map asks the API for one country's subdivisions once a reader has
+   * zoomed into it, so a suite that zooms will reach `fetch`. Answering 404 by
+   * default is what a country Natural Earth does not divide answers, which
+   * means every test in this file that is not about subdivisions runs the
+   * fallback path — and none of them touches the network. The tests that want
+   * a country to *have* subdivisions stub over this.
+   */
+  subdivisionRequests = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL) => {
+      subdivisionRequests.push(String(input));
+      return Promise.resolve(new Response('null', { status: 404 }));
+    }),
+  );
 });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+let subdivisionRequests: string[] = [];
 
 const LIM_CUZ: RouteGeometry = {
   id: 'LIM-CUZ-2026-10-17',
@@ -152,6 +184,19 @@ async function frame() {
   });
 }
 
+/**
+ * A query client, because the map asks the API for one country's subdivisions
+ * once a reader has zoomed into it.
+ *
+ * A fresh one per render, unlike `useSubdivisions.test`: here the cache is not
+ * what is being proved, and one shared between tests would let a country
+ * fetched by an earlier test appear in a later one.
+ */
+function wrapper({ children }: { children: React.ReactNode }) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {}) {
   const props = {
     routes: [LIM_CUZ, LIM_MAD],
@@ -162,7 +207,7 @@ function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {
     onProjectionChange: vi.fn(),
     ...overrides,
   };
-  return { ...render(<RouteMap {...props} />), props };
+  return { ...render(<RouteMap {...props} />, { wrapper }), props };
 }
 
 describe('RouteMap', () => {
@@ -396,6 +441,512 @@ describe('RouteMap', () => {
     },
   );
 
+  /* ------------------------------------------------------- subdivisions -- */
+
+  /**
+   * Two Peruvian departments and the border between them, as the API sends it.
+   *
+   * Peru because the home view is turned to Lima, so the middle of the frame
+   * is already over it — which is what the map inverts to decide whose
+   * subdivisions to ask for, and why zooming in from the default view is the
+   * whole gesture this feature answers to.
+   */
+  const PERU_SUBDIVISIONS = {
+    country: '604',
+    borders: {
+      type: 'Topology',
+      objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+      arcs: [
+        [
+          [-76, -6],
+          [-74, -9],
+        ],
+      ],
+    },
+    labels: [
+      { name: 'Loreto', at: [-74.4242, -4.0942], area: 0.0092493 },
+      { name: 'Cusco', at: [-72.1831, -13.1676], area: 0.0018352 },
+    ],
+  };
+
+  function servingPeru() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        subdivisionRequests.push(String(input));
+        return Promise.resolve(
+          String(input).includes('/604')
+            ? Response.json(PERU_SUBDIVISIONS)
+            : new Response('null', { status: 404 }),
+        );
+      }),
+    );
+  }
+
+  /**
+   * Six notches of wheel over the middle of the frame, and then long enough
+   * for the map to settle and ask.
+   *
+   * Five notches of a size that puts the *target* near 7.4x, rather than two
+   * big ones that would peg it at the 32x ceiling. Both would clear the 4.6x
+   * crossover, but the ceiling is not where these tests want to be: at 32x a
+   * 540px frame spans four degrees, so Peru's own centroid and half its
+   * departments fall outside it, and a name that is culled for being off the
+   * frame looks exactly like a name that was refused for want of room.
+   *
+   * The wheel rather than the keyboard because it moves further per event, and
+   * over the middle, so the zoom anchors on the point the globe is already
+   * turned to and Peru stays under it.
+   *
+   * Two `act` blocks, not one. Dispatching the events and then awaiting a
+   * timer inside the *same* async act leaves the wheel handler's work
+   * unapplied — measured, the scale was still 1.0 at the end of it. Closing
+   * the act after the gesture is what commits it, which is also how a browser
+   * sees it: a gesture, and then time passing.
+   */
+  async function closeInOnPeru(stage: HTMLElement) {
+    await act(async () => {
+      for (let notch = 0; notch < 5; notch += 1) wheel(stage, -200, [480, 270]);
+    });
+    // Past the 320ms the wheel holds the map "moving" and the 250ms it then
+    // has to sit still before it asks.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+  }
+
+  it('gives a country its name back as subdivisions once you are close enough', async () => {
+    servingPeru();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    /*
+     * One thing becoming another, not two things at once: past the crossover
+     * the country's own name is gone and the departments inside it are what is
+     * left.
+     *
+     * Waited for rather than asserted straight away, because the becoming now
+     * takes `ARRIVAL_MS`: the departments fade up and Peru's own name fades
+     * down at exactly the same rate, so this is the *end* of a cross-fade and
+     * not a state the very next frame is in.
+     */
+    await waitFor(() => expect(screen.queryByText('Peru')).not.toBeInTheDocument());
+    expect(subdivisionRequests.some((url) => url.includes('/api/geography/subdivisions/604'))).toBe(
+      true,
+    );
+  });
+
+  it('names a subdivision its own name fits and refuses one three times too wide', async () => {
+    /*
+     * The room a name needs is the room *that name* needs. Two units with
+     * exactly the same ground under them and nothing different about them but
+     * how long they are called: measured at the cap, both have about 5,000px²,
+     * `Ica` is 15px wide and needs 546, and the longest first-level name in
+     * Natural Earth's whole admin-1 list — Chile's Aisén region, which the
+     * stub stands in for here because the pair is about length and not about
+     * geography — is 203px wide and needs 7,467.
+     *
+     * The flat threshold this replaced gave both of them full strength, which
+     * is how a 203px name came to be printed across 77px of ground. It also
+     * refused `Ica` at 1,222px², which is where the other seventeen of Peru's
+     * twenty-six departments went.
+     */
+    const SHORT = 'Ica';
+    const LONG = 'Aisén del General Carlos Ibáñez del Campo';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        // The index answered as an index. Answering it with a country's
+        // payload leaves `countries` empty, which is the map being told that
+        // nothing in the world has subdivisions — and it then correctly asks
+        // for none.
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
+        }
+        return Promise.resolve(
+          Response.json({
+            country: '604',
+            borders: PERU_SUBDIVISIONS.borders,
+            // Two degrees either side of the point the globe is turned to, so
+            // both are face-on, both are on the frame, and the 187px between
+            // them is far more than either box is tall.
+            labels: [
+              { name: LONG, at: [-77, -9], area: 0.001537 },
+              { name: SHORT, at: [-77, -3], area: 0.001537 },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText(SHORT)).toBeInTheDocument());
+    expect(screen.queryByText(LONG)).not.toBeInTheDocument();
+  });
+
+  it('keeps a country with no subdivisions named, and says nothing about it', async () => {
+    /*
+     * The silent fallback, which is the whole of what a reader over Western
+     * Sahara or the Falklands should notice: the country keeps its name and
+     * there is no banner, no empty flash and nothing to dismiss. Here the
+     * stub 404s every country, Peru included.
+     */
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Peru')).toBeInTheDocument());
+    expect(screen.queryByText('Loreto')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /* ------------------------------------------------------------ fan-out -- */
+
+  /**
+   * Bolivia, as the API sends it, with two departments large enough to name.
+   *
+   * Bolivia because it is the country in the complaint: at 10x with eleven
+   * Peruvian departments showing, Bolivia beside them was a flat shape with
+   * only its country name on it, and Chile below the border had no internal
+   * lines at all. It is the discontinuity this whole change removes.
+   */
+  const BOLIVIA_SUBDIVISIONS = {
+    country: '068',
+    borders: {
+      type: 'Topology',
+      objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+      arcs: [
+        [
+          [-66, -14],
+          [-64, -18],
+        ],
+      ],
+    },
+    labels: [
+      { name: 'Beni', at: [-66, -14], area: 0.0052 },
+      { name: 'Pando', at: [-67.5, -11], area: 0.0025 },
+    ],
+  };
+
+  /**
+   * Ecuador, whose own name the map already draws at this zoom.
+   *
+   * It is the control for the handover: `does not name a country before there
+   * is any point in naming one` and the dump of what this view renders both
+   * say Ecuador is on the frame with its name lit, so a test that finds that
+   * name gone has watched a neighbour give it up to its own provinces.
+   */
+  const ECUADOR_SUBDIVISIONS = {
+    country: '218',
+    borders: {
+      type: 'Topology',
+      objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+      arcs: [
+        [
+          [-78.5, -1],
+          [-77.5, -2],
+        ],
+      ],
+    },
+    labels: [{ name: 'Napo', at: [-77.5, -1], area: 0.003 }],
+  };
+
+  /** Real byte counts, because the budget is spent in real ones. */
+  const WEIGHS: Record<string, number> = {
+    '604': 43_085,
+    '068': 20_656,
+    '218': 12_463,
+    '152': 127_823,
+  };
+
+  function servingSouthAmerica(catalogue: Record<string, number> | null = WEIGHS) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(
+            catalogue
+              ? Response.json({ countries: catalogue })
+              : new Response('{"detail":"boom"}', { status: 500 }),
+          );
+        }
+        if (url.endsWith('/604')) return Promise.resolve(Response.json(PERU_SUBDIVISIONS));
+        if (url.endsWith('/068')) return Promise.resolve(Response.json(BOLIVIA_SUBDIVISIONS));
+        if (url.endsWith('/218')) return Promise.resolve(Response.json(ECUADOR_SUBDIVISIONS));
+        return Promise.resolve(new Response('null', { status: 404 }));
+      }),
+    );
+  }
+
+  it('draws the subdivisions of every country in view, not only the one in the middle', async () => {
+    /*
+     * The whole change, in one test. Peru is the country the reader zoomed
+     * into; Bolivia is the neighbour that used to sit beside it as a flat
+     * shape with only its country name on it. Now both are drawn department by
+     * department, and the view reads as one map rather than as one detailed
+     * country among blank ones.
+     */
+    servingSouthAmerica();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Beni')).toBeInTheDocument());
+    expect(screen.getByText('Loreto')).toBeInTheDocument();
+  });
+
+  it('has a neighbour give up its own name the way the middle country does', async () => {
+    // The handover is per country now, not one country's privilege. Ecuador
+    // was named before its provinces arrived and is not named after.
+    servingSouthAmerica();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Napo')).toBeInTheDocument());
+    // The end of each country's own cross-fade, which is `ARRIVAL_MS` after
+    // its geometry landed and not the frame after it.
+    await waitFor(() => expect(screen.queryByText('Ecuador')).not.toBeInTheDocument());
+    expect(screen.queryByText('Peru')).not.toBeInTheDocument();
+  });
+
+  it('leaves a country the budget will not stretch to with its own name on it', async () => {
+    /*
+     * The cap, and the one thing it must not do quietly. A country the fan-out
+     * could not afford is in exactly the same position as one Natural Earth
+     * does not divide: it keeps its name. So every country on screen is either
+     * showing its subdivisions and has given up its name to them, or is
+     * showing its name — and a reader can read off the map which ones it drew
+     * in detail without being handed a number to trust.
+     */
+    servingSouthAmerica({ ...WEIGHS, '218': 40_000_000 });
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    expect(screen.getByText('Ecuador')).toBeInTheDocument();
+    expect(screen.queryByText('Napo')).not.toBeInTheDocument();
+    expect(subdivisionRequests.some((url) => url.endsWith('/218'))).toBe(false);
+  });
+
+  it('never asks for a country the index says has nothing to give', async () => {
+    /*
+     * Before the index that cost a 404 to find out, which one country per
+     * request could afford and a view holding thirty cannot. Chile has no
+     * entry here, so it is never asked about at all.
+     */
+    servingSouthAmerica({ '604': 43_085, '068': 20_656, '218': 12_463 });
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Beni')).toBeInTheDocument());
+    expect(subdivisionRequests.some((url) => url.endsWith('/152'))).toBe(false);
+  });
+
+  it('pulls a name off the edge of the panel so the whole word is on the map', async () => {
+    /*
+     * The map's stage clips and the names are centred on the point they name,
+     * so a name near an edge had its far half cut off by the panel: at 10x
+     * with Peru's departments showing, Bolivia rendered as `Bolivi`, which is
+     * not a place, in a face small enough that a reader cannot tell it from
+     * one.
+     *
+     * Two names on the same point and nothing different about them but how
+     * long they are. Sixteen degrees east of the middle of this view is about
+     * 890px across a 960px frame, so `Ica` at 15px wide has room to stay
+     * exactly where it belongs and the 198px name does not — and where the
+     * long one ends up is flush inside the frame rather than anywhere the
+     * geometry chose, which is why one constant could never have covered both.
+     */
+    const SHORT = 'Ica';
+    const LONG = 'Aisén del General Carlos Ibáñez del Campo';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
+        }
+        return Promise.resolve(
+          url.endsWith('/604')
+            ? Response.json({
+                country: '604',
+                borders: PERU_SUBDIVISIONS.borders,
+                labels: [
+                  { name: LONG, at: [-61, -6], area: 0.02 },
+                  { name: SHORT, at: [-61, -6], area: 0.019 },
+                ],
+              })
+            : new Response('null', { status: 404 }),
+        );
+      }),
+    );
+
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText(LONG)).toBeInTheDocument());
+    const at = (text: string) => Number(screen.getByText(text).getAttribute('x'));
+    // Flush inside the right-hand edge, to the pixel — moved, and moved only
+    // as far as it had to be.
+    expect(at(LONG)).toBeCloseTo(960 - nameBox(LONG, 'subdivision').width / 2, 6);
+    // Real rather than vacuous: the same point left the short name alone,
+    // where a rule that culled or clamped everything near an edge would have
+    // moved it too.
+    expect(at(SHORT)).toBeGreaterThan(at(LONG));
+    expect(at(SHORT) + nameBox(SHORT, 'subdivision').width / 2).toBeLessThanOrEqual(960);
+  });
+
+  it('still details the country in the middle when the index will not load', async () => {
+    /*
+     * Which is how the map behaved before there was an index. The fan-out is
+     * the improvement and the single country is the floor, so an API that
+     * cannot answer for the collection still leaves a reader with the country
+     * they zoomed into rather than with a blank one.
+     */
+    servingSouthAmerica(null);
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /* ----------------------------------------------------------- arriving -- */
+
+  it('leaves no name behind when two subdivisions on screen are called the same thing', async () => {
+    /*
+     * The reader's report, reproduced: names of certain states and provinces
+     * getting stuck on the globe.
+     *
+     * A name was the whole of a label's identity, and it is not one. Misiones
+     * is a province of Argentina and a department of Paraguay 237 km away —
+     * one frame holds both — Amazonas belongs to four countries, La Paz to
+     * three, and Latvia has two Daugavpils five kilometres apart: forty-eight
+     * names in Natural Earth's admin-1 list are shared across countries and
+     * fifteen countries repeat one inside themselves. Two React children under
+     * one key is unsupported, and what React 19 does with it is leave one of
+     * the two `<text>` nodes behind on the commit that drops it — permanently,
+     * because reconciliation has lost track of it. Measured in Chrome on the
+     * reader's own stage, one drag away from the Argentine-Paraguayan border
+     * left **eight** stuck `Misiones` labels strewn across Brazil and the
+     * South Atlantic.
+     *
+     * Two labels of one name six degrees apart, which is 187px here — far more
+     * than either box is tall, so `withoutOverlaps` keeps both and the
+     * collision is real rather than hidden by the overlap rule. Then the map
+     * is taken back out past the crossover, where the whole rung is dropped:
+     * every one of them should go.
+     */
+    const TWINNED = 'Misiones';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
+        }
+        return Promise.resolve(
+          Response.json({
+            country: '604',
+            borders: PERU_SUBDIVISIONS.borders,
+            labels: [
+              { name: TWINNED, at: [-77, -9], area: 0.001537 },
+              { name: TWINNED, at: [-77, -3], area: 0.001537 },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    await closeInOnPeru(stage);
+    await waitFor(() => expect(screen.getAllByText(TWINNED)).toHaveLength(2));
+
+    // Back out to about 3x: past the 4.6x crossover, so the subdivision rung
+    // is gone, and short of 1.6x, so the country rung is still lit and there
+    // is something to compare an orphan against.
+    await act(async () => {
+      for (let notch = 0; notch < 3; notch += 1) wheel(stage, 150, [480, 270]);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+
+    await waitFor(() => expect(screen.getByText('Peru')).toBeInTheDocument());
+    expect(screen.queryAllByText(TWINNED)).toHaveLength(0);
+  });
+
+  it('brings a country in by fading rather than in the frame its geometry lands on', async () => {
+    /*
+     * The reader's other report: the detail appears neither fluidly nor at the
+     * same moment for every country.
+     *
+     * Half of that is what a fan-out is — several countries land when they
+     * land — and the half that was wrong is that each of them landed in a
+     * single frame. A country went from coarse-and-named to fine-and-divided
+     * between one frame and the next, so a view made of several arrivals read
+     * as a run of separate pops rather than as one thing filling in. Measured
+     * cold in Chrome on the reader's own 529x460 stage, the reader watched
+     * nothing at all for about 1.6s and then the whole view changed at once.
+     *
+     * Everything else on this map that appears, appears by fading, and the
+     * fade comes from the geometry — 12.27, 12.28, `limbFade`, `roomFade`.
+     * This is that rule reaching the one layer that was not using it, and the
+     * fade is a genuine cross-fade: for as long as Peru's own name is still
+     * lit, its departments are dimmer than they end up.
+     */
+    servingPeru();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    // A moment when both rungs are on the map at once, which is what a
+    // cross-fade *is* and which a layer that switches on has none of.
+    let midway = Number.NaN;
+    await waitFor(() => {
+      midway = Number((screen.getByText('Loreto') as unknown as SVGTextElement).style.opacity);
+      expect(screen.getByText('Peru')).toBeInTheDocument();
+    });
+
+    await waitFor(() => expect(screen.queryByText('Peru')).not.toBeInTheDocument());
+    const settled = Number((screen.getByText('Loreto') as unknown as SVGTextElement).style.opacity);
+    expect(midway).toBeGreaterThan(0);
+    expect(midway).toBeLessThan(settled);
+  });
+
+  it('asks for nothing at all while the globe is only being spun', async () => {
+    /*
+     * The first of the three things damping the fetch, and the one that keeps
+     * a reader who never zooms in from sending a single request.
+     *
+     * Each spin is pulled out and brought back, so the globe finishes where it
+     * started and Peru is still under the middle of the frame — otherwise the
+     * drag itself would carry the middle out over the Pacific and the test
+     * would pass because there was no country to ask about, which is not the
+     * thing being proved. The only reason nothing is requested here is the
+     * zoom gate.
+     */
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    for (let spin = 0; spin < 5; spin += 1) {
+      pointer(stage, 'pointerDown', [400, 240]);
+      pointer(stage, 'pointerMove', [460, 260]);
+      pointer(stage, 'pointerMove', [400, 240]);
+      pointer(stage, 'pointerUp', [400, 240]);
+    }
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+    expect(subdivisionRequests).toEqual([]);
+  });
+
   it('fades a continent name out as it turns towards the limb', () => {
     /*
      * The fade is the request: `facesViewer` answers yes right up to 90° and
@@ -619,6 +1170,42 @@ describe('RouteMap', () => {
     expect(grew).toBeGreaterThan(1.05);
     // Nowhere near the 1.49 the notch asked for.
     expect(grew).toBeLessThan(1.2);
+  });
+
+  it('goes further in than the old ceiling let it', async () => {
+    /*
+     * The ceiling moved from 8x to 32x, and the check is arithmetic rather
+     * than a peek at the constant. jsdom measures the stage at 960x540, so the
+     * globe's radius is `0.42 x 540 x zoom`, and Lima and Cusco — 570 km apart,
+     * 0.0895 radians — are 162px apart at the old 8x ceiling. Any wider than
+     * that is a scale the map could not previously reach at all.
+     *
+     * **Six moderate notches, not two hard ones, and no frame is waited for.**
+     * Each wheel event applies one easing step the instant it arrives — 20.5%
+     * of the distance to the target — so the scale a gesture reaches without a
+     * single frame having run is entirely determined by how the *target*
+     * climbs. Two notches of -1000 peg the target at 32 immediately, and
+     * `aimZoom` then refuses every further notch because the target has not
+     * moved, which leaves the scale at 8.4 and this test one pixel from
+     * failing. Six notches of -300 walk the target up instead and put the
+     * scale at about 12.5 on the events alone. That distinction is not
+     * academic: written the first way this passed on its own and failed in a
+     * full run, because jsdom had no spare frames under load.
+     */
+    const { container } = renderMap({ routes: [LIM_CUZ] });
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    const spread = () => {
+      const xs = [...container.querySelectorAll('circle')].map((dot) =>
+        Number(dot.getAttribute('cx')),
+      );
+      return Math.max(...xs) - Math.min(...xs);
+    };
+
+    await act(async () => {
+      for (let notch = 0; notch < 6; notch += 1) wheel(stage, -300, [480, 270]);
+    });
+
+    expect(spread()).toBeGreaterThan(200);
   });
 
   it('zooms by how hard the wheel was turned, not once per event', async () => {

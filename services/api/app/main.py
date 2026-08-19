@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.streams import CompositeStream
 from app.config import CORS_ORIGINS, kv_dir
-from app.routers import fares, health, kv, market
+from app.routers import fares, geography, health, kv, market
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.services.kv_store import ensure_kv_dir
@@ -53,6 +53,7 @@ app.include_router(health.router)
 app.include_router(kv.router)
 app.include_router(market.router)
 app.include_router(fares.router)
+app.include_router(geography.router)
 
 
 @app.get("/")

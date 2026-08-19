@@ -167,6 +167,41 @@ export function roomFade(area: number, needed: number = LABEL_ROOM): number {
 }
 
 /**
+ * How much bigger than a name the ground under it has to be.
+ *
+ * Read off `LABEL_ROOM` rather than chosen: 2400 px² is 2.64 times the box of
+ * the mean country name — 8.09 characters at 10px and 0.08em, so 53.4 by 17 —
+ * and 3.06 times the median's seven. So the country rung already embodies a
+ * ratio of about 2.7, and this is that ratio said out loud rather than a new
+ * number. `LABEL_ROOM` itself is untouched; countries still use it.
+ */
+export const NAME_ROOM_MARGIN = 2.7;
+
+/**
+ * The ground a name of this size needs under it, in px².
+ *
+ * The subdivision rung's own room rule, and the one thing about it that is not
+ * the country rung's. A constant asks the same of every name, which is fair
+ * when the names are all about the same size and a lie when they are not:
+ * Peru's departments run from `Ica` to `Madre de Dios` and Chile's regions
+ * reach `Aisén del General Carlos Ibáñez del Campo`, four times the width of
+ * `Antofagasta` on the same rule. Measured at the zoom cap, that name is 229px
+ * wide on ground 77px across — three times the region it names, printed at
+ * full strength straight over its neighbours, because a flat threshold cannot
+ * see how long a word is.
+ *
+ * The estimate is area against area: a name deserves its ground once the
+ * ground is `NAME_ROOM_MARGIN` times the name's own box. It cannot see which
+ * way a region is turned — a long thin department lying across the map reads
+ * as more room than it can really offer — so it is a floor on what fits, not a
+ * proof of it, and `withoutOverlaps` is still what stops two names that both
+ * passed from printing over each other.
+ */
+export function roomForName(width: number, height: number): number {
+  return width * height * NAME_ROOM_MARGIN;
+}
+
+/**
  * Continents giving way to countries as the view closes in.
  *
  * Both at once is clutter, and they answer different questions: the continent
@@ -184,6 +219,46 @@ export function continentFade(zoom: number): number {
 
 export function countryFade(zoom: number): number {
   return clamp01((zoom - 1.6) / 1.2);
+}
+
+/**
+ * The zoom at which a country's subdivisions are worth asking the API for.
+ *
+ * One ramp early, so the geometry is in hand by the time it is worth drawing
+ * and the borders do not arrive a beat after the name has gone. Below this
+ * nothing is requested at all — a reader who spins the home view and never
+ * closes in sends no request, which is the first and cheapest of the three
+ * things damping the fetch.
+ */
+export const SUBDIVISION_REACH = 4 - 1.2 / 2;
+
+/**
+ * Countries giving way to their own subdivisions, one rung further in.
+ *
+ * The same handover 12.28 built and the same shape: a 1.2-wide ramp, the two
+ * layers crossing half-lit, and the fade coming from the geometry rather than
+ * from a stylesheet. A country whose subdivisions are on screen has its own
+ * name multiplied by `1 - subdivisionFade`, so the name does not so much
+ * disappear as become the borders inside it.
+ *
+ * **Where the crossover sits, and why 4.6.** A country should never lose its
+ * name before that name has been at full strength, and the room test decides
+ * when that is: `roomFade` saturates at twice `LABEL_ROOM`, which on the
+ * stage's own 460px minimum lands at 2.0x for Peru, 2.7x for Chile, 3.2x for
+ * Spain and 3.7x for Japan — the binding case among the countries this
+ * reader's routes touch. So the fall starts at 4.0, clear of Japan, and with
+ * 12.28's ramp the crossover is at 4.6. Earlier and Japan's name would begin
+ * fading before it had ever been fully lit; much later and there is not enough
+ * of the 8x ceiling left for the layer to be worth arriving.
+ *
+ * Only the country the reader has actually zoomed into is affected, because it
+ * is the only one whose subdivisions are ever fetched. Every other name on
+ * screen keeps burning at whatever `countryFade` gives it — which is also what
+ * makes the fallback silent: a country Natural Earth does not divide is
+ * indistinguishable from one nobody has zoomed into.
+ */
+export function subdivisionFade(zoom: number): number {
+  return clamp01((zoom - 4) / 1.2);
 }
 
 /* ------------------------------------------------------------------- zoom -- */
@@ -216,7 +291,84 @@ export function approach(current: number, target: number, elapsed: number, tau =
   return Math.abs(target - next) < target * 0.0005 ? target : next;
 }
 
+/**
+ * The three rungs of the name ladder, each smaller and less tracked out than
+ * the one above it — which is also how a reader tells them apart when two of
+ * them are half-lit at a handover.
+ *
+ * These numbers are the stylesheet's, and the stylesheet says so beside each
+ * of them. They live here rather than in the component because the room test,
+ * the overlap test and the edge test all measure a name's box, and a box that
+ * three rules disagree about is three rules that disagree.
+ */
+export const NAME_TIERS = {
+  continent: { key: 'c', font: 11, spacing: 1.98 },
+  country: { key: 'n', font: 10, spacing: 0.8 },
+  // 8px, and the smallest thing on the map. A name's box is its width times
+  // its height and both fall with the face, so a point down from the country
+  // rung is 11% narrower and 11% shorter and asks 21% less ground — which at
+  // this zoom is the difference between a department carrying its name and
+  // carrying nothing.
+  subdivision: { key: 's', font: 8, spacing: 0.32 },
+} as const;
+
+export type NameTier = keyof typeof NAME_TIERS;
+
+/**
+ * How much screen a name takes, before anything decides whether to draw it.
+ *
+ * Asked three times of every name: once to find out whether the ground under
+ * it can hold it, once to keep it clear of the edge of the panel, and once to
+ * claim its ground against every other name. Letter-spacing is part of the
+ * width all three times, and the continent names are tracked out a long way.
+ */
+export function nameBox(name: string, tier: NameTier): { width: number; height: number } {
+  const { font, spacing } = NAME_TIERS[tier];
+  return { width: name.length * (font * 0.58 + spacing), height: font * 1.7 };
+}
+
 export type Boxed = { x: number; y: number; width: number; height: number };
+
+/**
+ * A name pulled far enough in from the edge of the map to be readable whole.
+ *
+ * The names are centred on the point they belong to, and the map's stage
+ * clips: a country whose centroid lands 20px from the right-hand edge had the
+ * right half of its name cut off by the panel. Measured at 10x with Peru's
+ * departments showing, Bolivia rendered as `Bolivi` — a word that is not a
+ * place, in a font small enough that a reader has no way to tell it from one.
+ *
+ * The subdivision rung looked immune and was not. It was only ever offered the
+ * units of the one country under the middle of the frame, which is the one
+ * place on the map where nothing is near an edge; fanning the layer out to
+ * every country in view puts provincial names against the same edge, so this
+ * is a fix the rest of this change would otherwise have needed anyway.
+ *
+ * **Moved, not dropped**, which is standard cartographic practice and the same
+ * answer `withoutOverlaps` already gives a name blocked by an airport code: a
+ * label steps aside rather than vanishing. The step is bounded by construction
+ * — a name can never move further than half its own width, because that is all
+ * the distance there is between "centred on the edge" and "flush inside it" —
+ * so it stays over the country it names.
+ *
+ * `null` when the point itself is off the frame, because then it is not a name
+ * that needs moving, it is a place that is not on screen. That is the cull the
+ * map did before, said in one place instead of two, and it is what stops a
+ * country three frames to the west from parking its name against the edge.
+ */
+export function nudgeIntoFrame(
+  at: readonly [number, number],
+  box: { width: number; height: number },
+  frame: { width: number; height: number },
+): [number, number] | null {
+  if (at[0] < 0 || at[0] > frame.width || at[1] < 0 || at[1] > frame.height) return null;
+  const along = (value: number, size: number, span: number) =>
+    // A name wider than the frame has nowhere to be flush, so it is centred:
+    // an equal amount lost at each end reads as a long name on a narrow map,
+    // where all of it lost at one end reads as a different word.
+    span < size ? span / 2 : Math.min(Math.max(value, size / 2), span - size / 2);
+  return [along(at[0], box.width, frame.width), along(at[1], box.height, frame.height)];
+}
 
 /**
  * Names that are not sitting on top of each other, in the order they were

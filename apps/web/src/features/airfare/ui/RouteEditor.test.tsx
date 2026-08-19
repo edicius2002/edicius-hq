@@ -136,16 +136,65 @@ describe('RouteEditor', () => {
     expect(listFor(/origin/i)?.className).not.toMatch(/leftwards/);
   });
 
-  it('takes the two ends and the date and hands over a route', async () => {
+  it('takes the two ends and the month and hands over a route', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
     await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.type(screen.getByLabelText(/departure/i), '2026-11-14');
+    await user.type(screen.getByLabelText(/departure month/i), '2026-11');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
-    expect(onAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ origin: 'LIM', destination: 'MAD', flightDate: '2026-11-14' }),
-    );
+    expect(onAdd).toHaveBeenCalledWith({
+      origin: 'LIM',
+      destination: 'MAD',
+      month: '2026-11',
+      currency: 'USD',
+    });
+  });
+
+  it('offers a month to depart in rather than a day', () => {
+    // 12.110: the watch is a month, and asking for a day here would be asking
+    // the reader to choose the thing the page exists to work out for them.
+    renderEditor();
+    expect(screen.getByLabelText(/departure month/i)).toHaveAttribute('type', 'month');
+  });
+
+  it('has no return field at all, rather than one that is ignored', () => {
+    // 12.113: a month of departures has no single return date to share, and a
+    // control the collector would silently drop is worse than no control.
+    renderEditor();
+    expect(screen.queryByLabelText(/return/i)).not.toBeInTheDocument();
+  });
+
+  it('will not add a month the calendar has finished with', async () => {
+    /*
+     * Two guards, and this proves both ends of the outcome rather than one of
+     * the mechanisms. `min` on the control is what a browser enforces — which
+     * is why no `role="alert"` appears here, the submit event never fires —
+     * and the check inside `submit` is what catches the same value where
+     * `type="month"` is not supported and degrades to a text box.
+     */
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure month/i), '2026-07');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/departure month/i)).toHaveAttribute('min', '2026-08');
+  });
+
+  it('says which field is wrong rather than letting the route vanish', async () => {
+    // A route that disappears on save looks like a broken button, and the
+    // reader has no way to learn that the month was the problem.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Departure month must be a real month.');
   });
 });

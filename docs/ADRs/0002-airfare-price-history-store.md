@@ -53,6 +53,10 @@ Offer rows are written with the same camelCase keys the API serves, spelled out 
 
 One file holds every departure ever watched for a pair. Readers filter by `flightDate` before charting, because two departures are two series and the step between them is not a price movement.
 
+**Addendum, 2026-08-19 (12.110).** A watch became a city pair and a _month_, and this decision is why nothing in the layout had to move: thirty-one departures coexist in one file exactly as two used to, and every kind of line here — snapshot, heartbeat, baseline point, fingerprint — was already keyed by `flightDate`. Readers gained a prefix rather than a new file: `2027-03` selects a month where `2027-03-09` selects a day, which works because `YYYY-MM-DD` truncates the way the calendar does.
+
+What it does change is the volume, and the consequence below is now the number to watch rather than a comfortable one. Measured on the real archive on 2026-08-19: a snapshot is 780 bytes on a thin route (ARI-SCL) and 6.3 kB on a busy one (LIM-CUZ, 12 snapshots in 76 kB). A month watched at the daily cadence writes at most one per departure per day, so a busy pair can now write ~190 kB a day where it wrote ~6 kB — up to 70 MB a year for one route rather than 2. Writing only on change (12.16) is what keeps that a ceiling rather than a floor, and it is the reason compaction is still not needed; if the watchlist grows to months on busy pairs, this is the line that will move first.
+
 ## Consequences
 
 **Good.**

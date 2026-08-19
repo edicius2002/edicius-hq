@@ -5,7 +5,9 @@ import {
   collectableRoutes,
   EMPTY_FARE_ROUTES,
   formatFlightDate,
+  formatFlightMonth,
   isCalendarDate,
+  isMonth,
   normalizeFareRoutes,
   removeRoute,
   reorderRoutes,
@@ -17,10 +19,25 @@ import {
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  flightDate: '2026-10-16',
-  returnDate: null,
+  month: '2026-10',
   currency: 'USD',
 };
+
+describe('isMonth', () => {
+  it('accepts a month the calendar has and rejects one it does not', () => {
+    expect(isMonth('2026-10')).toBe(true);
+    expect(isMonth('2026-01')).toBe(true);
+    expect(isMonth('2026-12')).toBe(true);
+    // Thirteen months would expand to a departure no provider can parse.
+    expect(isMonth('2026-13')).toBe(false);
+    expect(isMonth('2026-00')).toBe(false);
+    // A whole date is not a month, and treating it as one would silently
+    // truncate the day the reader typed.
+    expect(isMonth('2026-10-16')).toBe(false);
+    expect(isMonth('2026-3')).toBe(false);
+    expect(isMonth(202610)).toBe(false);
+  });
+});
 
 describe('isCalendarDate', () => {
   it('accepts a real date and rejects one that only looks like a date', () => {
@@ -43,7 +60,40 @@ describe('normalizeFareRoutes', () => {
 
   it('upper-cases codes and fills in the default currency', () => {
     const { routes } = normalizeFareRoutes({
-      routes: [{ origin: 'lim', destination: 'scl', flightDate: '2026-10-16' }],
+      routes: [{ origin: 'lim', destination: 'scl', month: '2026-10' }],
+    });
+    expect(routes).toEqual([LIM_SCL]);
+  });
+
+  it('repairs a route stored with a departure date into the month it falls in', () => {
+    // Every entry written before 12.110 carries `flightDate`, and the month is
+    // stated by that value rather than guessed. Dropping them would have
+    // emptied the watchlist on the first read after the upgrade.
+    const { routes } = normalizeFareRoutes({
+      routes: [{ origin: 'LIM', destination: 'SCL', flightDate: '2026-10-16', returnDate: null }],
+    });
+    expect(routes).toEqual([LIM_SCL]);
+  });
+
+  it('drops a departure date that names no month rather than inventing one', () => {
+    // `2026-02-31` is a typo, not a day, so it is not evidence of February
+    // either — repairing it would be inventing.
+    const { routes } = normalizeFareRoutes({
+      routes: [{ origin: 'LIM', destination: 'SCL', flightDate: '2026-02-31' }],
+    });
+    expect(routes).toEqual([]);
+  });
+
+  it('collapses a whole month of old entries into the one watch they became', () => {
+    // Three departures inside October were three watches and are now one, and
+    // a reader upgrading with three of them should not find three identical
+    // rows collecting October three times over.
+    const { routes } = normalizeFareRoutes({
+      routes: [
+        { origin: 'LIM', destination: 'SCL', flightDate: '2026-10-16' },
+        { origin: 'LIM', destination: 'SCL', flightDate: '2026-10-17' },
+        { origin: 'LIM', destination: 'SCL', flightDate: '2026-10-30' },
+      ],
     });
     expect(routes).toEqual([LIM_SCL]);
   });
@@ -51,9 +101,10 @@ describe('normalizeFareRoutes', () => {
   it('drops entries it cannot repair rather than inventing a value', () => {
     const { routes } = normalizeFareRoutes({
       routes: [
-        { origin: 'LIMA', destination: 'SCL', flightDate: '2026-10-16' },
-        { origin: 'LIM', destination: 'LIM', flightDate: '2026-10-16' },
-        { origin: 'LIM', destination: 'SCL', flightDate: 'soon' },
+        { origin: 'LIMA', destination: 'SCL', month: '2026-10' },
+        { origin: 'LIM', destination: 'LIM', month: '2026-10' },
+        { origin: 'LIM', destination: 'SCL', month: 'soon' },
+        { origin: 'LIM', destination: 'SCL', month: '2026-13' },
         { origin: 'LIM', destination: 'SCL' },
         null,
         LIM_SCL,
@@ -62,31 +113,27 @@ describe('normalizeFareRoutes', () => {
     expect(routes).toEqual([LIM_SCL]);
   });
 
-  it('keeps two dates for one city pair as two separate watches', () => {
+  it('keeps two months for one city pair as two separate watches', () => {
     const { routes } = normalizeFareRoutes({
-      routes: [LIM_SCL, { ...LIM_SCL, flightDate: '2026-12-20' }],
+      routes: [LIM_SCL, { ...LIM_SCL, month: '2026-12' }],
     });
-    // The price of a city pair is not a thing; the price of a departure is.
+    // The price of a city pair is not a thing; the price of a month of it is.
     expect(routes).toHaveLength(2);
   });
 
-  it('de-duplicates identical watches, which would collect the same price twice', () => {
+  it('de-duplicates identical watches, which would collect the same month twice', () => {
     const { routes } = normalizeFareRoutes({ routes: [LIM_SCL, { ...LIM_SCL }] });
     expect(routes).toHaveLength(1);
   });
 
-  it('discards a return date that falls before the departure', () => {
-    const { routes } = normalizeFareRoutes({
-      routes: [{ ...LIM_SCL, returnDate: '2026-10-01' }],
-    });
-    expect(routes[0].returnDate).toBeNull();
-  });
-
-  it('keeps a valid return date', () => {
+  it('carries no return leg through, however the stored entry spelled one', () => {
+    // 12.113: a month of departures has no single return date to share, so a
+    // stored one is not repaired into anything — it is simply not part of a
+    // watch any more.
     const { routes } = normalizeFareRoutes({
       routes: [{ ...LIM_SCL, returnDate: '2026-10-23' }],
     });
-    expect(routes[0].returnDate).toBe('2026-10-23');
+    expect(routes).toEqual([LIM_SCL]);
   });
 });
 
@@ -102,37 +149,39 @@ describe('route transitions', () => {
   });
 
   it('refuses a route it could not repair', () => {
-    expect(addRoute(EMPTY_FARE_ROUTES, { ...LIM_SCL, flightDate: 'whenever' })).toBe(
-      EMPTY_FARE_ROUTES,
-    );
+    expect(addRoute(EMPTY_FARE_ROUTES, { ...LIM_SCL, month: 'whenever' })).toBe(EMPTY_FARE_ROUTES);
   });
 
   it('removes by id and leaves the document alone when nothing matched', () => {
     const document = addRoute(EMPTY_FARE_ROUTES, LIM_SCL);
     expect(removeRoute(document, routeId(LIM_SCL)).routes).toEqual([]);
-    expect(removeRoute(document, 'LIM|MAD|2026-10-16|')).toBe(document);
+    expect(removeRoute(document, 'LIM|MAD|2026-10')).toBe(document);
   });
 
-  it('distinguishes two dates for one pair by id', () => {
-    expect(routeId(LIM_SCL)).not.toBe(routeId({ ...LIM_SCL, flightDate: '2026-12-20' }));
+  it('distinguishes two months for one pair by id', () => {
+    expect(routeId(LIM_SCL)).not.toBe(routeId({ ...LIM_SCL, month: '2026-12' }));
   });
 });
 
 describe('collectableRoutes', () => {
-  it('keeps today and the future, and stops asking about a flight that has left', () => {
+  it('keeps the month we are in and every one after it', () => {
+    // A month is over only once the calendar has left it. The 17th of August
+    // is halfway through August and August is still worth collecting — the
+    // days inside it that have gone are skipped one at a time by the
+    // collector, which is the only side that can say so by name.
     const document = {
       version: 1 as const,
       routes: [
-        { ...LIM_SCL, flightDate: '2026-08-01' },
-        { ...LIM_SCL, flightDate: '2026-08-17' },
-        { ...LIM_SCL, flightDate: '2026-10-16' },
+        { ...LIM_SCL, month: '2026-07' },
+        { ...LIM_SCL, month: '2026-08' },
+        { ...LIM_SCL, month: '2026-10' },
       ],
     };
-    expect(collectableRoutes(document, '2026-08-17').map((r) => r.flightDate)).toEqual([
-      '2026-08-17',
-      '2026-10-16',
+    expect(collectableRoutes(document, '2026-08-17').map((r) => r.month)).toEqual([
+      '2026-08',
+      '2026-10',
     ]);
-    // The departed one stays in the document — its history is still worth
+    // The finished one stays in the document — its history is still worth
     // reading — it is simply never asked about again.
     expect(document.routes).toHaveLength(3);
   });
@@ -141,9 +190,9 @@ describe('collectableRoutes', () => {
 describe('reorderRoutes', () => {
   const LIST = normalizeFareRoutes({
     routes: [
-      { origin: 'LIM', destination: 'CUZ', flightDate: '2026-10-17' },
-      { origin: 'LIM', destination: 'SCL', flightDate: '2026-10-17' },
-      { origin: 'LIM', destination: 'MAD', flightDate: '2026-12-01' },
+      { origin: 'LIM', destination: 'CUZ', month: '2026-10' },
+      { origin: 'LIM', destination: 'SCL', month: '2026-10' },
+      { origin: 'LIM', destination: 'MAD', month: '2026-12' },
     ],
   });
   const ids = (document: FareRoutes) => document.routes.map(routeId);
@@ -195,6 +244,28 @@ describe('formatFlightDate', () => {
     // A date the reader can see and puzzle over beats a silent blank.
     for (const odd of ['', 'tomorrow', '2026-13-40x', '17/10/2026']) {
       expect(formatFlightDate(odd)).toBe(odd);
+    }
+  });
+});
+
+describe('formatFlightMonth', () => {
+  it('names the month rather than numbering it, so it cannot be read as a day', () => {
+    // 12.114: `03/2027` sits inside this page's own `dd/mm/yyyy` pattern well
+    // enough that a reader has to work out which half is which. A name cannot.
+    expect(formatFlightMonth('2027-03')).toBe('March 2027');
+    expect(formatFlightMonth('2026-01')).toBe('January 2026');
+    expect(formatFlightMonth('2026-12')).toBe('December 2026');
+  });
+
+  it('does not go through a Date, which would move the month west of Greenwich', () => {
+    // `new Date('2026-01')` is midnight UTC on the 1st, and reading the month
+    // back in Lima gives December — the same trap `formatFlightDate` avoids.
+    expect(formatFlightMonth('2026-01')).toBe('January 2026');
+  });
+
+  it('hands back anything that is not a plain month, untouched', () => {
+    for (const odd of ['', 'soon', '2026-13', '2026-10-16']) {
+      expect(formatFlightMonth(odd)).toBe(odd);
     }
   });
 });

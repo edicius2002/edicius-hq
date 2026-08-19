@@ -6,6 +6,12 @@ calls it, and a scheduled job somewhere else would call it the same way — the
 plan's runner decision is "local now, elsewhere later", and the way to keep
 that cheap is to have the thing being run own no assumptions about who runs it.
 
+Since 12.110 the unit the reader watches is a route and a *month*, while the
+unit a provider answers about is still a route and a day. `collect_due` is
+where those meet: it expands each watched month into its departures and hands
+them to the same per-departure schedule that has always been here. Nothing
+below that line knows a month exists.
+
 Two properties this owes the caller:
 
 **A refusal is reported, not swallowed.** Every route comes back with an
@@ -42,13 +48,36 @@ from app.config import (
     daily_request_budget,
 )
 from app.services.fare_history import HISTORY, FareHistory
-from app.services.fare_schedule import due_now
+from app.services.fare_schedule import due_now, month_dates
 
 logger = logging.getLogger(__name__)
 
 # Seconds between upstream requests. Slow enough to look like a person browsing,
 # fast enough that a twenty-route watchlist finishes in a couple of minutes.
 REQUEST_GAP_SECONDS = 6.0
+
+
+@dataclass(frozen=True, slots=True)
+class FareWatch:
+    """
+    One watched route: a city pair and a departure **month** — 12.110.
+
+    Deliberately not a `FareQuery`. A query is one request to a provider and
+    has to name a day; a watch is what the reader asked for, and since 12.110
+    that is a month. Keeping them as two types is what stops the expansion from
+    happening twice, or from happening in a place that cannot report the days
+    it decided to leave alone.
+    """
+
+    origin: str
+    destination: str
+    #: `YYYY-MM`.
+    month: str
+    currency: str = "USD"
+
+    @property
+    def route(self) -> str:
+        return f"{self.origin}-{self.destination}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,9 +112,15 @@ class CollectionReport:
     source: str
     results: list[RouteResult]
     #: Departures that were looked at but not polled, with the reason — not
-    #: due yet, departed, past the horizon, or over the day's budget. Reported
-    #: rather than dropped, for the same reason a refusal is (8.8, 8.41): a
-    #: pass that silently skips half a watchlist looks like a healthy one.
+    #: due yet, departed, past the horizon, over the pass's budget, or in a
+    #: month nobody could read. Reported rather than dropped, for the same
+    #: reason a refusal is (8.8, 8.41): a pass that silently skips half a
+    #: watchlist looks like a healthy one.
+    #:
+    #: Since a watched month expands into thirty-one departures, this is
+    #: routinely the longer of the two lists — on a daily cadence a month costs
+    #: one poll per day and thirty skips, and that is the design working rather
+    #: than failing.
     skipped: list[tuple[str, str]] = field(default_factory=list)
 
     @property
@@ -150,8 +185,40 @@ async def collect(
     return report
 
 
+def expand(watched: list[FareWatch]) -> tuple[dict[tuple[str, str, str], FareQuery], list[str]]:
+    """
+    Every watched month turned into the departures inside it.
+
+    Returned keyed by `(origin, destination, flight_date)` because that is what
+    the scheduler and the archive's heartbeats are both keyed by, so the plan
+    that comes back can be matched to a query without a second pass.
+
+    A month nobody can read is returned separately rather than dropped. It
+    would otherwise vanish between a watchlist of three routes and a report
+    about two, which is precisely the silence 8.8 and 8.41 exist to stop.
+    """
+    queries: dict[tuple[str, str, str], FareQuery] = {}
+    unreadable: list[str] = []
+    for watch in watched:
+        dates = month_dates(watch.month)
+        if not dates:
+            unreadable.append(f"{watch.route} {watch.month}")
+            continue
+        for flight_date in dates:
+            queries[(watch.origin, watch.destination, flight_date)] = FareQuery(
+                origin=watch.origin,
+                destination=watch.destination,
+                flight_date=flight_date,
+                # One way. A month of departures has no single return date to
+                # share — see `FareRoute.month` on the web side, 12.113.
+                return_date=None,
+                currency=watch.currency,
+            )
+    return queries, unreadable
+
+
 async def collect_due(
-    watched: list[FareQuery],
+    watched: list[FareWatch],
     *,
     now: datetime | None = None,
     budget: int | None = None,
@@ -164,17 +231,25 @@ async def collect_due(
     """
     One pass over only the departures that are actually due.
 
-    This is what a scheduler runs every few minutes: it asks the archive when
-    each departure was last looked at, applies the cadence for how far away it
-    is, and polls the ones whose turn has come. Everything it decides not to
-    poll comes back in `skipped` with the reason, so a pass that does nothing
-    can still say why it did nothing.
+    This is what a scheduler runs every few minutes: it expands each watched
+    month into its departures (12.110), asks the archive when each of them was
+    last looked at, applies the cadence for how far away it is, and polls the
+    ones whose turn has come. Everything it decides not to poll comes back in
+    `skipped` with the reason, so a pass that does nothing can still say why it
+    did nothing.
+
+    The cadence is applied per departure and not per month — 12.111. A month is
+    thirty-one days spread over thirty-one different distances, and giving it
+    one rate would mean either polling its far end as often as its near end, or
+    the reverse. The arithmetic settles it: a month whose first day is a week
+    away costs 936 requests a day at the near rate applied throughout, against
+    a 300 budget, while the same month at 200 days out costs 31.
     """
     store = history if history is not None else HISTORY
     moment = now if now is not None else datetime.now(UTC)
     spend = budget if budget is not None else daily_request_budget()
 
-    by_key = {(q.origin, q.destination, q.flight_date): q for q in watched}
+    by_key, unreadable = expand(watched)
     plan = due_now(
         list(by_key),
         store.last_checked(),
@@ -191,7 +266,8 @@ async def collect_due(
         client=client,
         gap_seconds=gap_seconds,
     )
-    skipped = [(f"{d.route} {d.flight_date}", d.reason) for d in plan if not d.ready]
+    skipped = [(what, "unreadable-month") for what in unreadable]
+    skipped += [(f"{d.route} {d.flight_date}", d.reason) for d in plan if not d.ready]
     return CollectionReport(
         started_at=report.started_at,
         finished_at=report.finished_at,

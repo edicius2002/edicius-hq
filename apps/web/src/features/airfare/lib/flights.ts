@@ -1,3 +1,4 @@
+import { latestPerDeparture } from '@/features/airfare/lib/series';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
 /**
@@ -62,11 +63,19 @@ export type FlightTrack = {
  * Flights missing from the latest snapshot are kept and marked `present:
  * false` rather than dropped — a flight that disappeared is a fact about the
  * route, and dropping it would make the board look like it never held one.
+ *
+ * "The latest snapshot" is the latest one *of each departure*, not the latest
+ * of all — 12.115. Since 12.110 these snapshots span a whole month of
+ * departures polled one at a time, so the newest of them belongs to whichever
+ * day the collector happened to reach last; measuring presence against it
+ * alone would mark every flight on the other thirty days as gone, on the
+ * strength of nothing but the order the pass ran in.
  */
 export function trackFlights(snapshots: FareSnapshot[]): FlightTrack[] {
   const ordered = [...snapshots].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
-  const latest = ordered.at(-1) ?? null;
-  const latestKeys = new Set((latest?.offers ?? []).map(flightKey));
+  const latestKeys = new Set(
+    latestPerDeparture(ordered).flatMap((snapshot) => snapshot.offers.map(flightKey)),
+  );
 
   const tracks = new Map<string, FlightTrack>();
   for (const snapshot of ordered) {
@@ -140,6 +149,13 @@ export type BoardChange = {
  * This is the answer to "what happened since last time" that a chart cannot
  * give: a route whose cheapest fare held steady while three flights moved and
  * two disappeared had a busy day, and the line would show none of it.
+ *
+ * **One departure's snapshots only.** "The two most recent observations" means
+ * something across one departure and nothing across a month of them — 12.110
+ * polls each day separately, so the last two snapshots of a watched month are
+ * usually two different days, and every flight on one would read as having
+ * appeared while every flight on the other had left. Nothing on the page calls
+ * this yet; whatever does must narrow to a departure first.
  */
 export function changesBetween(snapshots: FareSnapshot[]): BoardChange[] {
   const ordered = [...snapshots].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));

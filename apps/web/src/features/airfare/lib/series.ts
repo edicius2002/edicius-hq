@@ -37,21 +37,21 @@ export type AirlineSummary = {
 };
 
 /**
- * The snapshots that belong to one watched route.
+ * The snapshots that belong to one watched month.
  *
- * The archive keys by city pair, so one file holds every departure date ever
- * watched for LIM-SCL. Charting them together would draw an October fare and a
- * December fare as one line and call the step between them a price movement.
+ * The archive keys by city pair, so one file holds every departure ever
+ * watched for LIM-SCL. Showing them all together would put an October fare and
+ * a December fare in front of the reader as one thing, and the step between
+ * them would read as a price movement.
+ *
+ * A month is a prefix of a `YYYY-MM-DD` departure, which is why this is a
+ * string comparison rather than any date arithmetic — the same property the
+ * server's own `departure` filter leans on. The thirty-one departures inside
+ * the month deliberately stay together: they are the question the watch is now
+ * asking, and separating them again is the caller's business.
  */
-export function snapshotsFor(
-  snapshots: FareSnapshot[],
-  flightDate: string,
-  returnDate: string | null = null,
-): FareSnapshot[] {
-  return snapshots.filter(
-    (snapshot) =>
-      snapshot.flightDate === flightDate && (snapshot.returnDate ?? null) === returnDate,
-  );
+export function snapshotsFor(snapshots: FareSnapshot[], month: string): FareSnapshot[] {
+  return snapshots.filter((snapshot) => snapshot.flightDate.startsWith(month));
 }
 
 export function cheapestOffer(snapshot: FareSnapshot): FareOffer | null {
@@ -130,12 +130,45 @@ export function byAirline(snapshot: FareSnapshot | null): AirlineSummary[] {
   return [...grouped.values()].sort((a, b) => a.cheapest - b.cheapest);
 }
 
-export function latestSnapshot(snapshots: FareSnapshot[]): FareSnapshot | null {
-  return snapshots.reduce<FareSnapshot | null>(
-    (latest, snapshot) =>
-      latest === null || snapshot.capturedAt > latest.capturedAt ? snapshot : latest,
-    null,
-  );
+/**
+ * The most recent look at each departure, one per day of the month.
+ *
+ * A watched month holds thirty-one series in one file, and they are polled one
+ * at a time — so the newest snapshot overall belongs to whichever departure the
+ * collector happened to reach last, which is a fact about the pacing and not
+ * about the fares. Reducing per departure first is what turns "the last thing
+ * we saw" into "what the month looks like now".
+ */
+export function latestPerDeparture(snapshots: FareSnapshot[]): FareSnapshot[] {
+  const newest = new Map<string, FareSnapshot>();
+  for (const snapshot of snapshots) {
+    const held = newest.get(snapshot.flightDate);
+    if (!held || snapshot.capturedAt > held.capturedAt) newest.set(snapshot.flightDate, snapshot);
+  }
+  return [...newest.values()].sort((a, b) => a.flightDate.localeCompare(b.flightDate));
+}
+
+/**
+ * The day of the month the fare is lowest on, as that day was last seen.
+ *
+ * This is the answer a month watch exists to give, and it is the board the
+ * detail panel shows: "March costs $210 and it is the 9th that costs it" is
+ * the sentence, where a single watched departure could only ever have said the
+ * first half.
+ *
+ * A snapshot with no offers cannot win — a board with nothing on it is not the
+ * cheapest way to fly, it is a day with no flights.
+ */
+export function cheapestDeparture(snapshots: FareSnapshot[]): FareSnapshot | null {
+  let best: FareSnapshot | null = null;
+  let bestPrice = Number.POSITIVE_INFINITY;
+  for (const snapshot of latestPerDeparture(snapshots)) {
+    const offer = cheapestOffer(snapshot);
+    if (!offer || offer.price >= bestPrice) continue;
+    best = snapshot;
+    bestPrice = offer.price;
+  }
+  return best;
 }
 
 /**

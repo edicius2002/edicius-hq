@@ -77,16 +77,18 @@ describe('FlightTable', () => {
     expect(rows).toHaveLength(2);
 
     const first = within(rows[0]);
-    // Rendered as written: a 00:15 Lima departure must not be shifted into the
-    // reader's own zone by a `Date` round trip.
-    expect(first.getByText('00:15')).toBeInTheDocument();
+    // The day as well as the clock, since 12.110 puts a month of departures in
+    // this table at once and `00:15` alone no longer names a flight. Rendered
+    // as written: a 00:15 Lima departure must not be shifted into the reader's
+    // own zone by a `Date` round trip.
+    expect(first.getByText('16/10/2026 00:15')).toBeInTheDocument();
     expect(first.getByText('LATAM')).toBeInTheDocument();
     expect(first.getByText('LA 529')).toBeInTheDocument();
     expect(first.getByText('Direct')).toBeInTheDocument();
     expect(first.getByText('3h 35m')).toBeInTheDocument();
 
     const second = within(rows[1]);
-    expect(second.getByText('17:35')).toBeInTheDocument();
+    expect(second.getByText('16/10/2026 17:35')).toBeInTheDocument();
     expect(second.getByText('1 stop')).toBeInTheDocument();
   });
 

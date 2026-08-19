@@ -132,6 +132,51 @@ describe('Investing chart-first workspace', () => {
     expect(screen.getByRole('textbox', { name: 'Search a symbol' })).toBeInTheDocument();
   });
 
+  it('puts a watchlist longer than the chart in a scrolling box of its own', async () => {
+    // Forty rows is comfortably taller than any chart this page draws, which
+    // is the case that decides whether the two panels still share a height or
+    // the list drags the row down past the chart.
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      symbol: `SYM${index}`,
+      name: `Symbol ${index} Incorporated`,
+    }));
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/kv/watchlist')) {
+          return Response.json({ key: 'watchlist', value: { version: 1, entries } });
+        }
+        if (url.includes('/api/kv/')) return new Response(null, { status: 404 });
+        if (url.includes('/api/market/quotes')) return Response.json({ quotes: [], failed: [] });
+        if (url.includes('/api/market/bars')) {
+          return Response.json({ symbol: 'AAPL', timeframe: '1d', provider: 'test', bars: [] });
+        }
+        return Response.json({ status: 'ok' });
+      }),
+    );
+
+    renderAt('/investing');
+    await arrivesAt('Investing');
+
+    const list = await screen.findByRole('list', { name: 'Watchlist' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(40);
+
+    // jsdom lays nothing out, so this cannot see the scrolling — what it can
+    // see is that the rows have a box of their own to scroll in, and which
+    // side of it the search field is on. The panel scrolling as a whole would
+    // carry the field away with the rows, and a list long enough to scroll is
+    // exactly when you least want the way to add to it scrolled away.
+    const scroller = list.parentElement;
+    const panel = screen.getByRole('region', { name: 'Watchlist' });
+    const search = screen.getByRole('textbox', { name: 'Search a symbol' });
+
+    expect(scroller).not.toBe(panel);
+    expect(panel.contains(search)).toBe(true);
+    expect(scroller?.contains(search)).toBe(false);
+  });
+
   it('can devote the workspace to the chart and returns with Escape', async () => {
     const user = userEvent.setup();
     renderAt('/investing');

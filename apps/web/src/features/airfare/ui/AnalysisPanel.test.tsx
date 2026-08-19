@@ -174,6 +174,44 @@ describe('the period the reader is on', () => {
   });
 });
 
+/**
+ * A month with one of its days picked out — the shape every route the form
+ * adds has carried since 12.180.
+ */
+const FOCUSED: FareRoute = { ...ROUTE, focusDate: '2027-03-09' };
+
+describe('what the panel says it is showing', () => {
+  it('names the focused departure date and never the month it falls in', () => {
+    // The figures under this head are already one day's: the page filters on
+    // `readingPrefix` and the history request asks for the same prefix. A head
+    // reading "March 2027" over them states the wider of the two things the
+    // page knows while drawing the narrower — 12.131.
+    render(<Harness route={FOCUSED} />);
+
+    const head = screen.getByRole('heading', { level: 2 });
+    expect(head).toHaveTextContent('ARI → SCL · 09/03/2027');
+    expect(head.textContent).not.toMatch(/March/);
+  });
+
+  it('says the chart is of a fare departing *on* that day, not *in* a month', () => {
+    render(<Harness route={FOCUSED} />);
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+      'ARI → SCL departing on 09/03/2027',
+    );
+  });
+
+  it('still names the month for a watch nobody has picked a day inside', () => {
+    // The two existing routes have no focus and none may be invented for them
+    // — 12.133. A focus-less watch reads exactly as it always did.
+    render(<Harness route={ROUTE} />);
+
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('ARI → SCL · March 2027');
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+      'ARI → SCL departing in March 2027',
+    );
+  });
+});
+
 describe('the three views', () => {
   it('offers all three and opens on the price history', () => {
     render(<Harness />);

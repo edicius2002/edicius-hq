@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import {
-  formatFlightMonth,
+  formatReading,
   routeId,
   routeLabel,
   type FareRoute,
@@ -132,14 +132,29 @@ export function AnalysisPanel({
   const leadOurs = useMemo(() => leadSnapshots(snapshots, granularity), [snapshots, granularity]);
   const leadTheirs = useMemo(() => leadBaseline(baseline, granularity), [baseline, granularity]);
 
-  const where = route ? `${routeLabel(route)} departing in ${formatFlightMonth(route.month)}` : '';
+  /*
+   * What these figures are *of*, in the words the reader picked them with —
+   * 12.131.
+   *
+   * `formatReading` rather than `formatFlightMonth(route.month)`, and the
+   * preposition moves with it. The month is what gets collected; the focus
+   * date is what gets read, and by the time the snapshots reach this panel
+   * they are already narrowed to it — `AirfarePage` filters on
+   * `readingPrefix(route)` and the history request asks for the same string.
+   * A head naming March over one day's figures is the page saying the wider
+   * of the two things it knows while drawing the narrower, which is the one
+   * arrangement worse than either alone.
+   */
+  const where = route
+    ? `${routeLabel(route)} departing ${route.focusDate ? 'on' : 'in'} ${formatReading(route)}`
+    : '';
   const currency = route?.currency ?? 'USD';
 
   return (
     <>
       <div className={styles.head}>
         <h2 className={styles.title}>
-          {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
+          {route ? `${routeLabel(route)} · ${formatReading(route)}` : 'Price analysis'}
         </h2>
         {/*
           Two switches, in the order the questions come: which chart, then how

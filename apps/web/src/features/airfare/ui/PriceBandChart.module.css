@@ -10,6 +10,13 @@
   display: block;
   width: 100%;
   height: auto;
+  /* The crosshair follows a dragging finger instead of scrolling the page. */
+  touch-action: none;
+}
+
+.chart:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .empty {
@@ -63,6 +70,84 @@
   stroke-width: 1.4;
   stroke-dasharray: 5 4;
   opacity: 0.7;
+}
+
+/*
+ * The crosshair, in the style of a trading chart: two thin hairlines and a
+ * filled tag on each axis. Never a pointer target itself — the SVG's own
+ * handler decides which period is nearest, and a hairline that could be
+ * hovered would sit between the pointer and the chart it is reading.
+ */
+.crosshair {
+  pointer-events: none;
+}
+
+.hair {
+  stroke: var(--color-text);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+
+.marker {
+  fill: var(--color-surface);
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.tag {
+  fill: var(--color-text);
+}
+
+.tagText {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: var(--color-surface);
+  text-anchor: end;
+}
+
+/*
+ * The readout keeps its height whether or not a crosshair is up. A strip that
+ * appeared on hover would push the flight table down the page every time the
+ * pointer crossed the chart, which is a worse distraction than an empty row.
+ */
+.readout {
+  margin: 0;
+  min-height: 1.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  font-size: 0.78rem;
+  color: var(--color-text);
+  transition: opacity 120ms ease;
+}
+
+.readout strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.period,
+.hint {
+  color: var(--color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .readout {
+    transition: none;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .legend {

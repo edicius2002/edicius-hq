@@ -1,3 +1,4 @@
+import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
 import { cheapestOffer, median } from '@/features/airfare/lib/series';
 import type { FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
@@ -53,6 +54,107 @@ export function bucketKey(capturedAt: string, granularity: Granularity): string 
   if (granularity === 'day') return date;
   if (granularity === 'month') return date.slice(0, 7);
   return isoWeekKey(date);
+}
+
+/* ------------------------------------------------- what a period contains -- */
+
+/**
+ * The two ends of a whole calendar period, both inclusive.
+ *
+ * Wall clock with no zone, written the way `capturedAt` is written, because
+ * that is the only clock these stamps have — see `periodBounds`.
+ */
+export type PeriodBounds = {
+  /** `2026-08-17T00:00`. */
+  from: string;
+  /** `2026-08-23T23:59`. */
+  to: string;
+};
+
+const START_OF_DAY = 'T00:00';
+const END_OF_DAY = 'T23:59';
+
+/** A UTC millisecond count back to the calendar date it names. */
+function utcDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * The Monday an ISO week key stands for.
+ *
+ * The inverse of `isoWeekKey`, and deliberately built on the same fact that
+ * function is built on: 4 January is in week 1 by definition, so the Monday of
+ * week 1 is the Monday on or before it and every later week is a whole number
+ * of seven-day steps from there. Deriving it any other way would give the page
+ * two ideas of where a week starts, and the table would then name a stretch
+ * the chart had not bucketed by.
+ *
+ * The arithmetic is `Date.UTC` throughout for the reason `isoWeekKey` gives:
+ * a local `Date` moves the day for a reader west of Greenwich, and this app's
+ * default origin is Lima.
+ */
+function isoWeekMonday(key: string): string | null {
+  const parts = /^(\d{4})-W(\d{1,2})$/.exec(key);
+  if (!parts) return null;
+  const fourth = Date.UTC(Number(parts[1]), 0, 4);
+  const weekday = (new Date(fourth).getUTCDay() + 6) % 7; // Monday = 0
+  return utcDay(fourth - weekday * DAY_MS + (Number(parts[2]) - 1) * 7 * DAY_MS);
+}
+
+/**
+ * The whole calendar unit a bucket key stands for, end to end.
+ *
+ * A day is 00:00 to 23:59, a week is Monday 00:00 to Sunday 23:59, a month is
+ * the first at 00:00 to the last at 23:59. The alternative — and what this
+ * page shipped first — was to report the first and last observation actually
+ * found inside the bucket, which reads as a narrower claim than the one being
+ * made: a week with one Tuesday collection was announced as "on 18/08/2026"
+ * while it was in fact counting everything from the Monday to the Sunday. The
+ * stated window and the counted set are now the same set.
+ *
+ * Being the inverse of `bucketKey`, it is the one place the page turns a key
+ * back into dates — the chart's crosshair and the table's caption both come
+ * through here, so neither can disagree with the other about what a period is.
+ */
+export function periodBounds(key: string, granularity: Granularity): PeriodBounds {
+  if (granularity === 'month') {
+    const [year, month] = key.split('-').map(Number);
+    if (!year || !month) return { from: `${key}${START_OF_DAY}`, to: `${key}${END_OF_DAY}` };
+    // Day zero of the next month is the last day of this one, leap years
+    // included, which is why the length is asked of the calendar rather than
+    // looked up in a table of twelve numbers.
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      from: `${key}-01${START_OF_DAY}`,
+      to: `${key}-${String(last).padStart(2, '0')}${END_OF_DAY}`,
+    };
+  }
+
+  if (granularity === 'week') {
+    const monday = isoWeekMonday(key);
+    if (monday === null) return { from: `${key}${START_OF_DAY}`, to: `${key}${END_OF_DAY}` };
+    const sunday = utcDay(Date.parse(`${monday}T00:00:00Z`) + 6 * DAY_MS);
+    return { from: `${monday}${START_OF_DAY}`, to: `${sunday}${END_OF_DAY}` };
+  }
+
+  return { from: `${key}${START_OF_DAY}`, to: `${key}${END_OF_DAY}` };
+}
+
+/**
+ * A period in words, with its clock, so nobody has to infer it.
+ *
+ * The clock is written out even though it is always 00:00 and 23:59: those two
+ * numbers are the whole point of the change: they say the window is the whole
+ * calendar unit and not the stretch between the first and last thing seen in
+ * it. Dates are split out of the string rather than parsed, for the reason the
+ * rest of this feature splits them — `new Date('2026-08-17')` is midnight UTC
+ * and prints as the 16th anywhere west of Greenwich.
+ */
+export function boundsLabel(bounds: PeriodBounds): string {
+  const [fromDay, fromClock] = bounds.from.split('T');
+  const [toDay, toClock] = bounds.to.split('T');
+  if (fromDay === toDay) return `on ${formatFlightDate(fromDay)}, ${fromClock} to ${toClock}`;
+  return `between ${formatFlightDate(fromDay)} ${fromClock} and ${formatFlightDate(toDay)} ${toClock}`;
 }
 
 function labelFor(key: string, granularity: Granularity): string {

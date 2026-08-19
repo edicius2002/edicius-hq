@@ -105,7 +105,7 @@ describe('FlightTable', () => {
       />,
     );
     expect(
-      screen.getByText(/2 flights seen between 17\/08\/2026 and 18\/08\/2026/),
+      screen.getByText(/2 flights seen between 17\/08\/2026 00:00 and 23\/08\/2026 23:59/),
     ).toBeInTheDocument();
   });
 
@@ -121,7 +121,9 @@ describe('FlightTable', () => {
     );
 
     expect(bodyRows()).toHaveLength(1);
-    expect(screen.getByText(/1 flight seen on 18\/08\/2026, of 2 ever observed/)).toBeTruthy();
+    expect(
+      screen.getByText(/1 flight seen on 18\/08\/2026, 00:00 to 23:59, of 2 ever observed/),
+    ).toBeTruthy();
   });
 
   it('marks every column as sortable and says which one is in force', async () => {

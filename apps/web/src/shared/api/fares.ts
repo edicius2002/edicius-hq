@@ -164,6 +164,17 @@ export type RouteRequest = {
   destination: string;
   /** `YYYY-MM`. The server expands it into the departures inside it. */
   month: string;
+  /**
+   * `YYYY-MM-DD`, and inside `month` — the one departure this reader means to
+   * take. Optional, and it does not change what is collected: every day of the
+   * month is still expanded and scheduled at its own rate. It changes only who
+   * survives a truncated pass, which is the whole reason a reading preference
+   * is sent to a collector at all (12.130).
+   *
+   * A focus outside its month is a 422 rather than a silent drop: the client
+   * cannot construct one, so one arriving is a bug worth seeing.
+   */
+  focusDate?: string;
   currency?: string;
 };
 

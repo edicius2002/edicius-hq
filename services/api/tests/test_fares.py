@@ -627,6 +627,75 @@ def test_the_collect_endpoint_takes_a_month_and_refuses_anything_else(monkeypatc
         assert refused.status_code == 422, bad
 
 
+def test_the_collect_endpoint_carries_the_focused_day_through_to_the_watch(monkeypatch):
+    """
+    12.130. The month is still what expands; the focus is what survives a cut.
+
+    It has to travel over the wire rather than staying in the browser because
+    the truncation happens here: `due_now` is the only thing that knows which
+    departures a pass could not afford, and it cannot keep the reader's day
+    first unless it is told which day that is.
+    """
+    seen, fake = stub_pass()
+    monkeypatch.setattr(fares_router, "collect_due", fake)
+    client = TestClient(app)
+
+    answer = client.post(
+        "/api/fares/collect",
+        json={
+            "routes": [
+                {
+                    "origin": "lim",
+                    "destination": "scl",
+                    "month": "2027-03",
+                    "focusDate": "2027-03-09",
+                }
+            ]
+        },
+    )
+    assert answer.status_code == 200
+    assert seen["watched"] == [
+        FareWatch(origin="LIM", destination="SCL", month="2027-03", focus="2027-03-09")
+    ]
+
+    # Absent is the ordinary case and must reach the collector as absent rather
+    # than as some stand-in day.
+    client.post(
+        "/api/fares/collect",
+        json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+    )
+    assert seen["watched"][0].focus is None
+
+
+def test_a_focus_outside_its_own_month_is_a_422_rather_than_a_quiet_drop(monkeypatch):
+    """
+    The stored document cannot hold one — the web normalizer drops it on read,
+    because a document that fails to load is worse than a route with no focus.
+    Nothing on the client can then send one, so one arriving here is a bug in a
+    caller, and dropping it silently would leave the pass keeping the wrong
+    departure with nothing anywhere recording why.
+    """
+    _, fake = stub_pass()
+    monkeypatch.setattr(fares_router, "collect_due", fake)
+    client = TestClient(app)
+
+    for bad in ("2027-04-09", "2027-03-9", "09/03/2027", "2027-03"):
+        refused = client.post(
+            "/api/fares/collect",
+            json={
+                "routes": [
+                    {
+                        "origin": "LIM",
+                        "destination": "SCL",
+                        "month": "2027-03",
+                        "focusDate": bad,
+                    }
+                ]
+            },
+        )
+        assert refused.status_code == 422, bad
+
+
 def test_the_collect_endpoint_runs_the_schedule_rather_than_bypassing_it(monkeypatch):
     """
     12.111, superseding the second half of 12.90.

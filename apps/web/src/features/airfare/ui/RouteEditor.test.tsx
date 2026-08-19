@@ -159,6 +159,92 @@ describe('RouteEditor', () => {
     expect(screen.getByLabelText(/departure month/i)).toHaveAttribute('type', 'month');
   });
 
+  it('takes an optional day inside the month and sends it as the focus', async () => {
+    // 12.130. The month is still what gets collected; the day says which of
+    // its departures the reader means to take, which is what the detail, the
+    // chart and the table then speak about.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure month/i), '2026-11');
+    await user.type(screen.getByLabelText(/^day/i), '2026-11-09');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(onAdd).toHaveBeenCalledWith({
+      origin: 'LIM',
+      destination: 'MAD',
+      month: '2026-11',
+      focusDate: '2026-11-09',
+      currency: 'USD',
+    });
+  });
+
+  it('carries no focus key at all when the day is left empty', async () => {
+    // A route with no focus is the ordinary case, and a `focusDate: undefined`
+    // written into the stored document would come back on the next read.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure month/i), '2026-11');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(Object.keys(onAdd.mock.calls[0][0])).not.toContain('focusDate');
+  });
+
+  it('bounds the day picker to the two ends of the month above it', async () => {
+    // The browser refusing a day outside the month is what keeps the invariant
+    // `readingPrefix` depends on; the submit guard is the same rule for a
+    // browser that degrades this to a text box. November has thirty days and
+    // the bound is asked of the calendar, not of a table of twelve numbers.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderEditor();
+
+    const day = screen.getByLabelText(/^day/i);
+    expect(day).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/departure month/i), '2026-11');
+    expect(day).toBeEnabled();
+    expect(day).toHaveAttribute('min', '2026-11-01');
+    expect(day).toHaveAttribute('max', '2026-11-30');
+  });
+
+  it('lets go of a day when the month moves out from under it', async () => {
+    /*
+     * The one state the invariant cannot survive, and a silent one: a date
+     * control shows `09/11/2026` the same way whichever month is picked above
+     * it. Cleared rather than shifted into the new month — the 9th of November
+     * is not evidence about December.
+     */
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderEditor();
+
+    await user.type(screen.getByLabelText(/departure month/i), '2026-11');
+    await user.type(screen.getByLabelText(/^day/i), '2026-11-09');
+    expect(screen.getByLabelText(/^day/i)).toHaveValue('2026-11-09');
+
+    await user.clear(screen.getByLabelText(/departure month/i));
+    await user.type(screen.getByLabelText(/departure month/i), '2026-12');
+    expect(screen.getByLabelText(/^day/i)).toHaveValue('');
+  });
+
+  it('says a day has gone rather than adding a focus nothing can collect', async () => {
+    // A day inside a month that is still half ahead of us, but behind today.
+    // It would be refused by the collector on every pass forever, and the
+    // reader has no way to learn that the day was the problem.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    await user.type(screen.getByLabelText(/departure month/i), '2026-08');
+    await user.type(screen.getByLabelText(/^day/i), '2026-08-03');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('That day has gone.');
+  });
+
   it('has no return field at all, rather than one that is ignored', () => {
     // 12.113: a month of departures has no single return date to share, and a
     // control the collector would silently drop is worse than no control.

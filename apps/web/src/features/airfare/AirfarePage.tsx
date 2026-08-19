@@ -2,7 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import {
-  formatFlightMonth,
+  formatReading,
+  readingPrefix,
   routeId,
   routeLabel,
   type FareRoute,
@@ -71,9 +72,22 @@ export function AirfarePage() {
 
   const history = useFareHistory(selected);
 
+  /*
+   * What this route is being read as: its month, or the one day inside it the
+   * reader focused — 12.131.
+   *
+   * One string, and every reader below narrows on it because both forms are
+   * prefixes of the same `YYYY-MM-DD` departure key. The detail panel, the
+   * chart, the flight table, the baseline and the health counts all move
+   * together, so the page cannot end up naming a day over a month of numbers.
+   * What is *collected* is unaffected: the watchlist still sends the month.
+   */
+  const reading = selected ? readingPrefix(selected) : null;
+
   const snapshots = useMemo(
-    () => (selected && history.data ? snapshotsFor(history.data.snapshots, selected.month) : []),
-    [history.data, selected],
+    () =>
+      selected && reading && history.data ? snapshotsFor(history.data.snapshots, reading) : [],
+    [history.data, selected, reading],
   );
   // The board the detail panel describes: the cheapest departure in the
   // watched month as it was last seen, not the last snapshot written — that
@@ -137,6 +151,10 @@ export function AirfarePage() {
           origin: route.origin,
           destination: route.destination,
           month: route.month,
+          // Sent even though the month is what expands: the collector keeps
+          // the focused departure first when a pass cannot afford all of them
+          // (12.134), and it can only do that if it knows which one it is.
+          ...(route.focusDate ? { focusDate: route.focusDate } : {}),
           currency: route.currency,
         })),
       ),
@@ -305,6 +323,10 @@ export function AirfarePage() {
           insights={insights}
           health={health}
           cities={cities}
+          today={today}
+          onClearFocus={() => {
+            if (selectedKey) void watchlist.focus(selectedKey, null);
+          }}
         />
       </Panel>
 
@@ -312,9 +334,7 @@ export function AirfarePage() {
       <Panel>
         <div className={styles.analysisHead}>
           <h2 className={styles.panelTitle}>
-            {selected
-              ? `${routeLabel(selected)} · ${formatFlightMonth(selected.month)}`
-              : 'Price analysis'}
+            {selected ? `${routeLabel(selected)} · ${formatReading(selected)}` : 'Price analysis'}
           </h2>
           <div className={styles.switch} role="group" aria-label="Group observations by">
             {GRANULARITIES.map((option) => (
@@ -337,7 +357,7 @@ export function AirfarePage() {
           granularity={granularity}
           label={
             selected
-              ? `Cheapest fare for ${routeLabel(selected)} departing in ${formatFlightMonth(selected.month)}, by ${granularity}`
+              ? `Cheapest fare for ${routeLabel(selected)} departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}, by ${granularity}`
               : 'Price analysis'
           }
         />
@@ -355,7 +375,7 @@ export function AirfarePage() {
       <Panel>
         <h2 className={styles.panelTitle}>
           {selected
-            ? `Flights seen departing in ${formatFlightMonth(selected.month)}`
+            ? `Flights seen departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}`
             : 'Flights seen on this route'}
         </h2>
         <FlightTable snapshots={snapshots} granularity={granularity} />

@@ -46,6 +46,23 @@ export type FareRoute = {
    * product from the one being built.
    */
   month: string;
+  /**
+   * The one departure inside `month` this reader actually means to take,
+   * `YYYY-MM-DD` — 12.130.
+   *
+   * Optional, and absent is the normal case: a month is what gets collected
+   * and a reader who has not picked a day has not lost anything. What the
+   * focus buys is the two things a month cannot say. It is what the page
+   * *reads* — `readingPrefix` narrows the detail, the chart and the flight
+   * table onto it — and it is what the collector keeps first when the day's
+   * request budget will not stretch to thirty-one departures.
+   *
+   * It must fall inside `month`. That is not a convention the callers agree
+   * to keep: `readingPrefix` only works because `2027-03-09` starts with
+   * `2027-03`, so a focus outside its month would narrow the page onto an
+   * empty set while the row above it still said March.
+   */
+  focusDate?: string;
   currency: string;
 };
 
@@ -92,6 +109,27 @@ export function monthOf(iso: string): string {
   return iso.slice(0, 7);
 }
 
+/**
+ * The last day a month actually has, as `YYYY-MM-DD`.
+ *
+ * What bounds the day picker, so the browser itself refuses a focus outside
+ * the watched month rather than the form catching it afterwards. Asked of the
+ * calendar rather than a table of twelve numbers, so February 2028 is the 29th
+ * without anybody remembering to say so — the same choice `month_dates` makes
+ * on the server.
+ *
+ * `Date` appears here and it is safe, for the one reason it ever is: the value
+ * is built with `Date.UTC` and read back through `getUTCDate`, so it is never
+ * in a zone Lima could shift it out of. Day 0 of the next month is the last
+ * day of this one.
+ */
+export function lastDayOf(month: string): string {
+  if (!isMonth(month)) return month;
+  const [year, index] = month.split('-').map(Number);
+  const day = new Date(Date.UTC(year, index, 0)).getUTCDate();
+  return `${month}-${String(day).padStart(2, '0')}`;
+}
+
 /** Three letters. Airports have digits in other coding schemes, IATA does not. */
 export function isAirportCode(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z]{3}$/.test(value.trim());
@@ -112,6 +150,35 @@ export function routeId(route: FareRoute): string {
 
 export function routeLabel(route: FareRoute): string {
   return `${route.origin} → ${route.destination}`;
+}
+
+/**
+ * The departures this route is *read* as, as a prefix — 12.131.
+ *
+ * `2027-03` for a watch with no focus, `2027-03-09` for one with. Both are
+ * prefixes of the same `YYYY-MM-DD` departure key, which is the whole trick:
+ * `snapshotsFor` filters with `startsWith` and the history endpoint's
+ * `departure` parameter matches the same way, so narrowing the entire page
+ * onto one day is one longer string rather than a second code path beside the
+ * month. The same property 12.112 leaned on to leave the archive alone.
+ *
+ * The month is still what is collected. This is only what is looked at.
+ */
+export function readingPrefix(route: FareRoute): string {
+  return route.focusDate ?? route.month;
+}
+
+/**
+ * Whether the day this reader picked has already gone.
+ *
+ * `today` is passed in rather than read from a clock, for the reason the
+ * normalizer takes none at all: a focus is not dropped when its day passes.
+ * The archive it points at is still the archive of the flight they meant to
+ * take, and a value that disappeared because the page was opened a day later
+ * would be a document editing itself. It is said out loud instead.
+ */
+export function focusDeparted(route: FareRoute, today: string): boolean {
+  return route.focusDate !== undefined && route.focusDate < today;
 }
 
 /**
@@ -169,6 +236,22 @@ export function formatFlightMonth(month: string): string {
 }
 
 /**
+ * How this route's departures are written on screen.
+ *
+ * The focus date if there is one, `dd/mm/yyyy` like every other real date
+ * here; the month name if there is not. The two forms are deliberately
+ * unmistakable for each other — 12.114 chose `March 2027` over `03/2027`
+ * precisely so a heading that switches between them cannot be misread as one
+ * that changed its mind about the day.
+ *
+ * Paired with `readingPrefix` and used everywhere it is: a heading naming a
+ * day over figures drawn from a month would be the worst of both.
+ */
+export function formatReading(route: FareRoute): string {
+  return route.focusDate ? formatFlightDate(route.focusDate) : formatFlightMonth(route.month);
+}
+
+/**
  * Parse whatever storage returns.
  *
  * Same guard the other documents use: repair what can be repaired, drop what
@@ -181,6 +264,20 @@ export function formatFlightMonth(month: string): string {
  * retype what the document already says is not a migration, it is a data loss
  * with a form in front of it. A `flightDate` that is not a real date is still
  * dropped: `2026-02-31` names no month either.
+ *
+ * A focus date is dropped rather than repaired when it falls outside its own
+ * month, and rather than the route being dropped with it — 12.132. Both other
+ * answers invent. Widening the month to the focus's month changes what gets
+ * collected, which is not something a reading preference is allowed to do;
+ * moving the day into the watched month names a departure nobody typed. The
+ * entry states two things that cannot both be true and does not say which is
+ * wrong, so the weaker of the two goes and the route survives with no focus —
+ * a shape the whole feature already handles, because most routes have it.
+ *
+ * A pre-12.110 `flightDate` is **not** promoted into a focus. It was the only
+ * day that entry could name rather than one chosen out of thirty-one, so
+ * reviving it would put a focus on every legacy route at once — and a focus
+ * everybody has is a focus nobody chose.
  */
 export function normalizeFareRoutes(value: unknown): FareRoutes {
   if (typeof value !== 'object' || value === null) return EMPTY_FARE_ROUTES;
@@ -208,10 +305,17 @@ export function normalizeFareRoutes(value: unknown): FareRoutes {
     // A route to itself is a typo that would send a real request.
     if (origin === destination) continue;
 
+    // Hoisted so the type predicate narrows it: `candidate.focusDate` is
+    // `unknown` off an index signature, and reading it twice would ask TypeScript
+    // to remember a narrowing it does not keep across property accesses.
+    const rawFocus = candidate.focusDate;
+    const focus = isCalendarDate(rawFocus) && monthOf(rawFocus) === month ? rawFocus : null;
+
     const route: FareRoute = {
       origin,
       destination,
       month,
+      ...(focus === null ? {} : { focusDate: focus }),
       currency:
         typeof candidate.currency === 'string' && /^[A-Za-z]{3}$/.test(candidate.currency)
           ? normalizeCode(candidate.currency)
@@ -227,13 +331,56 @@ export function normalizeFareRoutes(value: unknown): FareRoutes {
   return { version: 1, routes };
 }
 
+/**
+ * Point a watch at one of its days, or at none of them.
+ *
+ * The only mutation that touches a focus, so the invariant is checked in one
+ * place: a day outside the route's own month clears the focus rather than
+ * setting it, which the form makes unreachable by refusing first — but a
+ * transition that could be talked into breaking `readingPrefix` would be a
+ * transition the normalizer had to defend against on every read.
+ *
+ * `routeId` deliberately does not include the focus, so this never changes
+ * which watch a route is: the selection, the row's report and the archive it
+ * points at all survive a focus being set, moved or dropped. Two entries for
+ * one month with different focuses would be two watches collecting the same
+ * thirty-one departures twice, which is the collision `routeId` exists to
+ * stop.
+ */
+export function setFocus(document: FareRoutes, id: string, focus: string | null): FareRoutes {
+  const index = document.routes.findIndex((route) => routeId(route) === id);
+  if (index < 0) return document;
+
+  const current = document.routes[index];
+  const next =
+    focus !== null && isCalendarDate(focus) && monthOf(focus) === current.month ? focus : null;
+  if ((current.focusDate ?? null) === next) return document;
+
+  // Rebuilt rather than spread-and-deleted, so clearing a focus leaves no
+  // `focusDate: undefined` key behind to be written into the stored document.
+  const bare: FareRoute = {
+    origin: current.origin,
+    destination: current.destination,
+    month: current.month,
+    currency: current.currency,
+  };
+  const routes = [...document.routes];
+  routes[index] = next === null ? bare : { ...bare, focusDate: next };
+  return { ...document, routes };
+}
+
 export function addRoute(document: FareRoutes, route: FareRoute): FareRoutes {
   const normalized = normalizeFareRoutes({ routes: [route] }).routes[0];
   if (!normalized) return document;
-  if (document.routes.some((existing) => routeId(existing) === routeId(normalized))) {
-    // Already watched. A no-op rather than a move: you asked for it to be
-    // present, not for it to jump to the end.
-    return document;
+  const id = routeId(normalized);
+  if (document.routes.some((existing) => routeId(existing) === id)) {
+    // Already watched. Still not a move — you asked for it to be present, not
+    // for it to jump to the end — but the focus travels, because this form is
+    // the only control that names a day. Re-adding a watch you already have is
+    // how a day is put on it, and re-adding with the day left blank is how it
+    // comes off. With nothing to change it is the no-op it always was, down to
+    // returning the same document.
+    return setFocus(document, id, normalized.focusDate ?? null);
   }
   return { ...document, routes: [...document.routes, normalized] };
 }

@@ -39,13 +39,33 @@
 }
 
 /*
- * The pair of airports, side by side because they are one decision. The month
- * below them stands on its own — 12.113 took the return leg away, so there is
- * no second date to fill the other column, and the whole form is meant to cost
- * less height than two entries of the list it stands above.
+ * Two fields side by side because they are one decision: the pair of airports
+ * on the first row, and on the second the month with the optional day inside
+ * it. 12.113 emptied the column beside the month when it took the return leg
+ * away, and 12.130 filled it with the one thing that genuinely belongs there.
+ * The whole form still has to cost less height than two entries of the list it
+ * stands above, which is why the day went beside the month and not under it.
  */
 .row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
+}
+
+/*
+ * Inside a row the grid column is the width, and `min-width: 8rem` fights it.
+ * 8rem is 160px at this app's 125% root, plus 24px of padding and 2px of
+ * border: 186px, against the 174px a column has at the panel's 20rem floor.
+ * Two of those overflow the panel by 24px. The intrinsic width of a native
+ * month or date control is around 154px at 0.9rem, so the floor holds once the
+ * declared minimum stops overriding it.
+ */
+.row .field input {
+  min-width: 0;
+}
+
+/* A day cannot be picked before there is a month for it to be inside. */
+.field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

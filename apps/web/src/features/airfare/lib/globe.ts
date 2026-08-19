@@ -186,6 +186,46 @@ export function countryFade(zoom: number): number {
   return clamp01((zoom - 1.6) / 1.2);
 }
 
+/**
+ * The zoom at which a country's subdivisions are worth asking the API for.
+ *
+ * One ramp early, so the geometry is in hand by the time it is worth drawing
+ * and the borders do not arrive a beat after the name has gone. Below this
+ * nothing is requested at all — a reader who spins the home view and never
+ * closes in sends no request, which is the first and cheapest of the three
+ * things damping the fetch.
+ */
+export const SUBDIVISION_REACH = 4 - 1.2 / 2;
+
+/**
+ * Countries giving way to their own subdivisions, one rung further in.
+ *
+ * The same handover 12.28 built and the same shape: a 1.2-wide ramp, the two
+ * layers crossing half-lit, and the fade coming from the geometry rather than
+ * from a stylesheet. A country whose subdivisions are on screen has its own
+ * name multiplied by `1 - subdivisionFade`, so the name does not so much
+ * disappear as become the borders inside it.
+ *
+ * **Where the crossover sits, and why 4.6.** A country should never lose its
+ * name before that name has been at full strength, and the room test decides
+ * when that is: `roomFade` saturates at twice `LABEL_ROOM`, which on the
+ * stage's own 460px minimum lands at 2.0x for Peru, 2.7x for Chile, 3.2x for
+ * Spain and 3.7x for Japan — the binding case among the countries this
+ * reader's routes touch. So the fall starts at 4.0, clear of Japan, and with
+ * 12.28's ramp the crossover is at 4.6. Earlier and Japan's name would begin
+ * fading before it had ever been fully lit; much later and there is not enough
+ * of the 8x ceiling left for the layer to be worth arriving.
+ *
+ * Only the country the reader has actually zoomed into is affected, because it
+ * is the only one whose subdivisions are ever fetched. Every other name on
+ * screen keeps burning at whatever `countryFade` gives it — which is also what
+ * makes the fallback silent: a country Natural Earth does not divide is
+ * indistinguishable from one nobody has zoomed into.
+ */
+export function subdivisionFade(zoom: number): number {
+  return clamp01((zoom - 4) / 1.2);
+}
+
 /* ------------------------------------------------------------------- zoom -- */
 
 /**

@@ -1,6 +1,15 @@
-import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { flowDelay } from '@/features/airfare/lib/arcFlow';
 import type { RouteGeometry } from '@/features/airfare/lib/geo';
@@ -54,7 +63,29 @@ beforeEach(() => {
     height: 540,
     toJSON: () => ({}),
   });
+  /*
+   * The map asks the API for one country's subdivisions once a reader has
+   * zoomed into it, so a suite that zooms will reach `fetch`. Answering 404 by
+   * default is what a country Natural Earth does not divide answers, which
+   * means every test in this file that is not about subdivisions runs the
+   * fallback path — and none of them touches the network. The tests that want
+   * a country to *have* subdivisions stub over this.
+   */
+  subdivisionRequests = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL) => {
+      subdivisionRequests.push(String(input));
+      return Promise.resolve(new Response('null', { status: 404 }));
+    }),
+  );
 });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+let subdivisionRequests: string[] = [];
 
 const LIM_CUZ: RouteGeometry = {
   id: 'LIM-CUZ-2026-10-17',
@@ -152,6 +183,19 @@ async function frame() {
   });
 }
 
+/**
+ * A query client, because the map asks the API for one country's subdivisions
+ * once a reader has zoomed into it.
+ *
+ * A fresh one per render, unlike `useSubdivisions.test`: here the cache is not
+ * what is being proved, and one shared between tests would let a country
+ * fetched by an earlier test appear in a later one.
+ */
+function wrapper({ children }: { children: React.ReactNode }) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {}) {
   const props = {
     routes: [LIM_CUZ, LIM_MAD],
@@ -162,7 +206,7 @@ function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {
     onProjectionChange: vi.fn(),
     ...overrides,
   };
-  return { ...render(<RouteMap {...props} />), props };
+  return { ...render(<RouteMap {...props} />, { wrapper }), props };
 }
 
 describe('RouteMap', () => {
@@ -395,6 +439,132 @@ describe('RouteMap', () => {
       expect(screen.queryByText('South America')).not.toBeInTheDocument();
     },
   );
+
+  /* ------------------------------------------------------- subdivisions -- */
+
+  /**
+   * Two Peruvian departments and the border between them, as the API sends it.
+   *
+   * Peru because the home view is turned to Lima, so the middle of the frame
+   * is already over it — which is what the map inverts to decide whose
+   * subdivisions to ask for, and why zooming in from the default view is the
+   * whole gesture this feature answers to.
+   */
+  const PERU_SUBDIVISIONS = {
+    country: '604',
+    borders: {
+      type: 'Topology',
+      objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+      arcs: [
+        [
+          [-76, -6],
+          [-74, -9],
+        ],
+      ],
+    },
+    labels: [
+      { name: 'Loreto', at: [-74.4242, -4.0942], area: 0.0092493 },
+      { name: 'Cusco', at: [-72.1831, -13.1676], area: 0.0018352 },
+    ],
+  };
+
+  function servingPeru() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        subdivisionRequests.push(String(input));
+        return Promise.resolve(
+          String(input).includes('/604')
+            ? Response.json(PERU_SUBDIVISIONS)
+            : new Response('null', { status: 404 }),
+        );
+      }),
+    );
+  }
+
+  /**
+   * Six notches of wheel over the middle of the frame, and then long enough
+   * for the map to settle and ask.
+   *
+   * The wheel rather than the keyboard because it moves further per event:
+   * each notch applies one easing step the instant it arrives, so two of them
+   * already have the target at the 8x ceiling and the scale past the crossover
+   * without waiting on a frame — which jsdom does not promise. Over the
+   * middle, so the zoom anchors on the point the globe is already turned to
+   * and Peru stays under it.
+   *
+   * Two `act` blocks, not one. Dispatching the events and then awaiting a
+   * timer inside the *same* async act leaves the wheel handler's work
+   * unapplied — measured, the scale was still 1.0 at the end of it. Closing
+   * the act after the gesture is what commits it, which is also how a browser
+   * sees it: a gesture, and then time passing.
+   */
+  async function closeInOnPeru(stage: HTMLElement) {
+    await act(async () => {
+      for (let notch = 0; notch < 6; notch += 1) wheel(stage, -1000, [480, 270]);
+    });
+    // Past the 320ms the wheel holds the map "moving" and the 250ms it then
+    // has to sit still before it asks.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+  }
+
+  it('gives a country its name back as subdivisions once you are close enough', async () => {
+    servingPeru();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    // One thing becoming another, not two things at once: past the crossover
+    // the country's own name is gone and the departments inside it are what
+    // is left.
+    expect(screen.queryByText('Peru')).not.toBeInTheDocument();
+    expect(subdivisionRequests.some((url) => url.includes('/api/geography/subdivisions/604'))).toBe(
+      true,
+    );
+  });
+
+  it('keeps a country with no subdivisions named, and says nothing about it', async () => {
+    /*
+     * The silent fallback, which is the whole of what a reader over Western
+     * Sahara or the Falklands should notice: the country keeps its name and
+     * there is no banner, no empty flash and nothing to dismiss. Here the
+     * stub 404s every country, Peru included.
+     */
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Peru')).toBeInTheDocument());
+    expect(screen.queryByText('Loreto')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('asks for nothing at all while the globe is only being spun', async () => {
+    /*
+     * The first of the three things damping the fetch, and the one that keeps
+     * a reader who never zooms in from sending a single request.
+     *
+     * Each spin is pulled out and brought back, so the globe finishes where it
+     * started and Peru is still under the middle of the frame — otherwise the
+     * drag itself would carry the middle out over the Pacific and the test
+     * would pass because there was no country to ask about, which is not the
+     * thing being proved. The only reason nothing is requested here is the
+     * zoom gate.
+     */
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+    for (let spin = 0; spin < 5; spin += 1) {
+      pointer(stage, 'pointerDown', [400, 240]);
+      pointer(stage, 'pointerMove', [460, 260]);
+      pointer(stage, 'pointerMove', [400, 240]);
+      pointer(stage, 'pointerUp', [400, 240]);
+    }
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+    expect(subdivisionRequests).toEqual([]);
+  });
 
   it('fades a continent name out as it turns towards the limb', () => {
     /*

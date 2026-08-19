@@ -1,4 +1,4 @@
-import { geoArea, geoCentroid } from 'd3-geo';
+import { geoArea, geoBounds, geoCentroid, geoContains } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
@@ -19,6 +19,17 @@ import type { LngLat } from '@/features/airfare/lib/geo';
 
 export type PlaceLabel = {
   name: string;
+  /**
+   * ISO 3166-1 numeric, straight off the bundled shape.
+   *
+   * The only name the API's subdivision files are keyed by, and it is already
+   * in the atlas, so knowing which country a reader has zoomed into costs
+   * nothing but reading a field that was being thrown away. `null` for the
+   * three shapes the atlas carries without one — Kosovo, Northern Cyprus and
+   * Somaliland — which is also the honest answer for territories no numeric
+   * standard has assigned.
+   */
+  id: string | null;
   at: LngLat;
   /**
    * Solid angle in steradians — the whole country, islands included.
@@ -57,16 +68,23 @@ function mainland(geometry: Geometry): Geometry {
   return best;
 }
 
-function build(): PlaceLabel[] {
-  const world = feature(
+type CountryShape = {
+  type: 'Feature';
+  id?: string | number;
+  properties: { name?: string };
+  geometry: Geometry;
+};
+
+const SHAPES: CountryShape[] = (
+  feature(
     worldAtlas as never,
     (worldAtlas as never as { objects: { countries: never } }).objects.countries,
-  ) as unknown as {
-    features: { type: 'Feature'; properties: { name?: string }; geometry: Geometry }[];
-  };
+  ) as unknown as { features: CountryShape[] }
+).features;
 
+function build(): PlaceLabel[] {
   const labels: PlaceLabel[] = [];
-  for (const country of world.features) {
+  for (const country of SHAPES) {
     const name = country.properties.name;
     if (!name) continue;
     // Antarctica is a band along the bottom of every projection rather than a
@@ -75,6 +93,7 @@ function build(): PlaceLabel[] {
     if (name === 'Antarctica') continue;
     labels.push({
       name,
+      id: country.id === undefined ? null : String(country.id),
       at: geoCentroid(mainland(country.geometry)),
       area: geoArea(country),
     });
@@ -85,3 +104,39 @@ function build(): PlaceLabel[] {
 }
 
 export const COUNTRIES: PlaceLabel[] = build();
+
+/**
+ * Which country a point on the globe falls in, or `null` for open water.
+ *
+ * This is what decides whose subdivisions to ask the API for: the reader
+ * zooms, the map inverts the middle of the frame, and the country under that
+ * point is the one worth fetching. Nothing else on this page needs to know
+ * where a point is, which is why there is no general geocoder here.
+ *
+ * Bounds first, `geoContains` second. A point-in-polygon test against every
+ * one of the 176 shapes is 10,000 vertices of work, and a longitude and
+ * latitude comparison throws all but a handful of them out before any of that
+ * runs — the same reason a spatial index exists, at the size where an array
+ * and an `if` are the whole index. The box comparison has to allow for a shape
+ * whose bounds cross the antimeridian, which `geoBounds` reports by returning
+ * a west edge greater than its east one; Russia and Fiji both do.
+ */
+const BOXED: { shape: CountryShape; bounds: [[number, number], [number, number]] }[] = SHAPES.map(
+  (shape) => ({ shape, bounds: geoBounds(shape as never) }),
+);
+
+export function countryAt(point: LngLat): PlaceLabel | null {
+  const [longitude, latitude] = point;
+  for (const { shape, bounds } of BOXED) {
+    const [[west, south], [east, north]] = bounds;
+    if (latitude < south || latitude > north) continue;
+    const inside =
+      west <= east
+        ? longitude >= west && longitude <= east
+        : longitude >= west || longitude <= east;
+    if (!inside) continue;
+    if (!geoContains(shape, point)) continue;
+    return COUNTRIES.find((label) => label.name === shape.properties.name) ?? null;
+  }
+  return null;
+}

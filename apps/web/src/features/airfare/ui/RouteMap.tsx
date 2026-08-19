@@ -12,10 +12,11 @@ import {
   type LngLat,
   type RouteGeometry,
 } from '@/features/airfare/lib/geo';
-import { COUNTRIES } from '@/features/airfare/lib/countries';
+import { COUNTRIES, countryAt } from '@/features/airfare/lib/countries';
 import {
   type Boxed,
   CONTINENTS,
+  SUBDIVISION_REACH,
   type View,
   approach,
   clampPan,
@@ -25,8 +26,10 @@ import {
   roomFade,
   screenArea,
   splitByHorizon,
+  subdivisionFade,
   withoutOverlaps,
 } from '@/features/airfare/lib/globe';
+import { useSubdivisions } from '@/features/airfare/hooks/useSubdivisions';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteMap.module.css';
@@ -167,7 +170,18 @@ export function RouteMap({
    */
   const anchor = useRef<{ at: [number, number]; geo: [number, number] } | null>(null);
   const [moving, setMoving] = useState(false);
-  const [, repaint] = useState(0);
+  const [tick, repaint] = useState(0);
+
+  /*
+   * Which country the view is over, and its subdivisions once they arrive.
+   *
+   * `null` means nobody has zoomed into anything, and nothing is requested. A
+   * country that has no subdivisions to give resolves to `null` too — see
+   * `shared/api/geography`, where the 404 is swallowed — so a reader never
+   * finds out which of the two happened, which is the point.
+   */
+  const [focus, setFocus] = useState<string | null>(null);
+  const { data: subdivisions } = useSubdivisions(focus);
 
   const arcs = useMemo(
     () => routes.map((route) => ({ route, line: greatCircle(route.from, route.to) })),
@@ -299,6 +313,39 @@ export function RouteMap({
     context.fillStyle = readToken(stage, '--map-land');
     context.fill();
 
+    /*
+     * The subdivisions of the one country the reader has closed in on, under
+     * the national borders rather than over them.
+     *
+     * A mesh, for 12.50's reason and one more: a boundary between two
+     * provinces belongs to both, and stroking each province's own outline
+     * would paint it twice — which at this opacity is the difference between a
+     * quiet line and a visible one, and would make an interior border heavier
+     * than the coast. The mesh is computed when the file is built rather than
+     * here, so what arrives is already a `MultiLineString` and the browser
+     * never walks the topology.
+     *
+     * Opacity comes from the geometry, per frame, the same way a place name's
+     * does — 12.27 — so the borders arrive as the country's name leaves rather
+     * than switching on at a threshold.
+     */
+    const inner = subdivisions?.borders ? subdivisionFade(zoom.current) : 0;
+    if (inner > 0 && subdivisions?.borders) {
+      context.save();
+      context.globalAlpha = inner;
+      context.beginPath();
+      path(subdivisions.borders);
+      context.strokeStyle = readToken(stage, '--map-border-inner');
+      // Just over half the national border's width, on top of a colour with
+      // just over half its separation from the land. A subdivision line has to
+      // read as *inside* something, and matching either one of those alone was
+      // not enough to stop the two reading as the same line.
+      context.lineWidth = Math.min(1.7, 0.85 + zoom.current * 0.18) * 0.55;
+      context.lineJoin = 'round';
+      context.stroke();
+      context.restore();
+    }
+
     context.beginPath();
     path(BOUNDARIES);
     context.strokeStyle = readToken(stage, '--map-border');
@@ -311,19 +358,68 @@ export function RouteMap({
     context.lineWidth = Math.min(1.7, 0.85 + zoom.current * 0.18);
     context.lineJoin = 'round';
     context.stroke();
-  }, [fit, projection]);
+  }, [fit, projection, subdivisions]);
 
   useEffect(() => {
     draw();
-    repaint((tick) => tick + 1);
+    repaint((count) => count + 1);
   }, [draw]);
+
+  /**
+   * How long the map must sit still before it asks whose subdivisions to draw.
+   *
+   * The second of the three things damping this fetch. A reader spinning the
+   * globe crosses a dozen countries a second, and asking after each of them
+   * would be a dozen requests for geometry nobody looked at. The wheel already
+   * holds `moving` true for 320ms past the last notch, so by the time this
+   * timer starts the view has genuinely stopped; a quarter of a second past
+   * that is about the gap between two deliberate gestures, so a reader
+   * reaching for a second drag cancels the first one's question.
+   */
+  const SETTLE_MS = 250;
+
+  /*
+   * Which country the middle of the frame is over.
+   *
+   * The middle rather than the largest country in view: it is where a reader
+   * puts the thing they are looking at, it is what the zoom anchors to, and it
+   * is one `invert` instead of a sweep. Both projections answer it the same
+   * way, which is why the flat map needs no separate rule.
+   *
+   * `tick` is in the dependencies as the map's own "something was drawn"
+   * signal, so a view that changed without a gesture — a reset, a resize — is
+   * noticed too. It changes every frame during a drag, and every one of those
+   * runs stops at the `moving` check without setting a timer.
+   */
+  useEffect(() => {
+    if (moving) return;
+    // Nothing at all until the view is close enough for the layer to be worth
+    // having. This is the first and cheapest of the three: a reader who never
+    // zooms in never sends a request.
+    if (zoom.current < SUBDIVISION_REACH) {
+      setFocus(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (!rect || !rect.width || !rect.height) return;
+      const shown =
+        projection === 'globe' ? projections.current.globe : projections.current.mercator;
+      const at = shown.invert?.([rect.width / 2, rect.height / 2]);
+      if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) return;
+      // Open water, or a shape the atlas carries without a numeric code, both
+      // mean there is nothing to ask for.
+      setFocus(countryAt([at[0], at[1]])?.id ?? null);
+    }, SETTLE_MS);
+    return () => clearTimeout(handle);
+  }, [moving, tick, projection]);
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const observer = new ResizeObserver(() => {
       draw();
-      repaint((tick) => tick + 1);
+      repaint((count) => count + 1);
     });
     observer.observe(stage);
     return () => observer.disconnect();
@@ -452,7 +548,7 @@ export function RouteMap({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     setMoving(false);
     draw();
-    repaint((tick) => tick + 1);
+    repaint((count) => count + 1);
   }
 
   /**
@@ -601,7 +697,7 @@ export function RouteMap({
     if (wheelStop.current) clearTimeout(wheelStop.current);
     wheelStop.current = setTimeout(() => setMoving(false), 320);
     draw();
-    repaint((tick) => tick + 1);
+    repaint((count) => count + 1);
   }
 
   function reset() {
@@ -611,7 +707,7 @@ export function RouteMap({
     zoomTarget.current = 1;
     anchor.current = null;
     draw();
-    repaint((tick) => tick + 1);
+    repaint((count) => count + 1);
   }
 
   // Rotation counts as having moved the view. Without it, spinning the globe
@@ -688,14 +784,25 @@ export function RouteMap({
   const frame = size.current;
   const view: View = { globe: isGlobe, scale: place.scale(), rotation: centre };
 
-  type MapName = Boxed & { key: string; text: string; opacity: number; country: boolean };
+  /**
+   * The three rungs of the name ladder, each smaller and less tracked out than
+   * the one above it — which is also how a reader tells them apart when two of
+   * them are half-lit at a handover.
+   */
+  const TYPE = {
+    continent: { key: 'c', font: 11, spacing: 1.98 },
+    country: { key: 'n', font: 10, spacing: 0.8 },
+    subdivision: { key: 's', font: 9, spacing: 0.36 },
+  } as const;
+  type Tier = keyof typeof TYPE;
+
+  type MapName = Boxed & { key: string; text: string; opacity: number; tier: Tier };
   const names: MapName[] = [];
 
-  function offer(name: MapName['text'], at: LngLat, strength: number, country: boolean) {
-    const font = country ? 10 : 11;
+  function offer(name: MapName['text'], at: LngLat, strength: number, tier: Tier) {
     // Letter-spacing is part of how wide a name is, and the continent names
     // are tracked out a long way.
-    const spacing = country ? 0.8 : 1.98;
+    const { font, spacing } = TYPE[tier];
     let opacity = strength;
     if (isGlobe) opacity *= limbFade(at, centre);
     if (opacity <= 0.01) return;
@@ -707,14 +814,14 @@ export function RouteMap({
     if (xy[0] < -width || xy[0] > frame.width + width) return;
     if (xy[1] < -height || xy[1] > frame.height + height) return;
     names.push({
-      key: `${country ? 'n' : 'c'}:${name}`,
+      key: `${TYPE[tier].key}:${name}`,
       text: name,
       x: xy[0],
       y: xy[1],
       width,
       height,
       opacity,
-      country,
+      tier,
     });
   }
 
@@ -738,14 +845,46 @@ export function RouteMap({
   }
 
   const continents = continentFade(zoom.current) * 0.55;
-  for (const continent of CONTINENTS) offer(continent.name, continent.at, continents, false);
+  for (const continent of CONTINENTS) offer(continent.name, continent.at, continents, 'continent');
 
+  /*
+   * The country the reader has closed in on gives its name up to the
+   * subdivisions inside it, and only that one does.
+   *
+   * Every other country on screen keeps whatever `countryFade` gives it,
+   * because no other country's subdivisions have been fetched and drawing none
+   * while withdrawing the name would leave a blank shape. That is also exactly
+   * what makes the fallback silent: a country Natural Earth does not divide
+   * takes this branch too, and looks no different from one nobody has zoomed
+   * into.
+   */
+  const handover = subdivisions?.labels.length ? subdivisionFade(zoom.current) : 0;
   const countries = countryFade(zoom.current) * 0.72;
   for (const country of COUNTRIES) {
     if (countries <= 0.01) break;
     const room = roomFade(screenArea(country.area, country.at, view));
     if (room <= 0) continue;
-    offer(country.name, country.at, room * countries, true);
+    const giving = country.id === subdivisions?.country ? 1 - handover : 1;
+    offer(country.name, country.at, room * countries * giving, 'country');
+  }
+
+  /*
+   * And the rung below, on the same terms as the one above it: a name appears
+   * once the ground under it can hold it, measured with the same `screenArea`
+   * and the same `LABEL_ROOM`. One room rule for both, rather than a second
+   * constant tuned to make more names fit — a province too small to write on
+   * is too small whichever layer it belongs to, and Spain showing fifty
+   * borders and four names is the room test working, not failing.
+   *
+   * Offered last, so a country name still half-lit at the crossover keeps its
+   * ground and the incoming names arrange themselves around it.
+   */
+  if (handover > 0.01 && subdivisions) {
+    for (const unit of subdivisions.labels) {
+      const room = roomFade(screenArea(unit.area, unit.at, view));
+      if (room <= 0) continue;
+      offer(unit.name, unit.at, room * handover * 0.72, 'subdivision');
+    }
   }
   // Offered biggest first, so a bigger place keeps the ground it stands on.
   const shown = withoutOverlaps(names, claimed);
@@ -809,7 +948,7 @@ export function RouteMap({
               key={name.key}
               x={name.x}
               y={name.y}
-              className={name.country ? styles.country : styles.continent}
+              className={styles[name.tier]}
               style={{ opacity: name.opacity }}
               aria-hidden="true"
             >

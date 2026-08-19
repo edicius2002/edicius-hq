@@ -3,16 +3,19 @@ import { feature } from 'topojson-client';
 import { describe, expect, it } from 'vitest';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
-import { COUNTRIES } from '@/features/airfare/lib/countries';
+import { COUNTRIES, countryAt } from '@/features/airfare/lib/countries';
 import { facesViewer, type LngLat } from '@/features/airfare/lib/geo';
 import {
   CONTINENTS,
   LABEL_ROOM,
+  SUBDIVISION_REACH,
   type View,
   continentFade,
+  countryFade,
   limbFade,
   roomFade,
   screenArea,
+  subdivisionFade,
   withoutOverlaps,
 } from '@/features/airfare/lib/globe';
 
@@ -307,5 +310,105 @@ describe('the two layers together', () => {
       expect(Math.min(continentFade(zoom), countries)).toBeLessThan(1);
     }
     expect(CONTINENTS).toHaveLength(7);
+  });
+});
+
+/* ------------------------------------------------------ finding a country -- */
+
+describe('countryAt', () => {
+  /*
+   * The only geocoding this map does, and it does it for one reason: to know
+   * whose subdivisions to ask the API for once the reader has closed in. The
+   * point it is asked about is the middle of the frame.
+   */
+
+  it('finds the country under a point', () => {
+    expect(countryAt([-77.03, -12.05])?.name).toBe('Peru');
+    expect(countryAt([-70.65, -33.44])?.name).toBe('Chile');
+    expect(countryAt([-3.7, 40.42])?.name).toBe('Spain');
+    expect(countryAt([139.69, 35.69])?.name).toBe('Japan');
+  });
+
+  it('answers with nothing over open water rather than with the nearest land', () => {
+    // The middle of the South Pacific. A "nearest centroid" rule would name
+    // Chile here and fetch a country nobody is looking at.
+    expect(countryAt([-140, -35])).toBeNull();
+  });
+
+  it('hands back the id the subdivision files are keyed by', () => {
+    // ISO 3166-1 numeric, straight off the bundled shape — nothing derives it
+    // and nothing has to be kept in step with anything.
+    expect(countryAt([-77.03, -12.05])?.id).toBe('604');
+    expect(countryAt([-96, 39])?.id).toBe('840');
+  });
+
+  it('finds a country whose own bounds wrap the antimeridian', () => {
+    /*
+     * The bounds check that makes this cheap has to allow for a west edge
+     * greater than its east one, which `geoBounds` returns for anything
+     * crossing 180°. Written naively, Russia east of the dateline is nowhere.
+     */
+    expect(countryAt([170, 66])?.name).toBe('Russia');
+    expect(countryAt([37.6, 55.75])?.name).toBe('Russia');
+  });
+});
+
+/* ------------------------------------------------ the third rung of names -- */
+
+describe('subdivisionFade', () => {
+  it('shows no subdivisions on a view of the whole world', () => {
+    expect(subdivisionFade(1)).toBe(0);
+    expect(subdivisionFade(3)).toBe(0);
+  });
+
+  it('crosses over with the country names half-lit, the way the continents do', () => {
+    // 12.28's handover, one rung further in: at the crossover neither layer
+    // owns the map, which is what makes it read as one thing becoming another.
+    expect(subdivisionFade(4.6)).toBeCloseTo(0.5, 6);
+    expect(1 - subdivisionFade(4.6)).toBeCloseTo(0.5, 6);
+  });
+
+  it('has the subdivisions alone well before the zoom runs out', () => {
+    expect(subdivisionFade(5.2)).toBe(1);
+    expect(subdivisionFade(8)).toBe(1);
+  });
+
+  it('asks for the geometry before it would be drawn, and not before that', () => {
+    /*
+     * The first of the three things damping the fetch. A reader who spins the
+     * home view and never closes in sends no request at all, and one who does
+     * has the country in hand by the time it is worth drawing rather than a
+     * beat afterwards.
+     */
+    expect(subdivisionFade(SUBDIVISION_REACH)).toBe(0);
+    expect(SUBDIVISION_REACH).toBeLessThan(4.6);
+    expect(SUBDIVISION_REACH).toBeGreaterThan(3);
+  });
+
+  it('never takes a country name away before it has been at full strength', () => {
+    /*
+     * The reason the fall starts at 4.0 rather than earlier. `roomFade`
+     * saturates at twice `LABEL_ROOM`, and Japan is the last of this reader's
+     * countries to get there — so the handover is placed past Japan, and every
+     * one of them has a stretch of zoom where its name is as bright as it will
+     * ever be.
+     */
+    for (const name of ['Peru', 'Chile', 'Spain', 'Japan', 'United States of America']) {
+      const { at, area } = country(name);
+      // Turned to face the country, which is what a reader who has zoomed
+      // into it has done, and on the stage's own 460px minimum.
+      const looking = (zoom: number): View => ({
+        globe: true,
+        scale: 0.42 * 460 * zoom,
+        rotation: [-at[0], -at[1], 0],
+      });
+      const full = [...Array(80).keys()]
+        .map((step) => 0.1 + step * 0.1)
+        .find(
+          (zoom) => countryFade(zoom) === 1 && roomFade(screenArea(area, at, looking(zoom))) === 1,
+        );
+      expect(full, name).toBeDefined();
+      expect(subdivisionFade(full as number), name).toBe(0);
+    }
   });
 });

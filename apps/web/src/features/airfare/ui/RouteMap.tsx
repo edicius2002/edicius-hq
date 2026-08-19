@@ -12,17 +12,27 @@ import {
   type LngLat,
   type RouteGeometry,
 } from '@/features/airfare/lib/geo';
-import { COUNTRIES, countryAt, outlineOf } from '@/features/airfare/lib/countries';
+import {
+  COUNTRIES,
+  countriesInView,
+  countryAt,
+  outlinesOf,
+} from '@/features/airfare/lib/countries';
+import { planFanOut } from '@/features/airfare/lib/fanOut';
 import {
   type Boxed,
   CONTINENTS,
+  NAME_TIERS,
   SUBDIVISION_REACH,
+  type NameTier,
   type View,
   approach,
   clampPan,
   continentFade,
   countryFade,
   limbFade,
+  nameBox,
+  nudgeIntoFrame,
   roomFade,
   roomForName,
   screenArea,
@@ -30,7 +40,8 @@ import {
   subdivisionFade,
   withoutOverlaps,
 } from '@/features/airfare/lib/globe';
-import { useSubdivisions } from '@/features/airfare/hooks/useSubdivisions';
+import type { Subdivisions } from '@/features/airfare/lib/subdivisions';
+import { useSubdivisionCatalogue, useSubdivisions } from '@/features/airfare/hooks/useSubdivisions';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteMap.module.css';
@@ -115,6 +126,15 @@ const BOUNDARIES = mesh(
 const ZOOM = { min: 1, max: 32 };
 
 /**
+ * One empty list, so "nothing is wanted" is always the same nothing.
+ *
+ * `useQueries` is handed this array on every frame of a spin. A fresh `[]`
+ * each time would be a fresh set of query options each time, for a set that
+ * has not changed.
+ */
+const NOTHING_WANTED: readonly string[] = [];
+
+/**
  * How much one notch of wheel changes the scale.
  *
  * Exponential in the wheel delta rather than a fixed step per event, which is
@@ -184,55 +204,79 @@ export function RouteMap({
   const [tick, repaint] = useState(0);
 
   /*
-   * Which country the view is over, and its subdivisions once they arrive.
+   * Which countries the camera has in front of it, and their subdivisions once
+   * they arrive.
    *
-   * `null` means nobody has zoomed into anything, and nothing is requested. A
-   * country that has no subdivisions to give resolves to `null` too — see
-   * `shared/api/geography`, where the 404 is swallowed — so a reader never
-   * finds out which of the two happened, which is the point.
+   * Empty means nobody has zoomed into anything, and nothing is requested. A
+   * country that has no subdivisions to give simply never appears in what
+   * arrives — see `shared/api/geography`, where the 404 is swallowed, and
+   * `planFanOut`, which by then knows from the catalogue not to ask — so a
+   * reader never finds out which of the two happened, which is the point.
    */
-  const [focus, setFocus] = useState<string | null>(null);
-  const { data: subdivisions } = useSubdivisions(focus);
+  const [wanted, setWanted] = useState<readonly string[]>(NOTHING_WANTED);
+  /**
+   * Whether the reader has ever been close enough for any of this to matter.
+   *
+   * The catalogue is behind the same zoom gate as the geometry, but not behind
+   * the settle gate: it is 2.5 kB, it is asked for once a session, and having
+   * it before the first settle rather than after is the difference between the
+   * first view the reader stops on fanning out and the second one.
+   */
+  const [reached, setReached] = useState(false);
+  const { data: catalogue } = useSubdivisionCatalogue(reached);
+  const subdivisions = useSubdivisions(wanted);
 
   /**
-   * The coarse shape the finer one replaces, and everything that touches it.
+   * Which countries are actually being redrawn, which is not the same as which
+   * ones were asked for.
    *
-   * Both come off the bundled atlas and neither changes while the reader stays
-   * over the same country, so this is worked out when the focus moves and not
-   * once a frame — the neighbour search walks all 177 bounding boxes, which is
-   * nothing once and real work sixty times a second.
+   * A country Natural Earth does not divide, or one still in flight, keeps
+   * every bit of its coarse self — its borders in the mesh and its outline in
+   * the fill. Keying off what came back rather than off what was wanted is
+   * what makes the fallback silent here too, and it is what lets a fan-out
+   * land one country at a time without ever showing a shape that is neither
+   * named nor detailed.
    */
-  /*
-   * Which country is actually being redrawn, which is not the same as which
-   * one the reader is over. A country Natural Earth does not divide resolves
-   * to `null` and must keep every bit of its coarse self — its borders in the
-   * mesh and its outline in the fill. Keying off the response rather than off
-   * the focus is what makes the fallback silent here too.
-   */
-  const swapped = subdivisions?.land ? subdivisions.country : null;
-
-  const coarse = useMemo(() => (swapped ? outlineOf(swapped) : null), [swapped]);
+  const fine = subdivisions.filter((each) => each.land);
+  const swapped = fine.map((each) => each.country).join(',');
 
   /**
-   * Every national border except the swapped country's own.
+   * The coarse shapes the finer ones replace, and everything that touches them.
+   *
+   * All of it comes off the bundled atlas and none of it changes while the
+   * same set of countries is drawn, so this is worked out when that set moves
+   * and not once a frame — the neighbour search walks all 177 bounding boxes
+   * once per country, which is nothing on a settle and real work sixty times a
+   * second.
+   */
+  const coarse = useMemo(() => outlinesOf(swapped ? swapped.split(',') : []), [swapped]);
+
+  /**
+   * Every national border except those of the countries being redrawn.
    *
    * A mesh again, for 12.50's reason, but built without the edges that touch
-   * the country being redrawn — those are stroked from the finer outline
-   * instead. Dropping them is what keeps a shared border from being painted
-   * twice at two resolutions, which would read as a doubled line wherever the
-   * two generalizations part company, and they part company by a median of
-   * 1.5 to 5.2 km.
+   * any swapped country — those are stroked from the finer outlines instead.
+   * Dropping them is what keeps a shared border from being painted twice at
+   * two resolutions, which would read as a doubled line wherever the two
+   * generalizations part company, and they part company by a median of 1.5 to
+   * 5.2 km.
    *
-   * Recomputed only when the focus moves. It walks the whole 1:110m topology,
-   * which is a few milliseconds once and unaffordable per frame.
+   * The filter takes *either* side, which matters now that neighbours can both
+   * be fine: the frontier between two redrawn countries has to leave the
+   * coarse mesh exactly once, and it is the only edge in the topology where
+   * both tests would have fired.
+   *
+   * Recomputed only when the drawn set moves. It walks the whole 1:110m
+   * topology, which is a few milliseconds once and unaffordable per frame.
    */
   const boundaries = useMemo(() => {
     if (!swapped) return BOUNDARIES;
+    const redrawn = new Set(swapped.split(','));
     return mesh(
       worldAtlas as never,
       (worldAtlas as never as { objects: { countries: never } }).objects.countries,
       (left: { id?: string | number }, right: { id?: string | number }) =>
-        String(left.id) !== swapped && String(right.id) !== swapped,
+        !redrawn.has(String(left.id)) && !redrawn.has(String(right.id)),
     );
   }, [swapped]);
 
@@ -385,14 +429,15 @@ export function RouteMap({
     context.fill();
 
     /*
-     * One country, redrawn from the finer outline the API served for it.
+     * Every country in front of the reader, redrawn from the finer outlines
+     * the API served for them.
      *
      * The bundled 1:110m base has a median segment of 63 km. That is fifteen
      * pixels at 8x, where it read as a coastline; at 32x it is sixty-one, and
-     * a coast becomes a run of long straight lines. So the country the reader
-     * has closed in on is redrawn at 1:10m — the same resolution as the
-     * subdivision borders inside it, from the same file, which is what stops
-     * the two disagreeing at the shore.
+     * a coast becomes a run of long straight lines. So the countries the
+     * reader has closed in on are redrawn at 1:10m — the same resolution as
+     * the subdivision borders inside them, from the same files, which is what
+     * stops the two disagreeing at the shore.
      *
      * Two resolutions cannot simply be laid over one another. Measured, the
      * coarse and fine outlines of these countries sit a median of 1.5 to 5.2
@@ -400,22 +445,35 @@ export function RouteMap({
      * on top would leave the coarse one showing past it into the sea, and
      * painting it *instead* would open a strip of ocean along every frontier
      * where the neighbour's own coarse border had been generalised inland.
-     * Hence the three steps, inside a clip of the coarse shape: put the water
-     * back, lay the fine country down, then paint the neighbours' coarse land
-     * back over whatever the fine country does not claim. Nothing outside the
-     * coarse outline is touched, so the rest of the map is exactly as it was.
+     * Hence the three steps, inside a clip of the coarse shapes: put the water
+     * back, lay the fine countries down, then paint the coarse land of
+     * everything that touches them back over whatever they do not claim.
+     * Nothing outside those coarse outlines is touched, so the rest of the map
+     * is exactly as it was.
+     *
+     * **What fan-out changed is the third step, and only the third.** The clip
+     * is a union now and the fine shapes are a list, both of which are the
+     * same operation more times. The neighbours are not: `outlinesOf` excludes
+     * any country that is itself being redrawn, because Bolivia is a neighbour
+     * of Peru and painting Bolivia's coarse self back inside the clip would
+     * bury the fine Peru-Bolivia frontier under a 1:110m approximation of
+     * itself — the one shared border in the view that both fine files already
+     * agree on to within 133 m.
      */
-    const swap = coarse ? subdivisions : null;
-    if (swap?.land && coarse) {
+    const fine = subdivisions.filter(
+      (each): each is Subdivisions & { land: NonNullable<Subdivisions['land']> } =>
+        each.land !== null,
+    );
+    if (fine.length > 0 && coarse.shapes.length > 0) {
       context.save();
       context.beginPath();
-      path(coarse.shape as never);
+      for (const shape of coarse.shapes) path(shape as never);
       context.clip();
 
       paintWater();
 
       context.beginPath();
-      path(swap.land);
+      for (const each of fine) path(each.land);
       context.fillStyle = land;
       context.fill();
 
@@ -427,8 +485,8 @@ export function RouteMap({
     }
 
     /*
-     * The subdivisions of the one country the reader has closed in on, under
-     * the national borders rather than over them.
+     * The subdivisions of every country in front of the reader, under the
+     * national borders rather than over them.
      *
      * A mesh, for 12.50's reason and one more: a boundary between two
      * provinces belongs to both, and stroking each province's own outline
@@ -438,16 +496,28 @@ export function RouteMap({
      * here, so what arrives is already a `MultiLineString` and the browser
      * never walks the topology.
      *
+     * One `stroke` for all of them rather than one each: the opacity is a
+     * property of the layer and not of a country, and stroking country by
+     * country under a `globalAlpha` would darken every place two of them
+     * overlapped on screen.
+     *
      * Opacity comes from the geometry, per frame, the same way a place name's
-     * does — 12.27 — so the borders arrive as the country's name leaves rather
-     * than switching on at a threshold.
+     * does — 12.27 — so the borders arrive as the countries' names leave
+     * rather than switching on at a threshold.
      */
-    const inner = subdivisions?.borders ? subdivisionFade(zoom.current) : 0;
-    if (inner > 0 && subdivisions?.borders) {
+    const inner = subdivisionFade(zoom.current);
+    const inside =
+      inner > 0
+        ? subdivisions.filter(
+            (each): each is Subdivisions & { borders: NonNullable<Subdivisions['borders']> } =>
+              each.borders !== null,
+          )
+        : [];
+    if (inside.length > 0) {
       context.save();
       context.globalAlpha = inner;
       context.beginPath();
-      path(subdivisions.borders);
+      for (const each of inside) path(each.borders);
       context.strokeStyle = readToken(stage, '--map-border-inner');
       // Just over half the national border's width, on top of a colour with
       // just over half its separation from the land. A subdivision line has to
@@ -460,10 +530,19 @@ export function RouteMap({
     }
 
     /*
-     * Every national border once — minus the swapped country's own, which is
-     * stroked from the finer outline instead. `boundaries` is the coarse mesh
-     * with every edge touching that country filtered out, so the line is drawn
-     * exactly once either way and never twice at two different resolutions.
+     * Every national border once — minus those of the countries being redrawn,
+     * which are stroked from their finer outlines instead. `boundaries` is the
+     * coarse mesh with every edge touching any of them filtered out, so the
+     * line is drawn exactly once either way and never twice at two different
+     * resolutions.
+     *
+     * The one place that is not exactly once is a frontier between two redrawn
+     * countries: both files carry it, so it is stroked from each. Measured,
+     * the two agree to a median of 67-133 m and a p90 of 0.32 km — a third of
+     * a pixel at the 32x ceiling, against the 7.3 km median a fine perimeter
+     * and a coarse neighbour's border sat apart before — and an opaque colour
+     * stroked twice at the same width is the same line. This is the tripoint
+     * seam closing rather than moving.
      */
     context.strokeStyle = readToken(stage, '--map-border');
     /*
@@ -476,7 +555,7 @@ export function RouteMap({
     context.lineJoin = 'round';
     context.beginPath();
     path(boundaries);
-    if (swap?.land) path(swap.land);
+    for (const each of fine) path(each.land);
     context.stroke();
   }, [fit, projection, subdivisions, coarse, boundaries]);
 
@@ -499,12 +578,20 @@ export function RouteMap({
   const SETTLE_MS = 250;
 
   /*
-   * Which country the middle of the frame is over.
+   * Which countries the camera has in front of it, and which of those the
+   * budget will stretch to.
    *
-   * The middle rather than the largest country in view: it is where a reader
-   * puts the thing they are looking at, it is what the zoom anchors to, and it
-   * is one `invert` instead of a sweep. Both projections answer it the same
-   * way, which is why the flat map needs no separate rule.
+   * It used to be the one country under the middle of the frame, on the
+   * argument that the middle is where a reader puts the thing they are looking
+   * at. That is still true and the middle is still first — `planFanOut` pins
+   * it — but it was the wrong *set*: what a reader looks at is a viewport, and
+   * a viewport with one detailed country in it and blank neighbours reads as a
+   * map that is broken. So the middle names the country that must be detailed
+   * and `countriesInView` names the rest, in the order they fill the screen.
+   *
+   * Both projections answer it the same way, which is why the flat map needs
+   * no separate rule: the sweep is done through the shown projection's own
+   * `invert`, so the globe's clip and Mercator's pan are already in it.
    *
    * `tick` is in the dependencies as the map's own "something was drawn"
    * signal, so a view that changed without a gesture — a reset, a resize — is
@@ -514,25 +601,39 @@ export function RouteMap({
   useEffect(() => {
     if (moving) return;
     // Nothing at all until the view is close enough for the layer to be worth
-    // having. This is the first and cheapest of the three: a reader who never
-    // zooms in never sends a request.
+    // having. This is the first and cheapest of the four: a reader who never
+    // zooms in never sends a request, the catalogue included.
     if (zoom.current < SUBDIVISION_REACH) {
-      setFocus(null);
+      setWanted((was) => (was.length === 0 ? was : NOTHING_WANTED));
       return;
     }
+    setReached(true);
     const handle = setTimeout(() => {
       const rect = stageRef.current?.getBoundingClientRect();
       if (!rect || !rect.width || !rect.height) return;
       const shown =
         projection === 'globe' ? projections.current.globe : projections.current.mercator;
-      const at = shown.invert?.([rect.width / 2, rect.height / 2]);
-      if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) return;
+      const invert = (at: [number, number]) => shown.invert?.(at) ?? null;
+      const middle = invert([rect.width / 2, rect.height / 2]);
       // Open water, or a shape the atlas carries without a numeric code, both
-      // mean there is nothing to ask for.
-      setFocus(countryAt([at[0], at[1]])?.id ?? null);
+      // mean the middle has nothing to ask for — the rest of the view still
+      // does.
+      const centre =
+        middle && Number.isFinite(middle[0]) && Number.isFinite(middle[1])
+          ? (countryAt([middle[0], middle[1]])?.id ?? null)
+          : null;
+      const plan = planFanOut(countriesInView(invert, rect), centre, catalogue);
+      // Same set, same array: `useQueries` builds one query per entry and the
+      // map keys its canvas work off what comes back, so handing back a new
+      // array of the same ids would restart both for nothing.
+      setWanted((was) =>
+        was.length === plan.countries.length && was.every((id, at) => id === plan.countries[at])
+          ? was
+          : plan.countries,
+      );
     }, SETTLE_MS);
     return () => clearTimeout(handle);
-  }, [moving, tick, projection]);
+  }, [moving, tick, projection, catalogue]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -904,56 +1005,28 @@ export function RouteMap({
   const frame = size.current;
   const view: View = { globe: isGlobe, scale: place.scale(), rotation: centre };
 
-  /**
-   * The three rungs of the name ladder, each smaller and less tracked out than
-   * the one above it — which is also how a reader tells them apart when two of
-   * them are half-lit at a handover.
-   */
-  const TYPE = {
-    continent: { key: 'c', font: 11, spacing: 1.98 },
-    country: { key: 'n', font: 10, spacing: 0.8 },
-    // 8px, and the smallest thing on the map. A name's box is its width times
-    // its height and both fall with the face, so a point down from the country
-    // rung is 11% narrower and 11% shorter and asks 21% less ground — which at
-    // this zoom is the difference between a department carrying its name and
-    // carrying nothing.
-    subdivision: { key: 's', font: 8, spacing: 0.32 },
-  } as const;
-  type Tier = keyof typeof TYPE;
-
-  /**
-   * How much screen a name takes, before anything decides whether to draw it.
-   *
-   * Shared, because the subdivision rung asks the same question twice: once to
-   * find out whether the ground can hold this particular name, and once to
-   * claim that ground against every other name. Letter-spacing is part of the
-   * width both times, and the continent names are tracked out a long way.
-   */
-  function nameBox(name: string, tier: Tier) {
-    const { font, spacing } = TYPE[tier];
-    return { width: name.length * (font * 0.58 + spacing), height: font * 1.7 };
-  }
-
-  type MapName = Boxed & { key: string; text: string; opacity: number; tier: Tier };
+  type MapName = Boxed & { key: string; text: string; opacity: number; tier: NameTier };
   const names: MapName[] = [];
 
-  function offer(name: MapName['text'], at: LngLat, strength: number, tier: Tier) {
+  function offer(name: MapName['text'], at: LngLat, strength: number, tier: NameTier) {
     let opacity = strength;
     if (isGlobe) opacity *= limbFade(at, centre);
     if (opacity <= 0.01) return;
     const xy = place(at);
     if (!xy) return;
-    const { width, height } = nameBox(name, tier);
-    // Off the frame entirely. Worth checking: zoomed in, most of the world is.
-    if (xy[0] < -width || xy[0] > frame.width + width) return;
-    if (xy[1] < -height || xy[1] > frame.height + height) return;
+    const box = nameBox(name, tier);
+    // Off the frame, or too close to its edge to be read whole. Worth doing:
+    // zoomed in, most of the world is off the frame, and the map's stage clips
+    // — which is how Bolivia came to render as `Bolivi`.
+    const inside = nudgeIntoFrame(xy, box, frame);
+    if (!inside) return;
     names.push({
-      key: `${TYPE[tier].key}:${name}`,
+      key: `${NAME_TIERS[tier].key}:${name}`,
       text: name,
-      x: xy[0],
-      y: xy[1],
-      width,
-      height,
+      x: inside[0],
+      y: inside[1],
+      width: box.width,
+      height: box.height,
       opacity,
       tier,
     });
@@ -982,23 +1055,30 @@ export function RouteMap({
   for (const continent of CONTINENTS) offer(continent.name, continent.at, continents, 'continent');
 
   /*
-   * The country the reader has closed in on gives its name up to the
-   * subdivisions inside it, and only that one does.
+   * A country whose subdivisions are on screen gives its name up to them, and
+   * only those countries do.
    *
    * Every other country on screen keeps whatever `countryFade` gives it,
-   * because no other country's subdivisions have been fetched and drawing none
-   * while withdrawing the name would leave a blank shape. That is also exactly
-   * what makes the fallback silent: a country Natural Earth does not divide
-   * takes this branch too, and looks no different from one nobody has zoomed
-   * into.
+   * because its subdivisions have not been fetched and drawing none while
+   * withdrawing the name would leave a blank shape. **That is also the whole
+   * of how this map stays honest at the edge of its budget.** A country the
+   * fan-out would not stretch to is in exactly the same position as one
+   * Natural Earth does not divide and one that has not landed yet: it keeps
+   * its name. So every country on screen is either showing its subdivisions
+   * and has given up its name to them, or is showing its name — there is no
+   * third state, and a reader can read off the map which countries it drew in
+   * detail without being told a number to trust.
    */
-  const handover = subdivisions?.labels.length ? subdivisionFade(zoom.current) : 0;
+  const handover = subdivisionFade(zoom.current);
+  const naming = new Set(
+    subdivisions.filter((each) => each.labels.length > 0).map((each) => each.country),
+  );
   const countries = countryFade(zoom.current) * 0.72;
   for (const country of COUNTRIES) {
     if (countries <= 0.01) break;
     const room = roomFade(screenArea(country.area, country.at, view));
     if (room <= 0) continue;
-    const giving = country.id === subdivisions?.country ? 1 - handover : 1;
+    const giving = country.id !== null && naming.has(country.id) ? 1 - handover : 1;
     offer(country.name, country.at, room * countries * giving, 'country');
   }
 
@@ -1019,9 +1099,18 @@ export function RouteMap({
    *
    * Offered last, so a country name still half-lit at the crossover keeps its
    * ground and the incoming names arrange themselves around it.
+   *
+   * Across countries as well as within one, and sorted so it is one rung
+   * rather than several: the served files each order their own units biggest
+   * first, but a fan-out hands over several of them, and offering Peru's
+   * smallest department before Bolivia's largest would let the smaller place
+   * take ground from the bigger one purely because its country was fetched
+   * first.
    */
-  if (handover > 0.01 && subdivisions) {
-    for (const unit of subdivisions.labels) {
+  if (handover > 0.01 && subdivisions.length > 0) {
+    const units = subdivisions.flatMap((each) => each.labels);
+    if (subdivisions.length > 1) units.sort((left, right) => right.area - left.area);
+    for (const unit of units) {
       const box = nameBox(unit.name, 'subdivision');
       const room = roomFade(
         screenArea(unit.area, unit.at, view),

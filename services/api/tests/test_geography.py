@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.routers.geography import SubdivisionsResponse
 from app.services import subdivisions
 
 client = TestClient(app)
@@ -35,6 +36,40 @@ def get(country: str):
 
 
 # ---------------------------------------------------------------- the data --
+
+
+def test_the_catalogue_lists_every_country_that_has_a_file_and_no_others():
+    body = client.get("/api/geography/subdivisions").json()["countries"]
+    assert set(body) == set(subdivisions.available())
+    assert WESTERN_SAHARA not in body
+
+
+def test_the_catalogue_promises_the_number_of_bytes_that_actually_arrive():
+    """
+    The whole point of the index is that the client can spend a byte budget
+    before the bytes are spent, so a number that were merely nearly right would
+    be a budget that were merely nearly kept. It is exact because the endpoint
+    serves the file rather than rebuilding it.
+    """
+    promised = client.get("/api/geography/subdivisions").json()["countries"]
+    for country in (PERU, CHILE, UNITED_STATES):
+        assert len(get(country).content) == promised[country], country
+
+
+def test_the_catalogue_is_small_enough_to_fetch_before_deciding_anything():
+    # 167 entries against the 6.4 MB they describe. Past a few kilobytes it
+    # would be cheaper to guess.
+    assert len(client.get("/api/geography/subdivisions").content) < 4_000
+
+
+def test_a_countrys_file_still_matches_the_shape_the_endpoint_declares():
+    """
+    Serving the file verbatim takes the per-request validation out, so the
+    contract is checked here instead — once, against the shipped data, which is
+    where a build that wrote something malformed should be caught.
+    """
+    for country in (PERU, CHILE, SPAIN, UNITED_STATES, JAPAN):
+        SubdivisionsResponse.model_validate_json(get(country).content)
 
 
 def test_most_of_the_world_the_map_draws_has_subdivisions_to_show():

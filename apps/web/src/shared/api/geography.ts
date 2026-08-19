@@ -34,6 +34,33 @@ export type SubdivisionsResponse = {
   labels: SubdivisionLabel[];
 };
 
+/** Every country that has subdivisions, and what each one costs to fetch. */
+export type SubdivisionCatalogue = {
+  /** ISO 3166-1 numeric to the byte length of that country's response. */
+  countries: Record<string, number>;
+};
+
+/**
+ * The index over the collection, which is what makes a budget possible.
+ *
+ * The map fills the camera's field of view rather than one country, and the
+ * files run from 4 kB to Russia's 618 kB — so the client has to know what a
+ * country costs before it asks for it, not after. 2.5 kB, once a session.
+ *
+ * It throws where `fetchSubdivisions` swallows, and the difference is what
+ * each absence means. A country with no file is an answer; an index that will
+ * not load is our own API failing, and the caller decides what to do about it
+ * — which for the map is to fall back to the one country under the middle of
+ * the frame, exactly as it behaved before there was an index.
+ */
+export function fetchSubdivisionCatalogue(
+  options: { signal?: AbortSignal } = {},
+): Promise<SubdivisionCatalogue> {
+  return apiRequest<SubdivisionCatalogue>('/api/geography/subdivisions', {
+    signal: options.signal,
+  });
+}
+
 /**
  * One country's first-level subdivisions, or `null` when it has none.
  *

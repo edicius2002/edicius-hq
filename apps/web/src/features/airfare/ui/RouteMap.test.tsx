@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { flowDelay } from '@/features/airfare/lib/arcFlow';
 import type { RouteGeometry } from '@/features/airfare/lib/geo';
+import { nameBox } from '@/features/airfare/lib/globe';
 import { RouteMap } from '@/features/airfare/ui/RouteMap';
 
 /*
@@ -584,6 +585,217 @@ describe('RouteMap', () => {
 
     await waitFor(() => expect(screen.getByText('Peru')).toBeInTheDocument());
     expect(screen.queryByText('Loreto')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /* ------------------------------------------------------------ fan-out -- */
+
+  /**
+   * Bolivia, as the API sends it, with two departments large enough to name.
+   *
+   * Bolivia because it is the country in the complaint: at 10x with eleven
+   * Peruvian departments showing, Bolivia beside them was a flat shape with
+   * only its country name on it, and Chile below the border had no internal
+   * lines at all. It is the discontinuity this whole change removes.
+   */
+  const BOLIVIA_SUBDIVISIONS = {
+    country: '068',
+    borders: {
+      type: 'Topology',
+      objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+      arcs: [
+        [
+          [-66, -14],
+          [-64, -18],
+        ],
+      ],
+    },
+    labels: [
+      { name: 'Beni', at: [-66, -14], area: 0.0052 },
+      { name: 'Pando', at: [-67.5, -11], area: 0.0025 },
+    ],
+  };
+
+  /**
+   * Ecuador, whose own name the map already draws at this zoom.
+   *
+   * It is the control for the handover: `does not name a country before there
+   * is any point in naming one` and the dump of what this view renders both
+   * say Ecuador is on the frame with its name lit, so a test that finds that
+   * name gone has watched a neighbour give it up to its own provinces.
+   */
+  const ECUADOR_SUBDIVISIONS = {
+    country: '218',
+    borders: {
+      type: 'Topology',
+      objects: { borders: { type: 'MultiLineString', arcs: [[0]] } },
+      arcs: [
+        [
+          [-78.5, -1],
+          [-77.5, -2],
+        ],
+      ],
+    },
+    labels: [{ name: 'Napo', at: [-77.5, -1], area: 0.003 }],
+  };
+
+  /** Real byte counts, because the budget is spent in real ones. */
+  const WEIGHS: Record<string, number> = {
+    '604': 43_085,
+    '068': 20_656,
+    '218': 12_463,
+    '152': 127_823,
+  };
+
+  function servingSouthAmerica(catalogue: Record<string, number> | null = WEIGHS) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(
+            catalogue
+              ? Response.json({ countries: catalogue })
+              : new Response('{"detail":"boom"}', { status: 500 }),
+          );
+        }
+        if (url.endsWith('/604')) return Promise.resolve(Response.json(PERU_SUBDIVISIONS));
+        if (url.endsWith('/068')) return Promise.resolve(Response.json(BOLIVIA_SUBDIVISIONS));
+        if (url.endsWith('/218')) return Promise.resolve(Response.json(ECUADOR_SUBDIVISIONS));
+        return Promise.resolve(new Response('null', { status: 404 }));
+      }),
+    );
+  }
+
+  it('draws the subdivisions of every country in view, not only the one in the middle', async () => {
+    /*
+     * The whole change, in one test. Peru is the country the reader zoomed
+     * into; Bolivia is the neighbour that used to sit beside it as a flat
+     * shape with only its country name on it. Now both are drawn department by
+     * department, and the view reads as one map rather than as one detailed
+     * country among blank ones.
+     */
+    servingSouthAmerica();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Beni')).toBeInTheDocument());
+    expect(screen.getByText('Loreto')).toBeInTheDocument();
+  });
+
+  it('has a neighbour give up its own name the way the middle country does', async () => {
+    // The handover is per country now, not one country's privilege. Ecuador
+    // was named before its provinces arrived and is not named after.
+    servingSouthAmerica();
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Napo')).toBeInTheDocument());
+    expect(screen.queryByText('Ecuador')).not.toBeInTheDocument();
+    expect(screen.queryByText('Peru')).not.toBeInTheDocument();
+  });
+
+  it('leaves a country the budget will not stretch to with its own name on it', async () => {
+    /*
+     * The cap, and the one thing it must not do quietly. A country the fan-out
+     * could not afford is in exactly the same position as one Natural Earth
+     * does not divide: it keeps its name. So every country on screen is either
+     * showing its subdivisions and has given up its name to them, or is
+     * showing its name — and a reader can read off the map which ones it drew
+     * in detail without being handed a number to trust.
+     */
+    servingSouthAmerica({ ...WEIGHS, '218': 40_000_000 });
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    expect(screen.getByText('Ecuador')).toBeInTheDocument();
+    expect(screen.queryByText('Napo')).not.toBeInTheDocument();
+    expect(subdivisionRequests.some((url) => url.endsWith('/218'))).toBe(false);
+  });
+
+  it('never asks for a country the index says has nothing to give', async () => {
+    /*
+     * Before the index that cost a 404 to find out, which one country per
+     * request could afford and a view holding thirty cannot. Chile has no
+     * entry here, so it is never asked about at all.
+     */
+    servingSouthAmerica({ '604': 43_085, '068': 20_656, '218': 12_463 });
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Beni')).toBeInTheDocument());
+    expect(subdivisionRequests.some((url) => url.endsWith('/152'))).toBe(false);
+  });
+
+  it('pulls a name off the edge of the panel so the whole word is on the map', async () => {
+    /*
+     * The map's stage clips and the names are centred on the point they name,
+     * so a name near an edge had its far half cut off by the panel: at 10x
+     * with Peru's departments showing, Bolivia rendered as `Bolivi`, which is
+     * not a place, in a face small enough that a reader cannot tell it from
+     * one.
+     *
+     * Two names on the same point and nothing different about them but how
+     * long they are. Sixteen degrees east of the middle of this view is about
+     * 890px across a 960px frame, so `Ica` at 15px wide has room to stay
+     * exactly where it belongs and the 198px name does not — and where the
+     * long one ends up is flush inside the frame rather than anywhere the
+     * geometry chose, which is why one constant could never have covered both.
+     */
+    const SHORT = 'Ica';
+    const LONG = 'Aisén del General Carlos Ibáñez del Campo';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        subdivisionRequests.push(url);
+        if (url.endsWith('/api/geography/subdivisions')) {
+          return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
+        }
+        return Promise.resolve(
+          url.endsWith('/604')
+            ? Response.json({
+                country: '604',
+                borders: PERU_SUBDIVISIONS.borders,
+                labels: [
+                  { name: LONG, at: [-61, -6], area: 0.02 },
+                  { name: SHORT, at: [-61, -6], area: 0.019 },
+                ],
+              })
+            : new Response('null', { status: 404 }),
+        );
+      }),
+    );
+
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText(LONG)).toBeInTheDocument());
+    const at = (text: string) => Number(screen.getByText(text).getAttribute('x'));
+    // Flush inside the right-hand edge, to the pixel — moved, and moved only
+    // as far as it had to be.
+    expect(at(LONG)).toBeCloseTo(960 - nameBox(LONG, 'subdivision').width / 2, 6);
+    // Real rather than vacuous: the same point left the short name alone,
+    // where a rule that culled or clamped everything near an edge would have
+    // moved it too.
+    expect(at(SHORT)).toBeGreaterThan(at(LONG));
+    expect(at(SHORT) + nameBox(SHORT, 'subdivision').width / 2).toBeLessThanOrEqual(960);
+  });
+
+  it('still details the country in the middle when the index will not load', async () => {
+    /*
+     * Which is how the map behaved before there was an index. The fan-out is
+     * the improvement and the single country is the floor, so an API that
+     * cannot answer for the collection still leaves a reader with the country
+     * they zoomed into rather than with a blank one.
+     */
+    servingSouthAmerica(null);
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 

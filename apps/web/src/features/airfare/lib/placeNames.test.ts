@@ -3,7 +3,12 @@ import { feature } from 'topojson-client';
 import { describe, expect, it } from 'vitest';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
-import { COUNTRIES, countryAt, outlineOf } from '@/features/airfare/lib/countries';
+import {
+  COUNTRIES,
+  countriesInView,
+  countryAt,
+  outlinesOf,
+} from '@/features/airfare/lib/countries';
 import { facesViewer, type LngLat } from '@/features/airfare/lib/geo';
 import {
   CONTINENTS,
@@ -14,6 +19,7 @@ import {
   countryFade,
   limbFade,
   NAME_ROOM_MARGIN,
+  nudgeIntoFrame,
   roomFade,
   roomForName,
   screenArea,
@@ -309,6 +315,59 @@ describe('withoutOverlaps', () => {
   });
 });
 
+describe('nudgeIntoFrame', () => {
+  /*
+   * The map's stage clips, and the names are centred on the point they belong
+   * to — so a country whose centroid lands near an edge had half its name cut
+   * off by the panel. Measured at 10x with Peru's departments showing, Bolivia
+   * rendered as `Bolivi`.
+   */
+  const FRAME = { width: 529, height: 460 };
+  const BOLIVIA = { width: 46.4, height: 17 };
+
+  it('leaves a name in the middle of the frame exactly where it was', () => {
+    expect(nudgeIntoFrame([264, 230], BOLIVIA, FRAME)).toEqual([264, 230]);
+  });
+
+  it('pulls a name off the right-hand edge so the whole word is on the map', () => {
+    const [x] = nudgeIntoFrame([520, 230], BOLIVIA, FRAME) ?? [NaN];
+    expect(x).toBe(FRAME.width - BOLIVIA.width / 2);
+    expect(x + BOLIVIA.width / 2).toBeLessThanOrEqual(FRAME.width);
+  });
+
+  it('pulls it off the other three edges on the same rule', () => {
+    expect(nudgeIntoFrame([4, 230], BOLIVIA, FRAME)?.[0]).toBe(BOLIVIA.width / 2);
+    expect(nudgeIntoFrame([264, 2], BOLIVIA, FRAME)?.[1]).toBe(BOLIVIA.height / 2);
+    expect(nudgeIntoFrame([264, 458], BOLIVIA, FRAME)?.[1]).toBe(FRAME.height - BOLIVIA.height / 2);
+  });
+
+  it('never moves a name further than half its own width', () => {
+    // Which is what keeps it over the country it names: that is the whole
+    // distance there is between centred on the edge and flush inside it.
+    const [x] = nudgeIntoFrame([FRAME.width, 230], BOLIVIA, FRAME) ?? [NaN];
+    expect(FRAME.width - x).toBeLessThanOrEqual(BOLIVIA.width / 2);
+  });
+
+  it('drops a name whose place is off the frame rather than parking it at the edge', () => {
+    /*
+     * Zoomed in, most of the world is off the frame. Without this a country
+     * three frames to the west would print its name against the left-hand edge
+     * as though it were there.
+     */
+    expect(nudgeIntoFrame([-1, 230], BOLIVIA, FRAME)).toBeNull();
+    expect(nudgeIntoFrame([530, 230], BOLIVIA, FRAME)).toBeNull();
+    expect(nudgeIntoFrame([264, -1], BOLIVIA, FRAME)).toBeNull();
+    expect(nudgeIntoFrame([264, 461], BOLIVIA, FRAME)).toBeNull();
+  });
+
+  it('centres a name too wide for the frame instead of flushing it to one side', () => {
+    // An equal amount lost at each end reads as a long name on a narrow map.
+    // All of it lost at one end reads as a different word.
+    const wide = { width: 700, height: 17 };
+    expect(nudgeIntoFrame([100, 230], wide, FRAME)?.[0]).toBe(FRAME.width / 2);
+  });
+});
+
 /* ----------------------------------------------------------- the countries -- */
 
 describe('COUNTRIES', () => {
@@ -417,43 +476,144 @@ describe('countryAt', () => {
   });
 });
 
-describe('outlineOf', () => {
+describe('outlinesOf', () => {
   /*
-   * What a country's finer outline has to be painted over, and what has to be
-   * painted back inside it. The map draws one country at 1:10m on a 1:110m
-   * base, and the two do not coincide.
+   * What the finer outlines have to be painted over, and what has to be
+   * painted back inside them. The map draws the countries in front of the
+   * reader at 1:10m on a 1:110m base, and the two do not coincide.
    */
 
-  it('finds the bundled shape the finer one replaces', () => {
-    expect(outlineOf('604')).not.toBeNull();
-    expect(outlineOf('840')).not.toBeNull();
+  const named = (shapes: object[]) =>
+    shapes.map((shape) => (shape as { properties: { name: string } }).properties.name);
+
+  it('finds the bundled shapes the finer ones replace', () => {
+    expect(named(outlinesOf(['604']).shapes)).toEqual(['Peru']);
+    expect(named(outlinesOf(['604', '840']).shapes).sort()).toEqual([
+      'Peru',
+      'United States of America',
+    ]);
   });
 
-  it('hands back everything that touches it, which is what fills the seam', () => {
+  it('hands back everything that touches them, which is what fills the seam', () => {
     /*
      * Without the neighbours, every stretch where their own coarse border was
      * generalised inland shows as a strip of ocean along an international
      * frontier. Peru's are the five countries it borders.
      */
-    const peru = outlineOf('604');
-    const names = (peru?.neighbours ?? []).map(
-      (shape) => (shape as { properties: { name: string } }).properties.name,
-    );
+    const names = named(outlinesOf(['604']).neighbours);
     for (const neighbour of ['Brazil', 'Bolivia', 'Ecuador', 'Colombia', 'Chile']) {
       expect(names).toContain(neighbour);
     }
     expect(names).not.toContain('Peru');
   });
 
+  it('never calls a country being redrawn a neighbour of another one', () => {
+    /*
+     * The one thing fanning out could have broken. Bolivia is a neighbour of
+     * Peru, and painting Bolivia's coarse self back inside the clip would bury
+     * the fine Peru-Bolivia frontier that both files already agree on under a
+     * 1:110m approximation of itself.
+     */
+    const both = outlinesOf(['604', '068']);
+    expect(named(both.shapes).sort()).toEqual(['Bolivia', 'Peru']);
+    expect(named(both.neighbours)).not.toContain('Bolivia');
+    expect(named(both.neighbours)).not.toContain('Peru');
+    // And the rest of the ring is still there, or the sea comes back along the
+    // frontiers those two share with everyone else.
+    expect(named(both.neighbours)).toContain('Brazil');
+  });
+
   it('does not call the whole world a neighbour', () => {
     // The bounds test is deliberately generous — a shape that is near without
     // touching only repaints land that was going to be painted anyway — but a
     // rule that returned all 177 would be repainting the map twice a frame.
-    expect(outlineOf('604')?.neighbours.length).toBeLessThan(30);
+    expect(outlinesOf(['604']).neighbours.length).toBeLessThan(30);
   });
 
   it('has nothing to say about a country the atlas does not carry', () => {
-    expect(outlineOf('999')).toBeNull();
+    expect(outlinesOf(['999'])).toEqual({ shapes: [], neighbours: [] });
+    expect(outlinesOf([])).toEqual({ shapes: [], neighbours: [] });
+  });
+});
+
+describe('countriesInView', () => {
+  /*
+   * Which countries the camera has in front of it, and how much of the screen
+   * each of them holds — the question that replaced "which country is under
+   * the middle of the frame", and the one the byte budget is spent against.
+   */
+
+  const FRAME = { width: 529, height: 460 };
+
+  /** The globe as the map builds it: fitted, zoomed, and turned to a place. */
+  function looking(at: LngLat, zoom: number) {
+    const projection = geoOrthographic()
+      .clipAngle(90)
+      .precision(0.5)
+      .translate([FRAME.width / 2, FRAME.height / 2])
+      .scale(Math.min(FRAME.width, FRAME.height) * 0.42 * zoom)
+      .rotate([-at[0], -at[1], 0]);
+    return (screen: [number, number]) => projection.invert?.(screen) ?? null;
+  }
+
+  it('finds every country in front of the reader, not only the one in the middle', () => {
+    // Southern Peru at 10x — the view the complaint was made about, where
+    // eleven Peruvian departments sat beside a flat Bolivia and a Chile with
+    // no internal lines at all.
+    const names = countriesInView(looking([-70.5, -16.5], 10), FRAME).map((each) => each.name);
+    expect(names).toContain('Peru');
+    expect(names).toContain('Bolivia');
+    expect(names).toContain('Chile');
+  });
+
+  it('ranks them by how much of the screen they hold', () => {
+    // Standing over Bolivia, Bolivia is the biggest thing on screen. It is not
+    // a claim about area on the ground: Brazil is fifteen times its size and
+    // is in this frame only at its edge.
+    const seen = countriesInView(looking([-64.5, -16.5], 10), FRAME);
+    expect(seen[0].name).toBe('Bolivia');
+    const brazil = seen.findIndex((each) => each.name === 'Brazil');
+    expect(brazil).toBeGreaterThan(0);
+    expect(seen[0].cells).toBeGreaterThan(seen[brazil].cells);
+  });
+
+  it('carries the id the subdivision files are keyed by', () => {
+    const peru = countriesInView(looking([-75, -10], 8), FRAME).find(
+      (each) => each.name === 'Peru',
+    );
+    expect(peru?.id).toBe('604');
+  });
+
+  it('leaves out the half of the globe that has turned away', () => {
+    /*
+     * The sweep goes through the shown projection's own `invert`, so the
+     * globe's clip is already in it and there is no second model of the camera
+     * to keep in step with the first. Over Peru, Asia is behind the world.
+     */
+    const names = countriesInView(looking([-75, -10], 1), FRAME).map((each) => each.name);
+    expect(names).toContain('Peru');
+    expect(names).not.toContain('Japan');
+    expect(names).not.toContain('India');
+  });
+
+  it('answers with nothing at all over open water', () => {
+    // The middle of the South Pacific at 12x. A "nearest country" rule would
+    // fetch geometry for a country nobody is looking at.
+    expect(countriesInView(looking([-140, -35], 12), FRAME)).toEqual([]);
+  });
+
+  it('is the same sweep on the flat map', () => {
+    // Both projections answer through their own `invert`, which is why the
+    // Mercator needs no separate rule.
+    const mercator = geoMercator()
+      .rotate([62, 0])
+      .precision(0.5)
+      .translate([FRAME.width / 2, FRAME.height / 2])
+      .scale(Math.min(FRAME.width / (2 * Math.PI), FRAME.height * 0.42 * 0.6) * 10);
+    const names = countriesInView((screen) => mercator.invert?.(screen) ?? null, FRAME).map(
+      (each) => each.name,
+    );
+    expect(names.length).toBeGreaterThan(1);
   });
 });
 

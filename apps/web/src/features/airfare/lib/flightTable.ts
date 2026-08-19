@@ -38,10 +38,12 @@ export const PAGE_SIZE = 10;
 /**
  * The stretch of *observation* time the table covers.
  *
- * Observation time, not flight time: a watched route has exactly one departure
- * date, so bucketing rows by when they fly would put every flight in one
- * bucket and mean nothing. The chart's x-axis is when a snapshot was captured,
- * and this is the same axis, narrowed to its most recent bucket.
+ * Observation time, not flight time. Bucketing rows by when they fly would
+ * answer a different question from the chart above them, which is drawn on
+ * when a snapshot was captured; this is the same axis, narrowed to its most
+ * recent bucket. Since 12.110 a watched route spans a month of departures, so
+ * flight time is now a real axis and it is the *other* one — the day column
+ * carries it, and the two must not be swapped without saying so.
  */
 export type ObservationWindow = {
   /** The bucket key the chart would draw last — `2026-08-18`, `2026-W34`, `2026-08`. */

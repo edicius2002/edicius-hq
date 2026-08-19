@@ -1,4 +1,4 @@
-import { type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { formatFlightDate, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import type { CollectResponse, CollectRouteResult } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
@@ -14,6 +14,12 @@ import { formatMoney } from '@/shared/lib/money';
  * come back blank — decisions 8.8 and 8.41, the same rule the pass itself
  * follows on the server: what was refused travels beside what worked and says
  * why. A silent control is indistinguishable from a broken one.
+ *
+ * Since 12.110 a row is a *month*, so one press comes back with up to
+ * thirty-one outcomes and this has to summarise rather than report. The
+ * summary counts rather than names: "4 of 31 departures looked at" is the
+ * shape of what happened, where thirty-one dates in a paragraph is a wall
+ * nobody reads.
  */
 
 export type RowReport = {
@@ -22,20 +28,12 @@ export type RowReport = {
   text: string;
 };
 
-/**
- * Whether a result in the report is the route that was asked about.
- *
- * A row's press carries exactly one route, so there is at most one result to
- * find and the departure date alone would separate it. The pair is compared as
- * well because the cost is three string comparisons and the alternative is a
- * row that would confidently report someone else's outcome if the request ever
- * grew a second route.
- */
+/** Whether a result in the report belongs to the month that was asked about. */
 function isSameRoute(result: CollectRouteResult, route: FareRoute): boolean {
   return (
     result.origin === route.origin &&
     result.destination === route.destination &&
-    result.flightDate === route.flightDate
+    result.flightDate.startsWith(route.month)
   );
 }
 
@@ -44,22 +42,41 @@ function isSameRoute(result: CollectRouteResult, route: FareRoute): boolean {
  *
  * `CollectionReport.skipped` carries `f"{origin}-{destination} {flight_date}"`
  * — a sentence for a human, not a key — so matching it means rebuilding that
- * string here. Kept in one function so the coupling is in one place and
+ * prefix here. Kept in one function so the coupling is in one place and
  * findable from either end.
  */
-function skipName(route: FareRoute): string {
-  return `${route.origin}-${route.destination} ${route.flightDate}`;
+function skipPrefix(route: FareRoute): string {
+  return `${route.origin}-${route.destination} ${route.month}`;
 }
 
 /**
- * The outcome of a one-route collection pass, for the row that asked for it.
+ * The reasons this month's departures were passed over, commonest first.
  *
- * The `skipped` branch is not dead code waiting for a bug. `POST
- * /api/fares/collect` calls the collector's unconditional `collect`, never
- * `collect_due`, so a route handed to it is polled whatever the cadence says
- * and today's server can only answer with a result. If that ever changes, the
- * row says "not collected" and why, instead of a press that appears to do
- * nothing — which is the failure mode this whole line of text exists to
+ * Grouped rather than listed for the same reason the command-line pass groups
+ * them: on a daily cadence a healthy press skips thirty of thirty-one, and a
+ * line naming each one would bury the one that matters.
+ */
+function skipSummary(route: FareRoute, response: CollectResponse): string {
+  const counts = new Map<string, number>();
+  const prefix = skipPrefix(route);
+  for (const entry of response.skipped) {
+    if (!entry.what.startsWith(prefix)) continue;
+    counts.set(entry.reason, (counts.get(entry.reason) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([reason, count]) => `${count} ${reason}`)
+    .join(', ');
+}
+
+/**
+ * The outcome of one month's collection pass, for the row that asked for it.
+ *
+ * The `skipped` branch stopped being a contingency when 12.111 put the
+ * schedule in front of this button: a press now declines the departures whose
+ * last look is younger than their own interval, and on a month already
+ * collected today that is all of them. Saying so is the whole point — a press
+ * that appears to do nothing is the failure mode this line of text exists to
  * prevent.
  *
  * `locale` is threaded through for the same reason `money` takes one: the
@@ -70,36 +87,63 @@ export function describeCollection(
   response: CollectResponse,
   locale?: string,
 ): RowReport {
-  const result = response.results.find((candidate) => isSameRoute(candidate, route));
+  const results = response.results.filter((candidate) => isSameRoute(candidate, route));
+  const skipped = skipSummary(route, response);
 
-  if (result && !result.ok) {
-    const code = result.errorCode ?? 'unknown';
-    const reason = result.errorMessage ?? 'no reason given';
+  if (results.length === 0) {
+    if (skipped) return { ok: false, text: `Not collected: ${skipped}.` };
+    return { ok: false, text: 'The pass came back without a word about this month.' };
+  }
+
+  const failures = results.filter((result) => !result.ok);
+  if (failures.length === results.length) {
+    // Every departure refused, so the reason is a property of the route rather
+    // than of one day of it, and naming the first one names all of them.
+    const code = failures[0].errorCode ?? 'unknown';
+    const reason = failures[0].errorMessage ?? 'no reason given';
     return { ok: false, text: `Refused: ${code} — ${reason}` };
   }
 
-  if (result) {
-    const flights = `${result.offers} flight${result.offers === 1 ? '' : 's'}`;
-    // A look that found the board empty is still a look, and reporting a
-    // cheapest of nothing as a price of zero would put a false point in front
-    // of the reader.
-    const price =
-      result.cheapest !== null && result.currency !== null
-        ? `cheapest ${formatMoney(result.cheapest, result.currency, locale)}`
-        : 'no price quoted';
-    // A snapshot is written only when something moved, so most successful
-    // looks write nothing — and a reader who is not told that reads an
-    // unchanged series as a collector that failed.
-    const wrote = result.changed ? 'a new snapshot' : 'nothing new to record';
-    const seeded =
-      result.seeded > 0 ? `, ${result.seeded} days of the provider's own history seeded` : '';
-    return { ok: true, text: `Collected: ${flights}, ${price} — ${wrote}${seeded}.` };
-  }
+  const collected = results.filter((result) => result.ok);
+  const changed = collected.filter((result) => result.changed).length;
+  const seeded = collected.reduce((total, result) => total + result.seeded, 0);
 
-  const skipped = response.skipped.find((entry) => entry.what === skipName(route));
-  if (skipped) return { ok: false, text: `Not collected: ${skipped.reason}.` };
+  // The cheapest departure in the month, and which day of it — the one figure
+  // a month can give that a single departure could not. Narrowed before the
+  // comparison rather than guarded inside it, so the reduce never has to reach
+  // for a `!` the type checker would otherwise need.
+  const priced = collected.filter(
+    (result): result is CollectRouteResult & { cheapest: number; currency: string } =>
+      result.cheapest !== null && result.currency !== null,
+  );
+  const best = priced.reduce<(typeof priced)[number] | null>(
+    (lowest, result) => (lowest === null || result.cheapest < lowest.cheapest ? result : lowest),
+    null,
+  );
 
-  return { ok: false, text: 'The pass came back without a word about this route.' };
+  const looked = `${collected.length} departure${collected.length === 1 ? '' : 's'} looked at`;
+  // A look that found the board empty is still a look, and reporting a
+  // cheapest of nothing as a price of zero would put a false point in front of
+  // the reader.
+  const price = best
+    ? `cheapest ${formatMoney(best.cheapest, best.currency, locale)} on ${formatFlightDate(best.flightDate)}`
+    : 'no price quoted';
+  // A snapshot is written only when something moved, so most successful looks
+  // write nothing — and a reader who is not told that reads an unchanged
+  // series as a collector that failed.
+  const wrote =
+    changed === 0 ? 'nothing new to record' : `${changed} new snapshot${changed === 1 ? '' : 's'}`;
+  const seededText = seeded > 0 ? `, ${seeded} days of the provider's own history seeded` : '';
+  const failedText =
+    failures.length > 0
+      ? `, ${failures.length} refused (${failures[0].errorCode ?? 'unknown'})`
+      : '';
+  const skippedText = skipped ? `, ${skipped}` : '';
+
+  return {
+    ok: failures.length === 0,
+    text: `Collected: ${looked}, ${price} — ${wrote}${seededText}${failedText}${skippedText}.`,
+  };
 }
 
 /** The request itself never landed — a timeout, a dead API, a 500. */

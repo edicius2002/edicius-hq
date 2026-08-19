@@ -14,16 +14,14 @@ afterEach(() => {
 const LIM_CUZ: FareRoute = {
   origin: 'LIM',
   destination: 'CUZ',
-  flightDate: '2026-10-17',
-  returnDate: null,
+  month: '2026-10',
   currency: 'USD',
 };
 
 const LIM_MAD: FareRoute = {
   origin: 'LIM',
   destination: 'MAD',
-  flightDate: '2026-12-01',
-  returnDate: '2026-12-20',
+  month: '2026-12',
   currency: 'USD',
 };
 
@@ -34,7 +32,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-/** One collection pass over one route, as the server would report it. */
+/** One collection pass over one watched month, as the server would report it. */
 function passOver(route: FareRoute, overrides: Record<string, unknown> = {}) {
   return {
     startedAt: '2026-08-19T14:00:00+00:00',
@@ -48,8 +46,10 @@ function passOver(route: FareRoute, overrides: Record<string, unknown> = {}) {
       {
         origin: route.origin,
         destination: route.destination,
-        flightDate: route.flightDate,
-        returnDate: route.returnDate,
+        // One departure inside the watched month. A pass over a month reports
+        // one of these per day it actually polled.
+        flightDate: `${route.month}-09`,
+        returnDate: null,
         ok: true,
         changed: true,
         seeded: 0,
@@ -95,9 +95,9 @@ function stubCollect() {
 }
 
 describe('collecting one watched route from its own row', () => {
-  it('asks for that route alone, dates and currency included', async () => {
+  it('asks for that route alone, month and currency included', async () => {
     // The bulk button sends the whole collectable list; a row press must send
-    // one route, or pressing it would spend the request budget on eight others.
+    // one month, or pressing it would spend the request budget on eight others.
     const api = stubCollect();
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
@@ -109,8 +109,7 @@ describe('collecting one watched route from its own row', () => {
         {
           origin: 'LIM',
           destination: 'MAD',
-          flightDate: '2026-12-01',
-          returnDate: '2026-12-20',
+          month: '2026-12',
           currency: 'USD',
         },
       ],
@@ -163,7 +162,7 @@ describe('collecting one watched route from its own row', () => {
     });
 
     await waitFor(() => expect(result.current.reports.has(routeId(LIM_CUZ))).toBe(true));
-    expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('9 flights');
+    expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('1 departure looked at');
     expect(result.current.reports.has(routeId(LIM_MAD))).toBe(false);
   });
 
@@ -187,7 +186,7 @@ describe('collecting one watched route from its own row', () => {
   });
 
   it('drops a row’s report when the row goes', async () => {
-    // Route ids are content, not handles: the same pair on the same dates
+    // Route ids are content, not handles: the same pair in the same month
     // rebuilds the same id, so a stale line would reappear under a route that
     // had just been added back.
     const api = stubCollect();

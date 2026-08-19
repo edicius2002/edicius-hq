@@ -23,7 +23,7 @@ import {
   type SortColumn,
   type TimeBand,
 } from '@/features/airfare/lib/flightTable';
-import { departureClock, formatDuration } from '@/features/airfare/lib/series';
+import { formatDuration, formatStamp } from '@/features/airfare/lib/series';
 import type { FareSnapshot } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
 import { formatMoney } from '@/shared/lib/money';
@@ -127,7 +127,17 @@ function FlightRowCells({ row }: { row: FlightRow }) {
         the airport with no zone, so parsing it here would shift a 00:15
         departure by the reader's own offset from Lima.
       */}
-      <td>{departureClock(track.departureAt)}</td>
+      {/*
+        The day as well as the clock — 12.110. The table used to cover one
+        departure, so every row left on the same date and printing it thirty
+        times would have been noise; a watched month puts thirty-one days of
+        flights in here at once, and `08:15` on its own no longer says which
+        flight it is. `formatStamp` writes it `09/03/2027 08:15`, the same
+        `dd/mm/yyyy` this page writes every other real date in, and by string
+        split rather than through `Date` — `departureAt` is wall clock at the
+        airport and has no zone to convert from.
+      */}
+      <td>{formatStamp(track.departureAt)}</td>
       <td>{track.airlineName ?? track.airline}</td>
       <td>{track.flightNumber ? `${track.airline} ${track.flightNumber}` : track.airline}</td>
       <td>{stopsLabel(track.transfers)}</td>

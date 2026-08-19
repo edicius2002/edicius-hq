@@ -134,6 +134,13 @@ export type CollectRouteResult = {
   errorMessage: string | null;
 };
 
+/**
+ * One departure the pass decided not to poll, and why.
+ *
+ * `what` is `LIM-SCL 2027-03-09` — a sentence for a human rather than a key.
+ * Routinely the longer of the two lists since a watched month expands to
+ * thirty-one departures and a daily cadence polls one of them at a time.
+ */
 export type SkippedRoute = {
   what: string;
   reason: string;
@@ -151,7 +158,17 @@ export type CollectResponse = {
   skipped: SkippedRoute[];
 };
 
+/** One watched route as `POST /collect` takes it: a city pair and a month. */
 export type RouteRequest = {
+  origin: string;
+  destination: string;
+  /** `YYYY-MM`. The server expands it into the departures inside it. */
+  month: string;
+  currency?: string;
+};
+
+/** One route on one day, as a live search takes it. */
+export type SearchRequest = {
   origin: string;
   destination: string;
   flightDate: string;
@@ -162,13 +179,13 @@ export type RouteRequest = {
 export function fetchFareHistory(
   origin: string,
   destination: string,
-  options: { flightDate?: string; since?: string; until?: string; signal?: AbortSignal } = {},
+  options: { departure?: string; since?: string; until?: string; signal?: AbortSignal } = {},
 ): Promise<FareHistoryResponse> {
   const query = new URLSearchParams({ origin, destination });
-  // Snapshots come back for the whole route; the baseline is per departure,
-  // because two departure dates are two different series and the provider
-  // reports a separate history for each.
-  if (options.flightDate) query.set('flightDate', options.flightDate);
+  // Snapshots come back for the whole city pair; the baseline and the health
+  // figures are narrowed to `departure`, which the server matches as a prefix
+  // — `2027-03` for a watched month, `2027-03-09` for one day of it.
+  if (options.departure) query.set('departure', options.departure);
   if (options.since) query.set('since', options.since);
   if (options.until) query.set('until', options.until);
 
@@ -221,7 +238,7 @@ export function searchAirports(
 }
 
 export function searchFares(
-  route: RouteRequest,
+  route: SearchRequest,
   options: { signal?: AbortSignal } = {},
 ): Promise<FareSearchResponse> {
   const query = new URLSearchParams({

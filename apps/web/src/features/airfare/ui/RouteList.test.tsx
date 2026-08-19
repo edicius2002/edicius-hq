@@ -10,20 +10,9 @@ import { RouteList } from '@/features/airfare/ui/RouteList';
 const TODAY = '2026-08-18';
 
 const ROUTES: FareRoute[] = [
-  {
-    origin: 'LIM',
-    destination: 'CUZ',
-    flightDate: '2026-10-17',
-    returnDate: null,
-    currency: 'USD',
-  },
-  {
-    origin: 'LIM',
-    destination: 'SCL',
-    flightDate: '2026-08-01',
-    returnDate: null,
-    currency: 'USD',
-  },
+  { origin: 'LIM', destination: 'CUZ', month: '2026-10', currency: 'USD' },
+  // A month the calendar has already left, so the row says "Departed".
+  { origin: 'LIM', destination: 'SCL', month: '2026-07', currency: 'USD' },
 ];
 
 function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> = {}) {
@@ -76,24 +65,22 @@ describe('RouteList', () => {
     expect(rowFor('LIM', 'SCL')).toBeInTheDocument();
   });
 
-  it('puts the whole route on one line, each leg named for a screen reader', () => {
+  it('puts the whole route on one line, its month named for a screen reader', () => {
     /*
-     * The arrows carry the direction visually and are hidden from the
-     * accessibility tree — "up arrow 2026-10-17" is not what a departure date
-     * sounds like — so the words travel beside them instead.
+     * The arrow carries the direction visually and is hidden from the
+     * accessibility tree — "up arrow March 2027" is not what a departure
+     * sounds like — so the words travel beside it instead.
      */
-    renderList({
-      routes: [{ ...ROUTES[0], returnDate: '2026-10-28' }],
-    });
+    renderList({ routes: [ROUTES[0]] });
     const row = rowFor('LIM', 'CUZ');
-    // Shown the way this reader writes a date; ISO is what goes to disk.
-    expect(row.textContent).toContain('departs17/10/2026');
-    expect(row.textContent).toContain('returns28/10/2026');
+    // Named rather than numbered — 12.114 — so it cannot be read as a day.
+    expect(row.textContent).toContain('departs inOctober 2026');
     expect(row.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('says nothing about a return when there is not one', () => {
-    renderList({ routes: [{ ...ROUTES[0], returnDate: null }] });
+  it('says nothing about a return, which a month cannot have', () => {
+    // 12.113: thirty-one departures have no single return date to share.
+    renderList({ routes: [ROUTES[0]] });
     expect(rowFor('LIM', 'CUZ').textContent).not.toContain('returns');
   });
 
@@ -106,7 +93,7 @@ describe('RouteList', () => {
     expect(swatch.style.background).toBe('rgb(92, 184, 171)');
   });
 
-  it('marks a route whose departure has passed', () => {
+  it('marks a route whose month the calendar has left', () => {
     // Its history stays — that is what an archive is for — but nothing more
     // will be collected, and the reader should not have to work out why the
     // series stopped.
@@ -120,7 +107,7 @@ describe('RouteList', () => {
     renderList();
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Origin')).toBeInTheDocument();
-    expect(screen.getByLabelText('Return (optional)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Departure month')).toBeInTheDocument();
   });
 
   it('adds a route from the fields', async () => {
@@ -130,13 +117,13 @@ describe('RouteList', () => {
     await user.clear(screen.getByLabelText('Origin'));
     await user.type(screen.getByLabelText('Origin'), 'LIM');
     await user.type(screen.getByLabelText('Destination'), 'MAD');
-    const departure = screen.getByLabelText('Departure');
+    const departure = screen.getByLabelText('Departure month');
     await user.clear(departure);
-    await user.type(departure, '2026-12-01');
+    await user.type(departure, '2026-12');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(props.onAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ origin: 'LIM', destination: 'MAD', flightDate: '2026-12-01' }),
+      expect.objectContaining({ origin: 'LIM', destination: 'MAD', month: '2026-12' }),
     );
   });
 
@@ -150,7 +137,7 @@ describe('RouteList', () => {
     fireEvent.dragStart(rows[1]);
     fireEvent.drop(rows[0]);
 
-    expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-08-01|', 'LIM|CUZ|2026-10-17|');
+    expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-07', 'LIM|CUZ|2026-10');
   });
 
   it('reorders from the keyboard too', async () => {
@@ -163,7 +150,7 @@ describe('RouteList', () => {
     rowFor('LIM', 'SCL').focus();
     await user.keyboard('{Alt>}{ArrowUp}{/Alt}');
 
-    expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-08-01|', 'LIM|CUZ|2026-10-17|');
+    expect(props.onMove).toHaveBeenCalledWith('LIM|SCL|2026-07', 'LIM|CUZ|2026-10');
   });
 
   it('offers each row its own collection, named for the route it would collect', () => {
@@ -172,7 +159,7 @@ describe('RouteList', () => {
     // out loud at all.
     renderList();
     expect(
-      screen.getByRole('button', { name: 'Collect LIM → CUZ on 2026-10-17 now' }),
+      screen.getByRole('button', { name: 'Collect LIM → CUZ in October 2026 now' }),
     ).toBeInTheDocument();
   });
 
@@ -186,7 +173,7 @@ describe('RouteList', () => {
     expect(props.onCollect).toHaveBeenCalledWith(ROUTES[0]);
   });
 
-  it('offers no collection for a route that has already departed', () => {
+  it('offers no collection for a month the calendar has left', () => {
     // The provider answers nothing about a flight that has left, so there is
     // no press to invite. Absent rather than disabled: the row already says
     // "Departed", and a greyed button beside it only raises the question.
@@ -213,8 +200,7 @@ describe('RouteList', () => {
     const third: FareRoute = {
       origin: 'LIM',
       destination: 'MAD',
-      flightDate: '2026-12-01',
-      returnDate: null,
+      month: '2026-12',
       currency: 'USD',
     };
     renderList({ routes: [...ROUTES, third], collecting: [routeId(ROUTES[0])] });

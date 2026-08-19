@@ -16,7 +16,7 @@ import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares
 const ROUTE = {
   origin: 'LIM',
   destination: 'AQP',
-  flightDate: '2026-12-06',
+  month: '2026-12',
   currency: 'USD',
 };
 
@@ -76,26 +76,38 @@ function renderDetail(overrides: Partial<React.ComponentProps<typeof RouteDetail
 }
 
 describe('RouteDetail', () => {
-  it('puts the departure beside the pair, with no word in between', () => {
-    // "Departs" was doing no work: a route has one date, and it is written
-    // next to the two airports it belongs to.
+  it('puts the departure month beside the pair, with no word in between', () => {
+    // "Departs" was doing no work: a route has one month, and it is written
+    // next to the two airports it belongs to. Named rather than numbered —
+    // 12.114 — so nothing in this heading reads as a day that is not one.
     renderDetail();
     const heading = screen.getByRole('heading', { level: 3 });
-    expect(heading.textContent?.replace(/\s+/g, ' ')).toBe('LIM → AQP 06/12/2026');
+    expect(heading.textContent?.replace(/\s+/g, ' ')).toBe('LIM → AQP December 2026');
     expect(heading.textContent).not.toMatch(/departs/i);
   });
 
-  it('keeps a space between the code and the date for a screen reader', () => {
+  it('keeps a space between the code and the month for a screen reader', () => {
     // The gap beside it is a margin, and a margin is not something a screen
     // reader can hear.
     const heading = renderDetail().container.querySelector('h3')!;
-    expect(heading.textContent).toContain('AQP 06/12/2026');
+    expect(heading.textContent).toContain('AQP December 2026');
   });
 
   it('names the cities under the pair, and when it was last looked at', () => {
     renderDetail();
     expect(screen.getByText('Lima to Arequipa')).toBeInTheDocument();
     expect(screen.getByText(/Last look 19\/08\/2026 03:45/)).toBeInTheDocument();
+  });
+
+  it('names which day of the month the figures belong to', () => {
+    /*
+     * The panel describes one board, and since 12.110 the month holds
+     * thirty-one of them — so it has to say which. `dd/mm/yyyy` here against a
+     * spelled-out month in the heading, precisely so the two can never be read
+     * as the same kind of thing.
+     */
+    renderDetail();
+    expect(screen.getByText('Cheapest on 06/12/2026')).toBeInTheDocument();
   });
 
   it('says nothing about a last look when nothing has looked yet', () => {

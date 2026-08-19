@@ -4,7 +4,7 @@ import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { fetchFareHistory, type FareHistoryResponse } from '@/shared/api/fares';
 
 /**
- * The archive for one watched departure: our observations, the provider's own
+ * The archive for one watched month: our observations, the provider's own
  * daily history behind them, and whether the collector has been looking.
  *
  * All three arrive together because they answer one question between them —
@@ -18,10 +18,12 @@ import { fetchFareHistory, type FareHistoryResponse } from '@/shared/api/fares';
  */
 export function useFareHistory(route: FareRoute | null) {
   return useQuery<FareHistoryResponse>({
-    queryKey: ['fares', 'history', route?.origin, route?.destination, route?.flightDate],
+    queryKey: ['fares', 'history', route?.origin, route?.destination, route?.month],
     queryFn: ({ signal }) =>
       fetchFareHistory(route!.origin, route!.destination, {
-        flightDate: route!.flightDate,
+        // A month is a legal `departure` prefix, so the baseline and the health
+        // counts come back for every departure inside it and no others.
+        departure: route!.month,
         signal,
       }),
     enabled: route !== null,

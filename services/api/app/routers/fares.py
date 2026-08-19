@@ -26,17 +26,28 @@ from app.adapters.fares.models import (
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
 from app.config import UPSTREAM_TIMEOUT_SECONDS
 from app.services import airport_search
-from app.services.fare_collector import CollectionReport, collect
+from app.services.fare_collector import CollectionReport, FareWatch, collect_due
 from app.services.fare_history import HISTORY
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fares", tags=["fares"])
 
-# How many routes one collect call may carry. Each is a paced upstream request,
-# so this bounds how long a single call can hold a connection open as much as it
-# bounds the load — a hundred routes would be ten minutes of sleeping.
-MAX_COLLECT_ROUTES = 40
+# How many watched months one collect call may carry. A year of them is already
+# more than anyone plans, and the bound that actually matters is the one below.
+MAX_COLLECT_MONTHS = 12
+
+# How many upstream requests one call may make, whatever it was handed. Since
+# 12.110 a single watched month expands to thirty-one departures, so the old
+# "forty routes" ceiling stopped bounding anything a caller could feel: two
+# months is sixty-two requests, and at the six-second pace that is over six
+# minutes of sleeping against a client that gives up at five.
+#
+# Forty is that client deadline read backwards — 40 x 6s is four minutes, with
+# the rest of the five for the requests themselves. Everything past it comes
+# back as `over-budget` in `skipped` rather than as a truncated success, and
+# the next pass picks it up because the archive remembers what was looked at.
+MAX_COLLECT_REQUESTS = 40
 
 _client: httpx.AsyncClient | None = None
 
@@ -147,10 +158,20 @@ class SearchResponse(BaseModel):
 
 
 class RouteBody(BaseModel):
+    """
+    One watched route as the client holds it: a city pair and a month.
+
+    No `returnDate`, and no `flightDate` — 12.110. The client no longer knows
+    which departures exist inside a month, and it should not: expanding one is
+    the collector's job because only the collector can also say which of the
+    expanded days it decided to leave alone, and why.
+    """
+
     origin: str = Field(..., min_length=3, max_length=3)
     destination: str = Field(..., min_length=3, max_length=3)
-    flightDate: str = Field(..., min_length=10, max_length=10)
-    returnDate: str | None = None
+    #: `YYYY-MM`. Validated here rather than in the collector so a typo is a
+    #: 422 the client can show, not a month that silently expands to nothing.
+    month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     currency: str = "USD"
 
 
@@ -264,12 +285,11 @@ def _report_model(report: CollectionReport) -> CollectResponse:
     )
 
 
-def _query_from(body: RouteBody) -> FareQuery:
-    return FareQuery(
+def _watch_from(body: RouteBody) -> FareWatch:
+    return FareWatch(
         origin=normalize_code(body.origin),
         destination=normalize_code(body.destination),
-        flight_date=body.flightDate,
-        return_date=body.returnDate,
+        month=body.month,
         currency=body.currency.upper(),
     )
 
@@ -278,18 +298,24 @@ def _query_from(body: RouteBody) -> FareQuery:
 def get_history(
     origin: str = Query(..., min_length=3, max_length=3),
     destination: str = Query(..., min_length=3, max_length=3),
-    flightDate: str | None = Query(
+    departure: str | None = Query(
         None,
-        min_length=10,
+        min_length=7,
         max_length=10,
-        description="Which departure's baseline to return; snapshots are unfiltered",
+        description=(
+            "Which departures the baseline and the health figures cover, as a "
+            "prefix: 2027-03 for a watched month, 2027-03-09 for one day. "
+            "Snapshots come back for the whole city pair either way."
+        ),
     ),
     since: str | None = Query(None, description="Inclusive capturedAt prefix, e.g. 2026-08"),
     until: str | None = Query(None, description="Inclusive capturedAt prefix"),
 ) -> HistoryResponse:
     origin, destination = normalize_code(origin), normalize_code(destination)
     snapshots = HISTORY.read(origin, destination, since=since, until=until)
-    checks = HISTORY.checks(origin, destination)
+    # Narrowed to the same departures the baseline is: a route watched across
+    # two months would otherwise report April's looks under March's heading.
+    checks = HISTORY.checks(origin, destination, departure)
     known = HISTORY.airports()
     return HistoryResponse(
         origin=origin,
@@ -297,7 +323,7 @@ def get_history(
         snapshots=[_snapshot_model(snapshot) for snapshot in snapshots],
         baseline=[
             PricePointModel(date=point.date, price=point.price)
-            for point in HISTORY.read_baseline(origin, destination, flightDate)
+            for point in HISTORY.read_baseline(origin, destination, departure)
         ],
         airports=[
             AirportModel(
@@ -439,18 +465,32 @@ async def collect_routes(
     body: CollectBody,
     provider: str = Query(DEFAULT_PROVIDER),
 ) -> CollectResponse:
+    """
+    Collect the departures inside these watched months that are due.
+
+    **This now runs the schedule, where it used to bypass it** — 12.111,
+    superseding the second half of 12.90. That decision was right when a press
+    bought one request: a person who has decided where to spend one request
+    should not be argued with by a cadence table. Under 12.110 the same press
+    buys thirty-one, and a control that spends a tenth of the day's budget per
+    click is a control nobody can press twice — which is exactly what the
+    cadence exists to prevent. The press still does everything that would tell
+    the reader something new; it declines only the departures whose last look
+    is younger than their own interval, and it says so on the row.
+    """
     if provider not in PROVIDERS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider {provider!r}")
     if not body.routes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No routes to collect")
-    if len(body.routes) > MAX_COLLECT_ROUTES:
+    if len(body.routes) > MAX_COLLECT_MONTHS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Too many routes in one call; the limit is {MAX_COLLECT_ROUTES}",
+            f"Too many months in one call; the limit is {MAX_COLLECT_MONTHS}",
         )
 
-    report = await collect(
-        [_query_from(route) for route in body.routes],
+    report = await collect_due(
+        [_watch_from(route) for route in body.routes],
+        budget=MAX_COLLECT_REQUESTS,
         provider=provider,
         client=get_client(),
     )

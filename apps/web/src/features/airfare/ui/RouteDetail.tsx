@@ -1,4 +1,4 @@
-import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
+import { formatFlightDate, formatFlightMonth } from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
 import { departureClock, formatStamp } from '@/features/airfare/lib/series';
 import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares';
@@ -7,7 +7,7 @@ import { formatMoney, NO_VALUE } from '@/shared/lib/money';
 import styles from './RouteDetail.module.css';
 
 type RouteDetailProps = {
-  route: { origin: string; destination: string; flightDate: string; currency: string } | null;
+  route: { origin: string; destination: string; month: string; currency: string } | null;
   latest: FareSnapshot | null;
   insights: FareInsights | null;
   health: WatchHealth | null;
@@ -16,6 +16,13 @@ type RouteDetailProps = {
 
 /**
  * What this route costs right now, and whether that is a lot.
+ *
+ * `latest` is the **cheapest departure in the watched month**, as that day was
+ * last seen — see `cheapestDeparture`. Since 12.110 the panel is describing a
+ * month rather than a day, and the honest single board to put in front of the
+ * reader is the one they would actually book: the newest snapshot of all would
+ * belong to whichever departure the collector happened to reach last, which is
+ * a fact about pacing rather than about fares.
  *
  * Two boxes of figures. The chart underneath answers "how has it moved"; this
  * answers "what is it, and should I care today" — which is the question a
@@ -51,19 +58,31 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
     <div className={styles.detail}>
       <header className={styles.head}>
         {/*
-          The departure sits beside the pair rather than in a sentence under
-          it. "Departs" was doing no work: a route has one date, and it is
-          written next to the two airports it belongs to.
+          The departure month sits beside the pair rather than in a sentence
+          under it. "Departs" was doing no work: a route has one month, and it
+          is written next to the two airports it belongs to. A month name
+          rather than `03/2027` — 12.114 — so nothing on this page reads as a
+          day that is not one.
         */}
         <h3 className={styles.pair}>
           {route.origin} <span className={styles.to}>→</span> {route.destination}{' '}
           {/* The space is deliberate: the gap beside it is a margin, and a
               margin is not something a screen reader can hear. */}
-          <span className={styles.when}>{formatFlightDate(route.flightDate)}</span>
+          <span className={styles.when}>{formatFlightMonth(route.month)}</span>
         </h3>
         <p className={styles.cities}>
           {cities.from ?? route.origin} to {cities.to ?? route.destination}
         </p>
+        {/*
+          Which of the month's departures the figures below belong to, written
+          `dd/mm/yyyy` like every other real date here — the month in the
+          heading is spelled out precisely so these two can never be read as
+          the same kind of thing. It is a line rather than a fifth figure
+          because the figures box is measured to four across.
+        */}
+        {latest ? (
+          <p className={styles.cities}>Cheapest on {formatFlightDate(latest.flightDate)}</p>
+        ) : null}
         {health?.lastCheckedAt ? (
           <p className={styles.cities}>Last look {formatStamp(health.lastCheckedAt)}</p>
         ) : null}
@@ -71,6 +90,13 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
 
       <dl className={styles.figures}>
         <div>
+          {/*
+            Still four figures in this box, and deliberately: the widths here
+            were measured against a 736px row at 8rem a column, and a fifth
+            would put one of them on a line of its own. Which day the price
+            belongs to goes in the header instead, where there is a column of
+            room and no arithmetic.
+          */}
           <dt>Cheapest now</dt>
           <dd className={styles.big}>
             {cheapest ? formatMoney(cheapest.price, route.currency) : NO_VALUE}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   byAirline,
+  cheapestDeparture,
   cheapestOffer,
   cheapestSeries,
   daysBeforeDeparture,
@@ -9,7 +10,7 @@ import {
   departureDay,
   formatDuration,
   formatStamp,
-  latestSnapshot,
+  latestPerDeparture,
   median,
   priceStats,
   snapshotsFor,
@@ -51,24 +52,67 @@ function snapshot(
 }
 
 describe('snapshotsFor', () => {
-  it('separates two departure dates that share one archive file', () => {
+  it('separates two watched months that share one archive file', () => {
     const all = [
       snapshot('2026-08-17T12:00:00+00:00', [125]),
       snapshot('2026-08-17T12:00:00+00:00', [640], { flightDate: '2026-12-20' }),
     ];
-    // Charted together, the step between an October fare and a December one
-    // would be drawn as a price movement.
-    expect(snapshotsFor(all, '2026-10-16')).toHaveLength(1);
-    expect(snapshotsFor(all, '2026-12-20')[0].offers[0].price).toBe(640);
+    // Shown together, the step between an October fare and a December one
+    // would read as a price movement.
+    expect(snapshotsFor(all, '2026-10')).toHaveLength(1);
+    expect(snapshotsFor(all, '2026-12')[0].offers[0].price).toBe(640);
   });
 
-  it('treats a one-way and a return on the same departure as different watches', () => {
+  it('keeps every departure inside the month, which is what the watch now is', () => {
     const all = [
-      snapshot('2026-08-17T12:00:00+00:00', [125]),
-      snapshot('2026-08-17T12:00:00+00:00', [230], { returnDate: '2026-10-23' }),
+      snapshot('2026-08-17T12:00:00+00:00', [125], { flightDate: '2026-10-16' }),
+      snapshot('2026-08-17T12:00:00+00:00', [190], { flightDate: '2026-10-17' }),
+      snapshot('2026-08-17T12:00:00+00:00', [640], { flightDate: '2026-11-01' }),
     ];
-    expect(snapshotsFor(all, '2026-10-16', null)).toHaveLength(1);
-    expect(snapshotsFor(all, '2026-10-16', '2026-10-23')[0].offers[0].price).toBe(230);
+    expect(snapshotsFor(all, '2026-10')).toHaveLength(2);
+  });
+});
+
+describe('latestPerDeparture', () => {
+  it('takes the newest look at each day rather than the newest look overall', () => {
+    /*
+     * A month is polled one departure at a time, so the newest snapshot in the
+     * file belongs to whichever day the pass reached last — a fact about the
+     * pacing, not about the fares.
+     */
+    const latest = latestPerDeparture([
+      snapshot('2026-08-17T12:00:00+00:00', [125], { flightDate: '2026-10-16' }),
+      snapshot('2026-08-19T12:00:00+00:00', [140], { flightDate: '2026-10-16' }),
+      snapshot('2026-08-18T12:00:00+00:00', [190], { flightDate: '2026-10-17' }),
+    ]);
+    expect(latest.map((one) => [one.flightDate, one.offers[0].price])).toEqual([
+      ['2026-10-16', 140],
+      ['2026-10-17', 190],
+    ]);
+  });
+});
+
+describe('cheapestDeparture', () => {
+  it('finds the day of the month the fare is lowest on, as it was last seen', () => {
+    const best = cheapestDeparture([
+      snapshot('2026-08-17T12:00:00+00:00', [125], { flightDate: '2026-10-16' }),
+      // The 16th went up after that first look, so the 17th is now the cheap
+      // day — reading only the first observation would name the wrong one.
+      snapshot('2026-08-19T12:00:00+00:00', [260], { flightDate: '2026-10-16' }),
+      snapshot('2026-08-19T12:00:00+00:00', [190], { flightDate: '2026-10-17' }),
+    ]);
+    expect(best?.flightDate).toBe('2026-10-17');
+  });
+
+  it('will not name a day with no flights on it as the cheapest', () => {
+    // An empty board is not a bargain, and a cheapest of nothing rendered as
+    // zero would be the best fare ever found.
+    const best = cheapestDeparture([
+      snapshot('2026-08-19T12:00:00+00:00', [], { flightDate: '2026-10-16' }),
+      snapshot('2026-08-19T12:00:00+00:00', [190], { flightDate: '2026-10-17' }),
+    ]);
+    expect(best?.flightDate).toBe('2026-10-17');
+    expect(cheapestDeparture([])).toBeNull();
   });
 });
 
@@ -152,18 +196,10 @@ describe('byAirline', () => {
   });
 });
 
-describe('cheapestOffer and latestSnapshot', () => {
-  it('pick the lowest price and the most recent observation', () => {
+describe('cheapestOffer', () => {
+  it('picks the lowest price on a board and nothing at all off an empty one', () => {
     expect(cheapestOffer(snapshot('2026-08-17T12:00:00+00:00', [200, 125, 180]))?.price).toBe(125);
     expect(cheapestOffer(snapshot('2026-08-17T12:00:00+00:00', []))).toBeNull();
-    expect(
-      latestSnapshot([
-        snapshot('2026-08-17T12:00:00+00:00', [125]),
-        snapshot('2026-08-19T12:00:00+00:00', [150]),
-        snapshot('2026-08-18T12:00:00+00:00', [140]),
-      ])?.capturedAt,
-    ).toBe('2026-08-19T12:00:00+00:00');
-    expect(latestSnapshot([])).toBeNull();
   });
 });
 

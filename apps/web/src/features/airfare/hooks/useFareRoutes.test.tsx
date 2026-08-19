@@ -16,8 +16,7 @@ const TODAY = '2026-08-17';
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  flightDate: '2026-10-16',
-  returnDate: null,
+  month: '2026-10',
   currency: 'USD',
 };
 
@@ -82,17 +81,17 @@ describe('useFareRoutes storage sync', () => {
   });
 
   it('repairs a stored document rather than handing the UI a shape to re-check', async () => {
-    stubRoutes({ version: 1, routes: [{ origin: 'lim', destination: 'scl', flightDate: 'soon' }] });
+    stubRoutes({ version: 1, routes: [{ origin: 'lim', destination: 'scl', month: 'soon' }] });
     const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.routes).toEqual([]);
   });
 
-  it('offers only the departures that have not left for collection', async () => {
+  it('offers only the months the calendar has not finished with for collection', async () => {
     stubRoutes({
       version: 1,
-      routes: [LIM_SCL, { ...LIM_SCL, flightDate: '2026-08-01' }],
+      routes: [LIM_SCL, { ...LIM_SCL, month: '2026-07' }],
     });
     const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
 

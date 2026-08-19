@@ -133,3 +133,121 @@ export function clampToTrack(centre: number, size: number, start: number, end: n
   if (end - start <= size) return start;
   return Math.min(Math.max(centre - size / 2, start), end - size);
 }
+
+/* --------------------------------------------------------------- the tags -- */
+
+/**
+ * How wide a label is, near enough to draw a plate behind it.
+ *
+ * Six view units a character, measured against the 10px axis font in a
+ * 760-unit viewBox. Checked in a browser afterwards: `07-27` is predicted at
+ * 30 units and its real `getBBox().width` is 29.5, so the estimate is sound
+ * and there is no reason to reach for `getComputedTextLength` — which jsdom
+ * does not implement, and which would force a measure-then-draw pass on a
+ * value that moves with every pointer event.
+ */
+export const TAG_CHAR_WIDTH = 6;
+
+/** A floor, so a two-character label still gets a plate rather than a sliver. */
+export const TAG_MIN_WIDTH = 40;
+
+/** Breathing room either side of the glyphs. */
+export const TAG_PADDING = 10;
+
+export function tagWidth(label: string): number {
+  return Math.max(TAG_MIN_WIDTH, label.length * TAG_CHAR_WIDTH + TAG_PADDING);
+}
+
+export type TagAnchor = 'start' | 'middle' | 'end';
+
+/**
+ * A plate and the label that sits on it, as one object.
+ *
+ * The two travel together because separating them is how this went wrong the
+ * first time: the plate was placed for a centred label while the label was
+ * drawn end-anchored, and the leading `0` of `07-27` was painted nine units
+ * outside the plate onto the dark plot, where it was invisible. Measured in
+ * the live SVG — plate 466.9→506.9, glyphs 457.6→487.1. A caller that takes
+ * `x`, `width`, `textX` and `anchor` from one function cannot reintroduce that
+ * mismatch by changing one of them.
+ */
+export type AxisTag = {
+  /** Left edge of the plate. */
+  x: number;
+  width: number;
+  /** Where the label is anchored — only meaningful together with `anchor`. */
+  textX: number;
+  /** The anchor the label must actually be drawn with. */
+  anchor: TagAnchor;
+};
+
+/**
+ * The tag pinned to the time axis, centred on the hairline.
+ *
+ * Centred plate, centred label: the two agree by construction, and centring is
+ * also what keeps the tag on the plot at the ends of the series, where a plate
+ * hung from the hairline would slide off. The clamping is `clampToTrack`'s, so
+ * the first and last periods get a whole label rather than a bisected one.
+ */
+export function timeAxisTag(centre: number, label: string, start: number, end: number): AxisTag {
+  const width = tagWidth(label);
+  const x = clampToTrack(centre, width, start, end);
+  return { x, width, textX: x + width / 2, anchor: 'middle' };
+}
+
+/**
+ * The tag pinned to the price axis, filling the margin left of the plot.
+ *
+ * Right-aligned against a fixed edge rather than centred on a hairline,
+ * because this one does not travel along its axis — the pointer moves it up
+ * and down, never sideways, so the plate can simply fill the margin. That is
+ * why this tag survived the anchor mix-up that broke the time one.
+ *
+ * The margin has to be wide enough for the widest figure the chart can print,
+ * and that is a currency question rather than a layout one: this app's default
+ * origin is Lima, `formatMoney` writes soles as `S/`, and a long-haul fare in
+ * soles is `S/4,580.00` — eleven glyphs where a dollar fare of the same route
+ * is nine. A plate sized for `$139.00` clips the `S` off the front of that and
+ * paints it outside the viewBox, which is the reported time-axis bug wearing a
+ * different hat. So the plate reports the width it needs and the caller is
+ * expected to have left it that much room; `marginForPrices` is how the
+ * viewport works that out.
+ */
+export function priceAxisTag(right: number, label: string, inset = 2): AxisTag {
+  const width = Math.max(TAG_MIN_WIDTH, Math.min(right, tagWidth(label)));
+  return { x: right - width, width, textX: right - inset, anchor: 'end' };
+}
+
+/**
+ * The widest money figure this chart is expected to print, in view units.
+ *
+ * Used to size the left padding rather than guessed at. `S/12,458.00` is the
+ * pessimistic case — a five-figure fare in the currency whose symbol is two
+ * characters — and everything narrower fits behind it.
+ */
+export const WIDEST_PRICE_LABEL = 'S/12,458.00';
+
+/** How much left margin a price axis needs to hold its own labels. */
+export function marginForPrices(gap: number): number {
+  return tagWidth(WIDEST_PRICE_LABEL) + gap;
+}
+
+/**
+ * Where the glyphs actually land, given the anchor they are drawn with.
+ *
+ * The point of having this at all is that a test can assert the plate contains
+ * its label. jsdom has no `getBBox`, so the rendered box cannot be measured
+ * there — but the placement is pure arithmetic, and arithmetic is exactly what
+ * a test can pin.
+ */
+export function labelSpan(tag: AxisTag, textWidth: number): { from: number; to: number } {
+  if (tag.anchor === 'start') return { from: tag.textX, to: tag.textX + textWidth };
+  if (tag.anchor === 'end') return { from: tag.textX - textWidth, to: tag.textX };
+  return { from: tag.textX - textWidth / 2, to: tag.textX + textWidth / 2 };
+}
+
+/** Whether a label of this width fits on its own plate. */
+export function tagHoldsLabel(tag: AxisTag, textWidth: number): boolean {
+  const span = labelSpan(tag, textWidth);
+  return span.from >= tag.x && span.to <= tag.x + tag.width;
+}

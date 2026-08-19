@@ -525,6 +525,49 @@ describe('RouteMap', () => {
     );
   });
 
+  it('names a subdivision its own name fits and refuses one three times too wide', async () => {
+    /*
+     * The room a name needs is the room *that name* needs. Two units with
+     * exactly the same ground under them and nothing different about them but
+     * how long they are called: measured at the cap, both have about 5,000px²,
+     * `Ica` is 15px wide and needs 546, and the longest first-level name in
+     * Natural Earth's whole admin-1 list — Chile's Aisén region, which the
+     * stub stands in for here because the pair is about length and not about
+     * geography — is 203px wide and needs 7,467.
+     *
+     * The flat threshold this replaced gave both of them full strength, which
+     * is how a 203px name came to be printed across 77px of ground. It also
+     * refused `Ica` at 1,222px², which is where the other seventeen of Peru's
+     * twenty-six departments went.
+     */
+    const SHORT = 'Ica';
+    const LONG = 'Aisén del General Carlos Ibáñez del Campo';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            country: '604',
+            borders: PERU_SUBDIVISIONS.borders,
+            // Two degrees either side of the point the globe is turned to, so
+            // both are face-on, both are on the frame, and the 187px between
+            // them is far more than either box is tall.
+            labels: [
+              { name: LONG, at: [-77, -9], area: 0.001537 },
+              { name: SHORT, at: [-77, -3], area: 0.001537 },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const { container } = renderMap();
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+
+    await waitFor(() => expect(screen.getByText(SHORT)).toBeInTheDocument());
+    expect(screen.queryByText(LONG)).not.toBeInTheDocument();
+  });
+
   it('keeps a country with no subdivisions named, and says nothing about it', async () => {
     /*
      * The silent fallback, which is the whole of what a reader over Western

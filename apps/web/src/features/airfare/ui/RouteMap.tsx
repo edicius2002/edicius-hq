@@ -24,6 +24,7 @@ import {
   countryFade,
   limbFade,
   roomFade,
+  roomForName,
   screenArea,
   splitByHorizon,
   subdivisionFade,
@@ -792,24 +793,38 @@ export function RouteMap({
   const TYPE = {
     continent: { key: 'c', font: 11, spacing: 1.98 },
     country: { key: 'n', font: 10, spacing: 0.8 },
-    subdivision: { key: 's', font: 9, spacing: 0.36 },
+    // 8px, and the smallest thing on the map. A name's box is its width times
+    // its height and both fall with the face, so a point down from the country
+    // rung is 11% narrower and 11% shorter and asks 21% less ground — which at
+    // this zoom is the difference between a department carrying its name and
+    // carrying nothing.
+    subdivision: { key: 's', font: 8, spacing: 0.32 },
   } as const;
   type Tier = keyof typeof TYPE;
+
+  /**
+   * How much screen a name takes, before anything decides whether to draw it.
+   *
+   * Shared, because the subdivision rung asks the same question twice: once to
+   * find out whether the ground can hold this particular name, and once to
+   * claim that ground against every other name. Letter-spacing is part of the
+   * width both times, and the continent names are tracked out a long way.
+   */
+  function nameBox(name: string, tier: Tier) {
+    const { font, spacing } = TYPE[tier];
+    return { width: name.length * (font * 0.58 + spacing), height: font * 1.7 };
+  }
 
   type MapName = Boxed & { key: string; text: string; opacity: number; tier: Tier };
   const names: MapName[] = [];
 
   function offer(name: MapName['text'], at: LngLat, strength: number, tier: Tier) {
-    // Letter-spacing is part of how wide a name is, and the continent names
-    // are tracked out a long way.
-    const { font, spacing } = TYPE[tier];
     let opacity = strength;
     if (isGlobe) opacity *= limbFade(at, centre);
     if (opacity <= 0.01) return;
     const xy = place(at);
     if (!xy) return;
-    const width = name.length * (font * 0.58 + spacing);
-    const height = font * 1.7;
+    const { width, height } = nameBox(name, tier);
     // Off the frame entirely. Worth checking: zoomed in, most of the world is.
     if (xy[0] < -width || xy[0] > frame.width + width) return;
     if (xy[1] < -height || xy[1] > frame.height + height) return;
@@ -869,19 +884,30 @@ export function RouteMap({
   }
 
   /*
-   * And the rung below, on the same terms as the one above it: a name appears
-   * once the ground under it can hold it, measured with the same `screenArea`
-   * and the same `LABEL_ROOM`. One room rule for both, rather than a second
-   * constant tuned to make more names fit — a province too small to write on
-   * is too small whichever layer it belongs to, and Spain showing fifty
-   * borders and four names is the room test working, not failing.
+   * And the rung below, on the same terms as the one above it — the same
+   * `screenArea`, the same `roomFade`, the same claimed ground — except for
+   * what "enough room" means, which is `roomForName` rather than the flat
+   * `LABEL_ROOM` the country rung uses.
+   *
+   * The reason is that at this rung the reader has already asked to see inside
+   * one country, and a border with no name on it is the thing they zoomed in
+   * to read. A flat threshold asks the same of `Ica` as of `Madre de Dios`,
+   * which is fair when every name is about the same size and false here: it
+   * refuses seventeen of Peru's twenty-six departments that could carry their
+   * names, and it prints `Aisén del General Carlos Ibáñez del Campo` — 229px
+   * of it — across ground 77px wide. Sizing the threshold from the name fixes
+   * both ends at once.
    *
    * Offered last, so a country name still half-lit at the crossover keeps its
    * ground and the incoming names arrange themselves around it.
    */
   if (handover > 0.01 && subdivisions) {
     for (const unit of subdivisions.labels) {
-      const room = roomFade(screenArea(unit.area, unit.at, view));
+      const box = nameBox(unit.name, 'subdivision');
+      const room = roomFade(
+        screenArea(unit.area, unit.at, view),
+        roomForName(box.width, box.height),
+      );
       if (room <= 0) continue;
       offer(unit.name, unit.at, room * handover * 0.72, 'subdivision');
     }

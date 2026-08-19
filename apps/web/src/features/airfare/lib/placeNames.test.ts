@@ -13,7 +13,9 @@ import {
   continentFade,
   countryFade,
   limbFade,
+  NAME_ROOM_MARGIN,
   roomFade,
+  roomForName,
   screenArea,
   subdivisionFade,
   withoutOverlaps,
@@ -85,6 +87,68 @@ describe('continentFade', () => {
     const middle = continentFade(2.4);
     expect(middle).toBeGreaterThan(0);
     expect(middle).toBeLessThan(1);
+  });
+});
+
+describe('roomForName', () => {
+  /*
+   * The subdivision rung's own room rule, and the only thing about that rung
+   * which is not the country rung's. The country rung asks one number of every
+   * name because its names are all about the same size on screen; a rung whose
+   * whole purpose is the small shapes inside one country cannot.
+   */
+
+  const box = (chars: number) => {
+    // `TYPE.subdivision`: 8px at 0.04em, on a 1.7 line height.
+    const advance = 8 * 0.58 + 0.32;
+    return { width: chars * advance, height: 8 * 1.7 };
+  };
+  const needed = (chars: number) => roomForName(box(chars).width, box(chars).height);
+
+  it('asks more of a long name than of a short one', () => {
+    // `Ica` and `Madre de Dios` are both Peruvian departments, and a flat
+    // threshold says the ground either holds both names or neither.
+    expect(needed('Madre de Dios'.length)).toBeGreaterThan(needed('Ica'.length) * 4);
+  });
+
+  it('grows with the name rather than with its square', () => {
+    // Linear in the character count, because a name gets wider and not taller.
+    expect(needed(12) / needed(6)).toBeCloseTo(2, 6);
+  });
+
+  it('inherits the ratio the country rung already uses rather than a new one', () => {
+    /*
+     * `LABEL_ROOM` is not replaced and is not re-derived — what this rung
+     * takes from it is the ratio it already embodies. Against the box of the
+     * *mean* country name, 8.09 characters at 10px and 0.08em, 2400px² is
+     * 2.64 times it; against the *median* seven characters it is 3.06. The
+     * margin has to sit in that band, and 2.7 is the mean's reading rounded,
+     * because a single averaged constant is what the mean stands for.
+     */
+    const countryName = (chars: number) => chars * (10 * 0.58 + 0.8) * (10 * 1.7);
+    expect(LABEL_ROOM / countryName(8.09)).toBeCloseTo(2.64, 2);
+    expect(LABEL_ROOM / countryName(7)).toBeCloseTo(3.06, 2);
+    expect(NAME_ROOM_MARGIN).toBeGreaterThanOrEqual(LABEL_ROOM / countryName(8.09));
+    expect(NAME_ROOM_MARGIN).toBeLessThanOrEqual(LABEL_ROOM / countryName(7));
+  });
+
+  it('refuses a name three times wider than the ground it names', () => {
+    /*
+     * The case that changed the rule, measured at the zoom cap on a 460px
+     * stage: Chile's `Aisén del General Carlos Ibáñez del Campo` is 203px wide
+     * and its region is 5,990px² — 77px across. The flat threshold printed it
+     * at full strength, straight over its neighbours.
+     */
+    const chilean = 'Aisén del General Carlos Ibáñez del Campo';
+    expect(roomFade(5990, needed(chilean.length))).toBe(0);
+    expect(roomFade(5990, LABEL_ROOM)).toBe(1);
+  });
+
+  it('lets a short name have ground the same rule refuses a long one', () => {
+    // The other half of the same fix, and the reason the count goes up rather
+    // than down: `Ica` has 1,222px² at the cap and used to get nothing.
+    expect(roomFade(1222, needed('Ica'.length))).toBe(1);
+    expect(roomFade(1222, LABEL_ROOM)).toBe(0);
   });
 });
 

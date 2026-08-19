@@ -382,14 +382,24 @@
 
 /*
  * A province, a department, a prefecture. The rung below a country, and it
- * says so twice over: a point smaller, barely tracked out, and in the muted
+ * says so twice over: two points smaller, barely tracked out, and in the muted
  * ink rather than the full one. Measured on the land it is drawn on, a country
  * name is 9.25:1 and this is 4.80:1 — the same halving the border colours use,
  * so the two layers relate to each other the same way whichever of them the
  * reader is looking at.
+ *
+ * 8px, and the smallest thing on the map. It is not only hierarchy: the room
+ * a name needs is its own box, and both sides of that box fall with the face,
+ * so a point down from the country rung asks 21% less ground of every
+ * department — which at the zoom cap is part of the difference between Peru
+ * showing nine names and eighteen, the rest of it being that the threshold is
+ * now sized per name at all.
+ * The width this is worth is mirrored in `TYPE.subdivision`, which is what
+ * `roomForName` measures against; the two have to agree, and a stylesheet
+ * cannot be read from a test here for the reason decision 12.70 records.
  */
 .subdivision {
-  font-size: 9px;
+  font-size: 8px;
   letter-spacing: 0.04em;
   fill: var(--color-muted);
   paint-order: stroke;

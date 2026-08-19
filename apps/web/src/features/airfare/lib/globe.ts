@@ -167,6 +167,41 @@ export function roomFade(area: number, needed: number = LABEL_ROOM): number {
 }
 
 /**
+ * How much bigger than a name the ground under it has to be.
+ *
+ * Read off `LABEL_ROOM` rather than chosen: 2400 px² is 2.64 times the box of
+ * the mean country name — 8.09 characters at 10px and 0.08em, so 53.4 by 17 —
+ * and 3.06 times the median's seven. So the country rung already embodies a
+ * ratio of about 2.7, and this is that ratio said out loud rather than a new
+ * number. `LABEL_ROOM` itself is untouched; countries still use it.
+ */
+export const NAME_ROOM_MARGIN = 2.7;
+
+/**
+ * The ground a name of this size needs under it, in px².
+ *
+ * The subdivision rung's own room rule, and the one thing about it that is not
+ * the country rung's. A constant asks the same of every name, which is fair
+ * when the names are all about the same size and a lie when they are not:
+ * Peru's departments run from `Ica` to `Madre de Dios` and Chile's regions
+ * reach `Aisén del General Carlos Ibáñez del Campo`, four times the width of
+ * `Antofagasta` on the same rule. Measured at the zoom cap, that name is 229px
+ * wide on ground 77px across — three times the region it names, printed at
+ * full strength straight over its neighbours, because a flat threshold cannot
+ * see how long a word is.
+ *
+ * The estimate is area against area: a name deserves its ground once the
+ * ground is `NAME_ROOM_MARGIN` times the name's own box. It cannot see which
+ * way a region is turned — a long thin department lying across the map reads
+ * as more room than it can really offer — so it is a floor on what fits, not a
+ * proof of it, and `withoutOverlaps` is still what stops two names that both
+ * passed from printing over each other.
+ */
+export function roomForName(width: number, height: number): number {
+  return width * height * NAME_ROOM_MARGIN;
+}
+
+/**
  * Continents giving way to countries as the view closes in.
  *
  * Both at once is clutter, and they answer different questions: the continent

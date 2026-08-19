@@ -84,27 +84,29 @@ describe('observationWindow', () => {
     // days the archive has something in.
     expect(observationWindow(snapshots, 'day')).toEqual({
       key: '2026-08-18',
-      from: '2026-08-18',
-      to: '2026-08-18',
+      from: '2026-08-18T00:00',
+      to: '2026-08-18T23:59',
     });
   });
 
-  it('starts a week on the Monday, so the Sunday before falls outside it', () => {
-    // 2026-08-16 is a Sunday and belongs to the week before 2026-W34. The rule
-    // is `buckets.isoWeekKey`'s, reused rather than restated, so the table and
-    // the chart can never disagree about which week this is.
+  it('runs a week from its Monday to its Sunday, past the last thing seen in it', () => {
+    // 2026-08-16 is a Sunday and belongs to the week before 2026-W34, so the
+    // window opens on Monday the 17th. It closes on Sunday the 23rd even though
+    // nothing was observed after the 18th: the rows underneath are everything
+    // the whole week saw, and a window that stopped at the last observation
+    // would describe a narrower set than the one being counted.
     expect(observationWindow(snapshots, 'week')).toEqual({
       key: '2026-W34',
-      from: '2026-08-17',
-      to: '2026-08-18',
+      from: '2026-08-17T00:00',
+      to: '2026-08-23T23:59',
     });
   });
 
-  it('takes a month as the calendar month, Sunday included', () => {
+  it('takes a month as the whole calendar month, first day to last', () => {
     expect(observationWindow(snapshots, 'month')).toEqual({
       key: '2026-08',
-      from: '2026-08-16',
-      to: '2026-08-18',
+      from: '2026-08-01T00:00',
+      to: '2026-08-31T23:59',
     });
   });
 
@@ -114,12 +116,12 @@ describe('observationWindow', () => {
 });
 
 describe('windowLabel', () => {
-  it('writes one day as a day and a stretch as a stretch', () => {
-    expect(windowLabel({ key: '2026-08-18', from: '2026-08-18', to: '2026-08-18' })).toBe(
-      'on 18/08/2026',
-    );
-    expect(windowLabel({ key: '2026-W34', from: '2026-08-17', to: '2026-08-18' })).toBe(
-      'between 17/08/2026 and 18/08/2026',
+  it('writes one day as a day and a stretch as a stretch, both with their clocks', () => {
+    expect(
+      windowLabel({ key: '2026-08-18', from: '2026-08-18T00:00', to: '2026-08-18T23:59' }),
+    ).toBe('on 18/08/2026, 00:00 to 23:59');
+    expect(windowLabel({ key: '2026-W34', from: '2026-08-17T00:00', to: '2026-08-23T23:59' })).toBe(
+      'between 17/08/2026 00:00 and 23/08/2026 23:59',
     );
   });
 });
@@ -432,13 +434,13 @@ describe('pageOf', () => {
 /* ---------------------------------------------------------- what is hidden -- */
 
 describe('tableSummary', () => {
-  const period = { key: '2026-W34', from: '2026-08-17', to: '2026-08-18' };
+  const period = { key: '2026-W34', from: '2026-08-17T00:00', to: '2026-08-23T23:59' };
 
   it('states the period, and how much of the archive it leaves out', () => {
     expect(
       tableSummary({ period, inPeriod: 13, shown: 13, tracked: 41, page: 1, pageCount: 2 }),
     ).toBe(
-      '13 flights seen between 17/08/2026 and 18/08/2026, of 41 ever observed on this route. Page 1 of 2.',
+      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59, of 41 ever observed on this route. Page 1 of 2.',
     );
   });
 
@@ -446,7 +448,7 @@ describe('tableSummary', () => {
     expect(
       tableSummary({ period, inPeriod: 13, shown: 3, tracked: 13, page: 1, pageCount: 1 }),
     ).toBe(
-      '13 flights seen between 17/08/2026 and 18/08/2026. 3 shown, 10 hidden by filters.' +
+      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59. 3 shown, 10 hidden by filters.' +
         ' Page 1 of 1.',
     );
   });
@@ -460,6 +462,8 @@ describe('tableSummary', () => {
       page: 1,
       pageCount: 1,
     });
-    expect(summary).toBe('1 flight seen between 17/08/2026 and 18/08/2026. Page 1 of 1.');
+    expect(summary).toBe(
+      '1 flight seen between 17/08/2026 00:00 and 23/08/2026 23:59. Page 1 of 1.',
+    );
   });
 });

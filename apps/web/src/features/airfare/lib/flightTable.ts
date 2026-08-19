@@ -1,5 +1,9 @@
-import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
-import { bucketKey, type Granularity } from '@/features/airfare/lib/buckets';
+import {
+  boundsLabel,
+  bucketKey,
+  periodBounds,
+  type Granularity,
+} from '@/features/airfare/lib/buckets';
 import {
   flightKey,
   trackFlights,
@@ -42,20 +46,29 @@ export const PAGE_SIZE = 10;
 export type ObservationWindow = {
   /** The bucket key the chart would draw last — `2026-08-18`, `2026-W34`, `2026-08`. */
   key: string;
-  /** First and last calendar date of observation inside that bucket. */
+  /** The whole calendar unit that key stands for, both ends inclusive. */
   from: string;
   to: string;
 };
 
 /**
- * The most recent day, ISO week or calendar month the collector actually
- * looked in.
+ * The most recent day, ISO week or calendar month the collector looked in,
+ * reported as the whole calendar unit rather than as the stretch it happened
+ * to find something in.
  *
- * Keyed through `bucketKey` rather than through its own date arithmetic, so
- * the table's idea of a week cannot drift from the chart's — the ISO week rule
- * lives in `buckets.ts` and is the reason a week here starts on a Monday
- * wherever the reader is. The keys sort as strings in all three granularities,
- * which is why picking the newest is a `>` and not a parse.
+ * The bounds used to be the first and last observation inside the bucket, and
+ * that quietly understated the claim: a week whose only collection landed on
+ * the Tuesday was announced as "on 18/08/2026" while the rows underneath were
+ * everything the whole Monday-to-Sunday week had seen. Now the sentence and
+ * the set are the same set — `periodBounds` gives 00:00 on the first day to
+ * 23:59 on the last, and nothing outside those two stamps is counted.
+ *
+ * Keyed through `bucketKey` and bounded through `periodBounds` rather than
+ * through date arithmetic of its own, so the table's idea of a week cannot
+ * drift from the chart's — both rules live in `buckets.ts`, which is why a
+ * week here starts on a Monday wherever the reader is. The keys sort as
+ * strings in all three granularities, which is why picking the newest is a `>`
+ * and not a parse.
  */
 export function observationWindow(
   snapshots: FareSnapshot[],
@@ -67,26 +80,19 @@ export function observationWindow(
     if (key === null || candidate > key) key = candidate;
   }
   if (key === null) return null;
-
-  const dates = snapshots
-    .filter((snapshot) => bucketKey(snapshot.capturedAt, granularity) === key)
-    .map((snapshot) => snapshot.capturedAt.slice(0, 10))
-    .sort();
-  return { key, from: dates[0], to: dates[dates.length - 1] };
+  return { key, ...periodBounds(key, granularity) };
 }
 
 /**
  * The period, in words, so the reader can check it against what they meant.
  *
  * "The most recent week" is an interpretation of the granularity switch, and
- * an unstated interpretation is one nobody can correct. Dates are written by
- * splitting the string: these stamps are wall clock with no zone, and a `Date`
- * round trip moves the day for a reader west of Greenwich.
+ * an unstated interpretation is one nobody can correct. The wording itself is
+ * `buckets.boundsLabel`'s, shared with the chart's crosshair so the two panels
+ * cannot describe the same period in two different ways.
  */
 export function windowLabel(period: ObservationWindow | null): string {
-  if (period === null) return '';
-  if (period.from === period.to) return `on ${formatFlightDate(period.from)}`;
-  return `between ${formatFlightDate(period.from)} and ${formatFlightDate(period.to)}`;
+  return period === null ? '' : boundsLabel(period);
 }
 
 /* --------------------------------------------------------------- the rows -- */

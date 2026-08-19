@@ -223,11 +223,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The chart and the watchlist are the two cells of one grid row, so they share
+ * a height. They were a column each before, and each column grew to its own
+ * content — which left the shorter of the two with a ragged gap beside the
+ * other. Deliberately *not* `align-items: start` for that reason.
+ */
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 16rem;
+  /* Measured rather than guessed, and the unit matters: this app sets
+     `--font-size-base: 125%`, so a rem is 20px. A watchlist row needs 300px —
+     20px of panel padding either side, a 10px-padded button, a 14-character
+     company name at 0.66rem (127px), a 10px gap, an eight-digit price at
+     0.78rem (75px) and the 28px ✕ — which is the 15rem floor. The 16rem
+     ceiling is the width the rail already had, so the chart keeps every pixel
+     the wider column used to hold two lists in. */
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 16rem);
   gap: var(--space-4);
-  align-items: start;
+  align-items: stretch;
   min-width: 0;
 }
 
@@ -240,86 +253,58 @@
   --investing-chart-height: clamp(28rem, 64vh, 52rem);
 }
 
-.marketPanelSlot {
-  min-width: 0;
-}
-
+/*
+ * A first-row panel: whichever of the two has more to say sets the height and
+ * the other fills it. The cap is what the rail already had — a fifty-symbol
+ * list should not drag the row past the window — and inside it only the rows
+ * scroll.
+ */
 .side {
-  position: sticky;
-  top: var(--space-4);
-  grid-template-rows: auto minmax(0, 1fr);
-  align-content: stretch;
+  display: flex;
+  flex-direction: column;
+  /* A long company name would otherwise widen the column instead of meeting
+     the ellipsis that exists to stop it. */
+  min-width: 0;
+  min-height: 0;
   max-height: calc(100vh - var(--space-6));
   max-height: calc(100dvh - var(--space-6));
-  overflow: hidden;
+}
+
+.positionsPanel {
+  min-width: 0;
 }
 
 .side[hidden],
-.tabPanel[hidden] {
+.positionsPanel[hidden] {
   display: none;
 }
 
-.column {
-  display: grid;
-  gap: var(--space-3);
-  align-content: start;
-  /* Without this a long name would widen its column instead of being clipped
-     by the ellipsis that is there to stop exactly that. */
-  min-width: 0;
-}
-
-.railHeader {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.marketTabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  padding: 2px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-bg-2);
-}
-
-.marketTab {
-  padding: 0.35rem var(--space-2);
-  border: 0;
-  border-radius: calc(var(--radius) - 2px);
-  background: transparent;
-  color: var(--color-muted);
-  font: inherit;
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.marketTab:hover {
-  color: var(--color-text);
-}
-
-.marketTabOn {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-
-.marketTab:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
-}
-
-.tabPanel {
+.scroller {
+  /* `flex: 1 1 0` rather than `1 1 auto`: with a zero basis the rows do not
+     push the panel taller before the row has settled on a height, so a short
+     list still stretches to the chart and a long one scrolls within it. */
+  flex: 1 1 0;
   min-height: 0;
   padding-right: 2px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
 
-.railHeader .regime {
-  justify-self: start;
+.railHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.panelTitle {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 /* The decision is based on the usable page width, not the viewport. The app
@@ -329,13 +314,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .marketPanelSlot {
+  /* Stacked under the chart there is no row height to share, so the panel goes
+     back to being as tall as its rows need, up to the same ceiling it had. */
+  .side {
     width: min(100%, 36rem);
     justify-self: end;
-  }
-
-  .side {
-    position: static;
     max-height: 32rem;
   }
 }
@@ -363,8 +346,7 @@
 }
 
 .focusMode .pageHeader,
-.focusMode .tickerWrap,
-.focusMode .marketPanelSlot {
+.focusMode .tickerWrap {
   display: none;
 }
 
@@ -381,8 +363,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .viewControl,
-  .marketTab {
+  .viewControl {
     transition:
       color 0.15s ease,
       border-color 0.15s ease,

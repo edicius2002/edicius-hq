@@ -109,8 +109,10 @@ describe('the width at which the chart and the watchlist stop sharing a row', ()
   it('leaves the watchlist the full width once the two are stacked', () => {
     // It was capped at 36rem and pushed to the right, inherited from the
     // wrapper this panel replaced — which read as a half-width panel hugging
-    // the right edge of a full-width page.
-    expect(rule('side', stacked().body)).not.toMatch(/width:|justify-self:/);
+    // the right edge of a full-width page. Checked across the whole block
+    // rather than one rule, because either declaration would do it again from
+    // anywhere in here.
+    expect(stacked().body).not.toMatch(/width:|justify-self:/);
   });
 });
 
@@ -121,11 +123,30 @@ describe('the mechanisms the shared height depends on', () => {
     expect(rule('workspace')).toMatch(/align-items:\s*stretch/);
   });
 
-  it('gives the rows a zero flex basis so a long list scrolls instead of growing the row', () => {
+  it('sizes the rows as if they were empty, so a long list cannot grow the row', () => {
     const scroller = rule('scroller');
 
+    // The load-bearing one. A growable flex item contributes all of its
+    // content to its container's intrinsic height whatever its basis, and a
+    // scroll container's max-content size is its content too — so without size
+    // containment a watchlist longer than the chart pushes the row taller and
+    // leaves the chart panel with a gap under it. `flex: 1 1 0` is what then
+    // spends the height the chart settled on.
+    expect(scroller).toMatch(/contain:\s*size/);
     expect(scroller).toMatch(/flex:\s*1 1 0/);
     expect(scroller).toMatch(/min-height:\s*0/);
     expect(scroller).toMatch(/overflow-y:\s*auto/);
+  });
+
+  it('hands the height back to the rows where there is no row to share', () => {
+    const scroller = rule('scroller', stacked().body);
+
+    // Stacked, nothing above it has a height to give, and a box sized as if it
+    // were empty inside a box of no height is a box of no height — the list
+    // would disappear instead of scrolling. So containment comes off and the
+    // rows size themselves up to a ceiling.
+    expect(scroller).toMatch(/contain:\s*none/);
+    expect(scroller).toMatch(/flex:\s*0 1 auto/);
+    expect(scroller).toMatch(/max-height:\s*[\d.]+rem/);
   });
 });

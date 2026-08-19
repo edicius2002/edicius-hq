@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  boundsLabel,
   bucketBaseline,
   bucketKey,
   bucketSnapshots,
   isoWeekKey,
+  periodBounds,
   spanOf,
 } from '@/features/airfare/lib/buckets';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
@@ -62,6 +64,65 @@ describe('bucketKey', () => {
     expect(bucketKey('2026-08-18T00:10:00+00:00', 'day')).toBe('2026-08-18');
     expect(bucketKey('2026-08-18T12:00:00+00:00', 'month')).toBe('2026-08');
     expect(bucketKey('2026-08-18T12:00:00+00:00', 'week')).toBe('2026-W34');
+  });
+});
+
+describe('periodBounds', () => {
+  it('gives a day both of its ends, midnight to one minute short of the next', () => {
+    expect(periodBounds('2026-08-18', 'day')).toEqual({
+      from: '2026-08-18T00:00',
+      to: '2026-08-18T23:59',
+    });
+  });
+
+  it('runs a week from its Monday to its Sunday', () => {
+    expect(periodBounds('2026-W34', 'week')).toEqual({
+      from: '2026-08-17T00:00',
+      to: '2026-08-23T23:59',
+    });
+  });
+
+  it('is the exact inverse of the key the chart bucketed by, week after week', () => {
+    // The point of the pair. If these ever disagree the table names a stretch
+    // the chart did not draw, which is the bug the calendar-exact window was
+    // written to remove.
+    for (let week = 1; week <= 53; week += 1) {
+      const key = `2026-W${String(week).padStart(2, '0')}`;
+      const { from, to } = periodBounds(key, 'week');
+      expect(isoWeekKey(from.slice(0, 10))).toBe(key);
+      expect(isoWeekKey(to.slice(0, 10))).toBe(key);
+    }
+  });
+
+  it('asks the calendar how long a month is rather than a table of twelve numbers', () => {
+    expect(periodBounds('2026-02', 'month').to).toBe('2026-02-28T23:59');
+    expect(periodBounds('2028-02', 'month').to).toBe('2028-02-29T23:59'); // a leap year
+    expect(periodBounds('2026-12', 'month')).toEqual({
+      from: '2026-12-01T00:00',
+      to: '2026-12-31T23:59',
+    });
+  });
+
+  it('crosses the new year without moving the week off its Monday', () => {
+    // 2027-W01 begins on Monday 4 January 2027, and the days before it belong
+    // to 2026-W53 — the case a naive "first of January plus seven days a week"
+    // gets wrong.
+    expect(periodBounds('2027-W01', 'week').from).toBe('2027-01-04T00:00');
+    expect(periodBounds('2026-W53', 'week')).toEqual({
+      from: '2026-12-28T00:00',
+      to: '2027-01-03T23:59',
+    });
+  });
+});
+
+describe('boundsLabel', () => {
+  it('states both ends with their clocks, so the window is not left to inference', () => {
+    expect(boundsLabel({ from: '2026-08-18T00:00', to: '2026-08-18T23:59' })).toBe(
+      'on 18/08/2026, 00:00 to 23:59',
+    );
+    expect(boundsLabel({ from: '2026-08-17T00:00', to: '2026-08-23T23:59' })).toBe(
+      'between 17/08/2026 00:00 and 23/08/2026 23:59',
+    );
   });
 });
 

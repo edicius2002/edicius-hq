@@ -31,6 +31,7 @@ four-minute pass sees it move rather than seeing a spinner and a promise.
 """
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -166,9 +167,7 @@ class CollectionRunner:
             assert self._pass is not None
             return self._pass
 
-        started = CollectionPass(
-            started_at=_now(), source=provider, watching=_watching(watches)
-        )
+        started = CollectionPass(started_at=_now(), source=provider, watching=_watching(watches))
         self._pass = started
         self._task = asyncio.get_running_loop().create_task(
             self._run(started, watches, provider, client)
@@ -189,7 +188,7 @@ class CollectionRunner:
             started.error = "The pass was cancelled before it finished"
             started.finished_at = _now()
             raise
-        except Exception as error:  # noqa: BLE001 - a dead task is a silent one
+        except Exception as error:  # a dead task is a silent one
             # The alternative is a task that raises into the event loop's
             # default handler, where the browser polling for progress sees a
             # pass that is running forever. 8.8 again: a failure that is not
@@ -220,10 +219,8 @@ class CollectionRunner:
         if task is None or task.done():
             return
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass
 
 
 RUNNER = CollectionRunner()

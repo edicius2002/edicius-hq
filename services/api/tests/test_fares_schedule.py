@@ -938,7 +938,14 @@ def test_seeing_the_same_airports_again_does_not_rewrite_the_file(tmp_path):
     from app.adapters.fares.models import Airport
 
     airports = [
-        Airport(code="LIM", name="Jorge Chávez", city="Lima", country="PE", latitude=-12.0, longitude=-77.1),
+        Airport(
+            code="LIM",
+            name="Jorge Chávez",
+            city="Lima",
+            country="PE",
+            latitude=-12.0,
+            longitude=-77.1,
+        ),
     ]
     history = FareHistory(tmp_path)
     assert history.merge_airports(airports) == 1

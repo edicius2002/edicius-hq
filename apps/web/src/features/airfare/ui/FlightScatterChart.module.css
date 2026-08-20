@@ -92,6 +92,33 @@
   opacity: 0.28;
 }
 
+/*
+ * The plot floor and the rail under it — 12.232, the horizon chart's pair
+ * unchanged. Solid where the separators are faint, because the absence marks
+ * hang beneath it and a rail with no rail is a row of loose dots nobody can
+ * tell from a very cheap flight.
+ */
+.floor {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.hole {
+  pointer-events: none;
+}
+
+/* Filled is an answer that came back empty; hollow is an answer that never came. */
+.unsold {
+  fill: var(--color-muted);
+}
+
+.unanswered {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-width: 1.2;
+  opacity: 0.85;
+}
+
 .axis {
   font-family: var(--font-sans);
   font-size: 10px;
@@ -250,4 +277,18 @@
 .keyLine i {
   height: 0;
   border-top: 2px dashed var(--color-accent);
+}
+
+/* The same solid-versus-hollow pair the horizon chart draws, at legend size. */
+.keyUnsold i {
+  width: 7px;
+  height: 7px;
+  background: var(--color-muted);
+}
+
+.keyUnanswered i {
+  width: 7px;
+  height: 7px;
+  border: 1.2px solid var(--color-muted);
+  border-radius: 50%;
 }

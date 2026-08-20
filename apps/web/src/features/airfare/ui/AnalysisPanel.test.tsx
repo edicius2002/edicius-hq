@@ -412,6 +412,31 @@ describe('what each day costs, at both ends of its zoom', () => {
     expect(screen.getByText(/No booking horizon collected for this route yet/)).toBeInTheDocument();
   });
 
+  it('says a failed request failed rather than that nobody ever collected one', () => {
+    render(
+      <Harness curve={null} curveLoading={false} curveError={new Error('gateway timed out')} />,
+    );
+    click(DAYS);
+    click('Whole horizon');
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not be read: gateway timed out/);
+    expect(screen.queryByText(/No booking horizon collected/)).not.toBeInTheDocument();
+  });
+
+  it('clips the near end of the zoom to the month the route is a watch on', () => {
+    // March 2027's last ISO week runs to 4 April. The heading above this chart
+    // says "departing in March 2027", and the frame under it must not draw four
+    // days of April that no watch on this route has ever asked about.
+    render(<Harness />);
+    click(DAYS);
+    click('Week');
+    press('Next week with flights', 4);
+
+    expect(
+      screen.getByText(/between 29\/03\/2027 00:00 and 31\/03\/2027 23:59/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('01/04')).not.toBeInTheDocument();
+  });
+
   it('hides the zoom while the other chart is open, rather than leaving it inert', () => {
     render(<Harness />);
     expect(screen.queryByRole('group', { name: 'Zoom' })).not.toBeInTheDocument();

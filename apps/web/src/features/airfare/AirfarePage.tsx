@@ -334,7 +334,15 @@ export function AirfarePage() {
           snapshots={snapshots}
           baseline={history.data?.baseline ?? []}
           curve={calendar.data?.latest ?? null}
+          /*
+            `isPending` is false on a failed query, so passing it alone left a
+            500 from `/api/fares/calendar` rendering as "no booking horizon
+            collected for this route yet" — a fault at our end reported as a
+            fact about the route's fares. Both halves of the query's state now
+            travel, and the chart has three branches rather than two — 12.237.
+          */
           curveLoading={calendar.isPending}
+          curveError={calendar.error}
           granularity={granularity}
           onGranularityChange={setGranularity}
         />

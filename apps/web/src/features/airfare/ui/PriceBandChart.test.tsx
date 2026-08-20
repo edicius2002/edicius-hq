@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { calendarAxis, type Bucket } from '@/features/airfare/lib/buckets';
+import { leadAxis } from '@/features/airfare/lib/leadTime';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 
 /**
@@ -29,9 +30,13 @@ beforeEach(() => {
     top: 0,
     left: 0,
     right: 760,
-    bottom: 260,
+    // 284 rather than 260 since 12.232: the plot floor and every point on it
+    // are where they were, but there are twenty-four units of chrome below —
+    // the rail the empty boards are marked on, and a row of its own for the
+    // axis labels.
+    bottom: 284,
     width: 760,
-    height: 260,
+    height: 284,
     toJSON: () => ({}),
   });
 });
@@ -298,5 +303,219 @@ describe('a period we never observed', () => {
     );
     fireEvent.pointerMove(screen.getByRole('img'), { clientX: 744, clientY: 100 });
     expect(screen.getByRole('status')).toHaveTextContent('nothing of our own observed');
+  });
+});
+
+describe('the axis is a measure, not a list', () => {
+  /** Where a period's own dot was drawn, by the label under it. */
+  function dotAt(container: HTMLElement, label: string): number {
+    const title = [...container.querySelectorAll('title')].find((node) =>
+      node.textContent?.startsWith(`${label}:`),
+    )!;
+    return Number(title.parentElement!.querySelector('circle')!.getAttribute('cx'));
+  }
+
+  it('leaves a fortnight the collector was down as wide as a fortnight', () => {
+    /*
+     * The fault this replaces: buckets were spaced by their index in the sorted
+     * key list, so a one-day step and a two-week outage were drawn the same
+     * width and a period neither series reached had no width at all. Three
+     * observations — the 17th, the 18th and the 1st of September — are one day
+     * and a fortnight apart, and the drawing has to say so.
+     */
+    const { container } = render(
+      <PriceBandChart
+        ours={[
+          bucket('2026-08-17', '08-17', 118, 142, 125),
+          bucket('2026-08-18', '08-18', 130, 160, 139),
+          bucket('2026-09-01', '09-01', 121, 150, 133),
+        ]}
+        baseline={[]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+
+    const step = dotAt(container, '08-18') - dotAt(container, '08-17');
+    const outage = dotAt(container, '09-01') - dotAt(container, '08-18');
+    // Fourteen days against one, to the unit rather than merely "wider".
+    expect(outage / step).toBeCloseTo(14, 5);
+  });
+
+  it('draws the run-up to a flight on the same ruler, counting down', () => {
+    const { container } = render(
+      <PriceBandChart
+        ours={[
+          bucket('lead-0203', '203d ahead', 118, 142, 125),
+          bucket('lead-0202', '202d ahead', 130, 160, 139),
+          bucket('lead-0189', '189d ahead', 121, 150, 133),
+        ]}
+        baseline={[]}
+        currency="USD"
+        axis={leadAxis('day')}
+        label="Cheapest fare by days before departure"
+      />,
+    );
+
+    // Furthest ahead on the left, and the thirteen lead days nobody observed
+    // between 202 and 189 are thirteen steps of track.
+    expect(dotAt(container, '203d ahead')).toBeLessThan(dotAt(container, '202d ahead'));
+    const step = dotAt(container, '202d ahead') - dotAt(container, '203d ahead');
+    const outage = dotAt(container, '189d ahead') - dotAt(container, '202d ahead');
+    expect(outage / step).toBeCloseTo(13, 5);
+  });
+
+  it('labels more than its two ends, so a distance can be read off it', () => {
+    const { container } = render(
+      <PriceBandChart
+        ours={Array.from({ length: 9 }, (_, index) =>
+          bucket(`2026-08-${11 + index}`, `08-${11 + index}`, 118, 142, 125 + index),
+        )}
+        baseline={[]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    const labels = [...container.querySelectorAll('text')]
+      .map((node) => node.textContent ?? '')
+      .filter((text) => /^08-\d\d$/.test(text));
+    expect(labels.length).toBeGreaterThan(2);
+    expect(labels[0]).toBe('08-11');
+    expect(labels.at(-1)).toBe('08-19');
+  });
+});
+
+describe('a board that came back with nothing on it', () => {
+  const OURS_ONE = [bucket('2026-08-17', '08-17', 118, 142, 125)];
+  const EMPTY_ON_THE_18TH = [{ key: '2026-08-18', label: '08-18', count: 2 }];
+
+  function withUnsold() {
+    render(
+      <PriceBandChart
+        ours={OURS_ONE}
+        baseline={[]}
+        unsold={EMPTY_ON_THE_18TH}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    return screen.getByRole('img');
+  }
+
+  it('marks the period on a rail under the plot rather than dropping it', () => {
+    // Dropped, a day the provider answered about and had nothing to sell was
+    // indistinguishable from a day nobody asked about.
+    withUnsold();
+    expect(screen.getByTestId('unsold-mark')).toBeInTheDocument();
+  });
+
+  it('puts the mark below the plot floor, because a mark inside the plot is a price', () => {
+    withUnsold();
+    const mark = screen.getByTestId('unsold-mark').querySelector('rect')!;
+    // The plot runs from y=14 to y=236; the rail is at 243.
+    expect(Number(mark.getAttribute('y'))).toBeGreaterThan(236);
+  });
+
+  it('says which kind of nothing it was when the reader lands on it', () => {
+    const svg = withUnsold();
+    fireEvent.pointerMove(svg, { clientX: 744, clientY: 100 });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'nothing on sale — 2 boards came back empty',
+    );
+    expect(screen.getByRole('status')).not.toHaveTextContent('nothing of our own observed');
+  });
+
+  it('draws no marker on it, and no band or line reaching to it', () => {
+    const svg = withUnsold();
+    fireEvent.pointerMove(svg, { clientX: 744, clientY: 100 });
+    expect(screen.getByTestId('crosshair').querySelector('circle')).toBeNull();
+    expect(screen.queryByTestId('ours-band')).not.toBeInTheDocument();
+  });
+});
+
+describe('the price axis says only what was quoted', () => {
+  it('ticks at round numbers rather than at the padded ends of the domain', () => {
+    const { container } = render(
+      <PriceBandChart
+        ours={[
+          bucket('2026-08-17', '08-17', 41.24, 120, 80),
+          bucket('2026-08-18', '08-18', 130, 196.33, 160),
+        ]}
+        baseline={[]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    const ticks = [...container.querySelectorAll('text')]
+      .map((node) => node.textContent ?? '')
+      .filter((text) => text.startsWith('$'));
+    expect(ticks).toEqual(['$50.00', '$100.00', '$150.00', '$200.00']);
+  });
+
+  it('names the range that was observed, not the range that was drawn', () => {
+    // The padded domain runs about $22 to $215 on this data. A screen reader
+    // hears the accessible name and nothing else, so it must carry the figures
+    // the archive holds.
+    render(
+      <PriceBandChart
+        ours={[
+          bucket('2026-08-17', '08-17', 41.24, 120, 80),
+          bucket('2026-08-18', '08-18', 130, 196.33, 160),
+        ]}
+        baseline={[]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    expect(screen.getByRole('img')).toHaveAccessibleName(/from \$41\.24 to \$196\.33\.$/);
+  });
+});
+
+describe('the crosshair over a period with no figure', () => {
+  const OURS_ONE = [bucket('2026-08-17', '08-17', 118, 142, 125)];
+  const BASELINE_ONLY = [bucket('2026-08-19', '08-19', 96, 96, 96)];
+
+  function chartWithHole() {
+    render(
+      <PriceBandChart
+        ours={OURS_ONE}
+        baseline={BASELINE_ONLY}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    return screen.getByRole('img');
+  }
+
+  it('prints no price at all for a keyboard reader who lands on one', () => {
+    // The fallback used to be the middle of the padded domain, drawn on a plate
+    // as currency: a number invented twice over, beside a readout saying `—`.
+    const svg = chartWithHole();
+    svg.focus();
+    fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+
+    expect(screen.getByTestId('time-tag-text')).toHaveTextContent('08-19');
+    expect(screen.queryByTestId('price-tag-text')).not.toBeInTheDocument();
+  });
+
+  it('still prints one where the period has a median to sit on', () => {
+    const svg = chartWithHole();
+    svg.focus();
+    fireEvent.keyDown(svg, { key: 'ArrowRight' });
+    expect(screen.getByTestId('price-tag-text')).toHaveTextContent('$125.00');
+  });
+
+  it('keeps the plate under a pointer, where the height is the reader’s own', () => {
+    // There the hairline is a ruler somebody is holding rather than a claim
+    // about the period, so it reads what it is at.
+    const svg = chartWithHole();
+    fireEvent.pointerMove(svg, { clientX: 744, clientY: 100 });
+    expect(screen.getByTestId('price-tag-text')).toBeInTheDocument();
   });
 });

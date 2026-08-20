@@ -12,6 +12,14 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 16px;
+  /*
+   * A fixed height, because the sentence inside it changes as the reader steps
+   * across the end of the watched month — "681 flights" becomes "31 priced
+   * dates" becomes both. A row that grew by a line when the text got longer
+   * would move the chart under the reader at exactly the step they are trying
+   * to compare across, which is the one thing this panel must not do.
+   */
+  min-height: 26px;
 }
 
 .window {
@@ -80,6 +88,42 @@
   stroke: var(--color-border);
   stroke-width: 1;
   opacity: 0.55;
+}
+
+/*
+ * The seam: where the boards stop answering and the curve starts, and with it
+ * where the x axis stops being a clock. Solid and in the text colour where the
+ * midnights are faint border, because it is not one more day separator — it is
+ * the boundary the whole frame is organised around, and a reader has to be able
+ * to find it without counting dates.
+ */
+.seam {
+  stroke: var(--color-text);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 3;
+  opacity: 0.75;
+}
+
+/* Which archive answered for this stretch, under the dates it covers. */
+.sourceLabel {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  fill: var(--color-muted);
+  letter-spacing: 0.02em;
+}
+
+/*
+ * One price for a whole departure date, drawn across the whole date.
+ *
+ * A rule rather than a dot, and the width is the argument: a dot sits at an
+ * hour and this figure has none. The accent is the same one the cheapest-of-day
+ * line wears, because both are "the cheapest way to fly that date" — what
+ * differs is that one of them knows which flight and the other does not.
+ */
+.curveDay line {
+  stroke: var(--color-accent);
+  stroke-width: 2.2;
+  stroke-linecap: butt;
 }
 
 /*
@@ -176,6 +220,18 @@
   fill: var(--color-surface);
   stroke: var(--color-accent);
   stroke-width: 2.5;
+}
+
+/*
+ * The crosshair's marker on a curve date, which is the date's own span
+ * thickened rather than a ring at its middle. A ring would put a point on an
+ * axis position the data does not have — the same invention the span exists to
+ * avoid — so the highlight is the mark itself, brighter.
+ */
+.spanMarker {
+  stroke: var(--color-text);
+  stroke-width: 4;
+  stroke-linecap: butt;
 }
 
 .tag {
@@ -279,6 +335,12 @@
   border-top: 2px dashed var(--color-accent);
 }
 
+/* One price for a whole date: a rule as wide as the key's own swatch. */
+.keySpan i {
+  height: 0;
+  border-top: 2.2px solid var(--color-accent);
+}
+
 /* The same solid-versus-hollow pair the horizon chart draws, at legend size. */
 .keyUnsold i {
   width: 7px;
@@ -291,4 +353,19 @@
   height: 7px;
   border: 1.2px solid var(--color-muted);
   border-radius: 50%;
+}
+
+/*
+ * Why part of the frame is blank, when the reason is us rather than the route.
+ *
+ * A fixed two-line box, for `.head`'s reason: the sentence is longer on a route
+ * whose horizon has never been collected than on one where every date is
+ * priced, and a paragraph that reflowed from one line to two would push the
+ * flight table down the page as the reader stepped out of the month.
+ */
+.note {
+  margin: 0;
+  min-height: 2.4em;
+  font-size: 0.76rem;
+  color: var(--color-muted);
 }

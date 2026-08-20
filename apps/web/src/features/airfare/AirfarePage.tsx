@@ -11,6 +11,7 @@ import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
+import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { type Granularity } from '@/features/airfare/lib/buckets';
 import { routeGeometries } from '@/features/airfare/lib/geo';
@@ -62,6 +63,14 @@ export function AirfarePage() {
   // in-flight set, the reports and the mutation that keeps them in step are one
   // mechanism, and the page's job is to hand it to the list.
   const rowCollection = useRouteCollection();
+  /*
+   * Adding a route collects its booking horizon — 12.247. Its own hook rather
+   * than a branch of `useRouteCollection`, because it is a different pass over
+   * a different unit: that one polls up to thirty-one boards for one month,
+   * this one fetches one curve across every month, and the server keeps them in
+   * separate slots for the same reason.
+   */
+  const horizon = useHorizonCollection();
 
   const selected: FareRoute | null =
     watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
@@ -253,12 +262,31 @@ export function AirfarePage() {
               // same id — so a stale line would reappear under a route that
               // had just been added back.
               rowCollection.forget(id);
+              horizon.forget(id);
               void watchlist.remove(id);
             }}
             onCollect={rowCollection.collect}
-            onAdd={(route) => void watchlist.add(route)}
+            /*
+              The add lands first and the horizon collection follows it, never
+              the other way round — 12.247. The add is a write to the reader's
+              own document and this is a request to somebody else's server; a
+              route that failed to save because a fare lookup failed would let
+              an upstream veto a watchlist edit, and the reader would have no
+              row left to retry from. So the route is watched either way and the
+              collection reports itself below.
+            */
+            onAdd={(route) => {
+              void watchlist.add(route).then(() => horizon.collect(route));
+            }}
             onMove={(from, to) => void watchlist.move(from, to)}
           />
+          {horizon.reports.size > 0 ? (
+            <ul className={styles.failures} data-testid="horizon-reports">
+              {[...horizon.reports.entries()].map(([id, report]) => (
+                <li key={id}>{report.text}</li>
+              ))}
+            </ul>
+          ) : null}
         </Panel>
 
         {/*

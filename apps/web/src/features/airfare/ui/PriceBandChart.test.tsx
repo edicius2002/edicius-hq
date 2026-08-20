@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { calendarAxis, type Bucket } from '@/features/airfare/lib/buckets';
-import { leadAxis } from '@/features/airfare/lib/leadTime';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 
 /**
@@ -94,17 +93,34 @@ describe('PriceBandChart crosshair', () => {
     expect(screen.getByRole('status')).toHaveTextContent('08-18');
   });
 
-  it('reads the price the pointer is at, not the price of the line', () => {
-    // The horizontal hairline is the reader's own height on the axis — that is
-    // what makes it usable for "is this above or below what I paid". The period
-    // under it is the same either way.
+  it('reads the price the series has on that date, not the height of the hand', () => {
+    /*
+     * The plate used to follow the pointer, so a reader sweeping across the
+     * chart at a constant height read the same invented fare on every day of
+     * the series — in the app's money format, on the one element that looks
+     * like a quoted price. It is a readout of the data now: two very different
+     * pointer heights over the same date print the same number, and it is the
+     * number that date actually cost.
+     */
     const svg = chart();
     fireEvent.pointerMove(svg, { clientX: 410, clientY: 20 });
-    const high = screen.getByTestId('crosshair').textContent;
+    const high = screen.getByTestId('price-tag-text').textContent;
     fireEvent.pointerMove(svg, { clientX: 410, clientY: 220 });
-    const low = screen.getByTestId('crosshair').textContent;
+    const low = screen.getByTestId('price-tag-text').textContent;
 
-    expect(high).not.toBe(low);
+    expect(high).toBe(low);
+    expect(high).toBe('$139.00');
+  });
+
+  it('prints each date’s own price as the crosshair moves along the series', () => {
+    // Which is the whole point of the change: walking the chart reads out what
+    // the route cost on each day, rather than three readings of one ruler.
+    const svg = chart();
+    const read = (x: number) => {
+      fireEvent.pointerMove(svg, { clientX: x, clientY: 140 });
+      return screen.getByTestId('price-tag-text').textContent;
+    };
+    expect([read(90), read(410), read(730)]).toEqual(['$125.00', '$139.00', '$133.00']);
   });
 
   it('goes away when the pointer leaves, rather than pinning to where it left', () => {
@@ -343,29 +359,6 @@ describe('the axis is a measure, not a list', () => {
     expect(outage / step).toBeCloseTo(14, 5);
   });
 
-  it('draws the run-up to a flight on the same ruler, counting down', () => {
-    const { container } = render(
-      <PriceBandChart
-        ours={[
-          bucket('lead-0203', '203d ahead', 118, 142, 125),
-          bucket('lead-0202', '202d ahead', 130, 160, 139),
-          bucket('lead-0189', '189d ahead', 121, 150, 133),
-        ]}
-        baseline={[]}
-        currency="USD"
-        axis={leadAxis('day')}
-        label="Cheapest fare by days before departure"
-      />,
-    );
-
-    // Furthest ahead on the left, and the thirteen lead days nobody observed
-    // between 202 and 189 are thirteen steps of track.
-    expect(dotAt(container, '203d ahead')).toBeLessThan(dotAt(container, '202d ahead'));
-    const step = dotAt(container, '202d ahead') - dotAt(container, '203d ahead');
-    const outage = dotAt(container, '189d ahead') - dotAt(container, '202d ahead');
-    expect(outage / step).toBeCloseTo(13, 5);
-  });
-
   it('labels more than its two ends, so a distance can be read off it', () => {
     const { container } = render(
       <PriceBandChart
@@ -511,11 +504,17 @@ describe('the crosshair over a period with no figure', () => {
     expect(screen.getByTestId('price-tag-text')).toHaveTextContent('$125.00');
   });
 
-  it('keeps the plate under a pointer, where the height is the reader’s own', () => {
-    // There the hairline is a ruler somebody is holding rather than a claim
-    // about the period, so it reads what it is at.
+  it('prints none under a pointer either, now that the plate is a readout', () => {
+    /*
+     * This used to be the exception: under a pointer the hairline was a ruler
+     * the reader was holding, so the plate stayed and reported the height. With
+     * the plate reading the series instead, a period the series has no figure
+     * for has nothing for it to say — and a number there would be the invention
+     * this whole change removes, wearing the pointer's clothes.
+     */
     const svg = chartWithHole();
     fireEvent.pointerMove(svg, { clientX: 744, clientY: 100 });
-    expect(screen.getByTestId('price-tag-text')).toBeInTheDocument();
+    expect(screen.getByTestId('time-tag-text')).toHaveTextContent('08-19');
+    expect(screen.queryByTestId('price-tag-text')).not.toBeInTheDocument();
   });
 });

@@ -768,14 +768,23 @@ describe('a whole month of departures', () => {
   });
 });
 
-describe('a watch narrowed to one departure date', () => {
+describe('a watched range narrower than the frame', () => {
   /**
    * The frame the rail defect was found in, on the owner's own ARI-SCL.
    *
-   * That watch carries a focus date, so the page narrows the boards to one
-   * departure and the week around it is three stretches: curve, board, curve.
-   * Every earlier test here has two, which is exactly why nothing caught the
-   * rail drawing a second `one price a date` through the board label.
+   * That watch carried a focus date at the time, so the page narrowed the
+   * boards to one departure and the week around it was three stretches: curve,
+   * board, curve. Every earlier test here has two, which is exactly why
+   * nothing caught the rail drawing a second `one price a date` through the
+   * board label.
+   *
+   * **No watch produces this frame since 12.260**, which took the focus away:
+   * a watched month is either the whole of a month frame or disjoint from it,
+   * so two stretches is the most the page can build. It is kept because this
+   * component is handed a `watched` range rather than a route, and the rule it
+   * broke is a rule about stretches — one that held only for the ranges one
+   * caller sends today would break the next time a caller sent something else,
+   * and this is the frame that has already caught it out once.
    */
   const ONE_DAY = [
     snapshot('2027-03-06', [

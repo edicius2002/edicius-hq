@@ -101,13 +101,65 @@ describe('RouteList', () => {
     expect(screen.getByText('Departed')).toBeInTheDocument();
   });
 
+  it('gives the rows a box of their own, with the fields outside it', () => {
+    /*
+     * 12.269, and what jsdom can genuinely see of it. Whether the box actually
+     * scrolls turns on `contain: size` and a shared grid row, neither of which
+     * jsdom implements — `routesScroll.test.ts` reads the stylesheets for that
+     * half. What is checkable here is the structure the CSS needs: a scroll
+     * container holding only the rows, with the way to add a route standing
+     * outside it, so a watchlist long enough to scroll does not carry away the
+     * fields that add to it.
+     *
+     * Rendered with forty routes rather than the two the other tests use,
+     * because a list that fits is a list that would pass this whatever the
+     * markup did.
+     */
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      origin: 'LIM',
+      destination: `X${String(index).padStart(2, '0')}`,
+      month: '2026-10',
+      currency: 'USD',
+    }));
+    renderList({ routes: many });
+
+    const rows = screen.getByRole('list', { name: 'Watched routes' });
+    expect(rows.querySelectorAll('li')).toHaveLength(40);
+    const form = screen.getByRole('form', { name: /add a route/i });
+    expect(rows.contains(form)).toBe(false);
+  });
+
+  it('lets a keyboard reach the rows box itself, not only the buttons inside it', () => {
+    // The rows hold buttons, so Tab does walk in and the browser scrolls to
+    // follow — but that is the only way in, and a reader who is reading rather
+    // than operating has none. A tab stop on the scroller gives them the arrow
+    // keys; the name is what that stop announces.
+    renderList();
+    const rows = screen.getByRole('list', { name: 'Watched routes' });
+    expect(rows).toHaveAttribute('tabindex', '0');
+  });
+
+  it('marks neither edge while every row fits, so nothing claims rows there are not', () => {
+    /*
+     * jsdom reports every box as zero, which is exactly the "nothing
+     * overflows" case — `listEdge` answers `none` and the marks stay off. The
+     * states it cannot reach belong to `listEdge`'s own suite, which is why
+     * the rule is three numbers in a function rather than arithmetic inline.
+     */
+    const { container } = renderList();
+    const box = container.querySelector('[data-edge]');
+    expect(box).not.toBeNull();
+    expect(box).toHaveAttribute('data-edge', 'none');
+  });
+
   it('keeps the fields on screen rather than behind a control', () => {
     // Adding a route is what this panel is for. A form that has to be opened
     // first puts a step in front of the only action here.
     renderList();
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Origin')).toBeInTheDocument();
-    expect(screen.getByLabelText('Departure date')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Departure month' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Departure year' })).toBeInTheDocument();
   });
 
   it('adds a route from the fields', async () => {
@@ -117,19 +169,19 @@ describe('RouteList', () => {
     await user.clear(screen.getByLabelText('Origin'));
     await user.type(screen.getByLabelText('Origin'), 'LIM');
     await user.type(screen.getByLabelText('Destination'), 'MAD');
-    const departure = screen.getByLabelText('Departure date');
-    await user.clear(departure);
-    await user.type(departure, '2026-12-09');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Departure month' }), {
+      target: { value: '12' },
+    });
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
-    // One field, and the month the panel goes on to collect is derived from it
-    // — 12.180. The date rides along as the focus.
+    // A city pair and a month, which is the whole of what a watch is —
+    // 12.260, and 12.262 for the two dropdowns that name the month. The year
+    // is left on its default, which today is this one.
     expect(props.onAdd).toHaveBeenCalledWith(
       expect.objectContaining({
         origin: 'LIM',
         destination: 'MAD',
         month: '2026-12',
-        focusDate: '2026-12-09',
       }),
     );
   });

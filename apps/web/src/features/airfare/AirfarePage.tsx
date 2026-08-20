@@ -1,12 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-import {
-  formatReading,
-  readingPrefix,
-  routeId,
-  type FareRoute,
-} from '@/features/airfare/data/fareRoutes';
+import { formatFlightMonth, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
@@ -84,16 +79,14 @@ export function AirfarePage() {
   const calendar = useFareCalendar(selected);
 
   /*
-   * What this route is being read as: its month, or the one day inside it the
-   * reader focused — 12.131.
+   * What this route is being read as: its month — 12.260.
    *
-   * One string, and every reader below narrows on it because both forms are
-   * prefixes of the same `YYYY-MM-DD` departure key. The detail panel, the
-   * chart, the flight table, the baseline and the health counts all move
-   * together, so the page cannot end up naming a day over a month of numbers.
-   * What is *collected* is unaffected: the watchlist still sends the month.
+   * This was `readingPrefix`, which answered the month or the one day inside
+   * it the reader had focused. A watch names no day now, so there is one
+   * answer; `snapshotsFor` still narrows with `startsWith` because `YYYY-MM`
+   * is a prefix of every departure key inside it — 12.112.
    */
-  const reading = selected ? readingPrefix(selected) : null;
+  const reading = selected ? selected.month : null;
 
   const snapshots = useMemo(
     () =>
@@ -152,10 +145,6 @@ export function AirfarePage() {
           origin: route.origin,
           destination: route.destination,
           month: route.month,
-          // Sent even though the month is what expands: the collector keeps
-          // the focused departure first when a pass cannot afford all of them
-          // (12.134), and it can only do that if it knows which one it is.
-          ...(route.focusDate ? { focusDate: route.focusDate } : {}),
           currency: route.currency,
         })),
       ),
@@ -343,10 +332,6 @@ export function AirfarePage() {
           insights={insights}
           health={health}
           cities={cities}
-          today={today}
-          onClearFocus={() => {
-            if (selectedKey) void watchlist.focus(selectedKey, null);
-          }}
         />
       </Panel>
 
@@ -393,10 +378,18 @@ export function AirfarePage() {
         picked, already formatted: `FlightTable` writes the words.
       */}
       <Panel>
+        {/*
+          The heading moved into the table with 12.257, onto the filter row —
+          so what this page hands over is the departure in words rather than a
+          sentence around it. `formatFlightMonth(selected.month)` where that
+          was `formatReading`: a watch names a month and nothing narrower
+          (12.260), so the table's name is `Flights seen · March 2027` and can
+          no longer be a single date over a month of rows.
+        */}
         <FlightTable
           snapshots={snapshots}
           granularity={granularity}
-          departure={selected ? formatReading(selected) : null}
+          departure={selected ? formatFlightMonth(selected.month) : null}
         />
       </Panel>
     </section>

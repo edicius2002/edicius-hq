@@ -14,7 +14,7 @@ import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.adapters.fares.models import (
     FareError,
@@ -178,20 +178,22 @@ class SearchResponse(BaseModel):
 
 class RouteBody(BaseModel):
     """
-    One watched route as the client holds it: a city pair, a month, and
-    optionally one day inside it.
+    One watched route as the client holds it: a city pair and a month.
 
     No `returnDate`, and no `flightDate` — 12.110. The client no longer knows
     which departures exist inside a month, and it should not: expanding one is
     the collector's job because only the collector can also say which of the
     expanded days it decided to leave alone, and why.
 
-    `focusDate` is the exception that proves it, and it is not the client
-    telling the collector what to fetch — 12.130. The month is still expanded
-    whole and every day of it still gets its own rate. The focus says which one
-    of those days the reader actually means to take, which matters for exactly
-    one thing: when the budget cannot cover them all, that is the one kept
-    (12.134).
+    **And no `focusDate` either, since 12.266.** It was the one exception —
+    12.130's day inside the month, which changed nothing about what was
+    expanded and only decided which departure survived a truncated pass
+    (12.134). The client has no focus to send now, so the field goes with it
+    rather than staying as a parameter no caller sets in front of an ordering
+    nothing can reach. A stale client that still sends the key gets it ignored,
+    which is Pydantic's default for an unknown field and is the right answer
+    here: the value would have changed only the order of a pass, and the pass
+    now orders by distance, which is what 12.111 measured.
     """
 
     origin: str = Field(..., min_length=3, max_length=3)
@@ -199,25 +201,7 @@ class RouteBody(BaseModel):
     #: `YYYY-MM`. Validated here rather than in the collector so a typo is a
     #: 422 the client can show, not a month that silently expands to nothing.
     month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
-    #: `YYYY-MM-DD` inside `month`, or absent.
-    focusDate: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     currency: str = "USD"
-
-    @model_validator(mode="after")
-    def _focus_is_inside_the_month(self) -> "RouteBody":
-        """
-        A focus outside its own month is a 422, not a quiet drop.
-
-        The stored document cannot hold one — the web normalizer drops it on
-        read, because a document that fails to load is worse than a route with
-        no focus. Nothing on the client can then *send* one, so one arriving
-        here is a bug in a caller and the useful thing to do with it is say so.
-        Dropping it silently would leave the pass keeping the wrong departure
-        with nothing anywhere recording why.
-        """
-        if self.focusDate is not None and not self.focusDate.startswith(f"{self.month}-"):
-            raise ValueError(f"focusDate {self.focusDate!r} is not inside month {self.month!r}")
-        return self
 
 
 class CollectBody(BaseModel):
@@ -396,7 +380,6 @@ def _watch_from(body: RouteBody) -> FareWatch:
         destination=normalize_code(body.destination),
         month=body.month,
         currency=body.currency.upper(),
-        focus=body.focusDate,
     )
 
 

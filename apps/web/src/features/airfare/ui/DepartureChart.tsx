@@ -471,9 +471,10 @@ export function DepartureChart({
           where the axis stops being a clock. It runs from the top of the plot
           past the date labels and stops above the source rail — a statement
           about the whole column either side of it, but not one that is allowed
-          to rule through the words naming the two sides. On a watch narrowed to
-          one departure date the two seams stand a single date apart, and taken
-          to the rail they crossed `flights, by hour` twice.
+          to rule through the words naming the two sides. Where a watched range
+          is narrower than the frame the two seams stand a single date apart,
+          and taken to the rail they crossed `flights, by hour` twice — found
+          on a focused watch, before 12.260 stopped one being possible.
         */}
         {seams.map((offset) => (
           <line

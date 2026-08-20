@@ -9,11 +9,12 @@ import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 /**
  * Which departures the archive is asked about.
  *
- * The whole of 12.131 lands here: `departure` is a prefix, so a watched month
- * and one focused day inside it are the same request with a longer string. The
- * baseline and the heartbeat counts come back narrowed to whichever was sent,
- * which is what stops the detail panel printing March's "Looks taken" under a
- * heading that names the 9th.
+ * The month, and since 12.260 only ever the month. `departure` is a prefix
+ * (12.112), so `2027-03` matches every departure key inside March and the
+ * baseline and the heartbeat counts come back for all of them. This suite once
+ * covered a second answer — one focused day inside the month — and the point
+ * of what is left is that the request is the month even when the same pair is
+ * watched twice.
  */
 
 afterEach(() => {
@@ -58,7 +59,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe('useFareHistory', () => {
-  it('asks about the whole month when no day has been focused', async () => {
+  it('asks about the whole month, which is the whole of what a watch is', async () => {
     const urls = stubHistory();
     renderHook(() => useFareHistory(LIM_MAD), { wrapper });
 
@@ -66,24 +67,15 @@ describe('useFareHistory', () => {
     expect(new URL(urls[0], 'http://x').searchParams.get('departure')).toBe('2027-03');
   });
 
-  it('narrows onto the focused day, which is the same request one character longer', async () => {
-    // 12.131. Not a second endpoint and not a second parameter: `2027-03-09`
-    // is a prefix of exactly one departure the way `2027-03` is a prefix of
-    // thirty-one, because these keys truncate the way the calendar does.
-    const urls = stubHistory();
-    renderHook(() => useFareHistory({ ...LIM_MAD, focusDate: '2027-03-09' }), { wrapper });
-
-    await waitFor(() => expect(urls).toHaveLength(1));
-    expect(new URL(urls[0], 'http://x').searchParams.get('departure')).toBe('2027-03-09');
-  });
-
-  it('does not serve the month it already holds when a day is focused', async () => {
+  it('asks separately about a second month of the same pair, not once about both', async () => {
     /*
-     * The focus is part of the query key as well as the request. Without that,
-     * setting a focus on a month already in the cache would hand back the
-     * month's baseline and the month's heartbeat counts under a heading naming
-     * one day — the page saying two different things about one route and
-     * fetching nothing to find out which.
+     * The month is in the query key as well as in the request, and it has to
+     * be: two watches on LIM-MAD in different months are two different
+     * archives, and serving the second from the first would put March's
+     * baseline and March's heartbeat counts under a heading naming April.
+     *
+     * This is what is left of the case a focus used to make — the same test
+     * with `focusDate: '2027-03-09'` in place of the second month.
      */
     const urls = stubHistory();
     const client = new QueryClient({
@@ -99,8 +91,8 @@ describe('useFareHistory', () => {
     });
     await waitFor(() => expect(urls).toHaveLength(1));
 
-    rerender({ ...LIM_MAD, focusDate: '2027-03-09' });
+    rerender({ ...LIM_MAD, month: '2027-04' });
     await waitFor(() => expect(urls).toHaveLength(2));
-    expect(new URL(urls[1], 'http://x').searchParams.get('departure')).toBe('2027-03-09');
+    expect(new URL(urls[1], 'http://x').searchParams.get('departure')).toBe('2027-04');
   });
 });

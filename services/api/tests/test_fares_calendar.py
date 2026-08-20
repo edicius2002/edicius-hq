@@ -21,6 +21,7 @@ about a different unit of observation.
 import asyncio
 import json
 import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -174,8 +175,11 @@ def test_a_range_google_refuses_is_upstream_saying_no_and_not_drift():
     """
     with pytest.raises(FareError) as caught:
         graph(REFUSAL)
-    assert caught.value.code == "upstream-error"
-    assert "too wide" in caught.value.message
+    # Its own code rather than the general `upstream-error`, because this is the
+    # one refusal a caller can answer — by asking for less. Matching it on the
+    # message text would make the retry hinge on a sentence.
+    assert caught.value.code == "range-refused"
+    assert "further ahead than it will price" in caught.value.message
 
 
 def test_zero_dates_where_a_whole_range_was_expected_is_drift_not_an_answer():
@@ -578,3 +582,76 @@ def test_a_city_pair_nobody_has_collected_answers_null_rather_than_a_404(monkeyp
     assert answer.status_code == 200
     assert answer.json()["latest"] is None
     assert answer.json()["health"]["checks"] == 0
+
+
+def test_a_far_end_the_provider_will_not_price_is_walked_back_rather_than_lost(tmp_path):
+    """
+    The horizon is a date the provider prices up to, and it moves one day closer
+    every day until they extend their schedule.
+
+    Measured 2026-08-20: a window ending +330 days out was refused and the same
+    window ending +329 answered in full, while the day before that +330 had
+    answered — so `MAX_DEPARTURE_HORIZON_DAYS` was correct when it was measured
+    and wrong the next morning. A collector that reported the refusal and gave
+    up would lose the whole curve for the sake of one day at its far end, every
+    day, and the archive would simply stop growing.
+    """
+    page = read_fixture(CAPTURE)
+    store = FareCalendar(tmp_path)
+    asked: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("utf-8")
+        window = re.findall(r"\d{4}-\d{2}-\d{2}", body)[-2:]
+        asked.append((window[0], window[1]))
+        # Refuse anything reaching past the date this provider will price.
+        if window[1] > "2027-07-15":
+            return httpx.Response(200, text=read_fixture(REFUSAL))
+        return httpx.Response(200, text=page)
+
+    async def run():
+        async with transport(handler) as client:
+            return await collect_calendars(
+                [FareWatch("ARI", "SCL", "2027-03")],
+                now=datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+                calendar=store,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert report.failed == 0, "a far end one day out of reach must not fail the curve"
+    # The second window asks to 2027-07-16, is refused, and is asked again one
+    # day shorter. Three requests: the first window, the refusal, the retry.
+    assert [end for _, end in asked] == ["2027-02-16", "2027-07-16", "2027-07-15"]
+    assert report.requests == 3
+
+
+def test_a_refusal_that_is_not_about_the_range_is_reported_rather_than_retried(tmp_path):
+    """
+    Only `range-refused` is answered by asking for less. A parse failure or a
+    consent page does not become an answer by being asked again, and 12.4 wants
+    those loud — a retry loop around them would turn one clear alarm into a
+    handful of quiet ones.
+    """
+    store = FareCalendar(tmp_path)
+    asked = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal asked
+        asked += 1
+        return httpx.Response(500, text="upstream fell over")
+
+    async def run():
+        async with transport(handler) as client:
+            return await collect_calendars(
+                [FareWatch("ARI", "SCL", "2027-03")],
+                now=datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+                calendar=store,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert report.failed == 1
+    assert asked == 1, "a refusal that is not about the range is asked exactly once"

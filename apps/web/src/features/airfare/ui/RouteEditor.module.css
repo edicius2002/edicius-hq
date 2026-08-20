@@ -1,27 +1,32 @@
 /*
- * Three rows, two columns: every label beside its own field — 12.265.
+ * Four tracks, two rows: every field beside its own label, and the two
+ * airports on one row — 12.265, as 12.268 revised it.
  *
- * `auto` for the labels rather than a written-down width, so the column is as
- * wide as "Destination" says it is and no wider; `minmax(0, 1fr)` for the
- * fields, because a suggestion list hanging off one of them must not be able
- * to widen the panel. `align-items: center` puts the label on the input's
- * middle rather than on its top edge, which is what makes a beside-label read
- * as belonging to the field instead of floating next to it.
+ * `auto` for the two label tracks, so each is as wide as its own longest word
+ * and no wider; `minmax(0, 1fr)` for the two field tracks, so a suggestion
+ * list hanging off one of them can never widen the panel.
  *
- * **Why the airports no longer share a row.** They did, as two halves of one
- * decision, and with the labels above them that fitted. Beside them it does
- * not: the panel is `minmax(20rem, 27rem)` and at its 20rem floor — 400px, at
- * this app's 125% root, so 1rem is 20px and not 16 — the content box is 358px.
- * Two labels at about 66px plus two inputs at their 8rem minimum plus the
- * chrome and the gaps comes to well over 500px, and the overflow would land on
- * the one page in this app that must never scroll sideways. One field per row
- * costs a line and buys the arrangement that was asked for. Measured in a
- * browser at the floor: the widest row in this form is 358px, the same as the
- * form itself.
+ * **The whole row, measured at the 20rem floor.** The panel is
+ * `minmax(20rem, 27rem)`, so 400px, and at this app's 125% root — 1rem is
+ * 20px here, not 16 — that leaves 358px of content. The label tracks are the
+ * two fixed costs: "Departing" is 84.38px and shares the first track with
+ * "Origin" at 56.25, and "Destination" is 103.13px in the third. Three 15px
+ * gaps. 358 − 84.38 − 103.13 − 45 leaves **125.49px for both inputs, 62.75px
+ * each**.
+ *
+ * That is enough because a field holding a three-letter IATA code does not
+ * need 8rem. `LIM` is 31.65px at 0.9rem, and with the padding below the input
+ * spends 22px on chrome: 53.65px of the 62.75 it has, with 9.1px standing.
+ * The 8rem minimum this field used to carry was 160px for 32px of text, and it
+ * was what made one row look impossible — 500-odd pixels against 358. Nothing
+ * about the labels had to move.
+ *
+ * At the 27rem the panel actually takes on a desktop there is 498px, and the
+ * same arithmetic gives the pair 132.7px each.
  */
 .form {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2) var(--space-3);
   /* The list that hangs off a field must not widen the panel. */
@@ -29,12 +34,34 @@
 }
 
 /*
+ * The airports row, which is two things at once.
+ *
+ * `subgrid` makes its four tracks the form's own four, so "Origin" and
+ * "Departing" share the first column and the origin input and the month
+ * dropdown start at the same x. A nested grid would measure its own labels and
+ * land somewhere else.
+ *
+ * `position: relative` is the other job, and it is a contract `AirportField`
+ * states: an inline field makes `.control` static and hands the horizontal
+ * placement of its suggestion list to the caller's row — 12.268. Both lists
+ * then reach this row's edges, which are the form's, and neither can be wider
+ * than it is.
+ */
+.airports {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  position: relative;
+}
+
+/*
  * The labels, whichever component renders them.
  *
- * `AirportField` brings its own `<label>` and sets it to `display: contents`
- * in the wrapper, so its label lands in this grid as a direct child; the
- * departure group's label is a `<span>` written here. Both are styled from one
- * rule, because two rules is how a form ends up with two sizes of label.
+ * `AirportField` brings its own `<label>` and sets the wrapper to
+ * `display: contents`, so its label lands in this grid as a direct child; the
+ * departure group's label is a `<span>` written here. One rule for both,
+ * because two rules is how a form ends up with two sizes of label.
  */
 .form label,
 .groupLabel {
@@ -45,13 +72,19 @@
   white-space: nowrap;
 }
 
+/*
+ * `var(--space-2)` across rather than `--space-3`, and that 10px is load
+ * bearing: at 15px a side the input spends 32px on chrome and has 30.75px left
+ * for a code that needs 31.65. Ten leaves 40.75. The vertical padding is
+ * unchanged, so the fields are the height they were.
+ */
 .form input,
 .form select {
   background: var(--color-bg-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   font: inherit;
   font-size: 0.9rem;
   min-width: 0;
@@ -63,22 +96,29 @@
   outline-offset: 1px;
 }
 
+/* First column, beside "Origin", so the month starts where the origin code does. */
+.groupLabel {
+  grid-column: 1;
+}
+
 /*
- * The month and the year, side by side inside the field column.
+ * The month and the year, side by side across the three tracks the departure
+ * label leaves.
  *
  * The month track takes the room and the year takes what two digits need:
  * "September" is the longest of the twelve and is what the first column is
- * sized to hold, while a year that grew to match it would be four fifths empty
- * and would read as the more important half of the two.
+ * sized to hold, while a year grown to match it would be four fifths empty and
+ * would read as the more important half of the two.
  */
 .departure {
+  grid-column: 2 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
   min-width: 0;
 }
 
-/* Across both columns: a refusal is about the form, not about one field. */
+/* Across every column: a refusal is about the form, not about one field. */
 .error {
   grid-column: 1 / -1;
   margin: 0;

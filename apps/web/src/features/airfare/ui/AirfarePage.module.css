@@ -21,6 +21,20 @@
    */
   align-items: stretch;
   min-width: 0;
+
+  /*
+   * How the watchlist's rows spend the height of this row — read by
+   * `RouteList.module.css`, declared here because the width at which the page
+   * stacks is this file's decision and there must be only one copy of it.
+   *
+   * Side by side, the map sets the row and the rows scroll inside whatever it
+   * leaves. `contain: size` is what makes that true rather than `flex: 1 1 0`,
+   * which is the finding 276530a recorded for Investing and the reason this is
+   * written down at all — see that stylesheet for the whole argument.
+   */
+  --airfare-routes-contain: size;
+  --airfare-routes-flex: 1 1 0;
+  --airfare-routes-cap: none;
 }
 
 /*
@@ -52,6 +66,17 @@
 @media (max-width: 1080px) {
   .top {
     grid-template-columns: minmax(0, 1fr);
+
+    /*
+     * Stacked, there is no row height to share, and that is why the
+     * containment has to come off: a box sized as if it were empty, inside a
+     * panel with no height of its own to hand down, is a box of no height at
+     * all — the rows would vanish rather than scroll. They size themselves
+     * again here and stop at a ceiling instead.
+     */
+    --airfare-routes-contain: none;
+    --airfare-routes-flex: 0 1 auto;
+    --airfare-routes-cap: 32rem;
   }
 }
 

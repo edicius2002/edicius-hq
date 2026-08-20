@@ -27,9 +27,28 @@
   display: contents;
 }
 
-/* The anchor the suggestion list hangs from. */
+/* The anchor the suggestion list hangs from, stacked. */
 .control {
   position: relative;
+}
+
+/*
+ * Inline, it is not the anchor — the caller's row is, and the caller has said
+ * so by asking for `layout="inline"` (12.268).
+ *
+ * A label beside a field pushes the input inwards by the whole label column,
+ * and a list pinned to the input then starts 99px in from the panel's edge at
+ * the 20rem floor and runs 90px past the viewport. Measured, not feared. The
+ * row is the widest thing the list can safely be, so the row is what it hangs
+ * from: `left: 0` and `right: 0` below reach the form's own edges, and the
+ * `max-width` reaches its width.
+ */
+.unanchored {
+  position: static;
+  /* Read by `.list`, and a percentage on purpose: it resolves against whatever
+     the list's containing block turns out to be, which with this element
+     static is the caller's row. */
+  --suggestions-fit: 100%;
 }
 
 .control input {
@@ -45,10 +64,23 @@
    * Wider than the input it hangs from. The field is one half of a two-column
    * grid and a city like "Limoges/Bellegarde" does not fit in it — clipping
    * the very text that tells two airports apart would defeat the list.
+   *
+   * Both bounds now carry a ceiling that only the inline layout sets —
+   * 12.268. `--suggestions-fit` is `100%` there, and because a percentage
+   * resolves where it is *used*, that is 100% of the list's containing block,
+   * which inline is the caller's row. Stacked it is unset and falls back to
+   * `100vw`, which changes nothing: the containing block there is the input
+   * itself, and capping a list at the width of the field it exists to overflow
+   * would defeat it.
+   *
+   * `min-width` beats `max-width` in CSS, so a bare `min-width: 17rem` would
+   * walk straight through any ceiling above it. It carries the same one. At
+   * the 20rem floor the row is 358px, so 17rem survives intact and Limoges
+   * keeps its name.
    */
-  min-width: 17rem;
+  min-width: min(17rem, var(--suggestions-fit, 100vw));
   width: max-content;
-  max-width: min(24rem, 68vw);
+  max-width: min(24rem, 68vw, var(--suggestions-fit, 100vw));
   margin: 0;
   padding: var(--space-1);
   list-style: none;

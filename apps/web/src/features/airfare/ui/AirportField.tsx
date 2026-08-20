@@ -30,19 +30,33 @@ type AirportFieldProps = {
   placeholder?: string;
   onChange: (code: string) => void;
   /**
-   * Which edge of the field the list is pinned to; it grows away from that
-   * edge. `right` opens it leftwards, which is what the field at the end of a
-   * row needs.
+   * Which edge the list is pinned to; it grows away from that edge. `right`
+   * opens it leftwards, which is what the field at the end of a row needs.
+   *
+   * **Which edge of what depends on `layout`.** Stacked, it is the field's own
+   * edge; inline, it is the caller's row.
    */
   align?: 'left' | 'right';
   /**
-   * Where the label sits — 12.265.
+   * Where the label sits, and what the suggestion list hangs off — 12.265.
    *
-   * `stacked` puts it above the input, which is what this field has always
-   * done. `inline` puts label and input side by side, and does it by
-   * `display: contents` on the wrapper rather than by a grid of its own: the
-   * caller's form is what owns the label column, and three fields whose
-   * labels each measured themselves would not line up.
+   * `stacked` is what this field has always done: the label above the input,
+   * and the list positioned against the field itself.
+   *
+   * `inline` puts the label beside the input, by `display: contents` on the
+   * wrapper rather than a grid of its own — the caller's form owns the label
+   * column, and fields that each measured their own label would not line up.
+   * **It also hands the list's horizontal position to the caller**, which is a
+   * contract rather than a side effect: `.control` stops being the positioning
+   * context, so the caller's row must be `position: relative`, and the list
+   * pins to *that* row's left or right edge and is capped at *its* width.
+   *
+   * The reason is a measurement — 12.268. A label beside a field pushes the
+   * input inwards by the whole label column, 99px at this panel's 20rem floor,
+   * and a 17rem list opening rightwards from there ran 90px past the viewport:
+   * a horizontal scrollbar on the one page that must never have one. Pinned to
+   * the row, the list can be neither wider than the form nor start outside it,
+   * at any width and for any city name in the table.
    */
   layout?: 'stacked' | 'inline';
 };
@@ -133,7 +147,9 @@ export function AirportField({
   return (
     <div className={layout === 'inline' ? `${styles.field} ${styles.inline}` : styles.field}>
       <label htmlFor={id}>{label}</label>
-      <div className={styles.control}>
+      <div
+        className={layout === 'inline' ? `${styles.control} ${styles.unanchored}` : styles.control}
+      >
         <input
           id={id}
           value={value}

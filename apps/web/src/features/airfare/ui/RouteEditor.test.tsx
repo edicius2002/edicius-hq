@@ -96,14 +96,10 @@ async function suggestionsFor(label: RegExp, typed: string) {
 describe('RouteEditor', () => {
   it('puts every label beside its own field rather than above it', () => {
     /*
-     * 12.265. Asserted on the DOM order inside each row rather than on
-     * geometry, because jsdom has no layout — the stylesheet is what turns
-     * this into two columns, and the browser check that it does not overflow
-     * the panel's 20rem floor is in the commit that carries it.
-     *
-     * The airports no longer share a row, and that is the cost: a label beside
-     * a field takes the label's width, and two of each do not fit in the 358px
-     * this panel has at the floor.
+     * 12.265. Asserted on document order rather than on geometry, because
+     * jsdom has no layout — the stylesheet is what turns this into four
+     * columns, and the browser check that the widest row fits the panel's
+     * 20rem floor is in the commit that carries it.
      */
     renderEditor();
     const form = screen.getByRole('form', { name: /add a route to watch/i });
@@ -111,6 +107,34 @@ describe('RouteEditor', () => {
       (node) => node.textContent,
     );
     expect(labels).toEqual(['Origin', 'Destination', 'Departing']);
+  });
+
+  it('keeps the two airports on one row, with the departure on the next', () => {
+    /*
+     * 12.268. They are one decision and they share a row, which briefly looked
+     * impossible: a label beside a field costs the label's width, and two of
+     * each at the old 8rem input minimum ran 500-odd pixels against the 358
+     * this panel has at its floor. The 8rem was the thing that had to move —
+     * it was 160px held for a three-letter code.
+     *
+     * Checked through the wrapper the lists also hang from, because that
+     * element is what makes both true at once: it is the row, and it is the
+     * positioning context an inline field hands to its caller.
+     */
+    renderEditor();
+    const form = screen.getByRole('form', { name: /add a route to watch/i });
+    const origin = screen.getByRole('combobox', { name: /origin/i });
+    const destination = screen.getByRole('combobox', { name: /destination/i });
+
+    // The smallest element holding both airports. `closest` cannot find it:
+    // an inline field's own wrapper is `display: contents`, so the row is two
+    // levels up rather than one.
+    let row: HTMLElement | null = origin.parentElement;
+    while (row && row !== form && !row.contains(destination)) row = row.parentElement;
+
+    expect(row).not.toBe(form);
+    expect(row?.contains(destination)).toBe(true);
+    expect(row?.contains(screen.getByRole('combobox', { name: 'Departure month' }))).toBe(false);
   });
 
   it('offers both ends as a combobox, not as bare text inputs', () => {

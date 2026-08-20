@@ -39,13 +39,14 @@ type RouteEditorProps = {
 /**
  * The fields that add a route, always on screen at the top of the watchlist.
  *
- * **Three rows, each a label and its field side by side** — 12.265. Origin,
- * Destination and Departing sit in one label column with one field column
- * beside it, which is a line shorter than the stacked arrangement it replaces
- * and lines the three inputs up on one left edge. The airports had shared a
- * row; they cannot any more, because a label beside a field costs the width of
- * the label and two of those plus two inputs do not fit in the 358px this
- * panel has at its 20rem floor. Measured, not guessed — see the stylesheet.
+ * **Two rows, and every field sits beside its own label** — 12.265 as 12.268
+ * revised it. The airports share the first row, as they always did, because
+ * they are one decision; the departure has the second. What made that look
+ * impossible was the input width rather than the labels: an 8rem minimum on a
+ * field that holds three letters left the row 500-odd pixels wide against the
+ * 358px this panel has at its 20rem floor. Three letters need 32px of text,
+ * and the row now fits inside 358 with the pair at 63px each — see the
+ * stylesheet, where the arithmetic is written out.
  *
  * **The departure is a month and a year, not a date** — 12.262, superseding
  * 12.180 and with it the focus that 12.130 introduced and this change removes
@@ -182,27 +183,42 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
       onSubmit={submit}
       aria-label="Add a route to watch"
     >
-      <AirportField
-        id="airfare-origin"
-        label="Origin"
-        value={origin}
-        placeholder="LIM"
-        onChange={setOrigin}
-        align="left"
-        layout="inline"
-      />
-      <AirportField
-        id="airfare-destination"
-        label="Destination"
-        value={destination}
-        placeholder="SCL"
-        onChange={setDestination}
-        // Its list is wider than the field and the field now runs to the
-        // panel's right edge, so the list opens leftwards or it opens off the
-        // page — which is what puts a horizontal scrollbar on this tab.
-        align="right"
-        layout="inline"
-      />
+      {/*
+        The two airports on one row, and the row is also what their suggestion
+        lists hang from — 12.268.
+
+        `subgrid` rather than a grid of its own, so the four tracks are the
+        form's own: "Origin" and "Departing" share the first column and their
+        fields start at the same x, which a nested grid measuring its own
+        labels could not manage. The wrapper exists for two things at once —
+        the row, and a `position: relative` for the lists, which inline fields
+        hand to their caller.
+      */}
+      <div className={styles.airports}>
+        <AirportField
+          id="airfare-origin"
+          label="Origin"
+          value={origin}
+          placeholder="LIM"
+          onChange={setOrigin}
+          // Pinned to this row's left edge, which is the form's — not to the
+          // input, which sits a label column in from it.
+          align="left"
+          layout="inline"
+        />
+        <AirportField
+          id="airfare-destination"
+          label="Destination"
+          value={destination}
+          placeholder="SCL"
+          onChange={setDestination}
+          // Pinned to this row's right edge, so it grows leftwards. Opening
+          // rightwards from a field hard against the panel's edge is how a
+          // horizontal scrollbar arrives on this tab.
+          align="right"
+          layout="inline"
+        />
+      </div>
 
       {/*
         One visible label over two controls, so it is a group rather than a

@@ -101,6 +101,57 @@ describe('RouteList', () => {
     expect(screen.getByText('Departed')).toBeInTheDocument();
   });
 
+  it('gives the rows a box of their own, with the fields outside it', () => {
+    /*
+     * 12.269, and what jsdom can genuinely see of it. Whether the box actually
+     * scrolls turns on `contain: size` and a shared grid row, neither of which
+     * jsdom implements — `routesScroll.test.ts` reads the stylesheets for that
+     * half. What is checkable here is the structure the CSS needs: a scroll
+     * container holding only the rows, with the way to add a route standing
+     * outside it, so a watchlist long enough to scroll does not carry away the
+     * fields that add to it.
+     *
+     * Rendered with forty routes rather than the two the other tests use,
+     * because a list that fits is a list that would pass this whatever the
+     * markup did.
+     */
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      origin: 'LIM',
+      destination: `X${String(index).padStart(2, '0')}`,
+      month: '2026-10',
+      currency: 'USD',
+    }));
+    renderList({ routes: many });
+
+    const rows = screen.getByRole('list', { name: 'Watched routes' });
+    expect(rows.querySelectorAll('li')).toHaveLength(40);
+    const form = screen.getByRole('form', { name: /add a route/i });
+    expect(rows.contains(form)).toBe(false);
+  });
+
+  it('lets a keyboard reach the rows box itself, not only the buttons inside it', () => {
+    // The rows hold buttons, so Tab does walk in and the browser scrolls to
+    // follow — but that is the only way in, and a reader who is reading rather
+    // than operating has none. A tab stop on the scroller gives them the arrow
+    // keys; the name is what that stop announces.
+    renderList();
+    const rows = screen.getByRole('list', { name: 'Watched routes' });
+    expect(rows).toHaveAttribute('tabindex', '0');
+  });
+
+  it('marks neither edge while every row fits, so nothing claims rows there are not', () => {
+    /*
+     * jsdom reports every box as zero, which is exactly the "nothing
+     * overflows" case — `listEdge` answers `none` and the marks stay off. The
+     * states it cannot reach belong to `listEdge`'s own suite, which is why
+     * the rule is three numbers in a function rather than arithmetic inline.
+     */
+    const { container } = renderList();
+    const box = container.querySelector('[data-edge]');
+    expect(box).not.toBeNull();
+    expect(box).toHaveAttribute('data-edge', 'none');
+  });
+
   it('keeps the fields on screen rather than behind a control', () => {
     // Adding a route is what this panel is for. A form that has to be opened
     // first puts a step in front of the only action here.

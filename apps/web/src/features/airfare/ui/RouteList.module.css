@@ -1,7 +1,93 @@
 /*
- * The list takes the height the row settled on and scrolls inside it. The
- * fields above stay put: they are what the panel is for, and a watchlist long
- * enough to scroll is exactly when you least want them scrolled away.
+ * The rows take the height the grid row settled on and scroll inside it —
+ * 12.269, which is 276530a's answer for Investing applied here.
+ *
+ * **`contain: size` is what delivers that, and `flex: 1 1 0` is not**, which
+ * is the whole finding of that commit. A zero basis looks like it stops the
+ * rows pushing the panel taller and does not: the intrinsic height of a column
+ * flex container comes from its items' max-content *contributions*, and a
+ * growable item contributes all of its content however small its basis.
+ * `overflow-y: auto` does not save it either — a scroll container's automatic
+ * *minimum* size is zero, but its max-content size is still everything inside
+ * it. So a watchlist longer than the map grew this panel, grew the row the two
+ * share, and left the map with empty space under it. Size containment says it
+ * outright: size this box as if it were empty.
+ *
+ * The three values are read from `AirfarePage.module.css` rather than written
+ * here, and that is deliberate: containment cannot survive a parent with no
+ * height to hand down, so it has to come off in the stacked layout — and the
+ * width where the page stacks is that file's decision, stated once. A second
+ * copy of `1080px` in this file is exactly the number that would drift.
+ * Stacked, the rows size themselves again and stop at a ceiling instead.
+ */
+.listBox {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: var(--airfare-routes-flex, 1 1 0);
+  contain: var(--airfare-routes-contain, none);
+  max-height: var(--airfare-routes-cap, none);
+}
+
+/*
+ * More above, or more below, marked in front of the rows — 12.270.
+ *
+ * On `.listBox` rather than on the scroller, because a pseudo-element of a
+ * scroll container scrolls with its content and a mark pinned to the bottom
+ * edge has to stay at the bottom edge. A shadow rather than a fade to the
+ * panel's own colour: the panel is painted with a gradient, so a fade would
+ * have to guess at the exact shade under the list and would be wrong at one
+ * end of it, where a darkening needs no colour at all to read as "this
+ * continues underneath".
+ *
+ * Which of them shows is `listEdge`'s answer, in `data-edge`. Neither shows
+ * when every row already fits.
+ */
+.listBox::before,
+.listBox::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.listBox::before {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
+}
+
+.listBox::after {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
+}
+
+.listBox[data-edge='above']::before,
+.listBox[data-edge='both']::before,
+.listBox[data-edge='below']::after,
+.listBox[data-edge='both']::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .listBox::before,
+  .listBox::after {
+    transition: none;
+  }
+}
+
+/*
+ * The scroller. The fields above it stay put: they are what the panel is for,
+ * and a watchlist long enough to scroll is exactly when you least want the way
+ * to add to it scrolled away.
+ *
+ * The scrollbar is drawn thin rather than hidden, and is the second half of
+ * the answer to "is there more below" — the platform's own, which cannot be
+ * out of step with the box it belongs to. The shadow above is the half that
+ * survives an overlay scrollbar that has faded out.
  */
 .list {
   list-style: none;
@@ -13,6 +99,15 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* The tab stop the scroller carries needs to be visible when it is taken. */
+.list:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius);
 }
 
 /*

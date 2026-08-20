@@ -66,7 +66,7 @@ const COLUMNS: { column: SortColumn; label: string; numeric?: boolean }[] = [
  * An em dash rather than `0%` when nothing has been compared: "has not moved"
  * and "has only been observed once" are different facts, and printing 0% would
  * claim a steadiness nobody watched. The row that *has* been watched twice and
- * held its price gets the `0.0%`, because that one is a measurement — 12.252.
+ * held its price gets the `0.0%`, because that one is a measurement — 12.254.
  */
 function moveLabel(change: number | null): string {
   if (change === null) return '—';
@@ -130,7 +130,7 @@ function SortHeader({
 }
 
 /**
- * The panel's heading, which since 12.255 is the first thing on the filter
+ * The panel's heading, which since 12.257 is the first thing on the filter
  * row rather than a line of its own above it.
  *
  * `Flights seen · 09/03/2027`, with the middot the watchlist row already uses
@@ -192,7 +192,7 @@ function FlightRowCells({ row }: { row: FlightRow }) {
         A flight that has left the board says so in this column rather than
         showing a dash, because "it is not offered any more" is an answer to
         "what has this fare done" and a dash is the answer for a fare nobody
-        has compared yet — 12.254. The word is set as a word: the column is
+        has compared yet — 12.256. The word is set as a word: the column is
         tabular numerals for the percentages, and lining a lower-case `Gone`
         up on a decimal point would be a figure that is not a figure.
       */}
@@ -273,7 +273,7 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
   return (
     <div className={styles.wrap}>
       {/*
-        Heading, departure and every filter on one line — 12.255, where there
+        Heading, departure and every filter on one line — 12.257, where there
         is room for one line. At the panel's real 1099px a one-carrier board
         has it and a four-carrier one is 16px short: see `.head` in the
         stylesheet for the four measurements and for why forcing the rest would
@@ -288,7 +288,7 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
         <TableHeading departure={departure} />
         <div className={styles.filters} role="group" aria-label="Filter flights">
           {/*
-          One control, not two — 12.250. A floor and a ceiling are the two ends
+          One control, not two — 12.252. A floor and a ceiling are the two ends
           of one question, and asking it as two separately-labelled boxes spent
           two of the row's six slots on it and read as two unrelated filters.
           A `div` with `role="group"` rather than a `label` around both fields,
@@ -326,7 +326,7 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
           </div>
           {/*
           `Any` rather than `All airlines`, `Any time`, `Any stops`, `Any
-          length`, `Any move` — one word, five selects, 12.250. A select is as
+          length`, `Any move` — one word, five selects, 12.252. A select is as
           wide as its widest option, so five differently-worded ways of saying
           "no constraint" were setting three of the six controls' widths
           between them, and every one of them repeated a label sitting directly
@@ -342,7 +342,7 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
             >
               <option value="">Any</option>
               {/*
-                Cut to eight characters — 12.256. `title` carries the name
+                Cut to eight characters — 12.258. `title` carries the name
                 whole, so a truncated option answers a hover in the open list
                 and the closed control answers one too; the Airline column of
                 every row below is the other place it is written in full.
@@ -436,7 +436,7 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
 
       <table className={styles.table}>
         {/*
-          Under the rows rather than over them — 12.251. It is still the
+          Under the rows rather than over them — 12.253. It is still the
           table's `<caption>`, so it is still the thing a screen reader reads
           when it enters the table, and it is still announced when it changes,
           because filtering is exactly the moment a reader needs to hear how

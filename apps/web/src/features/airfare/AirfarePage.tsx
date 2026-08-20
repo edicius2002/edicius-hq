@@ -359,7 +359,7 @@ export function AirfarePage() {
       */}
       {/*
         The heading is the table's own, and it is the only panel here where it
-        is — 12.255. The owner wants it on the filter row rather than above it,
+        is — 12.257. The owner wants it on the filter row rather than above it,
         and a heading in this file cannot share a line with controls rendered
         in another. All that crosses the boundary is the departure the reader
         picked, already formatted: `FlightTable` writes the words.

@@ -171,7 +171,7 @@ describe('tableRows', () => {
 
   it('will not call a flight it has seen once a flight whose price did not move', () => {
     /*
-     * The regression 12.252 exists for, and it needs a poll that spans more
+     * The regression 12.254 exists for, and it needs a poll that spans more
      * than one departure to show itself: a watched month is collected one day
      * at a time, so the newest `capturedAt` on the route belongs to whichever
      * departure the pass happened to reach last. The old rule asked whether a
@@ -369,7 +369,7 @@ describe('filterRows', () => {
 
 describe('shortAirline', () => {
   it('leaves every carrier this archive holds alone but the one that will not fit', () => {
-    // 12.256. Eight characters is `JetSMART` exactly, and LATAM, Avianca and
+    // 12.258. Eight characters is `JetSMART` exactly, and LATAM, Avianca and
     // JetSMART carry 1256 of the archive's 1275 offers between them.
     expect(shortAirline('LATAM')).toBe('LATAM');
     expect(shortAirline('Avianca')).toBe('Avianca');
@@ -538,7 +538,7 @@ describe('tableSummary', () => {
   });
 
   it('leaves the page number to the pager, which has always printed one too', () => {
-    // 12.251: the caption said `Page 1 of 2` and so did the control beside the
+    // 12.253: the caption said `Page 1 of 2` and so did the control beside the
     // next-page button, three lines apart. One page number, in the place a
     // reader who wants a different page is already looking.
     expect(tableSummary({ period, inPeriod: 13, shown: 13, tracked: 13 })).not.toMatch(/Page/);

@@ -5,7 +5,7 @@
 }
 
 /*
- * The heading, the departure and every filter on one line — 12.255.
+ * The heading, the departure and every filter on one line — 12.257.
  *
  * `align-items: end` rather than `center`, so the heading sits on the same
  * baseline as the text inside the controls rather than floating in the middle
@@ -13,7 +13,7 @@
  *
  * `wrap`, and measured before being chosen. The heading is 273px and the panel
  * gives the row 1099, so whether it is one line depends on the board, and
- * after the airline cap of 12.256 it is one line for one of the four states
+ * after the airline cap of 12.258 it is one line for one of the four states
  * this archive can be in:
  *
  *   ARI-SCL, one carrier, unfiltered   1085  fits, 66px tall
@@ -72,7 +72,7 @@
 }
 
 /*
- * Every filter on one row — 12.250.
+ * Every filter on one row — 12.252.
  *
  * A flex row of content-sized controls rather than the equal-width grid it
  * was. The grid gave every filter the width of the widest one, so a single
@@ -193,7 +193,7 @@
 }
 
 /*
- * Under the table, not over it — 12.251.
+ * Under the table, not over it — 12.253.
  *
  * `caption-side` rather than moving the element out of the table: a `<caption>`
  * is the table's name to anything that reads the document, and a paragraph
@@ -282,7 +282,7 @@
  * — the headings looked right-aligned only because `.numeric .sort` pushes the
  * button's contents over, which made the mismatch look like a heading bug
  * rather than a cell one. Chrome reports `text-align: left` on the price cell
- * of every row. 12.254.
+ * of every row. 12.256.
  */
 .table td.numeric,
 .numeric {

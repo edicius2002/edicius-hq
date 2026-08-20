@@ -101,7 +101,7 @@ describe('FlightTable', () => {
   });
 
   it('names the panel and the departure on the filter row, not on a line above it', () => {
-    // 12.255. The middot is the separator the watchlist row already uses
+    // 12.257. The middot is the separator the watchlist row already uses
     // between a pair and its month, and it is `aria-hidden` because a screen
     // reader announcing "middle dot" between a name and a date is noise.
     render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
@@ -195,7 +195,7 @@ describe('FlightTable', () => {
 
   it('cuts a carrier name too long for the row, and keeps the whole one within reach', async () => {
     /*
-     * 12.256. A select is as wide as its widest option, so `Aerolineas
+     * 12.258. A select is as wide as its widest option, so `Aerolineas
      * Argentinas` — 19 of the archive's 1275 offers — was setting 251px of a
      * row with 1099 to spend. The cut is marked, because a silently clipped
      * name is one the reader has no reason to doubt, and the whole name is
@@ -308,7 +308,7 @@ describe('FlightTable', () => {
   });
 
   it('prints a measured nought for a fare that held, and a dash for one nobody has compared', () => {
-    // 12.252. Two looks at the same price is a fact about the price; one look
+    // 12.254. Two looks at the same price is a fact about the price; one look
     // is a fact about how often we have looked, and the column must not read
     // the second as the first.
     render(

@@ -107,7 +107,7 @@ export function windowLabel(period: ObservationWindow | null): string {
  * Every row falls in exactly one category.
  *
  * `first` is "we have looked at this flight once, so there is nothing to
- * compare its price against" — 12.252. It was called `new` and it read as a
+ * compare its price against" — 12.254. It was called `new` and it read as a
  * claim about the board rather than about the archive; a route collected for
  * the first time this morning has not just gained 103 flights, it has been
  * watched once.
@@ -124,7 +124,7 @@ export const CHANGE_ORDER: ChangeCategory[] = ['rose', 'fell', 'unchanged', 'fir
  * `gone` is four letters rather than "Off the board" because it shares a
  * column with `+12.3%`: thirteen monospace characters set the width of a
  * column whose widest number is seven, and a table 52px wider is 52px closer
- * to the sideways scrollbar this page is not allowed to have — 12.254.
+ * to the sideways scrollbar this page is not allowed to have — 12.256.
  */
 export const CHANGE_LABELS: Record<ChangeCategory, string> = {
   rose: 'Rose',
@@ -281,7 +281,7 @@ export type TimeBand = 'night' | 'morning' | 'afternoon' | 'evening';
  * flights rather than as a filter. Only the bands that hold a flight are ever
  * offered.
  *
- * Labelled by the hours alone since 12.253, where it used to read `Afternoon
+ * Labelled by the hours alone since 12.255, where it used to read `Afternoon
  * 12–17`. Fifteen monospace characters made this the widest control on the
  * filter row and the reason the row could not hold every filter at once; five
  * characters fit, and they are the half that cannot be misread — a reader who
@@ -582,7 +582,7 @@ export type SummaryFacts = {
  * stretch of watching this is, and how much of it the filters took.
  *
  * Where in the pages the reader is used to be a third sentence here, and it is
- * gone with 12.251 — the pager under the table has said `Page 1 of 2` beside
+ * gone with 12.253 — the pager under the table has said `Page 1 of 2` beside
  * its own buttons all along, and one page number is enough. It is the pager's
  * because that is where a reader who wants a different page is looking.
  */

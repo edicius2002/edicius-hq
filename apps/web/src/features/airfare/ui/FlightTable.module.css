@@ -5,6 +5,52 @@
 }
 
 /*
+ * The heading, the departure and every filter on one line — 12.255.
+ *
+ * `align-items: end` rather than `center`, so the heading sits on the same
+ * baseline as the text inside the controls rather than floating in the middle
+ * of taller boxes beside it.
+ *
+ * `wrap`, and measured before being chosen. At the panel's real 1099px the
+ * heading is 273px and the six controls 962, so the line is 146px short — 224
+ * with the clear button showing — and it does not fit. `nowrap` here would
+ * keep the heading company by shrinking `.filters` until a control fell to a
+ * second line, and that is the *worse* answer: a wrapped filter row costs 66px
+ * where the heading's own line costs 33, so forcing the issue makes the panel
+ * **taller**, 137px against 104. So the bar keeps the heading on its own line
+ * until there is genuinely room for both, and becomes the single row the owner
+ * asked for from a 1245px panel up (1323 with the clear button). Flexbox
+ * decides line breaks on hypothetical sizes before it shrinks anything, which
+ * is why this reads as one property and not as a fallback.
+ */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+/*
+ * Was `AirfarePage`'s `.panelTitle`, and the same size and weight so the panel
+ * still reads as one of the set. `nowrap` because a heading that breaks
+ * between "Flights" and "seen" to save 40px has not saved anything.
+ */
+.title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+/* The separator the watchlist row already uses between a pair and its month,
+   so the two headings on this page punctuate the same way. */
+.dot {
+  margin: 0 0.45em;
+  opacity: 0.6;
+}
+
+/*
  * Every filter on one row — 12.250.
  *
  * A flex row of content-sized controls rather than the equal-width grid it
@@ -32,6 +78,10 @@
 .filters {
   display: flex;
   flex-wrap: wrap;
+  /* Allowed to shrink under its own content so the heading beside it is not
+     pushed onto a line of its own the moment the six controls stop fitting. */
+  flex: 0 1 auto;
+  min-width: 0;
   /* 10px between controls rather than 15: the six gaps at 15 cost 90px, and
      the 30 saved are the difference between the row holding together down to
      a 1041px panel and only down to 1071. The label above each control already

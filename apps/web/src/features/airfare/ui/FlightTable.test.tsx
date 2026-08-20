@@ -71,7 +71,7 @@ function pagerText(): string {
 
 describe('FlightTable', () => {
   it('shows each itinerary with its airline, departure time and stops', () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 
     const rows = bodyRows();
     expect(rows).toHaveLength(2);
@@ -93,8 +93,34 @@ describe('FlightTable', () => {
   });
 
   it('says so when the latest observation is empty', () => {
-    render(<FlightTable snapshots={[]} granularity="day" />);
+    render(<FlightTable snapshots={[]} granularity="day" departure="09/03/2027" />);
     expect(screen.getByText(/No itineraries/i)).toBeInTheDocument();
+    // A panel whose heading disappears with its data reads as a panel that
+    // lost its name, so the heading is outside the early return.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Flights seen');
+  });
+
+  it('names the panel and the departure on the filter row, not on a line above it', () => {
+    // 12.255. The middot is the separator the watchlist row already uses
+    // between a pair and its month, and it is `aria-hidden` because a screen
+    // reader announcing "middle dot" between a name and a date is noise.
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).toHaveAccessibleName('Flights seen 09/03/2027');
+    expect(heading.textContent).toBe('Flights seen·09/03/2027');
+
+    // Heading and controls are siblings on one row: the group a screen reader
+    // hears as "Filter flights" must not claim the heading as one of its
+    // controls.
+    const filters = screen.getByRole('group', { name: 'Filter flights' });
+    expect(filters).not.toContainElement(heading);
+    expect(heading.parentElement).toBe(filters.parentElement);
+  });
+
+  it('says only what it knows when no route is selected', () => {
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure={null} />);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Flights seen');
   });
 
   it('states the stretch of watching the rows come from', () => {
@@ -104,6 +130,7 @@ describe('FlightTable', () => {
       <FlightTable
         snapshots={[SNAPSHOT, { ...SNAPSHOT, capturedAt: '2026-08-18T12:00:00+00:00' }]}
         granularity="week"
+        departure="09/03/2027"
       />,
     );
     expect(
@@ -119,6 +146,7 @@ describe('FlightTable', () => {
           { ...SNAPSHOT, capturedAt: '2026-08-18T12:00:00+00:00', offers: [SNAPSHOT.offers[0]] },
         ]}
         granularity="day"
+        departure="09/03/2027"
       />,
     );
 
@@ -129,7 +157,7 @@ describe('FlightTable', () => {
   });
 
   it('marks every column as sortable and says which one is in force', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 
     const headers = screen.getAllByRole('columnheader');
     expect(headers.map((header) => header.getAttribute('aria-sort'))).toEqual([
@@ -156,7 +184,7 @@ describe('FlightTable', () => {
   });
 
   it('offers only the airlines that are actually on this board', () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
     const options = within(screen.getByLabelText('Airline'))
       .getAllByRole('option')
       .map((option) => option.textContent);
@@ -166,7 +194,7 @@ describe('FlightTable', () => {
   });
 
   it('says how many rows a filter took away, rather than reporting the rest as the board', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 
     await userEvent.selectOptions(screen.getByLabelText('Airline'), 'AV');
     expect(bodyRows()).toHaveLength(1);
@@ -174,7 +202,7 @@ describe('FlightTable', () => {
   });
 
   it('pages ten at a time and reaches the rest with a labelled control', async () => {
-    render(<FlightTable snapshots={[crowded(12)]} granularity="day" />);
+    render(<FlightTable snapshots={[crowded(12)]} granularity="day" departure="09/03/2027" />);
 
     expect(bodyRows()).toHaveLength(10);
     expect(pagerText()).toBe('Page 1 of 2');
@@ -186,7 +214,7 @@ describe('FlightTable', () => {
   });
 
   it('goes back to the first page when a filter changes, but not when the sort does', async () => {
-    render(<FlightTable snapshots={[crowded(12)]} granularity="day" />);
+    render(<FlightTable snapshots={[crowded(12)]} granularity="day" departure="09/03/2027" />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(pagerText()).toBe('Page 2 of 2');
@@ -205,16 +233,18 @@ describe('FlightTable', () => {
     // A new period is a different set of flights, so page two of the old one
     // is not a page of this one.
     const snapshots = [crowded(12)];
-    const { rerender } = render(<FlightTable snapshots={snapshots} granularity="day" />);
+    const { rerender } = render(
+      <FlightTable snapshots={snapshots} granularity="day" departure="09/03/2027" />,
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(pagerText()).toBe('Page 2 of 2');
 
-    rerender(<FlightTable snapshots={snapshots} granularity="month" />);
+    rerender(<FlightTable snapshots={snapshots} granularity="month" departure="09/03/2027" />);
     expect(pagerText()).toBe('Page 1 of 2');
   });
 
   it('clears every filter at once and says nothing is hidden any more', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 
     await userEvent.selectOptions(screen.getByLabelText('Airline'), 'AV');
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
@@ -223,7 +253,7 @@ describe('FlightTable', () => {
   });
 
   it('asks for a price as one range with two ends, not as two filters', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 
     // One group, named once, holding both ends — and each end still answers to
     // its own name, so nothing that reads the page loses track of which is
@@ -257,6 +287,7 @@ describe('FlightTable', () => {
           },
         ]}
         granularity="day"
+        departure="09/03/2027"
       />,
     );
 
@@ -279,6 +310,7 @@ describe('FlightTable', () => {
           },
         ]}
         granularity="day"
+        departure="09/03/2027"
       />,
     );
 
@@ -292,7 +324,7 @@ describe('FlightTable', () => {
   });
 
   it('says the filters emptied the table rather than showing a bare header', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 
     await userEvent.type(screen.getByLabelText('Min price'), '999');
     expect(bodyRows()).toHaveLength(0);

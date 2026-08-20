@@ -14,6 +14,8 @@ import base64
 import json
 import logging
 import time
+from datetime import datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import httpx
@@ -328,6 +330,230 @@ def test_a_best_departing_block_google_did_not_send_is_not_drift():
     payload = read_payload("google_flights_lim_mad_payload.json")
     payload[google_flights._BEST_BLOCK] = None
     assert len(google_flights.parse_payload(payload, "USD")) == 4
+
+
+# --- what the flight table's own columns claim ------------------------------
+#
+# `google_flights_lim_scl_connecting_payload.json` is the board LIM-SCL really
+# answered with for 2027-01-21, captured because the archive's worst duration
+# was on it and the earlier fixtures were all non-stop or all Madrid. LA 2127
+# changes plane at Cusco, which is the case both of these columns got wrong.
+
+CONNECTING = "google_flights_lim_scl_connecting_payload.json"
+
+
+def every_captured_board():
+    """Each captured search board, however it was stored, as `(name, payload)`."""
+    page = "google_flights_lim_scl.html"
+    yield page, google_flights.extract_payload(read_fixture(page))
+    for name in ("google_flights_lim_mad_payload.json", "google_flights_lim_cuz_payload.json"):
+        yield name, read_payload(name)
+    yield CONNECTING, read_payload(CONNECTING)
+
+
+def only(offers, airline, number):
+    found = [o for o in offers if o.airline == airline and o.flight_number == number]
+    assert len(found) == 1, f"{airline} {number}: {len(found)} offers"
+    return found[0]
+
+
+def test_a_connection_is_timed_from_the_gate_it_leaves_to_the_gate_it_arrives_at():
+    """
+    The defect, on the itinerary the audit found it on.
+
+    LA 2127 leaves Lima at 07:10, sits at Cusco for 175 minutes and reaches
+    Santiago at 16:45. Summing the legs made that 280 minutes, "4h 40m", and put
+    it above the 205-minute LA 2697 non-stop in a column headed "Duration" — a
+    reader sorting on it was handed a flight nearly three hours longer and told
+    it was shorter.
+    """
+    offers = google_flights.parse_payload(read_payload(CONNECTING), "USD")
+    connection = only(offers, "LA", "2127")
+    assert connection.transfers == 1
+    assert connection.duration_minutes == 455
+    assert connection.duration_minutes == 280 + 175  # in the air, then on the ground
+
+    non_stop = only(offers, "LA", "2697")
+    assert non_stop.duration_minutes == 205
+    assert connection.duration_minutes > non_stop.duration_minutes
+
+
+def test_a_non_stop_reads_the_same_under_either_definition_of_duration():
+    """
+    The half of the field that was never wrong must not move.
+
+    With no layover to include, the journey and the flying time are the same
+    number, and the 103 ARI-SCL rows in the archive are all of this shape.
+    """
+    scl = google_flights.parse_payload(
+        google_flights.extract_payload(read_fixture("google_flights_lim_scl.html")), "USD"
+    )
+    assert [o.transfers for o in scl] == [0, 0]
+    assert [o.duration_minutes for o in scl] == [215, 215]
+
+    for offer in google_flights.parse_payload(read_payload(CONNECTING), "USD"):
+        if offer.transfers == 0:
+            legs = _legs_of(read_payload(CONNECTING), offer.airline, offer.flight_number)
+            assert offer.duration_minutes == legs[0][google_flights._LEG_DURATION]
+
+
+def _legs_of(payload, airline, number):
+    for block in (google_flights._BEST_BLOCK, google_flights._ALL_BLOCK):
+        rows = payload[block][0] if isinstance(payload[block], list) else None
+        for row in rows or []:
+            flight = row[0]
+            marker = flight[2][0][google_flights._LEG_FLIGHT]
+            if flight[0] == airline and marker[1] == number:
+                return flight[2]
+    raise AssertionError(f"no {airline} {number} on this board")
+
+
+def test_the_journey_is_not_the_gap_between_two_local_clocks():
+    """
+    Why `arrival_at - departure_at` is not the fix it looks like.
+
+    Both stamps are wall clock at their own airport with no offset attached, so
+    subtracting them adds however far Santiago's clock is from Lima's. On LA
+    2127 that reads 07:10 to 16:45 as 575 minutes, "9h 35m" — the two-hour
+    January offset between Peru and Chile, on top of the real 455. Understating
+    by 175 and overstating by 120 are the same kind of mistake.
+
+    The layover is the one interval those stamps *can* measure, because a
+    connection lands and leaves at one airport and one clock, which is what the
+    parser's cross-check is built on.
+    """
+    connection = only(google_flights.parse_payload(read_payload(CONNECTING), "USD"), "LA", "2127")
+    naive = datetime.fromisoformat(connection.arrival_at) - datetime.fromisoformat(
+        connection.departure_at
+    )
+    assert naive == timedelta(minutes=575)
+    assert connection.duration_minutes == 455
+    assert naive - timedelta(minutes=connection.duration_minutes) == timedelta(hours=2)
+
+
+def test_every_captured_board_agrees_with_googles_own_journey_figure():
+    """
+    What identifies position 9 as the duration rather than as some other integer.
+
+    Across every itinerary in every capture, Google's stated total is exactly
+    the legs' flying time plus the ground between them. That identity is the
+    parser's runtime guard, so it is pinned here on the captures too — if a
+    board ever arrives where it does not hold, this fails before production
+    starts raising drift at a collection.
+    """
+
+    def at(leg, date, time):
+        return datetime.fromisoformat(google_flights._stamp(leg[date], leg[time]))
+
+    checked = 0
+    for name, payload in every_captured_board():
+        for block in (google_flights._BEST_BLOCK, google_flights._ALL_BLOCK):
+            rows = payload[block][0] if isinstance(payload[block], list) else None
+            for row in rows or []:
+                flight = row[0]
+                legs = flight[2]
+                air = sum(leg[google_flights._LEG_DURATION] for leg in legs)
+                ground = sum(
+                    int(
+                        (
+                            at(
+                                after,
+                                google_flights._LEG_DEPARTURE_DATE,
+                                google_flights._LEG_DEPARTURE_TIME,
+                            )
+                            - at(
+                                before,
+                                google_flights._LEG_ARRIVAL_DATE,
+                                google_flights._LEG_ARRIVAL_TIME,
+                            )
+                        ).total_seconds()
+                        // 60
+                    )
+                    for before, after in pairwise(legs)
+                )
+                assert flight[google_flights._ITINERARY_DURATION] == air + ground, name
+                checked += 1
+    assert checked == 68
+
+
+def test_a_duration_that_disagrees_with_its_own_legs_is_drift():
+    """
+    Position 9 renumbering into another plausible integer is the failure this
+    parser cannot see any other way — a duration is not absurd on its face.
+    """
+    payload = read_payload(CONNECTING)
+    for block in (google_flights._BEST_BLOCK, google_flights._ALL_BLOCK):
+        for row in payload[block][0]:
+            row[0][google_flights._ITINERARY_DURATION] = 1
+
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "parse-drift"
+    assert "minutes" in caught.value.message
+
+
+def test_a_board_that_prices_no_journey_at_all_is_drift_rather_than_a_blank_column():
+    """
+    Decision 12.4 for the case where position 9 stops holding an integer: every
+    duration reads `None`, every other field still parses, and the collection
+    would be archived as healthy with an empty column.
+    """
+    payload = read_payload(CONNECTING)
+    for block in (google_flights._BEST_BLOCK, google_flights._ALL_BLOCK):
+        for row in payload[block][0]:
+            row[0][google_flights._ITINERARY_DURATION] = None
+
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "parse-drift"
+    assert "duration" in caught.value.message
+
+
+def test_legs_that_do_not_span_the_itinerary_are_drift_and_never_direct():
+    """
+    The second defect, measured rather than argued.
+
+    Truncating LA 2127 to its Lima-Cusco leg leaves a payload that parses
+    perfectly: one leg, so `transfers` was 0, and an arrival time that looked
+    right because it was Cusco's. "Direct" is the strongest claim this table
+    makes and it was the parser's default for a leg list it could not check.
+    """
+    payload = read_payload(CONNECTING)
+    for row in payload[google_flights._ALL_BLOCK][0]:
+        if row[0][2][0][google_flights._LEG_FLIGHT][1] == "2127":
+            row[0][2] = row[0][2][:1]
+
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "parse-drift"
+    assert "LIM-SCL" in caught.value.message
+
+
+def test_a_leg_missing_from_the_middle_of_a_chain_is_drift():
+    """
+    Spanning the endpoints is not enough on its own: legs that start at Lima and
+    finish at Madrid still have to join, or one of them was dropped and the stop
+    count is short by however many.
+    """
+    payload = read_payload("google_flights_lim_mad_payload.json")
+    row = next(r for r in payload[google_flights._BEST_BLOCK][0] if len(r[0][2]) == 2)
+    row[0][2][0][google_flights._LEG_DESTINATION] = "GRU"
+
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "parse-drift"
+
+
+def test_an_itinerary_whose_airports_cannot_be_read_is_dropped_not_counted():
+    """
+    Unreadable and contradictory are different. A row we cannot make sense of is
+    one bad row, which the board survives; a row that reads clearly and disagrees
+    with itself is the layout having moved, which it does not.
+    """
+    payload = read_payload(CONNECTING)
+    before = len(google_flights.parse_payload(payload, "USD"))
+    payload[google_flights._ALL_BLOCK][0][0][0][google_flights._ITINERARY_ORIGIN] = None
+    assert len(google_flights.parse_payload(payload, "USD")) == before - 1
 
 
 # --- the archive -----------------------------------------------------------

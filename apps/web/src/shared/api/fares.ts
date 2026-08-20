@@ -8,11 +8,16 @@ import { apiRequest } from '@/shared/api/http';
 
 /**
  * A live search paces itself against an upstream that is neither documented nor
- * fast, and a collect call sleeps between routes on purpose. The default 5s
- * deadline would abort both while the server was still working.
+ * fast, so the default 5s deadline would abort it while the server was still
+ * working.
+ *
+ * There was a five-minute companion to this for `/collect`, and it is gone with
+ * 12.210 — that deadline was what decided how much of a watchlist one press
+ * could cover, because forty paced requests was as much as would fit inside it.
+ * A press that starts a pass and returns needs no more patience than any other
+ * call.
  */
 const FARES_TIMEOUT_MS = 20_000;
-const COLLECT_TIMEOUT_MS = 300_000;
 
 export type FareOffer = {
   /** Marketing carrier, IATA. */
@@ -194,16 +199,50 @@ export type SkippedRoute = {
   reason: string;
 };
 
+/**
+ * How far a collection pass has got — 12.210.
+ *
+ * `idle` is a machine that has never collected, which is an ordinary state and
+ * not a failure. `failed` is the pass itself falling over; a route the provider
+ * refused is not that, and travels in `results` with its own reason.
+ */
+export type CollectState = 'idle' | 'running' | 'finished' | 'failed';
+
+/**
+ * A collection pass, finished or not — 12.210.
+ *
+ * One shape answers both the press that starts a pass and every poll that
+ * follows it, which is why `describeCollection` can stay the function it was:
+ * `results` and `skipped` mean exactly what they always meant, and the fields
+ * above them describe a pass that is still going.
+ */
 export type CollectResponse = {
-  startedAt: string;
-  finishedAt: string;
+  state: CollectState;
+  /** Null only while `state` is `idle`. */
+  startedAt: string | null;
+  /** Null until the pass ends. */
+  finishedAt: string | null;
   source: string;
+  /**
+   * What this pass covers, as `ARI-SCL 2027-03`. A press whose own route is
+   * missing from here met a pass that was already running and was answered
+   * with that one rather than served with its own — the row has no other way
+   * to tell, and a row that reported somebody else's pass as its own would be
+   * the quietest possible lie.
+   */
+  watching: string[];
+  /** How many departures the pass means to poll. Null until the plan is settled. */
+  polling: number | null;
+  /** How many have come back so far. */
+  completed: number;
   collected: number;
   changed: number;
   failed: number;
   results: CollectRouteResult[];
   /** Departures deliberately not polled, and why. */
   skipped: SkippedRoute[];
+  /** Why the pass fell over, when it did. */
+  error: string | null;
 };
 
 /** One watched route as `POST /collect` takes it: a city pair and a month. */
@@ -334,6 +373,13 @@ export function searchFares(
   });
 }
 
+/**
+ * Start a collection pass. Answers as soon as it has started — 12.210.
+ *
+ * The ordinary request deadline is right for this again: the call no longer
+ * waits for minutes of paced upstream requests, it waits for a task to be
+ * created. `fetchCollectionProgress` is where the rest of the pass is.
+ */
 export function collectFares(
   routes: RouteRequest[],
   options: { signal?: AbortSignal } = {},
@@ -342,6 +388,12 @@ export function collectFares(
     method: 'POST',
     body: { routes },
     signal: options.signal,
-    timeoutMs: COLLECT_TIMEOUT_MS,
   });
+}
+
+/** How the current pass is getting on, or how the last one ended — 12.210. */
+export function fetchCollectionProgress(
+  options: { signal?: AbortSignal } = {},
+): Promise<CollectResponse> {
+  return apiRequest<CollectResponse>('/api/fares/collect', { signal: options.signal });
 }

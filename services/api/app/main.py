@@ -10,6 +10,7 @@ from app.config import CORS_ORIGINS, kv_dir
 from app.routers import fares, geography, health, kv, market
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
+from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
 from app.services.stream_hub import HUB
 
@@ -36,6 +37,10 @@ async def lifespan(_app: FastAPI):
     yield
     logger.info("api stopping")
     await HUB.stop()
+    # Before the clients, not after: a collection pass runs on the shared fares
+    # client, and closing that first would have the pass die on a socket that
+    # vanished rather than on being asked to stop — 12.210.
+    await RUNNER.aclose()
     # The shared upstream clients outlive a request but not the process.
     await close_client()
     await close_fares_client()

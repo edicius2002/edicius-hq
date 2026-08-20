@@ -1,13 +1,24 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import {
   describeCollection,
+  describeProgress,
   describeRefusal,
   type RowReport,
 } from '@/features/airfare/lib/rowReport';
-import { collectFares, type CollectResponse } from '@/shared/api/fares';
+import { collectFares, fetchCollectionProgress, type CollectResponse } from '@/shared/api/fares';
+
+/**
+ * How often a running pass is asked how it is getting on.
+ *
+ * Two seconds against a pass whose own requests are three apart, so the row
+ * never sits on a figure that is more than one departure stale. The call reads
+ * state the API already holds in memory and reaches no upstream, which is what
+ * makes polling the cheap half of this arrangement.
+ */
+const PROGRESS_POLL_MS = 2_000;
 
 /**
  * Collecting one watched route on its own, from the row it sits on.
@@ -21,6 +32,21 @@ import { collectFares, type CollectResponse } from '@/shared/api/fares';
  * every departure that has news in it and declines the rest. What it declined
  * comes back in `skipped` and the row says so, which is why `describeCollection`
  * has always had that branch.
+ *
+ * **A press starts a pass and then watches it** — 12.210. The call used to
+ * hold the connection open for the whole collection, and the browser's own
+ * five-minute deadline was therefore what decided how much of a watchlist one
+ * press could cover: the server capped a pass at forty requests because forty
+ * paced requests was what fitted. The owner's two watched months expand to
+ * sixty-two departures, so a full refresh took two presses with a person in
+ * between. Now the press returns as soon as the pass has started and this
+ * polls `GET /api/fares/collect` until it stops running, so the row reports a
+ * pass it is watching rather than one it is blocking on, and nothing bounds a
+ * pass except the request budget.
+ *
+ * The invalidation moved with it. Refreshing the archive's queries at the
+ * moment the press returns would now refetch exactly what is already on
+ * screen, so it happens when the pass ends.
  *
  * **One mutation, many rows.** A hook cannot be called in a loop, so per-row
  * state lives here as two collections keyed by `routeId`: which presses are in
@@ -50,6 +76,17 @@ export function useRouteCollection(): RouteCollection {
   const [collecting, setCollecting] = useState<readonly string[]>([]);
   const [reports, setReports] = useState<ReadonlyMap<string, RowReport>>(() => new Map());
   const inFlight = useRef<Set<string>>(new Set());
+  // The poll outlives the render that started it, so it has to be able to find
+  // out that the page has gone. Without this, a pass left running while the
+  // reader navigates away sets state on an unmounted tree every two seconds
+  // until it finishes.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const write = useCallback((id: string, report: RowReport | null) => {
     setReports((current) => {
@@ -59,6 +96,48 @@ export function useRouteCollection(): RouteCollection {
       return next;
     });
   }, []);
+
+  const release = useCallback((id: string) => {
+    inFlight.current.delete(id);
+    setCollecting((current) => current.filter((other) => other !== id));
+  }, []);
+
+  /**
+   * Watch a pass the press has already started, until it stops running.
+   *
+   * The refresh happens here rather than in `onSuccess` for the reason the
+   * whole change exists — 12.210: the press now returns before a single
+   * departure has been collected, so invalidating the archive's queries at
+   * that moment would refetch exactly what was already on screen.
+   */
+  const watch = useCallback(
+    async (route: FareRoute) => {
+      const id = routeId(route);
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, PROGRESS_POLL_MS));
+        if (!mounted.current) return;
+        let progress: CollectResponse;
+        try {
+          progress = await fetchCollectionProgress();
+        } catch (error) {
+          write(id, describeRefusal(error instanceof Error ? error.message : String(error)));
+          release(id);
+          return;
+        }
+        if (!mounted.current) return;
+        if (progress.state === 'running') {
+          write(id, describeProgress(route, progress));
+          continue;
+        }
+        write(id, describeCollection(route, progress));
+        release(id);
+        void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
+        void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+        return;
+      }
+    },
+    [queryClient, release, write],
+  );
 
   // Only `mutate` is taken off the result: the object React Query returns is
   // new on every render, so closing over it would rebuild `collect` every
@@ -70,27 +149,34 @@ export function useRouteCollection(): RouteCollection {
           origin: route.origin,
           destination: route.destination,
           month: route.month,
-          // A press buys up to thirty-one departures against a forty-request
-          // ceiling, so a two-month press can already truncate. The focused
-          // day is what the pass keeps first when it does (12.134).
+          // A press buys up to thirty-one departures, and a pass can still
+          // truncate — not at forty any more (12.210 removed that), but at
+          // the request budget. The focused day is what the pass keeps first
+          // when it does (12.134).
           ...(route.focusDate ? { focusDate: route.focusDate } : {}),
           currency: route.currency,
         },
       ]),
-    // The archive grew for this route, and the airport table may have learned
-    // where a brand-new destination is. Both queries are invalidated wholesale
-    // rather than by route, the same as the whole-list pass does: the reader
-    // can switch rows in the time this takes to come back.
+    // The press only starts the pass — 12.210 — so this is where the watching
+    // begins rather than where the outcome is written. A pass that came back
+    // already finished (nothing was due, or somebody else's pass was handed
+    // over) is done here and never polls.
     onSuccess: (data, route) => {
-      write(routeId(route), describeCollection(route, data));
-      void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
-      void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
-    },
-    onError: (error, route) => write(routeId(route), describeRefusal(error.message)),
-    onSettled: (_data, _error, route) => {
       const id = routeId(route);
-      inFlight.current.delete(id);
-      setCollecting((current) => current.filter((other) => other !== id));
+      if (data.state !== 'running') {
+        write(id, describeCollection(route, data));
+        release(id);
+        void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
+        void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+        return;
+      }
+      write(id, describeProgress(route, data));
+      void watch(route);
+    },
+    onError: (error, route) => {
+      const id = routeId(route);
+      write(id, describeRefusal(error.message));
+      release(id);
     },
   });
 

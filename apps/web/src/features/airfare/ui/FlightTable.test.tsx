@@ -160,7 +160,9 @@ describe('FlightTable', () => {
     const options = within(screen.getByLabelText('Airline'))
       .getAllByRole('option')
       .map((option) => option.textContent);
-    expect(options).toEqual(['All airlines', 'Avianca', 'LATAM']);
+    // One word for "no constraint", the same in every select on the row: the
+    // label above already says which constraint is being lifted.
+    expect(options).toEqual(['Any', 'Avianca', 'LATAM']);
   });
 
   it('says how many rows a filter took away, rather than reporting the rest as the board', async () => {
@@ -218,6 +220,75 @@ describe('FlightTable', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(bodyRows()).toHaveLength(2);
     expect(screen.queryByText(/hidden by filters/)).not.toBeInTheDocument();
+  });
+
+  it('asks for a price as one range with two ends, not as two filters', async () => {
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" />);
+
+    // One group, named once, holding both ends — and each end still answers to
+    // its own name, so nothing that reads the page loses track of which is
+    // which.
+    const range = screen.getByRole('group', { name: 'Price' });
+    expect(within(range).getByLabelText('Min price')).toBeInTheDocument();
+    expect(within(range).getByLabelText('Max price')).toBeInTheDocument();
+
+    // The two ends of the board are the two placeholders, which is where the
+    // sentence that used to say "the board runs $125.00 to $291.00" went.
+    expect(within(range).getByLabelText('Min price')).toHaveAttribute('placeholder', '125');
+    expect(within(range).getByLabelText('Max price')).toHaveAttribute('placeholder', '291');
+    expect(screen.queryByText(/The board runs/)).not.toBeInTheDocument();
+
+    await userEvent.type(within(range).getByLabelText('Min price'), '200');
+    expect(bodyRows()).toHaveLength(1);
+  });
+
+  it('prints a measured nought for a fare that held, and a dash for one nobody has compared', () => {
+    // 12.252. Two looks at the same price is a fact about the price; one look
+    // is a fact about how often we have looked, and the column must not read
+    // the second as the first.
+    render(
+      <FlightTable
+        snapshots={[
+          SNAPSHOT,
+          {
+            ...SNAPSHOT,
+            capturedAt: '2026-08-18T12:00:00+00:00',
+            offers: [SNAPSHOT.offers[0], { ...SNAPSHOT.offers[1], flightNumber: '999' }],
+          },
+        ]}
+        granularity="day"
+      />,
+    );
+
+    const held = bodyRows().find((row) => within(row).queryByText('LA 529'))!;
+    expect(within(held).getByText('0.0%')).toBeInTheDocument();
+
+    const once = bodyRows().find((row) => within(row).queryByText('AV 999'))!;
+    expect(within(once).getByText('—')).toBeInTheDocument();
+  });
+
+  it('says a flight has gone in the change column rather than leaving it blank', async () => {
+    render(
+      <FlightTable
+        snapshots={[
+          SNAPSHOT,
+          {
+            ...SNAPSHOT,
+            capturedAt: '2026-08-17T21:00:00+00:00',
+            offers: [SNAPSHOT.offers[0]],
+          },
+        ]}
+        granularity="day"
+      />,
+    );
+
+    const left = bodyRows().find((row) => within(row).queryByText('AV 812'))!;
+    expect(within(left).getByText('Gone')).toBeInTheDocument();
+
+    // And the filter keeps exactly the row the column labelled.
+    await userEvent.selectOptions(screen.getByLabelText('Change'), 'gone');
+    expect(bodyRows()).toHaveLength(1);
+    expect(within(bodyRows()[0]).getByText('AV 812')).toBeInTheDocument();
   });
 
   it('says the filters emptied the table rather than showing a bare header', async () => {

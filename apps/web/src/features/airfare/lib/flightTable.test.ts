@@ -15,6 +15,7 @@ import {
   tableRows,
   tableSummary,
   windowLabel,
+  type ChangeCategory,
   type FlightRow,
 } from '@/features/airfare/lib/flightTable';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
@@ -167,6 +168,26 @@ describe('tableRows', () => {
     expect(tracked).toBe(2);
   });
 
+  it('will not call a flight it has seen once a flight whose price did not move', () => {
+    /*
+     * The regression 12.252 exists for, and it needs a poll that spans more
+     * than one departure to show itself: a watched month is collected one day
+     * at a time, so the newest `capturedAt` on the route belongs to whichever
+     * departure the pass happened to reach last. The old rule asked whether a
+     * flight's first observation carried that stamp, which made "we have only
+     * looked at this once" true for the last departure polled and false for
+     * every other one — on the real ARI-SCL archive, 101 of 103 flights seen
+     * exactly once were reported as "Unchanged".
+     */
+    const early = { ...snapshot('2026-08-19T14:41:41+00:00', [MORNING]), flightDate: '2027-03-01' };
+    const late = { ...snapshot('2026-08-19T14:45:01+00:00', [EVENING]), flightDate: '2027-03-02' };
+
+    const { rows } = tableRows([early, late], 'day');
+
+    expect(rows.map((row) => row.category)).toEqual(['first', 'first']);
+    expect(rows.every((row) => row.change === null)).toBe(true);
+  });
+
   it('keeps a fare that has sat unmoved all week on the newest day of the board', () => {
     /*
      * The regression this exists for: `trackFlights` records a price only when
@@ -187,6 +208,9 @@ describe('tableRows', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].track.observations).toHaveLength(1);
     expect(rows[0].category).toBe('unchanged');
+    // Three looks at $125 is a measurement, so it prints as one rather than as
+    // the dash a flight nobody has compared gets.
+    expect(rows[0].change).toBe(0);
   });
 
   it('measures the change against the whole archive, not against the period', () => {
@@ -218,7 +242,7 @@ describe('tableRows', () => {
     );
 
     const categories = Object.fromEntries(rows.map((row) => [row.track.airline, row.category]));
-    expect(categories).toEqual({ LA: 'unchanged', AV: 'new' });
+    expect(categories).toEqual({ LA: 'unchanged', AV: 'first' });
   });
 
   it('keeps a flight that has left the board, and says that is what happened', () => {
@@ -233,6 +257,10 @@ describe('tableRows', () => {
     const gone = rows.find((row) => row.track.airline === 'AV');
     expect(gone?.category).toBe('gone');
     expect(gone?.track.present).toBe(false);
+    // No percentage for a flight that is not on offer: the column asks what a
+    // fare has done since the last look, and this one is not there to have
+    // done anything.
+    expect(gone?.change).toBeNull();
   });
 });
 
@@ -307,8 +335,34 @@ describe('filterRows', () => {
   });
 
   it('filters by what a flight did, in words', () => {
-    expect(filterRows(rows, { ...NO_FILTERS, change: 'new' })).toHaveLength(2);
+    expect(filterRows(rows, { ...NO_FILTERS, change: 'first' })).toHaveLength(2);
     expect(filterRows(rows, { ...NO_FILTERS, change: 'rose' })).toHaveLength(0);
+  });
+
+  it('selects exactly the rows whose Change cell shows what the filter says', () => {
+    /*
+     * The filter and the column have to be the same claim, or one of them is
+     * lying. Four flights, one of each thing that can happen, and every
+     * category picks out its own row and no other.
+     */
+    const held = offer({ flightNumber: '600', departureAt: '2026-10-16T06:00', price: 200 });
+    const left = offer({ flightNumber: '700', departureAt: '2026-10-16T07:00', price: 300 });
+    const mixed = tableRows(
+      [
+        snapshot('2026-08-18T09:00:00+00:00', [MORNING, held, left]),
+        snapshot('2026-08-18T21:00:00+00:00', [offer({ ...MORNING, price: 150 }), held, EVENING]),
+      ],
+      'day',
+    ).rows;
+
+    const picked = (change: ChangeCategory) =>
+      filterRows(mixed, { ...NO_FILTERS, change }).map((row) => row.track.flightNumber);
+    expect(picked('rose')).toEqual(['529']);
+    expect(picked('unchanged')).toEqual(['600']);
+    expect(picked('first')).toEqual(['812']);
+    expect(picked('gone')).toEqual(['700']);
+    expect(picked('fell')).toEqual([]);
+    expect(mixed).toHaveLength(4);
   });
 });
 
@@ -357,9 +411,10 @@ describe('sortRows', () => {
 
   it('puts the rows with nothing to say last, whichever way the column points', () => {
     /*
-     * Every one of these has never moved, so every change is null. Descending
-     * must not float a screen of em dashes to the top and call them the
-     * biggest movers.
+     * Three rows that have been measured — one that rose, one that held at
+     * zero — and one nobody has compared at all. Descending must not float the
+     * em dash to the top and call it the biggest mover; only the row with no
+     * number goes to the bottom, and it goes there both ways.
      */
     const mixed = tableRows(
       [
@@ -375,8 +430,9 @@ describe('sortRows', () => {
 
     for (const direction of ['asc', 'desc'] as const) {
       const sorted = sortRows(mixed, { column: 'change', direction });
-      expect(sorted[0].change).not.toBeNull();
-      expect(sorted.slice(1).every((row) => row.change === null)).toBe(true);
+      expect(sorted.slice(0, 2).every((row) => row.change !== null)).toBe(true);
+      expect(sorted.at(-1)?.change).toBeNull();
+      expect(sorted.at(-1)?.category).toBe('first');
     }
   });
 
@@ -437,33 +493,27 @@ describe('tableSummary', () => {
   const period = { key: '2026-W34', from: '2026-08-17T00:00', to: '2026-08-23T23:59' };
 
   it('states the period, and how much of the archive it leaves out', () => {
-    expect(
-      tableSummary({ period, inPeriod: 13, shown: 13, tracked: 41, page: 1, pageCount: 2 }),
-    ).toBe(
-      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59, of 41 ever observed on this route. Page 1 of 2.',
+    expect(tableSummary({ period, inPeriod: 13, shown: 13, tracked: 41 })).toBe(
+      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59, of 41 ever observed on this route.',
     );
   });
 
   it('says what the filters took, because a filtered count reads as the board', () => {
-    expect(
-      tableSummary({ period, inPeriod: 13, shown: 3, tracked: 13, page: 1, pageCount: 1 }),
-    ).toBe(
-      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59. 3 shown, 10 hidden by filters.' +
-        ' Page 1 of 1.',
+    expect(tableSummary({ period, inPeriod: 13, shown: 3, tracked: 13 })).toBe(
+      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59. 3 shown, 10 hidden by filters.',
     );
   });
 
   it('says nothing about an archive it is already showing all of', () => {
-    const summary = tableSummary({
-      period,
-      inPeriod: 1,
-      shown: 1,
-      tracked: 1,
-      page: 1,
-      pageCount: 1,
-    });
-    expect(summary).toBe(
-      '1 flight seen between 17/08/2026 00:00 and 23/08/2026 23:59. Page 1 of 1.',
+    expect(tableSummary({ period, inPeriod: 1, shown: 1, tracked: 1 })).toBe(
+      '1 flight seen between 17/08/2026 00:00 and 23/08/2026 23:59.',
     );
+  });
+
+  it('leaves the page number to the pager, which has always printed one too', () => {
+    // 12.251: the caption said `Page 1 of 2` and so did the control beside the
+    // next-page button, three lines apart. One page number, in the place a
+    // reader who wants a different page is already looking.
+    expect(tableSummary({ period, inPeriod: 13, shown: 13, tracked: 13 })).not.toMatch(/Page/);
   });
 });

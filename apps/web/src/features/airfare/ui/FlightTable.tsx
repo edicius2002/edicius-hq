@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 
 import type { Granularity } from '@/features/airfare/lib/buckets';
 import {
@@ -53,9 +53,10 @@ const COLUMNS: { column: SortColumn; label: string; numeric?: boolean }[] = [
 /**
  * How a flight's price has moved since it was last something else.
  *
- * An em dash rather than `0%` when a flight has only ever been seen at one
- * price: "has not moved" and "has only been observed once" are different
- * facts, and printing 0% would claim a steadiness nobody watched.
+ * An em dash rather than `0%` when nothing has been compared: "has not moved"
+ * and "has only been observed once" are different facts, and printing 0% would
+ * claim a steadiness nobody watched. The row that *has* been watched twice and
+ * held its price gets the `0.0%`, because that one is a measurement — 12.252.
  */
 function moveLabel(change: number | null): string {
   if (change === null) return '—';
@@ -143,8 +144,18 @@ function FlightRowCells({ row }: { row: FlightRow }) {
       <td>{stopsLabel(track.transfers)}</td>
       <td>{formatDuration(track.durationMinutes)}</td>
       <td className={styles.numeric}>{formatMoney(track.price, track.currency)}</td>
-      <td className={`${styles.numeric} ${moveClass(row.change) ?? ''}`.trim()}>
-        {track.present ? moveLabel(row.change) : CHANGE_LABELS.gone.toLowerCase()}
+      {/*
+        A flight that has left the board says so in this column rather than
+        showing a dash, because "it is not offered any more" is an answer to
+        "what has this fare done" and a dash is the answer for a fare nobody
+        has compared yet — 12.254. The word is set as a word: the column is
+        tabular numerals for the percentages, and lining a lower-case `Gone`
+        up on a decimal point would be a figure that is not a figure.
+      */}
+      <td
+        className={`${styles.numeric} ${row.category === 'gone' ? styles.word : ''} ${moveClass(row.change) ?? ''}`.trim()}
+      >
+        {row.category === 'gone' ? CHANGE_LABELS.gone : moveLabel(row.change)}
       </td>
     </>
   );
@@ -167,6 +178,7 @@ function FlightRowCells({ row }: { row: FlightRow }) {
  * different depending on which airline was selected.
  */
 export function FlightTable({ snapshots, granularity }: FlightTableProps) {
+  const priceLabelId = useId();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const [page, setPage] = useState(1);
@@ -202,46 +214,69 @@ export function FlightTable({ snapshots, granularity }: FlightTableProps) {
     return <p className={styles.empty}>No itineraries observed yet.</p>;
   }
 
-  const currency = rows[0]?.track.currency ?? 'USD';
   const summary = tableSummary({
     period,
     inPeriod: rows.length,
     shown: visible.length,
     tracked,
-    page: slice.page,
-    pageCount: slice.pageCount,
   });
 
   return (
     <div className={styles.wrap}>
       <div className={styles.filters} role="group" aria-label="Filter flights">
-        <label className={styles.filter}>
-          <span>Min price</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={filters.minPrice ?? ''}
-            placeholder={facets.price ? String(Math.floor(facets.price.low)) : ''}
-            onChange={(event) => update({ minPrice: optionalNumber(event.target.value) })}
-          />
-        </label>
-        <label className={styles.filter}>
-          <span>Max price</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={filters.maxPrice ?? ''}
-            placeholder={facets.price ? String(Math.ceil(facets.price.high)) : ''}
-            onChange={(event) => update({ maxPrice: optionalNumber(event.target.value) })}
-          />
-        </label>
+        {/*
+          One control, not two — 12.250. A floor and a ceiling are the two ends
+          of one question, and asking it as two separately-labelled boxes spent
+          two of the row's six slots on it and read as two unrelated filters.
+          A `div` with `role="group"` rather than a `label` around both fields,
+          because a label may name one control and these are two; each field
+          carries its own `aria-label`, so "Min price" still names the box a
+          screen reader lands in and the group above it still says "Price".
+
+          The two placeholders are what the board actually runs between, which
+          is why the sentence that used to say so in prose is gone: the range
+          now sits inside the control the reader would use to narrow it.
+        */}
+        <div className={styles.filter}>
+          <span id={priceLabelId}>Price</span>
+          <div className={styles.range} role="group" aria-labelledby={priceLabelId}>
+            <input
+              type="number"
+              inputMode="decimal"
+              aria-label="Min price"
+              value={filters.minPrice ?? ''}
+              placeholder={facets.price ? String(Math.floor(facets.price.low)) : ''}
+              onChange={(event) => update({ minPrice: optionalNumber(event.target.value) })}
+            />
+            <span aria-hidden="true" className={styles.dash}>
+              –
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              aria-label="Max price"
+              value={filters.maxPrice ?? ''}
+              placeholder={facets.price ? String(Math.ceil(facets.price.high)) : ''}
+              onChange={(event) => update({ maxPrice: optionalNumber(event.target.value) })}
+            />
+          </div>
+        </div>
+        {/*
+          `Any` rather than `All airlines`, `Any time`, `Any stops`, `Any
+          length`, `Any move` — one word, five selects, 12.250. A select is as
+          wide as its widest option, so five differently-worded ways of saying
+          "no constraint" were setting three of the six controls' widths
+          between them, and every one of them repeated a label sitting directly
+          above it: `Departs / Any time` says "time" twice and `Stops / Any
+          stops` says "stops" twice.
+        */}
         <label className={styles.filter}>
           <span>Airline</span>
           <select
             value={filters.airline ?? ''}
             onChange={(event) => update({ airline: optional(event.target.value) })}
           >
-            <option value="">All airlines</option>
+            <option value="">Any</option>
             {facets.airlines.map((airline) => (
               <option key={airline.value} value={airline.value}>
                 {airline.label}
@@ -255,7 +290,7 @@ export function FlightTable({ snapshots, granularity }: FlightTableProps) {
             value={filters.band ?? ''}
             onChange={(event) => update({ band: optional(event.target.value) as TimeBand | null })}
           >
-            <option value="">Any time</option>
+            <option value="">Any</option>
             {TIME_BANDS.filter((band) => facets.bands.includes(band.value)).map((band) => (
               <option key={band.value} value={band.value}>
                 {band.label}
@@ -269,7 +304,7 @@ export function FlightTable({ snapshots, granularity }: FlightTableProps) {
             value={filters.stops === null ? '' : String(filters.stops)}
             onChange={(event) => update({ stops: optionalNumber(event.target.value) })}
           >
-            <option value="">Any stops</option>
+            <option value="">Any</option>
             {facets.stops.map((stops) => (
               <option key={stops} value={stops}>
                 {stopsLabel(stops)}
@@ -283,7 +318,7 @@ export function FlightTable({ snapshots, granularity }: FlightTableProps) {
             value={filters.maxDuration === null ? '' : String(filters.maxDuration)}
             onChange={(event) => update({ maxDuration: optionalNumber(event.target.value) })}
           >
-            <option value="">Any length</option>
+            <option value="">Any</option>
             {facets.durations.map((minutes) => (
               <option key={minutes} value={minutes}>
                 {durationLabel(minutes)}
@@ -299,7 +334,7 @@ export function FlightTable({ snapshots, granularity }: FlightTableProps) {
               update({ change: optional(event.target.value) as ChangeCategory | null })
             }
           >
-            <option value="">Any move</option>
+            <option value="">Any</option>
             {facets.categories.map((category) => (
               <option key={category} value={category}>
                 {CHANGE_LABELS[category]}
@@ -307,26 +342,35 @@ export function FlightTable({ snapshots, granularity }: FlightTableProps) {
             ))}
           </select>
         </label>
+        {/*
+          `Clear` on the button, "Clear filters" to anything that reads names:
+          the row is six controls wide and the seven characters this saves are
+          the difference between one row and two at panel width. The visible
+          word is the first word of the accessible name, which is what WCAG
+          2.5.3 asks of a shortened label.
+        */}
         {isFiltered(filters) ? (
-          <Button size="small" className={styles.clear} onClick={() => update(NO_FILTERS)}>
-            Clear filters
+          <Button
+            size="small"
+            className={styles.clear}
+            aria-label="Clear filters"
+            onClick={() => update(NO_FILTERS)}
+          >
+            Clear
           </Button>
         ) : null}
       </div>
 
-      {facets.price ? (
-        <p className={styles.range}>
-          The board runs {formatMoney(facets.price.low, currency)} to{' '}
-          {formatMoney(facets.price.high, currency)} across {facets.airlines.length} airline
-          {facets.airlines.length === 1 ? '' : 's'}.
-        </p>
-      ) : null}
-
       <table className={styles.table}>
         {/*
-          Announced when it changes, because filtering is exactly the moment a
-          reader needs to hear how many rows went away — and the count is the
-          only thing on screen that says so.
+          Under the rows rather than over them — 12.251. It is still the
+          table's `<caption>`, so it is still the thing a screen reader reads
+          when it enters the table, and it is still announced when it changes,
+          because filtering is exactly the moment a reader needs to hear how
+          many rows went away. What moved is where it sits: two lines of prose
+          between the filters and the first flight pushed the board itself off
+          the bottom of the panel, and the reader who came for the board was
+          reading around them.
         */}
         <caption className={styles.caption} aria-live="polite">
           {summary}

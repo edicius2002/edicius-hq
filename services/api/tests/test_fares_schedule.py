@@ -182,8 +182,13 @@ def test_a_truncated_pass_keeps_the_nearest_departures_and_drops_the_far_ones():
     answer that had been asked for. Nothing names a departure any more, so
     nearest-first is what every candidate is ordered by, with no key in front
     of it that is the same for all of them.
+
+    Handed in reverse, which is the part that measures the sort rather than the
+    input: Python's sort is stable, so a candidate list already in date order
+    comes back in date order however the key is spelled — including with the
+    distance dropped from it entirely.
     """
-    watched = [("LIM", "MAD", f"2027-03-{day:02d}") for day in range(1, 32)]
+    watched = [("LIM", "MAD", f"2027-03-{day:02d}") for day in range(31, 0, -1)]
     plan = due_now(watched, {}, NOW, budget=3)
 
     ready = [d.flight_date for d in plan if d.ready]

@@ -13,6 +13,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from pathlib import Path
 
 import httpx
@@ -24,7 +25,8 @@ from app.adapters.fares import google_flights
 from app.adapters.fares.models import FareError, FareOffer, FareQuery, FareSnapshot
 from app.main import app
 from app.routers import fares as fares_router
-from app.services.fare_collector import CollectionReport, FareWatch, collect
+from app.services import collection_job
+from app.services.fare_collector import CollectionReport, FareWatch, RouteResult, collect
 from app.services.fare_history import FareHistory
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -576,22 +578,214 @@ def test_a_payload_without_an_insight_block_is_not_an_error():
 # --- the endpoint ------------------------------------------------------------
 
 
-def stub_pass(skipped=None):
+@pytest.fixture(autouse=True)
+def a_runner_with_no_history():
+    """
+    One pass slot serves the whole process, so it has to be emptied between
+    tests — 12.210. Without this a test that asserts on the idle state passes
+    or fails depending on which tests ran before it.
+    """
+    collection_job.RUNNER.forget()
+    yield
+    collection_job.RUNNER.forget()
+
+
+def stub_pass(skipped=None, results=None):
     """A collector that reaches nothing and reports what it was handed."""
     seen: dict[str, object] = {}
 
     async def fake_collect_due(watched, **kwargs):
         seen["watched"] = watched
         seen["budget"] = kwargs.get("budget")
+        observer = kwargs.get("observer")
+        if observer is not None:
+            observer.planned(polling=len(results or []), skipped=list(skipped or []))
+            for result in results or []:
+                observer.collected(result)
+        return CollectionReport(
+            started_at="2026-08-19T14:00:00+00:00",
+            finished_at="2026-08-19T14:00:06+00:00",
+            source="google-flights",
+            results=list(results or []),
+            skipped=list(skipped or []),
+        )
+
+    return seen, fake_collect_due
+
+
+def wait_for_the_pass(client, timeout=5.0):
+    """
+    Poll `GET /collect` until the pass stops running, and return it.
+
+    A press is answered before the work is done — 12.210 — so a test that
+    asserted on the POST's body alone would be asserting about a pass that had
+    not started yet. This is the same thing the browser does, and testing it
+    the way the client uses it is the point.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        answer = client.get("/api/fares/collect")
+        assert answer.status_code == 200
+        body = answer.json()
+        if body["state"] != "running":
+            return body
+        time.sleep(0.01)
+    raise AssertionError("the collection pass never finished")
+
+
+def test_nothing_has_been_collected_yet_is_an_answer_rather_than_a_404():
+    """
+    A fresh install has never run a pass, and that is an ordinary state rather
+    than an error — 12.210. Answering 404 would make every client special-case
+    a failure to describe a machine that is simply idle.
+    """
+    with TestClient(app) as client:
+        body = client.get("/api/fares/collect").json()
+    assert body["state"] == "idle"
+    assert body["startedAt"] is None
+    assert body["polling"] is None
+    assert body["results"] == [] and body["skipped"] == []
+
+
+def test_a_press_is_answered_before_the_pass_it_started_has_finished(monkeypatch):
+    """
+    12.210. The press returns 202 and a document, not a completed report.
+
+    This is the whole of what the change buys: the browser's five-minute
+    deadline used to be what decided how many departures a press could cover,
+    and a press that is answered immediately has no deadline to fit inside. The
+    ceiling that deadline implied — forty requests — is gone with it, so the
+    pass is handed no budget at all and falls back to the request budget.
+    """
+    seen, fake = stub_pass()
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+
+    with TestClient(app) as client:
+        answer = client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        assert answer.status_code == 202
+        assert answer.json()["watching"] == ["LIM-SCL 2027-03"]
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "finished"
+    assert finished["finishedAt"] is not None
+    # No per-call ceiling any more. `collect_due` falls back to the request
+    # budget, which is what the bound should always have been.
+    assert seen["budget"] is None
+
+
+def test_a_running_pass_says_how_far_through_it_is(monkeypatch):
+    """
+    A four-minute pass that could only be described once it ended would leave
+    the reader watching a spinner and a promise — 12.210. `polling` lands
+    before the first request so the figure has a denominator from the start.
+    """
+    result = RouteResult(
+        origin="LIM",
+        destination="SCL",
+        flight_date="2027-03-01",
+        return_date=None,
+        ok=True,
+        changed=True,
+        offers=3,
+    )
+    _, fake = stub_pass(skipped=[("LIM-SCL 2027-03-02", "not-due")], results=[result])
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+
+    assert finished["polling"] == 1
+    assert finished["completed"] == 1
+    assert finished["collected"] == 1 and finished["changed"] == 1
+    assert finished["results"][0]["flightDate"] == "2027-03-01"
+
+
+def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monkeypatch):
+    """
+    The gap in `fare_collector` paces one loop, so two loops would halve it
+    with nobody having decided to — 12.210. The second press is answered with
+    the pass that is already going, and `watching` is what says so: a caller
+    whose own route is missing from it knows it was answered rather than served.
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[list] = []
+
+    async def slow_collect_due(watched, **kwargs):
+        calls.append(watched)
+        observer = kwargs.get("observer")
+        if observer is not None:
+            observer.planned(polling=1, skipped=[])
+        started.set()
+        await release.wait()
         return CollectionReport(
             started_at="2026-08-19T14:00:00+00:00",
             finished_at="2026-08-19T14:00:06+00:00",
             source="google-flights",
             results=[],
-            skipped=list(skipped or []),
+            skipped=[],
         )
 
-    return seen, fake_collect_due
+    monkeypatch.setattr(collection_job, "collect_due", slow_collect_due)
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        assert first.status_code == 202
+        # Give the task a turn on the loop, so the second press meets a pass
+        # that has genuinely begun rather than one still queued.
+        deadline = time.monotonic() + 5.0
+        while not started.is_set() and time.monotonic() < deadline:
+            client.get("/api/fares/collect")
+            time.sleep(0.01)
+        assert started.is_set()
+
+        second = client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "ARI", "destination": "SCL", "month": "2027-03"}]},
+        )
+        assert second.status_code == 202
+        # Somebody else's pass, and the document says whose.
+        assert second.json()["state"] == "running"
+        assert second.json()["watching"] == ["LIM-SCL 2027-03"]
+
+        release.set()
+        wait_for_the_pass(client)
+
+    assert len(calls) == 1
+
+
+def test_a_pass_that_falls_over_says_so_rather_than_running_forever(monkeypatch):
+    """
+    8.8 again, in the one place it had nowhere to be reported: a background
+    task that raises hands its exception to the event loop, where a browser
+    polling for progress would see a pass that is running and always will be.
+    """
+
+    async def broken_collect_due(watched, **kwargs):
+        raise RuntimeError("the archive volume went away")
+
+    monkeypatch.setattr(collection_job, "collect_due", broken_collect_due)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "failed"
+    assert "the archive volume went away" in finished["error"]
+    assert finished["finishedAt"] is not None
 
 
 def test_the_collect_endpoint_takes_a_month_and_refuses_anything_else(monkeypatch):
@@ -606,25 +800,23 @@ def test_the_collect_endpoint_takes_a_month_and_refuses_anything_else(monkeypatc
     expands to nothing.
     """
     seen, fake = stub_pass()
-    monkeypatch.setattr(fares_router, "collect_due", fake)
-    client = TestClient(app)
+    monkeypatch.setattr(collection_job, "collect_due", fake)
 
-    ok = client.post(
-        "/api/fares/collect",
-        json={"routes": [{"origin": "lim", "destination": "scl", "month": "2027-03"}]},
-    )
-    assert ok.status_code == 200
-    assert seen["watched"] == [FareWatch(origin="LIM", destination="SCL", month="2027-03")]
-    # Capped per call, not per day: forty paced requests is four minutes, which
-    # is what fits inside the client's own deadline.
-    assert seen["budget"] == fares_router.MAX_COLLECT_REQUESTS
-
-    for bad in ("2027-3", "2027-13", "2027-03-09", "soon"):
-        refused = client.post(
+    with TestClient(app) as client:
+        ok = client.post(
             "/api/fares/collect",
-            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": bad}]},
+            json={"routes": [{"origin": "lim", "destination": "scl", "month": "2027-03"}]},
         )
-        assert refused.status_code == 422, bad
+        assert ok.status_code == 202
+        wait_for_the_pass(client)
+        assert seen["watched"] == [FareWatch(origin="LIM", destination="SCL", month="2027-03")]
+
+        for bad in ("2027-3", "2027-13", "2027-03-09", "soon"):
+            refused = client.post(
+                "/api/fares/collect",
+                json={"routes": [{"origin": "LIM", "destination": "SCL", "month": bad}]},
+            )
+            assert refused.status_code == 422, bad
 
 
 def test_the_collect_endpoint_carries_the_focused_day_through_to_the_watch(monkeypatch):
@@ -637,34 +829,36 @@ def test_the_collect_endpoint_carries_the_focused_day_through_to_the_watch(monke
     first unless it is told which day that is.
     """
     seen, fake = stub_pass()
-    monkeypatch.setattr(fares_router, "collect_due", fake)
-    client = TestClient(app)
+    monkeypatch.setattr(collection_job, "collect_due", fake)
 
-    answer = client.post(
-        "/api/fares/collect",
-        json={
-            "routes": [
-                {
-                    "origin": "lim",
-                    "destination": "scl",
-                    "month": "2027-03",
-                    "focusDate": "2027-03-09",
-                }
-            ]
-        },
-    )
-    assert answer.status_code == 200
-    assert seen["watched"] == [
-        FareWatch(origin="LIM", destination="SCL", month="2027-03", focus="2027-03-09")
-    ]
+    with TestClient(app) as client:
+        answer = client.post(
+            "/api/fares/collect",
+            json={
+                "routes": [
+                    {
+                        "origin": "lim",
+                        "destination": "scl",
+                        "month": "2027-03",
+                        "focusDate": "2027-03-09",
+                    }
+                ]
+            },
+        )
+        assert answer.status_code == 202
+        wait_for_the_pass(client)
+        assert seen["watched"] == [
+            FareWatch(origin="LIM", destination="SCL", month="2027-03", focus="2027-03-09")
+        ]
 
-    # Absent is the ordinary case and must reach the collector as absent rather
-    # than as some stand-in day.
-    client.post(
-        "/api/fares/collect",
-        json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
-    )
-    assert seen["watched"][0].focus is None
+        # Absent is the ordinary case and must reach the collector as absent
+        # rather than as some stand-in day.
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        wait_for_the_pass(client)
+        assert seen["watched"][0].focus is None
 
 
 def test_a_focus_outside_its_own_month_is_a_422_rather_than_a_quiet_drop(monkeypatch):
@@ -676,7 +870,7 @@ def test_a_focus_outside_its_own_month_is_a_422_rather_than_a_quiet_drop(monkeyp
     departure with nothing anywhere recording why.
     """
     _, fake = stub_pass()
-    monkeypatch.setattr(fares_router, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "collect_due", fake)
     client = TestClient(app)
 
     for bad in ("2027-04-09", "2027-03-9", "09/03/2027", "2027-03"):
@@ -707,15 +901,17 @@ def test_the_collect_endpoint_runs_the_schedule_rather_than_bypassing_it(monkeyp
     that collected nothing from looking like a broken button.
     """
     _, fake = stub_pass(skipped=[("LIM-SCL 2027-03-01", "not-due")])
-    monkeypatch.setattr(fares_router, "collect_due", fake)
-    client = TestClient(app)
+    monkeypatch.setattr(collection_job, "collect_due", fake)
 
-    answer = client.post(
-        "/api/fares/collect",
-        json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
-    )
-    assert answer.status_code == 200
-    assert answer.json()["skipped"] == [{"what": "LIM-SCL 2027-03-01", "reason": "not-due"}]
+    with TestClient(app) as client:
+        answer = client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        assert answer.status_code == 202
+        finished = wait_for_the_pass(client)
+
+    assert finished["skipped"] == [{"what": "LIM-SCL 2027-03-01", "reason": "not-due"}]
 
 
 def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_path):

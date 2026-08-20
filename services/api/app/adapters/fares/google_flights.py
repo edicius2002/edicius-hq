@@ -32,6 +32,7 @@ import base64
 import json
 import re
 from datetime import UTC, datetime
+from itertools import pairwise
 from typing import Any
 
 import httpx
@@ -92,12 +93,27 @@ _ALL_BLOCK = 3
 
 # Positions inside one itinerary's leg array. Named so a drift fix is a one-line
 # edit here rather than a hunt through the parser.
+_LEG_ORIGIN = 3  # IATA, where this leg takes off
 _LEG_DEPARTURE_TIME = 8
 _LEG_ARRIVAL_TIME = 10
-_LEG_DURATION = 11
+_LEG_DURATION = 11  # this leg's flying time only
+_LEG_DESTINATION = 6  # IATA, where this leg lands
 _LEG_DEPARTURE_DATE = 20
 _LEG_ARRIVAL_DATE = 21
 _LEG_FLIGHT = 22  # [airline_iata, flight_number, _, airline_name]
+
+# Positions in the itinerary itself, beside its leg list — the whole journey as
+# Google states it, rather than as we would infer it from the legs.
+#
+# `_ITINERARY_DURATION` is the number Google prints in its own duration column:
+# gate to gate, layovers included. Measured 2026-08-19 across all 68 itineraries
+# in the four captured boards, it equals the legs' flying time plus the ground
+# time between them, every time — which is what identifies it as the journey and
+# not as some other integer that happens to sit at position 9. `_journey_minutes`
+# re-checks that identity on every parse.
+_ITINERARY_ORIGIN = 3
+_ITINERARY_DESTINATION = 6
+_ITINERARY_DURATION = 9
 
 # `itinerary[1]` is `[[null, rounded_price], "<base64 protobuf>"]`. The integer
 # is what the page prints; the token carries the same price to the cent, which
@@ -238,6 +254,126 @@ def _exact_price(node: Any) -> float | None:
         return None
 
 
+def _code(value: Any) -> str | None:
+    """A three-letter IATA code, or `None` when this is not one."""
+    if not isinstance(value, str):
+        return None
+    found = value.strip().upper()
+    return found if len(found) == 3 and found.isalpha() else None
+
+
+def _stop_count(flight: Any, legs: list[Any]) -> int | None:
+    """
+    How many times the traveller changes plane, once the legs are shown to be
+    this itinerary's legs.
+
+    `transfers` used to be `len(legs) - 1` and nothing else, which made the leg
+    list the sole witness to whether a journey is direct — and a parser that
+    read the *wrong* list reported "Direct" with a straight face. That is not
+    hypothetical: measured 2026-08-19 against the LIM-MAD capture, truncating
+    the two-leg AV 74 / AV 46 itinerary to either one of its legs produced an
+    offer reading `transfers=0`, with an arrival time that looked entirely
+    plausible because it was Bogota's. Flattening the two legs into one did the
+    same. Nothing in the parser noticed, and nothing downstream could have.
+
+    The check is free, because the itinerary states its own endpoints and so
+    does every leg: the legs must start where the itinerary starts, finish where
+    it finishes, and join end to end. A chain that does that has the leg count
+    it appears to have. Decision 12.4 — a count we derived from a list we could
+    not verify is not an observation, and "Direct" is the most consequential
+    word on the flight table.
+
+    Returns `None` when the codes cannot be read at all, which is a shape
+    problem the caller drops the itinerary for. Raises when they read and
+    contradict each other, because that is drift and the whole board has it.
+    """
+    origin = _code(flight[_ITINERARY_ORIGIN]) if len(flight) > _ITINERARY_ORIGIN else None
+    destination = (
+        _code(flight[_ITINERARY_DESTINATION]) if len(flight) > _ITINERARY_DESTINATION else None
+    )
+    if origin is None or destination is None:
+        return None
+
+    chain: list[tuple[str, str]] = []
+    for leg in legs:
+        takes_off = _code(leg[_LEG_ORIGIN]) if len(leg) > _LEG_ORIGIN else None
+        lands = _code(leg[_LEG_DESTINATION]) if len(leg) > _LEG_DESTINATION else None
+        if takes_off is None or lands is None:
+            return None
+        chain.append((takes_off, lands))
+
+    joins = all(before[1] == after[0] for before, after in pairwise(chain))
+    if chain[0][0] != origin or chain[-1][1] != destination or not joins:
+        raise FareError(
+            "parse-drift",
+            f"Google Flights described a {origin}-{destination} itinerary whose legs read as "
+            + ", ".join(f"{takes_off}-{lands}" for takes_off, lands in chain)
+            + "; the legs we are counting stops from are not this itinerary's legs",
+        )
+    return len(legs) - 1
+
+
+def _journey_minutes(flight: Any, legs: list[Any]) -> int | None:
+    """
+    Departure to arrival, layovers included — what a "Duration" column claims.
+
+    This used to be the legs' flying time with the ground between them thrown
+    away, which understated every connection and left the direct flights right.
+    On the captured LIM-SCL board for 2027-01-21, LA 2127 changes plane at Cusco
+    and read 280 minutes, "4h 40m", against a real 455: a reader comparing it
+    with the 205-minute non-stop beside it was choosing on a figure nearly three
+    hours out. Air time is the honest name for that number, but it is not the
+    number the column is headed with and not the one anybody picks a flight on,
+    so the meaning moves rather than the name.
+
+    **Not computed from `departure_at` and `arrival_at`.** Those are local wall
+    clocks at two different airports with no offset attached — see `FareOffer` —
+    so their difference is the journey plus however far the destination's clock
+    is from the origin's. On this very itinerary it gives 575 minutes, "9h 35m",
+    overstating by exactly the two hours between Lima and Santiago in January.
+    Wrong in the other direction is still wrong.
+
+    Layover time *is* free of that problem, which is what makes the cross-check
+    below worth having: a connection lands and leaves at one airport, so both
+    stamps are the same clock and their difference is exact. Google's own total
+    is preferred over that arithmetic because it is an observation rather than a
+    derivation, and the arithmetic is kept as the thing that proves position 9
+    still means what it meant when it was measured.
+    """
+    total = flight[_ITINERARY_DURATION] if len(flight) > _ITINERARY_DURATION else None
+    if isinstance(total, bool) or not isinstance(total, int) or total <= 0:
+        return None
+
+    air = 0
+    for leg in legs:
+        minutes = leg[_LEG_DURATION] if len(leg) > _LEG_DURATION else None
+        if isinstance(minutes, bool) or not isinstance(minutes, int):
+            # Nothing to check the total against. The total is still what Google
+            # said, and refusing it over a missing leg figure would throw away
+            # the good half of an observation.
+            return total
+        air += minutes
+
+    ground = 0
+    for before, after in pairwise(legs):
+        landed = _stamp(before[_LEG_ARRIVAL_DATE], before[_LEG_ARRIVAL_TIME])
+        leaves = _stamp(after[_LEG_DEPARTURE_DATE], after[_LEG_DEPARTURE_TIME])
+        if landed is None or leaves is None:
+            return total
+        ground += int(
+            (datetime.fromisoformat(leaves) - datetime.fromisoformat(landed)).total_seconds() // 60
+        )
+
+    if air + ground != total:
+        raise FareError(
+            "parse-drift",
+            f"Google Flights called this journey {total} minutes where its own legs add up "
+            f"to {air} in the air and {ground} on the ground; position "
+            f"{_ITINERARY_DURATION} no longer holds the journey duration",
+        )
+    return total
+
+
 def _offer(itinerary: Any, currency: str) -> FareOffer | None:
     """One itinerary, or `None` when it does not have the shape we depend on."""
     try:
@@ -258,8 +394,9 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
             names = flight[1] if isinstance(flight[1], list) else []
             name = names[0] if names and isinstance(names[0], str) else None
 
-        durations = [leg[_LEG_DURATION] for leg in legs]
-        total = sum(d for d in durations if isinstance(d, int)) or None
+        transfers = _stop_count(flight, legs)
+        if transfers is None:
+            return None
 
         return FareOffer(
             airline=str(airline),
@@ -267,14 +404,20 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
             flight_number=number,
             departure_at=departure_at,
             arrival_at=_stamp(last[_LEG_ARRIVAL_DATE], last[_LEG_ARRIVAL_TIME]),
-            transfers=len(legs) - 1,
-            duration_minutes=total,
+            transfers=transfers,
+            duration_minutes=_journey_minutes(flight, legs),
             price=float(price),
             currency=currency,
         )
     except (IndexError, KeyError, TypeError, ValueError):
         # One malformed itinerary is dropped; a payload where *every* itinerary
         # is malformed is drift, and `parse_payload` raises for that.
+        #
+        # `FareError` is deliberately outside this tuple. `_stop_count` and
+        # `_journey_minutes` raise it when the payload is readable and
+        # self-contradictory, which is not one bad row — it is the layout having
+        # moved under us, and it has to leave the parser rather than be counted
+        # as a dropped itinerary.
         return None
 
 
@@ -489,6 +632,21 @@ def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
             continue
         seen.add(offer)
         merged.append(offer)
+
+    if not any(offer.duration_minutes for offer in merged):
+        # Decision 12.4 again, for the one field whose absence is invisible.
+        # `_journey_minutes` returns `None` rather than raising when position 9
+        # holds something that is not a duration, so a renumbering that leaves
+        # everything else readable would empty the "Duration" column across the
+        # whole board and be archived as a healthy collection. Every board ever
+        # captured priced a duration on every itinerary, so none at all is the
+        # layout having moved, not a board without durations.
+        raise FareError(
+            "parse-drift",
+            f"none of the {len(merged)} itineraries on this board carried a journey "
+            "duration; the payload layout has changed",
+        )
+
     return sorted(merged, key=_order)
 
 

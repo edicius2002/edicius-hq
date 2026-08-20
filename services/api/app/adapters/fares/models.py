@@ -57,7 +57,14 @@ class FareOffer:
     #: be a lie that later arithmetic would take seriously.
     departure_at: str
     arrival_at: str | None
+    #: Changes of plane. Zero means the itinerary really is one leg from the
+    #: origin to the destination, which the parser establishes rather than
+    #: assumes — see `google_flights._stop_count`.
     transfers: int
+    #: The whole journey, departure to arrival, layovers included. Deliberately
+    #: not the legs' flying time, which understates a connection by hours, and
+    #: deliberately not `arrival_at - departure_at`, which is two clocks in two
+    #: places and overstates by whatever lies between them.
     duration_minutes: int | None
     price: float
     currency: str

@@ -169,64 +169,63 @@ def transport(handler):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def test_the_focused_departure_survives_a_budget_that_cuts_the_rest():
+def test_a_truncated_pass_keeps_the_nearest_departures_and_drops_the_far_ones():
     """
-    The whole reason a reading preference is stored rather than kept in the UI.
+    12.111, and it is the whole ordering rule again — 12.266.
 
-    Two months of March 2027 against a budget of three. Plain nearest-first
-    ordering would spend all three on the 1st, 2nd and 3rd of the month and
-    report the reader's own flight on the 20th as `over-budget` — every pass,
-    forever, because the next pass would make the same choice. The focus is
-    ordered ahead of the distance so the day they mean to take is bought first
-    and the remaining budget falls back to nearest-first behind it.
+    Thirty-one days of March 2027 against a budget of three. The near
+    departures are the ones the measurement says actually move, so those are
+    what a pass that cannot afford everything buys.
+
+    12.134 briefly put one day in front of this: the focus, the departure the
+    reader said they meant to take, so that a truncation could not drop the
+    answer that had been asked for. Nothing names a departure any more, so
+    nearest-first is what every candidate is ordered by, with no key in front
+    of it that is the same for all of them.
+
+    Handed in reverse, which is the part that measures the sort rather than the
+    input: Python's sort is stable, so a candidate list already in date order
+    comes back in date order however the key is spelled — including with the
+    distance dropped from it entirely.
     """
-    watched = [("LIM", "MAD", f"2027-03-{day:02d}") for day in range(1, 32)]
-    plan = due_now(
-        watched,
-        {},
-        NOW,
-        budget=3,
-        focused=frozenset({("LIM", "MAD", "2027-03-20")}),
-    )
+    watched = [("LIM", "MAD", f"2027-03-{day:02d}") for day in range(31, 0, -1)]
+    plan = due_now(watched, {}, NOW, budget=3)
 
     ready = [d.flight_date for d in plan if d.ready]
-    assert ready == ["2027-03-20", "2027-03-01", "2027-03-02"]
-    assert "2027-03-20" not in [d.flight_date for d in plan if d.reason == "over-budget"]
-    # And without it the reader's flight is exactly what gets dropped.
-    plain = due_now(watched, {}, NOW, budget=3)
-    assert "2027-03-20" not in [d.flight_date for d in plain if d.ready]
+    assert ready == ["2027-03-01", "2027-03-02", "2027-03-03"]
+    # Everything else comes back named and reasoned rather than omitted — 8.8.
+    over = [d.flight_date for d in plan if d.reason == "over-budget"]
+    assert len(over) == 28
+    assert "2027-03-20" in over
 
 
 def test_ten_watched_routes_is_where_the_budget_starts_dropping_a_departure():
     """
-    What actually makes the focus ordering bite, at the real budget of 300.
+    When the truncation bites at the real budget of 300.
 
     Measured 2026-08-19 and pinned here because the docstring 12.134 first
     carried got it wrong: it compared a day's worth of requests against
     `budget`, which is a per-pass ceiling. A pass has exactly as many
     candidates as there are watched departures, so the arithmetic is 300 / 31 =
     9.67 and the threshold is a watchlist of ten routes. Nine never truncates;
-    ten always can, and the day the reader named is the one it reaches last.
+    ten always can, and the last departure of the last route is what it reaches
+    last.
     """
     days = month_dates("2027-03")
     assert len(days) == 31
 
-    def sweep(routes: int) -> tuple[str, str]:
+    def furthest(routes: int) -> str:
         watched = [("LIM", f"D{i:02d}", day) for i in range(routes) for day in days]
-        star = watched[-1]
-        plain = {
+        last = watched[-1]
+        plan = {
             (d.origin, d.destination, d.flight_date): d
             for d in due_now(watched, {}, NOW, budget=300)
         }
-        kept = {
-            (d.origin, d.destination, d.flight_date): d
-            for d in due_now(watched, {}, NOW, budget=300, focused=frozenset({star}))
-        }
-        return plain[star].reason, kept[star].reason
+        return plan[last].reason
 
-    assert sweep(9) == ("never-collected", "never-collected")
-    assert sweep(10) == ("over-budget", "never-collected")
-    assert sweep(12) == ("over-budget", "never-collected")
+    assert furthest(9) == "never-collected"
+    assert furthest(10) == "over-budget"
+    assert furthest(12) == "over-budget"
 
 
 def test_the_truncation_threshold_does_not_move_with_the_calendar():
@@ -249,47 +248,45 @@ def test_the_truncation_threshold_does_not_move_with_the_calendar():
         assert [d for d in plan if d.reason == "over-budget"] == [], when
 
 
-def test_a_focus_buys_a_place_in_the_queue_and_not_a_faster_cadence():
+def test_a_departure_that_has_gone_is_reported_departed_rather_than_polled():
     """
-    12.135, and the arithmetic is the argument.
+    A real case by March, and readiness is the outer sort key.
+
+    It comes back named and with its reason rather than omitted, which is what
+    lets the page say so instead of leaving the reader to work it out from a
+    series that stopped — 8.8 and 8.41.
+    """
+    key = ("LIM", "MAD", "2026-08-01")
+    (due,) = due_now([key], {}, NOW, budget=1)
+    assert not due.ready and due.reason == "departed"
+
+
+def test_the_cadence_is_what_decides_a_poll_and_nothing_outranks_it():
+    """
+    12.135's arithmetic, which outlived the focus it was written about.
 
     A departure 150 days out moved on 22% of days by a median 1.7%, so polling
     it every half hour would spend 47 of its 48 daily requests rewriting the
-    same number. Starring a date does not change what the endpoint answers, so
-    the focused day gets the interval its distance earns and is skipped by name
-    when it is not due, exactly like the thirty days beside it.
+    same number. Ordering is free and rate is not, which is why the ordering
+    changed twice this week (12.134, then 12.266) and `poll_minutes` did not.
     """
     key = ("LIM", "MAD", "2027-01-15")
     seen = {key: "2026-08-18T11:59:00+00:00"}
-    (due,) = due_now([key], seen, NOW, focused=frozenset({key}))
+    (due,) = due_now([key], seen, NOW)
 
-    assert due.focused is True
     assert due.every_minutes == poll_minutes(days_until("2027-01-15", TODAY))
     assert not due.ready and due.reason == "not-due"
 
 
-def test_a_focused_departure_that_has_gone_is_reported_departed_like_any_other():
+def test_a_truncated_pass_through_collect_due_buys_the_nearest_days(tmp_path):
     """
-    A real case by March, and it must not be rescued by the ordering.
+    The same ordering through `collect_due`, which is where a watch becomes
+    departures.
 
-    Being kept first is about a truncation, not about skipping the rules, so
-    readiness is the outer sort key and a departed day is never ready. It comes
-    back named and with its reason, which is what lets the page say so instead
-    of leaving the reader to work it out from a series that stopped.
-    """
-    key = ("LIM", "MAD", "2026-08-01")
-    (due,) = due_now([key], {}, NOW, budget=1, focused=frozenset({key}))
-    assert due.focused is True
-    assert not due.ready and due.reason == "departed"
-
-
-def test_a_pass_keeps_the_focused_departure_when_the_budget_will_not_stretch(tmp_path):
-    """
-    The same ordering through `collect_due`, where the watch names its own day.
-
-    `collect_due` derives the focus set from membership in the expanded month,
-    so a watch cannot star a departure it is not collecting — there is no
-    second containment rule to disagree with the first.
+    It used to derive a focus set here from membership in the expanded month —
+    the containment check that stopped a watch starring a departure it was not
+    collecting. With no focus there is nothing to contain and nothing to check:
+    the expansion is the whole of what a pass considers.
     """
     html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
         encoding="utf-8"
@@ -299,34 +296,7 @@ def test_a_pass_keeps_the_focused_departure_when_the_budget_will_not_stretch(tmp
     async def run():
         async with transport(lambda request: httpx.Response(200, text=html)) as client:
             return await collect_due(
-                [FareWatch("LIM", "SCL", "2026-10", focus="2026-10-28")],
-                now=NOW,
-                budget=2,
-                history=history,
-                client=client,
-                gap_seconds=0,
-            )
-
-    report = asyncio.run(run())
-    assert [result.flight_date for result in report.results] == ["2026-10-28", "2026-10-01"]
-    assert ("LIM-SCL 2026-10-28", "over-budget") not in report.skipped
-
-
-def test_a_focus_outside_its_own_month_is_ignored_rather_than_collected(tmp_path):
-    """
-    Nothing can send one — the normalizer drops it and the router 422s it — so
-    this is the last line rather than the first. Pulling `2026-11-04` into a
-    pass over October would collect a departure nobody is watching.
-    """
-    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
-        encoding="utf-8"
-    )
-    history = FareHistory(tmp_path)
-
-    async def run():
-        async with transport(lambda request: httpx.Response(200, text=html)) as client:
-            return await collect_due(
-                [FareWatch("LIM", "SCL", "2026-10", focus="2026-11-04")],
+                [FareWatch("LIM", "SCL", "2026-10")],
                 now=NOW,
                 budget=2,
                 history=history,
@@ -336,6 +306,7 @@ def test_a_focus_outside_its_own_month_is_ignored_rather_than_collected(tmp_path
 
     report = asyncio.run(run())
     assert [result.flight_date for result in report.results] == ["2026-10-01", "2026-10-02"]
+    assert ("LIM-SCL 2026-10-28", "over-budget") in report.skipped
 
 
 # ------------------------------------------------------- writing on change ----

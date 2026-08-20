@@ -5,20 +5,109 @@
 }
 
 /*
- * One row of controls where there is room, wrapping to two where there is not.
+ * The heading, the departure and every filter on one line — 12.257.
  *
- * The minimum is measured against the widest option any of these selects can
- * hold — `Afternoon 12–17`, fifteen characters. This app sets
- * `--font-size-base: 125%`, so a rem is 20px and these controls are set at
- * 0.85rem = 17px; a monospace advance is about 0.6em, which puts the text at
- * ~153px, plus the horizontal padding and the disclosure arrow at ~45px. Ten
- * rem is 200px, so the option never ellipsises and the seven filters fall into
- * two tidy rows at panel width rather than five ragged ones.
+ * `align-items: end` rather than `center`, so the heading sits on the same
+ * baseline as the text inside the controls rather than floating in the middle
+ * of taller boxes beside it.
+ *
+ * `wrap`, and measured before being chosen. The heading is 273px and the panel
+ * gives the row 1099, so whether it is one line depends on the board, and
+ * after the airline cap of 12.258 it is one line for one of the four states
+ * this archive can be in:
+ *
+ *   ARI-SCL, one carrier, unfiltered   1085  fits, 66px tall
+ *   ARI-SCL, one carrier, filtered     1164  65 short
+ *   LIM-SCL March, unfiltered          1115  16 short
+ *   LIM-SCL March, filtered            1193  94 short
+ *
+ * The last 16px were looked for and are not there. Every control on the row
+ * carries the same `5px 10px` padding and both gaps are 10px, so there is no
+ * outlier to reclaim, and the middot's 28.2px is already 5px *tighter* than
+ * the `space · space` the rest of this page sets the same separator in —
+ * taking more would be inventing punctuation rather than finding slack.
+ *
+ * `nowrap` would close it by shrinking `.filters` until a control fell to a
+ * second line, and that is the worse answer: a wrapped filter row costs 66px
+ * where the heading's own line costs 33, so forcing the issue makes the panel
+ * **taller**, 137px against 104. So the bar keeps the heading on its own line
+ * until there is genuinely room for both. Flexbox decides line breaks on
+ * hypothetical sizes before it shrinks anything, which is why this reads as
+ * one property and not as a fallback.
+ */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+/*
+ * Was `AirfarePage`'s `.panelTitle`, and the same size and weight so the panel
+ * still reads as one of the set. `nowrap` because a heading that breaks
+ * between "Flights" and "seen" to save 40px has not saved anything.
+ */
+.title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+/*
+ * The separator the analysis panel's heading and the cheapest-fare line
+ * already use, so the headings on this page punctuate the same way.
+ *
+ * Those two write it as a literal `space · space`, which in this monospace
+ * face is 33.4px; a margin instead of spaces because the glyph is
+ * `aria-hidden` — a screen reader reading "middle dot" between a name and a
+ * date is noise — and 0.45em puts it at 28.2px, close enough to read as the
+ * same punctuation. Checked when the row came up 16px short: this is already
+ * the tighter of the two and there is nothing to reclaim here.
+ */
+.dot {
+  margin: 0 0.45em;
+  opacity: 0.6;
+}
+
+/*
+ * Every filter on one row — 12.252.
+ *
+ * A flex row of content-sized controls rather than the equal-width grid it
+ * was. The grid gave every filter the width of the widest one, so a single
+ * fifteen-character option (`Afternoon 12–17`) set the floor for all seven and
+ * only five would fit across the panel; the two left over wrapped, and the
+ * filter bar was 137px tall for six controls' worth of information.
+ *
+ * The numbers, measured in Chrome on this page rather than assumed: the
+ * panel's content box is 1099px, the font is Berkeley Mono at 0.85rem, and
+ * this app sets `--font-size-base: 125%` so a rem is 20px and that is 17px,
+ * one character 9.96px wide — reasoning in 16px rems is what produced the
+ * 10rem floor this replaced. On the widest board in the archive, the March
+ * 2027 LIM-SCL month, whose airline column holds `Aerolineas Argentinas`, the
+ * six controls and their gaps come to 963px; with the clear button showing,
+ * 1041. Both fit in 1099. Below 1041 the row takes two lines again.
+ *
+ * `wrap` and not `nowrap`: this page may never scroll sideways, so a route
+ * with an airline name longer than anything on disk today has to be allowed to
+ * take a second row. Wrapping is the graceful failure; overflow is not a
+ * failure the page is allowed to have. The row's own min-content is 164px —
+ * one control — against the table's 857, so this bar can never be what puts a
+ * scrollbar under the page.
  */
 .filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: var(--space-2) var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  /* Allowed to shrink under its own content so the heading beside it is not
+     pushed onto a line of its own the moment the six controls stop fitting. */
+  flex: 0 1 auto;
+  min-width: 0;
+  /* 10px between controls rather than 15: the six gaps at 15 cost 90px, and
+     the 30 saved are the difference between the row holding together down to
+     a 1041px panel and only down to 1071. The label above each control already
+     does the separating. */
+  gap: var(--space-2);
   align-items: end;
 }
 
@@ -43,7 +132,10 @@
   font: inherit;
   font-size: 0.85rem;
   min-width: 0;
-  width: 100%;
+  /* Each control as wide as the widest thing it can hold and no wider — the
+     row is now sized by its contents rather than dividing the panel into
+     equal shares. */
+  width: auto;
 }
 
 .filter input:focus-visible,
@@ -58,10 +150,40 @@
   align-self: end;
 }
 
+/*
+ * A floor and a ceiling, with a dash between them, reading as one control.
+ *
+ * Five characters of room each: the dearest fare in the archive is $714.64, so
+ * three digits is the normal case and five leaves a whole order of magnitude
+ * spare. A field wide enough for eight would say the range expects numbers it
+ * will never see, and it would cost the row 60px it does not have.
+ */
 .range {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* The spinners would take a third of a five-character field, and they are the
+   slowest way anyone has ever entered a price. `inputMode="decimal"` still
+   brings up the numeric keypad where there is one. */
+.range input {
+  /* Five characters of room, plus the box the characters sit in: the app is
+     `border-box`, so a bare `5ch` would be five characters minus the padding
+     and leave three. */
+  width: calc(5ch + var(--space-2) * 2 + 2px);
+  appearance: textfield;
+}
+
+.range input::-webkit-outer-spin-button,
+.range input::-webkit-inner-spin-button {
+  appearance: none;
   margin: 0;
+}
+
+.dash {
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 .table {
@@ -70,10 +192,21 @@
   font-size: 0.9rem;
 }
 
+/*
+ * Under the table, not over it — 12.253.
+ *
+ * `caption-side` rather than moving the element out of the table: a `<caption>`
+ * is the table's name to anything that reads the document, and a paragraph
+ * after a `</table>` is a paragraph. Sized down to 0.8rem to match the pager
+ * it now sits beside, since a line that follows the rows is a footnote to them
+ * rather than the heading it used to be.
+ */
 .caption {
+  caption-side: bottom;
   text-align: left;
   color: var(--color-muted);
-  padding-bottom: var(--space-3);
+  font-size: 0.8rem;
+  padding-top: var(--space-3);
 }
 
 .table th,
@@ -140,9 +273,29 @@
   opacity: 1;
 }
 
+/*
+ * `.table td` rather than `.numeric` alone, because it has to win.
+ *
+ * Measured, not assumed: `.table th, .table td { text-align: left }` is
+ * specificity 0-1-1 and a bare `.numeric` is 0-1-0, so every price and every
+ * percentage in this table has been left-aligned since the column was written
+ * — the headings looked right-aligned only because `.numeric .sort` pushes the
+ * button's contents over, which made the mismatch look like a heading bug
+ * rather than a cell one. Chrome reports `text-align: left` on the price cell
+ * of every row. 12.256.
+ */
+.table td.numeric,
 .numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* A word standing in a column of figures. Still right-aligned, so the column
+   keeps one edge, but not pretending to be a number that could be compared
+   with the ones above it. */
+.table td.word {
+  font-variant-numeric: normal;
+  color: var(--color-muted);
 }
 
 .empty {

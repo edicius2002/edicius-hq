@@ -1,16 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-import {
-  formatReading,
-  readingPrefix,
-  routeId,
-  type FareRoute,
-} from '@/features/airfare/data/fareRoutes';
+import { formatFlightMonth, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
+import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { type Granularity } from '@/features/airfare/lib/buckets';
 import { routeGeometries } from '@/features/airfare/lib/geo';
@@ -62,6 +58,14 @@ export function AirfarePage() {
   // in-flight set, the reports and the mutation that keeps them in step are one
   // mechanism, and the page's job is to hand it to the list.
   const rowCollection = useRouteCollection();
+  /*
+   * Adding a route collects its booking horizon — 12.247. Its own hook rather
+   * than a branch of `useRouteCollection`, because it is a different pass over
+   * a different unit: that one polls up to thirty-one boards for one month,
+   * this one fetches one curve across every month, and the server keeps them in
+   * separate slots for the same reason.
+   */
+  const horizon = useHorizonCollection();
 
   const selected: FareRoute | null =
     watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
@@ -75,16 +79,14 @@ export function AirfarePage() {
   const calendar = useFareCalendar(selected);
 
   /*
-   * What this route is being read as: its month, or the one day inside it the
-   * reader focused — 12.131.
+   * What this route is being read as: its month — 12.260.
    *
-   * One string, and every reader below narrows on it because both forms are
-   * prefixes of the same `YYYY-MM-DD` departure key. The detail panel, the
-   * chart, the flight table, the baseline and the health counts all move
-   * together, so the page cannot end up naming a day over a month of numbers.
-   * What is *collected* is unaffected: the watchlist still sends the month.
+   * This was `readingPrefix`, which answered the month or the one day inside
+   * it the reader had focused. A watch names no day now, so there is one
+   * answer; `snapshotsFor` still narrows with `startsWith` because `YYYY-MM`
+   * is a prefix of every departure key inside it — 12.112.
    */
-  const reading = selected ? readingPrefix(selected) : null;
+  const reading = selected ? selected.month : null;
 
   const snapshots = useMemo(
     () =>
@@ -143,10 +145,6 @@ export function AirfarePage() {
           origin: route.origin,
           destination: route.destination,
           month: route.month,
-          // Sent even though the month is what expands: the collector keeps
-          // the focused departure first when a pass cannot afford all of them
-          // (12.134), and it can only do that if it knows which one it is.
-          ...(route.focusDate ? { focusDate: route.focusDate } : {}),
           currency: route.currency,
         })),
       ),
@@ -253,12 +251,31 @@ export function AirfarePage() {
               // same id — so a stale line would reappear under a route that
               // had just been added back.
               rowCollection.forget(id);
+              horizon.forget(id);
               void watchlist.remove(id);
             }}
             onCollect={rowCollection.collect}
-            onAdd={(route) => void watchlist.add(route)}
+            /*
+              The add lands first and the horizon collection follows it, never
+              the other way round — 12.247. The add is a write to the reader's
+              own document and this is a request to somebody else's server; a
+              route that failed to save because a fare lookup failed would let
+              an upstream veto a watchlist edit, and the reader would have no
+              row left to retry from. So the route is watched either way and the
+              collection reports itself below.
+            */
+            onAdd={(route) => {
+              void watchlist.add(route).then(() => horizon.collect(route));
+            }}
             onMove={(from, to) => void watchlist.move(from, to)}
           />
+          {horizon.reports.size > 0 ? (
+            <ul className={styles.failures} data-testid="horizon-reports">
+              {[...horizon.reports.entries()].map(([id, report]) => (
+                <li key={id}>{report.text}</li>
+              ))}
+            </ul>
+          ) : null}
         </Panel>
 
         {/*
@@ -315,10 +332,6 @@ export function AirfarePage() {
           insights={insights}
           health={health}
           cities={cities}
-          today={today}
-          onClearFocus={() => {
-            if (selectedKey) void watchlist.focus(selectedKey, null);
-          }}
         />
       </Panel>
 
@@ -357,13 +370,27 @@ export function AirfarePage() {
         period with the chart's last bucket — a table of the whole archive
         under a chart of one day would be two answers to one question.
       */}
+      {/*
+        The heading is the table's own, and it is the only panel here where it
+        is — 12.257. The owner wants it on the filter row rather than above it,
+        and a heading in this file cannot share a line with controls rendered
+        in another. All that crosses the boundary is the departure the reader
+        picked, already formatted: `FlightTable` writes the words.
+      */}
       <Panel>
-        <h2 className={styles.panelTitle}>
-          {selected
-            ? `Flights seen departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}`
-            : 'Flights seen on this route'}
-        </h2>
-        <FlightTable snapshots={snapshots} granularity={granularity} />
+        {/*
+          The heading moved into the table with 12.257, onto the filter row —
+          so what this page hands over is the departure in words rather than a
+          sentence around it. `formatFlightMonth(selected.month)` where that
+          was `formatReading`: a watch names a month and nothing narrower
+          (12.260), so the table's name is `Flights seen · March 2027` and can
+          no longer be a single date over a month of rows.
+        */}
+        <FlightTable
+          snapshots={snapshots}
+          granularity={granularity}
+          departure={selected ? formatFlightMonth(selected.month) : null}
+        />
       </Panel>
     </section>
   );

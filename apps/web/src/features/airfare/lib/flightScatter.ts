@@ -115,56 +115,39 @@ export type ScatterWindow = {
 };
 
 /**
- * The stretch of departure dates the route is a watch on — its own month, or
- * the one day inside it the reader focused.
+ * The stretch of departure dates the route is a watch on: its own month.
+ *
+ * It was "or the one day inside it the reader focused" until 12.260, and this
+ * stays a pair of dates rather than a month string because the frame it feeds
+ * compares dates and because a range is the weaker assumption of the two.
  *
  * Both ends are `YYYY-MM-DD`, and both are inclusive.
  */
 export type WatchedRange = { from: string; to: string };
 
 /**
- * The window a period covers, clipped to what the route is actually a watch on
- * — 12.235.
+ * The window a period covers — the whole calendar period, both ends included.
  *
- * **A calendar period is not a claim this chart is entitled to make in full.**
- * March 2027's last ISO week runs 29 March to 4 April, so at Week granularity
- * the month zoom was drawing ticks and day separators for the 1st to the 4th of
- * April and captioning itself "between 29/03/2027 and 04/04/2027" under a
- * heading that read "departing in March 2027". No dots were ever placed there —
- * nothing was collected about April and nothing could be — but the frame
- * asserted four departure dates the watch has never had anything to do with,
- * which is the same fault as a line across a hole drawn in axis furniture
- * instead of in a path.
+ * **It used to be clipped to the watched month and is not any more.** March
+ * 2027's last ISO week runs 29 March to 4 April, and while the only thing this
+ * chart could draw was boards, those four April dates were four departure dates
+ * the frame asserted and nothing could ever be placed on: the clip was right,
+ * and it was the same refusal as a line drawn across a hole. What changed is
+ * that those dates now have an answer. The calendar curve prices every
+ * departure date out to the horizon, so the days past the end of the month are
+ * drawn from it rather than left as an empty claim — and clipping them away
+ * would now be the chart hiding data it holds.
  *
- * The clip is the *watched* range rather than the days that happen to carry
- * flights, and that distinction is 12.232's: a day inside the month whose board
- * came back empty is a day this chart must still draw and mark, not one it may
- * quietly crop away. A period entirely outside the watch keeps its own bounds
- * rather than collapsing to nothing — that would be a chart with no width, and
- * `activeKey` only ever hands over a period a departure day fell in anyway.
+ * Which dates the boards may speak for is still a question with a hard answer,
+ * and it has moved to where it belongs: `departureFrame.frameDays` decides it
+ * per date, so a day inside the month whose board came back empty is still a
+ * board day and is still marked as one, rather than being handed to a curve
+ * that has its own separate answer for it.
  */
-export function scatterWindow(
-  key: string,
-  granularity: Granularity,
-  watched?: WatchedRange | null,
-): ScatterWindow {
+export function scatterWindow(key: string, granularity: Granularity): ScatterWindow {
   const bounds = periodBounds(key, granularity);
-  let from = bounds.from;
-  let to = bounds.to;
-
-  if (watched) {
-    // String comparison on fixed-width dates, never `Date.parse` — the rule
-    // `minutesInto` states, and for the same reason: a parsed date is midnight
-    // UTC and is the previous day for this app's default reader in Lima.
-    // The clocks come off `periodBounds`' own strings rather than being spelled
-    // again here, so a window still starts and ends where a period does.
-    const start = from.slice(0, 10) < watched.from ? `${watched.from}${from.slice(10)}` : from;
-    const end = to.slice(0, 10) > watched.to ? `${watched.to}${to.slice(10)}` : to;
-    if (start.slice(0, 10) <= end.slice(0, 10)) {
-      from = start;
-      to = end;
-    }
-  }
+  const from = bounds.from;
+  const to = bounds.to;
 
   const days = (dayOffset(from.slice(0, 10), to.slice(0, 10)) ?? 0) + 1;
   return {
@@ -417,8 +400,21 @@ export type ScatterSpan = { low: number; high: number };
  * be clipped in half by the frame.
  */
 export function priceSpan(points: ScatterPoint[]): ScatterSpan | null {
-  if (points.length === 0) return null;
-  const prices = points.map((point) => point.price);
+  return spanOfPrices(points.map((point) => point.price));
+}
+
+/**
+ * The same range, over bare numbers.
+ *
+ * A frame that straddles the end of the watched month holds two kinds of price
+ * — itineraries on one side of the seam and one figure a date on the other —
+ * and both are drawn against one vertical scale, because two scales in one
+ * frame would make a fare on the left and a fare on the right different
+ * heights. Taking numbers rather than points is what lets the two be scaled
+ * together without either side learning the other's shape.
+ */
+export function spanOfPrices(prices: number[]): ScatterSpan | null {
+  if (prices.length === 0) return null;
   const low = Math.min(...prices);
   const high = Math.max(...prices);
   const margin = Math.max((high - low) / 12, high * 0.02, 1);
@@ -428,6 +424,21 @@ export function priceSpan(points: ScatterPoint[]): ScatterSpan | null {
 export function xOf(offset: number, window: ScatterWindow, plot: Plot): number {
   const usable = plot.width - plot.pad.left - plot.pad.right;
   return plot.pad.left + (offset / window.spanMinutes) * usable;
+}
+
+/**
+ * The inverse of `xOf`: which minute of the window a horizontal position is.
+ *
+ * Used to decide which *date* the pointer is over, which is the question that
+ * has to be answered before the chart knows whether it is looking at a board of
+ * itineraries or at one price for a whole day. Unclamped on purpose — a caller
+ * that needs an index clamps to the frame it owns, and silently folding a
+ * pointer in the left margin onto the first date here would hide that from the
+ * one place that can tell.
+ */
+export function offsetAt(x: number, window: ScatterWindow, plot: Plot): number {
+  const usable = plot.width - plot.pad.left - plot.pad.right;
+  return ((x - plot.pad.left) / (usable || 1)) * window.spanMinutes;
 }
 
 export function yOf(price: number, span: ScatterSpan, plot: Plot): number {

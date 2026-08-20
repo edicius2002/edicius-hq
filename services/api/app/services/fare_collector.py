@@ -129,11 +129,11 @@ class FareWatch:
     #: `YYYY-MM`.
     month: str
     currency: str = "USD"
-    #: `YYYY-MM-DD` inside `month`, or None — the one departure the reader
-    #: actually means to take (12.130). It changes nothing about what is
-    #: expanded or how often each day is polled; it changes which day survives
-    #: a truncated pass (12.134).
-    focus: str | None = None
+    # `focus` was here — the one departure the reader meant to take, which
+    # changed nothing about what was expanded or how often each day was polled
+    # and only decided which day survived a truncated pass (12.130, 12.134).
+    # Nothing can set it any more, so it is gone rather than left as a field
+    # that is always None in front of an ordering that never fires — 12.266.
 
     @property
     def route(self) -> str:
@@ -310,10 +310,11 @@ async def collect_due(
     away costs 936 requests a day at the near rate applied throughout, against
     a 300 budget, while the same month at 200 days out costs 31.
 
-    A watch may name one of its own departures as the focus, and the only thing
-    that does here is put it at the front of the queue for the truncation —
-    12.134. It is not polled more often and it is not exempt from the cadence;
-    if it is not due it is skipped by name like any other day.
+    A watch used to be able to name one of its own departures as the focus, and
+    the only thing that did here was put it at the front of the queue for the
+    truncation — 12.134. Nothing names one now (12.260), so the queue is
+    ordered by readiness and then by distance, which is 12.111 and is what the
+    focus was jumping ahead of.
 
     That truncation is reached by **watching more routes**, not by waiting.
     `spend` below is a per-pass ceiling and one pass has as many candidates as
@@ -331,23 +332,12 @@ async def collect_due(
     spend = budget if budget is not None else daily_request_budget()
 
     by_key, unreadable = expand(watched)
-    # Membership in `by_key` *is* the "inside its own month" check — it holds
-    # exactly the departures the watched month expanded into. Validating the
-    # focus separately would be a second rule that could disagree with the
-    # first, and a focus that fell outside its month would then either point at
-    # a day nobody is collecting or, worse, silently pull one in.
-    focused = frozenset(
-        (watch.origin, watch.destination, watch.focus)
-        for watch in watched
-        if watch.focus and (watch.origin, watch.destination, watch.focus) in by_key
-    )
     plan = due_now(
         list(by_key),
         store.last_checked(),
         moment,
         cadence=cadence,
         budget=spend,
-        focused=focused,
     )
 
     queries = [by_key[(d.origin, d.destination, d.flight_date)] for d in plan if d.ready]
@@ -437,6 +427,14 @@ class CalendarReport:
     @property
     def failed(self) -> int:
         return sum(1 for result in self.results if not result.ok)
+
+    # How many curves this pass actually wrote. Spelled out here rather than
+    # summed at each reader, the same as `CollectionReport.changed`, because
+    # there are now two readers — the log line below and the endpoint — and a
+    # figure counted twice is a figure that can disagree with itself.
+    @property
+    def changed(self) -> int:
+        return sum(1 for result in self.results if result.changed)
 
     @property
     def requests(self) -> int:
@@ -538,7 +536,7 @@ async def collect_calendars(
         "fare calendar pass finished: %d route(s) in %d request(s), %d changed, %d failed",
         report.collected,
         report.requests,
-        sum(1 for result in report.results if result.changed),
+        report.changed,
         report.failed,
     )
     return report

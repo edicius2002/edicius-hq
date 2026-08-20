@@ -251,17 +251,14 @@ export type RouteRequest = {
   destination: string;
   /** `YYYY-MM`. The server expands it into the departures inside it. */
   month: string;
-  /**
-   * `YYYY-MM-DD`, and inside `month` — the one departure this reader means to
-   * take. Optional, and it does not change what is collected: every day of the
-   * month is still expanded and scheduled at its own rate. It changes only who
-   * survives a truncated pass, which is the whole reason a reading preference
-   * is sent to a collector at all (12.130).
-   *
-   * A focus outside its month is a 422 rather than a silent drop: the client
-   * cannot construct one, so one arriving is a bug worth seeing.
+  /*
+   * `focusDate` was here and is gone from both sides at once — 12.266. It was
+   * the one reading preference this client ever sent a collector, and the only
+   * thing the collector did with it was keep that day first when a pass ran out
+   * of budget. With no focus in the model nothing can set it, so the field and
+   * the ordering it fed went together rather than one of them becoming a
+   * branch the other could no longer reach.
    */
-  focusDate?: string;
   currency?: string;
 };
 
@@ -387,6 +384,91 @@ export function collectFares(
   return apiRequest<CollectResponse>('/api/fares/collect', {
     method: 'POST',
     body: { routes },
+    signal: options.signal,
+  });
+}
+
+/**
+ * One city pair's whole-horizon curve, as a collection pass reports it.
+ *
+ * A different document from `CollectRouteResult` because it is a different unit
+ * of work: that one is a board for a departure date, this is one number per
+ * departure date across a year. `dates` is how many came back at all and
+ * `priced` how many carried a fare — a date the provider answered about and had
+ * nothing to sell is counted in the first and not the second, which is the
+ * distinction the whole horizon is built to keep.
+ */
+export type CalendarRouteResult = {
+  origin: string;
+  destination: string;
+  ok: boolean;
+  /** Whether this look wrote a curve. False when nothing in the year moved. */
+  changed: boolean;
+  dates: number;
+  priced: number;
+  cheapest: number | null;
+  cheapestOn: string | null;
+  currency: string | null;
+  /** Upstream requests spent. Two, on a horizon that answers in two windows. */
+  requests: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+/**
+ * A horizon collection pass, finished or not.
+ *
+ * Same shape from the press that starts one and from every poll that follows,
+ * for `CollectResponse`'s reason: a client that can read the first can read the
+ * second. There is no `polling` denominator — a horizon pass is one city pair
+ * and two requests, so the only number it could report is one.
+ */
+export type CalendarCollectResponse = {
+  state: CollectState;
+  startedAt: string | null;
+  finishedAt: string | null;
+  source: string;
+  /** What this pass covers, as `LIM-SCL`. */
+  watching: string[];
+  completed: number;
+  collected: number;
+  changed: number;
+  failed: number;
+  results: CalendarRouteResult[];
+  skipped: SkippedRoute[];
+  /** Why the pass fell over, when it did. A refused route is not this. */
+  error: string | null;
+};
+
+/**
+ * Start collecting one city pair's whole booking horizon — 12.247.
+ *
+ * Answers as soon as the pass has started, exactly as `collectFares` does, and
+ * for the stronger version of the same reason: this call is fired by *adding a
+ * route*, and a form that waited four seconds on an upstream before the row
+ * appeared would make the watchlist feel like it was talking to the internet.
+ * `fetchCalendarCollection` is where the rest of the pass is.
+ */
+export function collectCalendar(
+  route: { origin: string; destination: string; currency?: string },
+  options: { signal?: AbortSignal } = {},
+): Promise<CalendarCollectResponse> {
+  return apiRequest<CalendarCollectResponse>('/api/fares/calendar/collect', {
+    method: 'POST',
+    body: {
+      origin: route.origin,
+      destination: route.destination,
+      ...(route.currency ? { currency: route.currency } : {}),
+    },
+    signal: options.signal,
+  });
+}
+
+/** How the current horizon pass is getting on, or how the last one ended. */
+export function fetchCalendarCollection(
+  options: { signal?: AbortSignal } = {},
+): Promise<CalendarCollectResponse> {
+  return apiRequest<CalendarCollectResponse>('/api/fares/calendar/collect', {
     signal: options.signal,
   });
 }

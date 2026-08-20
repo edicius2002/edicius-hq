@@ -115,10 +115,11 @@ class Due:
     last_checked_at: str | None
     ready: bool
     reason: str
-    #: Whether this is the departure the reader actually means to take —
-    #: 12.130. It buys no faster cadence (12.135); it buys a place at the front
-    #: of the queue when the budget will not cover everything.
-    focused: bool = False
+    # `focused` was here — whether this was the departure the reader meant to
+    # take (12.130), which bought a place at the front of the queue when the
+    # budget would not cover everything (12.134) and never a faster cadence
+    # (12.135). Nothing names a departure now, so the flag is gone with the
+    # ordering it fed rather than sitting False on every `Due` forever — 12.266.
 
     @property
     def route(self) -> str:
@@ -141,88 +142,63 @@ def due_now(
     *,
     cadence: tuple[tuple[int, int], ...] = DEFAULT_CADENCE_MINUTES,
     budget: int | None = None,
-    focused: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> list[Due]:
     """
-    Which departures to look at on this pass: focused first, then nearest.
+    Which departures to look at on this pass: the nearest first.
 
     Ordering matters when a budget bites, and only then. The near departures
     are the ones the measurement says actually move, so a truncated pass keeps
-    them and drops the far ones — that is 12.111 and it is unchanged. What
-    12.134 puts in front of it is the departure the reader named: of thirty-one
-    days in a month, one is the flight they mean to take, and a truncation that
-    dropped it while polling the other thirty would be spending the budget on
-    everything except the answer that was asked for.
+    them and drops the far ones — 12.111.
 
-    It costs nothing today, and what will change that is the **size of the
-    watchlist**, not the calendar. `budget` is a per-pass ceiling, and one pass
-    has exactly as many candidates as there are watched departures — thirty-one
-    per month — so the arithmetic is 300 / 31 and the answer is ten routes.
-    Measured 2026-08-19 by calling this function with every departure due, a
-    budget of 300 and one day focused:
+    **That is the whole rule again, and it was briefly not.** 12.134 put one
+    departure in front of it: the focus, the day of the month the reader said
+    they meant to fly, kept first so a truncation could not drop the answer
+    that had been asked for. A watch names no departure any more (12.260), so
+    nothing could ever be in that set; the parameter and the flag are gone
+    rather than left as a sort key that is constant for every candidate —
+    12.266. Nothing else about the ordering moved, because nothing else ever
+    depended on the focus: the sort was readiness, then the focus, then
+    distance, and readiness already outranked it.
 
-    | routes | departures | focused day without it | with it |
-    | ------ | ---------- | ---------------------- | ------- |
-    | 9      | 279        | `due`                  | `due`   |
-    | 10     | 310        | `over-budget`          | `due`   |
-    | 12     | 372        | `over-budget`          | `due`   |
+    When the truncation bites is unchanged and is worth keeping written down.
+    `budget` is a per-pass ceiling, and one pass has exactly as many candidates
+    as there are watched departures — thirty-one per month — so the arithmetic
+    is 300 / 31: nine routes never truncate and ten always can. Measured
+    2026-08-19 by calling this function with every departure due and a budget
+    of 300, nine routes gave 279 candidates and none `over-budget`, ten gave
+    310 and ten `over-budget`. The same sweep against a `now` in February 2027
+    gave the same rows: the threshold does not move with the date, because the
+    number of candidates in a pass does not.
 
-    The same sweep run against a `now` in February 2027 gave the same two rows:
-    the threshold does not move with the date, because the number of candidates
-    in a pass does not. Two watched months are 62 candidates whether the flight
-    is a year away or tomorrow, and 62 never truncates against 300.
-
-    The daily *totals* those two months cost do climb with the date — 62 a day
-    now, 302 by 24 November 2026, 2,208 by the March they depart in — and that
-    climb is real and is what `poll_minutes` exists for. It is not what this
-    ordering is for, and an earlier draft of this docstring said it was by
-    comparing a daily sum against a per-pass cap. See `daily_request_budget` in
-    `app.config`: nothing carries spend across passes, so the day's budget is
-    not enforced anywhere. That gap predates the focus and is not closed here.
-
-    **A focus buys no faster cadence** — 12.135. `poll_minutes` is not
-    consulted about it and does not know it exists. The measurement behind the
-    table did not change because someone starred a date: a departure 150 days
-    out moved on 22% of days by a median 1.7%, so polling it every half hour
-    would spend 47 of 48 daily requests rewriting the same number. Order is
-    free; rate is not.
+    The daily *totals* those months cost do climb with the date — the owner's
+    two are 62 a day now, 302 by 24 November 2026, 2,208 by the March they
+    depart in — and that climb is real and is what `poll_minutes` exists for.
+    See `daily_request_budget` in `app.config`: nothing carries spend across
+    passes, so the day's budget is not enforced anywhere. That gap predates all
+    of this and is not closed here.
 
     Everything is returned, ready or not, because a caller that can only see
     the work it is about to do cannot report the work it skipped — decisions
-    8.8 and 8.41 again. A focused departure that has already gone is in there
-    as `departed` like any other, which is how the page learns to say so.
+    8.8 and 8.41 again.
     """
     today = now.date()
     considered: list[Due] = []
 
     for origin, destination, flight_date in watched:
-        starred = (origin, destination, flight_date) in focused
         days_out = days_until(flight_date, today)
         if days_out is None:
             considered.append(
-                Due(
-                    origin, destination, flight_date, -1, 0, None, False, "unreadable-date", starred
-                )
+                Due(origin, destination, flight_date, -1, 0, None, False, "unreadable-date")
             )
             continue
         if days_out < 0:
             considered.append(
-                Due(origin, destination, flight_date, days_out, 0, None, False, "departed", starred)
+                Due(origin, destination, flight_date, days_out, 0, None, False, "departed")
             )
             continue
         if not within_horizon(days_out):
             considered.append(
-                Due(
-                    origin,
-                    destination,
-                    flight_date,
-                    days_out,
-                    0,
-                    None,
-                    False,
-                    "beyond-horizon",
-                    starred,
-                )
+                Due(origin, destination, flight_date, days_out, 0, None, False, "beyond-horizon")
             )
             continue
 
@@ -236,14 +212,13 @@ def due_now(
         else:
             reason, ready = "not-due", False
         considered.append(
-            Due(origin, destination, flight_date, days_out, every, seen, ready, reason, starred)
+            Due(origin, destination, flight_date, days_out, every, seen, ready, reason)
         )
 
-    # Readiness outranks the focus, and deliberately: a focused departure that
-    # is not due is not a departure worth a request, it is one that was looked
-    # at recently enough. Being kept first is about the truncation, not about
-    # skipping the cadence.
-    considered.sort(key=lambda due: (not due.ready, not due.focused, due.days_out))
+    # Ready first, then nearest. Readiness outranks distance because a
+    # departure that was looked at ten minutes ago is not worth a request
+    # however close it is, and the cadence is what decided that.
+    considered.sort(key=lambda due: (not due.ready, due.days_out))
 
     if budget is not None:
         spent = 0
@@ -260,7 +235,6 @@ def due_now(
                         due.last_checked_at,
                         False,
                         "over-budget",
-                        due.focused,
                     )
                 )
                 continue

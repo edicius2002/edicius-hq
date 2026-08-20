@@ -456,6 +456,26 @@ first (12.3), and booking anything at all — this observes prices, it does not 
 
 ## Decision Log
 
+**How a decision is identified.** Everything numbered below keeps its number
+forever: numbers are permanent names, never reassigned and never renumbered, and
+the four hundred-odd citations in code comments stay valid. But the sequence
+stops here. **A new decision is named after what it says** — `month-is-collected`,
+`parse-drift-is-loud`, `rail-names-each-once` — in the same `ID` column, in the
+section it belongs to.
+
+The counter had to go because of what it does when several branches are open at
+once. Each one reads the file, sees the same last number, and takes the same next
+ones, because none of them can see what the others are writing. Merging then
+leaves two different rows claiming one number, something has to choose between
+them, and the row it does not choose is gone — while the count still adds up and
+no number appears twice, so every check passes. That happened three times on
+2026-08-20 and cost four decisions, each found by comparing text against an
+earlier commit rather than by any count.
+
+A name taken from the decision itself cannot collide, because two branches
+deciding different things write different words. With no two rows sharing an id
+there is nothing for a merge to choose between, and nothing it can silently drop.
+
 ### 1. Repository and workflow
 
 | ID  | Decision                                                                 | Rationale                                 |

@@ -102,9 +102,12 @@ describe('where the axis stops being a clock', () => {
     expect(sourceSeams(frameDays(scatterWindow('2027-W10', 'week'), MARCH))).toEqual([]);
   });
 
-  it('draws both seams around a watch narrowed to one departure date', () => {
-    // A focused watch reads one day, so a week holding it has curve dates on
-    // each side. Reporting only the first would draw half the boundary.
+  it('draws both seams around a watched range narrower than the frame', () => {
+    // Curve dates on each side of the boards, so reporting only the first
+    // would draw half the boundary. The page cannot build this range any more
+    // — a watch is a whole month since 12.260 — and the rule is still the
+    // rule: `frameDays` takes two dates, not a route, and a caller that hands
+    // it a narrow pair gets an answer or a defect.
     const focused = { from: '2027-03-10', to: '2027-03-10' };
     const days = frameDays(scatterWindow('2027-W10', 'week'), focused);
     expect(sourceSeams(days)).toEqual([2 * 1440, 3 * 1440]);
@@ -241,10 +244,18 @@ describe('the rail that says which archive answered where', () => {
   /**
    * The frame the defect was found in, on the owner's own archive.
    *
-   * ARI-SCL carries `focusDate: 2027-03-06`, so the page narrows the boards to
-   * that one departure date and the week of 1-7 March is three runs: curve,
-   * board, curve. Labelling every run drew a second `one price a date` through
-   * the tail of `every flight, at the hour it departs`.
+   * ARI-SCL carried `focusDate: 2027-03-06` at the time, so the page narrowed
+   * the boards to that one departure date and the week of 1-7 March was three
+   * runs: curve, board, curve. Labelling every run drew a second `one price a
+   * date` through the tail of `every flight, at the hour it departs`.
+   *
+   * **No watch can produce that frame now** — 12.260 took the focus away, and
+   * a watched month is either the whole of a month frame or disjoint from it,
+   * so two runs is the most a page can build. The case stays because
+   * `frameDays` is a function of two dates rather than of a route: a rule that
+   * held only for the inputs one caller happens to send today is a rule that
+   * breaks the first time another caller sends something else, and this is the
+   * one frame that has already caught it out.
    */
   const focusedWeek = frameDays(scatterWindow('2027-W09', 'week'), {
     from: '2027-03-06',
@@ -319,12 +330,14 @@ describe('the rail that says which archive answered where', () => {
     expect(disjoint(labels)).toBe(true);
   });
 
-  it('never crosses, for every frame a watched month and a focus can produce', () => {
+  it('never crosses, for every frame a month-wide or single-date range can produce', () => {
     /*
      * The invariant stated as a sweep rather than as an argument from the
      * geometry, because the defect was exactly a case nobody had enumerated.
-     * Every ISO week and every calendar month of 2027, against every watch a
-     * route can have — the whole month, and each single date inside it.
+     * Every ISO week and every calendar month of 2027, against the whole month
+     * and against each single date inside it — the second of which no watch
+     * produces since 12.260, and which is swept anyway because the narrow
+     * range is where the runs multiply and the labels collide.
      */
     const watches: { from: string; to: string }[] = [MARCH];
     for (let day = 1; day <= 31; day += 1) {

@@ -3,20 +3,19 @@ import { describe, expect, it } from 'vitest';
 import {
   addRoute,
   collectableRoutes,
+  collectableYears,
   EMPTY_FARE_ROUTES,
-  focusDeparted,
   formatFlightDate,
   formatFlightMonth,
-  formatReading,
   isCalendarDate,
   isMonth,
   lastCollectableDay,
+  lastCollectableMonth,
+  nextMonth,
   normalizeFareRoutes,
-  readingPrefix,
   removeRoute,
   reorderRoutes,
   routeId,
-  setFocus,
   type FareRoute,
   type FareRoutes,
 } from '@/features/airfare/data/fareRoutes';
@@ -153,20 +152,20 @@ describe('route transitions', () => {
     expect(addRoute(once, LIM_SCL)).toBe(once);
   });
 
-  it('re-adding a watched route with a day sets its focus without moving it', () => {
-    // The form is the only control that names a day, so re-adding a watch you
-    // already have is how a focus is put on it — and with the day left blank,
-    // how it comes off again. Still not a move: it stays where it was.
+  it('re-adding a watched route changes nothing at all, not even its place', () => {
+    /*
+     * It used to carry a focus date over, which was the one thing re-adding
+     * could still change; with the focus gone (12.260) an identical watch is
+     * an identical watch. Asserted against a two-route document because the
+     * failure worth catching is the route jumping to the end of a list whose
+     * order the collector spends its budget down.
+     */
     const document = addRoute(addRoute(EMPTY_FARE_ROUTES, LIM_SCL), {
       ...LIM_SCL,
       destination: 'MAD',
     });
-    const focused = addRoute(document, { ...LIM_SCL, focusDate: '2026-10-16' });
-    expect(focused.routes[0]).toEqual({ ...LIM_SCL, focusDate: '2026-10-16' });
-    expect(focused.routes.map((route) => route.destination)).toEqual(['SCL', 'MAD']);
-
-    const cleared = addRoute(focused, LIM_SCL);
-    expect(cleared.routes[0]).toEqual(LIM_SCL);
+    expect(addRoute(document, LIM_SCL)).toBe(document);
+    expect(document.routes.map((route) => route.destination)).toEqual(['SCL', 'MAD']);
   });
 
   it('refuses a route it could not repair', () => {
@@ -184,52 +183,92 @@ describe('route transitions', () => {
   });
 });
 
-describe('the focus date', () => {
-  const FOCUSED: FareRoute = { ...LIM_SCL, focusDate: '2026-10-16' };
+describe('a stored focus date', () => {
+  /*
+   * The migration, and the only thing left of the focus — 12.261.
+   *
+   * Entries written while a watch could name one departure inside its month
+   * are on the owner's disk right now. Every one of them carries the month
+   * beside the day, so there is nothing to derive and nothing to invent: the
+   * normalizer stops reading the key and the route is already its month.
+   */
 
-  it('keeps a day that falls inside the watched month', () => {
-    const { routes } = normalizeFareRoutes({ routes: [FOCUSED] });
-    expect(routes).toEqual([FOCUSED]);
+  it('loads as simply its month, with the route and everything else intact', () => {
+    // The owner's own watchlist, as it stood when this change was written.
+    const { routes } = normalizeFareRoutes({
+      routes: [
+        {
+          origin: 'LIM',
+          destination: 'SCL',
+          month: '2027-03',
+          focusDate: '2027-03-09',
+          currency: 'USD',
+        },
+      ],
+    });
+    expect(routes).toEqual([
+      { origin: 'LIM', destination: 'SCL', month: '2027-03', currency: 'USD' },
+    ]);
+    // Asserted on the keys as well, because `toEqual` ignores an undefined
+    // property: a `focusDate: undefined` left behind would be written back
+    // into the stored document and come back as a key on the next read.
+    expect(Object.keys(routes[0])).not.toContain('focusDate');
   });
 
-  it('drops a day outside the month and keeps the route, rather than either invention', () => {
+  it('is not pinned to the first of the month, which would hide the other thirty', () => {
     /*
-     * 12.132. Widening the month to November would change what is collected,
-     * which a reading preference is not allowed to do; moving the day into
-     * October would name a departure nobody typed. The entry states two things
-     * that cannot both be true and does not say which is wrong, so the weaker
-     * one goes and the route survives with no focus.
+     * The tempting migration and the wrong one. `2027-03-09` names a day, and
+     * a day is a legal departure key, so a month pinned to `2027-03-01` would
+     * load, collect and draw — one departure, with the thirty others the watch
+     * is actually on nowhere on the page. Dropping the focus means reading the
+     * month, not moving the focus to a day nobody chose.
      */
     const { routes } = normalizeFareRoutes({
-      routes: [{ ...LIM_SCL, focusDate: '2026-11-16' }],
+      routes: [{ ...LIM_SCL, focusDate: '2026-10-16' }],
+    });
+    expect(routes[0].month).toBe('2026-10');
+    expect(JSON.stringify(routes[0])).not.toContain('2026-10-01');
+  });
+
+  it('survives a day that was never inside its month, rather than going down with it', () => {
+    // It could not be stored — the normalizer dropped it on read even when the
+    // focus existed (12.132) — but a hand-edited document can hold anything,
+    // and a route is not worth losing over a key nothing reads.
+    const { routes } = normalizeFareRoutes({
+      routes: [
+        { ...LIM_SCL, focusDate: '2026-11-16' },
+        { ...LIM_SCL, month: '2026-12', focusDate: 'nonsense' },
+        { ...LIM_SCL, month: '2027-01', focusDate: 41 },
+      ],
+    });
+    expect(routes).toEqual([
+      LIM_SCL,
+      { ...LIM_SCL, month: '2026-12' },
+      { ...LIM_SCL, month: '2027-01' },
+    ]);
+  });
+
+  it('two entries for one month collapse to one, as they always did', () => {
+    // `routeId` never included the focus, so this is unchanged — but two
+    // stored entries differing only by a dead key must not survive as two
+    // watches collecting the same thirty-one departures twice.
+    const { routes } = normalizeFareRoutes({
+      routes: [
+        { ...LIM_SCL, focusDate: '2026-10-16' },
+        { ...LIM_SCL, focusDate: '2026-10-28' },
+      ],
     });
     expect(routes).toEqual([LIM_SCL]);
   });
 
-  it('drops a day the calendar does not have rather than repairing it', () => {
-    const { routes } = normalizeFareRoutes({
-      routes: [
-        { ...LIM_SCL, focusDate: '2026-10-32' },
-        { ...LIM_SCL, month: '2026-12', focusDate: 41 },
-      ],
-    });
-    expect(routes).toEqual([LIM_SCL, { ...LIM_SCL, month: '2026-12' }]);
-  });
-
-  it('loads a route stored before it existed with no focus at all', () => {
+  it('loads a route stored before any of it existed, untouched', () => {
     /*
-     * Every entry in the store today is one of these, and none of them must
-     * look broken. 12.180 made the form ask for a date, so every route added
-     * from now on has a focus — and that must not reach backwards. The
-     * `flightDate` of a pre-12.110 entry is still deliberately not promoted
-     * into one: it was the only day that entry could name rather than one
-     * chosen out of thirty-one, and a focus the reader never picked, appearing
-     * on every stored route at once on the first read after an upgrade, is not
-     * a migration.
-     *
-     * Asserted whole rather than by `focusDate === undefined`, so a `focusDate:
-     * undefined` key — which would be written back into the document and come
-     * back as a key on the next read — fails here too.
+     * The pre-12.110 shape, which has a `flightDate` and no month at all. The
+     * month that date falls in is not a guess — the value states it — and it
+     * is still the only thing taken from it. This function takes no clock and
+     * writes nothing back by itself (12.133), so a stored document keeps its
+     * dead `focusDate` until the reader's next edit rewrites it, and every
+     * read in between produces the same month.
      */
     const { routes } = normalizeFareRoutes({
       routes: [
@@ -241,70 +280,51 @@ describe('the focus date', () => {
       { origin: 'LIM', destination: 'SCL', month: '2026-10', currency: 'USD' },
       { origin: 'LIM', destination: 'MAD', month: '2026-10', currency: 'USD' },
     ]);
-    expect(routes.flatMap((route) => Object.keys(route))).not.toContain('focusDate');
-  });
-
-  it('is not part of what makes two entries the same watch', () => {
-    // Two entries for one month with different focuses would be two watches
-    // collecting the same thirty-one departures twice.
-    expect(routeId(FOCUSED)).toBe(routeId(LIM_SCL));
-    expect(normalizeFareRoutes({ routes: [LIM_SCL, FOCUSED] }).routes).toHaveLength(1);
-  });
-
-  it('narrows the reading prefix onto one day, and falls back to the month', () => {
-    // The whole substitution, and it works because `2026-10-16` starts with
-    // `2026-10` — the same property the archive's own filters lean on.
-    expect(readingPrefix(LIM_SCL)).toBe('2026-10');
-    expect(readingPrefix(FOCUSED)).toBe('2026-10-16');
-    expect(readingPrefix(FOCUSED).startsWith(readingPrefix(LIM_SCL))).toBe(true);
-  });
-
-  it('writes the day as a date and the month as a name, never the two alike', () => {
-    expect(formatReading(LIM_SCL)).toBe('October 2026');
-    expect(formatReading(FOCUSED)).toBe('16/10/2026');
-  });
-
-  it('says when the focused day has gone instead of dropping it', () => {
-    // A route with no focus never has a departed one, whatever the date.
-    expect(focusDeparted(FOCUSED, '2026-10-16')).toBe(false);
-    expect(focusDeparted(FOCUSED, '2026-10-17')).toBe(true);
-    expect(focusDeparted(LIM_SCL, '2030-01-01')).toBe(false);
   });
 });
 
-describe('setFocus', () => {
-  it('points a watch at one of its own days', () => {
-    const document = addRoute(EMPTY_FARE_ROUTES, LIM_SCL);
-    const next = setFocus(document, routeId(LIM_SCL), '2026-10-16');
-    expect(next.routes).toEqual([{ ...LIM_SCL, focusDate: '2026-10-16' }]);
+describe('nextMonth', () => {
+  it('is the month after this one, which is what the add form opens on', () => {
+    expect(nextMonth('2026-08-19')).toBe('2026-09');
+    expect(nextMonth('2026-08-31')).toBe('2026-09');
   });
 
-  it('takes a focus off again and leaves no empty key behind', () => {
-    const focused = addRoute(EMPTY_FARE_ROUTES, { ...LIM_SCL, focusDate: '2026-10-16' });
-    const cleared = setFocus(focused, routeId(LIM_SCL), null);
-    // `toEqual` ignores an undefined property, so the key itself is checked:
-    // one written into the stored document would come back on the next read.
-    expect(Object.keys(cleared.routes[0])).not.toContain('focusDate');
+  it('rolls the year in December, so the two dropdowns move together', () => {
+    // The case the form cannot get wrong quietly: a month that rolled while
+    // its year stayed behind would put the reader eleven months in the past.
+    expect(nextMonth('2026-12-01')).toBe('2027-01');
+    expect(nextMonth('2026-12-31')).toBe('2027-01');
+  });
+});
+
+describe('the collectable window the form offers', () => {
+  it('runs to the month the horizon lands in, part of a month being enough', () => {
+    // 330 days past 2026-08-19 is 2027-07-15. July is half collectable and is
+    // on offer: the collector polls the days it can reach and reports the rest
+    // as `beyond-horizon` by name, exactly as it does for the days of this
+    // month that have gone.
+    expect(lastCollectableDay('2026-08-19')).toBe('2027-07-15');
+    expect(lastCollectableMonth('2026-08-19')).toBe('2027-07');
   });
 
-  it('refuses a day from another month rather than moving the watch to it', () => {
-    const document = addRoute(EMPTY_FARE_ROUTES, LIM_SCL);
-    expect(setFocus(document, routeId(LIM_SCL), '2026-11-16').routes).toEqual([LIM_SCL]);
+  it('offers the two years the window spans, rather than two years written down', () => {
+    // 12.263. `[2026, 2027]` today, and the point is where it comes from: a
+    // literal pair would be right until 2027 and silently wrong after it.
+    expect(collectableYears('2026-08-19')).toEqual([2026, 2027]);
+    expect(collectableYears('2027-03-01')).toEqual([2027, 2028]);
   });
 
-  it('leaves the document alone when nothing would change', () => {
-    const document = addRoute(EMPTY_FARE_ROUTES, LIM_SCL);
-    expect(setFocus(document, routeId(LIM_SCL), null)).toBe(document);
-    expect(setFocus(document, 'LIM|MAD|2026-10', '2026-10-16')).toBe(document);
+  it('offers one year in January, because 330 days from January stays inside it', () => {
+    // Not a shortfall — the list is whatever the window spans, and from
+    // 2026-01-05 the horizon ends 2026-12-01.
+    expect(lastCollectableMonth('2026-01-05')).toBe('2026-12');
+    expect(collectableYears('2026-01-05')).toEqual([2026]);
   });
 
-  it('keeps the route where it was, so a focus is not a reorder', () => {
-    const document = addRoute(addRoute(EMPTY_FARE_ROUTES, LIM_SCL), {
-      ...LIM_SCL,
-      destination: 'MAD',
-    });
-    const next = setFocus(document, routeId(LIM_SCL), '2026-10-16');
-    expect(next.routes.map((route) => route.destination)).toEqual(['SCL', 'MAD']);
+  it('starts at this year, so the month the reader is standing in can be watched', () => {
+    // Its remaining days are collectable, and the default is next month rather
+    // than a refusal to name this one.
+    expect(collectableYears('2026-12-15')).toEqual([2026, 2027]);
   });
 });
 

@@ -46,30 +46,15 @@ export type FareRoute = {
    * product from the one being built.
    */
   month: string;
-  /**
-   * The one departure inside `month` this reader actually means to take,
-   * `YYYY-MM-DD` — 12.130, as 12.180 revised it.
-   *
-   * Still optional in the type, and the optionality now means something
-   * narrower than it did. Every route the form adds carries one, because the
-   * form asks for a date and derives the month from it — 12.180. What stays
-   * optional is the two shapes the form no longer produces: a route stored
-   * before 12.180 that has a month and never had a day, and one whose focus
-   * the reader took back from the detail panel. Both must keep working and
-   * neither may have a day invented for it, which is why this is not required
-   * and why the normalizer still takes no clock — 12.133.
-   *
-   * What the focus buys is the two things a month cannot say. It is what the
-   * page *reads* — `readingPrefix` narrows the detail, the chart and the
-   * flight table onto it — and it is what the collector keeps first when a
-   * pass's request budget will not stretch to every watched departure.
-   *
-   * It must fall inside `month`. That is not a convention the callers agree
-   * to keep: `readingPrefix` only works because `2027-03-09` starts with
-   * `2027-03`, so a focus outside its month would narrow the page onto an
-   * empty set while the row above it still said March.
+  /*
+   * There is no `focusDate` beside it, and there is not going to be — 12.260,
+   * superseding 12.130 and everything built on it. A watch named one departure
+   * inside its month for about a day; the whole read side narrowed onto that
+   * day, the form asked for it, the detail panel offered a way back out of it
+   * and the collector kept it first when a pass ran short. All of that is
+   * gone. A watched route is a city pair and a month, and the page reads the
+   * month — which is what 12.110 said it was for.
    */
-  focusDate?: string;
   currency: string;
 };
 
@@ -157,6 +142,70 @@ export function lastCollectableDay(today: string): string {
   ].join('-');
 }
 
+/**
+ * The month after the one `today` falls in, `YYYY-MM`.
+ *
+ * What the add form starts on — 12.262. Nobody watching fares is booking the
+ * month they are standing in: the near end of it has already gone and the rest
+ * is the part of the horizon where a price barely moves any more.
+ *
+ * String arithmetic, and the roll is the whole reason it is a function rather
+ * than a slice. December's next month is January of the *next year*, so the
+ * two dropdowns the form offers must both move, and a default that rolled the
+ * month while leaving the year behind would put the reader on a month eleven
+ * months in the past with nothing on screen saying so.
+ *
+ * A `Date` would roll it too, and is refused for the reason the rest of this
+ * module refuses one: `new Date('2026-12-01')` is midnight UTC, and reading
+ * the month back in Lima gives November.
+ */
+export function nextMonth(today: string): string {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return today;
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+/**
+ * The last month with any collectable departure in it, `YYYY-MM`.
+ *
+ * A month counts if *part* of it is inside the horizon, not all of it. The
+ * horizon lands mid-month almost always — 15/07/2027 from today — and a month
+ * whose first half can be collected is a month worth watching: the collector
+ * expands it, polls the days it can reach and reports the rest as
+ * `beyond-horizon` by name, which is the same thing it already does for the
+ * days of the current month that have gone.
+ */
+export function lastCollectableMonth(today: string): string {
+  return monthOf(lastCollectableDay(today));
+}
+
+/**
+ * The years the form's year dropdown offers, ascending.
+ *
+ * Derived from the horizon rather than typed in — 12.263. `[26, 27]` is what
+ * it yields today and writing those two down would be right until 2027 and
+ * silently wrong after it, in a control whose whole job is to stop a reader
+ * naming a month nobody can collect.
+ *
+ * It is two years for most of the year and **one** for part of it, and that is
+ * correct rather than a shortfall: 330 days from a January date lands inside
+ * the same year, so in January there is no second year to offer. The list is
+ * whatever the window spans.
+ *
+ * It starts at today's own year rather than at the default month's, because
+ * the current month is collectable — its remaining days are — and a reader
+ * adding a watch on the month they are standing in must be able to say so.
+ */
+export function collectableYears(today: string): number[] {
+  const first = Number(today.slice(0, 4));
+  const last = Number(lastCollectableMonth(today).slice(0, 4));
+  if (!Number.isInteger(first) || !Number.isInteger(last) || last < first) return [];
+  const years: number[] = [];
+  for (let year = first; year <= last; year += 1) years.push(year);
+  return years;
+}
+
 /** Three letters. Airports have digits in other coding schemes, IATA does not. */
 export function isAirportCode(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z]{3}$/.test(value.trim());
@@ -179,34 +228,18 @@ export function routeLabel(route: FareRoute): string {
   return `${route.origin} → ${route.destination}`;
 }
 
-/**
- * The departures this route is *read* as, as a prefix — 12.131.
+/*
+ * `readingPrefix` and `focusDeparted` were here, and both went with the focus
+ * — 12.260. What a route is read as is now its month and nothing else, so a
+ * function to choose between two answers has one answer to choose from; and a
+ * month that has gone is `route.month < monthOf(today)`, which is what the
+ * watchlist row and `collectableRoutes` have always compared.
  *
- * `2027-03` for a watch with no focus, `2027-03-09` for one with. Both are
- * prefixes of the same `YYYY-MM-DD` departure key, which is the whole trick:
- * `snapshotsFor` filters with `startsWith` and the history endpoint's
- * `departure` parameter matches the same way, so narrowing the entire page
- * onto one day is one longer string rather than a second code path beside the
- * month. The same property 12.112 leaned on to leave the archive alone.
- *
- * The month is still what is collected. This is only what is looked at.
+ * The prefix property they leaned on is untouched and still load-bearing:
+ * `snapshotsFor` filters departures with `startsWith` and the history
+ * endpoint's `departure` parameter matches the same way — 12.112 — so the page
+ * narrows on `route.month` directly.
  */
-export function readingPrefix(route: FareRoute): string {
-  return route.focusDate ?? route.month;
-}
-
-/**
- * Whether the day this reader picked has already gone.
- *
- * `today` is passed in rather than read from a clock, for the reason the
- * normalizer takes none at all: a focus is not dropped when its day passes.
- * The archive it points at is still the archive of the flight they meant to
- * take, and a value that disappeared because the page was opened a day later
- * would be a document editing itself. It is said out loud instead.
- */
-export function focusDeparted(route: FareRoute, today: string): boolean {
-  return route.focusDate !== undefined && route.focusDate < today;
-}
 
 /**
  * A stored date, written the way this reader writes one.
@@ -226,7 +259,15 @@ export function formatFlightDate(iso: string): string {
   return `${day}/${month}/${year}`;
 }
 
-const MONTH_NAMES = [
+/**
+ * The twelve, in order, exported because the add form offers all of them.
+ *
+ * One list rather than two: the form's dropdown and `formatFlightMonth` are
+ * the two places a month is written out in words, and two arrays would be two
+ * chances for the row above a chart and the control that added it to spell the
+ * same month differently.
+ */
+export const MONTH_NAMES = [
   'January',
   'February',
   'March',
@@ -262,21 +303,13 @@ export function formatFlightMonth(month: string): string {
   return name ? `${name} ${parts[1]}` : month;
 }
 
-/**
- * How this route's departures are written on screen.
- *
- * The focus date if there is one, `dd/mm/yyyy` like every other real date
- * here; the month name if there is not. The two forms are deliberately
- * unmistakable for each other — 12.114 chose `March 2027` over `03/2027`
- * precisely so a heading that switches between them cannot be misread as one
- * that changed its mind about the day.
- *
- * Paired with `readingPrefix` and used everywhere it is: a heading naming a
- * day over figures drawn from a month would be the worst of both.
+/*
+ * `formatReading` went with the focus too — 12.260. It chose between a day and
+ * a month for a heading; there is one thing to name now, and every caller says
+ * `formatFlightMonth(route.month)`. `formatFlightDate` stays, because the
+ * departures inside a month are still real dates and the flight table, the
+ * collector's reports and the horizon refusal all print them.
  */
-export function formatReading(route: FareRoute): string {
-  return route.focusDate ? formatFlightDate(route.focusDate) : formatFlightMonth(route.month);
-}
 
 /**
  * Parse whatever storage returns.
@@ -292,24 +325,26 @@ export function formatReading(route: FareRoute): string {
  * with a form in front of it. A `flightDate` that is not a real date is still
  * dropped: `2026-02-31` names no month either.
  *
- * A focus date is dropped rather than repaired when it falls outside its own
- * month, and rather than the route being dropped with it — 12.132. Both other
- * answers invent. Widening the month to the focus's month changes what gets
- * collected, which is not something a reading preference is allowed to do;
- * moving the day into the watched month names a departure nobody typed. The
- * entry states two things that cannot both be true and does not say which is
- * wrong, so the weaker of the two goes and the route survives with no focus —
- * a shape the whole feature already handles, because most routes have it.
+ * **A stored focus becomes simply its month, and this is the whole migration**
+ * — 12.261. An entry written between 12.130 and now carries both `month` and
+ * `focusDate`; the month is already there and already right, so dropping the
+ * focus is a key this function stops reading rather than a repair it performs.
+ * The owner's own watchlist is the case: `LIM→SCL 2027-03` with
+ * `focusDate: 2027-03-09` loads as `LIM→SCL 2027-03`, route intact, and the
+ * panel shows all thirty-one departures instead of the one.
  *
- * A pre-12.110 `flightDate` is **not** promoted into a focus, and 12.180 does
- * not change that. The form now asks for a date and so gives every route it
- * adds a focus — but that is a reader choosing a day, which is the whole of
- * what a focus means. A legacy `flightDate` was the only day that entry could
- * name rather than one picked out of thirty-one, and promoting it would put a
- * focus the reader never chose on every stored route at once, silently, on the
- * first read after an upgrade. This function still takes no clock and still
- * writes nothing back by itself — 12.133 — so a route stored with a month and
- * no focus loads with a month and no focus, untouched.
+ * It is deliberately **not** pinned to `2027-03-01`. Keeping the day and
+ * throwing away the thirty others would be the opposite of what taking the
+ * focus away means, and the first of the month is a day nobody chose.
+ *
+ * This is also why the migration belongs here and nowhere else. 12.133's rule
+ * still holds — the normalizer takes no clock and edits nothing by itself —
+ * and nothing here breaks it: not reading a key needs no clock, invents
+ * nothing, and writes nothing back. The stored JSON keeps its dead `focusDate`
+ * until the reader's next add, remove or reorder rewrites the document, and
+ * every read in between produces the same month. A migration that wrote on
+ * load would be a document editing itself on a page view, which 12.133 refused
+ * for the departed focus and refuses here for the same reason.
  */
 export function normalizeFareRoutes(value: unknown): FareRoutes {
   if (typeof value !== 'object' || value === null) return EMPTY_FARE_ROUTES;
@@ -337,17 +372,12 @@ export function normalizeFareRoutes(value: unknown): FareRoutes {
     // A route to itself is a typo that would send a real request.
     if (origin === destination) continue;
 
-    // Hoisted so the type predicate narrows it: `candidate.focusDate` is
-    // `unknown` off an index signature, and reading it twice would ask TypeScript
-    // to remember a narrowing it does not keep across property accesses.
-    const rawFocus = candidate.focusDate;
-    const focus = isCalendarDate(rawFocus) && monthOf(rawFocus) === month ? rawFocus : null;
-
+    // `candidate.focusDate` is not read, and that is the migration — 12.261.
+    // The month beside it is what the watch always was.
     const route: FareRoute = {
       origin,
       destination,
       month,
-      ...(focus === null ? {} : { focusDate: focus }),
       currency:
         typeof candidate.currency === 'string' && /^[A-Za-z]{3}$/.test(candidate.currency)
           ? normalizeCode(candidate.currency)
@@ -363,62 +393,25 @@ export function normalizeFareRoutes(value: unknown): FareRoutes {
   return { version: 1, routes };
 }
 
-/**
- * Point a watch at one of its days, or at none of them.
- *
- * The only mutation that touches a focus, so the invariant is checked in one
- * place: a day outside the route's own month clears the focus rather than
- * setting it, which the form makes unreachable by refusing first — but a
- * transition that could be talked into breaking `readingPrefix` would be a
- * transition the normalizer had to defend against on every read.
- *
- * `routeId` deliberately does not include the focus, so this never changes
- * which watch a route is: the selection, the row's report and the archive it
- * points at all survive a focus being set, moved or dropped. Two entries for
- * one month with different focuses would be two watches collecting the same
- * thirty-one departures twice, which is the collision `routeId` exists to
- * stop.
+/*
+ * `setFocus` was here and is gone with the focus — 12.260. It was the one
+ * mutation that could change a route in place, and with it goes the only
+ * reason a watch had a state the reader could put it into and had to be given
+ * a way back out of. A watch is now added and removed and reordered, and that
+ * is all that can happen to one.
  */
-export function setFocus(document: FareRoutes, id: string, focus: string | null): FareRoutes {
-  const index = document.routes.findIndex((route) => routeId(route) === id);
-  if (index < 0) return document;
-
-  const current = document.routes[index];
-  const next =
-    focus !== null && isCalendarDate(focus) && monthOf(focus) === current.month ? focus : null;
-  if ((current.focusDate ?? null) === next) return document;
-
-  // Rebuilt rather than spread-and-deleted, so clearing a focus leaves no
-  // `focusDate: undefined` key behind to be written into the stored document.
-  const bare: FareRoute = {
-    origin: current.origin,
-    destination: current.destination,
-    month: current.month,
-    currency: current.currency,
-  };
-  const routes = [...document.routes];
-  routes[index] = next === null ? bare : { ...bare, focusDate: next };
-  return { ...document, routes };
-}
 
 export function addRoute(document: FareRoutes, route: FareRoute): FareRoutes {
   const normalized = normalizeFareRoutes({ routes: [route] }).routes[0];
   if (!normalized) return document;
   const id = routeId(normalized);
-  if (document.routes.some((existing) => routeId(existing) === id)) {
-    // Already watched. Still not a move — you asked for it to be present, not
-    // for it to jump to the end — but the focus travels, because the form is
-    // the only control that names a day. Re-adding a watch you already have is
-    // how its day is moved to another one. It is no longer how a day comes
-    // *off*: under 12.180 the form's date is required, so it can never hand
-    // over a route with no focus, and the way back to the whole month is the
-    // detail panel's own control — 12.182. The `?? null` stays because this is
-    // a pure transition over a value and callers other than the form exist;
-    // making it unreachable in the UI is not a reason to let it invent a focus
-    // here instead. With nothing to change it is the no-op it always was, down
-    // to returning the same document.
-    return setFocus(document, id, normalized.focusDate ?? null);
-  }
+  // Already watched, so nothing to do — and deliberately not a move either:
+  // you asked for it to be present, not for it to jump to the end of a list
+  // whose order the collector spends its budget down. It used to carry the
+  // focus over, which was the one thing re-adding could still change; with the
+  // focus gone (12.260) an identical watch is an identical watch, and the same
+  // document comes back.
+  if (document.routes.some((existing) => routeId(existing) === id)) return document;
   return { ...document, routes: [...document.routes, normalized] };
 }
 

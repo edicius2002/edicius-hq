@@ -115,8 +115,11 @@ export type ScatterWindow = {
 };
 
 /**
- * The stretch of departure dates the route is a watch on — its own month, or
- * the one day inside it the reader focused.
+ * The stretch of departure dates the route is a watch on: its own month.
+ *
+ * It was "or the one day inside it the reader focused" until 12.260, and this
+ * stays a pair of dates rather than a month string because the frame it feeds
+ * compares dates and because a range is the weaker assumption of the two.
  *
  * Both ends are `YYYY-MM-DD`, and both are inclusive.
  */

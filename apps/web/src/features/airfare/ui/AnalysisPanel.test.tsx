@@ -86,18 +86,6 @@ for (let day = 1; day <= 31; day += 1) {
 }
 
 /**
- * A month with one of its days picked out — the shape every route the form has
- * added since 12.180 — and the archive as the page hands it over for one.
- *
- * `AirfarePage` narrows both series onto `readingPrefix` before this panel ever
- * sees them (12.131), so a focused watch arrives holding one departure's
- * snapshots and one departure's baseline.
- */
-const FOCUSED: FareRoute = { ...ROUTE, focusDate: '2027-03-09' };
-const FOCUS_SNAPSHOTS = MONTH.filter((snapshot) => snapshot.flightDate === '2027-03-09');
-const FOCUS_BASELINE = BASELINE.filter((point) => point.flightDate === '2027-03-09');
-
-/**
  * A booking horizon over the whole run-up and a month past the watched one.
  *
  * The real one is 331 dates from today; this is the same shape cut down to
@@ -228,24 +216,26 @@ describe('the period the reader is on', () => {
 });
 
 describe('what the panel says it is showing', () => {
-  it('names the focused departure date and never the month it falls in', () => {
-    render(<Harness route={FOCUSED} snapshots={FOCUS_SNAPSHOTS} baseline={FOCUS_BASELINE} />);
+  it('names the watched month, which is the whole of what a watch is', () => {
+    /*
+     * It briefly named a focused departure date instead, where a watch carried
+     * one, because the figures under the head were that one day's — 12.131.
+     * With the focus gone (12.260) there is one thing to name, and the page
+     * narrows the snapshots to the same month before this panel sees them, so
+     * the head and the figures under it cannot disagree.
+     */
+    render(<Harness route={ROUTE} />);
 
     const head = screen.getByRole('heading', { level: 2 });
-    expect(head).toHaveTextContent('ARI → SCL · 09/03/2027');
-    expect(head.textContent).not.toMatch(/March/);
+    expect(head).toHaveTextContent('ARI → SCL · March 2027');
+    expect(head.textContent).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
-  it('says the chart is of a fare departing *on* that day, not *in* a month', () => {
-    render(<Harness route={FOCUSED} snapshots={FOCUS_SNAPSHOTS} baseline={FOCUS_BASELINE} />);
-    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
-      'ARI → SCL departing on 09/03/2027',
-    );
-  });
-
-  it('still names the month for a watch nobody has picked a day inside', () => {
+  it('says the chart is of fares departing *in* a month, never *on* a day', () => {
     render(<Harness route={ROUTE} />);
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('ARI → SCL · March 2027');
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+      'ARI → SCL departing in March 2027',
+    );
   });
 });
 
@@ -255,7 +245,7 @@ describe('the controls that are gone', () => {
     // observation date subtracted from the flight date, so it was one series
     // wearing two labellings — and the reading a reader actually wanted from it
     // is what the other chart draws, on the axis it belongs to.
-    render(<Harness route={FOCUSED} snapshots={FOCUS_SNAPSHOTS} baseline={FOCUS_BASELINE} />);
+    render(<Harness route={ROUTE} />);
     expect(screen.queryByRole('group', { name: 'Read the axis as' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Days before departure' })).not.toBeInTheDocument();
     expect(screen.queryByText(/days before the flight/)).not.toBeInTheDocument();

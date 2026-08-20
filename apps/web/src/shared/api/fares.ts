@@ -251,17 +251,14 @@ export type RouteRequest = {
   destination: string;
   /** `YYYY-MM`. The server expands it into the departures inside it. */
   month: string;
-  /**
-   * `YYYY-MM-DD`, and inside `month` — the one departure this reader means to
-   * take. Optional, and it does not change what is collected: every day of the
-   * month is still expanded and scheduled at its own rate. It changes only who
-   * survives a truncated pass, which is the whole reason a reading preference
-   * is sent to a collector at all (12.130).
-   *
-   * A focus outside its month is a 422 rather than a silent drop: the client
-   * cannot construct one, so one arriving is a bug worth seeing.
+  /*
+   * `focusDate` was here and is gone from both sides at once — 12.266. It was
+   * the one reading preference this client ever sent a collector, and the only
+   * thing the collector did with it was keep that day first when a pass ran out
+   * of budget. With no focus in the model nothing can set it, so the field and
+   * the ordering it fed went together rather than one of them becoming a
+   * branch the other could no longer reach.
    */
-  focusDate?: string;
   currency?: string;
 };
 

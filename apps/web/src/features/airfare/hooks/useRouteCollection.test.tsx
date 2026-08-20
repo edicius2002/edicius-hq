@@ -158,45 +158,30 @@ describe('collecting one watched route from its own row', () => {
     });
   });
 
-  it('sends the focused day beside the month, and nothing when there is none', async () => {
+  it('sends a city pair, a month and a currency, and no reading preference', async () => {
     /*
-     * The focus has to travel over the wire rather than staying in the browser
-     * — 12.134. A press buys up to thirty-one departures and a pass can still
-     * truncate, at the request budget since 12.210 removed the forty-request
-     * ceiling, and only the server knows which days it could not afford. It
-     * cannot keep the reader's own day first unless it is told which day that
-     * is.
+     * The body used to carry `focusDate` beside the month, which was the one
+     * reading preference this client ever sent a collector — 12.134, and gone
+     * with 12.266. A press still buys up to thirty-one departures and a pass
+     * can still truncate at the request budget, and which departure survives
+     * that is the nearest one: 12.111, which is the rule the focus was jumping
+     * ahead of.
+     *
+     * Asserted on the keys rather than on the whole body, because a
+     * `focusDate: undefined` would serialise away here while still being the
+     * shape that reaches a stored document as a key.
      */
-    const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
-
-    act(() => result.current.collect({ ...LIM_MAD, focusDate: '2026-12-09' }));
-    await waitFor(() => expect(api.calls).toHaveLength(1));
-    expect(api.calls[0]).toEqual({
-      routes: [
-        {
-          origin: 'LIM',
-          destination: 'MAD',
-          month: '2026-12',
-          focusDate: '2026-12-09',
-          currency: 'USD',
-        },
-      ],
-    });
-  });
-
-  it('sends no focus key at all for a route that has none', async () => {
-    // A `focusDate: undefined` in the body would serialise away here, but it
-    // is the shape that reaches the stored document as a key, so the two
-    // paths are checked for absence rather than for `undefined`.
     const api = stubCollect();
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_MAD));
     await waitFor(() => expect(api.calls).toHaveLength(1));
-    expect(Object.keys((api.calls[0] as { routes: object[] }).routes[0])).not.toContain(
-      'focusDate',
-    );
+    expect(Object.keys((api.calls[0] as { routes: object[] }).routes[0])).toEqual([
+      'origin',
+      'destination',
+      'month',
+      'currency',
+    ]);
   });
 
   it('marks only the pressed row as working', async () => {

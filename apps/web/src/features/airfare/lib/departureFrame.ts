@@ -87,10 +87,12 @@ export function frameSource(days: FrameDay[]): FrameSource {
 /**
  * Where the answer changes hands, in window minutes.
  *
- * A list rather than a single offset, because a watch narrowed to one departure
- * date puts a single board day in the middle of a week of curve days and has a
- * seam on each side of it. Reporting only the first would draw half the boundary
- * and leave the other half looking like an ordinary midnight.
+ * A list rather than a single offset, because a range narrower than the frame
+ * puts a run of board days in the middle of a week of curve days and has a seam
+ * on each side of it. Reporting only the first would draw half the boundary and
+ * leave the other half looking like an ordinary midnight. Watches stopped being
+ * able to build that frame at 12.260; the list stays because this reads a day
+ * list rather than a watch.
  *
  * The offset is the midnight the change happens *at*, so the rule lands on the
  * separator between the two days rather than inside either of them.
@@ -178,10 +180,14 @@ function clampCentre(centre: number, width: number, track: number): number {
  * **One label per source, not one per run, and that is the fix for a defect
  * found in a browser.** Labelling every run put a second `one price a date`
  * under the tail of `every flight, at the hour it departs` and drew the two
- * through each other: on the owner's own ARI-SCL, whose watch is narrowed to
- * one departure date, the week of 1-7 March is three runs — curve, board, curve
- * — and the third run's label was centred 94 units from the second's, which is
- * 47 units less than half their combined width. The rail failed silently there:
+ * through each other: on the owner's own ARI-SCL, whose watch was narrowed to
+ * one departure date at the time, the week of 1-7 March is three runs — curve,
+ * board, curve — and the third run's label was centred 94 units from the
+ * second's, which is 47 units less than half their combined width. No watch can
+ * build that frame since 12.260 took the focus away — a watched month is either
+ * the whole of a month frame or disjoint from it, so two runs is the most this
+ * page produces — and the rule stays written for any number of them, because it
+ * is a rule about a run list rather than about what one caller sends today. The rail failed silently there:
  * it did not look broken, it looked like garbled text under the axis, which is
  * worse. Repeating a source's name was never worth anything either — the rail
  * answers "which archive answers where", and saying "one price a date" twice

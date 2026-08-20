@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import {
-  formatReading,
-  readingPrefix,
+  formatFlightMonth,
   routeId,
   routeLabel,
   type FareRoute,
@@ -187,19 +186,20 @@ export function AnalysisPanel({
   /*
    * What the watch is on, as two departure dates — 12.235.
    *
-   * `readingPrefix` rather than `route.month`, so a focused watch narrows to
-   * the one day the rest of the page has already narrowed to; `periodBounds`
-   * rather than arithmetic here, because it is this feature's single answer to
-   * "what does a key cover".
+   * The watched month, which since 12.260 is the whole of what a watch is: this
+   * was `readingPrefix` and a `'day'` period where a route named one departure
+   * inside its month. `periodBounds` rather than arithmetic here, because it is
+   * this feature's single answer to "what does a key cover".
    *
-   * It no longer clips chart B's frame. It decides which dates inside that
-   * frame the boards may answer for, which is the same fact put to the use it
-   * was always really for — 12.243.
+   * It does not clip chart B's frame. It decides which dates inside that frame
+   * the boards may answer for, which is the same fact put to the use it was
+   * always really for — 12.243. That use is why the month mattering again
+   * changes nothing here beyond the width of the range: a month of board dates
+   * is what the boards were always collected for.
    */
   const watched: WatchedRange | null = useMemo(() => {
     if (!route) return null;
-    const key = readingPrefix(route);
-    const bounds = periodBounds(key, route.focusDate ? 'day' : 'month');
+    const bounds = periodBounds(route.month, 'month');
     return { from: bounds.from.slice(0, 10), to: bounds.to.slice(0, 10) };
   }, [route]);
 
@@ -241,14 +241,15 @@ export function AnalysisPanel({
   };
 
   /*
-   * What these figures are *of*, in the words the reader picked them with —
-   * 12.131. `formatReading` rather than `formatFlightMonth(route.month)`: the
-   * month is what gets collected, the focus date is what gets read, and by the
-   * time the snapshots reach this panel they are already narrowed to it.
+   * What these figures are *of*: the watched month — 12.260.
+   *
+   * It was `formatReading` and a preposition that moved with it, because a
+   * watch could name one departure inside its month and the page narrowed onto
+   * it. The page narrows on `route.month` now, and the history request asks for
+   * the same string, so the head and the figures under it cannot name different
+   * things.
    */
-  const where = route
-    ? `${routeLabel(route)} departing ${route.focusDate ? 'on' : 'in'} ${formatReading(route)}`
-    : '';
+  const where = route ? `${routeLabel(route)} departing in ${formatFlightMonth(route.month)}` : '';
   const currency = route?.currency ?? 'USD';
   const what = view === 'moves' ? 'moves' : `days/${source}`;
   const daysName = DAYS_NAMES[source];
@@ -257,7 +258,7 @@ export function AnalysisPanel({
     <>
       <div className={styles.head}>
         <h2 className={styles.title}>
-          {route ? `${routeLabel(route)} · ${formatReading(route)}` : 'Price analysis'}
+          {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
         </h2>
         {/*
           Two switches, in the order the questions come: which chart, then how

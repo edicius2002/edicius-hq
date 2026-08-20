@@ -151,9 +151,10 @@ export function useRouteCollection(): RouteCollection {
           month: route.month,
           // A press buys up to thirty-one departures, and a pass can still
           // truncate — not at forty any more (12.210 removed that), but at
-          // the request budget. The focused day is what the pass keeps first
-          // when it does (12.134).
-          ...(route.focusDate ? { focusDate: route.focusDate } : {}),
+          // the request budget. Which of them survives that is the nearest
+          // departure and nothing else since 12.266 took the focus off this
+          // payload: nearest-first is 12.111 and it was always the rule the
+          // focus was jumping ahead of.
           currency: route.currency,
         },
       ]),

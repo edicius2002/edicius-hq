@@ -1,59 +1,127 @@
+/*
+ * Four tracks, two rows: every field beside its own label, and the two
+ * airports on one row — 12.265, as 12.268 revised it.
+ *
+ * `auto` for the two label tracks, so each is as wide as its own longest word
+ * and no wider; `minmax(0, 1fr)` for the two field tracks, so a suggestion
+ * list hanging off one of them can never widen the panel.
+ *
+ * **The whole row, measured at the 20rem floor.** The panel is
+ * `minmax(20rem, 27rem)`, so 400px, and at this app's 125% root — 1rem is
+ * 20px here, not 16 — that leaves 358px of content. The label tracks are the
+ * two fixed costs: "Departing" is 84.38px and shares the first track with
+ * "Origin" at 56.25, and "Destination" is 103.13px in the third. Three 15px
+ * gaps. 358 − 84.38 − 103.13 − 45 leaves **125.49px for both inputs, 62.75px
+ * each**.
+ *
+ * That is enough because a field holding a three-letter IATA code does not
+ * need 8rem. `LIM` is 31.65px at 0.9rem, and with the padding below the input
+ * spends 22px on chrome: 53.65px of the 62.75 it has, with 9.1px standing.
+ * The 8rem minimum this field used to carry was 160px for 32px of text, and it
+ * was what made one row look impossible — 500-odd pixels against 358. Nothing
+ * about the labels had to move.
+ *
+ * At the 27rem the panel actually takes on a desktop there is 498px, and the
+ * same arithmetic gives the pair 132.7px each.
+ */
 .form {
   display: grid;
-  gap: var(--space-2);
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
   /* The list that hangs off a field must not widen the panel. */
   min-width: 0;
 }
 
-.field {
+/*
+ * The airports row, which is two things at once.
+ *
+ * `subgrid` makes its four tracks the form's own four, so "Origin" and
+ * "Departing" share the first column and the origin input and the month
+ * dropdown start at the same x. A nested grid would measure its own labels and
+ * land somewhere else.
+ *
+ * `position: relative` is the other job, and it is a contract `AirportField`
+ * states: an inline field makes `.control` static and hands the horizontal
+ * placement of its suggestion list to the caller's row — 12.268. Both lists
+ * then reach this row's edges, which are the form's, and neither can be wider
+ * than it is.
+ */
+.airports {
+  grid-column: 1 / -1;
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: subgrid;
+  align-items: center;
+  position: relative;
 }
 
-.field label {
+/*
+ * The labels, whichever component renders them.
+ *
+ * `AirportField` brings its own `<label>` and sets the wrapper to
+ * `display: contents`, so its label lands in this grid as a direct child; the
+ * departure group's label is a `<span>` written here. One rule for both,
+ * because two rules is how a form ends up with two sizes of label.
+ */
+.form label,
+.groupLabel {
   color: var(--color-muted);
   font-size: 0.8rem;
+  /* Nothing here is long enough to wrap, and a wrapped label would push its
+     own row taller than the input beside it. */
+  white-space: nowrap;
 }
 
-.field input {
+/*
+ * `var(--space-2)` across rather than `--space-3`, and that 10px is load
+ * bearing: at 15px a side the input spends 32px on chrome and has 30.75px left
+ * for a code that needs 31.65. Ten leaves 40.75. The vertical padding is
+ * unchanged, so the fields are the height they were.
+ */
+.form input,
+.form select {
   background: var(--color-bg-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   font: inherit;
   font-size: 0.9rem;
-  min-width: 8rem;
+  min-width: 0;
 }
 
-.field input:focus-visible {
+.form input:focus-visible,
+.form select:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
 
-.error {
-  flex-basis: 100%;
-  margin: 0;
-  color: var(--color-danger);
-  font-size: 0.85rem;
+/* First column, beside "Origin", so the month starts where the origin code does. */
+.groupLabel {
+  grid-column: 1;
 }
 
 /*
- * Two fields side by side because they are one decision: the pair of airports.
- * It is the only row left. 12.113 emptied the column beside the departure when
- * it took the return leg away, 12.130 filled it with the optional day, and
- * 12.180 folded that day and the month back into one control — so the departure
- * is full width again, on its own line under the airports. The form is the same
- * two lines tall either way, which is what keeps it under the two list entries
- * it stands above.
+ * The month and the year, side by side across the three tracks the departure
+ * label leaves.
  *
- * The `min-width: 0` override that used to live here went with the second
- * column. It existed because `min-width: 8rem` — 160px plus 26px of chrome —
- * overflowed the 174px a column has at the panel's 20rem floor; a full-width
- * field has 358px and the declared minimum is no longer fighting anything.
+ * The month track takes the room and the year takes what two digits need:
+ * "September" is the longest of the twelve and is what the first column is
+ * sized to hold, while a year grown to match it would be four fifths empty and
+ * would read as the more important half of the two.
  */
-.row {
+.departure {
+  grid-column: 2 / -1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Across every column: a refusal is about the form, not about one field. */
+.error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.85rem;
 }

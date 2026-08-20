@@ -111,7 +111,7 @@ export function RouteList({
   });
 
   /*
-   * Whether there are rows above or below the ones on screen — 12.270.
+   * Whether there are rows above or below the ones on screen — 12.259.
    *
    * Read rather than assumed, because a mark drawn unconditionally is the page
    * claiming rows it does not have the moment the reader reaches the bottom.

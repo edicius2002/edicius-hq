@@ -64,18 +64,25 @@ function renderEditor() {
   };
 }
 
+/** The month and the year, by the names a screen reader hears them under. */
+function departure() {
+  return {
+    month: screen.getByRole('combobox', { name: 'Departure month' }),
+    year: screen.getByRole('combobox', { name: 'Departure year' }),
+  };
+}
+
 /**
- * Submit the way a browser without `type="date"` would.
+ * Pick a month and a year, in the two presses a reader makes.
  *
- * `min` and `max` on the control are one of the two guards, and pressing the
- * button only ever exercises that one — jsdom implements interactive
- * constraint validation, so a value outside the bounds never reaches `submit`
- * and the form has no chance to speak. Dispatching the event directly is what
- * a text-box fallback does: no constraints, straight into the handler. That is
- * the guard these tests are about, and the only way to see it work.
+ * `fireEvent.change` rather than `user.selectOptions`, because the two
+ * dropdowns are set independently and React batches synchronous events: each
+ * one is its own state update and its own render.
  */
-function submitPastTheBrowser() {
-  fireEvent.submit(screen.getByRole('form', { name: /add a route to watch/i }));
+function pick(month: string, year: string) {
+  const { month: monthField, year: yearField } = departure();
+  fireEvent.change(monthField, { target: { value: month } });
+  fireEvent.change(yearField, { target: { value: year } });
 }
 
 async function suggestionsFor(label: RegExp, typed: string) {
@@ -87,6 +94,25 @@ async function suggestionsFor(label: RegExp, typed: string) {
 }
 
 describe('RouteEditor', () => {
+  it('puts every label beside its own field rather than above it', () => {
+    /*
+     * 12.265. Asserted on the DOM order inside each row rather than on
+     * geometry, because jsdom has no layout — the stylesheet is what turns
+     * this into two columns, and the browser check that it does not overflow
+     * the panel's 20rem floor is in the commit that carries it.
+     *
+     * The airports no longer share a row, and that is the cost: a label beside
+     * a field takes the label's width, and two of each do not fit in the 358px
+     * this panel has at the floor.
+     */
+    renderEditor();
+    const form = screen.getByRole('form', { name: /add a route to watch/i });
+    const labels = [...form.querySelectorAll('label, [id="airfare-departing-label"]')].map(
+      (node) => node.textContent,
+    );
+    expect(labels).toEqual(['Origin', 'Destination', 'Departing']);
+  });
+
   it('offers both ends as a combobox, not as bare text inputs', () => {
     renderEditor();
     expect(screen.getByRole('combobox', { name: /origin/i })).toBeInTheDocument();
@@ -153,114 +179,197 @@ describe('RouteEditor', () => {
     expect(listFor(/origin/i)?.className).not.toMatch(/leftwards/);
   });
 
-  it('asks for one exact departure date rather than a month and a day', () => {
-    // 12.180, superseding the pair 12.130 shipped. The reader has an answer to
-    // "which day are you flying"; they do not have a separate answer to "which
-    // month", and asking twice is how the two came to be able to disagree.
+  it('asks for a month and a year rather than an exact date', () => {
+    /*
+     * 12.262, superseding 12.180 and the focus 12.130 built under it. The
+     * reader filling this in knows they are flying in September; the date
+     * control asked them for the 9th, which is a precision they do not have
+     * at the moment they add the watch — and the whole page then narrowed
+     * itself onto that one day.
+     */
     renderEditor();
-    expect(screen.getByLabelText(/departure date/i)).toHaveAttribute('type', 'date');
-    expect(screen.queryByLabelText(/departure month/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/^day/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/departure date/i)).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="date"]')).toBeNull();
+
+    const { month, year } = departure();
+    expect(month.tagName).toBe('SELECT');
+    expect(year.tagName).toBe('SELECT');
   });
 
-  it('derives the watched month from the date and sends the date as the focus', async () => {
-    // The month is still the whole of what gets collected — all thirty-one of
-    // its departures. The date says which one the reader means to take.
+  it('offers the twelve months by name, so none of them can be read as a day', () => {
+    // 12.114's rule reaching the control that produces the value: `September`
+    // rather than `09`, which sits close enough to this feature's dd/mm/yyyy
+    // dates that a reader has to work out which half they are looking at.
+    renderEditor();
+    const names = within(departure().month)
+      .getAllByRole('option')
+      .map((option) => option.textContent);
+    expect(names).toEqual([
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ]);
+  });
+
+  it('opens on next month, which is not the month the reader is standing in', () => {
+    // Today is 2026-08-18, so the default is September 2026: the near days of
+    // August have gone and its far ones barely move.
+    renderEditor();
+    expect(departure().month).toHaveValue('09');
+    expect(departure().year).toHaveValue('2026');
+  });
+
+  it('rolls the year with the month when next month is in the next one', () => {
+    /*
+     * The one default that can be wrong quietly. From 15 December the next
+     * month is January **2027**, and a month that rolled while its year stayed
+     * behind would open the form eleven months in the past with both halves
+     * looking perfectly ordinary.
+     */
+    render(<RouteEditor today="2026-12-15" onAdd={vi.fn()} />);
+    expect(departure().month).toHaveValue('01');
+    expect(departure().year).toHaveValue('2027');
+  });
+
+  it('offers the years the horizon spans, written as two digits', () => {
+    /*
+     * 12.263. 330 days past 2026-08-18 is 2027-07-14, so the window is
+     * 2026-08..2027-07 and the list is exactly `26` and `27`. It comes from
+     * `collectableYears` rather than being typed in: the same two literals
+     * would be right until 2027 and silently wrong after it, in the control
+     * whose job is to stop a reader naming a month nobody can collect.
+     */
+    renderEditor();
+    const options = within(departure().year).getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['26', '27']);
+    // The stored value is the whole year — a two-digit value would be a
+    // century nobody stated.
+    expect(options.map((option) => option.getAttribute('value'))).toEqual(['2026', '2027']);
+  });
+
+  it('hands over the month the two dropdowns name between them, and no day', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
     await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.type(screen.getByLabelText(/departure date/i), '2026-11-09');
+    pick('11', '2026');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(onAdd).toHaveBeenCalledWith({
       origin: 'LIM',
       destination: 'MAD',
       month: '2026-11',
-      focusDate: '2026-11-09',
       currency: 'USD',
     });
-  });
-
-  it('cannot hand over a month and a focus that disagree, whatever is typed', async () => {
-    /*
-     * What the two-control arrangement had to guard against, and could only
-     * guard against: a day left standing when the month moved out from under
-     * it, invisible on screen because `type="date"` renders `09/11/2026` the
-     * same way whichever month sits above it. There is no second control to
-     * fall out of step with now — the month is a function of the date, taken
-     * from the value being submitted — so this asserts the property rather
-     * than the guard that used to defend it. Typed across three months in a
-     * row, which is exactly the sequence that used to strand a day.
-     */
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { onAdd } = renderEditor();
-    const date = screen.getByLabelText(/departure date/i);
-
-    for (const typed of ['2026-11-09', '2026-12-09', '2027-01-31']) {
-      // Retyped each time: a successful add clears the fields behind it, which
-      // is the state the stranded day used to survive.
-      await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-      await user.clear(date);
-      await user.type(date, typed);
-      await user.click(screen.getByRole('button', { name: /add route/i }));
-    }
-
-    for (const [route] of onAdd.mock.calls) {
-      expect(route.focusDate?.slice(0, 7)).toBe(route.month);
-    }
-    expect(onAdd.mock.calls.map(([route]) => route.month)).toEqual([
-      '2026-11',
-      '2026-12',
-      '2027-01',
+    // Checked on the keys as well: a `focusDate: undefined` would pass the
+    // assertion above and still reach the stored document as a key.
+    expect(Object.keys(onAdd.mock.calls[0][0])).toEqual([
+      'origin',
+      'destination',
+      'month',
+      'currency',
     ]);
   });
 
-  it('bounds the picker at today and at the far end of what can be collected', () => {
-    /*
-     * Both ends are on the control, so the picker will not offer a day the
-     * collector could never do anything with. 330 days past 2026-08-18 is
-     * 2027-07-14 — the horizon the API measured, copied to the web side so the
-     * refusal happens in front of the reader rather than in a skip list.
-     */
+  it('goes back to next month after an add, rather than staying on what was added', async () => {
+    // A dropdown has no empty state to return to, and leaving it on the month
+    // just added invites a second watch on the same month from a reader who
+    // only changed the destination.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderEditor();
-    const date = screen.getByLabelText(/departure date/i);
-    expect(date).toHaveAttribute('min', '2026-08-18');
-    expect(date).toHaveAttribute('max', '2027-07-14');
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    pick('01', '2027');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(departure().month).toHaveValue('09');
+    expect(departure().year).toHaveValue('2026');
   });
 
-  it('says a day has gone rather than adding a departure nothing can collect', async () => {
-    // A day behind today would be refused by the collector on every pass
-    // forever, and nothing on the page would tell the reader it was the day.
+  it('says a month has gone rather than adding one nothing can collect', async () => {
+    /*
+     * Reachable because the year list starts at this year: in August, January
+     * 2026 is two presses away. Every day of it comes back `departed` on every
+     * pass forever, and nothing on screen would connect that to the dropdowns.
+     */
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
     await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.type(screen.getByLabelText(/departure date/i), '2026-08-03');
-    submitPastTheBrowser();
+    pick('01', '2026');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(onAdd).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('That day has gone.');
+    expect(screen.getByRole('alert')).toHaveTextContent('That month has gone.');
   });
 
-  it('refuses a date past the horizon in words instead of dropping it later', async () => {
+  it('refuses a month past the horizon by naming the last day that works', async () => {
     /*
-     * The other half of the same argument, and the half the form did not make
-     * before: a month past the horizon was accepted, and every one of its
-     * departures came back `beyond-horizon` on every pass with nothing on
-     * screen connecting that to the date that had been typed. The reason names
-     * the last day that works, because "too far" without a number leaves the
-     * reader guessing at a bound they cannot see.
+     * 12.264, keeping 12.184. All twelve months stay on offer and both years
+     * do, so August 2027 can be picked — and it is past the 14/07/2027 the
+     * provider stops answering at. The alternative was narrowing one dropdown
+     * against the other, which means un-picking a month when the year moves
+     * under it: a control that edits itself while the reader is looking at it.
+     *
+     * The message names the day rather than saying "too far", because a bound
+     * the reader cannot see is a bound they have to guess at.
      */
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
     await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.type(screen.getByLabelText(/departure date/i), '2027-08-01');
-    submitPastTheBrowser();
+    pick('08', '2027');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(onAdd).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('14/07/2027');
+  });
+
+  it('takes the month the horizon lands inside, half a month being enough', async () => {
+    // July 2027 holds 14 collectable departures and 17 that are not. The
+    // collector polls the ones it can reach and reports the rest by name,
+    // which is exactly what it already does for the days of this month that
+    // have gone — so refusing the whole month would cost the reader two weeks
+    // of fares for the sake of a tidier rule.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onAdd } = renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    pick('07', '2027');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ month: '2027-07' }));
+  });
+
+  it('keeps both halves of the departure legible while it refuses them', async () => {
+    /*
+     * What 12.185 was actually defending, restated for two controls that
+     * cannot be redundant. The month-and-day pair could disagree *invisibly*,
+     * because `type="date"` renders `09/03/2027` identically whichever month
+     * sat above it. A month and a year state different things, state them in
+     * words, and neither is derivable from the other — so a refused
+     * combination is one the reader can see and correct rather than one they
+     * have to be protected from.
+     */
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderEditor();
+
+    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
+    pick('08', '2027');
+    await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(departure().month).toHaveValue('08');
+    expect(departure().year).toHaveValue('2027');
   });
 
   it('has no return field at all, rather than one that is ignored', () => {
@@ -270,32 +379,19 @@ describe('RouteEditor', () => {
     expect(screen.queryByLabelText(/return/i)).not.toBeInTheDocument();
   });
 
-  it('asks for the day in its own voice rather than the browser bubble', async () => {
+  it('says which field is wrong rather than letting the route vanish', async () => {
     /*
-     * The date is required and there is no `required` attribute saying so. A
-     * native constraint would stop the submit event firing, answer in the
-     * browser's own bubble, and pre-empt the airport checks that come first —
-     * making this the one refusal in the form that arrives somewhere else.
+     * A route that disappears on save looks like a broken button, and the
+     * reader has no way to learn which field was the problem. The airports are
+     * checked before the departure, so a form with no destination complains
+     * about them first — and the departure never *is* empty now, because two
+     * dropdowns always name a month between them. One `role="alert"`, in
+     * document order, for every reason this form can refuse.
      */
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const { onAdd } = renderEditor();
 
-    await user.type(screen.getByRole('combobox', { name: /destination/i }), 'mad');
-    await user.click(screen.getByRole('button', { name: /add route/i }));
-
-    expect(screen.getByLabelText(/departure date/i)).not.toHaveAttribute('required');
-    expect(onAdd).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Pick the day you mean to fly.');
-  });
-
-  it('says which field is wrong rather than letting the route vanish', async () => {
-    // A route that disappears on save looks like a broken button, and the
-    // reader has no way to learn which field was the problem. The airports are
-    // checked before the date, so an empty form complains about them first.
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { onAdd } = renderEditor();
-
-    await user.type(screen.getByLabelText(/departure date/i), '2026-11-09');
+    pick('11', '2026');
     await user.click(screen.getByRole('button', { name: /add route/i }));
 
     expect(onAdd).not.toHaveBeenCalled();

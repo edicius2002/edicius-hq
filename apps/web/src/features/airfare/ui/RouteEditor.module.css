@@ -1,21 +1,52 @@
+/*
+ * Three rows, two columns: every label beside its own field — 12.265.
+ *
+ * `auto` for the labels rather than a written-down width, so the column is as
+ * wide as "Destination" says it is and no wider; `minmax(0, 1fr)` for the
+ * fields, because a suggestion list hanging off one of them must not be able
+ * to widen the panel. `align-items: center` puts the label on the input's
+ * middle rather than on its top edge, which is what makes a beside-label read
+ * as belonging to the field instead of floating next to it.
+ *
+ * **Why the airports no longer share a row.** They did, as two halves of one
+ * decision, and with the labels above them that fitted. Beside them it does
+ * not: the panel is `minmax(20rem, 27rem)` and at its 20rem floor — 400px, at
+ * this app's 125% root, so 1rem is 20px and not 16 — the content box is 358px.
+ * Two labels at about 66px plus two inputs at their 8rem minimum plus the
+ * chrome and the gaps comes to well over 500px, and the overflow would land on
+ * the one page in this app that must never scroll sideways. One field per row
+ * costs a line and buys the arrangement that was asked for. Measured in a
+ * browser at the floor: the widest row in this form is 358px, the same as the
+ * form itself.
+ */
 .form {
   display: grid;
-  gap: var(--space-2);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
   /* The list that hangs off a field must not widen the panel. */
   min-width: 0;
 }
 
-.field {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.field label {
+/*
+ * The labels, whichever component renders them.
+ *
+ * `AirportField` brings its own `<label>` and sets it to `display: contents`
+ * in the wrapper, so its label lands in this grid as a direct child; the
+ * departure group's label is a `<span>` written here. Both are styled from one
+ * rule, because two rules is how a form ends up with two sizes of label.
+ */
+.form label,
+.groupLabel {
   color: var(--color-muted);
   font-size: 0.8rem;
+  /* Nothing here is long enough to wrap, and a wrapped label would push its
+     own row taller than the input beside it. */
+  white-space: nowrap;
 }
 
-.field input {
+.form input,
+.form select {
   background: var(--color-bg-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
@@ -23,37 +54,34 @@
   padding: var(--space-2) var(--space-3);
   font: inherit;
   font-size: 0.9rem;
-  min-width: 8rem;
+  min-width: 0;
 }
 
-.field input:focus-visible {
+.form input:focus-visible,
+.form select:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
 
+/*
+ * The month and the year, side by side inside the field column.
+ *
+ * The month track takes the room and the year takes what two digits need:
+ * "September" is the longest of the twelve and is what the first column is
+ * sized to hold, while a year that grew to match it would be four fifths empty
+ * and would read as the more important half of the two.
+ */
+.departure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Across both columns: a refusal is about the form, not about one field. */
 .error {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--color-danger);
   font-size: 0.85rem;
-}
-
-/*
- * Two fields side by side because they are one decision: the pair of airports.
- * It is the only row left. 12.113 emptied the column beside the departure when
- * it took the return leg away, 12.130 filled it with the optional day, and
- * 12.180 folded that day and the month back into one control — so the departure
- * is full width again, on its own line under the airports. The form is the same
- * two lines tall either way, which is what keeps it under the two list entries
- * it stands above.
- *
- * The `min-width: 0` override that used to live here went with the second
- * column. It existed because `min-width: 8rem` — 160px plus 26px of chrome —
- * overflowed the 174px a column has at the panel's 20rem floor; a full-width
- * field has 358px and the declared minimum is no longer fighting anything.
- */
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
 }

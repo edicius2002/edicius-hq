@@ -78,21 +78,6 @@ for (let day = 1; day <= 31; day += 1) {
 }
 
 /**
- * A month with one of its days picked out — the shape every route the form has
- * added since 12.180 — and the archive as the page hands it over for one.
- *
- * `AirfarePage` narrows both series onto `readingPrefix` before this panel ever
- * sees them (12.131), so a focused watch arrives holding one departure's
- * snapshots and one departure's baseline. Passing the whole month under a
- * focused route would be testing an arrangement the page cannot produce — and
- * the run-up reading is only honest because of that narrowing.
- */
-const FOCUSED: FareRoute = { ...ROUTE, focusDate: '2027-03-09' };
-
-const FOCUS_SNAPSHOTS = MONTH.filter((snapshot) => snapshot.flightDate === '2027-03-09');
-const FOCUS_BASELINE = BASELINE.filter((point) => point.flightDate === '2027-03-09');
-
-/**
  * A booking horizon short enough to assert on: a fortnight of departures with
  * the 24th unsold and the 25th never answered for.
  */
@@ -230,28 +215,14 @@ describe('the period the reader is on', () => {
 });
 
 describe('what the panel says it is showing', () => {
-  it('names the focused departure date and never the month it falls in', () => {
-    // The figures under this head are already one day's: the page filters on
-    // `readingPrefix` and the history request asks for the same prefix. A head
-    // reading "March 2027" over them states the wider of the two things the
-    // page knows while drawing the narrower — 12.131.
-    render(<Harness route={FOCUSED} snapshots={FOCUS_SNAPSHOTS} baseline={FOCUS_BASELINE} />);
-
-    const head = screen.getByRole('heading', { level: 2 });
-    expect(head).toHaveTextContent('ARI → SCL · 09/03/2027');
-    expect(head.textContent).not.toMatch(/March/);
-  });
-
-  it('says the chart is of a fare departing *on* that day, not *in* a month', () => {
-    render(<Harness route={FOCUSED} snapshots={FOCUS_SNAPSHOTS} baseline={FOCUS_BASELINE} />);
-    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
-      'ARI → SCL departing on 09/03/2027',
-    );
-  });
-
-  it('still names the month for a watch nobody has picked a day inside', () => {
-    // The two existing routes have no focus and none may be invented for them
-    // — 12.133. A focus-less watch reads exactly as it always did.
+  it('names the watched month, which is the whole of what a watch is', () => {
+    /*
+     * It briefly named a focused departure date instead, where a watch carried
+     * one, because the figures under the head were that one day's — 12.131.
+     * With the focus gone (12.260) there is one thing to name, and the page
+     * narrows the snapshots to the same month before this panel sees them, so
+     * the head and the figures under it cannot disagree.
+     */
     render(<Harness route={ROUTE} />);
 
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('ARI → SCL · March 2027');
@@ -281,90 +252,42 @@ describe('the two charts', () => {
   });
 });
 
-describe('how the price moved, read the other way round', () => {
-  function focused() {
-    render(<Harness route={FOCUSED} snapshots={FOCUS_SNAPSHOTS} baseline={FOCUS_BASELINE} />);
-  }
-
-  it('relabels the one chart rather than opening a second one', () => {
-    // For a single departure date, lead is that date minus the observation
-    // date: the same points on the same axis, reversed and shifted. Two
-    // buttons in the chart switch were one series pretending to be two.
-    focused();
-    expect(screen.getByRole('group', { name: 'Read the axis as' })).toBeInTheDocument();
-
-    click('Days before departure');
-    expect(screen.getByText(/whole days before the flight, not dates/)).toBeInTheDocument();
-
-    // The right-hand end is the departure itself: 19 August 2026 is 202 days
-    // before 9 March 2027.
-    fireEvent.pointerMove(screen.getByRole('img'), { clientX: 744, clientY: 100 });
-    expect(screen.getByRole('status')).toHaveTextContent('202 days before departure');
-  });
-
-  it('keeps both series on both readings', () => {
-    focused();
-    expect(screen.getByText(/one rounded figure a day/)).toBeInTheDocument();
-
-    click('Days before departure');
-    expect(screen.getByText(/one rounded figure per departure/)).toBeInTheDocument();
-  });
-
-  it('names the lead unit in the readout so it cannot be read as a calendar week', () => {
-    focused();
-    click('Days before departure');
-    click('Week');
-    expect(screen.getByText(/read a lead week/)).toBeInTheDocument();
-    expect(screen.getByText(/range and median per lead week/)).toBeInTheDocument();
-  });
-
-  it('does not carry the crosshair from one reading to the other', () => {
-    // Both readings are the same component, so React keeps one instance across
-    // the flip unless it is told not to — and the index it holds is a position
-    // on the axis it was left on. Found in a browser: a crosshair left on the
-    // third day of the price history reappeared on the fourth bucket of the
-    // lead-time axis, which read 281 days ahead where that axis starts at 284.
-    focused();
-    const history = screen.getByRole('img');
-    history.focus();
-    fireEvent.keyDown(history, { key: 'ArrowRight' });
-    fireEvent.keyDown(history, { key: 'ArrowRight' });
-    fireEvent.keyDown(history, { key: 'ArrowRight' });
-    expect(screen.getByRole('status')).toHaveTextContent('21/06/2026');
-
-    click('Days before departure');
-    expect(screen.getByRole('status')).toHaveTextContent('');
-
-    const lead = screen.getByRole('img');
-    lead.focus();
-    fireEvent.keyDown(lead, { key: 'ArrowRight' });
-    expect(screen.getByRole('status')).toHaveTextContent('263 days before departure');
-  });
-
-  it('says a lead time we have never reached is not observed, rather than pricing it', () => {
-    // Our own archive reaches one of this axis's 62 lead days, at the near end.
-    // The rest are the provider's alone and have to read as ours missing rather
-    // than borrow the figure drawn beside them.
-    focused();
-    click('Days before departure');
-    fireEvent.pointerMove(screen.getByRole('img'), { clientX: 84, clientY: 100 });
-
-    expect(screen.getByRole('status')).toHaveTextContent('263 days before departure');
-    expect(screen.getByRole('status')).toHaveTextContent('nothing of our own observed');
-  });
-
-  it('does not offer the run-up reading to a watch that names no day, and says why', () => {
-    // A month is thirty-one departures, so one observation of it is thirty-one
-    // lead times at once and the curve through them is a curve across departure
-    // date wearing this axis's labels — 12.204. The control is absent rather
-    // than quietly meaning something else, and the sentence under the switches
-    // says so, because a control that vanishes without a word reads as a route
-    // that lost something.
+describe('how the price moved, and the run-up reading that went with the focus', () => {
+  it('offers no way to read the axis as the run-up to a flight', () => {
+    /*
+     * 12.267. 12.202 made observation time and lead time one chart with a
+     * labelling control, and 12.204 offered the lead labelling only where the
+     * route named one departure date — a month is thirty-one departures, so
+     * one observation of it lands on thirty-one lead times at once and the
+     * curve through them is a curve across departure date wearing lead time's
+     * labels.
+     *
+     * The focus was the only thing that ever named that one departure. With it
+     * gone the gate is false for every watch there can be, so the switch, the
+     * second chart and the sentence explaining their absence are all removed
+     * rather than left as a branch nothing can reach. `lib/leadTime.ts` is
+     * kept, and its own suite still covers it.
+     */
     render(<Harness route={ROUTE} />);
 
     expect(screen.queryByRole('group', { name: 'Read the axis as' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Days before departure' })).not.toBeInTheDocument();
-    expect(screen.getByText(/thirty-one different lead times at once/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'When we looked' })).not.toBeInTheDocument();
+    // The explanation went too: it was a sentence about the watch that could
+    // not have the reading, and every watch is that watch now.
+    expect(screen.queryByText(/thirty-one different lead times at once/)).not.toBeInTheDocument();
+  });
+
+  it('leaves two switches on the chart it opens on, not three', () => {
+    // Which chart, and how much time one point covers. The zoom is chart B's
+    // and appears with it.
+    render(<Harness route={ROUTE} />);
+
+    expect(screen.getByRole('group', { name: 'Chart' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: 'How much time one point covers' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Zoom' })).not.toBeInTheDocument();
   });
 });
 

@@ -1,13 +1,16 @@
 import { useState, type FormEvent } from 'react';
 
 import {
+  collectableYears,
   DEFAULT_CURRENCY,
   DEFAULT_ORIGIN,
   formatFlightDate,
   isAirportCode,
-  isCalendarDate,
   lastCollectableDay,
+  lastCollectableMonth,
   monthOf,
+  MONTH_NAMES,
+  nextMonth,
   normalizeCode,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
@@ -24,6 +27,9 @@ import styles from './RouteEditor.module.css';
  */
 export const ADD_ROUTE_FORM_ID = 'airfare-add-route';
 
+/** The label the two departure dropdowns share, as an id the group points at. */
+const DEPARTING_LABEL_ID = 'airfare-departing-label';
+
 type RouteEditorProps = {
   onAdd: (route: FareRoute) => void;
   /** Today, `YYYY-MM-DD`. Passed in rather than read, so tests do not drift. */
@@ -33,33 +39,46 @@ type RouteEditorProps = {
 /**
  * The fields that add a route, always on screen at the top of the watchlist.
  *
- * Origin and destination on one row because they are one decision; the
- * departure date on the next because it is the other one; the button last.
- * Three inputs and a control, sized so the whole thing costs less vertical
- * room than two entries of the list it sits above.
+ * **Three rows, each a label and its field side by side** — 12.265. Origin,
+ * Destination and Departing sit in one label column with one field column
+ * beside it, which is a line shorter than the stacked arrangement it replaces
+ * and lines the three inputs up on one left edge. The airports had shared a
+ * row; they cannot any more, because a label beside a field costs the width of
+ * the label and two of those plus two inputs do not fit in the 358px this
+ * panel has at its 20rem floor. Measured, not guessed — see the stylesheet.
  *
- * **One date, and the month is derived from it** — 12.180, superseding the
- * two-control arrangement 12.130 shipped. The reader is asked the question
- * they actually have an answer to: the day they mean to fly. `monthOf` turns
- * that into the watch, and the month is still the whole of what is collected —
- * all thirty-one of its departures, unchanged. The date itself becomes the
- * focus, which is what the detail panel, the chart and the flight table read,
- * and what the collector keeps first when a pass cannot afford every departure
- * it is watching.
+ * **The departure is a month and a year, not a date** — 12.262, superseding
+ * 12.180 and with it the focus that 12.130 introduced and this change removes
+ * (12.260). The reader filling this in knows they are flying in September; the
+ * date control asked them for the 9th, which is a precision they do not have
+ * when they add the watch and which the whole page then narrowed itself onto.
+ * A watched route is a city pair and a month again, so the form asks for a
+ * city pair and a month.
  *
- * So every route added here has a focus, and that is a reversal of 12.130's
- * "absent is the ordinary case" rather than a drift away from it. It is
- * argued in 12.180 and the supersede row beside it. Absent is still a shape
- * the model and the whole page handle, because two things still produce it: a
- * route stored before this change, and a reader who pressed "Read the whole
- * month" in the detail panel — which is now the only way back, 12.182.
+ * Both dropdowns default to **next month**, and the year rolls with it: from
+ * December the default is January of the following year, which is why the
+ * default comes from `nextMonth` rather than from two independent slices of
+ * today. The month the reader is standing in is deliberately not the default —
+ * its near days have gone and its far ones barely move — but it is still on
+ * offer, because the year list starts at this year.
+ *
+ * **The years come from the horizon** — 12.263. `collectableYears` spans
+ * today's year to the year the 330-day horizon lands in, which today is `26`
+ * and `27` exactly. Typing those two in would be right until 2027 and then
+ * quietly wrong.
+ *
+ * **All twelve months stay on offer and a combination outside the horizon is
+ * refused by name** — 12.264, keeping 12.184. The dropdowns are not narrowed
+ * against each other: picking August and then switching the year from 26 to 27
+ * would have to un-pick the month, and a control that edits itself under the
+ * reader is worse than one that says why it will not take what they chose.
+ * Both halves are legible on screen the whole time, which is what the old
+ * month-and-day pair could not manage.
  *
  * **Return is gone and is not coming back as a date** — 12.113. A return date
  * belongs to one departure, and a month has thirty-one; the owner has put
  * return legs out of scope, and when they return they will return as a number
  * of nights rather than a second date.
- *
- * The airport comboboxes are untouched.
  *
  * It validates before it submits rather than letting the normalizer drop a bad
  * entry silently: a route that vanishes on save looks like a broken button,
@@ -68,32 +87,37 @@ type RouteEditorProps = {
 export function RouteEditor({ onAdd, today }: RouteEditorProps) {
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState('');
-  const [departure, setDeparture] = useState('');
+  // One default, split into the two halves that show it. Derived from
+  // `nextMonth` rather than from two reads of `today`, so December's roll
+  // moves both at once and neither can be left behind.
+  const [month, setMonth] = useState(() => nextMonth(today).slice(5, 7));
+  const [year, setYear] = useState(() => nextMonth(today).slice(0, 4));
   const [error, setError] = useState<string | null>(null);
 
-  // The two ends of what can be collected at all. Today is included: a
-  // departure zero days out is inside the horizon and the collector polls it
-  // at the fastest rate it has. The far end is measured, not chosen — see
+  // The two ends of what can be collected at all, as months. The current month
+  // counts because its remaining days do; the far month counts because part of
+  // it is inside the horizon and the collector says `beyond-horizon` by name
+  // for the rest. The far end is measured, not chosen — see
   // `COLLECTABLE_HORIZON_DAYS`.
-  const lastDay = lastCollectableDay(today);
+  const thisMonth = monthOf(today);
+  const lastMonth = lastCollectableMonth(today);
+  const years = collectableYears(today);
 
   /*
-   * There is no second control to keep in step, and that is the point.
+   * Two controls, and — unlike the pair this form used to have — they cannot
+   * disagree.
    *
-   * The arrangement this replaces had a month above a day, and the state it
-   * could not survive was a day left standing when the month moved out from
-   * under it — a *silent* break, because `type="date"` renders `09/03/2027`
-   * identically whichever month is picked above it, so a reader looking at the
-   * form could not see that the two disagreed. It was guarded by clearing the
-   * day on every month change.
+   * 12.185 made a month and a day unable to fall out of step, because
+   * `type="date"` renders `09/03/2027` identically whichever month sat above
+   * it and the disagreement was therefore *invisible*. That hazard was
+   * redundancy: the day already stated its month, so two editable values named
+   * one fact and one of them could be stale.
    *
-   * A guard is weaker than an impossibility. With one field the month is a
-   * function of the date, recomputed at submit from the value being submitted,
-   * so there is no second value that can be stale and nothing to keep in step.
-   * The one thing that must not be lost with the guard is *why* it existed:
-   * whatever this form grows next, the month and the focus must never be two
-   * independently editable values, because a date control cannot show which
-   * month it belongs to and the disagreement would go unseen.
+   * A month and a year hold no redundancy at all. Neither states the other,
+   * together they name exactly one `YYYY-MM`, and both are spelled out on
+   * screen the whole time. There is no stale half to guard against — only a
+   * combination that falls outside the horizon, which is a different thing and
+   * is answered below in words.
    */
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -106,55 +130,48 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
       setError('Origin and destination are the same airport.');
       return;
     }
+
+    const departure = `${year}-${month}`;
     /*
-     * The date is required, and it is required here rather than by a `required`
-     * attribute on the control. A native constraint stops the submit event
-     * from firing at all and answers with the browser's own bubble, which
-     * would make this the one field in the form whose complaint arrives in a
-     * different place, in a different voice, and — because it pre-empts the
-     * event — ahead of the airport checks above it. One `role="alert"`, in
-     * document order, for every reason this form can refuse.
-     *
-     * The `min` and `max` guards below are declared on the control as well,
-     * and repeated here on purpose: the attributes stop a bad value being
-     * *picked*, and this stops one being *submitted* in a browser that
-     * degrades `type="date"` to a text box and enforces neither.
+     * A month behind this one has no collectable departure left in it: every
+     * day of it comes back `departed` on every pass forever, and nothing on
+     * screen would connect that to the dropdowns. Reachable because the year
+     * list starts at this year, so January can be picked in August.
      */
-    if (departure === '') {
-      setError('Pick the day you mean to fly.');
-      return;
-    }
-    if (!isCalendarDate(departure)) {
-      setError('Departure date must be a real date.');
-      return;
-    }
-    if (departure < today) {
-      setError('That day has gone.');
+    if (departure < thisMonth) {
+      setError('That month has gone.');
       return;
     }
     /*
-     * Refused here rather than accepted and dropped later. A departure past
-     * the horizon is not a route that collects slowly, it is one the provider
-     * answers nothing about — it would sit in the watchlist reporting
-     * `beyond-horizon` on every pass forever, and nothing on screen would tell
-     * the reader that the date was the reason.
+     * Refused here rather than accepted and dropped later, and refused rather
+     * than prevented — 12.264. A month past the horizon is not a route that
+     * collects slowly, it is one the provider answers nothing about; it would
+     * sit in the watchlist reporting `beyond-horizon` on every pass with
+     * nothing saying the month was the reason. The message names the last day
+     * that works, because "too far" without a number leaves the reader
+     * guessing at a bound they cannot see — 12.184.
      */
-    if (departure > lastDay) {
-      setError(`Fares are only on sale as far ahead as ${formatFlightDate(lastDay)}.`);
+    if (departure > lastMonth) {
+      setError(
+        `Fares are only on sale as far ahead as ${formatFlightDate(lastCollectableDay(today))}.`,
+      );
       return;
     }
 
     onAdd({
       origin: normalizeCode(origin),
       destination: normalizeCode(destination),
-      // Derived, never stored beside the date as a second editable value.
-      month: monthOf(departure),
-      focusDate: departure,
+      month: departure,
       currency: DEFAULT_CURRENCY,
     });
 
     setDestination('');
-    setDeparture('');
+    // Back to next month rather than to whatever was just added: a dropdown
+    // has no empty state to return to, and leaving it on the month that was
+    // added invites a second watch on the same month by a reader who only
+    // changed the destination.
+    setMonth(nextMonth(today).slice(5, 7));
+    setYear(nextMonth(today).slice(0, 4));
     setError(null);
   }
 
@@ -165,56 +182,71 @@ export function RouteEditor({ onAdd, today }: RouteEditorProps) {
       onSubmit={submit}
       aria-label="Add a route to watch"
     >
-      <div className={styles.row}>
-        <AirportField
-          id="airfare-origin"
-          label="Origin"
-          value={origin}
-          placeholder="LIM"
-          onChange={setOrigin}
-          align="left"
-        />
-        <AirportField
-          id="airfare-destination"
-          label="Destination"
-          value={destination}
-          placeholder="SCL"
-          onChange={setDestination}
-          // Last field in the row and hard against the panel's right edge, so
-          // its list opens leftwards or it opens off the page.
-          align="right"
-        />
-      </div>
+      <AirportField
+        id="airfare-origin"
+        label="Origin"
+        value={origin}
+        placeholder="LIM"
+        onChange={setOrigin}
+        align="left"
+        layout="inline"
+      />
+      <AirportField
+        id="airfare-destination"
+        label="Destination"
+        value={destination}
+        placeholder="SCL"
+        onChange={setDestination}
+        // Its list is wider than the field and the field now runs to the
+        // panel's right edge, so the list opens leftwards or it opens off the
+        // page — which is what puts a horizontal scrollbar on this tab.
+        align="right"
+        layout="inline"
+      />
 
-      <div className={styles.field}>
-        <label htmlFor="airfare-departure">Departure date</label>
+      {/*
+        One visible label over two controls, so it is a group rather than a
+        `<label>`: `htmlFor` names exactly one control, and pointing it at the
+        month would leave the year unlabelled and the click target wrong. Each
+        dropdown carries its own accessible name underneath the group's, which
+        is what lets a screen-reader user hear "Departing, month, September"
+        rather than two unnamed comboboxes.
+      */}
+      <span className={styles.groupLabel} id={DEPARTING_LABEL_ID}>
+        Departing
+      </span>
+      <div className={styles.departure} role="group" aria-labelledby={DEPARTING_LABEL_ID}>
+        <select
+          id="airfare-departure-month"
+          aria-label="Departure month"
+          value={month}
+          onChange={(event) => setMonth(event.target.value)}
+        >
+          {MONTH_NAMES.map((name, index) => (
+            <option key={name} value={String(index + 1).padStart(2, '0')}>
+              {name}
+            </option>
+          ))}
+        </select>
         {/*
-          `type="date"` rather than three selects or a text box: its value is
-          already the stored `YYYY-MM-DD`, so nothing here ever parses a date
-          and nothing can shift one the way `new Date('2027-03-09')` shifts it
-          west of Greenwich — it is midnight UTC, which prints as the 8th in
-          Lima.
-
-          Full width now that it is the only field on its row. The `min-width:
-          8rem` these inputs carry is 160px plus 26px of chrome, against the
-          358px of content the panel has at its 20rem floor: it fits with room
-          to spare, which is why the override the two-column arrangement needed
-          is gone rather than kept for a case that no longer exists.
-
-          `min` and `max` are the ends of what can be collected, so the picker
-          itself will not offer a day that has gone or one the provider refuses
-          to answer about. Both are repeated in the submit guard for a browser
-          that degrades this to a text box and enforces neither. There is no
-          `required` beside them, and the reason is in `submit`.
+          Two digits, which is what the owner reads a year as here and what
+          keeps this control narrow enough to sit beside a nine-letter month
+          inside a 400px panel. The `value` stays the full `YYYY` — the stored
+          month is built from it, and a two-digit value would be a century
+          nobody stated.
         */}
-        <input
-          id="airfare-departure"
-          type="date"
-          value={departure}
-          min={today}
-          max={lastDay}
-          onChange={(event) => setDeparture(event.target.value)}
-        />
+        <select
+          id="airfare-departure-year"
+          aria-label="Departure year"
+          value={year}
+          onChange={(event) => setYear(event.target.value)}
+        >
+          {years.map((offered) => (
+            <option key={offered} value={String(offered)}>
+              {String(offered).slice(2)}
+            </option>
+          ))}
+        </select>
       </div>
 
       {error ? (

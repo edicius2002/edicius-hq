@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import {
-  formatReading,
-  readingPrefix,
+  formatFlightMonth,
   routeId,
   routeLabel,
   type FareRoute,
@@ -16,7 +15,6 @@ import {
   type Granularity,
 } from '@/features/airfare/lib/buckets';
 import type { WatchedRange } from '@/features/airfare/lib/flightScatter';
-import { leadAxis, leadBaseline, leadSnapshots, leadUnsold } from '@/features/airfare/lib/leadTime';
 import { CalendarCurveChart } from '@/features/airfare/ui/CalendarCurveChart';
 import { FlightScatterChart } from '@/features/airfare/ui/FlightScatterChart';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
@@ -65,22 +63,28 @@ const VIEWS: { value: ChartView; label: string }[] = [
   { value: 'days', label: 'What each day costs' },
 ];
 
-/**
- * Which way the reader is reading chart A's x axis — 12.202.
+/*
+ * **The run-up reading is withdrawn, because nothing names a departure for it
+ * to run up to** — 12.267.
  *
- * Not two charts and not two datasets: `bucketSnapshots` and `leadSnapshots`
- * take the same cheapest offer out of the same snapshots, and for one
- * departure date the second is the first subtracted from the flight date. The
- * axis object is what differs, which is exactly what `BucketAxis` was built
- * for in 12.170 — this is that seam being used for what it is rather than for
- * a second button.
+ * 12.202 made observation time and lead time one chart with a labelling
+ * control, and 12.204 offered the lead labelling **only where the route named
+ * one departure date**: a month holds thirty-one of them, so one observation
+ * of a month lands on thirty-one lead times at once and a curve through them
+ * is a curve across departure date wearing lead time's labels.
+ *
+ * The focus was the only thing that ever named that one departure, and 12.260
+ * took it away. So the gate 12.204 wrote is now false for every watch there
+ * can be, and a switch that can never appear beside a chart that can never
+ * render is the unreachable branch this repository does not leave lying about.
+ * It is removed rather than gated on a constant.
+ *
+ * `lib/leadTime.ts` is deliberately **kept**, with its own tests. Nothing in
+ * it is unreachable — it is a pure mapping from snapshots to lead buckets, and
+ * it is correct — and 12.204's reasoning is untouched: the day this page can
+ * point at one departure again, the reading comes back from the library that
+ * already computes it rather than from a rewrite.
  */
-type AxisReading = 'observed' | 'lead';
-
-const AXIS_READINGS: { value: AxisReading; label: string }[] = [
-  { value: 'observed', label: 'When we looked' },
-  { value: 'lead', label: 'Days before departure' },
-];
 
 /** How far out chart B is standing — 12.203. Both ends are departure dates. */
 type Zoom = 'month' | 'horizon';
@@ -92,26 +96,11 @@ const ZOOMS: { value: Zoom; label: string }[] = [
 
 /** Which clock the chart under the switches is drawn on, said in full. */
 const WHAT: Record<string, string> = {
-  'moves/observed': 'Across the days we looked — the x axis is when the price was observed.',
-  'moves/lead':
-    'Across the run-up to departure — the x axis is whole days before the flight, not dates.',
+  moves: 'Across the days we looked — the x axis is when the price was observed.',
   'days/month': 'Across the month being flown — the x axis is when each itinerary departs.',
   'days/horizon':
     'Across the whole booking horizon — the x axis is which departure date, every month out to where the provider stops answering.',
 };
-
-/**
- * Why the run-up reading is not on offer for a watch with no focus — 12.204.
- *
- * A month holds thirty-one departures, so one observation of it is thirty-one
- * different lead times at once and a curve drawn through them is a curve
- * across *departure date* wearing lead time's labels. The reader is told that
- * rather than left with a control that quietly does something else, and
- * nothing is lost: what those thirty-one points actually say is what chart B
- * draws, on the axis they belong to.
- */
-const NO_LEAD =
-  'Reading it as the run-up to a flight needs one departure date. This watch is a whole month, so one look at it lands on thirty-one different lead times at once — what each of those days costs is the other chart.';
 
 type AnalysisPanelProps = {
   route: FareRoute | null;
@@ -160,7 +149,6 @@ export function AnalysisPanel({
   onGranularityChange,
 }: AnalysisPanelProps) {
   const [view, setView] = useState<ChartView>('moves');
-  const [axisReading, setAxisReading] = useState<AxisReading>('observed');
   const [zoom, setZoom] = useState<Zoom>('month');
   const routeKey = route ? routeId(route) : null;
 
@@ -189,86 +177,46 @@ export function AnalysisPanel({
   }
   const departureAnchor = anchorRoute === routeKey ? anchor : null;
 
-  /*
-   * The reading actually in force, derived rather than corrected — 12.204.
-   *
-   * A reader who set the lead labelling on a focused watch and then opened one
-   * with no focus must not be left on an axis that route cannot honestly draw.
-   * Resolving it here means the stored preference survives the trip and comes
-   * back when they open a focused watch again, where clearing the state would
-   * throw away a choice they made about a different route.
-   */
-  const canReadLead = route?.focusDate !== undefined;
-  const reading: AxisReading = canReadLead ? axisReading : 'observed';
-
   const calendar = useMemo(() => calendarAxis(granularity), [granularity]);
-  const lead = useMemo(() => leadAxis(granularity), [granularity]);
 
-  /*
-   * Both readings' buckets, whichever one is in force.
-   *
-   * Measured rather than assumed: the widest series on disk is the provider's
-   * 1,914-row baseline, and gathering it twice is two passes over two thousand
-   * numbers — under a millisecond, and only on a granularity change. Making it
-   * conditional would put `reading` in the dependencies of all four and
-   * recompute the lot every time the reader flipped the labelling, which is
-   * the more common click of the two.
-   */
+  // One reading's buckets, where there used to be two gathered side by side
+  // whichever was in force — 12.267. The lead pair went with the reading.
   const ours = useMemo(() => bucketSnapshots(snapshots, granularity), [snapshots, granularity]);
   const theirs = useMemo(() => bucketBaseline(baseline, granularity), [baseline, granularity]);
-  const leadOurs = useMemo(() => leadSnapshots(snapshots, granularity), [snapshots, granularity]);
-  const leadTheirs = useMemo(() => leadBaseline(baseline, granularity), [baseline, granularity]);
-  // The boards that came back with nothing on them — 12.232. Gathered beside
-  // the priced ones and on both readings, for the reason those two are: the
-  // pass is over the same two thousand numbers and only runs on a granularity
-  // change, and making it conditional would recompute the lot every time the
-  // reader flipped the labelling.
+  // The boards that came back with nothing on them — 12.232.
   const oursUnsold = useMemo(() => unsoldPeriods(snapshots, granularity), [snapshots, granularity]);
-  const leadOursUnsold = useMemo(
-    () => leadUnsold(snapshots, granularity),
-    [snapshots, granularity],
-  );
 
   /*
    * What the watch is on, as two departure dates — 12.235.
    *
-   * `readingPrefix` rather than `route.month`, so a focused watch clips to the
-   * one day the rest of the page has already narrowed to; `periodBounds` rather
-   * than arithmetic here, because it is this feature's single answer to "what
-   * does a key cover" and a second one would let the frame and the caption
-   * disagree.
+   * The watched month, which since 12.260 is the only thing a watch is. It was
+   * `readingPrefix` here, clipping to the one focused day where there was one.
+   * `periodBounds` rather than arithmetic, because it is this feature's single
+   * answer to "what does a key cover" and a second one would let the frame and
+   * the caption disagree.
    */
   const watched: WatchedRange | null = useMemo(() => {
     if (!route) return null;
-    const key = readingPrefix(route);
-    const bounds = periodBounds(key, route.focusDate ? 'day' : 'month');
+    const bounds = periodBounds(route.month, 'month');
     return { from: bounds.from.slice(0, 10), to: bounds.to.slice(0, 10) };
   }, [route]);
 
   /*
-   * What these figures are *of*, in the words the reader picked them with —
-   * 12.131.
+   * What these figures are *of*: the watched month — 12.260.
    *
-   * `formatReading` rather than `formatFlightMonth(route.month)`, and the
-   * preposition moves with it. The month is what gets collected; the focus
-   * date is what gets read, and by the time the snapshots reach this panel
-   * they are already narrowed to it — `AirfarePage` filters on
-   * `readingPrefix(route)` and the history request asks for the same string.
-   * A head naming March over one day's figures is the page saying the wider
-   * of the two things it knows while drawing the narrower, which is the one
-   * arrangement worse than either alone.
+   * The page narrows the snapshots to the same `route.month` before they get
+   * here, and the history request asks for the same string, so the head and
+   * the figures under it cannot name different things.
    */
-  const where = route
-    ? `${routeLabel(route)} departing ${route.focusDate ? 'on' : 'in'} ${formatReading(route)}`
-    : '';
+  const where = route ? `${routeLabel(route)} departing in ${formatFlightMonth(route.month)}` : '';
   const currency = route?.currency ?? 'USD';
-  const what = view === 'moves' ? `moves/${reading}` : `days/${zoom}`;
+  const what = view === 'moves' ? 'moves' : `days/${zoom}`;
 
   return (
     <>
       <div className={styles.head}>
         <h2 className={styles.title}>
-          {route ? `${routeLabel(route)} · ${formatReading(route)}` : 'Price analysis'}
+          {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
         </h2>
         {/*
           Three switches, in the order the questions come: which chart, how to
@@ -291,20 +239,13 @@ export function AnalysisPanel({
             ))}
           </div>
 
-          {view === 'moves' && canReadLead ? (
-            <div className={styles.switch} role="group" aria-label="Read the axis as">
-              {AXIS_READINGS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={reading === option.value}
-                  onClick={() => setAxisReading(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          {/*
+            "Read the axis as" stood here, between the chart switch and the
+            zoom. It offered the run-up reading and could only offer it to a
+            watch that named one departure date — 12.204 — which nothing does
+            any more (12.267). Two switches where there were three, and chart A
+            has one axis rather than one of two.
+          */}
 
           {view === 'days' ? (
             <div className={styles.switch} role="group" aria-label="Zoom">
@@ -345,47 +286,25 @@ export function AnalysisPanel({
         </div>
       </div>
 
-      <p className={styles.what}>
-        {WHAT[what]}
-        {view === 'moves' && !canReadLead ? <span className={styles.aside}> {NO_LEAD}</span> : null}
-      </p>
+      <p className={styles.what}>{WHAT[what]}</p>
 
       {/*
-        Keyed by reading, and the key is load-bearing rather than tidy. Both
-        readings are the same component, so without a key React keeps one
-        instance across the flip and the crosshair index goes with it — index 3
-        of the observation axis becoming index 3 of the lead-time axis, which
-        is a different period of a different kind. Found in a browser: the walk
-        across the lead-time axis started four buckets in, at 281 days ahead
-        rather than 284, because the reader's last position on the price
-        history had come along.
+        The `key="observed"` this chart carried was load-bearing while there
+        were two readings sharing one component: without it React kept one
+        instance across the flip and the crosshair index came along, so index 3
+        of the observation axis became index 3 of the lead-time axis — a
+        different period of a different kind. There is one reading now
+        (12.267), so there is nothing to flip between and nothing to key apart.
       */}
       {view === 'moves' ? (
-        reading === 'observed' ? (
-          <PriceBandChart
-            key="observed"
-            ours={ours}
-            baseline={theirs}
-            unsold={oursUnsold}
-            currency={currency}
-            axis={calendar}
-            label={route ? `Cheapest fare for ${where}, by ${granularity}` : 'Price analysis'}
-          />
-        ) : (
-          <PriceBandChart
-            key="lead"
-            ours={leadOurs}
-            baseline={leadTheirs}
-            unsold={leadOursUnsold}
-            currency={currency}
-            axis={lead}
-            label={
-              route
-                ? `Cheapest fare for ${where}, by how many days before departure it was seen`
-                : 'Fares by days before departure'
-            }
-          />
-        )
+        <PriceBandChart
+          ours={ours}
+          baseline={theirs}
+          unsold={oursUnsold}
+          currency={currency}
+          axis={calendar}
+          label={route ? `Cheapest fare for ${where}, by ${granularity}` : 'Price analysis'}
+        />
       ) : zoom === 'month' ? (
         /*
           Keyed by route so the crosshair the reader left on a flight resets
@@ -393,10 +312,9 @@ export function AnalysisPanel({
           any more — it is held above this component and cleared by the route
           change itself.
 
-          It draws whatever the page narrowed to, which for a focused watch is
-          that one departure's board rather than the month's. That is the same
-          narrowing every other figure on the page is under (12.131), and the
-          whole month's shape is still a zoom away.
+          It draws whatever the page narrowed to, which is the watched month
+          and every departure in it — the same narrowing every other figure on
+          the page is under, and the whole horizon is still a zoom away.
         */
         <FlightScatterChart
           key={routeKey ?? 'none'}

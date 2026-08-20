@@ -10,6 +10,23 @@
   color: var(--color-muted);
 }
 
+/*
+ * Label beside the input rather than above it — 12.265.
+ *
+ * `display: contents` rather than a two-column grid here, so the label and the
+ * control become items of the *caller's* grid. That is what makes Origin,
+ * Destination and Departing share one label column and one field column: three
+ * nested grids would each size themselves to their own label, and the three
+ * inputs would start at three different x positions inside a 400px panel.
+ *
+ * The wrapper vanishing costs nothing it was doing. `min-width: 0` moves to
+ * the caller's column track, and the suggestion list hangs off `.control`,
+ * which is still here and still `position: relative`.
+ */
+.inline {
+  display: contents;
+}
+
 /* The anchor the suggestion list hangs from. */
 .control {
   position: relative;

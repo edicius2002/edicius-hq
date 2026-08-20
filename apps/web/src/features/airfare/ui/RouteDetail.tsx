@@ -1,14 +1,12 @@
 import {
-  focusDeparted,
   formatFlightDate,
-  formatReading,
+  formatFlightMonth,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
 import { departureClock, formatStamp } from '@/features/airfare/lib/series';
 import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares';
 import { formatMoney, NO_VALUE } from '@/shared/lib/money';
-import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteDetail.module.css';
 
@@ -18,10 +16,6 @@ type RouteDetailProps = {
   insights: FareInsights | null;
   health: WatchHealth | null;
   cities: { from: string | null; to: string | null };
-  /** Today, `YYYY-MM-DD`. Only used to say whether the focused day has gone. */
-  today: string;
-  /** Drop this route's focus and go back to reading the whole month. */
-  onClearFocus: () => void;
 };
 
 /**
@@ -34,12 +28,11 @@ type RouteDetailProps = {
  * belong to whichever departure the collector happened to reach last, which is
  * a fact about pacing rather than about fares.
  *
- * Under a focus date the set it reduces has one day in it, because the page
- * narrowed it with `readingPrefix` before it got here — 12.131. So the same
- * reduction gives "the cheapest day in March" and "the 9th of March", and this
- * component does not have to know which question it is answering. What it does
- * have to do is name the right one in the heading, which is why `route` is the
- * whole route rather than a month.
+ * There is one question again, and it is the month's — 12.260. This panel
+ * briefly answered two, because a watch could name one departure inside its
+ * month and the page narrowed onto it; the heading, the "cheapest on" line and
+ * the way back out of it were all that arrangement's. `route` is still the
+ * whole route rather than a month, because the heading names the pair as well.
  *
  * Two boxes of figures. The chart underneath answers "how has it moved"; this
  * answers "what is it, and should I care today" — which is the question a
@@ -57,15 +50,7 @@ type RouteDetailProps = {
  * two months of context on the day a route is added, where our own median needs
  * two months of collecting to mean anything.
  */
-export function RouteDetail({
-  route,
-  latest,
-  insights,
-  health,
-  cities,
-  today,
-  onClearFocus,
-}: RouteDetailProps) {
+export function RouteDetail({ route, latest, insights, health, cities }: RouteDetailProps) {
   if (!route) {
     return <p className={styles.empty}>Add a route to start building its history.</p>;
   }
@@ -89,45 +74,25 @@ export function RouteDetail({
           than `03/2027` — 12.114 — so nothing on this page reads as a day that
           is not one.
 
-          With a focus date this becomes that day, `dd/mm/yyyy` — 12.130 — and
-          it is not only the heading that moves: the figures under it, the
-          chart and the flight table are all narrowed to the same departure by
-          `readingPrefix`. A heading naming a day over a month of numbers would
-          be worse than either.
+          Always the month, since 12.260 took the focus away. It briefly became
+          the focused day where there was one, and with it went the figures
+          under it, the chart and the flight table.
         */}
         <h3 className={styles.pair}>
           {route.origin} <span className={styles.to}>→</span> {route.destination}{' '}
           {/* The space is deliberate: the gap beside it is a margin, and a
               margin is not something a screen reader can hear. */}
-          <span className={styles.when}>{formatReading(route)}</span>
+          <span className={styles.when}>{formatFlightMonth(route.month)}</span>
         </h3>
         <p className={styles.cities}>
           {cities.from ?? route.origin} to {cities.to ?? route.destination}
         </p>
         {/*
-          A focused day that has already gone, said rather than left to be
-          worked out — 12.133. It is not dropped when it passes: the archive it
-          points at is still the archive of the flight the reader meant to
-          take, and a stored value that vanished because the page was opened a
-          day later would be a document editing itself. But every figure below
-          is then frozen at the last look before departure, and a panel that
-          did not say so would read as a live price.
-
-          The way back to the month is beside it and not only when the day has
-          gone, because a focus changes the whole panel and a state that cannot
-          be undone without deleting the route is a trap. It only clears the
-          focus; nothing collected is touched.
+          "Read the whole month" stood here, and it existed only to clear a
+          focus — 12.182. With the focus gone (12.260) the whole month is the
+          only thing this panel ever reads, so there is no state to be let out
+          of and no control to let anyone out of it.
         */}
-        {route.focusDate ? (
-          <p className={styles.cities}>
-            {focusDeparted(route, today) ? (
-              <span className={styles.dear}>That day has departed. </span>
-            ) : null}
-            <Button variant="ghost" size="small" onClick={onClearFocus}>
-              Read the whole month
-            </Button>
-          </p>
-        ) : null}
         {/*
           Which of the month's departures the figures below belong to, written
           `dd/mm/yyyy` like every other real date here — the month in the
@@ -135,11 +100,10 @@ export function RouteDetail({
           the same kind of thing. It is a line rather than a fifth figure
           because the figures box is measured to four across.
 
-          Absent under a focus, where the heading already names the only
-          departure there is: the same date twice, three lines apart, reads as
-          two facts that happen to agree rather than as one.
+          Unconditional again: it used to be hidden under a focus, where the
+          heading already named the only departure there was.
         */}
-        {latest && !route.focusDate ? (
+        {latest ? (
           <p className={styles.cities}>Cheapest on {formatFlightDate(latest.flightDate)}</p>
         ) : null}
         {health?.lastCheckedAt ? (

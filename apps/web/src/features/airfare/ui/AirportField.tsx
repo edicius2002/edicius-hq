@@ -35,6 +35,16 @@ type AirportFieldProps = {
    * row needs.
    */
   align?: 'left' | 'right';
+  /**
+   * Where the label sits — 12.265.
+   *
+   * `stacked` puts it above the input, which is what this field has always
+   * done. `inline` puts label and input side by side, and does it by
+   * `display: contents` on the wrapper rather than by a grid of its own: the
+   * caller's form is what owns the label column, and three fields whose
+   * labels each measured themselves would not line up.
+   */
+  layout?: 'stacked' | 'inline';
 };
 
 export function AirportField({
@@ -44,6 +54,7 @@ export function AirportField({
   placeholder,
   onChange,
   align = 'left',
+  layout = 'stacked',
 }: AirportFieldProps) {
   const listId = useId();
   const [matches, setMatches] = useState<AirportMatch[]>([]);
@@ -120,7 +131,7 @@ export function AirportField({
   }
 
   return (
-    <div className={styles.field}>
+    <div className={layout === 'inline' ? `${styles.field} ${styles.inline}` : styles.field}>
       <label htmlFor={id}>{label}</label>
       <div className={styles.control}>
         <input

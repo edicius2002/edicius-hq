@@ -99,35 +99,53 @@ describe('useFareRoutes storage sync', () => {
     expect(result.current.collectable).toEqual([LIM_SCL]);
   });
 
-  it('loads a stored route that has a month and no focus without touching it', async () => {
+  it('loads a stored route that carries a focus date as simply its month', async () => {
     /*
-     * The shape every route in the store is in right now, read through the
-     * whole path the page uses rather than through the normalizer alone.
+     * The migration, through the whole path the page uses rather than through
+     * the normalizer alone — 12.261. This is the owner's own watchlist: one
+     * route, `LIM→SCL 2027-03`, stored with `focusDate: '2027-03-09'` while a
+     * watch could name a departure.
      *
-     * 12.180 made the form ask for a date, so every route added from here on
-     * carries a focus — and none of that may reach backwards into what is
-     * already stored. Two ways it could: the normalizer inventing one from the
-     * month, or the read-then-write cycle writing a `focusDate` key back on the
-     * first save after the upgrade. The `pagehide` flush is what would expose
-     * the second, so it is here rather than left to the other tests.
+     * Two things have to be true and only one of them is the normalizer's. The
+     * route must load as its month with the day gone, and the day must not
+     * come back on the first save: a `focusDate` that survived the read-then-
+     * write cycle would be written to disk again and read again forever. The
+     * `pagehide` flush is what exposes the second, so it is here.
      */
-    const api = stubRoutes({ version: 1, routes: [LIM_SCL] });
+    const api = stubRoutes({
+      version: 1,
+      routes: [
+        {
+          origin: 'LIM',
+          destination: 'SCL',
+          month: '2027-03',
+          focusDate: '2027-03-09',
+          currency: 'USD',
+        },
+      ],
+    });
     const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
-    expect(result.current.routes).toEqual([LIM_SCL]);
-    expect(result.current.routes[0].focusDate).toBeUndefined();
+    expect(result.current.routes).toEqual([
+      { origin: 'LIM', destination: 'SCL', month: '2027-03', currency: 'USD' },
+    ]);
     expect(Object.keys(result.current.routes[0])).not.toContain('focusDate');
 
     // An unrelated edit, so the document is written back at least once.
     await act(async () => {
-      await result.current.add({ ...LIM_SCL, destination: 'MAD', focusDate: '2026-10-09' });
+      await result.current.add({ ...LIM_SCL, destination: 'MAD' });
     });
     window.dispatchEvent(new Event('pagehide'));
 
     await waitFor(() => expect(api.stored).not.toBeNull());
     const [stored] = (api.stored as { routes: Record<string, unknown>[] }).routes;
-    expect(stored).toEqual({ ...LIM_SCL });
+    expect(stored).toEqual({
+      origin: 'LIM',
+      destination: 'SCL',
+      month: '2027-03',
+      currency: 'USD',
+    });
     expect(Object.keys(stored)).not.toContain('focusDate');
   });
 

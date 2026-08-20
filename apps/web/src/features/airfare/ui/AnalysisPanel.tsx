@@ -14,9 +14,21 @@ import {
   unsoldPeriods,
   type Granularity,
 } from '@/features/airfare/lib/buckets';
-import type { WatchedRange } from '@/features/airfare/lib/flightScatter';
-import { CalendarCurveChart } from '@/features/airfare/ui/CalendarCurveChart';
-import { FlightScatterChart } from '@/features/airfare/ui/FlightScatterChart';
+import {
+  anchorFor,
+  frameDays,
+  frameSource,
+  framePeriodKeys,
+  type FrameSource,
+} from '@/features/airfare/lib/departureFrame';
+import {
+  activeKey,
+  departureDays,
+  scatterWindow,
+  stepKey,
+  type WatchedRange,
+} from '@/features/airfare/lib/flightScatter';
+import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
@@ -29,77 +41,61 @@ const GRANULARITIES: { value: Granularity; label: string }[] = [
 ];
 
 /**
- * **Two charts over one route, not four — 12.201, answering 12.197.**
+ * **Two charts over one route, and one control each — 12.240, answering 12.201.**
  *
- * The switch used to offer Price history, Lead time, Flights and Departure
- * dates. Four buttons, three x-axis units, and 12.197 had already written down
- * that the last two were one axis at two scales and left them unmerged pending
- * a decision. This is that decision, and it takes the first two with it.
+ * The panel reached four buttons, three x-axis units and two extra switches
+ * before anybody added a fifth. 12.201 cut the four views to two; this cuts what
+ * is left to two questions and no reader-operated modes at all:
  *
- * "How the price moved" is one flight's own history. Observation time — what
- * the cheapest fare was on each day we looked — and lead time — the same fares
- * placed by how far ahead of the flight they were seen — are not two charts
- * for a single departure date D: lead is `D − observation date`, so the points
- * are the same points, reversed and shifted. They were two views because the
- * page had no way to say "the same chart, read the other way", and a reader
- * flipping between them was watching one series pretend to be two. Now it is
- * one chart with a labelling control, and both series — ours and the
- * provider's dashed baseline — stay on both readings.
+ * "How the price moved" is one route's own history on one axis — what the
+ * cheapest fare was on each day we looked. It has no labelling control and no
+ * granularity. The lead-time reading is withdrawn rather than hidden (12.241),
+ * and the day is the only period this chart can be honestly drawn at (12.242).
  *
- * "What each day costs" is which departure to book, and it is one axis with a
- * zoom rather than two views. At the near end is the watched month with every
- * itinerary on it, at the hour it leaves; at the far end is the whole 331-day
- * booking horizon with one cheapest fare a day. Both are "which departure
- * date", which is why the zoom is a zoom and not a second question.
+ * "What each date costs" is which departure to book, and the archive that
+ * answers is chosen by the date rather than by a zoom (12.243). Inside the
+ * watched month the boards answer, with every itinerary at its departure hour;
+ * outside it the booking horizon does, one price a date. A period straddling
+ * the boundary is answered by both in one frame.
  *
- * The two charts that remain really are different questions on different
- * units, so nothing here puts two units beside each other: every control is a
- * toggle, and exactly one axis is on screen at a time.
+ * The two charts really are different questions on different units, so nothing
+ * here puts two units beside each other: exactly one axis is on screen at a
+ * time.
  */
 type ChartView = 'moves' | 'days';
 
-const VIEWS: { value: ChartView; label: string }[] = [
-  { value: 'moves', label: 'How the price moved' },
-  { value: 'days', label: 'What each day costs' },
-];
+/** Chart A answers to one name, because it has one reading. */
+const MOVES_NAME = 'How the price moved';
 
-/*
- * **The run-up reading is withdrawn, because nothing names a departure for it
- * to run up to** — 12.267.
+/**
+ * Chart B's name follows what it is drawing — 12.246.
  *
- * 12.202 made observation time and lead time one chart with a labelling
- * control, and 12.204 offered the lead labelling **only where the route named
- * one departure date**: a month holds thirty-one of them, so one observation
- * of a month lands on thirty-one lead times at once and a curve through them
- * is a curve across departure date wearing lead time's labels.
- *
- * The focus was the only thing that ever named that one departure, and 12.260
- * took it away. So the gate 12.204 wrote is now false for every watch there
- * can be, and a switch that can never appear beside a chart that can never
- * render is the unreachable branch this repository does not leave lying about.
- * It is removed rather than gated on a constant.
- *
- * `lib/leadTime.ts` is deliberately **kept**, with its own tests. Nothing in
- * it is unreachable — it is a pure mapping from snapshots to lead buckets, and
- * it is correct — and 12.204's reasoning is untouched: the day this page can
- * point at one departure again, the reading comes back from the library that
- * already computes it rather than from a rewrite.
+ * Every name it can wear is rendered at once, stacked in one grid cell with the
+ * live one visible, so the control is as wide as its widest name whichever is
+ * showing. That is the whole mechanism for "the text changes and nothing
+ * reflows": a `min-width` in pixels would be a guess that a font change breaks,
+ * while the stack is the measurement itself. The order matters only for the
+ * screen reader, which is given the live name alone.
  */
-
-/** How far out chart B is standing — 12.203. Both ends are departure dates. */
-type Zoom = 'month' | 'horizon';
-
-const ZOOMS: { value: Zoom; label: string }[] = [
-  { value: 'month', label: 'Watched month' },
-  { value: 'horizon', label: 'Whole horizon' },
-];
+const DAYS_NAMES: Record<FrameSource, string> = {
+  none: 'What each date costs',
+  boards: 'Flights seen',
+  curve: 'Cheapest per date',
+  mixed: 'Flights and cheapest per date',
+};
 
 /** Which clock the chart under the switches is drawn on, said in full. */
 const WHAT: Record<string, string> = {
-  moves: 'Across the days we looked — the x axis is when the price was observed.',
-  'days/month': 'Across the month being flown — the x axis is when each itinerary departs.',
-  'days/horizon':
-    'Across the whole booking horizon — the x axis is which departure date, every month out to where the provider stops answering.',
+  moves:
+    'Across the days we looked — the x axis is when the price was observed, one point a day, whatever the period switch is set to.',
+  'days/none':
+    'Across the departure dates being watched — nothing has been collected for them yet.',
+  'days/boards':
+    'Across the month being flown — the x axis is a clock, and every itinerary sits at the hour it departs.',
+  'days/curve':
+    'Beyond the watched month — the x axis is departure dates, and each carries one cheapest fare for the whole date with no time of day.',
+  'days/mixed':
+    'Across the end of the watched month — itineraries at the hour they depart up to its last date, then one price a date beyond it. The rule in the chart is where the axis stops being a clock.',
 };
 
 type AnalysisPanelProps = {
@@ -121,22 +117,20 @@ type AnalysisPanelProps = {
 };
 
 /**
- * The two charts, the controls that pick between and inside them, and the
- * state that says which period is open.
+ * The two charts, the switch between them, and the state that says which period
+ * is open.
  *
- * **The period lives here rather than inside the scatter — 12.170.** It used
- * to be state of `FlightScatterChart`, which is the component the chart switch
+ * **The period lives here rather than inside the chart — 12.170.** It used to
+ * be state of the departure chart, which is the component the chart switch
  * unmounts: a reader who walked to the ninth of thirty-one departures, looked
- * at the price history and came back found themselves on the first again,
- * because the state that remembered where they were had been thrown away with
- * the subtree that held it. Nothing about the scatter changed and nothing was
- * reset on purpose; the period simply had nowhere to live that outlived the
- * view. Here it outlives both charts and the zoom between them, because this
- * is the panel the switch belongs to.
+ * at the price history and came back found themselves on the first again. Here
+ * it outlives both charts.
  *
- * The granularity is still the page's, because the flight table underneath
- * this panel is grouped by it too and the two must not disagree about what a
- * week is.
+ * **And so does the navigation — 12.244.** Which periods there are to step to
+ * is now a question about two archives rather than one: the boards decide what
+ * a day view can reach, and the horizon decides how far a week or a month view
+ * can walk. That belongs where the anchor already is, and it also lets the
+ * switch above name the chart after the frame it is about to draw.
  */
 export function AnalysisPanel({
   route,
@@ -149,25 +143,21 @@ export function AnalysisPanel({
   onGranularityChange,
 }: AnalysisPanelProps) {
   const [view, setView] = useState<ChartView>('moves');
-  const [zoom, setZoom] = useState<Zoom>('month');
   const routeKey = route ? routeId(route) : null;
 
   /*
-   * The departure day the scatter is anchored on, and the route it means
+   * The departure day the chart is anchored on, and the route it means
    * something for.
    *
-   * A day rather than an index into the periods — 12.143 — because the
-   * granularity switch rebuilds the periods under it: an index kept across a
-   * week → day flip points at the seventh day of the month instead of at the
-   * day being read, where a day survives the flip and `activeKey` derives
-   * both the week containing it and the day itself.
+   * A day rather than an index into the periods — 12.143 — because the period
+   * switch rebuilds the periods under it: an index kept across a week → day
+   * flip points at the seventh day of the month instead of at the day being
+   * read, where a day survives the flip.
    *
-   * The route travels with it because an anchor is only a day of *one* watched
-   * month. Opening another route clears it rather than letting `activeKey`
-   * quietly fall back, which reads as the arrows having lost their place. The
-   * comparison is made during the render that notices, which is React's own
-   * answer to a prop the state depends on — the alternative, an effect, paints
-   * the stale period first and then corrects it.
+   * The route travels with it because an anchor is only a day of *one* watch.
+   * The comparison is made during the render that notices, which is React's own
+   * answer to a prop the state depends on — an effect would paint the stale
+   * period first and then correct it.
    */
   const [anchor, setAnchor] = useState<string | null>(null);
   const [anchorRoute, setAnchorRoute] = useState(routeKey);
@@ -177,23 +167,35 @@ export function AnalysisPanel({
   }
   const departureAnchor = anchorRoute === routeKey ? anchor : null;
 
-  const calendar = useMemo(() => calendarAxis(granularity), [granularity]);
-
-  // One reading's buckets, where there used to be two gathered side by side
-  // whichever was in force — 12.267. The lead pair went with the reading.
-  const ours = useMemo(() => bucketSnapshots(snapshots, granularity), [snapshots, granularity]);
-  const theirs = useMemo(() => bucketBaseline(baseline, granularity), [baseline, granularity]);
-  // The boards that came back with nothing on them — 12.232.
-  const oursUnsold = useMemo(() => unsoldPeriods(snapshots, granularity), [snapshots, granularity]);
+  /*
+   * Chart A is drawn by day and by nothing else — 12.242.
+   *
+   * The period switch used to move it, and what that bought was a chart of
+   * eleven points: the owner's archive is 68 observations over a few weeks, and
+   * a week bucket folds a run of daily figures into one band whose middle is a
+   * median of medians. What this chart exists to show is that a fare moved, and
+   * a day is the coarsest period that can still show it — the collector's own
+   * cadence is finer, and the provider's baseline is one figure a day, so a day
+   * is also the only period on which the two series mean the same thing.
+   */
+  const axis = useMemo(() => calendarAxis('day'), []);
+  const ours = useMemo(() => bucketSnapshots(snapshots, 'day'), [snapshots]);
+  const theirs = useMemo(() => bucketBaseline(baseline, 'day'), [baseline]);
+  const oursUnsold = useMemo(() => unsoldPeriods(snapshots, 'day'), [snapshots]);
 
   /*
    * What the watch is on, as two departure dates — 12.235.
    *
-   * The watched month, which since 12.260 is the only thing a watch is. It was
-   * `readingPrefix` here, clipping to the one focused day where there was one.
-   * `periodBounds` rather than arithmetic, because it is this feature's single
-   * answer to "what does a key cover" and a second one would let the frame and
-   * the caption disagree.
+   * The watched month, which since 12.260 is the whole of what a watch is: this
+   * was `readingPrefix` and a `'day'` period where a route named one departure
+   * inside its month. `periodBounds` rather than arithmetic here, because it is
+   * this feature's single answer to "what does a key cover".
+   *
+   * It does not clip chart B's frame. It decides which dates inside that frame
+   * the boards may answer for, which is the same fact put to the use it was
+   * always really for — 12.243. That use is why the month mattering again
+   * changes nothing here beyond the width of the range: a month of board dates
+   * is what the boards were always collected for.
    */
   const watched: WatchedRange | null = useMemo(() => {
     if (!route) return null;
@@ -202,15 +204,55 @@ export function AnalysisPanel({
   }, [route]);
 
   /*
+   * Chart B's navigation — 12.244.
+   *
+   * The board days are what a *day* view may reach, and they are inside the
+   * watched month by construction, so the day view can never arrive at a date
+   * whose only price is a single timeless number. A week or a month may walk
+   * out to wherever the horizon reaches, and where there is no horizon on disk
+   * there is simply nowhere outside the month to walk to — which is this
+   * route's truth rather than a page of empty frames.
+   */
+  const boardDays = useMemo(() => departureDays(snapshots), [snapshots]);
+  const keys = useMemo(
+    () => framePeriodKeys(boardDays, curve, granularity),
+    [boardDays, curve, granularity],
+  );
+  const periodKey = activeKey(keys, granularity, departureAnchor ?? boardDays[0] ?? null);
+
+  /*
+   * What the frame about to be drawn is made of, so the switch can name the
+   * chart after it — 12.246. Cheap: the window is a `periodBounds` call and the
+   * days are at most thirty-one strings compared against two.
+   */
+  const source: FrameSource = useMemo(
+    () =>
+      periodKey === null
+        ? 'none'
+        : frameSource(frameDays(scatterWindow(periodKey, granularity), watched)),
+    [periodKey, granularity, watched],
+  );
+
+  const step = (direction: -1 | 1) => {
+    if (periodKey === null) return;
+    const target = stepKey(keys, periodKey, direction);
+    if (target === null) return;
+    setAnchor(anchorFor(target, granularity, boardDays));
+  };
+
+  /*
    * What these figures are *of*: the watched month — 12.260.
    *
-   * The page narrows the snapshots to the same `route.month` before they get
-   * here, and the history request asks for the same string, so the head and
-   * the figures under it cannot name different things.
+   * It was `formatReading` and a preposition that moved with it, because a
+   * watch could name one departure inside its month and the page narrowed onto
+   * it. The page narrows on `route.month` now, and the history request asks for
+   * the same string, so the head and the figures under it cannot name different
+   * things.
    */
   const where = route ? `${routeLabel(route)} departing in ${formatFlightMonth(route.month)}` : '';
   const currency = route?.currency ?? 'USD';
-  const what = view === 'moves' ? 'moves' : `days/${zoom}`;
+  const what = view === 'moves' ? 'moves' : `days/${source}`;
+  const daysName = DAYS_NAMES[source];
 
   return (
     <>
@@ -219,59 +261,55 @@ export function AnalysisPanel({
           {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
         </h2>
         {/*
-          Three switches, in the order the questions come: which chart, how to
-          read it, then how wide one point is. The middle one belongs to the
-          chart above it and changes with it, which is why it is not a fourth
-          fixed control — a "Zoom" sitting inert beside the price history would
-          be the four-peer switch this change exists to undo.
+          Two switches, in the order the questions come: which chart, then how
+          much calendar one period covers. There is no third any more — the
+          labelling control and the zoom that used to sit between them were both
+          the reader being asked to answer something the page already knows.
         */}
         <div className={styles.switches}>
           <div className={styles.switch} role="group" aria-label="Chart">
-            {VIEWS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={view === option.value}
-                onClick={() => setView(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+            <button type="button" aria-pressed={view === 'moves'} onClick={() => setView('moves')}>
+              {MOVES_NAME}
+            </button>
+            {/*
+              Chart B's button holds every name it can wear at once. Only the
+              live one is visible; the rest are `visibility: hidden` in the same
+              grid cell, so the button is as wide as its widest name and the
+              name can change without the switch beside it moving a pixel.
+              `aria-hidden` on the understudies, or a screen reader would read
+              four names for one control.
+            */}
+            <button
+              type="button"
+              aria-pressed={view === 'days'}
+              aria-label={daysName}
+              onClick={() => setView('days')}
+              data-testid="days-chart-button"
+            >
+              <span className={styles.names}>
+                {Object.entries(DAYS_NAMES).map(([kind, name]) => (
+                  <span
+                    key={kind}
+                    className={kind === source ? styles.nameLive : styles.nameGhost}
+                    aria-hidden={kind === source ? undefined : true}
+                    {...(kind === source ? { 'data-testid': 'days-chart-name' } : {})}
+                  >
+                    {name}
+                  </span>
+                ))}
+              </span>
+            </button>
           </div>
 
           {/*
-            "Read the axis as" stood here, between the chart switch and the
-            zoom. It offered the run-up reading and could only offer it to a
-            watch that named one departure date — 12.204 — which nothing does
-            any more (12.267). Two switches where there were three, and chart A
-            has one axis rather than one of two.
+            "How much time one period covers", not "Group observations by" —
+            12.205, and it now covers chart B and the flight table under this
+            panel rather than chart A. It is never inert: the table below is
+            grouped by it whichever chart is on screen, which is also why it
+            stays put instead of vanishing with chart A — a control that
+            disappeared on a chart switch would move the whole head.
           */}
-
-          {view === 'days' ? (
-            <div className={styles.switch} role="group" aria-label="Zoom">
-              {ZOOMS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={zoom === option.value}
-                  onClick={() => setZoom(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {/*
-            "How much time one point covers", not "Group observations by" —
-            12.205. Day, Week and Month have not grouped observations alone
-            since the lead axis landed, and under chart B they group
-            *departures*: at the month zoom they decide how much of the month
-            one screen holds, and at the horizon zoom how many departure dates
-            fold into one point. A screen-reader user was being told this
-            control did something it stopped doing two views ago.
-          */}
-          <div className={styles.switch} role="group" aria-label="How much time one point covers">
+          <div className={styles.switch} role="group" aria-label="How much time one period covers">
             {GRANULARITIES.map((option) => (
               <button
                 key={option.value}
@@ -288,64 +326,34 @@ export function AnalysisPanel({
 
       <p className={styles.what}>{WHAT[what]}</p>
 
-      {/*
-        The `key="observed"` this chart carried was load-bearing while there
-        were two readings sharing one component: without it React kept one
-        instance across the flip and the crosshair index came along, so index 3
-        of the observation axis became index 3 of the lead-time axis — a
-        different period of a different kind. There is one reading now
-        (12.267), so there is nothing to flip between and nothing to key apart.
-      */}
       {view === 'moves' ? (
         <PriceBandChart
           ours={ours}
           baseline={theirs}
           unsold={oursUnsold}
           currency={currency}
-          axis={calendar}
-          label={route ? `Cheapest fare for ${where}, by ${granularity}` : 'Price analysis'}
-        />
-      ) : zoom === 'month' ? (
-        /*
-          Keyed by route so the crosshair the reader left on a flight resets
-          when they open a different watch. The period does not reset with it
-          any more — it is held above this component and cleared by the route
-          change itself.
-
-          It draws whatever the page narrowed to, which is the watched month
-          and every departure in it — the same narrowing every other figure on
-          the page is under, and the whole horizon is still a zoom away.
-        */
-        <FlightScatterChart
-          key={routeKey ?? 'none'}
-          snapshots={snapshots}
-          granularity={granularity}
-          currency={currency}
-          anchor={departureAnchor}
-          onAnchorChange={setAnchor}
-          watched={watched}
-          label={
-            route ? `Every flight for ${where}, by departure time` : 'Flights by departure time'
-          }
+          axis={axis}
+          label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
         />
       ) : (
         /*
-          Keyed by route for the scatter's reason, and it takes no anchor at
-          all: this end of the zoom draws the whole horizon in one frame, so
-          there is no period to be on and nothing for the arrows to step to.
-          Its own state is the crosshair and nothing else.
+          Keyed by route so the crosshair the reader left on a flight resets
+          when they open a different watch. The period does not reset with it —
+          it is held above this component and cleared by the route change.
         */
-        <CalendarCurveChart
+        <DepartureChart
           key={routeKey ?? 'none'}
+          snapshots={snapshots}
           curve={curve}
+          watched={watched}
           granularity={granularity}
-          loading={curveLoading}
-          error={curveError}
-          label={
-            route
-              ? `Cheapest fare for ${routeLabel(route)} by departure date, across the whole booking horizon`
-              : 'Fares by departure date'
-          }
+          currency={currency}
+          periodKey={periodKey}
+          keys={keys}
+          onStep={step}
+          horizonLoading={curveLoading}
+          horizonError={curveError}
+          label={route ? `What each departure date costs for ${where}` : 'Fares by departure date'}
         />
       )}
     </>

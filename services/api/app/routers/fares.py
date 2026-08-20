@@ -24,8 +24,9 @@ from app.adapters.fares.models import (
     FareSnapshot,
 )
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
-from app.config import UPSTREAM_TIMEOUT_SECONDS
+from app.config import CALENDAR_POLL_MINUTES, UPSTREAM_TIMEOUT_SECONDS
 from app.services import airport_search
+from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import FareWatch
@@ -690,3 +691,248 @@ def collect_progress() -> CollectResponse:
     """
     running = RUNNER.current()
     return IDLE if running is None else _pass_model(running)
+
+
+# --------------------------------------------------------- collecting a curve --
+
+
+class CalendarCollectBody(BaseModel):
+    """
+    One city pair to collect the whole horizon for.
+
+    No month, and that is the difference from `RouteBody` rather than an
+    omission: a curve covers every departure date out to the booking horizon in
+    one observation, so the month a reader happens to watch is not a key here
+    and naming one would suggest it narrowed something.
+    """
+
+    origin: str = Field(..., min_length=3, max_length=3)
+    destination: str = Field(..., min_length=3, max_length=3)
+    #: Absent means USD, matching `RouteBody`. Optional rather than defaulted in
+    #: the schema because the caller adding a route may genuinely not have
+    #: picked one yet, and `null` says that where `"USD"` would claim it did.
+    currency: str | None = None
+
+
+class CalendarResultModel(BaseModel):
+    """
+    What one city pair's curve collection came back with.
+
+    `dates` and `priced` are two figures rather than one because they answer
+    different questions: how much of the horizon was answered for at all, and
+    how much of it has anything to sell. A year where every day came back
+    priceless is a real answer and reads nothing like a year we never reached.
+    """
+
+    origin: str
+    destination: str
+    ok: bool
+    #: Whether this look wrote a curve. False when nothing in the year moved,
+    #: which on a daily cadence is most looks.
+    changed: bool
+    dates: int
+    priced: int
+    cheapest: float | None
+    cheapestOn: str | None
+    currency: str | None
+    #: Upstream requests spent on this pair. Two, unless a window was refused
+    #: before the second one was asked for.
+    requests: int
+    # Present only on a refusal. A pair that failed travels beside the ones
+    # that worked and says why — decisions 8.8 and 8.41.
+    errorCode: str | None
+    errorMessage: str | None
+
+
+class CalendarCollectResponse(BaseModel):
+    """
+    A calendar pass, whether or not it has finished.
+
+    Deliberately the same shape as `CollectResponse` minus the fields a curve
+    has no meaning for, so a client that already reads one press's answer reads
+    this one the same way. `polling` is the notable absence: a board pass polls
+    dozens of departures and a progress bar wants a denominator, whereas a
+    calendar pass is one city pair and two requests, so the only figure it
+    could report is one.
+    """
+
+    #: `idle` before anything has ever run, then `running`, then `finished` or
+    #: `failed`. `failed` is the pass falling over, not a provider refusing a
+    #: pair — a refused pair travels in `results` with its reason (8.8, 8.41).
+    state: str
+    #: `null` only while `state` is `idle`.
+    startedAt: str | None
+    #: `null` until the pass ends.
+    finishedAt: str | None
+    source: str
+    #: What this pass covers, as `"LIM-SCL"`. A press whose own pair is missing
+    #: from here was answered with a pass that was already running rather than
+    #: served with one of its own, and the control that pressed has no other
+    #: way to tell.
+    watching: list[str]
+    #: How many pairs have come back so far. Equal to `len(results)`, named
+    #: because a caller wants a number and not a list length.
+    completed: int
+    collected: int
+    changed: int
+    failed: int
+    results: list[CalendarResultModel]
+    # Pairs deliberately not polled and why — most often `not-due`, because a
+    # curve is collected once a day and a route added twice in an afternoon is
+    # asking for the second one for nothing. A pass that silently skipped them
+    # would read exactly like one that collected them.
+    skipped: list[SkippedModel]
+    #: Why the pass fell over, when it did.
+    error: str | None
+
+
+#: What `GET /calendar/collect` answers before any curve has ever been
+#: collected. Same reasoning as `IDLE` above: never having run is a fact about a
+#: fresh install, and 404 would make the client special-case an error to
+#: describe it.
+CALENDAR_IDLE = CalendarCollectResponse(
+    state="idle",
+    startedAt=None,
+    finishedAt=None,
+    source=DEFAULT_PROVIDER,
+    watching=[],
+    completed=0,
+    collected=0,
+    changed=0,
+    failed=0,
+    results=[],
+    skipped=[],
+    error=None,
+)
+
+
+def _calendar_pass_model(running: CalendarPass) -> CalendarCollectResponse:
+    report = running.as_report()
+    return CalendarCollectResponse(
+        state=running.state,
+        startedAt=running.started_at,
+        finishedAt=running.finished_at,
+        source=running.source,
+        watching=list(running.watching),
+        completed=running.completed,
+        collected=report.collected,
+        changed=report.changed,
+        failed=report.failed,
+        error=running.error,
+        skipped=[SkippedModel(what=what, reason=reason) for what, reason in report.skipped],
+        results=[
+            CalendarResultModel(
+                origin=result.origin,
+                destination=result.destination,
+                ok=result.ok,
+                changed=result.changed,
+                dates=result.dates,
+                priced=result.priced,
+                cheapest=result.cheapest,
+                cheapestOn=result.cheapest_on,
+                currency=result.currency,
+                requests=result.requests,
+                errorCode=result.error_code,
+                errorMessage=result.error_message,
+            )
+            for result in report.results
+        ],
+    )
+
+
+# Declared after `GET /calendar`, and the two do not collide: both are literal
+# paths with no parameter in them, so FastAPI matches `/calendar/collect`
+# exactly and never reaches the shorter route. The pair is kept together and
+# spelled out here because that stops being true the moment anyone adds a
+# `/calendar/{something}` above it — a parameterised route declared first would
+# swallow `collect` as its parameter and the failure would be a 422 about a
+# route code, not a missing endpoint.
+@router.post(
+    "/calendar/collect",
+    response_model=CalendarCollectResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def collect_calendar(
+    body: CalendarCollectBody,
+    provider: str = Query(DEFAULT_PROVIDER),
+) -> CalendarCollectResponse:
+    """
+    Start collecting this city pair's whole-horizon curve.
+
+    **This returns as soon as the pass has started, not when it has finished.**
+    It answers 202 and a `running` document; `GET /calendar/collect` is where
+    the rest of the story is. The pass itself is the same one the scheduled
+    script runs — same windows, same order, same gap between requests.
+
+    What it is for is the moment a route is added to the watchlist. Until a
+    curve exists the eleven months the reader did not pick are blank, and the
+    only thing that has ever filled them is a command line on a timer, so the
+    chart stayed empty until the next scheduled pass happened to run. This lets
+    the press that adds the route ask for its curve.
+
+    **It still runs the schedule rather than bypassing it, with one exception.**
+    A pair whose curve was collected within `CALENDAR_POLL_MINUTES` comes back
+    in `skipped` as `not-due` and no request is spent, which is the correct
+    answer to "collect this again" ten minutes after collecting it — a fare
+    eleven months out moves by a median 1.7% a day, so the second look would
+    cost two requests to confirm the first. The row says so instead of the pass
+    quietly doing nothing, so a caller can tell a declined press from a broken
+    one.
+
+    The exception is a pair with **no curve on disk at all**, which is always
+    due. The cadence is measured from the last *look*, not from the last curve,
+    and a look that failed counts — so the first collection of a brand-new route
+    refusing once left that route with nothing to draw and no second attempt for
+    a day, which was observed happening against the live provider the first time
+    this endpoint was pointed at it. Deciding it here rather than inside `due`
+    is deliberate: the scheduled pass is right to leave a failing route alone
+    until tomorrow, because nobody is waiting for it. Here somebody just added
+    the route and is looking at the empty chart. Each attempt still costs a
+    human pressing "Add route", so this cannot loop.
+
+    A press that arrives while a pass is running gets that pass rather than a
+    second one, because the gap in `fare_collector` paces a loop and two loops
+    would halve it without anyone deciding to.
+    """
+    if provider not in PROVIDERS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider {provider!r}")
+
+    watch = FareWatch(
+        origin=normalize_code(body.origin),
+        destination=normalize_code(body.destination),
+        # A calendar pass is keyed by city pair and never reads the month —
+        # `collect_calendars` folds every watch on a pair into one collection
+        # because one curve already covers every month. Empty rather than
+        # today's month, which would be a fact nobody stated and which would
+        # read, to anyone debugging, as though the horizon started there.
+        # A second watch type carrying only a pair was the alternative and
+        # would have bought a class whose sole difference is a field this
+        # collector already ignores.
+        month="",
+        currency=(body.currency or "USD").upper(),
+    )
+    # Nothing on disk means nothing for the cadence to protect, so the pass is
+    # allowed regardless of when we last looked. `due` compares against
+    # `every_minutes`, and zero makes every elapsed time long enough.
+    nothing_yet = CALENDAR.latest(watch.origin, watch.destination) is None
+    return _calendar_pass_model(
+        CALENDAR_RUNNER.start(
+            [watch],
+            provider=provider,
+            client=get_client(),
+            every_minutes=0 if nothing_yet else CALENDAR_POLL_MINUTES,
+        )
+    )
+
+
+@router.get("/calendar/collect", response_model=CalendarCollectResponse)
+def collect_calendar_progress() -> CalendarCollectResponse:
+    """
+    How the current calendar pass is getting on, or how the last one ended.
+
+    The same document `POST /calendar/collect` answers with, for the same
+    reason the board pair share theirs: a client that can read the press's
+    answer can read this one without knowing which of the two it holds.
+    """
+    running = CALENDAR_RUNNER.current()
+    return CALENDAR_IDLE if running is None else _calendar_pass_model(running)

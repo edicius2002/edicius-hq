@@ -1,5 +1,9 @@
 import { formatFlightDate, type FareRoute } from '@/features/airfare/data/fareRoutes';
-import type { CollectResponse, CollectRouteResult } from '@/shared/api/fares';
+import type {
+  CalendarCollectResponse,
+  CollectResponse,
+  CollectRouteResult,
+} from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
 /**
@@ -189,6 +193,71 @@ export function describeCollection(
   return {
     ok: failures.length === 0,
     text: `Collected: ${looked}, ${price} — ${wrote}${seededText}${failedText}${skippedText}.`,
+  };
+}
+
+/**
+ * What the horizon collection fired by adding a route came back with — 12.247.
+ *
+ * Its own function rather than a branch of `describeCollection`, because the
+ * two report different work: that one summarises up to thirty-one boards for
+ * one month, this one reports a single curve across every month. Sharing a
+ * sentence would mean one of them describing itself in the other's units.
+ *
+ * **Every branch ends with the route still being watched**, and that is the
+ * decision rather than the wording. Adding a route is a write to the reader's
+ * own document; collecting its horizon is a request to somebody else's server.
+ * A form that refused to save because a fare lookup failed would let an
+ * upstream veto a watchlist edit, so the collection is reported and never
+ * rolled back into.
+ */
+export function describeHorizon(route: FareRoute, response: CalendarCollectResponse): RowReport {
+  const pair = `${route.origin}-${route.destination}`;
+  if (!response.watching.includes(pair)) {
+    const others = response.watching.join(', ') || 'another route';
+    return {
+      ok: false,
+      text: `A booking horizon collection for ${others} is already running; this route is watched and its horizon will need a pass of its own.`,
+    };
+  }
+  if (response.state === 'failed') {
+    return {
+      ok: false,
+      text: `The booking horizon pass failed: ${response.error ?? 'no reason given'}. The route is watched either way.`,
+    };
+  }
+
+  const skipped = response.skipped.filter((entry) => entry.what === pair);
+  const result = response.results.find(
+    (candidate) => `${candidate.origin}-${candidate.destination}` === pair,
+  );
+
+  if (!result) {
+    // Not-due is the ordinary way to arrive here: a pair collected earlier
+    // today already has the curve this pass would have fetched, and spending
+    // two requests to rewrite it is the thing the cadence exists to refuse.
+    if (skipped.length > 0) {
+      return {
+        ok: true,
+        text: `Booking horizon not collected again — ${skipped[0].reason}. The one on disk already covers this route.`,
+      };
+    }
+    return {
+      ok: false,
+      text: 'The horizon pass came back without a word about this route. It is watched all the same.',
+    };
+  }
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      text: `Booking horizon refused: ${result.errorCode ?? 'unknown'} — ${result.errorMessage ?? 'no reason given'}. The route is watched; the chart says the horizon is not collected yet.`,
+    };
+  }
+
+  return {
+    ok: true,
+    text: `Booking horizon collected: ${result.priced} of ${result.dates} departure date${result.dates === 1 ? '' : 's'} priced in ${result.requests} request${result.requests === 1 ? '' : 's'}.`,
   };
 }
 

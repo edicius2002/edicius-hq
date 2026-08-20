@@ -105,22 +105,42 @@ export function windowLabel(period: ObservationWindow | null): string {
  * A numeric range would be the wrong control here: the useful questions are
  * "what moved" and "what disappeared", and neither is a band of percentages.
  * Every row falls in exactly one category.
+ *
+ * `first` is "we have looked at this flight once, so there is nothing to
+ * compare its price against" — 12.254. It was called `new` and it read as a
+ * claim about the board rather than about the archive; a route collected for
+ * the first time this morning has not just gained 103 flights, it has been
+ * watched once.
  */
-export type ChangeCategory = 'rose' | 'fell' | 'unchanged' | 'new' | 'gone';
+export type ChangeCategory = 'rose' | 'fell' | 'unchanged' | 'first' | 'gone';
 
-export const CHANGE_ORDER: ChangeCategory[] = ['rose', 'fell', 'unchanged', 'new', 'gone'];
+export const CHANGE_ORDER: ChangeCategory[] = ['rose', 'fell', 'unchanged', 'first', 'gone'];
 
+/**
+ * One word per category, used both in the Change cell and in the filter that
+ * selects on it — the same string in both places, so a reader who picks a
+ * category out of the select can see which rows it kept.
+ *
+ * `gone` is four letters rather than "Off the board" because it shares a
+ * column with `+12.3%`: thirteen monospace characters set the width of a
+ * column whose widest number is seven, and a table 52px wider is 52px closer
+ * to the sideways scrollbar this page is not allowed to have — 12.256.
+ */
 export const CHANGE_LABELS: Record<ChangeCategory, string> = {
   rose: 'Rose',
   fell: 'Fell',
   unchanged: 'Unchanged',
-  new: 'New',
-  gone: 'Off the board',
+  first: 'First seen',
+  gone: 'Gone',
 };
 
 export type FlightRow = {
   track: FlightTrack;
-  /** Percentage move since this flight's last price change, or null if it never moved. */
+  /**
+   * Percentage move since this flight's last price change; `0` when it has been
+   * looked at more than once and held its price; null when nothing has been
+   * compared — one sighting, or a flight that has left the board.
+   */
   change: number | null;
   category: ChangeCategory;
   /** Departure hour at the airport, 0–23, or null when the stamp carries no clock. */
@@ -149,28 +169,55 @@ export function departureHour(departureAt: string): number | null {
 }
 
 /**
- * Which of the five things happened to this flight.
+ * Which of the five things happened to this flight, and the number to print.
  *
- * `trackFlights` records a price only when it differs from the one before it,
- * so a null change means "has never moved while watched" — which is a
- * different fact from "we have only just met it", and the two must not share a
- * filter. They are told apart by whether the flight's first observation *is*
- * the newest one on the route.
+ * The question the column answers is *how much basis is there for a
+ * comparison, and what did the comparison show* — which is why the count of
+ * sightings decides it. `trackFlights` records a price only when it differs
+ * from the one before, so a track with one observation is either a flight
+ * nobody has looked at twice or a flight looked at ten times that never
+ * budged, and those are opposite facts sharing one shape.
  *
- * A flight that moved is reported as having moved even if it appeared this
- * week: a measured percentage says more than the word "new", and "new" is
- * exactly the category for the rows that have no percentage to show.
+ * This used to be decided by asking whether the flight's first observation
+ * carried the newest `capturedAt` on the whole route, and that was wrong for a
+ * reason 12.110 built in: a watched month is polled one departure at a time,
+ * 31 requests over about three minutes, so exactly one departure date owns the
+ * newest stamp and every flight on the other thirty is judged against a clock
+ * reading from a different request. Measured on the archive of 2026-08-19:
+ * ARI-SCL holds 103 itineraries, every one of them seen exactly once, and 101
+ * of them were filed as "Unchanged" — a price that had never been compared to
+ * anything, reported as a price that did not move.
+ *
+ * Counting sightings rather than fixing the stamp to be per-departure: the two
+ * are equivalent — a present flight seen once is by definition in the newest
+ * snapshot of its own departure — but one of them states the fact and the
+ * other tests a string for equality and hopes the collector stamped it the way
+ * we expect.
+ *
+ * A flight that moved is reported as having moved even if this is the first
+ * period it appears in: a measured percentage says more than "first seen", and
+ * "first seen" is exactly the category for the rows that have no percentage to
+ * show.
  */
-function categoryOf(
+function moveOf(
   track: FlightTrack,
-  change: number | null,
-  latestCapture: string,
-): ChangeCategory {
-  if (!track.present) return 'gone';
-  if (change !== null && change > 0) return 'rose';
-  if (change !== null && change < 0) return 'fell';
-  if (change === null && track.observations[0]?.capturedAt === latestCapture) return 'new';
-  return 'unchanged';
+  sightings: number,
+): { change: number | null; category: ChangeCategory } {
+  // A flight that has left the board has no current price, so it has no move
+  // to report; the last thing it did before leaving is not what it has done
+  // since we last looked, which is what the column asks.
+  if (!track.present) return { change: null, category: 'gone' };
+
+  const moved = variation(track.previousPrice, track.price);
+  if (moved !== null && moved !== 0) {
+    return { change: moved, category: moved > 0 ? 'rose' : 'fell' };
+  }
+
+  // Zero rather than a dash: two looks at the same price is a measurement, and
+  // the reader can tell it apart from the row below that has never been
+  // measured at all.
+  if (sightings > 1) return { change: 0, category: 'unchanged' };
+  return { change: null, category: 'first' };
 }
 
 /**
@@ -195,24 +242,28 @@ export function tableRows(snapshots: FareSnapshot[], granularity: Granularity): 
   if (period === null) return { rows: [], period: null, tracked: tracks.length };
 
   const seen = new Set<string>();
-  let latestCapture = '';
+  /*
+   * How many boards each flight has been on, counted per snapshot rather than
+   * per offer: a board that lists the same itinerary twice has still only been
+   * looked at once, and counting offers would let a duplicate row claim a
+   * comparison nobody made.
+   */
+  const sightings = new Map<string, number>();
   for (const snapshot of snapshots) {
-    if (snapshot.capturedAt > latestCapture) latestCapture = snapshot.capturedAt;
-    if (bucketKey(snapshot.capturedAt, granularity) !== period.key) continue;
-    for (const offer of snapshot.offers) seen.add(flightKey(offer));
+    const inPeriod = bucketKey(snapshot.capturedAt, granularity) === period.key;
+    for (const key of new Set(snapshot.offers.map(flightKey))) {
+      sightings.set(key, (sightings.get(key) ?? 0) + 1);
+      if (inPeriod) seen.add(key);
+    }
   }
 
   const rows = tracks
     .filter((track) => seen.has(track.key))
-    .map((track) => {
-      const change = variation(track.previousPrice, track.price);
-      return {
-        track,
-        change,
-        category: categoryOf(track, change, latestCapture),
-        hour: departureHour(track.departureAt),
-      };
-    });
+    .map((track) => ({
+      track,
+      ...moveOf(track, sightings.get(track.key) ?? 0),
+      hour: departureHour(track.departureAt),
+    }));
 
   return { rows, period, tracked: tracks.length };
 }
@@ -229,12 +280,20 @@ export type TimeBand = 'night' | 'morning' | 'afternoon' | 'evening';
  * has six hours, and a select of six exact hours reads as a list of the
  * flights rather than as a filter. Only the bands that hold a flight are ever
  * offered.
+ *
+ * Labelled by the hours alone since 12.255, where it used to read `Afternoon
+ * 12–17`. Fifteen monospace characters made this the widest control on the
+ * filter row and the reason the row could not hold every filter at once; five
+ * characters fit, and they are the half that cannot be misread — a reader who
+ * picks "Morning" has to guess whether 11:30 is in it, and one who picks
+ * `06–11` does not. The field above them already says `Departs`, so the word
+ * was carrying no meaning the control had not already stated.
  */
 export const TIME_BANDS: { value: TimeBand; label: string; from: number; to: number }[] = [
-  { value: 'night', label: 'Night 00–05', from: 0, to: 5 },
-  { value: 'morning', label: 'Morning 06–11', from: 6, to: 11 },
-  { value: 'afternoon', label: 'Afternoon 12–17', from: 12, to: 17 },
-  { value: 'evening', label: 'Evening 18–23', from: 18, to: 23 },
+  { value: 'night', label: '00–05', from: 0, to: 5 },
+  { value: 'morning', label: '06–11', from: 6, to: 11 },
+  { value: 'afternoon', label: '12–17', from: 12, to: 17 },
+  { value: 'evening', label: '18–23', from: 18, to: 23 },
 ];
 
 export type Filters = {
@@ -366,6 +425,42 @@ export function durationLabel(minutes: number): string {
   return `Up to ${formatDuration(minutes)}`;
 }
 
+/**
+ * How many characters of a carrier's name the filter row can afford.
+ *
+ * A `<select>` is as wide as its widest option, so one long name sets the
+ * width of the whole control whether or not anybody ever picks it — and this
+ * one was setting 251px of a row with 1099 to spend. `Aerolineas Argentinas`
+ * is 21 characters and carries **19 of the 1275 offers in the archive**, so
+ * the bar was being laid out around the carrier least likely to be looked for.
+ *
+ * Eight, because that is `JetSMART` exactly: the longest carrier name in this
+ * archive that the row can afford whole. It leaves LATAM, Avianca and JetSMART
+ * — 1256 of those 1275 offers — untouched, and cuts precisely one name.
+ */
+export const AIRLINE_LABEL_MAX = 8;
+
+/**
+ * A carrier's name, cut to the room the filter row has for it.
+ *
+ * A real ellipsis rather than a silent clip. `max-width` on the `<select>` was
+ * tried first and rejected on measurement: Chrome ignores `text-overflow` on
+ * the closed control and simply cuts the glyphs off, so the name read
+ * `Aerolineas Argenti` with nothing to say it had been shortened — which is a
+ * name a reader has no reason to doubt. The `…` is that reason.
+ *
+ * A prefix can collide where two carriers share an opening: `American
+ * Airlines` and `American Eagle` would both read `America…`. That is why the
+ * full name travels on the option's `title`, and why it is worth remembering
+ * that every row of the table below prints its carrier in full in the Airline
+ * column. This control narrows the board; the board is still where a name is
+ * read.
+ */
+export function shortAirline(label: string, max = AIRLINE_LABEL_MAX): string {
+  if (label.length <= max) return label;
+  return `${label.slice(0, max - 1).trimEnd()}…`;
+}
+
 /* ------------------------------------------------------------ the sorting -- */
 
 export type SortColumn =
@@ -476,8 +571,6 @@ export type SummaryFacts = {
   shown: number;
   /** Flights the archive has ever seen on this route. */
   tracked: number;
-  page: number;
-  pageCount: number;
 };
 
 /**
@@ -485,12 +578,16 @@ export type SummaryFacts = {
  *
  * A table that reports "3 itineraries" reads as the whole board — decisions
  * 8.8 and 8.41 again: what was dropped travels beside what was kept, and says
- * why it was dropped. Three facts, in the order a reader needs them: which
- * stretch of watching this is, how much of it the filters took, and where in
- * the pages they are.
+ * why it was dropped. Two facts, in the order a reader needs them: which
+ * stretch of watching this is, and how much of it the filters took.
+ *
+ * Where in the pages the reader is used to be a third sentence here, and it is
+ * gone with 12.253 — the pager under the table has said `Page 1 of 2` beside
+ * its own buttons all along, and one page number is enough. It is the pager's
+ * because that is where a reader who wants a different page is looking.
  */
 export function tableSummary(facts: SummaryFacts): string {
-  const { period, inPeriod, shown, tracked, page, pageCount } = facts;
+  const { period, inPeriod, shown, tracked } = facts;
   const flights = `${inPeriod} flight${inPeriod === 1 ? '' : 's'}`;
   const window = period === null ? '' : ` seen ${windowLabel(period)}`;
   const archive = tracked > inPeriod ? `, of ${tracked} ever observed on this route` : '';
@@ -499,6 +596,5 @@ export function tableSummary(facts: SummaryFacts): string {
   if (shown < inPeriod) {
     sentences.push(`${shown} shown, ${inPeriod - shown} hidden by filters.`);
   }
-  sentences.push(`Page ${page} of ${pageCount}.`);
   return sentences.join(' ');
 }

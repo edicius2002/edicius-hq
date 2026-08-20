@@ -385,13 +385,19 @@ export function AirfarePage() {
         period with the chart's last bucket — a table of the whole archive
         under a chart of one day would be two answers to one question.
       */}
+      {/*
+        The heading is the table's own, and it is the only panel here where it
+        is — 12.257. The owner wants it on the filter row rather than above it,
+        and a heading in this file cannot share a line with controls rendered
+        in another. All that crosses the boundary is the departure the reader
+        picked, already formatted: `FlightTable` writes the words.
+      */}
       <Panel>
-        <h2 className={styles.panelTitle}>
-          {selected
-            ? `Flights seen departing ${selected.focusDate ? 'on' : 'in'} ${formatReading(selected)}`
-            : 'Flights seen on this route'}
-        </h2>
-        <FlightTable snapshots={snapshots} granularity={granularity} />
+        <FlightTable
+          snapshots={snapshots}
+          granularity={granularity}
+          departure={selected ? formatReading(selected) : null}
+        />
       </Panel>
     </section>
   );

@@ -425,6 +425,42 @@ export function durationLabel(minutes: number): string {
   return `Up to ${formatDuration(minutes)}`;
 }
 
+/**
+ * How many characters of a carrier's name the filter row can afford.
+ *
+ * A `<select>` is as wide as its widest option, so one long name sets the
+ * width of the whole control whether or not anybody ever picks it — and this
+ * one was setting 251px of a row with 1099 to spend. `Aerolineas Argentinas`
+ * is 21 characters and carries **19 of the 1275 offers in the archive**, so
+ * the bar was being laid out around the carrier least likely to be looked for.
+ *
+ * Eight, because that is `JetSMART` exactly: the longest carrier name in this
+ * archive that the row can afford whole. It leaves LATAM, Avianca and JetSMART
+ * — 1256 of those 1275 offers — untouched, and cuts precisely one name.
+ */
+export const AIRLINE_LABEL_MAX = 8;
+
+/**
+ * A carrier's name, cut to the room the filter row has for it.
+ *
+ * A real ellipsis rather than a silent clip. `max-width` on the `<select>` was
+ * tried first and rejected on measurement: Chrome ignores `text-overflow` on
+ * the closed control and simply cuts the glyphs off, so the name read
+ * `Aerolineas Argenti` with nothing to say it had been shortened — which is a
+ * name a reader has no reason to doubt. The `…` is that reason.
+ *
+ * A prefix can collide where two carriers share an opening: `American
+ * Airlines` and `American Eagle` would both read `America…`. That is why the
+ * full name travels on the option's `title`, and why it is worth remembering
+ * that every row of the table below prints its carrier in full in the Airline
+ * column. This control narrows the board; the board is still where a name is
+ * read.
+ */
+export function shortAirline(label: string, max = AIRLINE_LABEL_MAX): string {
+  if (label.length <= max) return label;
+  return `${label.slice(0, max - 1).trimEnd()}…`;
+}
+
 /* ------------------------------------------------------------ the sorting -- */
 
 export type SortColumn =

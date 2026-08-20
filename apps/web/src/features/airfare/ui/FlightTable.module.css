@@ -11,17 +11,29 @@
  * baseline as the text inside the controls rather than floating in the middle
  * of taller boxes beside it.
  *
- * `wrap`, and measured before being chosen. At the panel's real 1099px the
- * heading is 273px and the six controls 962, so the line is 146px short — 224
- * with the clear button showing — and it does not fit. `nowrap` here would
- * keep the heading company by shrinking `.filters` until a control fell to a
- * second line, and that is the *worse* answer: a wrapped filter row costs 66px
+ * `wrap`, and measured before being chosen. The heading is 273px and the panel
+ * gives the row 1099, so whether it is one line depends on the board, and
+ * after the airline cap of 12.256 it is one line for one of the four states
+ * this archive can be in:
+ *
+ *   ARI-SCL, one carrier, unfiltered   1085  fits, 66px tall
+ *   ARI-SCL, one carrier, filtered     1164  65 short
+ *   LIM-SCL March, unfiltered          1115  16 short
+ *   LIM-SCL March, filtered            1193  94 short
+ *
+ * The last 16px were looked for and are not there. Every control on the row
+ * carries the same `5px 10px` padding and both gaps are 10px, so there is no
+ * outlier to reclaim, and the middot's 28.2px is already 5px *tighter* than
+ * the `space · space` the rest of this page sets the same separator in —
+ * taking more would be inventing punctuation rather than finding slack.
+ *
+ * `nowrap` would close it by shrinking `.filters` until a control fell to a
+ * second line, and that is the worse answer: a wrapped filter row costs 66px
  * where the heading's own line costs 33, so forcing the issue makes the panel
  * **taller**, 137px against 104. So the bar keeps the heading on its own line
- * until there is genuinely room for both, and becomes the single row the owner
- * asked for from a 1245px panel up (1323 with the clear button). Flexbox
- * decides line breaks on hypothetical sizes before it shrinks anything, which
- * is why this reads as one property and not as a fallback.
+ * until there is genuinely room for both. Flexbox decides line breaks on
+ * hypothetical sizes before it shrinks anything, which is why this reads as
+ * one property and not as a fallback.
  */
 .head {
   display: flex;
@@ -43,8 +55,17 @@
   white-space: nowrap;
 }
 
-/* The separator the watchlist row already uses between a pair and its month,
-   so the two headings on this page punctuate the same way. */
+/*
+ * The separator the analysis panel's heading and the cheapest-fare line
+ * already use, so the headings on this page punctuate the same way.
+ *
+ * Those two write it as a literal `space · space`, which in this monospace
+ * face is 33.4px; a margin instead of spaces because the glyph is
+ * `aria-hidden` — a screen reader reading "middle dot" between a name and a
+ * date is noise — and 0.45em puts it at 28.2px, close enough to read as the
+ * same punctuation. Checked when the row came up 16px short: this is already
+ * the tighter of the two and there is nothing to reclaim here.
+ */
 .dot {
   margin: 0 0.45em;
   opacity: 0.6;

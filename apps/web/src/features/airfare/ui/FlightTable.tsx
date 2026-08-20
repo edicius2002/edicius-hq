@@ -12,6 +12,7 @@ import {
   isFiltered,
   nextSort,
   pageOf,
+  shortAirline,
   sortRows,
   stopsLabel,
   tableRows,
@@ -273,9 +274,10 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
     <div className={styles.wrap}>
       {/*
         Heading, departure and every filter on one line — 12.255, where there
-        is room for one line. At the panel's real 1099px there is not: see
-        `.head` in the stylesheet for the 146px it is short by and why forcing
-        it would make this panel taller rather than shorter.
+        is room for one line. At the panel's real 1099px a one-carrier board
+        has it and a four-carrier one is 16px short: see `.head` in the
+        stylesheet for the four measurements and for why forcing the rest would
+        make this panel taller rather than shorter.
 
         The heading is a sibling of the filter group rather than a member of
         it: a group labelled "Filter flights" that contained the panel's `<h2>`
@@ -335,12 +337,19 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
             <span>Airline</span>
             <select
               value={filters.airline ?? ''}
+              title={facets.airlines.find((one) => one.value === filters.airline)?.label}
               onChange={(event) => update({ airline: optional(event.target.value) })}
             >
               <option value="">Any</option>
+              {/*
+                Cut to eight characters — 12.256. `title` carries the name
+                whole, so a truncated option answers a hover in the open list
+                and the closed control answers one too; the Airline column of
+                every row below is the other place it is written in full.
+              */}
               {facets.airlines.map((airline) => (
-                <option key={airline.value} value={airline.value}>
-                  {airline.label}
+                <option key={airline.value} value={airline.value} title={airline.label}>
+                  {shortAirline(airline.label)}
                 </option>
               ))}
             </select>

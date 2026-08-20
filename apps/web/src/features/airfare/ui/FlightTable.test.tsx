@@ -193,6 +193,41 @@ describe('FlightTable', () => {
     expect(options).toEqual(['Any', 'Avianca', 'LATAM']);
   });
 
+  it('cuts a carrier name too long for the row, and keeps the whole one within reach', async () => {
+    /*
+     * 12.256. A select is as wide as its widest option, so `Aerolineas
+     * Argentinas` — 19 of the archive's 1275 offers — was setting 251px of a
+     * row with 1099 to spend. The cut is marked, because a silently clipped
+     * name is one the reader has no reason to doubt, and the whole name is
+     * still on the option and in the row the flight is on.
+     */
+    const long = {
+      ...SNAPSHOT,
+      offers: [
+        SNAPSHOT.offers[0],
+        {
+          ...SNAPSHOT.offers[1],
+          airline: 'AR',
+          airlineName: 'Aerolineas Argentinas',
+          flightNumber: '1365',
+        },
+      ],
+    };
+    render(<FlightTable snapshots={[long]} granularity="day" departure="09/03/2027" />);
+
+    const select = screen.getByLabelText('Airline');
+    const cut = within(select).getByRole('option', { name: 'Aerolin…' });
+    expect(cut).toHaveAttribute('title', 'Aerolineas Argentinas');
+
+    // The table beneath still writes it out in full.
+    const row = bodyRows().find((one) => within(one).queryByText('AR 1365'))!;
+    expect(within(row).getByText('Aerolineas Argentinas')).toBeInTheDocument();
+
+    // And the closed control names the carrier in full once one is chosen.
+    await userEvent.selectOptions(select, 'AR');
+    expect(select).toHaveAttribute('title', 'Aerolineas Argentinas');
+  });
+
   it('says how many rows a filter took away, rather than reporting the rest as the board', async () => {
     render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
 

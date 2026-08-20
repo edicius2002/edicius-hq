@@ -11,6 +11,7 @@ import {
   nextSort,
   observationWindow,
   pageOf,
+  shortAirline,
   sortRows,
   tableRows,
   tableSummary,
@@ -363,6 +364,32 @@ describe('filterRows', () => {
     expect(picked('gone')).toEqual(['700']);
     expect(picked('fell')).toEqual([]);
     expect(mixed).toHaveLength(4);
+  });
+});
+
+describe('shortAirline', () => {
+  it('leaves every carrier this archive holds alone but the one that will not fit', () => {
+    // 12.256. Eight characters is `JetSMART` exactly, and LATAM, Avianca and
+    // JetSMART carry 1256 of the archive's 1275 offers between them.
+    expect(shortAirline('LATAM')).toBe('LATAM');
+    expect(shortAirline('Avianca')).toBe('Avianca');
+    expect(shortAirline('JetSMART')).toBe('JetSMART');
+    expect(shortAirline('Aerolineas Argentinas')).toBe('Aerolin…');
+  });
+
+  it('says it has cut a name rather than cutting it silently', () => {
+    // A `max-width` on the select clips the glyphs and says nothing, which
+    // leaves a shortened name looking like the carrier's actual name. The cut
+    // is one character and the mark for it is the other.
+    const cut = shortAirline('Aerolineas Argentinas');
+    expect(cut).toHaveLength(8);
+    expect(cut.endsWith('…')).toBe(true);
+  });
+
+  it('does not leave a space stranded in front of the ellipsis', () => {
+    expect(shortAirline('Air Canada')).toBe('Air Can…');
+    expect(shortAirline('Sky Airline')).toBe('Sky Air…');
+    expect(shortAirline('Air Europa', 5)).toBe('Air…');
   });
 });
 

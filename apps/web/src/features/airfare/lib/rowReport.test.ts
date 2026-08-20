@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
-import { describeCollection, describeRefusal } from '@/features/airfare/lib/rowReport';
-import type { CollectResponse, CollectRouteResult } from '@/shared/api/fares';
+import {
+  describeCollection,
+  describeHorizon,
+  describeRefusal,
+} from '@/features/airfare/lib/rowReport';
+import type {
+  CalendarCollectResponse,
+  CollectResponse,
+  CollectRouteResult,
+} from '@/shared/api/fares';
 
 const LIM_CUZ: FareRoute = {
   origin: 'LIM',
@@ -215,5 +223,47 @@ describe('what a row says after its own collection', () => {
     const line = describeRefusal('Request failed with status 502');
     expect(line.ok).toBe(false);
     expect(line.text).toBe('The call failed: Request failed with status 502');
+  });
+});
+
+describe('the horizon collection an added route fires', () => {
+  function horizon(overrides: Partial<CalendarCollectResponse> = {}): CalendarCollectResponse {
+    return {
+      state: 'finished',
+      startedAt: '2026-08-19T15:49:00+00:00',
+      finishedAt: '2026-08-19T15:49:04+00:00',
+      source: 'google-flights',
+      watching: ['LIM-CUZ'],
+      completed: 1,
+      collected: 1,
+      changed: 1,
+      failed: 0,
+      results: [],
+      skipped: [],
+      error: null,
+      ...overrides,
+    };
+  }
+
+  it('reads a pass that fell over as the pass falling over, not as a refused route', () => {
+    // Two different facts. A route the provider refused travels in `results`
+    // with its own reason; a pass that fell over never got that far.
+    const line = describeHorizon(
+      LIM_CUZ,
+      horizon({ state: 'failed', error: 'RuntimeError: boom' }),
+    );
+    expect(line.ok).toBe(false);
+    expect(line.text).toBe(
+      'The booking horizon pass failed: RuntimeError: boom. The route is watched either way.',
+    );
+  });
+
+  it('says a pass that mentioned neither the route nor a reason said nothing', () => {
+    // 8.8 again: a control that appears to do nothing is indistinguishable from
+    // a broken one, so even the shape that should not arise gets a sentence.
+    const line = describeHorizon(LIM_CUZ, horizon());
+    expect(line.ok).toBe(false);
+    expect(line.text).toContain('without a word about this route');
+    expect(line.text).toContain('It is watched all the same');
   });
 });

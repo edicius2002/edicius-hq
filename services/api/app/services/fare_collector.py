@@ -432,6 +432,14 @@ class CalendarReport:
     def failed(self) -> int:
         return sum(1 for result in self.results if not result.ok)
 
+    # How many curves this pass actually wrote. Spelled out here rather than
+    # summed at each reader, the same as `CollectionReport.changed`, because
+    # there are now two readers — the log line below and the endpoint — and a
+    # figure counted twice is a figure that can disagree with itself.
+    @property
+    def changed(self) -> int:
+        return sum(1 for result in self.results if result.changed)
+
     @property
     def requests(self) -> int:
         return sum(result.requests for result in self.results)
@@ -532,7 +540,7 @@ async def collect_calendars(
         "fare calendar pass finished: %d route(s) in %d request(s), %d changed, %d failed",
         report.collected,
         report.requests,
-        sum(1 for result in report.results if result.changed),
+        report.changed,
         report.failed,
     )
     return report

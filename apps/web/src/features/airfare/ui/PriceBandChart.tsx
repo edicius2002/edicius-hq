@@ -102,15 +102,21 @@ type PriceBandChartProps = {
 };
 
 /**
- * Where the crosshair is: which period, and how high up the pointer was.
+ * Where the crosshair is: which period, and nothing else — 12.245.
  *
- * `y` is null for a keyboard reader, who has no pointer height to speak of and
- * gets the period's own median instead. Keeping it null rather than
- * pre-resolving it to a number matters because the median is only known once
- * the geometry exists, and the geometry is rebuilt whenever the data changes
- * under a crosshair that is already up.
+ * **The pointer's height used to be part of this and is not any more.** The
+ * price plate followed the hand up and down the plot, so it printed, in the
+ * app's money format, on the one visual element on this chart that looks like a
+ * quoted fare, a number nobody was ever quoted — an audit flagged it and it was
+ * the reading a mouse gave by default. The plate is a readout of the series
+ * now: it snaps to what the route actually cost on the date under the vertical
+ * hairline, so walking across the chart reads out each day's own price.
+ *
+ * An index and not a key, because the geometry is rebuilt whenever the data
+ * changes and an index that no longer points at a period resolves to nothing —
+ * which is the honest outcome, the period it was on is gone.
  */
-type Cursor = { index: number; y: number | null };
+type Cursor = number;
 
 /** A shared empty list, so a chart handed no unsold periods does not rebuild its geometry every render. */
 const EMPTY_UNSOLD: UnsoldPeriod[] = [];
@@ -205,14 +211,6 @@ export function PriceBandChart({
       (to === from ? inner.width / 2 : ((axis.position(key) - from) / (to - from)) * inner.width);
     const y = (value: number) =>
       VIEW.pad.top + (1 - (value - low) / (high - low || 1)) * inner.height;
-    // The inverse of `y`, for the price the pointer itself is at rather than
-    // the price of anything drawn. Clamped, so a pointer in the axis margin
-    // reports the end of the band instead of a fare outside the chart.
-    const priceAt = (position: number) => {
-      const ratio = 1 - (position - VIEW.pad.top) / (inner.height || 1);
-      return low + Math.min(Math.max(ratio, 0), 1) * (high - low);
-    };
-
     /*
      * A path per run of neighbouring buckets, never one path across the lot.
      *
@@ -289,7 +287,6 @@ export function PriceBandChart({
     return {
       x,
       y,
-      priceAt,
       low,
       high,
       keys,
@@ -314,9 +311,7 @@ export function PriceBandChart({
    * which is the honest outcome — the period it was on no longer exists.
    */
   const active =
-    geometry && cursor !== null && cursor.index >= 0 && cursor.index < geometry.keys.length
-      ? cursor.index
-      : null;
+    geometry && cursor !== null && cursor >= 0 && cursor < geometry.keys.length ? cursor : null;
   const reading =
     geometry && active !== null
       ? readingAt(geometry.keys[active], ours, baseline, axis, unsold)
@@ -344,23 +339,27 @@ export function PriceBandChart({
 
   const hairX = active === null ? 0 : geometry.positions[active];
   /*
-   * A keyboard reader has no pointer height, so the horizontal hairline sits on
-   * the period's own median — the number the solid line is drawn at.
+   * The horizontal hairline sits on the period's own median — the number the
+   * solid line is drawn at — for the pointer and the keyboard alike, 12.245.
    *
-   * Null where there is no such number — 12.234. The fallback used to be the
-   * middle of the padded domain, which meant that arrowing onto a period with
-   * no figure printed the halfway point of an invented range as currency, on a
-   * plate, at a height chosen by the padding term. The readout beside it said
-   * `—` and the live region said so in words, and the plate contradicted both.
-   * Nothing is drawn now: no horizontal hair, no price plate. Under a *pointer*
-   * both stay, because there the hairline is a ruler the reader is holding at a
-   * height of their own choosing rather than a claim about the period.
+   * It used to sit wherever the pointer was, and the plate beside it printed
+   * that height as money. That made the plate a ruler: a reader sweeping across
+   * the chart at a constant height read the same invented fare on every day of
+   * the series, in the same format as the fares that were quoted. Snapping it to
+   * the series is what turns the two hairlines from a measuring instrument into
+   * a readout — move along the chart and the plate says what each day actually
+   * cost.
+   *
+   * Null where the period has no figure of ours — 12.234, and now the rule
+   * under a pointer too. The old fallback was the middle of the padded domain,
+   * which printed the halfway point of an invented range as currency; the
+   * pointer's own height is no better a source for it. Nothing is drawn: no
+   * horizontal hair, no price plate. The provider's baseline for that period is
+   * still named in the readout and in the live region, where it can be labelled
+   * as the provider's rather than mistaken for ours.
    */
-  const hairY =
-    reading === null
-      ? null
-      : (cursor?.y ?? (reading.ours ? geometry.y(reading.ours.middle) : null));
-  const hairPrice = hairY === null ? null : geometry.priceAt(hairY);
+  const hairPrice = reading?.ours ? reading.ours.middle : null;
+  const hairY = hairPrice === null ? null : geometry.y(hairPrice);
   const priceTagY = hairY === null ? 0 : clampToTrack(hairY, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
   const priceTag = priceAxisTag(
     VIEW.pad.left - PRICE_GAP,
@@ -376,12 +375,14 @@ export function PriceBandChart({
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
+    if (box.width === 0) return;
+    // Only the horizontal position is read. The pointer's height no longer
+    // decides anything on this chart — 12.245 — so measuring it would be
+    // measuring something nothing uses.
     const x = ((event.clientX - box.left) / box.width) * VIEW.width;
-    const y = ((event.clientY - box.top) / box.height) * VIEW.height;
     const index = nearestBucket(geometry.positions, x);
     if (index === null) return;
-    setCursor({ index, y });
+    setCursor(index);
   };
 
   const step = (event: KeyboardEvent<SVGSVGElement>) => {
@@ -393,10 +394,7 @@ export function PriceBandChart({
     // Arriving from nothing, the first press lands on the end the reader is
     // moving away from: right starts at the oldest period, left at the newest.
     const from = active ?? (forward ? -1 : geometry.keys.length);
-    setCursor({
-      index: Math.min(Math.max(from + (forward ? 1 : -1), 0), geometry.keys.length - 1),
-      y: null,
-    });
+    setCursor(Math.min(Math.max(from + (forward ? 1 : -1), 0), geometry.keys.length - 1));
   };
 
   return (

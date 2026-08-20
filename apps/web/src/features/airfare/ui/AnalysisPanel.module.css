@@ -20,10 +20,11 @@
  * with a gap and not a second element in `.head` — that one already pushes its
  * children to opposite edges, and the set belongs together.
  *
- * There are two or three of them depending on the chart: the middle one is the
- * open chart's own — how to read chart A's axis, how far out chart B stands —
- * and it is absent rather than inert when the chart it belongs to is not the
- * one on screen.
+ * There are exactly two of them and there always are. The middle one — how to
+ * read chart A's axis, how far out chart B stood — is gone with the modes it
+ * switched between, and the one that remains is never absent, because a switch
+ * that came and went with the open chart would move the head every time the
+ * reader changed question.
  */
 .switches {
   display: flex;
@@ -64,27 +65,50 @@
 }
 
 /*
+ * Chart B's name, with every name it can wear stacked in one cell.
+ *
+ * The grid is the mechanism rather than a layout preference: all four names
+ * occupy `1 / 1`, so the cell is as wide and as tall as the widest and tallest
+ * of them and the button cannot change size when the name inside it does. A
+ * `min-width` in pixels would be the same intention as a guess, and would be
+ * wrong the first time somebody changes the type scale.
+ */
+.names {
+  display: grid;
+  place-items: center;
+}
+
+.nameLive,
+.nameGhost {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+/*
+ * `visibility` and not `display: none`: a hidden element still takes its space,
+ * which is the entire point — it is what holds the button open at its widest
+ * name while a shorter one is showing.
+ */
+.nameGhost {
+  visibility: hidden;
+}
+
+/*
  * What the reader is looking at, in one sentence under the switches.
  *
- * The two charts are drawn on different clocks and chart A can be read two
- * ways, while the axis labels are short by necessity — `194d ahead` has to fit
- * seven times across 620 units. A line that names the clock in full is what
- * keeps a short label from being the only thing standing between a lead time
- * and a date.
+ * The two charts are drawn on different clocks, and chart B is drawn on two at
+ * once when a period straddles the end of the watched month. A line that names
+ * the clock in full is what keeps a short axis label from being the only thing
+ * standing between a departure hour and a departure date.
+ *
+ * A fixed height, because that sentence is a different length on each of the
+ * four frames chart B can draw. Three lines is what the longest of them takes
+ * at the narrow end of this panel; without the floor, stepping a week out of
+ * the watched month would shove the chart up the page mid-comparison.
  */
 .what {
   margin: 0 0 var(--space-3);
   color: var(--color-muted);
   font-size: 0.82rem;
-}
-
-/*
- * The second sentence, where there is one: why a control the reader might look
- * for is not on offer. Lighter than the line it follows because it is an
- * explanation rather than the statement of what is drawn — but still on the
- * page, since a control that vanishes without a word reads as a route that
- * lost something.
- */
-.aside {
-  opacity: 0.78;
+  min-height: 3.9em;
 }

@@ -1,4 +1,9 @@
-import { bucketKey, periodBounds, type Granularity } from '@/features/airfare/lib/buckets';
+import {
+  bucketKey,
+  contiguousRuns,
+  periodBounds,
+  type Granularity,
+} from '@/features/airfare/lib/buckets';
 import { flightKey } from '@/features/airfare/lib/flights';
 import { stopsLabel } from '@/features/airfare/lib/flightTable';
 import { formatDuration, formatStamp, latestPerDeparture } from '@/features/airfare/lib/series';
@@ -109,14 +114,64 @@ export type ScatterWindow = {
   spanMinutes: number;
 };
 
-export function scatterWindow(key: string, granularity: Granularity): ScatterWindow {
+/**
+ * The stretch of departure dates the route is a watch on — its own month, or
+ * the one day inside it the reader focused.
+ *
+ * Both ends are `YYYY-MM-DD`, and both are inclusive.
+ */
+export type WatchedRange = { from: string; to: string };
+
+/**
+ * The window a period covers, clipped to what the route is actually a watch on
+ * — 12.235.
+ *
+ * **A calendar period is not a claim this chart is entitled to make in full.**
+ * March 2027's last ISO week runs 29 March to 4 April, so at Week granularity
+ * the month zoom was drawing ticks and day separators for the 1st to the 4th of
+ * April and captioning itself "between 29/03/2027 and 04/04/2027" under a
+ * heading that read "departing in March 2027". No dots were ever placed there —
+ * nothing was collected about April and nothing could be — but the frame
+ * asserted four departure dates the watch has never had anything to do with,
+ * which is the same fault as a line across a hole drawn in axis furniture
+ * instead of in a path.
+ *
+ * The clip is the *watched* range rather than the days that happen to carry
+ * flights, and that distinction is 12.232's: a day inside the month whose board
+ * came back empty is a day this chart must still draw and mark, not one it may
+ * quietly crop away. A period entirely outside the watch keeps its own bounds
+ * rather than collapsing to nothing — that would be a chart with no width, and
+ * `activeKey` only ever hands over a period a departure day fell in anyway.
+ */
+export function scatterWindow(
+  key: string,
+  granularity: Granularity,
+  watched?: WatchedRange | null,
+): ScatterWindow {
   const bounds = periodBounds(key, granularity);
-  const days = (dayOffset(bounds.from.slice(0, 10), bounds.to.slice(0, 10)) ?? 0) + 1;
+  let from = bounds.from;
+  let to = bounds.to;
+
+  if (watched) {
+    // String comparison on fixed-width dates, never `Date.parse` — the rule
+    // `minutesInto` states, and for the same reason: a parsed date is midnight
+    // UTC and is the previous day for this app's default reader in Lima.
+    // The clocks come off `periodBounds`' own strings rather than being spelled
+    // again here, so a window still starts and ends where a period does.
+    const start = from.slice(0, 10) < watched.from ? `${watched.from}${from.slice(10)}` : from;
+    const end = to.slice(0, 10) > watched.to ? `${watched.to}${to.slice(10)}` : to;
+    if (start.slice(0, 10) <= end.slice(0, 10)) {
+      from = start;
+      to = end;
+    }
+  }
+
+  const days = (dayOffset(from.slice(0, 10), to.slice(0, 10)) ?? 0) + 1;
   return {
     key,
     granularity,
-    from: bounds.from,
-    to: bounds.to,
+    from,
+    to,
     days: Math.max(1, days),
     spanMinutes: Math.max(1, days) * MINUTES_PER_DAY,
   };
@@ -395,13 +450,41 @@ export function placePoints(
   }));
 }
 
+/** Every calendar date the window covers, in order — the axis a run is measured against. */
+export function windowDays(window: ScatterWindow): string[] {
+  const start = window.from.slice(0, 10);
+  const days: string[] = [];
+  for (let index = 0; index < window.days; index += 1) {
+    const day = dayPlus(start, index);
+    if (day !== null) days.push(day);
+  }
+  return days;
+}
+
 /**
- * The `d` of the dashed line through the cheapest flight of each day.
+ * The `d` of the dashed line through the cheapest flight of each day, broken
+ * wherever a day has no cheapest flight — 12.230.
  *
- * Empty for fewer than two days, which is the day view: a path with one node
- * draws nothing at all, and a chart that silently drew nothing would read as a
- * bug. The component marks every cheapest-of-day flight with a ring instead, so
- * the day view still says which flight it is.
+ * **This line was the page's one true synthesised continuity.** It emitted a
+ * single `M…L…L…` through whatever days happened to carry a dot, so a week
+ * collected on the Monday and the following Sunday drew as a straight run from
+ * one to the other: five departure days nobody has ever priced, rendered as a
+ * fare gliding evenly between two that were. A reader has no way to see that,
+ * because a dashed line across a gap looks exactly like a dashed line across a
+ * step. The sibling chart had already refused the same claim and the fix is its
+ * answer rather than a second one — `contiguousRuns`, widened in 12.230 to
+ * split any keyed series, over an axis of every date the window covers.
+ *
+ * Both reasons a day can be empty break the line and neither is guessed at
+ * here: a day the collector never reached and a day whose board came back with
+ * nothing on it are both days with no cheapest flight, and drawing through
+ * either quotes a fare that was never quoted. Which of the two it was is
+ * `absentDays`' business, and it is said on the rail under the plot.
+ *
+ * A run of one node still draws nothing — a path with one point has no line in
+ * it — and neither does the day view, for the reason it never did. The
+ * component rings every cheapest-of-day flight, so a stranded day is still
+ * marked.
  */
 export function cheapestPath(
   points: ScatterPoint[],
@@ -411,12 +494,64 @@ export function cheapestPath(
 ): string {
   const line = cheapestPerDay(points);
   if (line.length < 2) return '';
-  return line
-    .map(
-      (point, index) =>
-        `${index === 0 ? 'M' : 'L'}${xOf(point.offset, window, plot).toFixed(1)},${yOf(point.price, span, plot).toFixed(1)}`,
+  // Keyed by the departure day rather than by `flightKey`: what makes two nodes
+  // of this line neighbours is that their days are, not that the itineraries
+  // are related.
+  const nodes = line.map((point) => ({ key: point.day, point }));
+  return contiguousRuns(windowDays(window), nodes)
+    .filter((run) => run.length > 1)
+    .map((run) =>
+      run
+        .map(
+          ({ point }, index) =>
+            `${index === 0 ? 'M' : 'L'}${xOf(point.offset, window, plot).toFixed(1)},${yOf(point.price, span, plot).toFixed(1)}`,
+        )
+        .join(''),
     )
     .join('');
+}
+
+/**
+ * A departure date inside the window with no flight on it, and which kind of
+ * nothing it is — 12.232.
+ *
+ * The distinction is 12.154's, carried onto this chart: a date the collector
+ * asked about and got an empty board back for is a fact about the route, and a
+ * date it never reached is a fact about us. Both look like blank canvas
+ * otherwise, and blank canvas beside a broken line is exactly the question the
+ * reader will have.
+ *
+ * "Answered" is having a snapshot for that departure date at all, which is what
+ * the archive can actually say. A board that came back full of itineraries with
+ * no departure clock would be counted as answered too — those are dropped from
+ * the cloud because there is no honest x for them, and it is still true that we
+ * asked.
+ */
+export type AbsentDay = {
+  day: string;
+  /** Minutes from the start of the window — midnight of the day, for placing the mark. */
+  offset: number;
+  /** True where the provider answered and had nothing to sell. */
+  answered: boolean;
+};
+
+export function absentDays(snapshots: FareSnapshot[], window: ScatterWindow): AbsentDay[] {
+  const asked = new Set(snapshots.map((snapshot) => snapshot.flightDate));
+  const flown = new Set(flightPoints(snapshots, window).map((point) => point.day));
+  const marks: AbsentDay[] = [];
+  for (const day of windowDays(window)) {
+    if (flown.has(day)) continue;
+    const index = dayOffset(window.from.slice(0, 10), day);
+    if (index === null) continue;
+    marks.push({
+      day,
+      // The middle of the day rather than its midnight, so the mark sits under
+      // the column it is about instead of on the separator between two of them.
+      offset: index * MINUTES_PER_DAY + MINUTES_PER_DAY / 2,
+      answered: asked.has(day),
+    });
+  }
+  return marks;
 }
 
 /**

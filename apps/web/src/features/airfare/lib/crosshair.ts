@@ -1,4 +1,4 @@
-import type { Bucket, BucketAxis } from '@/features/airfare/lib/buckets';
+import type { Bucket, BucketAxis, UnsoldPeriod } from '@/features/airfare/lib/buckets';
 import { NO_VALUE, formatMoney } from '@/shared/lib/money';
 
 /**
@@ -48,6 +48,12 @@ export type CrosshairReading = {
   ours: { low: number; high: number; middle: number; count: number } | null;
   /** The provider's daily baseline for this period, when it reaches this far back. */
   baseline: number | null;
+  /**
+   * Boards we asked for in this period that came back with nothing on sale —
+   * 12.232. Zero on a period where every look found something, which is the
+   * ordinary case and reads as no clause at all.
+   */
+  unsold: number;
 };
 
 /**
@@ -72,20 +78,27 @@ export function readingAt(
   ours: Bucket[],
   baseline: Bucket[],
   axis: BucketAxis,
+  unsold: UnsoldPeriod[] = [],
 ): CrosshairReading | null {
   const mine = ours.find((bucket) => bucket.key === key) ?? null;
   const theirs = baseline.find((bucket) => bucket.key === key) ?? null;
-  if (mine === null && theirs === null) return null;
+  // A period whose only content is empty boards is still a period the reader
+  // can land on — 12.232. It is on the axis because we looked, and a crosshair
+  // that vanished over its own mark would be the chart declining to say what
+  // the mark meant.
+  const none = unsold.find((period) => period.key === key) ?? null;
+  if (mine === null && theirs === null && none === null) return null;
 
   return {
     key,
-    label: mine?.label ?? theirs?.label ?? key,
+    label: mine?.label ?? theirs?.label ?? none?.label ?? key,
     period: axis.spell(key),
     ours:
       mine === null
         ? null
         : { low: mine.low, high: mine.high, middle: mine.middle, count: mine.count },
     baseline: theirs?.middle ?? null,
+    unsold: none?.count ?? 0,
   };
 }
 
@@ -102,12 +115,30 @@ export function readingSentence(reading: CrosshairReading, currency: string): st
   const parts = [`${reading.label}, ${reading.period}`];
 
   if (reading.ours === null) {
-    parts.push('nothing of our own observed');
+    /*
+     * Two different sentences, because they are two different facts — 12.232.
+     * "Nothing of our own observed" is a statement about the collector; a board
+     * that came back empty is a statement about the route, and telling a reader
+     * the first when the second is true has them believing nobody has looked at
+     * a day the provider has already said it has nothing to sell on.
+     */
+    parts.push(
+      reading.unsold > 0
+        ? `nothing on sale — ${reading.unsold} board${reading.unsold === 1 ? '' : 's'} came back empty`
+        : 'nothing of our own observed',
+    );
   } else {
     const { low, high, middle, count } = reading.ours;
     parts.push(
       `${formatMoney(low, currency)} to ${formatMoney(high, currency)}, median ${formatMoney(middle, currency)}, across ${count} observation${count === 1 ? '' : 's'}`,
     );
+    // A period can hold both — some looks found a board and some found none —
+    // and the second half is not implied by the first.
+    if (reading.unsold > 0) {
+      parts.push(
+        `${reading.unsold} further board${reading.unsold === 1 ? '' : 's'} came back with nothing on sale`,
+      );
+    }
   }
 
   parts.push(

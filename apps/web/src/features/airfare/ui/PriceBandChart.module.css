@@ -211,3 +211,45 @@
   border-top: 2px dashed var(--color-muted);
   opacity: 0.7;
 }
+
+/*
+ * The plot floor and the rail under it — 12.232, and the same pair the horizon
+ * chart draws. Solid where the grid lines are faint, because the marks hang
+ * beneath it and a rail with no rail is a row of loose dots nobody can tell
+ * from a very cheap fare.
+ */
+.floor {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.hole {
+  pointer-events: none;
+}
+
+/*
+ * Filled, matching the horizon chart's "answered, and there was nothing to
+ * sell". The hollow ring that chart pairs it with has no counterpart here:
+ * nothing in this archive records a period we meant to observe and did not, so
+ * the only absence this chart can mark is the one it can prove.
+ */
+.unsold {
+  fill: var(--color-muted);
+}
+
+.absence {
+  color: var(--color-muted);
+}
+
+.keyUnsold i {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  background: var(--color-muted);
+}
+
+/* A stretch of nothing, drawn as a stretch of nothing. */
+.keyGap i {
+  height: 0;
+  border-top: 1px dotted var(--color-border);
+}

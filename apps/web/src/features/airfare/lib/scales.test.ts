@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   linePath,
   priceBand,
+  niceTicks,
   priceTicks,
   xAt,
   yAt,
@@ -74,6 +75,47 @@ describe('priceTicks', () => {
   it('spans the band inclusively', () => {
     const ticks = priceTicks({ min: 100, max: 200 }, 3);
     expect(ticks).toEqual([100, 150, 200]);
+  });
+});
+
+describe('niceTicks', () => {
+  it('labels the real horizon at round numbers instead of at the padding term', () => {
+    /*
+     * The measured case, and the reason this function exists. The booking
+     * horizon on the owner's ARI–SCL watch runs $41.24 to $196.33; the chart
+     * pads that by 18.61 either side so the extremes are not drawn on the
+     * frame, and the three labels it printed were the padded ends and their
+     * midpoint — $22.63, $118.79, $214.94. Not one of them is a fare anybody
+     * was quoted, and all three were set in the same money format as the fares
+     * that were.
+     */
+    const ticks = niceTicks(41.24 - 18.61, 196.33 + 18.61);
+    expect(ticks).toEqual([50, 100, 150, 200]);
+    expect(ticks.every((tick) => tick % 50 === 0)).toBe(true);
+  });
+
+  it('keeps every tick inside the range it is given', () => {
+    for (const tick of niceTicks(117.4, 348.9)) {
+      expect(tick).toBeGreaterThanOrEqual(117.4);
+      expect(tick).toBeLessThanOrEqual(348.9);
+    }
+  });
+
+  it('scales the step to the series rather than to the decimal system', () => {
+    // A band of 612 to 748 wants ticks at its own scale, not at 0, 500, 1000 —
+    // two of which are off the chart. `priceTicks` above states the same rule.
+    expect(niceTicks(612, 748)).toEqual([625, 650, 675, 700, 725]);
+    expect(niceTicks(0.94, 1.42)).toEqual([1, 1.2, 1.4]);
+  });
+
+  it('does not drift off its own step through floating point', () => {
+    expect(niceTicks(0.05, 0.55)).toEqual([0.1, 0.2, 0.3, 0.4, 0.5]);
+  });
+
+  it('has nothing to draw for a range with no width', () => {
+    expect(niceTicks(120, 120)).toEqual([]);
+    expect(niceTicks(200, 100)).toEqual([]);
+    expect(niceTicks(Number.NaN, 100)).toEqual([]);
   });
 });
 

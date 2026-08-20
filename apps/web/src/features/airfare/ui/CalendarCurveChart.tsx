@@ -26,6 +26,7 @@ import {
   timeAxisTag,
   type TagAnchor,
 } from '@/features/airfare/lib/crosshair';
+import { niceTicks } from '@/features/airfare/lib/scales';
 import { NO_VALUE, formatMoney } from '@/shared/lib/money';
 import type { CalendarCurve } from '@/shared/api/fares';
 
@@ -83,6 +84,16 @@ type CalendarCurveChartProps = {
   label: string;
   /** True while the request is in flight, so "never collected" is not claimed early. */
   loading?: boolean;
+  /**
+   * Why the horizon could not be read, where the request itself failed — 12.237.
+   *
+   * A separate prop from `loading` because it is a separate state, and the two
+   * do not cover each other: a failed query is neither pending nor answered,
+   * and reading `curve === null` alone turned every one of them into "no
+   * booking horizon collected for this route yet". A fact about us reported as
+   * a fact about fares.
+   */
+  error?: Error | null;
 };
 
 type Cursor = { index: number; y: number | null };
@@ -137,6 +148,7 @@ export function CalendarCurveChart({
   granularity,
   label,
   loading = false,
+  error = null,
 }: CalendarCurveChartProps) {
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const help = useId();
@@ -254,7 +266,15 @@ export function CalendarCurveChart({
       /** Every priced period gets a dot only where there is room for one. */
       dotted: spacing >= DOT_MIN_SPACING,
       lonely,
-      ticks: [low, (low + high) / 2, high],
+      /*
+       * Round numbers inside the padded band, never the padded band's own ends
+       * — 12.233. This chart is where the arithmetic was checked: the real
+       * horizon runs $41.24 to $196.33, the padding term is 18.61, and the
+       * three labels it printed were $22.63, $118.79 and $214.94. Not one of
+       * them is a fare anybody was quoted, and all three were set in the same
+       * money format as the fares that were. `niceTicks` states the argument.
+       */
+      ticks: niceTicks(low, high),
     };
     // `keys` and `priced` are both derived from `periods` and change with it,
     // so naming them is redundant rather than load-bearing — but a dependency
@@ -281,10 +301,23 @@ export function CalendarCurveChart({
    * component many times a second and none of those rebuilds change what is
    * drawn underneath the crosshair — only the crosshair itself moves.
    */
+  /*
+   * A mark for every period carrying an absence, not only for the ones carrying
+   * nothing else — 12.236.
+   *
+   * At `day` the two are the same set: a period is one departure date, and it
+   * is either priced or it is a hole. At `week` and `month` they are not, and
+   * that is where the fault was. A week of seven departure dates of which two
+   * were never answered for drew as an ordinary connected point with a band
+   * around five days and no mark at all — the missing two vanished into the
+   * median, and the chart that exists to keep the two absences apart said
+   * nothing about either. The mark is now about the absence rather than about
+   * the emptiness, so a partly-priced period wears one too.
+   */
   const marks = useMemo(() => {
     if (!geometry) return null;
     return periods.map((period, index) =>
-      period.bucket === null ? (
+      period.unsold + period.unanswered > 0 ? (
         <HoleMark key={period.key} period={period} x={geometry.x(index)} />
       ) : null,
     );
@@ -296,6 +329,11 @@ export function CalendarCurveChart({
       const bucket = period.bucket;
       if (bucket === null) return null;
       if (!geometry.dotted && !geometry.lonely.has(index)) return null;
+      // The absence goes in the tooltip beside the price for the same reason it
+      // goes on the rail: "the median of this week is $118" is a different
+      // claim from "the median of the five days of this week we have a price
+      // for is $118", and this is where a reader asks which.
+      const absence = absenceNote(calendarReading(period));
       return (
         <g key={period.key} className={styles.point}>
           <title>
@@ -303,6 +341,7 @@ export function CalendarCurveChart({
             {bucket.count > 1
               ? ` median, ${formatMoney(bucket.low, currency)}–${formatMoney(bucket.high, currency)} across ${bucket.count} departure dates`
               : ''}
+            {absence ? ` — ${absence}` : ''}
           </title>
           <circle cx={geometry.x(index)} cy={geometry.y(bucket.middle)} r={3} />
         </g>
@@ -311,6 +350,24 @@ export function CalendarCurveChart({
   }, [geometry, periods, currency]);
 
   if (curve === null) {
+    /*
+     * Three states, not two — 12.237. The request can be in flight, it can have
+     * failed, or it can have come back saying this route has no horizon on
+     * disk. Only the third is a fact about fares, and it was the sentence all
+     * three of them printed: a `/api/fares/calendar` that returned a 500 read
+     * as "no booking horizon collected for this route yet", which tells the
+     * reader the collector has never run when what happened is that we could
+     * not ask. `role="alert"` because a request that failed while the reader
+     * was looking at the panel is news rather than description.
+     */
+    if (error !== null) {
+      return (
+        <p className={styles.empty} role="alert">
+          The booking horizon could not be read: {error.message}. That is a fault at our end and
+          says nothing about what this route costs — whatever was last collected is still on disk.
+        </p>
+      );
+    }
     return (
       <p className={styles.empty}>
         {loading
@@ -347,16 +404,33 @@ export function CalendarCurveChart({
   const datesPriced = priced.reduce((sum, bucket) => sum + bucket.count, 0);
 
   const hairX = active === null ? 0 : geometry.positions[active];
+  /*
+   * Null where a keyboard reader lands on a period with no figure — 12.234.
+   *
+   * The fallback used to be the middle of the padded domain, and the plate over
+   * it printed that as currency. So arrowing onto a departure date with nothing
+   * on sale drew `$118.79` on a tag beside a readout that said `—` and a live
+   * region that said "no fare" — a number invented twice over, once by the
+   * padding term and once by halving it, presented in the one visual element on
+   * the chart that looks like a quoted price.
+   *
+   * The plate was already `aria-hidden`, so this was never wrong for a screen
+   * reader; it was wrong for everybody else, and "the sighted reading is the
+   * broken one" is not a reason to leave it. Nothing is drawn now. Under a
+   * *pointer* both the hairline and its plate stay, because there the height is
+   * the reader's own and the plate reads as the ruler they are holding rather
+   * than as what the chart knows.
+   */
   const hairY =
     reading === null
-      ? 0
-      : (cursor?.y ??
-        (reading.band
-          ? geometry.y(reading.band.middle)
-          : VIEW.pad.top + (PLOT_BOTTOM - VIEW.pad.top) / 2));
-  const hairPrice = geometry.priceAt(hairY);
-  const priceTagY = clampToTrack(hairY, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
-  const priceTag = priceAxisTag(VIEW.pad.left - PRICE_GAP, formatMoney(hairPrice, currency));
+      ? null
+      : (cursor?.y ?? (reading.band ? geometry.y(reading.band.middle) : null));
+  const hairPrice = hairY === null ? null : geometry.priceAt(hairY);
+  const priceTagY = hairY === null ? 0 : clampToTrack(hairY, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
+  const priceTag = priceAxisTag(
+    VIEW.pad.left - PRICE_GAP,
+    hairPrice === null ? '' : formatMoney(hairPrice, currency),
+  );
   const timeTag = timeAxisTag(
     hairX,
     reading?.label ?? '',
@@ -471,13 +545,33 @@ export function CalendarCurveChart({
         {reading ? (
           <g className={styles.crosshair} aria-hidden="true" data-testid="crosshair">
             <line x1={hairX} x2={hairX} y1={VIEW.pad.top} y2={RAIL_Y + 5} className={styles.hair} />
-            <line
-              x1={VIEW.pad.left}
-              x2={VIEW.width - VIEW.pad.right}
-              y1={hairY}
-              y2={hairY}
-              className={styles.hair}
-            />
+            {hairY === null || hairPrice === null ? null : (
+              <>
+                <line
+                  x1={VIEW.pad.left}
+                  x2={VIEW.width - VIEW.pad.right}
+                  y1={hairY}
+                  y2={hairY}
+                  className={styles.hair}
+                />
+                <rect
+                  x={priceTag.x}
+                  y={priceTagY}
+                  width={priceTag.width}
+                  height={TAG.height}
+                  rx={3}
+                  className={styles.tag}
+                />
+                <text
+                  x={priceTag.textX}
+                  y={priceTagY + TAG.baseline}
+                  className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}`}
+                  data-testid="price-tag-text"
+                >
+                  {formatMoney(hairPrice, currency)}
+                </text>
+              </>
+            )}
             {reading.band ? (
               <circle
                 cx={hairX}
@@ -486,23 +580,6 @@ export function CalendarCurveChart({
                 className={styles.marker}
               />
             ) : null}
-
-            <rect
-              x={priceTag.x}
-              y={priceTagY}
-              width={priceTag.width}
-              height={TAG.height}
-              rx={3}
-              className={styles.tag}
-            />
-            <text
-              x={priceTag.textX}
-              y={priceTagY + TAG.baseline}
-              className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}`}
-              data-testid="price-tag-text"
-            >
-              {formatMoney(hairPrice, currency)}
-            </text>
 
             <rect
               x={timeTag.x}
@@ -606,7 +683,7 @@ export function CalendarCurveChart({
 }
 
 /**
- * A period holding no price, marked so the two reasons cannot be read as one.
+ * A period carrying an absence, marked so the two reasons cannot be read as one.
  *
  * A filled square is an answer — the provider was asked and had nothing to
  * sell. A hollow ring is the absence of one. That is the difference 12.154 goes
@@ -614,11 +691,18 @@ export function CalendarCurveChart({
  * would throw it away at the last step. Both sit under the plot floor rather
  * than on it, because a mark inside the plot at any height is a price.
  *
- * A week or a month can hold both kinds at once, and it draws as the ring: an
- * unanswered day is the weaker claim of the two, and a period part of which we
- * never read cannot honestly be marked "asked, and there were none". The title
- * and the crosshair's read-out carry both counts, which is where the detail
- * belongs — a glyph two units wide cannot say two things.
+ * **Drawn for a partly-priced period too, since 12.236.** It used to appear
+ * only where a period held no price at all, which at `day` is every hole there
+ * can be and at `week` or `month` is a minority of them: a week with five days
+ * priced and two never answered for drew as an ordinary point on an unbroken
+ * curve. The band and the median were honest about the five and silent about
+ * the two, and silence is what the whole chart is built to avoid.
+ *
+ * A period can hold both kinds at once, and it draws as the ring: an unanswered
+ * day is the weaker claim of the two, and a period part of which we never read
+ * cannot honestly be marked "asked, and there were none". The title and the
+ * crosshair's read-out carry both counts, which is where the detail belongs —
+ * a glyph two units wide cannot say two things.
  */
 function HoleMark({ period, x }: { period: CalendarPeriod; x: number }) {
   const unsoldOnly = period.unanswered === 0;

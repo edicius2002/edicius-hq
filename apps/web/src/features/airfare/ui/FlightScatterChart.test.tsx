@@ -22,7 +22,15 @@ import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
  * a browser can answer, and it is on the list of things to look at by hand.
  */
 
-const VIEW = { width: 760, height: 300 };
+/**
+ * The chart's own viewBox, mirrored so a client coordinate is a view unit.
+ *
+ * 324 rather than 300 since 12.232: the plot floor is where it always was and
+ * every dot with it, but there are twenty-four units of chrome below it now —
+ * the rail the absent departure days are marked on, and a row of its own for
+ * the day labels.
+ */
+const VIEW = { width: 760, height: 324 };
 
 beforeEach(() => {
   // jsdom measures every element as 0x0, and the chart divides a client
@@ -326,6 +334,108 @@ describe('moving between periods', () => {
       expect(container.textContent).toContain(caption);
       unmount();
     }
+  });
+});
+
+describe('a frame that only claims what the watch is on', () => {
+  /**
+   * March 2027's last ISO week runs Monday 29 March to Sunday 4 April, and the
+   * 30th is flown. A March watch has never asked about April.
+   */
+  const LAST_WEEK = [
+    snapshot('2027-03-30', [
+      offer({ flightNumber: '7', departureAt: '2027-03-30T08:00', price: 330 }),
+    ]),
+  ];
+  const MARCH = { from: '2027-03-01', to: '2027-03-31' };
+
+  it('draws a week that overhangs the month only as far as the month goes', () => {
+    // Unclipped, this chart captioned itself "between 29/03/2027 00:00 and
+    // 04/04/2027 23:59" under a heading reading "departing in March 2027", and
+    // drew ticks and day separators for four April dates nothing was ever
+    // collected about.
+    const { container } = chart({ snapshots: LAST_WEEK, watched: MARCH });
+    expect(container.textContent).toContain('between 29/03/2027 00:00 and 31/03/2027 23:59');
+    expect(container.textContent).not.toContain('04/04');
+    expect(container.textContent).not.toContain('01/04');
+  });
+
+  it('separates the days it does draw and no others', () => {
+    const { container } = chart({ snapshots: LAST_WEEK, watched: MARCH });
+    // Three days, so two midnights between them.
+    expect(container.querySelectorAll('[class*="separator"]')).toHaveLength(2);
+  });
+
+  it('leaves a week wholly inside the month exactly as it was', () => {
+    const { container } = chart({ watched: MARCH });
+    expect(container.textContent).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
+  });
+});
+
+describe('a departure date in the frame with no flight on it', () => {
+  it('marks a day whose board came back empty apart from one nobody asked about', () => {
+    // Without the marks the reader is left with a broken line and no reason
+    // for it: the dashed line stops at both kinds of hole and neither is blank
+    // canvas for the same reason.
+    chart({
+      snapshots: [
+        ...WEEK,
+        // Asked about on the 10th and there was nothing to sell.
+        snapshot('2027-03-10', []),
+      ],
+    });
+    expect(screen.getAllByTestId('day-unsold')).toHaveLength(1);
+    // The 11th, 12th and 13th were never collected.
+    expect(screen.getAllByTestId('day-unanswered')).toHaveLength(3);
+  });
+
+  it('hangs both marks under the plot floor, because a mark inside it is a fare', () => {
+    chart({ snapshots: [...WEEK, snapshot('2027-03-10', [])] });
+    const y = Number(
+      screen.getAllByTestId('day-unsold')[0].querySelector('rect')!.getAttribute('y'),
+    );
+    // The plot runs from y=14 to y=266; the rail is at 273.
+    expect(y).toBeGreaterThan(266);
+  });
+
+  it('says nothing at all about a week every day of which was flown', () => {
+    const week = Array.from({ length: 7 }, (_, index) =>
+      snapshot(`2027-03-${String(8 + index).padStart(2, '0')}`, [
+        offer({
+          flightNumber: `${index}`,
+          departureAt: `2027-03-${String(8 + index).padStart(2, '0')}T09:00`,
+          price: 200 + index,
+        }),
+      ]),
+    );
+    chart({ snapshots: week });
+    expect(screen.queryByTestId('day-unsold')).toBeNull();
+    expect(screen.queryByTestId('day-unanswered')).toBeNull();
+  });
+});
+
+describe('the price axis says only what a flight costs', () => {
+  it('ticks at round numbers rather than at four slices of the padded span', () => {
+    // `priceSpan` pads the board's range by a twelfth so the extreme dots are
+    // not clipped in half. The four labels used to be the padded ends and two
+    // points between them — money-formatted figures no itinerary on the canvas
+    // costs.
+    const { container } = chart();
+    const ticks = [...container.querySelectorAll('text')]
+      .map((node) => node.textContent ?? '')
+      .filter((text) => text.startsWith('$'));
+    // The board runs $195 to $310 and the padded span $185.42 to $319.58 —
+    // neither end of which is drawn, and none of these is a quote either, which
+    // is the point: they read as a scale.
+    expect(ticks).toEqual(['$200.00', '$250.00', '$300.00']);
+  });
+
+  it('names the range the board actually holds', () => {
+    const { container } = chart();
+    // $195 to $310 across the week, from the points rather than from the frame.
+    expect(container.querySelector('svg')!.getAttribute('aria-label')).toContain(
+      'from $195.00 to $310.00',
+    );
   });
 });
 

@@ -68,7 +68,35 @@ describe('readingAt', () => {
       period: 'on 18/08/2026, 00:00 to 23:59',
       ours: { low: 130, high: 160, middle: 139, count: 2 },
       baseline: 96,
+      unsold: 0,
     });
+  });
+
+  it('names a period whose only content is boards that came back empty', () => {
+    // Neither series has a figure for the 19th, so before 12.232 this resolved
+    // to nothing and the crosshair went away over its own mark. What the period
+    // holds is a fact — we asked twice and there was nothing on sale — and a
+    // chart that drew the mark and then declined to say what it meant would be
+    // worse than one that never drew it.
+    const reading = readingAt('2026-08-19', ours, baseline, calendarAxis('day'), [
+      { key: '2026-08-19', label: '08-19', count: 2 },
+    ]);
+    expect(reading?.label).toBe('08-19');
+    expect(reading?.ours).toBeNull();
+    expect(reading?.unsold).toBe(2);
+    expect(readingSentence(reading!, 'USD')).toContain(
+      'nothing on sale — 2 boards came back empty',
+    );
+  });
+
+  it('keeps an empty board beside the figures where a period holds both', () => {
+    const reading = readingAt('2026-08-18', ours, baseline, calendarAxis('day'), [
+      { key: '2026-08-18', label: '08-18', count: 1 },
+    ]);
+    expect(reading?.ours?.middle).toBe(139);
+    expect(readingSentence(reading!, 'USD')).toContain(
+      '1 further board came back with nothing on sale',
+    );
   });
 
   it('matches the two series by key, never by position', () => {

@@ -7,9 +7,11 @@ import {
   bucketSnapshots,
   calendarAxis,
   contiguousRuns,
+  dayNumber,
   isoWeekKey,
   periodBounds,
   spanOf,
+  unsoldPeriods,
   type Bucket,
 } from '@/features/airfare/lib/buckets';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
@@ -251,6 +253,57 @@ describe('contiguousRuns', () => {
 
   it('ignores a bucket the axis never gave a place to', () => {
     expect(contiguousRuns(['a', 'b'], [band('a'), band('z')])).toEqual([[band('a')]]);
+  });
+});
+
+describe('a period we looked at and found nothing on sale in', () => {
+  it('is counted rather than dropped with the snapshot it came on', () => {
+    // `bucketSnapshots` skips these, and rightly — zero is a price and a chart
+    // would draw it as the best deal ever found. What went with them was the
+    // fact that we asked at all.
+    const snapshots = [
+      snapshot('2026-08-18T04:00:00+00:00', 96),
+      snapshot('2026-08-18T16:00:00+00:00'),
+      snapshot('2026-08-19T04:00:00+00:00'),
+    ];
+    expect(bucketSnapshots(snapshots, 'day').map((entry) => entry.key)).toEqual(['2026-08-18']);
+    expect(unsoldPeriods(snapshots, 'day')).toEqual([
+      { key: '2026-08-18', label: '08-18', count: 1 },
+      { key: '2026-08-19', label: '08-19', count: 1 },
+    ]);
+  });
+
+  it('gathers into the same periods the priced snapshots gather into', () => {
+    const week = unsoldPeriods(
+      [snapshot('2026-08-18T04:00:00+00:00'), snapshot('2026-08-19T04:00:00+00:00')],
+      'week',
+    );
+    expect(week).toEqual([{ key: '2026-W34', label: '2026 wk 34', count: 2 }]);
+  });
+
+  it('has nothing to say where every board came back with something on it', () => {
+    expect(unsoldPeriods([snapshot('2026-08-18T04:00:00+00:00', 96)], 'day')).toEqual([]);
+  });
+});
+
+describe('where a key sits on the axis', () => {
+  it('is the day the period starts, so a fortnight is a fortnight wide', () => {
+    const axis = calendarAxis('day');
+    // Two days apart is two, and a fortnight is fourteen — the distances an
+    // axis spaced by index flattened to one step each.
+    expect(axis.position('2026-08-19') - axis.position('2026-08-17')).toBe(2);
+    expect(axis.position('2026-08-31') - axis.position('2026-08-17')).toBe(14);
+  });
+
+  it('places a week at its own Monday and a month at its first', () => {
+    expect(calendarAxis('week').position('2026-W34')).toBe(dayNumber('2026-08-17'));
+    expect(calendarAxis('month').position('2026-08')).toBe(dayNumber('2026-08-01'));
+  });
+
+  it('counts whole days from the epoch without going through a local Date', () => {
+    expect(dayNumber('1970-01-01')).toBe(0);
+    expect(dayNumber('1970-01-02')).toBe(1);
+    expect(dayNumber('2026-08-17')).toBe(20682);
   });
 });
 

@@ -9,6 +9,7 @@ import {
   leadPeriod,
   leadSnapshots,
   leadSpan,
+  leadUnsold,
 } from '@/features/airfare/lib/leadTime';
 import type { FareOffer, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
@@ -117,6 +118,47 @@ describe('leadAxis', () => {
   it('names its unit so a readout cannot be mistaken for the other chart’s', () => {
     expect(leadAxis('week').unit).toEqual({ one: 'lead week', many: 'lead weeks' });
     expect(leadAxis('day').spell('lead-0194')).toBe('194 days before departure');
+  });
+
+  it('places a bucket by its lead in days, increasing towards departure', () => {
+    const axis = leadAxis('day');
+    // The same measure the calendar reading uses — days — negated, because
+    // this is the axis that counts down. Two lead days apart is two units, and
+    // the nearer bucket is the one further right.
+    expect(axis.position('lead-0189') - axis.position('lead-0191')).toBe(2);
+    expect(axis.position('lead-0007')).toBeGreaterThan(axis.position('lead-0284'));
+  });
+
+  it('places a lead week at the far end of the seven days it covers', () => {
+    // `189–195d ahead` starts counting at 195, which is where the left edge of
+    // its seven days is.
+    expect(leadAxis('week').position('lead-0189')).toBe(-195);
+  });
+
+  it('spaces two lead weeks a week apart rather than one step apart', () => {
+    const axis = leadAxis('week');
+    expect(axis.position('lead-0189') - axis.position('lead-0203')).toBe(14);
+  });
+});
+
+describe('a look that came back with an empty board', () => {
+  it('is placed on the lead axis rather than dropped with its snapshot', () => {
+    const empty = { ...snapshot('2026-08-19T14:41', '2027-03-01', 0), offers: [] };
+    expect(leadSnapshots([empty], 'day')).toEqual([]);
+    expect(leadUnsold([empty], 'day')).toEqual([
+      { key: 'lead-0194', label: '194d ahead', count: 1 },
+    ]);
+  });
+
+  it('is left out where the board had something on it', () => {
+    expect(leadUnsold([snapshot('2026-08-19T14:41', '2027-03-01', 62)], 'day')).toEqual([]);
+  });
+
+  it('has no place on the axis for a look taken after the plane went', () => {
+    // A negative lead is a fact about the collector, and `leadKey` refuses it
+    // for the priced series too.
+    const late = { ...snapshot('2027-03-05T14:41', '2027-03-01', 0), offers: [] };
+    expect(leadUnsold([late], 'day')).toEqual([]);
   });
 });
 

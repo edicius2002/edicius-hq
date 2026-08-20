@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import {
   formatReading,
+  readingPrefix,
   routeId,
   routeLabel,
   type FareRoute,
@@ -10,9 +11,12 @@ import {
   bucketBaseline,
   bucketSnapshots,
   calendarAxis,
+  periodBounds,
+  unsoldPeriods,
   type Granularity,
 } from '@/features/airfare/lib/buckets';
-import { leadAxis, leadBaseline, leadSnapshots } from '@/features/airfare/lib/leadTime';
+import type { WatchedRange } from '@/features/airfare/lib/flightScatter';
+import { leadAxis, leadBaseline, leadSnapshots, leadUnsold } from '@/features/airfare/lib/leadTime';
 import { CalendarCurveChart } from '@/features/airfare/ui/CalendarCurveChart';
 import { FlightScatterChart } from '@/features/airfare/ui/FlightScatterChart';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
@@ -117,6 +121,12 @@ type AnalysisPanelProps = {
   curve: CalendarCurve | null;
   /** True while that request is in flight, so "never collected" is not claimed early. */
   curveLoading: boolean;
+  /**
+   * Why that request failed, where it did — 12.237. Null on success and while
+   * it is still in flight; a chart handed one says so rather than reporting a
+   * fault at our end as a fact about the route.
+   */
+  curveError?: Error | null;
   granularity: Granularity;
   onGranularityChange: (granularity: Granularity) => void;
 };
@@ -145,6 +155,7 @@ export function AnalysisPanel({
   baseline,
   curve,
   curveLoading,
+  curveError = null,
   granularity,
   onGranularityChange,
 }: AnalysisPanelProps) {
@@ -207,6 +218,32 @@ export function AnalysisPanel({
   const theirs = useMemo(() => bucketBaseline(baseline, granularity), [baseline, granularity]);
   const leadOurs = useMemo(() => leadSnapshots(snapshots, granularity), [snapshots, granularity]);
   const leadTheirs = useMemo(() => leadBaseline(baseline, granularity), [baseline, granularity]);
+  // The boards that came back with nothing on them — 12.232. Gathered beside
+  // the priced ones and on both readings, for the reason those two are: the
+  // pass is over the same two thousand numbers and only runs on a granularity
+  // change, and making it conditional would recompute the lot every time the
+  // reader flipped the labelling.
+  const oursUnsold = useMemo(() => unsoldPeriods(snapshots, granularity), [snapshots, granularity]);
+  const leadOursUnsold = useMemo(
+    () => leadUnsold(snapshots, granularity),
+    [snapshots, granularity],
+  );
+
+  /*
+   * What the watch is on, as two departure dates — 12.235.
+   *
+   * `readingPrefix` rather than `route.month`, so a focused watch clips to the
+   * one day the rest of the page has already narrowed to; `periodBounds` rather
+   * than arithmetic here, because it is this feature's single answer to "what
+   * does a key cover" and a second one would let the frame and the caption
+   * disagree.
+   */
+  const watched: WatchedRange | null = useMemo(() => {
+    if (!route) return null;
+    const key = readingPrefix(route);
+    const bounds = periodBounds(key, route.focusDate ? 'day' : 'month');
+    return { from: bounds.from.slice(0, 10), to: bounds.to.slice(0, 10) };
+  }, [route]);
 
   /*
    * What these figures are *of*, in the words the reader picked them with —
@@ -329,6 +366,7 @@ export function AnalysisPanel({
             key="observed"
             ours={ours}
             baseline={theirs}
+            unsold={oursUnsold}
             currency={currency}
             axis={calendar}
             label={route ? `Cheapest fare for ${where}, by ${granularity}` : 'Price analysis'}
@@ -338,6 +376,7 @@ export function AnalysisPanel({
             key="lead"
             ours={leadOurs}
             baseline={leadTheirs}
+            unsold={leadOursUnsold}
             currency={currency}
             axis={lead}
             label={
@@ -366,6 +405,7 @@ export function AnalysisPanel({
           currency={currency}
           anchor={departureAnchor}
           onAnchorChange={setAnchor}
+          watched={watched}
           label={
             route ? `Every flight for ${where}, by departure time` : 'Flights by departure time'
           }
@@ -382,6 +422,7 @@ export function AnalysisPanel({
           curve={curve}
           granularity={granularity}
           loading={curveLoading}
+          error={curveError}
           label={
             route
               ? `Cheapest fare for ${routeLabel(route)} by departure date, across the whole booking horizon`

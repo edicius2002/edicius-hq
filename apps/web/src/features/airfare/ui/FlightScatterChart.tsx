@@ -1,6 +1,6 @@
 import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
-import { boundsLabel, periodBounds, type Granularity } from '@/features/airfare/lib/buckets';
+import { boundsLabel, type Granularity } from '@/features/airfare/lib/buckets';
 import {
   clampToTrack,
   marginForPrices,
@@ -9,7 +9,9 @@ import {
   type TagAnchor,
 } from '@/features/airfare/lib/crosshair';
 import {
+  absentDays,
   activeKey,
+  axisDayLabel,
   axisTicks,
   cheapestPath,
   cheapestPerDay,
@@ -31,8 +33,10 @@ import {
   yOf,
   type PlacedPoint,
   type Plot,
+  type WatchedRange,
 } from '@/features/airfare/lib/flightScatter';
 import { stopsLabel } from '@/features/airfare/lib/flightTable';
+import { niceTicks } from '@/features/airfare/lib/scales';
 import { formatDuration } from '@/features/airfare/lib/series';
 import type { FareSnapshot } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
@@ -43,7 +47,7 @@ import styles from './FlightScatterChart.module.css';
 const PRICE_GAP = 8;
 
 /**
- * Taller than the price chart's 260.
+ * A plot taller than the price chart's, and since 12.232 a margin taller again.
  *
  * That chart draws one band; this one stacks twenty to thirty flights inside
  * every day, and at 260 a board spanning $180 to $420 puts four itineraries
@@ -51,14 +55,25 @@ const PRICE_GAP = 8;
  * vertical separation for nothing but page height. The left padding is
  * `marginForPrices`, not a number — 12.62: it has to hold the widest fare
  * `formatMoney` can print, and a guess at it clipped the `S` off `S/4,580.00`.
+ *
+ * The last twenty-four units are all below the plot, and the plot itself is the
+ * same size to the unit — the floor stays at 266 deliberately, so every dot on
+ * this canvas is where it was. What they buy is the rail the empty departure
+ * days are marked on, plus a row of its own for the day labels so the
+ * crosshair's tag no longer covers them.
  */
 const VIEW: Plot = {
   width: 760,
-  height: 300,
-  pad: { top: 14, right: 16, bottom: 34, left: marginForPrices(PRICE_GAP) },
+  height: 324,
+  pad: { top: 14, right: 16, bottom: 58, left: marginForPrices(PRICE_GAP) },
 };
 
-const TAG = { height: 16, baseline: 11.5 };
+const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
+/** Where a departure date with no flight on it is marked, just under the plot floor. */
+const RAIL_Y = PLOT_BOTTOM + 7;
+const TAG = { height: 16, top: PLOT_BOTTOM + 16, baseline: 11.5 };
+/** The day labels sit below the tag, on their own row. */
+const AXIS_BASELINE = VIEW.height - 4;
 
 /** The anchor as a class, never as an attribute — the reason is 12.62. */
 const ANCHOR: Record<TagAnchor, string> = {
@@ -80,6 +95,16 @@ type FlightScatterChartProps = {
    */
   anchor: string | null;
   onAnchorChange: (day: string) => void;
+  /**
+   * The departure dates this route is a watch on — its month, or the one day
+   * inside it the reader focused — 12.235.
+   *
+   * The frame is clipped to it, so a week straddling the end of the month draws
+   * the days of the month it holds and not the four April dates the ISO week
+   * also covers. Optional, because a chart handed no watch has nothing to clip
+   * to and the calendar period is then the honest frame.
+   */
+  watched?: WatchedRange | null;
   label: string;
 };
 
@@ -116,6 +141,7 @@ export function FlightScatterChart({
   currency,
   anchor,
   onAnchorChange,
+  watched = null,
   label,
 }: FlightScatterChartProps) {
   /*
@@ -142,8 +168,8 @@ export function FlightScatterChart({
   const keys = useMemo(() => periodKeys(days, granularity), [days, granularity]);
   const key = activeKey(keys, granularity, anchor);
   const period = useMemo(
-    () => (key === null ? null : scatterWindow(key, granularity)),
-    [key, granularity],
+    () => (key === null ? null : scatterWindow(key, granularity, watched)),
+    [key, granularity, watched],
   );
 
   const points = useMemo(
@@ -156,6 +182,10 @@ export function FlightScatterChart({
     [points, period, span],
   );
   const line = useMemo(() => cheapestPerDay(points), [points]);
+  const absent = useMemo(
+    () => (period === null ? [] : absentDays(snapshots, period)),
+    [snapshots, period],
+  );
 
   /*
    * The cloud and the rings, held as elements rather than rebuilt each render.
@@ -220,16 +250,25 @@ export function FlightScatterChart({
   const next = stepKey(keys, period.key, 1);
   const ticks = axisTicks(period);
   const separators = dayBoundaries(period);
-  const priceTicks = [0, 1, 2, 3].map((rank) => span.low + ((span.high - span.low) * rank) / 3);
+  /*
+   * Round numbers inside the padded span, never four equal slices of it —
+   * 12.233. `priceSpan` pads the board's own range by a twelfth so the dots at
+   * the extremes are not clipped in half by the frame, and the four labels were
+   * the padded ends and two points between them: money-formatted figures that
+   * no itinerary on the canvas costs. The real extremes are in this chart's
+   * accessible name, which takes them from the points themselves.
+   */
+  const priceTicks = niceTicks(span.low, span.high);
   const path = cheapestPath(points, period, span, VIEW);
   const prices = points.map((point) => point.price);
-  const caption = boundsLabel(periodBounds(period.key, granularity));
+  // The window's own ends, not the calendar period's — 12.235. They are the
+  // same thing except where a period overhangs the watched month, and there the
+  // window is the half that only claims dates this route has been asked about.
+  const caption = boundsLabel({ from: period.from, to: period.to });
 
   const hairPrice = reading === null ? 0 : priceAt(reading.y, span, VIEW);
   const priceTagY =
-    reading === null
-      ? 0
-      : clampToTrack(reading.y, TAG.height, VIEW.pad.top, VIEW.height - VIEW.pad.bottom);
+    reading === null ? 0 : clampToTrack(reading.y, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
   const priceTag = priceAxisTag(VIEW.pad.left - PRICE_GAP, formatMoney(hairPrice, currency));
   const timeTag = timeAxisTag(
     reading === null ? 0 : reading.x,
@@ -380,21 +419,68 @@ export function FlightScatterChart({
             x1={xOf(offset, period, VIEW)}
             x2={xOf(offset, period, VIEW)}
             y1={VIEW.pad.top}
-            y2={VIEW.height - VIEW.pad.bottom}
+            y2={PLOT_BOTTOM}
             className={styles.separator}
             aria-hidden="true"
           />
         ))}
 
+        {/* The floor the absence marks hang under, so the rail is a place. */}
+        <line
+          x1={VIEW.pad.left}
+          x2={VIEW.width - VIEW.pad.right}
+          y1={PLOT_BOTTOM}
+          y2={PLOT_BOTTOM}
+          className={styles.floor}
+        />
+
         {ticks.map((tick) => (
           <text
             key={tick.offset}
             x={xOf(tick.offset, period, VIEW)}
-            y={VIEW.height - 12}
+            y={AXIS_BASELINE}
             className={`${styles.axis} ${styles.tagMiddle}`}
           >
             {tick.label}
           </text>
+        ))}
+
+        {/*
+          A departure date inside the frame with no flight on it, and which kind
+          of nothing it is — 12.232. The dashed line stops at one of these
+          rather than reaching over it (12.230), so without a mark the reader is
+          left with a break and no reason for it. Under the plot floor for the
+          horizon chart's reason: a mark inside the plot at any height reads as
+          a fare, and "no flights" is the one thing that must not be drawn as
+          one.
+        */}
+        {absent.map((day) => (
+          <g
+            key={day.day}
+            className={styles.hole}
+            data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
+          >
+            <title>
+              {axisDayLabel(day.day)}:{' '}
+              {day.answered ? 'nothing on sale — the board came back empty' : 'never collected'}
+            </title>
+            {day.answered ? (
+              <rect
+                x={xOf(day.offset, period, VIEW) - 1.6}
+                y={RAIL_Y - 1.6}
+                width={3.2}
+                height={3.2}
+                className={styles.unsold}
+              />
+            ) : (
+              <circle
+                cx={xOf(day.offset, period, VIEW)}
+                cy={RAIL_Y}
+                r={2}
+                className={styles.unanswered}
+              />
+            )}
+          </g>
         ))}
 
         {path ? <path d={path} className={styles.cheapest} aria-hidden="true" /> : null}
@@ -420,7 +506,7 @@ export function FlightScatterChart({
               x1={reading.x}
               x2={reading.x}
               y1={VIEW.pad.top}
-              y2={VIEW.height - VIEW.pad.bottom}
+              y2={RAIL_Y + 5}
               className={styles.hair}
             />
             <line
@@ -451,7 +537,7 @@ export function FlightScatterChart({
 
             <rect
               x={timeTag.x}
-              y={VIEW.height - VIEW.pad.bottom + 3}
+              y={TAG.top}
               width={timeTag.width}
               height={TAG.height}
               rx={3}
@@ -459,7 +545,7 @@ export function FlightScatterChart({
             />
             <text
               x={timeTag.textX}
-              y={VIEW.height - VIEW.pad.bottom + 3 + TAG.baseline}
+              y={TAG.top + TAG.baseline}
               className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
               data-testid="scatter-time-tag"
             >
@@ -506,8 +592,18 @@ export function FlightScatterChart({
           <i /> One dot is one itinerary, on the day it departs
         </span>
         <span className={styles.keyLine}>
-          <i /> The cheapest flight of each day
+          <i /> The cheapest flight of each day — broken where a day has none
         </span>
+        {absent.some((day) => day.answered) ? (
+          <span className={styles.keyUnsold}>
+            <i /> Nothing on sale — we asked and the board came back empty
+          </span>
+        ) : null}
+        {absent.some((day) => !day.answered) ? (
+          <span className={styles.keyUnanswered}>
+            <i /> Never collected — we have no reading either way
+          </span>
+        ) : null}
       </figcaption>
     </figure>
   );

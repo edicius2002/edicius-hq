@@ -18,11 +18,13 @@ import {
   flightSentence,
   minutesInto,
   nearestPlaced,
+  offsetAt,
   periodKeys,
   placePoints,
   priceAt,
   priceSpan,
   scatterWindow,
+  spanOfPrices,
   stepKey,
   windowDays,
   xOf,
@@ -462,40 +464,33 @@ describe('which departure days the frame covers', () => {
     expect(windowDays(scatterWindow('2027-03-09', 'day'))).toEqual(['2027-03-09']);
   });
 
-  it('clips a week that runs past the end of the watched month', () => {
-    // March 2027's last ISO week is 29 March to 4 April. A month watch has
-    // never asked about April, so the frame must not draw four days of it.
-    const week = scatterWindow('2027-W13', 'week', { from: '2027-03-01', to: '2027-03-31' });
+  it('draws a week whole where it runs past the end of the watched month', () => {
+    // March 2027's last ISO week is 29 March to 4 April. The frame used to be
+    // clipped to the watched month because nothing could ever be drawn on those
+    // four April dates; the booking horizon prices them now, so cropping them
+    // would be the chart hiding data it holds. Which of the seven the *boards*
+    // may speak for is `departureFrame`'s question, not this one's.
+    const week = scatterWindow('2027-W13', 'week');
     expect(week.from).toBe('2027-03-29T00:00');
-    expect(week.to).toBe('2027-03-31T23:59');
-    expect(week.days).toBe(3);
-    expect(axisTicks(week).map((tick) => tick.label)).toEqual(['29/03', '30/03', '31/03']);
-    expect(dayBoundaries(week)).toHaveLength(2);
-  });
-
-  it('clips a week that starts before the watched month begins', () => {
-    // 1 March 2027 is a Monday, so no week overhangs the front of that month —
-    // but April's first week runs from 29 March, and an April watch has no more
-    // business drawing March than a March one has drawing April.
-    const week = scatterWindow('2027-W13', 'week', { from: '2027-04-01', to: '2027-04-30' });
-    expect(week.from).toBe('2027-04-01T00:00');
     expect(week.to).toBe('2027-04-04T23:59');
-    expect(week.days).toBe(4);
+    expect(week.days).toBe(7);
+    expect(axisTicks(week).map((tick) => tick.label)).toEqual([
+      '29/03',
+      '30/03',
+      '31/03',
+      '01/04',
+      '02/04',
+      '03/04',
+      '04/04',
+    ]);
+    expect(dayBoundaries(week)).toHaveLength(6);
   });
 
-  it('leaves a period wholly inside the watch exactly as it was', () => {
-    const week = scatterWindow('2027-W10', 'week', { from: '2027-03-01', to: '2027-03-31' });
-    expect(week.from).toBe('2027-03-08T00:00');
-    expect(week.to).toBe('2027-03-14T23:59');
-    expect(week.days).toBe(7);
-  });
-
-  it('keeps its own bounds where the watch and the period do not meet at all', () => {
-    // `activeKey` only ever hands over a period a departure day fell in, so
-    // this should not arise — and collapsing the frame to nothing rather than
-    // saying so would be a chart with no width.
-    const week = scatterWindow('2027-W10', 'week', { from: '2027-06-01', to: '2027-06-30' });
-    expect(week.days).toBe(7);
+  it('gives a whole calendar month its own frame, watched or not', () => {
+    const month = scatterWindow('2027-04', 'month');
+    expect(month.from).toBe('2027-04-01T00:00');
+    expect(month.to).toBe('2027-04-30T23:59');
+    expect(month.days).toBe(30);
   });
 });
 
@@ -630,3 +625,49 @@ function point(price: number): ScatterPoint {
     cheapestOfDay: false,
   };
 }
+
+describe('reading a horizontal position back into a minute of the window', () => {
+  const week = scatterWindow('2027-W10', 'week');
+
+  it('is the exact inverse of the placement it undoes', () => {
+    for (const offset of [0, 1439, 1440, 5_000, 10_079]) {
+      expect(offsetAt(xOf(offset, week, PLOT), week, PLOT)).toBeCloseTo(offset, 6);
+    }
+  });
+
+  it('names the date a position falls in, which is what decides the question asked', () => {
+    // The third day of the week at nine in the morning: index 2, whatever the
+    // plot is. This is the arithmetic the chart uses to tell "which itinerary"
+    // from "what does this whole date cost".
+    const morning = 2 * 1440 + 9 * 60;
+    const index = Math.floor(offsetAt(xOf(morning, week, PLOT), week, PLOT) / 1440);
+    expect(index).toBe(2);
+  });
+
+  it('runs past the frame rather than folding onto its first date', () => {
+    // Unclamped on purpose: a pointer in the left margin is a fact the caller
+    // has to be able to see, and silently reporting the first date would hide
+    // it from the one place that can decide what to do about it.
+    expect(offsetAt(PLOT.pad.left - 40, week, PLOT)).toBeLessThan(0);
+  });
+});
+
+describe('one vertical scale over two kinds of price', () => {
+  it('scales itineraries and whole-date prices together', () => {
+    // A frame that straddles the end of the watched month holds both, and two
+    // scales would put the same fare at two heights either side of the seam.
+    const both = spanOfPrices([210, 380, 61.5]);
+    expect(both).not.toBeNull();
+    expect(both!.low).toBeLessThan(61.5);
+    expect(both!.high).toBeGreaterThan(380);
+  });
+
+  it('never anchors at zero, because the spread is the reading', () => {
+    const tight = spanOfPrices([210, 220]);
+    expect(tight!.low).toBeGreaterThan(0);
+  });
+
+  it('has nothing to say about an empty frame', () => {
+    expect(spanOfPrices([])).toBeNull();
+  });
+});

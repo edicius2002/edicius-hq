@@ -47,6 +47,7 @@ from datetime import UTC, datetime
 import httpx
 
 from app.adapters.fares.registry import DEFAULT_PROVIDER
+from app.config import CALENDAR_POLL_MINUTES
 from app.services.fare_collector import (
     CalendarReport,
     CalendarResult,
@@ -165,6 +166,7 @@ class CalendarRunner:
         *,
         provider: str = DEFAULT_PROVIDER,
         client: httpx.AsyncClient | None = None,
+        every_minutes: int = CALENDAR_POLL_MINUTES,
     ) -> CalendarPass:
         """
         Begin a pass, or hand back the one already going.
@@ -172,6 +174,11 @@ class CalendarRunner:
         Returns which of those happened by way of `watching`: a caller whose
         city pair is missing from it was answered rather than served, and the
         control that pressed can say so.
+
+        `every_minutes` is the cadence the store measures staleness against, and
+        it is a parameter rather than the constant because the caller can know
+        something the store's clock cannot: whether there is anything on disk at
+        all. See the endpoint for what it does with that.
         """
         if self.running():
             assert self._pass is not None
@@ -180,7 +187,7 @@ class CalendarRunner:
         started = CalendarPass(started_at=_now(), source=provider, watching=_watching(watches))
         self._pass = started
         self._task = asyncio.get_running_loop().create_task(
-            self._run(started, watches, provider, client)
+            self._run(started, watches, provider, client, every_minutes)
         )
         return started
 
@@ -190,9 +197,12 @@ class CalendarRunner:
         watches: list[FareWatch],
         provider: str,
         client: httpx.AsyncClient | None,
+        every_minutes: int = CALENDAR_POLL_MINUTES,
     ) -> None:
         try:
-            report = await collect_calendars(watches, provider=provider, client=client)
+            report = await collect_calendars(
+                watches, provider=provider, client=client, every_minutes=every_minutes
+            )
         except asyncio.CancelledError:
             started.state = "failed"
             started.error = "The pass was cancelled before it finished"

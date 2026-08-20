@@ -365,7 +365,28 @@
  */
 .note {
   margin: 0;
-  min-height: 2.4em;
   font-size: 0.76rem;
   color: var(--color-muted);
+}
+
+/*
+ * Every sentence the note can be, in one cell.
+ *
+ * The same mechanism the chart's own name uses, and for the same reason: a
+ * `min-height` in ems is a guess about how many lines the longest sentence
+ * wraps to at a width nobody has measured, while a stack is as tall as its
+ * tallest member by construction. `visibility` and not `display: none`,
+ * because a hidden element still takes its space and that space is the point.
+ */
+.noteStack {
+  display: grid;
+}
+
+.noteLive,
+.noteGhost {
+  grid-area: 1 / 1;
+}
+
+.noteGhost {
+  visibility: hidden;
 }

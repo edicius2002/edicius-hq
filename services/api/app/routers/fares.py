@@ -24,7 +24,7 @@ from app.adapters.fares.models import (
     FareSnapshot,
 )
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
-from app.config import UPSTREAM_TIMEOUT_SECONDS
+from app.config import CALENDAR_POLL_MINUTES, UPSTREAM_TIMEOUT_SECONDS
 from app.services import airport_search
 from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
@@ -887,13 +887,25 @@ async def collect_calendar(
     chart stayed empty until the next scheduled pass happened to run. This lets
     the press that adds the route ask for its curve.
 
-    **It still runs the schedule rather than bypassing it.** A pair whose curve
-    was collected within `CALENDAR_POLL_MINUTES` comes back in `skipped` as
-    `not-due` and no request is spent, which is the correct answer to "collect
-    this again" ten minutes after collecting it — a fare eleven months out moves
-    by a median 1.7% a day, so the second look would cost two requests to
-    confirm the first. The row says so instead of the pass quietly doing
-    nothing, so a caller can tell a declined press from a broken one.
+    **It still runs the schedule rather than bypassing it, with one exception.**
+    A pair whose curve was collected within `CALENDAR_POLL_MINUTES` comes back
+    in `skipped` as `not-due` and no request is spent, which is the correct
+    answer to "collect this again" ten minutes after collecting it — a fare
+    eleven months out moves by a median 1.7% a day, so the second look would
+    cost two requests to confirm the first. The row says so instead of the pass
+    quietly doing nothing, so a caller can tell a declined press from a broken
+    one.
+
+    The exception is a pair with **no curve on disk at all**, which is always
+    due. The cadence is measured from the last *look*, not from the last curve,
+    and a look that failed counts — so the first collection of a brand-new route
+    refusing once left that route with nothing to draw and no second attempt for
+    a day, which was observed happening against the live provider the first time
+    this endpoint was pointed at it. Deciding it here rather than inside `due`
+    is deliberate: the scheduled pass is right to leave a failing route alone
+    until tomorrow, because nobody is waiting for it. Here somebody just added
+    the route and is looking at the empty chart. Each attempt still costs a
+    human pressing "Add route", so this cannot loop.
 
     A press that arrives while a pass is running gets that pass rather than a
     second one, because the gap in `fare_collector` paces a loop and two loops
@@ -916,8 +928,17 @@ async def collect_calendar(
         month="",
         currency=(body.currency or "USD").upper(),
     )
+    # Nothing on disk means nothing for the cadence to protect, so the pass is
+    # allowed regardless of when we last looked. `due` compares against
+    # `every_minutes`, and zero makes every elapsed time long enough.
+    nothing_yet = CALENDAR.latest(watch.origin, watch.destination) is None
     return _calendar_pass_model(
-        CALENDAR_RUNNER.start([watch], provider=provider, client=get_client())
+        CALENDAR_RUNNER.start(
+            [watch],
+            provider=provider,
+            client=get_client(),
+            every_minutes=0 if nothing_yet else CALENDAR_POLL_MINUTES,
+        )
     )
 
 

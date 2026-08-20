@@ -35,7 +35,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.routers import fares as fares_router
 from app.services import calendar_job, fare_collector
-from app.services.fare_calendar import FareCalendar
+from app.services.fare_calendar import CalendarCurve, CalendarPrice, FareCalendar
 from app.services.fare_collector import CalendarReport, CalendarResult, FareWatch
 
 PAIR = {"origin": "LIM", "destination": "CUZ"}
@@ -213,6 +213,34 @@ def test_a_finished_pass_reports_the_curve_it_found_field_for_field(monkeypatch)
     assert finished["error"] is None
 
 
+def a_store_holding_one_curve(tmp_path, monkeypatch, *, with_curve=True):
+    """
+    A calendar store both the collector and the endpoint reach.
+
+    Both have to be pointed at it: the collector reads it to decide whether a
+    pair is due, and the endpoint reads it to decide whether the pair has
+    anything on disk at all. Patching only one leaves the two disagreeing about
+    what is stored, which is the arrangement the exception below turns on.
+    """
+    store = FareCalendar(tmp_path)
+    if with_curve:
+        store.append(
+            CalendarCurve(
+                captured_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+                source="google-flights",
+                origin="LIM",
+                destination="CUZ",
+                currency="USD",
+                start="2026-08-19",
+                end="2026-08-20",
+                prices=[CalendarPrice(departure_date="2026-08-19", price=61.5)],
+            )
+        )
+    monkeypatch.setattr(fare_collector, "CALENDAR", store)
+    monkeypatch.setattr(fares_router, "CALENDAR", store)
+    return store
+
+
 def test_a_pair_collected_within_the_day_is_skipped_as_not_due_and_says_so(monkeypatch, tmp_path):
     """
     The schedule is run rather than bypassed, and the declining is reported.
@@ -222,7 +250,7 @@ def test_a_pair_collected_within_the_day_is_skipped_as_not_due_and_says_so(monke
     row saying `not-due` is what stops a declined press from looking like a
     broken one — 8.8 and 8.41, on the endpoint rather than in the collector.
     """
-    store = FareCalendar(tmp_path)
+    store = a_store_holding_one_curve(tmp_path, monkeypatch)
     store.record_check(
         "LIM",
         "CUZ",
@@ -230,7 +258,6 @@ def test_a_pair_collected_within_the_day_is_skipped_as_not_due_and_says_so(monke
         outcome="unchanged",
         dates=331,
     )
-    monkeypatch.setattr(fare_collector, "CALENDAR", store)
 
     def refuse_to_be_asked(request: httpx.Request) -> httpx.Response:
         raise AssertionError("a pair that is not due must cost no requests")
@@ -421,3 +448,74 @@ def test_collecting_a_curve_and_reading_one_are_two_different_endpoints(monkeypa
         assert read.status_code == 200
         assert read.json()["latest"] is None
         assert client.get("/api/fares/calendar/collect").json()["state"] == "idle"
+
+
+def test_a_pair_with_nothing_on_disk_is_collected_even_after_a_look_that_failed(
+    monkeypatch, tmp_path
+):
+    """
+    The exception to the cadence, and the reason it exists is a real refusal.
+
+    Staleness is measured from the last *look* and a look that failed counts, so
+    the first collection of a brand-new route being refused once left that route
+    with nothing to draw and no second attempt for a day. That happened the
+    first time this endpoint was pointed at the live provider. A pair with no
+    curve on disk has nothing for the cadence to protect, so it is always due —
+    and the pass is attempted rather than skipped.
+    """
+    store = a_store_holding_one_curve(tmp_path, monkeypatch, with_curve=False)
+    store.record_check(
+        "LIM",
+        "CUZ",
+        at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+        outcome="error",
+        error_code="upstream-error",
+    )
+    assert store.latest("LIM", "CUZ") is None
+
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(429)
+
+    mock_upstream(monkeypatch, answer)
+
+    with TestClient(app) as client:
+        assert client.post("/api/fares/calendar/collect", json=PAIR).status_code == 202
+        finished = wait_for_the_pass(client)
+
+    assert asked, "a pair with nothing on disk must actually be asked about"
+    assert finished["skipped"] == []
+    assert [result["ok"] for result in finished["results"]] == [False]
+
+
+def test_the_exception_is_about_emptiness_and_not_about_pressing_harder(monkeypatch, tmp_path):
+    """
+    A pair that already has a curve waits for the cadence however it is asked.
+
+    Otherwise the exception would be a way to spend two requests per press on a
+    route whose year of prices moves by under 2% a day, which is the thing the
+    cadence exists to refuse.
+    """
+    store = a_store_holding_one_curve(tmp_path, monkeypatch)
+    # A curve on disk and a look that wrote it — the ordinary state of a pair
+    # collected today, which is what the cadence is measured against.
+    store.record_check(
+        "LIM",
+        "CUZ",
+        at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+        outcome="changed",
+        dates=331,
+    )
+
+    def refuse_to_be_asked(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("a pair that already has a curve must cost no requests")
+
+    mock_upstream(monkeypatch, refuse_to_be_asked)
+
+    with TestClient(app) as client:
+        assert client.post("/api/fares/calendar/collect", json=PAIR).status_code == 202
+        finished = wait_for_the_pass(client)
+
+    assert finished["skipped"] == [{"what": "LIM-CUZ", "reason": "not-due"}]

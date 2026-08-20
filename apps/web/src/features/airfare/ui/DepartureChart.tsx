@@ -285,6 +285,7 @@ export function DepartureChart({
   const reading = useMemo(() => resolve(cursor, placed, marks), [cursor, placed, marks]);
 
   const priced = points.length + marks.filter((mark) => mark.price !== null).length;
+  const notes = horizonNote(days, curve, horizonLoading, horizonError, priced);
 
   if (period === null) {
     return (
@@ -771,13 +772,32 @@ export function DepartureChart({
         Why a stretch of this frame is blank, where the reason is us rather than
         the route. `role="alert"` on the failure for 12.237's reason: a request
         that fell over while the reader was looking at the panel is news.
+
+        Every sentence it could be saying is rendered at once and all but one is
+        held open by `visibility`, exactly as the chart's own name is — 12.246.
+        These sentences are different lengths and wrap to different numbers of
+        lines, so a box sized to whichever is showing would push the flight
+        table down the page as the reader stepped out of the watched month. The
+        stack makes the box as tall as the tallest of them by construction,
+        which a `min-height` in ems could only approximate.
       */}
       <p
         className={styles.note}
         data-testid="horizon-note"
         role={horizonError ? 'alert' : undefined}
       >
-        {horizonNote(days, curve, horizonLoading, horizonError, priced)}
+        <span className={styles.noteStack}>
+          {notes.said.map((sentence, index) => (
+            <span
+              key={sentence}
+              className={index === notes.live ? styles.noteLive : styles.noteGhost}
+              aria-hidden={index === notes.live ? undefined : true}
+              {...(index === notes.live ? { 'data-testid': 'horizon-note-live' } : {})}
+            >
+              {sentence}
+            </span>
+          ))}
+        </span>
       </p>
     </figure>
   );
@@ -912,12 +932,23 @@ function accessibleTail(
 }
 
 /**
- * The sentence under the chart that says why part of it is blank.
+ * The sentences under the chart that say why part of it is blank, and which of
+ * them is the true one.
+ *
+ * **All of them rather than the live one**, because the box holding them must
+ * not change height as the reader steps across the end of the watched month —
+ * they are rendered stacked, and only a set can size a box to its tallest
+ * member. Which is live is an index into the same list, so the two cannot
+ * disagree.
  *
  * Three states rather than two — 12.237. A horizon request can be in flight, it
  * can have failed, or it can have come back saying this route has none on disk.
  * Only the last is a fact about the route, and reading a null curve alone
  * reported all three as one.
+ *
+ * The collection stamp is in the sentence rather than tucked into a legend,
+ * because a curve is only written when something moved: the one on screen can
+ * be weeks old, and a price a reader is about to act on has to carry its age.
  */
 function horizonNote(
   days: FrameDay[],
@@ -925,19 +956,20 @@ function horizonNote(
   loading: boolean,
   error: Error | null,
   priced: number,
-): string {
+): { said: string[]; live: number } {
   const needsCurve = days.some((day) => day.source === 'curve');
-  if (!needsCurve) return 'Every date in this frame is inside the watched month.';
-  if (error !== null) {
-    return `The booking horizon could not be read: ${error.message}. That is a fault at our end and says nothing about what these dates cost.`;
-  }
-  if (loading) return 'Reading the booking horizon…';
-  if (curve === null) {
-    return 'The booking horizon has not been collected for this route yet, so the dates outside the watched month are blank. Adding a route now collects its horizon; a route added before that does it needs one collection pass.';
-  }
-  if (priced === 0) return 'Nothing in this frame carried a price.';
-  // The stamp is on the note rather than tucked into a legend, because a curve
-  // is only written when something moved: the one on screen can be weeks old,
-  // and a price a reader is about to act on has to carry its own age.
-  return `Dates outside the watched month come from the booking horizon collected ${collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.`;
+  const inside = 'Every date in this frame is inside the watched month.';
+  const failed = `The booking horizon could not be read: ${error?.message ?? 'no reason given'}. That is a fault at our end and says nothing about what these dates cost.`;
+  const pending = 'Reading the booking horizon…';
+  const uncollected =
+    'The booking horizon has not been collected for this route yet, so the dates outside the watched month are blank. Adding a route now collects its horizon; a route added before that does it needs one collection pass.';
+  const empty = 'Nothing in this frame carried a price.';
+  const collected = `Dates outside the watched month come from the booking horizon collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.`;
+
+  const said = [inside, failed, pending, uncollected, empty, collected];
+  if (!needsCurve) return { said, live: 0 };
+  if (error !== null) return { said, live: 1 };
+  if (loading) return { said, live: 2 };
+  if (curve === null) return { said, live: 3 };
+  return { said, live: priced === 0 ? 4 : 5 };
 }

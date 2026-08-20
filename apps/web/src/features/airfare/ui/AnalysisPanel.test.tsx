@@ -392,7 +392,7 @@ describe('where the reader may walk', () => {
     openDeparture();
     click('Month');
     expect(screen.queryByLabelText('Next month')).not.toBeInTheDocument();
-    expect(screen.getByTestId('horizon-note')).toHaveTextContent(
+    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
       'Every date in this frame is inside the watched month',
     );
   });

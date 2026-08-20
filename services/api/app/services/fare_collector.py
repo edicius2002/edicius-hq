@@ -36,12 +36,18 @@ the collector was down.
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
 import httpx
 
-from app.adapters.fares.models import CalendarQuery, FareError, FareQuery, FareSnapshot
+from app.adapters.fares.models import (
+    CalendarPrice,
+    CalendarQuery,
+    FareError,
+    FareQuery,
+    FareSnapshot,
+)
 from app.adapters.fares.registry import (
     CALENDAR_RANGE_DAYS,
     DEFAULT_PROVIDER,
@@ -536,6 +542,85 @@ async def collect_calendars(
     return report
 
 
+#: How far back a refused window's far end may be walked, and in what steps.
+#:
+#: Measured 2026-08-20: the same window answers ending +329 days out and is
+#: refused ending +330, and the day before *that* +330 answered — so the edge
+#: is a calendar date the provider will price up to, not a distance from today,
+#: and it therefore moves one day closer every day until the provider extends
+#: its schedule. A single fixed step would work for exactly one day. Doubling
+#: finds an edge a month adrift in five extra requests and costs one in the
+#: ordinary case, and the total is bounded so a provider that stops answering
+#: entirely is reported rather than probed at forever.
+_NARROW_STEPS = (1, 2, 4, 8, 16)
+
+
+async def _price_window(
+    client: httpx.AsyncClient,
+    origin: str,
+    destination: str,
+    currency: str,
+    start: str,
+    end: str,
+    provider: str,
+    gap_seconds: float,
+) -> tuple[list[CalendarPrice], int, FareError | None]:
+    """
+    One window's prices, narrowing the far end if the provider will not reach it.
+
+    Only `range-refused` is retried, and only by asking for *less*. Every other
+    refusal is the caller's to report unchanged — a parse failure or a consent
+    page does not become an answer by being asked again, and 12.4 wants those
+    loud rather than smoothed over by a retry loop.
+
+    The window that comes back is the window that was answered, and the curve
+    records its own `from`/`to`, so a horizon that fell short says so on disk
+    instead of looking like a year nobody priced the end of.
+    """
+    requests = 0
+    attempt_end = end
+    for step in (0, *_NARROW_STEPS):
+        if step:
+            attempt_end = _days_before(end, sum(_NARROW_STEPS[: _NARROW_STEPS.index(step) + 1]))
+            if attempt_end <= start:
+                break
+            await asyncio.sleep(gap_seconds)
+        requests += 1
+        try:
+            points = await fetch_calendar(
+                client,
+                CalendarQuery(
+                    origin=origin,
+                    destination=destination,
+                    start=start,
+                    end=attempt_end,
+                    currency=currency,
+                ),
+                provider=provider,
+            )
+        except FareError as error:
+            if error.code != "range-refused":
+                return [], requests, error
+            refusal = error
+            continue
+        if step:
+            logger.info(
+                "fare calendar narrowed %s-%s to %s..%s after %d refusal(s)",
+                origin,
+                destination,
+                start,
+                attempt_end,
+                requests - 1,
+            )
+        return points, requests, None
+    return [], requests, refusal
+
+
+def _days_before(day: str, days: int) -> str:
+    """`YYYY-MM-DD` moved back, through the calendar rather than through a clock."""
+    return (date.fromisoformat(day) - timedelta(days=days)).isoformat()
+
+
 async def _collect_calendar(
     client: httpx.AsyncClient,
     origin: str,
@@ -553,22 +638,13 @@ async def _collect_calendar(
     for index, (start, end) in enumerate(windows):
         if index:
             await asyncio.sleep(gap_seconds)
-        requests += 1
-        try:
-            points.extend(
-                await fetch_calendar(
-                    client,
-                    CalendarQuery(
-                        origin=origin,
-                        destination=destination,
-                        start=start,
-                        end=end,
-                        currency=currency,
-                    ),
-                    provider=provider,
-                )
-            )
-        except FareError as error:
+        window_points, spent, error = await _price_window(
+            client, origin, destination, currency, start, end, provider, gap_seconds
+        )
+        requests += spent
+        if error is None:
+            points.extend(window_points)
+        else:
             # The whole curve fails, not the window. Two windows are one
             # observation of one year, and storing half of it would put a curve
             # in the archive that stops in February for a reason the file does

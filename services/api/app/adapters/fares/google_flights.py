@@ -862,10 +862,24 @@ def _graph_data(frames: list[Any]) -> Any:
                 ) from exc
         status = frame[5] if len(frame) > 5 else None
         code = status[0] if isinstance(status, list) and status else None
+        # Status 3 gets its own code. Every refusal used to arrive as
+        # `upstream-error`, so a caller that wanted to react to *this* one — the
+        # only refusal it can do anything about, by asking for less — had to
+        # match on the message text. Measured 2026-08-20: a window ending +330
+        # days out is refused where the same window ending +329 answers in full,
+        # and the day before that +330 answered, so the far edge is a date the
+        # provider will price up to rather than a distance from today. Naming
+        # the code is what lets the collector narrow and retry without reading
+        # English.
+        if code == 3:
+            raise FareError(
+                "range-refused",
+                "Google Flights refused the calendar request with status 3: "
+                "the range reaches further ahead than it will price",
+            )
         raise FareError(
             "upstream-error",
-            f"Google Flights refused the calendar request with status {code!r}"
-            + (" (the date range is too wide)" if code == 3 else ""),
+            f"Google Flights refused the calendar request with status {code!r}",
         )
     raise FareError("unreadable", "Google Flights calendar answer had no wrb.fr frame")
 

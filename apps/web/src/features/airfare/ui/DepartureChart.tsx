@@ -15,7 +15,7 @@ import {
   frameDays,
   frameSource,
   isWatched,
-  sourceRuns,
+  railLabels,
   sourceSeams,
   type CurveMark,
   type FrameDay,
@@ -92,12 +92,6 @@ const ANCHOR: Record<TagAnchor, string> = {
 };
 
 const UNIT: Record<Granularity, string> = { day: 'day', week: 'week', month: 'month' };
-
-/** What each stretch of the frame is drawn from, in the fewest words that are true. */
-const SOURCE_WORDS: Record<'board' | 'curve', string> = {
-  board: 'every flight, at the hour it departs',
-  curve: 'one price a date',
-};
 
 type DepartureChartProps = {
   snapshots: FareSnapshot[];
@@ -241,7 +235,7 @@ export function DepartureChart({
   );
 
   const seams = useMemo(() => sourceSeams(days), [days]);
-  const runs = useMemo(() => sourceRuns(days), [days]);
+  const rail = useMemo(() => railLabels(days, VIEW.width - VIEW.pad.left - VIEW.pad.right), [days]);
 
   /*
    * The cloud and the rings, held as elements rather than rebuilt each render.
@@ -474,9 +468,12 @@ export function DepartureChart({
 
         {/*
           The seam: where the boards stop and the curve starts, and with it
-          where the axis stops being a clock. Drawn full height and through the
-          rail, because it is a statement about the whole column either side of
-          it rather than about the plot alone.
+          where the axis stops being a clock. It runs from the top of the plot
+          past the date labels and stops above the source rail — a statement
+          about the whole column either side of it, but not one that is allowed
+          to rule through the words naming the two sides. On a watch narrowed to
+          one departure date the two seams stand a single date apart, and taken
+          to the rail they crossed `flights, by hour` twice.
         */}
         {seams.map((offset) => (
           <line
@@ -484,7 +481,7 @@ export function DepartureChart({
             x1={xOf(offset, period, VIEW)}
             x2={xOf(offset, period, VIEW)}
             y1={VIEW.pad.top}
-            y2={SOURCE_BASELINE + 3}
+            y2={AXIS_BASELINE + 4}
             className={styles.seam}
             data-testid="source-seam"
             aria-hidden="true"
@@ -518,15 +515,15 @@ export function DepartureChart({
           a change of kind, and a reader who is not told will read it as the
           flights having vanished.
         */}
-        {runs.map((run) => (
+        {rail.map((label) => (
           <text
-            key={`${run.source}-${run.from}`}
-            x={xOf(((run.from + run.to) / 2) * MINUTES_PER_DAY, period, VIEW)}
+            key={label.source}
+            x={VIEW.pad.left + label.centre}
             y={SOURCE_BASELINE}
             className={`${styles.sourceLabel} ${styles.tagMiddle}`}
-            data-testid={`source-${run.source}`}
+            data-testid={`source-${label.source}`}
           >
-            {SOURCE_WORDS[run.source]}
+            {label.text}
           </text>
         ))}
 

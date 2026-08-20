@@ -7,6 +7,7 @@ import {
   framePeriodKeys,
   frameSource,
   isWatched,
+  railLabels,
   sourceRuns,
   sourceSeams,
 } from '@/features/airfare/lib/departureFrame';
@@ -218,5 +219,137 @@ describe('where the reader can step to', () => {
   it('anchors a step outside the month on the period’s own first date', () => {
     expect(anchorFor('2027-05', 'month', boardDays)).toBe('2027-05-01');
     expect(anchorFor('2027-W17', 'week', boardDays)).toBe('2027-04-26');
+  });
+});
+
+describe('the rail that says which archive answered where', () => {
+  /**
+   * The plot the real chart draws in: a 760-unit viewBox less its left margin
+   * (`marginForPrices(8)`, which is 84) and its 16 of right padding.
+   */
+  const TRACK = 660;
+
+  const boxes = (labels: ReturnType<typeof railLabels>) =>
+    labels.map((label) => [label.centre - label.width / 2, label.centre + label.width / 2]);
+
+  const disjoint = (labels: ReturnType<typeof railLabels>) =>
+    boxes(labels).every(([, to], index) => {
+      const next = boxes(labels)[index + 1];
+      return next === undefined || next[0] >= to;
+    });
+
+  /**
+   * The frame the defect was found in, on the owner's own archive.
+   *
+   * ARI-SCL carries `focusDate: 2027-03-06`, so the page narrows the boards to
+   * that one departure date and the week of 1-7 March is three runs: curve,
+   * board, curve. Labelling every run drew a second `one price a date` through
+   * the tail of `every flight, at the hour it departs`.
+   */
+  const focusedWeek = frameDays(scatterWindow('2027-W09', 'week'), {
+    from: '2027-03-06',
+    to: '2027-03-06',
+  });
+
+  it('names each archive once, however many stretches it holds', () => {
+    expect(sourceRuns(focusedWeek).map((run) => run.source)).toEqual(['curve', 'board', 'curve']);
+    expect(railLabels(focusedWeek, TRACK).map((label) => label.source)).toEqual(['curve', 'board']);
+  });
+
+  it('draws no two labels through each other in that frame', () => {
+    // Measured in a browser before the fix: the board label spanned 504.5 to
+    // 700.8 and the third run's curve label 653.3 to 740.5 — 47.5 units of
+    // overlap, which read as garbled text rather than as something broken.
+    const labels = railLabels(focusedWeek, TRACK);
+    expect(disjoint(labels)).toBe(true);
+  });
+
+  it('puts each label on the widest stretch its archive holds', () => {
+    // The curve holds 1-5 March and 7 March; the label belongs on the five.
+    const [curve, board] = railLabels(focusedWeek, TRACK);
+    const unit = TRACK / 7;
+    expect(curve.centre).toBeCloseTo(2.5 * unit, 6);
+    expect(board.centre).toBeCloseTo(5.5 * unit, 6);
+  });
+
+  it('shortens the wording where the full form will not fit its own stretch', () => {
+    const [curve, board] = railLabels(focusedWeek, TRACK);
+    // One date of seven is 94 units and the full board wording needs 196.
+    expect(board.text).toBe('flights, by hour');
+    // Five dates is 471, and the curve's full wording needs 87.
+    expect(curve.text).toBe('one price a date');
+  });
+
+  it('still names a stretch too narrow for even the short form', () => {
+    // A whole month with the boards narrowed to one date: 21 units of track
+    // against 87 of glyphs. The label overhangs and still points at the
+    // stretch, because dropping the name of the one stretch a reader cannot
+    // identify from its marks is the rail failing at its job.
+    const month = frameDays(scatterWindow('2027-03', 'month'), {
+      from: '2027-03-16',
+      to: '2027-03-16',
+    });
+    const labels = railLabels(month, TRACK);
+    expect(labels.map((label) => label.source).sort()).toEqual(['board', 'curve']);
+    expect(labels.find((label) => label.source === 'board')!.text).toBe('flights, by hour');
+    expect(disjoint(labels)).toBe(true);
+  });
+
+  it('names one archive where the frame only has one', () => {
+    const inside = frameDays(scatterWindow('2027-W10', 'week'), MARCH);
+    expect(railLabels(inside, TRACK)).toEqual([
+      expect.objectContaining({ source: 'board', text: 'every flight, at the hour it departs' }),
+    ]);
+  });
+
+  it('keeps every label inside the plot rather than hanging one off the edge', () => {
+    const labels = railLabels(focusedWeek, TRACK);
+    for (const label of labels) {
+      expect(label.centre - label.width / 2).toBeGreaterThanOrEqual(0);
+      expect(label.centre + label.width / 2).toBeLessThanOrEqual(TRACK);
+    }
+  });
+
+  it('drops one only when the two cannot be fitted at any wording', () => {
+    // A track far narrower than this chart's, which is the only way to force
+    // it. The boards survive a tie because a bar reads as a whole-date price on
+    // its own while a column of dots needs the clock named.
+    const labels = railLabels(focusedWeek, 120);
+    expect(labels).toHaveLength(1);
+    expect(disjoint(labels)).toBe(true);
+  });
+
+  it('never crosses, for every frame a watched month and a focus can produce', () => {
+    /*
+     * The invariant stated as a sweep rather than as an argument from the
+     * geometry, because the defect was exactly a case nobody had enumerated.
+     * Every ISO week and every calendar month of 2027, against every watch a
+     * route can have — the whole month, and each single date inside it.
+     */
+    const watches: { from: string; to: string }[] = [MARCH];
+    for (let day = 1; day <= 31; day += 1) {
+      const date = `2027-03-${String(day).padStart(2, '0')}`;
+      watches.push({ from: date, to: date });
+    }
+
+    const keys: [string, 'week' | 'month'][] = [];
+    for (let week = 8; week <= 14; week += 1) {
+      keys.push([`2027-W${String(week).padStart(2, '0')}`, 'week']);
+    }
+    for (let month = 2; month <= 4; month += 1) {
+      keys.push([`2027-${String(month).padStart(2, '0')}`, 'month']);
+    }
+
+    let checked = 0;
+    for (const watch of watches) {
+      for (const [key, granularity] of keys) {
+        const labels = railLabels(frameDays(scatterWindow(key, granularity), watch), TRACK);
+        expect(disjoint(labels)).toBe(true);
+        // And every archive on screen is still named exactly once.
+        expect(new Set(labels.map((label) => label.source)).size).toBe(labels.length);
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(watches.length * keys.length);
   });
 });

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Granularity } from '@/features/airfare/lib/buckets';
-import { anchorFor, framePeriodKeys } from '@/features/airfare/lib/departureFrame';
+import { anchorFor, framePeriodKeys, RAIL_CHAR_WIDTH } from '@/features/airfare/lib/departureFrame';
 import { activeKey, departureDays, stepKey } from '@/features/airfare/lib/flightScatter';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import type { CalendarCurve, CalendarPoint, FareOffer, FareSnapshot } from '@/shared/api/fares';
@@ -765,5 +765,84 @@ describe('a whole month of departures', () => {
     // The same nodes, not replacements — the dots were never torn down.
     expect(dots(container)[0]).toBe(all[0]);
     expect(perMove).toBeLessThan(60);
+  });
+});
+
+describe('a watch narrowed to one departure date', () => {
+  /**
+   * The frame the rail defect was found in, on the owner's own ARI-SCL.
+   *
+   * That watch carries a focus date, so the page narrows the boards to one
+   * departure and the week around it is three stretches: curve, board, curve.
+   * Every earlier test here has two, which is exactly why nothing caught the
+   * rail drawing a second `one price a date` through the board label.
+   */
+  const ONE_DAY = [
+    snapshot('2027-03-06', [
+      offer({ flightNumber: '11', departureAt: '2027-03-06T07:15', price: 62.94 }),
+      offer({ flightNumber: '12', departureAt: '2027-03-06T19:55', price: 64.9 }),
+    ]),
+  ];
+  const CURVE = curveOf(
+    '2027-03-01',
+    '2027-03-31',
+    Array.from({ length: 31 }, (_, index) => ({
+      departureDate: `2027-03-${String(index + 1).padStart(2, '0')}`,
+      price: 62.94,
+    })),
+  );
+  const FOCUS = { from: '2027-03-06', to: '2027-03-06' };
+
+  function focused(granularity: Granularity = 'week') {
+    return chart({ snapshots: ONE_DAY, curve: CURVE, watched: FOCUS, granularity });
+  }
+
+  it('draws the frame the defect was found in', () => {
+    const { container } = focused();
+    expect(container.textContent).toContain('between 01/03/2027 00:00 and 07/03/2027 23:59');
+    expect(container.textContent).toContain('2 flights and 6 priced dates');
+  });
+
+  it('marks both boundaries around the single board date', () => {
+    focused();
+    expect(screen.getAllByTestId('source-seam')).toHaveLength(2);
+  });
+
+  it('names each archive exactly once, however many stretches it holds', () => {
+    // Two labels, not three. `getByTestId` throws on a duplicate, which is the
+    // assertion: before the fix there were two `source-curve` nodes.
+    focused();
+    expect(screen.getByTestId('source-board')).toBeInTheDocument();
+    expect(screen.getByTestId('source-curve')).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^source-(board|curve)$/)).toHaveLength(2);
+  });
+
+  it('draws no two rail labels through each other', () => {
+    const { container } = focused();
+    const labels = [
+      ...container.querySelectorAll('[data-testid^="source-board"], [data-testid^="source-curve"]'),
+    ]
+      .map((node) => {
+        const centre = Number(node.getAttribute('x'));
+        // The same width arithmetic the placement used; jsdom has no
+        // `getComputedTextLength` to measure the rendered glyphs with.
+        const width = (node.textContent ?? '').length * RAIL_CHAR_WIDTH;
+        return { from: centre - width / 2, to: centre + width / 2 };
+      })
+      .sort((a, b) => a.from - b.from);
+
+    for (let index = 1; index < labels.length; index += 1) {
+      expect(labels[index].from).toBeGreaterThanOrEqual(labels[index - 1].to);
+    }
+  });
+
+  it('keeps naming both archives when the boards are one date of a whole month', () => {
+    // The narrowest stretch this chart can produce: one date out of thirty-one
+    // is 21 units of track against 87 of glyphs. The label overhangs rather
+    // than vanishing, because the stretch it names is the one a reader cannot
+    // identify from its marks alone.
+    focused('month');
+    expect(screen.getByTestId('source-board')).toHaveTextContent('flights, by hour');
+    expect(screen.getByTestId('source-curve')).toBeInTheDocument();
   });
 });

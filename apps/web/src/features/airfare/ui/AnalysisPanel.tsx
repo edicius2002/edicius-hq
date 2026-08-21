@@ -134,6 +134,18 @@ type AnalysisPanelProps = {
   /** How much of chart B's frame is on screen, or null for the whole of it. */
   viewport: Viewport | null;
   onViewportChange: (viewport: Viewport | null) => void;
+  /**
+   * The open route as a link out needs it, passed through to chart B and used
+   * for nothing else here.
+   *
+   * `route` above already carries the city pair, and this is deliberately not
+   * derived from it: the origin's *country* decides which storefront a carrier's
+   * search opens in and is not on a `FareRoute` at all — it comes off the
+   * airports table the page holds for the map. Assembled once above and handed
+   * down whole, so the two panels that draw these links cannot disagree about
+   * which leg they are drawing them for.
+   */
+  leg?: { origin: string; destination: string; originCountry: string | null } | null;
 };
 
 /**
@@ -165,6 +177,7 @@ export function AnalysisPanel({
   onAnchorChange,
   viewport,
   onViewportChange,
+  leg = null,
 }: AnalysisPanelProps) {
   const [view, setView] = useState<ChartView>('moves');
   const routeKey = route ? routeId(route) : null;
@@ -412,6 +425,7 @@ export function AnalysisPanel({
               onViewportChange={onViewportChange}
               horizonLoading={curveLoading}
               horizonError={curveError}
+              leg={leg}
               label={
                 route ? `What each departure date costs for ${where}` : 'Fares by departure date'
               }

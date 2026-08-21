@@ -272,6 +272,36 @@ export function AirfarePage() {
     };
   }, [airports.data, selected]);
 
+  /*
+   * The open route as the two panels that link out to airlines need it.
+   *
+   * Assembled once here rather than twice at the two call sites, because the
+   * country is the awkward half: a `FareRoute` carries the city pair and
+   * nothing else, and which storefront a carrier's booking search opens in is
+   * decided by the origin airport's country, which lives on the airports table
+   * this page already holds for the map. Two copies of that lookup would be two
+   * places for the chart and the table to start disagreeing about whether a
+   * flight is reachable.
+   *
+   * Memoised because the chart depends on its identity: it is a dependency of
+   * the memo that builds ~899 `<circle>` elements, and a fresh literal each
+   * render would rebuild all of them on every pointer move.
+   *
+   * Null until both are known, which draws no links rather than links into a
+   * storefront picked by guesswork.
+   */
+  const leg = useMemo(
+    () =>
+      selected === null
+        ? null
+        : {
+            origin: selected.origin,
+            destination: selected.destination,
+            originCountry: airports.data?.get(selected.origin)?.country ?? null,
+          },
+    [selected, airports.data],
+  );
+
   return (
     <section className={styles.page} aria-labelledby="page-title">
       {/*
@@ -499,6 +529,12 @@ export function AirfarePage() {
           onAnchorChange={setAnchor}
           viewport={routeView.viewport}
           onViewportChange={setViewport}
+          /*
+            And the leg, which chart B needs for one thing: which of its marks
+            can be reached at their own airline, and where the flight number in
+            the line under the plot links to.
+          */
+          leg={leg}
         />
       </Panel>
 
@@ -527,10 +563,20 @@ export function AirfarePage() {
           (12.260), so the table's name is `Flights seen · March 2027` and can
           no longer be a single date over a month of rows.
         */}
+        {/*
+          And the leg, which the table needs for one thing only: the link from
+          each row's flight number out to that airline's own booking search. A
+          row carries its carrier and its departure stamp and nothing about the
+          city pair, and the origin's country is not in the archive at all — it
+          is on the airports table this page already holds for the map. It is
+          the same object the analysis panel above is given, so the two panels
+          cannot disagree about which flights are reachable.
+        */}
         <FlightTable
           snapshots={snapshots}
           granularity={granularity}
           departure={selected ? formatFlightMonth(selected.month) : null}
+          leg={leg}
         />
       </Panel>
     </section>

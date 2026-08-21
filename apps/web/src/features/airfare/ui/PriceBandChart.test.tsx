@@ -518,3 +518,64 @@ describe('the crosshair over a period with no figure', () => {
     expect(screen.queryByTestId('price-tag-text')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * The legend, after the same cut the departure chart's took.
+ *
+ * The owner's rule for both charts: the line as it is drawn, its colour, and the
+ * minimum meaning. Two charts sharing one box and reading as two different
+ * products is worse than either of them reading badly, so what this pins is that
+ * they now read the same way — and that shortening did not throw a meaning away.
+ */
+describe('the legend as marks rather than sentences', () => {
+  const NONE_ON_THE_18TH = [{ key: '2026-08-18', label: '08-18', count: 2 }];
+
+  function legend() {
+    const { container } = render(
+      <PriceBandChart
+        ours={OURS}
+        baseline={BASELINE}
+        unsold={NONE_ON_THE_18TH}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    return [...container.querySelectorAll('figcaption span')];
+  }
+
+  it('names every mark in three words or fewer and keeps its sentence', () => {
+    const entries = legend();
+    expect(entries).toHaveLength(4);
+    for (const entry of entries) {
+      expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
+      // The clause it used to print is what pointing at it now gets.
+      expect(entry.getAttribute('title')).toBeTruthy();
+    }
+  });
+
+  it('keeps our own series distinguishable from the provider figure', () => {
+    // The one distinction this chart is for: what we measured against what the
+    // provider claims. Two labels sharing a word would undo it.
+    legend();
+    const ours = screen.getByTitle('Our observations — range and median per day');
+    const theirs = screen.getByTitle(
+      'What the provider says it usually costs — one rounded figure a day',
+    );
+    expect(ours).toHaveTextContent('Our observations');
+    expect(theirs).toHaveTextContent('Usually costs');
+    expect(ours.textContent).not.toBe(theirs.textContent);
+  });
+
+  it('still tells an empty board from a stretch nobody looked at', () => {
+    // 12.231's distinction, carried through the cut: one is an absence we
+    // measured and the other is an absence of measuring.
+    legend();
+    expect(
+      screen.getByTitle('Nothing on sale — we asked and the board came back empty'),
+    ).toHaveTextContent('None on sale');
+    expect(
+      screen.getByTitle('A blank stretch is time nobody looked at — the axis is spaced by date'),
+    ).toHaveTextContent('Nobody looked');
+  });
+});

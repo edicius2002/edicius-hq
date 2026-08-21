@@ -181,9 +181,20 @@
   border: 0;
 }
 
+/*
+ * The legend, centred under the plot, as the departure chart's is.
+ *
+ * Both are `figcaption`s under a full-width figure, and a short row ragged
+ * against the left edge reads as something that fell off the bottom of the
+ * chart. Centring is also what keeps the two charts reading as one panel: they
+ * sit in the same box, one replaces the other, and a legend that jumped from
+ * centred to left on the swap would be the panel changing character rather than
+ * changing question.
+ */
 .legend {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 6px 20px;
   font-size: 0.76rem;
   color: var(--color-muted);

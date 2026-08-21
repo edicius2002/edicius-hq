@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addRoute,
-  collectableRoutes,
+  hasDeparted,
   collectableYears,
   EMPTY_FARE_ROUTES,
   formatFlightDate,
@@ -355,27 +355,23 @@ describe('lastCollectableDay', () => {
   });
 });
 
-describe('collectableRoutes', () => {
-  it('keeps the month we are in and every one after it', () => {
+describe('hasDeparted', () => {
+  it('counts the month we are in as still to come, and every one before it as gone', () => {
     // A month is over only once the calendar has left it. The 17th of August
     // is halfway through August and August is still worth collecting — the
     // days inside it that have gone are skipped one at a time by the
     // collector, which is the only side that can say so by name.
-    const document = {
-      version: 1 as const,
-      routes: [
-        { ...LIM_SCL, month: '2026-07' },
-        { ...LIM_SCL, month: '2026-08' },
-        { ...LIM_SCL, month: '2026-10' },
-      ],
-    };
-    expect(collectableRoutes(document, '2026-08-17').map((r) => r.month)).toEqual([
-      '2026-08',
-      '2026-10',
-    ]);
-    // The finished one stays in the document — its history is still worth
-    // reading — it is simply never asked about again.
-    expect(document.routes).toHaveLength(3);
+    expect(hasDeparted({ ...LIM_SCL, month: '2026-07' }, '2026-08-17')).toBe(true);
+    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-08-17')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, month: '2026-10' }, '2026-08-17')).toBe(false);
+  });
+
+  it('reads the first and the last day of a month the same way', () => {
+    // The comparison is on `YYYY-MM`, so nothing inside a month can move the
+    // answer — which is the whole reason a row cannot decide this day by day.
+    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-08-01')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-08-31')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-09-01')).toBe(true);
   });
 });
 

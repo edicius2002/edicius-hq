@@ -624,16 +624,27 @@ export function PriceBandChart({
         {reading === null ? '' : readingSentence(reading, currency)}
       </p>
 
+      {/*
+        **Names, not sentences** — the same cut the departure chart's legend
+        took, applied here because two charts in one panel reading as two
+        different products is worse than either of them reading badly. Each
+        entry is a mark and the two or three words that say which mark it is;
+        the clause it used to print is its `title`, which is what a reader wants
+        once they have found the line they were looking for and not before.
+      */}
       <figcaption className={styles.legend}>
-        <span className={styles.keyOurs}>
-          <i /> Our observations — range and median per {unit}
+        <span className={styles.keyOurs} title={`Our observations — range and median per ${unit}`}>
+          <i /> Our observations
         </span>
-        <span className={styles.keyBaseline}>
+        <span className={styles.keyBaseline} title={axis.baselineMeaning}>
           <i /> {axis.baselineLegend}
         </span>
         {unsold.length > 0 ? (
-          <span className={styles.keyUnsold}>
-            <i /> Nothing on sale — we asked and the board came back empty
+          <span
+            className={styles.keyUnsold}
+            title="Nothing on sale — we asked and the board came back empty"
+          >
+            <i /> None on sale
           </span>
         ) : null}
         {/*
@@ -641,10 +652,14 @@ export function PriceBandChart({
           is nothing in the archive that records a day we meant to look and did
           not, so there is no mark to draw for it; what says it is the axis,
           which is spaced by time and leaves a stretch nobody reached as wide as
-          it really was.
+          it really was. Shortened like the rest, and the words it keeps are the
+          ones that distinguish it: this is not an absence we measured.
         */}
-        <span className={styles.keyGap}>
-          <i /> A blank stretch is time nobody looked at — the axis is spaced by date
+        <span
+          className={styles.keyGap}
+          title="A blank stretch is time nobody looked at — the axis is spaced by date"
+        >
+          <i /> Nobody looked
         </span>
       </figcaption>
     </figure>

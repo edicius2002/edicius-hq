@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import type { PassProgress } from '@/features/airfare/lib/passProgress';
 import type { RowReport } from '@/features/airfare/lib/rowReport';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
@@ -23,6 +24,7 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     today: TODAY,
     collecting: [] as readonly string[],
     reports: new Map<string, RowReport>(),
+    progress: new Map<string, PassProgress>(),
     onSelect: vi.fn(),
     onRemove: vi.fn(),
     onCollect: vi.fn(),
@@ -291,6 +293,46 @@ describe('RouteList', () => {
     // The region has to be in the document before its text changes, or a
     // screen reader has nothing to notice. Every row carries an empty one.
     expect(line).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('draws how far the pass has got, and only on the row running one', () => {
+    const running = routeId(ROUTES[0]);
+    const idle = routeId(ROUTES[1]);
+    renderList({
+      collecting: [running],
+      progress: new Map([[running, { completed: 4, polling: 31, fraction: 4 / 31 }]]),
+    });
+
+    const bar = screen.getByTestId(`collect-progress-${running}`);
+    // The fill is a width, so the figure the reader is looking at is checkable
+    // as the figure the pass reported rather than as a class name.
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe(`${(4 / 31) * 100}%`);
+    // Drawn and never read aloud: the line under it is already announcing "4
+    // of 31" into a live region, and a bar that entered the accessibility tree
+    // would have one row saying the same figure twice.
+    expect(bar).toHaveAttribute('aria-hidden', 'true');
+
+    // A row between presses costs no element at all — a track drawn on every
+    // row would be three pixels of ink down an idle watchlist.
+    expect(screen.queryByTestId(`collect-progress-${idle}`)).not.toBeInTheDocument();
+  });
+
+  it('sweeps rather than sits at zero while the pass has no denominator yet', () => {
+    // `polling` lands before the first upstream request but after the press
+    // returns, so there is a window in which the pass is running and how long
+    // it will be is unknown. A bar at zero would be claiming a length it has
+    // not got.
+    const running = routeId(ROUTES[0]);
+    renderList({
+      collecting: [running],
+      progress: new Map([[running, { completed: 0, polling: null, fraction: null }]]),
+    });
+
+    const bar = screen.getByTestId(`collect-progress-${running}`);
+    expect(bar.className).toMatch(/unplanned/);
+    // No inline width: the stylesheet owns the sweep, and a width written here
+    // would pin the fill and stop it moving.
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('');
   });
 
   it('still offers the fields when nothing is watched yet', () => {

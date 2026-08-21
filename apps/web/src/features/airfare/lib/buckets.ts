@@ -228,8 +228,16 @@ export type BucketAxis = {
    * while every axis in this app runs forwards left to right.
    */
   position: (key: string) => number;
-  /** What the second, dashed series is — the legend line under the chart. */
+  /**
+   * What the second, dashed series is: the two or three words beside its
+   * swatch, and the sentence a reader gets by pointing at it.
+   *
+   * Two fields because the legend became marks rather than sentences — a label
+   * is read by looking from the line on the chart to the same line in the row,
+   * and the explanation is what the reader wants once they have found it.
+   */
   baselineLegend: string;
+  baselineMeaning: string;
 };
 
 /** `2026-08-17` → whole days since the epoch, by the rule the rest of this file splits dates by. */
@@ -256,7 +264,8 @@ export function calendarAxis(granularity: Granularity): BucketAxis {
     // caption and the crosshair go through, so no two of them can disagree
     // about which Monday a week starts on.
     position: (key) => dayNumber(periodBounds(key, granularity).from.slice(0, 10)),
-    baselineLegend: 'What the provider says it usually costs — one rounded figure a day',
+    baselineLegend: 'Usually costs',
+    baselineMeaning: 'What the provider says it usually costs — one rounded figure a day',
   };
 }
 

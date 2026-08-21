@@ -54,6 +54,7 @@ from app.services.fare_collector import (
     FareWatch,
     collect_calendars,
 )
+from app.services.pass_stream import CALENDAR_STREAM
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +190,7 @@ class CalendarRunner:
         self._task = asyncio.get_running_loop().create_task(
             self._run(started, watches, provider, client, every_minutes)
         )
+        CALENDAR_STREAM.publish()
         return started
 
     async def _run(
@@ -207,6 +209,10 @@ class CalendarRunner:
             started.state = "failed"
             started.error = "The pass was cancelled before it finished"
             started.finished_at = _now()
+            # Before the re-raise: cancellation is what shutdown does, and a
+            # listener told nothing would hold a `running` document for a pass
+            # that will never move again.
+            CALENDAR_STREAM.publish()
             raise
         except Exception as error:  # a dead task is a silent one
             # The alternative is a task that raises into the event loop's
@@ -232,6 +238,12 @@ class CalendarRunner:
                 report.failed,
                 len(report.skipped),
             )
+        # Both endings, in one place after the branch. There is nothing in
+        # between to announce — a pass over one city pair has no halfway point,
+        # which is the same reason it has no observer — so this stream carries
+        # only the two moments that exist, and that is the whole of what the
+        # two-second poll it replaces was ever asking about.
+        CALENDAR_STREAM.publish()
 
     async def aclose(self) -> None:
         """

@@ -11,9 +11,11 @@ types that mirror them.
 """
 
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.adapters.fares.models import (
@@ -31,6 +33,8 @@ from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import FareWatch
 from app.services.fare_history import HISTORY
+from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
+from app.services.sse import KEEP_ALIVE, sse
 
 logger = logging.getLogger(__name__)
 
@@ -689,8 +693,106 @@ def collect_progress() -> CollectResponse:
     a client that can read the press's answer can read this one, and the
     summary it builds for a finished pass is the function it already had.
     """
+    return _current_pass()
+
+
+def _current_pass() -> CollectResponse:
+    """
+    The pass document as it stands, for whoever is asking.
+
+    Named because two endpoints now render it — the poll above and the stream
+    below — and they must render the same thing. A stream that built its own
+    view of a pass would be a second answer to the question `GET /collect`
+    already answers, which is the drift the frame docstring is about.
+    """
     running = RUNNER.current()
     return IDLE if running is None else _pass_model(running)
+
+
+# Declared after `GET /collect`, and the two do not collide: both are literal
+# paths with no parameter in them, so FastAPI matches `/collect/stream` exactly
+# and never reaches the shorter route. See the note above `/calendar/collect`
+# for what stops being true the moment anybody adds a parameterised sibling.
+@router.get("/collect/stream")
+async def stream_collection(request: Request) -> StreamingResponse:
+    """
+    A collection pass as it unfolds, pushed — `a-pass-is-pushed-not-polled`.
+
+    The same shape as `/api/market/stream` and for the same reasons — 8.19:
+    server-sent events rather than a socket, because this direction is the only
+    one carrying anything and an `EventSource` reconnects by itself. Nothing in
+    a frame names a provider (8.3); `source` is the same word `/collect` has
+    always answered with.
+
+    **What replaces what.** `GET /collect` used to be asked every two seconds by
+    every row that had pressed. That poll is cheap — it reads memory and reaches
+    no upstream — and it stays as the client's fallback, so this is an
+    improvement rather than a dependency. What it could never do is the third
+    thing: a pass is minutes long, the charts read `GET /history`, and that
+    endpoint answers with **every** snapshot for the city pair — measured on this
+    archive at 91 snapshots, ~327 kB, plus 1,846 baseline points at ~123 kB, and
+    growing without bound. Polling *that* every two seconds to keep a chart fresh
+    would trade a frozen page for 21 MB of refetching per four-minute pass, so
+    the archive's queries were only ever refreshed when the pass ended — and a
+    reader watching four minutes of nothing reloads the page, which is the
+    complaint this exists to answer.
+
+    **Two events, and both are documents this API already defines.**
+
+    - `pass` carries `CollectResponse`, byte for byte the thing `GET /collect`
+      answers with. The client's summary of a pass, its "whose pass is this"
+      check and its progress bar are the functions they already were.
+    - `snapshot` carries `SnapshotModel`, byte for byte an element of
+      `HistoryResponse.snapshots`. It is sent only for a look that actually
+      **wrote**, which on a half-hourly cadence is a minority of looks.
+
+    Both are the existing models rather than thinner cousins, and that is the
+    decision rather than an implementation detail. `tick_payload` in the market
+    router is the same idea done the other way — a shape invented for the socket
+    — and it drifted: the socket emitted an `EXTENDED` market state the browser
+    had no branch for, because one question was being answered in two places. A
+    frame that is the REST model cannot drift from the REST model.
+
+    The first `pass` frame is sent before anything is waited for, so a tab that
+    connects halfway through a pass is caught up rather than left waiting for
+    the next departure — and a tab that connects to an idle machine is told so
+    at once instead of sitting silent for twenty seconds.
+    """
+
+    async def events() -> AsyncIterator[str]:
+        # Subscribed *before* the catch-up frame is rendered, so a departure
+        # that lands between the two is queued rather than lost. The `with` is
+        # what makes that true — see `PassBroadcast.subscribe`, where doing it
+        # the other way left a hole exactly one document-render wide.
+        with COLLECTION_STREAM.subscribe() as updates:
+            yield sse("pass", _current_pass().model_dump(mode="json"))
+            # No timeout around this iteration — the broadcast does its own
+            # waiting and reports silence as a falsy update. `asyncio.wait_for`
+            # around `anext` delivers its cancellation *into* the generator,
+            # which runs the `finally`, unsubscribes and ends the response; the
+            # market stream paid roughly 150 reconnects an hour for that before
+            # it was found.
+            async for update in updates:
+                if await request.is_disconnected():
+                    return
+                if not update:
+                    yield KEEP_ALIVE
+                    continue
+                for snapshot in update.items:
+                    yield sse("snapshot", _snapshot_model(snapshot).model_dump(mode="json"))
+                if update.moved:
+                    yield sse("pass", _current_pass().model_dump(mode="json"))
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Nginx buffers by default, which would hold a departure until the
+            # buffer filled — the exact latency this endpoint exists to remove.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --------------------------------------------------------- collecting a curve --
@@ -934,5 +1036,47 @@ def collect_calendar_progress() -> CalendarCollectResponse:
     reason the board pair share theirs: a client that can read the press's
     answer can read this one without knowing which of the two it holds.
     """
+    return _current_calendar_pass()
+
+
+def _current_calendar_pass() -> CalendarCollectResponse:
+    """The curve pass as it stands, for both the poll above and the stream below."""
     running = CALENDAR_RUNNER.current()
     return CALENDAR_IDLE if running is None else _calendar_pass_model(running)
+
+
+@router.get("/calendar/collect/stream")
+async def stream_calendar_collection(request: Request) -> StreamingResponse:
+    """
+    A booking-horizon pass as it unfolds, pushed.
+
+    The board pass's twin, minus the half it has no use for. There is no
+    `snapshot` event here and the omission is the same judgement `CalendarPass`
+    already made about having no observer: a curve is one city pair and two
+    paced requests, so there is no halfway point a reader could act on and
+    nothing to push between the start and the end. What a client was polling
+    `GET /calendar/collect` every two seconds to find out is exactly and only
+    "has it stopped yet", and one `pass` frame answers that the moment it has.
+
+    The chart still refreshes from `GET /calendar` when the pass ends, as it
+    did: a curve is a few hundred points collected once a day per pair, which is
+    nothing like the unbounded `/history` payload that made pushing the board's
+    snapshots worth the trouble.
+    """
+
+    async def events() -> AsyncIterator[str]:
+        with CALENDAR_STREAM.subscribe() as updates:
+            yield sse("pass", _current_calendar_pass().model_dump(mode="json"))
+            async for update in updates:
+                if await request.is_disconnected():
+                    return
+                if update.moved:
+                    yield sse("pass", _current_calendar_pass().model_dump(mode="json"))
+                else:
+                    yield KEEP_ALIVE
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

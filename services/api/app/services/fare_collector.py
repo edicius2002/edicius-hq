@@ -108,8 +108,26 @@ class PassObserver(Protocol):
     def planned(self, *, polling: int, skipped: list[tuple[str, str]]) -> None:
         """How many departures this pass means to poll, before the first one."""
 
-    def collected(self, result: "RouteResult") -> None:
-        """One departure has come back, whatever it came back with."""
+    def collected(self, result: "RouteResult", snapshot: "FareSnapshot | None" = None) -> None:
+        """
+        One departure has come back, whatever it came back with.
+
+        `snapshot` is the board that was **written**, and is `None` whenever
+        nothing was: a look that the provider refused, a look the archive could
+        not store, and — much the commonest — a look that found the board
+        exactly as it was left, which on a half-hourly cadence is most looks.
+        That distinction is the whole value of the argument. An observer that
+        pushed the board on every look would put a point in front of a reader
+        that a page reload would then take away again, because `append_if_changed`
+        had decided there was nothing new to record.
+
+        It is a second argument rather than a field on `RouteResult` because the
+        two have different jobs and different weights: a result is a summary of
+        what happened and is kept for the whole pass, a snapshot is roughly
+        3.6 kB of offers that only the observer wants. Thirty-one of them held
+        on a report that already says everything the report is read for would be
+        a payload riding on a summary.
+        """
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,10 +244,10 @@ async def collect(
         for index, query in enumerate(queries):
             if index:
                 await asyncio.sleep(gap_seconds)
-            result = await _collect_one(session, query, provider, store)
+            result, written = await _collect_one(session, query, provider, store)
             results.append(result)
             if observer is not None:
-                observer.collected(result)
+                observer.collected(result, written)
     finally:
         if owned:
             await session.aclose()
@@ -733,7 +751,19 @@ async def _collect_one(
     query: FareQuery,
     provider: str,
     store: FareHistory,
-) -> RouteResult:
+) -> tuple[RouteResult, FareSnapshot | None]:
+    """
+    Look at one departure, and say what happened and what was written.
+
+    The second half of the pair is the board **if the archive took it**, and
+    `None` on every path where nothing was stored — a refusal, a failed write,
+    or a board that had not moved. It exists so a `PassObserver` can push the
+    new point at a reader while the pass is still running, and the alternative
+    was for that observer to re-read the file it had just been told about.
+    Nothing in the returned report carries it; `collect` hands it straight to
+    the observer and lets it go.
+    """
+
     def outcome(
         *,
         ok: bool,
@@ -780,7 +810,7 @@ async def _collect_one(
             outcome="error",
             error_code=error.code,
         )
-        return outcome(ok=False, error_code=error.code, error_message=error.message)
+        return outcome(ok=False, error_code=error.code, error_message=error.message), None
 
     snapshot = FareSnapshot(
         captured_at=looked_at,
@@ -838,7 +868,7 @@ async def _collect_one(
             outcome="error",
             error_code="write-failed",
         )
-        return outcome(ok=False, error_code="write-failed", error_message=str(error))
+        return outcome(ok=False, error_code="write-failed", error_message=str(error)), None
 
     cheapest = snapshot.cheapest
     store.record_check(
@@ -854,11 +884,17 @@ async def _collect_one(
         offers=len(result.offers),
         cheapest=cheapest.price if cheapest else None,
     )
-    return outcome(
-        ok=True,
-        changed=changed,
-        seeded=seeded,
-        offers=len(result.offers),
-        cheapest=cheapest.price if cheapest else None,
-        currency=snapshot.currency,
+    return (
+        outcome(
+            ok=True,
+            changed=changed,
+            seeded=seeded,
+            offers=len(result.offers),
+            cheapest=cheapest.price if cheapest else None,
+            currency=snapshot.currency,
+        ),
+        # Only when the archive actually took it. A look that found the board
+        # unchanged wrote nothing, so pushing the board would show a reader a
+        # point that is not in the file behind it.
+        snapshot if changed else None,
     )

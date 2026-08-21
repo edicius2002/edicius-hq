@@ -36,12 +36,16 @@ export default defineConfig({
      * widths it is derived from, which needs the text to survive as far as the
      * test. `Positions.module.css` joined it for the same reason: the width one
      * position card is given decides how many fit across the panel, and jsdom
-     * can see neither. The two Airfare files joined them for the third case of
-     * the same thing: whether the watchlist's rows scroll inside the row they
-     * share with the map turns entirely on `contain: size`, which jsdom does
-     * not implement and which was already wrong once on the Investing page for
-     * exactly that reason. Scoped to these files so no other suite changes
-     * behaviour.
+     * can see neither. The three Airfare files joined them for the third case
+     * of the same thing: whether the watchlist's rows scroll inside the row
+     * they share with the map turns entirely on `contain: size`, which jsdom
+     * does not implement and which was already wrong once on the Investing
+     * page for exactly that reason. `RouteMap.module.css` came last, with
+     * `a-taller-row-is-four-more-routes`: the stage's `min-height` is the only
+     * height in that row, so how many watched routes fit without a scrollbar
+     * is a number in *that* file and the two beside it, and `routesScroll`
+     * cannot check the sum with a third of it missing. Scoped to these files
+     * so no other suite changes behaviour.
      */
     css: {
       include: [
@@ -49,6 +53,7 @@ export default defineConfig({
         /Positions\.module\.css/,
         /AirfarePage\.module\.css/,
         /RouteList\.module\.css/,
+        /RouteMap\.module\.css/,
         /styles\/tokens\.css/,
       ],
     },

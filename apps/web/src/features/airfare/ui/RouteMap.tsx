@@ -41,6 +41,7 @@ import {
   withoutOverlaps,
 } from '@/features/airfare/lib/globe';
 import type { Subdivisions } from '@/features/airfare/lib/subdivisions';
+import { type Cap, capped, cappedRuns, capsMeet, viewCap } from '@/features/airfare/lib/visible';
 import { useSubdivisionCatalogue, useSubdivisions } from '@/features/airfare/hooks/useSubdivisions';
 import { Button } from '@/shared/ui/Button';
 
@@ -116,6 +117,22 @@ const BOUNDARIES = mesh(
   worldAtlas as never,
   (worldAtlas as never as { objects: { countries: never } }).objects.countries,
 );
+
+/*
+ * The same two layers, indexed by where they are.
+ *
+ * Built at import because they never move: 177 country outlines and about a
+ * thousand runs of boundary, each with the cap that encloses it, so that a
+ * frame can ask what could be on screen instead of projecting the planet to
+ * find out. `lib/visible` carries the reasoning and the measurements; the short
+ * form is that at the 32x ceiling the reader is looking at 2.9° of sphere, and
+ * without this the other 357° are rotated, projected and resampled every frame
+ * so that the canvas can discard them.
+ */
+const WORLD_PARTS = capped(
+  (WORLD as unknown as { features: { type: 'Feature'; geometry: never }[] }).features,
+);
+const BOUNDARY_RUNS = cappedRuns(BOUNDARIES as never);
 
 /**
  * How far in the map goes.
@@ -322,6 +339,18 @@ export function RouteMap({
    * are on the canvas, where there is no node for a stylesheet to hold.
    */
   const arrivedAt = useRef(new Map<string, number>());
+  /**
+   * The served geometry as this view projects it, kept until the view moves.
+   *
+   * See the block in `draw` that fills it. The short form: the fine layer is
+   * the one thing on this map that cannot be culled, because it *is* what the
+   * reader is looking at — and it is also the one thing that arrives while the
+   * camera is standing still, which is what makes projecting it once per view
+   * both possible and the difference between a fade and a lurch.
+   */
+  const served = useRef(
+    new Map<string, { view: string; of: Subdivisions; land: Path2D; borders: Path2D }>(),
+  );
   /** Whether any country is still fading in, which is the only thing that keeps the loop awake. */
   const [arriving, setArriving] = useState(false);
 
@@ -383,7 +412,14 @@ export function RouteMap({
    * once per country, which is nothing on a settle and real work sixty times a
    * second.
    */
-  const coarse = useMemo(() => outlinesOf(swapped ? swapped.split(',') : []), [swapped]);
+  const coarse = useMemo(() => {
+    const found = outlinesOf(swapped ? swapped.split(',') : []);
+    // Indexed on the same terms as everything else the map draws. The clipped
+    // shapes are the countries the reader zoomed into and are on screen by
+    // construction; the neighbours are whatever the bounding-box sweep swept
+    // up, which over Europe is most of the continent.
+    return { shapes: found.shapes, neighbours: capped(found.neighbours as never[]) };
+  }, [swapped]);
 
   /**
    * Every national border except those of the countries being redrawn.
@@ -400,17 +436,21 @@ export function RouteMap({
    * coarse mesh exactly once, and it is the only edge in the topology where
    * both tests would have fired.
    *
-   * Recomputed only when the drawn set moves. It walks the whole 1:110m
-   * topology, which is a few milliseconds once and unaffordable per frame.
+   * Recomputed only when the drawn set moves, and indexed by where each run of
+   * it falls at the same time. Measured, the mesh costs 3.4 ms to rebuild and
+   * the index over it 4.6 ms — both a few milliseconds once, on a settle, and
+   * both unaffordable per frame, which is why they sit together here.
    */
   const boundaries = useMemo(() => {
-    if (!swapped) return BOUNDARIES;
+    if (!swapped) return BOUNDARY_RUNS;
     const redrawn = new Set(swapped.split(','));
-    return mesh(
-      worldAtlas as never,
-      (worldAtlas as never as { objects: { countries: never } }).objects.countries,
-      (left: { id?: string | number }, right: { id?: string | number }) =>
-        !redrawn.has(String(left.id)) && !redrawn.has(String(right.id)),
+    return cappedRuns(
+      mesh(
+        worldAtlas as never,
+        (worldAtlas as never as { objects: { countries: never } }).objects.countries,
+        (left: { id?: string | number }, right: { id?: string | number }) =>
+          !redrawn.has(String(left.id)) && !redrawn.has(String(right.id)),
+      ) as never,
     );
   }, [swapped]);
 
@@ -494,6 +534,18 @@ export function RouteMap({
       projection === 'globe' ? projections.current.globe : projections.current.mercator;
     const path = geoPath(shown, context);
 
+    /*
+     * What the camera can see, and the one question every layer below asks
+     * before it projects anything.
+     *
+     * Computed once a frame rather than once a shape: it is the same cap for
+     * all of them, it costs one `asin` on the globe and four inversions on the
+     * flat map, and `lib/visible` explains why the frame that does not ask it
+     * spends half of itself on ground the reader cannot see.
+     */
+    const seen = viewCap(shown, rect, projection === 'globe', rotation.current);
+    const onScreen = (cap: Cap) => capsMeet(cap, seen);
+
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, rect.width, rect.height);
 
@@ -558,7 +610,12 @@ export function RouteMap({
      */
     const land = readToken(stage, '--map-land');
     context.beginPath();
-    path(WORLD);
+    // One country at a time rather than the whole collection in one call, so
+    // that the ones the camera cannot see are never streamed. Identical ink:
+    // the subpaths land in the same path, in the same order, and one `fill`
+    // still closes the lot — verified against the collection in the browser,
+    // pixel for pixel, at eleven views on both projections.
+    for (const part of WORLD_PARTS) if (onScreen(part.cap)) path(part.shape as never);
     context.fillStyle = land;
     context.fill();
 
@@ -598,7 +655,87 @@ export function RouteMap({
       (each): each is Subdivisions & { land: NonNullable<Subdivisions['land']> } =>
         each.land !== null,
     );
-    if (fine.length > 0 && coarse.shapes.length > 0) {
+
+    /*
+     * The served geometry projected once per *view* rather than once per frame.
+     *
+     * This is the layer the cull cannot help with, and the reason is worth
+     * stating: culling drops shapes that are somewhere else, and the shapes
+     * here are the countries the reader has deliberately closed in on. Peru's
+     * 1:10m outline is a single ring eighteen degrees across; at 32x the frame
+     * holds three degrees of it and the other fifteen are in the same ring, so
+     * there is nothing to skip. Measured, projecting the fine land and the fine
+     * internal borders of Peru, Bolivia and Chile was 16 to 20 ms a frame with
+     * everything else in the frame down to three.
+     *
+     * **But the moment that cost is paid is a moment the view is standing
+     * still.** A country's geometry is asked for a quarter of a second after
+     * the map stops moving, and it arrives to a fade of another quarter second
+     * — a dozen frames in which nothing changes except an opacity. Every one of
+     * those frames was reprojecting identical geometry to identical screen
+     * coordinates. So the projection is keyed on the view: the same scale, the
+     * same rotation, the same pan and the same frame gets the `Path2D` it got
+     * last frame, and a frame that moves the camera misses the key and pays in
+     * full, which is exactly the frame that has to.
+     *
+     * **Per country, not per view's worth of countries**, and that is the half
+     * that makes the fade a fade. A fan-out lands one country at a time, a few
+     * tens of milliseconds apart, and a single cache over the set would be
+     * thrown away by each of them — so the reader would pay to reproject Peru
+     * and Bolivia again in order to draw Chile for the first time, three times
+     * over, in the three frames where the fade is meant to be happening.
+     *
+     * That is also why it is a `Path2D` and not a list of points. It is the
+     * interface `geoPath` already writes into — `moveTo`, `lineTo`,
+     * `closePath` — so nothing about the drawing changes; it can be filled
+     * inside the clip below *and* stroked with the national borders further
+     * down from one projection instead of two; and `addPath` puts the several
+     * countries back into the one path a single fill and a single stroke need,
+     * without going near the sphere again.
+     *
+     * Polygon by polygon and run by run, so an outlying piece is skipped on the
+     * same terms a whole country is: Chile's file carries Easter Island
+     * 3,500 km off its coast, and a reader looking at Santiago should not be
+     * paying to project it.
+     */
+    const view = `${projection}|${zoom.current}|${rotation.current.join(',')}|${pan.current.x},${pan.current.y}|${rect.width}x${rect.height}`;
+    const held = served.current;
+    for (const country of held.keys()) {
+      if (!subdivisions.some((each) => each.country === country)) held.delete(country);
+    }
+    for (const each of subdivisions) {
+      const had = held.get(each.country);
+      // The geometry itself, not only the country's id: `useSubdivisions`
+      // caches forever so a country's shape does not change under a session
+      // today, but a cache keyed on an id would quietly draw the old shape if it
+      // ever did, and that is a bug nobody would look for here.
+      if (had && had.view === view && had.of === each) continue;
+      const built = { view, of: each, land: new Path2D(), borders: new Path2D() };
+      const intoLand = geoPath(shown, built.land as unknown as CanvasRenderingContext2D);
+      for (const part of each.landParts) if (onScreen(part.cap)) intoLand(part.shape);
+      const intoBorders = geoPath(shown, built.borders as unknown as CanvasRenderingContext2D);
+      for (const run of each.borderRuns) if (onScreen(run.cap)) intoBorders(run.shape);
+      held.set(each.country, built);
+    }
+
+    /*
+     * The several countries as the one shape the fill and the stroke both want.
+     *
+     * One path rather than one per country, because two shapes stroked
+     * separately are not the picture one shape stroked once is: wherever two of
+     * them share a frontier the edge is antialiased twice and comes out darker
+     * than the same line anywhere else.
+     */
+    let fineLand: Path2D | null = null;
+    if (fine.length > 0) {
+      fineLand = new Path2D();
+      for (const each of fine) {
+        const ready = held.get(each.country);
+        if (ready) fineLand.addPath(ready.land);
+      }
+    }
+
+    if (fineLand && coarse.shapes.length > 0) {
       context.save();
       context.beginPath();
       for (const shape of coarse.shapes) path(shape as never);
@@ -606,13 +743,11 @@ export function RouteMap({
 
       paintWater();
 
-      context.beginPath();
-      for (const each of fine) path(each.land);
       context.fillStyle = land;
-      context.fill();
+      context.fill(fineLand);
 
       context.beginPath();
-      for (const neighbour of coarse.neighbours) path(neighbour as never);
+      for (const neighbour of coarse.neighbours) if (onScreen(neighbour.cap)) path(neighbour.shape);
       context.fillStyle = land;
       context.fill();
       context.restore();
@@ -665,17 +800,23 @@ export function RouteMap({
       context.lineJoin = 'round';
       if (settled.length > 0) {
         context.globalAlpha = inner;
-        context.beginPath();
-        for (const each of settled) path(each.borders);
-        context.stroke();
+        // Gathered into one path and stroked once, from what this view already
+        // projected: at rest the opacity is a property of the layer and not of
+        // a country, and stroking country by country under a `globalAlpha`
+        // would darken every place two of them overlapped on screen.
+        const all = new Path2D();
+        for (const each of settled) {
+          const runs = held.get(each.country);
+          if (runs) all.addPath(runs.borders);
+        }
+        context.stroke(all);
       }
       for (const each of landing) {
         const coming = arrivalFade(each.country, at);
         if (coming <= 0) continue;
         context.globalAlpha = inner * coming;
-        context.beginPath();
-        path(each.borders);
-        context.stroke();
+        const runs = held.get(each.country);
+        if (runs) context.stroke(runs.borders);
       }
       context.restore();
     }
@@ -704,10 +845,24 @@ export function RouteMap({
      */
     context.lineWidth = Math.min(1.7, 0.85 + zoom.current * 0.18);
     context.lineJoin = 'round';
-    context.beginPath();
-    path(boundaries);
-    for (const each of fine) path(each.land);
-    context.stroke();
+    /*
+     * Still exactly one stroke, and that is not a detail.
+     *
+     * The coarse runs and the redrawn countries' own perimeters go into one
+     * `Path2D` — the fine half by `addPath`, since it was already built for the
+     * fill above — and the whole lot is stroked in a single call. Two strokes
+     * would put down the same lines in the same places and still not be the
+     * same picture: where a coarse border ends at a redrawn country's frontier
+     * the two runs share their last pixel, and an antialiased edge composited
+     * twice is darker than one composited once. Compared in the browser against
+     * the drawing this replaces, one stroke was identical at every view tested
+     * and two strokes were not.
+     */
+    const ink = new Path2D();
+    const into = geoPath(shown, ink as unknown as CanvasRenderingContext2D);
+    for (const run of boundaries) if (onScreen(run.cap)) into(run.shape);
+    if (fineLand) ink.addPath(fineLand);
+    context.stroke(ink);
   }, [fit, projection, subdivisions, coarse, boundaries, arrivalFade]);
 
   useEffect(() => {
@@ -1008,6 +1163,44 @@ export function RouteMap({
   const latestStep = useRef(stepZoom);
   latestStep.current = stepZoom;
 
+  /**
+   * The end of a glide, put where the gesture asked for rather than a hair
+   * short of it.
+   *
+   * `approach` is an exponential and an exponential never arrives, so it snaps
+   * once the remainder is under a twentieth of a percent of the target. That is
+   * small and it is not nothing: measured after a sixteen-notch wheel zoom, the
+   * loop shut down with the scale 0.022 short of 24.51, which on a globe whose
+   * radius is `0.42 x 460 x zoom` is 1.3 px of the reader's frame. The map then
+   * sat there — until a country's subdivisions landed a second later, woke the
+   * frame loop for the fade, and the loop picked the abandoned glide back up.
+   * So the reader's whole view crept a pixel at a time *while* the detail was
+   * fading in, which is two movements where the map means to show one, and it
+   * also made every frame of that fade a different view.
+   *
+   * Snapping here rather than lengthening the 320 ms: the loop is switched off
+   * because the gesture is over, and the honest thing for a gesture that is over
+   * is to be where it was aimed.
+   *
+   * It draws before it lets go, and it has to. This runs in the same tick that
+   * stops the frame loop, so nothing else is going to paint: `draw` is a
+   * `useCallback` over inputs that a wheel gesture does not change, so the
+   * effect that watches it will not fire, and the loop's own cleanup cancels the
+   * frame that would otherwise have caught up. Without this the canvas would
+   * keep the scale the loop abandoned while the arcs and the place names took
+   * the corrected one — the map sliding a pixel out from under its own labels,
+   * which is the exact fault `flushSync` is in the frame loop to prevent.
+   */
+  function endGlide() {
+    if (zoom.current === zoomTarget.current) return;
+    applyZoom(zoomTarget.current);
+    anchor.current = null;
+    draw();
+    repaint((count) => count + 1);
+  }
+  const latestEnd = useRef(endGlide);
+  latestEnd.current = endGlide;
+
   /** Ask for a new scale, pinned to a point, and let the easing take it there. */
   function aimZoom(factor: number, at: [number, number]) {
     const next = Math.min(ZOOM.max, Math.max(ZOOM.min, zoomTarget.current * factor));
@@ -1047,9 +1240,13 @@ export function RouteMap({
     if (!aimZoom(factor, [event.offsetX, event.offsetY])) return;
     setMoving(true);
     if (wheelStop.current) clearTimeout(wheelStop.current);
-    // Long enough for the easing to arrive: about four time constants past the
-    // last notch, so the loop is never switched off mid-glide.
-    wheelStop.current = setTimeout(() => setMoving(false), 320);
+    // Four and a half time constants past the last notch, which is 99% of the
+    // way — and `endGlide` puts the last 1% where it was going rather than
+    // leaving it to whatever wakes the loop next.
+    wheelStop.current = setTimeout(() => {
+      latestEnd.current();
+      setMoving(false);
+    }, 320);
   };
   const latestWheel = useRef(onWheel);
   latestWheel.current = onWheel;
@@ -1084,7 +1281,10 @@ export function RouteMap({
     // size rather than the jump the wheel no longer makes.
     setMoving(true);
     if (wheelStop.current) clearTimeout(wheelStop.current);
-    wheelStop.current = setTimeout(() => setMoving(false), 320);
+    wheelStop.current = setTimeout(() => {
+      latestEnd.current();
+      setMoving(false);
+    }, 320);
     draw();
     repaint((count) => count + 1);
   }

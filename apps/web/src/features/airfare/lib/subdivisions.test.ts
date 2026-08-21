@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { readSubdivisions } from '@/features/airfare/lib/subdivisions';
+import { capsMeet } from '@/features/airfare/lib/visible';
 import type { SubdivisionsResponse } from '@/shared/api/geography';
 
 /**
@@ -182,6 +183,37 @@ describe('readSubdivisions', () => {
       ],
     });
     expect(read?.labels.map((label) => label.name)).toEqual(['Loreto']);
+  });
+
+  it('indexes the geometry by where it falls, once, when the country lands', () => {
+    /*
+     * The same argument the rest of this module makes, one rung further in. A
+     * country's file is 1:10m and covers a whole country; at the map's 32x
+     * ceiling the frame holds under three degrees of sphere, so a frame that
+     * projects all of it spends the reader's time on ground they cannot see —
+     * measured, 16 to 20 ms a frame with everything else down to three. Each
+     * piece is kept beside the cap that encloses it so a frame can skip the
+     * ones that are somewhere else, and the pass that builds it runs once here
+     * rather than sixty times a second in the render.
+     */
+    const read = readSubdivisions(PERU);
+    expect(read?.borderRuns).toHaveLength(1);
+    expect(read?.borderRuns[0].shape.coordinates).toEqual(read?.borders?.coordinates[0]);
+    expect(read?.landParts).toHaveLength(1);
+    expect(read?.landParts[0].shape.coordinates).toEqual(read?.land?.coordinates[0]);
+    // Every piece is answerable on its own, which is the whole point of taking
+    // them apart: Peru is near Lima and is not near Tokyo.
+    for (const piece of [...read!.borderRuns, ...read!.landParts]) {
+      expect(capsMeet(piece.cap, { at: [-75, -9], radius: 0.2 })).toBe(true);
+      expect(capsMeet(piece.cap, { at: [139, 35], radius: 0.2 })).toBe(false);
+    }
+  });
+
+  it('has an empty index rather than a missing one when there is nothing to draw', () => {
+    // One shape for the drawing code to handle instead of two.
+    const read = readSubdivisions({ ...PERU, borders: { objects: {} } });
+    expect(read?.borderRuns).toEqual([]);
+    expect(read?.landParts).toEqual([]);
   });
 
   it('keeps the names when the geometry will not convert, instead of throwing', () => {

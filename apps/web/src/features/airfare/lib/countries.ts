@@ -1,8 +1,9 @@
-import { geoArea, geoBounds, geoCentroid, geoContains } from 'd3-geo';
+import { geoArea, geoBounds, geoCentroid } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
 import type { LngLat } from '@/features/airfare/lib/geo';
+import { type Solid, solidHolds, solidOf } from '@/features/airfare/lib/inside';
 
 /**
  * Country names, derived from the outlines the map already draws.
@@ -113,17 +114,29 @@ export const COUNTRIES: PlaceLabel[] = build();
  * point is the one worth fetching. Nothing else on this page needs to know
  * where a point is, which is why there is no general geocoder here.
  *
- * Bounds first, `geoContains` second. A point-in-polygon test against every
- * one of the 176 shapes is 10,000 vertices of work, and a longitude and
+ * Bounds first, `solidHolds` second. A point-in-polygon test against every
+ * one of the 177 shapes is 10,000 vertices of work, and a longitude and
  * latitude comparison throws all but a handful of them out before any of that
  * runs — the same reason a spatial index exists, at the size where an array
  * and an `if` are the whole index. The box comparison has to allow for a shape
  * whose bounds cross the antimeridian, which `geoBounds` reports by returning
  * a west edge greater than its east one; Russia and Fiji both do.
+ *
+ * The second test used to be `geoContains`, and swapping it for the flattened
+ * rings in `inside.ts` is most of what took the settle sweep from 12.5–77.8 ms
+ * to 1.2–4.4 on the widest stage this layout produces — see that module for
+ * what a planar test costs and what it gives up. The bucket index below is the
+ * rest of it.
  */
-const BOXED: { shape: CountryShape; bounds: [[number, number], [number, number]] }[] = SHAPES.map(
-  (shape) => ({ shape, bounds: geoBounds(shape as never) }),
-);
+const BOXED: {
+  shape: CountryShape;
+  bounds: [[number, number], [number, number]];
+  solid: Solid;
+}[] = SHAPES.map((shape) => ({
+  shape,
+  bounds: geoBounds(shape as never),
+  solid: solidOf(shape as never),
+}));
 
 /**
  * The bundled outlines of the countries being redrawn, and of everything that
@@ -191,24 +204,85 @@ function overlaps(
 
 type Boxed = (typeof BOXED)[number];
 
+/**
+ * How big a square of the world one bucket of the index stands for.
+ *
+ * Five degrees: 72 by 36 buckets holding 3,354 entries between them, 758 of
+ * them empty, a median non-empty bucket of one shape and a fullest of twelve.
+ * A sample therefore walks one box where it used to walk 177, and none at all
+ * over most of the open ocean.
+ */
+const BUCKET = 5;
+const COLUMNS = 360 / BUCKET;
+const ROWS = 180 / BUCKET;
+
+/**
+ * The shapes whose bounds reach each square of the world, in atlas order.
+ *
+ * **This is what a sample that lands on water costs.** The hint below takes
+ * care of a sample that lands in the same country as the one before it, which
+ * on a zoomed-in view is most of them — but a sample over the sea matches no
+ * hint and fell through to all 177 boxes, and then to a polygon test for every
+ * box that happened to contain it. Chile's box alone runs from Easter Island
+ * to Cape Horn, so half the South Pacific was paying for Chile.
+ *
+ * With the containment test already made cheap, this was what was left.
+ * Measured on a 1550x460 stage at step 12, toggling only this: the 32x view
+ * over Santiago 3.3 times, the 32x view over open Pacific 5.2 times, central
+ * Europe at 3.4x 3.4 times, Lima at 8x 3.2 times. A bucket lookup is two
+ * multiplications and an array index, and it answers open water with an empty
+ * list.
+ *
+ * Built from the same bounds the fall-through used, so it can only ever hand
+ * back a superset of what the fall-through would have tested, and the order
+ * inside a bucket is the order the fall-through walked them in — which is what
+ * keeps the answer identical for a point two shapes both claim.
+ */
+const BUCKETS: Boxed[][] = (() => {
+  const built: Boxed[][] = Array.from({ length: COLUMNS * ROWS }, () => []);
+  for (const boxed of BOXED) {
+    const [[west, south], [east, north]] = boxed.bounds;
+    const first = Math.max(0, Math.floor((south + 90) / BUCKET));
+    const last = Math.min(ROWS - 1, Math.floor((north + 90) / BUCKET));
+    // A box reported east-of-west is one crossing the antimeridian, and it
+    // covers every column rather than none — the same reading `holds` gives it.
+    const columns: number[] = [];
+    if (west <= east) {
+      const from = Math.max(0, Math.floor((west + 180) / BUCKET));
+      const to = Math.min(COLUMNS - 1, Math.floor((east + 180) / BUCKET));
+      for (let column = from; column <= to; column += 1) columns.push(column);
+    } else {
+      for (let column = 0; column < COLUMNS; column += 1) columns.push(column);
+    }
+    for (let row = first; row <= last; row += 1)
+      for (const column of columns) built[row * COLUMNS + column].push(boxed);
+  }
+  return built;
+})();
+
+function bucketAt(longitude: number, latitude: number): Boxed[] {
+  const column = Math.min(COLUMNS - 1, Math.max(0, Math.floor((longitude + 180) / BUCKET)));
+  const row = Math.min(ROWS - 1, Math.max(0, Math.floor((latitude + 90) / BUCKET)));
+  return BUCKETS[row * COLUMNS + column];
+}
+
 function boxedAt(point: LngLat, hint: Boxed | null): Boxed | null {
   const [longitude, latitude] = point;
-  const holds = ({ shape, bounds }: Boxed) => {
+  const holds = ({ bounds, solid }: Boxed) => {
     const [[west, south], [east, north]] = bounds;
     if (latitude < south || latitude > north) return false;
     const inside =
       west <= east
         ? longitude >= west && longitude <= east
         : longitude >= west || longitude <= east;
-    return inside && geoContains(shape, point);
+    return inside && solidHolds(solid, longitude, latitude);
   };
   // The hint is the country the last sample landed in. Neighbouring samples
   // are the same country far more often than not, so trying it first turns a
-  // grid sweep from 177 bounds tests and a handful of polygon tests per sample
-  // into one polygon test — measured over a zoomed-in view, it is most of what
-  // makes sampling affordable at all.
+  // grid sweep into one polygon test — measured over a zoomed-in view, it is
+  // most of what makes sampling affordable at all.
   if (hint && holds(hint)) return hint;
-  for (const boxed of BOXED) {
+  for (const boxed of bucketAt(longitude, latitude)) {
     if (boxed !== hint && holds(boxed)) return boxed;
   }
   return null;
@@ -231,16 +305,47 @@ export type CountryInView = {
 /**
  * How far apart the samples are, in CSS pixels.
  *
- * The grid is what decides both which countries are in view and how much of
- * the view each of them holds, so its spacing is the smallest country it can
- * see. At 12px a country needs about 150px² to be sampled at all, which is a
- * fifteenth of the 2400px² `LABEL_ROOM` asks before a country is even worth
- * naming — so nothing that could carry a name is ever missed, and what is
- * missed is a sliver a reader would need to be told was there.
+ * The grid decides both which countries are in view and how much of the view
+ * each holds, so its spacing is the smallest country it can see — and its cost
+ * and its blindness are the same number twice, because both go as the square of
+ * it. 12 px a cell is 144px² against the 2400px² a country needs before
+ * `roomFade` will give it a name at all: the grid can see a country sixteen
+ * times smaller than the smallest one the map will name.
  *
- * On the reader's own 529x460 stage that is 44 x 38 = 1,672 samples, which
- * runs in a few milliseconds and runs once, when the map settles. Halving it
- * would quadruple that for countries smaller than a name.
+ * **This was 17 for one commit, and 17 was bought with a premise that has since
+ * moved.** 17 is 12 x sqrt(2), which halves the sample count, and it was worth
+ * a little blindness when the samples cost what they did. They do not any more:
+ * on a 526x460 stage at the 32x ceiling over Santiago, the sweep that measured
+ * 25.7 ms at step 17 measures 0.72 ms at step 17 now, with `inside.ts` under
+ * the containment test and the bucket index in front of it. Measured at the
+ * widest stage this layout can produce — 1550x460, which is a 2560-pixel
+ * viewport — ten views from the 3.4x gate to the ceiling, on both projections,
+ * run 1.20 to 4.42 ms at step 12 against 0.60 to 2.38 at step 17, where before
+ * this they ran 12.5 to 77.8. Both are one frame. Buying the margin back with
+ * two milliseconds nobody can feel is the right side of that trade, and a
+ * decision made for a cost that no longer exists should not be left standing
+ * because it is already written down.
+ *
+ * The margin is what 12 buys. `placeNames.test` pins the property — a country
+ * holding `LABEL_ROOM` of the frame is always found — and walking the constant
+ * up, it holds at every step through 32 and first fails at 36, past which
+ * whether a given country is caught depends on where the grid happens to land.
+ * That was true of 17 too; the difference is how much of the room between the
+ * two is left for a view nobody has tried.
+ *
+ * The thin-country worry, which is the one a grid deserves, is not real here: a
+ * shape narrower than the spacing can hide between samples however long it is,
+ * and Chile is the shape that argument exists for. Measured, the widest run of
+ * Chile across the frame never falls below 33px anywhere from the 3.4x gate to
+ * the ceiling, over Santiago or over Arica.
+ *
+ * **What made the old numbers look worse than they were: the panel is not the
+ * stage.** The cost goes with the area swept, and the last round of this work
+ * quoted it at 2100x1200 on the assumption that a maximised window gives the
+ * map a maximised stage. It does not. `.stage` has `min-height: 460px` and the
+ * row does not grow, so the height is 460 at every window size measured — 526
+ * wide at a 1518-pixel viewport, 910 at 1902, 1550 at 2542. The sweep grows
+ * with the width of one panel, not with the area of a screen.
  */
 export const VIEW_SAMPLE_STEP = 12;
 

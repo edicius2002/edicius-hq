@@ -602,6 +602,48 @@ describe('countriesInView', () => {
     expect(countriesInView(looking([-140, -35], 12), FRAME)).toEqual([]);
   });
 
+  it('never misses a country holding enough screen to be worth naming', () => {
+    /*
+     * The property `VIEW_SAMPLE_STEP` is chosen for, pinned so that changing
+     * the constant has to answer for it.
+     *
+     * The grid decides the smallest country the map can see, and the map has
+     * its own idea of the smallest country worth seeing: `roomFade` gives no
+     * name at all below `LABEL_ROOM`, so a country holding less than that is
+     * one the reader is looking at as an unnamed shape either way. Above it,
+     * missing a country is visible — it would keep its name and show no
+     * borders inside it while its neighbours showed theirs.
+     *
+     * So the guarantee is one-sided and this is it: whatever the step, a
+     * country holding `LABEL_ROOM` of the frame is always found. The truth it
+     * is checked against is a sweep four times finer than the shipped one,
+     * which is close enough to count pixels for shapes this size.
+     */
+    const TRUTH = 6;
+    const missed: string[] = [];
+    for (const [at, zoom] of [
+      // The corner this watchlist sits on, from the subdivision gate to the
+      // ceiling, and three other parts of the world for company.
+      [[-69.5, -17.5], SUBDIVISION_REACH],
+      [[-69.5, -17.5], 8],
+      [[-69.5, -17.5], 32],
+      [[-70.79, -33.39], 8],
+      [[-58, -34], 8],
+      [[10, 48], SUBDIVISION_REACH],
+      [[10, 48], 8],
+      [[105, 35], 8],
+    ] as [LngLat, number][]) {
+      const invert = looking(at, zoom);
+      const found = new Set(countriesInView(invert, FRAME).map((each) => each.id));
+      for (const each of countriesInView(invert, FRAME, TRUTH)) {
+        if (each.cells * TRUTH * TRUTH < LABEL_ROOM) continue;
+        if (found.has(each.id)) continue;
+        missed.push(`${each.name} (${each.cells * TRUTH * TRUTH}px²) at ${at.join(',')} ${zoom}x`);
+      }
+    }
+    expect(missed).toEqual([]);
+  });
+
   it('is the same sweep on the flat map', () => {
     // Both projections answer through their own `invert`, which is why the
     // Mercator needs no separate rule.

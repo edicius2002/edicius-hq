@@ -96,6 +96,28 @@
   outline-offset: 2px;
 }
 
+/*
+ * The pin, which wears `.reset` for its shape and this for its state.
+ *
+ * Two classes rather than one, and rather than a pressed rule hung on `.reset`
+ * itself: the shape above is a round glyph button the size of the step arrows,
+ * and both controls in this corner are one, but only one of them is a toggle.
+ * `.reset[aria-pressed='true']` would have worked — the reset button carries no
+ * `aria-pressed` to match — and it would have said that the way out of a zoom
+ * has a pressed state, which it does not.
+ *
+ * A pressed toggle has to look pressed from across the panel, because that is
+ * the whole of what it is for: it is one of the three things telling a reader
+ * that the reading under the plot is held rather than live. Filled rather than
+ * outlined, which is the difference a disc glyph can carry at 26px, and the same
+ * accent the pinned crosshair takes — one colour for one state.
+ */
+.pin[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+
 .steps {
   display: inline-flex;
   align-items: center;
@@ -286,6 +308,40 @@
   fill-opacity: 0.45;
 }
 
+/*
+ * A flight whose airline can be reached: a smaller, brighter dot inside the
+ * same grey collar.
+ *
+ * One circle and not two, unchanged: a second `<circle>` per link would have
+ * added ~880 nodes to a plot whose node count is the thing 12.12 asks to be
+ * watched.
+ *
+ * **Two things separate it from a plain dot, and only one of them is colour.**
+ * The fill is `--color-link-mark`, which is `--color-link`'s hue lifted until
+ * lightness rather than hue carries it — 5.42:1 against the grey the mark sits
+ * in, holding at 5.59:1 under protanopia and 5.33:1 under deuteranopia, where
+ * `--color-link` was 2.52:1 and fell to 2.42:1 under deuteranopia. And the mark
+ * is **smaller**: 3.8 across against a plain dot's 5.2, so the two differ in
+ * size as well as in ink and the distinction survives a reader who sees no
+ * colour at all. The geometry is in the markup, both numbers together, because
+ * a radius in the JSX and a stroke width in this file is how the two marks came
+ * to be exactly the same size across without anyone noticing.
+ *
+ * Smaller rather than larger because the marker lands on ~98% of the offers:
+ * a bigger common mark is a denser cloud, and this one takes 47% of the ink off
+ * the plot instead.
+ *
+ * Opaque where the plain dots are at 0.45. The collar keeps the cloud's own
+ * alpha, and stacked itineraries read better than they did — six marks at half
+ * the area overlap less, so the stack is countable rather than one blot.
+ */
+.dots circle.linked {
+  fill: var(--color-link-mark);
+  fill-opacity: 1;
+  stroke: var(--color-muted);
+  stroke-opacity: 0.45;
+}
+
 /* The shape the chart is for, in the accent, over the grey it sits in. */
 .rings circle {
   fill: none;
@@ -323,6 +379,34 @@
   fill: var(--color-surface);
   stroke: var(--color-accent);
   stroke-width: 2.5;
+}
+
+/*
+ * The crosshair, held.
+ *
+ * Solid where it was dashed, and darker. A dashed hairline is the right weight
+ * for a line that is following a hand — it is provisional, and it says so — and
+ * the same line, held, is a statement about one fare, so it stops apologising.
+ *
+ * The dash is the channel and not the colour, because colour is already spoken
+ * for on this plot: the accent is the cheapest-of-date ring and the crosshair's
+ * own marker, and a third meaning on it would make all three unreadable. This
+ * is the same argument the carried-over curve prices settled by taking opacity
+ * rather than a dash, in the other direction.
+ */
+.held .hair {
+  stroke-dasharray: none;
+  opacity: 0.9;
+}
+
+.held .marker {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+}
+
+.held .spanMarker {
+  stroke: var(--color-accent);
+  stroke-width: 5;
 }
 
 /*
@@ -385,6 +469,37 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The flight number, where it is a link to the airline's own search.
+ *
+ * It replaces a `<strong>` and has to weigh the same, or the line would change
+ * shape depending on which flight the crosshair happened to land on — so the
+ * weight and the tabular figures come with it.
+ *
+ * Blue *and* underlined, both asked for by name. Colour alone was the previous
+ * arrangement's mistake in a different shade: the affordance this replaces was
+ * a muted arrow that the owner never found, and an underline is the one mark
+ * that says "link" without depending on the reader separating two hues.
+ */
+.readout .link {
+  color: var(--color-link);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.readout .link:hover,
+.readout .link:focus-visible {
+  color: var(--color-link-strong);
+}
+
+.readout .link:focus-visible {
+  outline: 2px solid var(--color-link-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .muted,
 .hint {
   color: var(--color-muted);
@@ -443,6 +558,25 @@
   border-radius: 999px;
   background: var(--color-muted);
   opacity: 0.6;
+}
+
+/*
+ * The same mark the plot draws, at legend size: a bright core in a muted
+ * collar, and **narrower than the plain dot beside it** — 5px against
+ * `.keyDot`'s 7, which is the 3.8-against-5.2 the chart draws. The size
+ * relation is half of what this entry has to teach, so a swatch drawn at the
+ * plain dot's width would name the colour and hide the cue that works without
+ * it. `box-sizing: border-box` so the border eats into the 5px rather than
+ * growing it, which is what makes this the same construction as the mark rather
+ * than a similar-looking one.
+ */
+.keyLinked i {
+  width: 5px;
+  height: 5px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-muted);
+  border-radius: 999px;
+  background: var(--color-link-mark);
 }
 
 .keyLine i {

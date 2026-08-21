@@ -81,8 +81,13 @@ function skipSummary(route: FareRoute, response: CollectResponse): string {
  * paces one loop and two would halve it. `watching` is how the row finds out,
  * and a row that reported somebody else's pass as its own would be the
  * quietest lie this control could tell.
+ *
+ * Exported for `passProgress`, which has to answer the same question before it
+ * draws anything and must answer it the same way. Two readings of `watching`
+ * would let the words and the bar on one row disagree about whose pass they are
+ * describing, which is the same lie arriving twice.
  */
-function isOurPass(route: FareRoute, response: CollectResponse): boolean {
+export function isOurPass(route: FareRoute, response: CollectResponse): boolean {
   return response.watching.includes(skipPrefix(route));
 }
 

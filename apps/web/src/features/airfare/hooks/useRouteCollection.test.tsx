@@ -297,6 +297,68 @@ describe('collecting one watched route from its own row', () => {
     }
   });
 
+  it('carries the fraction of the pass beside the words, and drops it when it ends', async () => {
+    /*
+     * The bar and the sentence are two readings of one document and they are
+     * deliberately not the same value: the sentence is the last thing the row
+     * was told and survives the press, the fraction exists only while the pass
+     * runs. What this pins is the second half — that the entry goes when the
+     * pass stops, whichever way it stopped. A bar frozen at four of thirty-one
+     * beside "Collected: 1 departure looked at" would be the row saying two
+     * things at once, and the picture is the louder one.
+     */
+    vi.useFakeTimers();
+    try {
+      stubPassInProgress(passRunning(LIM_CUZ), [
+        passRunning(LIM_CUZ, { completed: 4 }),
+        passOver(LIM_CUZ),
+      ]);
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+      act(() => result.current.collect(LIM_CUZ));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.progress.get(routeId(LIM_CUZ))).toEqual({
+        completed: 0,
+        polling: 31,
+        fraction: 0,
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(result.current.progress.get(routeId(LIM_CUZ))?.completed).toBe(4);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(result.current.progress.has(routeId(LIM_CUZ))).toBe(false);
+      expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('1 departure looked at');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves a row with no bar when the press met somebody else’s pass', async () => {
+    // `passProgress` refuses a pass this row did not start, and the refusal has
+    // to survive the trip through the hook: the row is already saying in words
+    // that its own month was not collected, and a bar filling beside that
+    // sentence would contradict it in the medium the reader looks at first.
+    const elsewhere = { ...passRunning(LIM_CUZ), watching: ['LIM-MAD 2026-12'] };
+    stubPassInProgress(elsewhere, [elsewhere]);
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+    act(() => result.current.collect(LIM_CUZ));
+
+    // The row is still watching — the pass it was handed is running, and it
+    // will be told when that ends. What it must not do meanwhile is draw the
+    // stranger's progress as its own, so the words land and the bar does not.
+    await waitFor(() => expect(result.current.reports.has(routeId(LIM_CUZ))).toBe(true));
+    expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('already running');
+    expect(result.current.progress.has(routeId(LIM_CUZ))).toBe(false);
+  });
+
   it('says so when the press was answered with somebody else’s pass', async () => {
     /*
      * One pass runs at a time — 12.210 — because the collector's gap paces one

@@ -445,20 +445,25 @@ export function removeRoute(document: FareRoutes, id: string): FareRoutes {
 }
 
 /**
- * The routes whose month has not finished.
+ * Whether this route's month has been and gone.
  *
- * A collection pass must not ask about a flight that has left: the provider
- * answers nothing, the route reports a failure every day forever, and the
- * failure is noise rather than news. A month is over when the calendar has
- * moved past it, which is a string comparison against today's own month. The
- * days *inside* the current month that have already gone are the collector's
- * business, not this one's — it skips them one at a time and says why, which
- * is a thing only the side that expands the month can do.
+ * Nothing may ask a provider about a flight that has left: it answers nothing,
+ * the route reports a failure every day forever, and the failure is noise
+ * rather than news. A month is over when the calendar has moved past it, which
+ * is a string comparison against today's own month. The days *inside* the
+ * current month that have already gone are the collector's business, not this
+ * one's — it skips them one at a time and says why, which only the side that
+ * expands the month can do.
  *
- * They stay in the document either way: the history already collected is still
- * worth reading.
+ * A departed route stays in the document: the history already collected is
+ * still worth reading, and the row that draws it says "Departed" and offers no
+ * press rather than disappearing.
+ *
+ * This was `collectableRoutes`, which filtered a whole document and existed for
+ * the page-wide collect button. That button is gone, and the one caller left
+ * asks about a single row — so the rule is a predicate now rather than a filter
+ * whose only remaining reader would have been a test.
  */
-export function collectableRoutes(document: FareRoutes, today: string): FareRoute[] {
-  const thisMonth = monthOf(today);
-  return document.routes.filter((route) => route.month >= thisMonth);
+export function hasDeparted(route: FareRoute, today: string): boolean {
+  return route.month < monthOf(today);
 }

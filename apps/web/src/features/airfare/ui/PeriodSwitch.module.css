@@ -1,0 +1,44 @@
+/*
+ * The period switch, in the corner of the chart it is standing on.
+ *
+ * Deliberately the same pill the panel head sets its chart switch in, at a
+ * smaller size: it is the same kind of control and a reader should not have to
+ * learn a second shape for it. The size is where it says it is subordinate —
+ * the chart switch above chooses the question, and this chooses the width of
+ * one answer.
+ *
+ * Its own stylesheet rather than a copy in each chart's, because the component
+ * is rendered from two places and a control that looked different depending on
+ * which corner it was in would read as two controls.
+ */
+.switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.switch button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.switch button[aria-pressed='true'] {
+  background: var(--color-text);
+  color: var(--color-surface);
+}
+
+.switch button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

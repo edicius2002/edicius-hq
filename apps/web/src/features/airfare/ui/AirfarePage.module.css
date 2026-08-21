@@ -109,13 +109,6 @@
   font-size: 0.85rem;
 }
 
-.collectRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
 @media (max-width: 60rem) {
   .layout {
     grid-template-columns: minmax(0, 1fr);

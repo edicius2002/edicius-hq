@@ -1,5 +1,5 @@
 import { geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { feature, mesh } from 'topojson-client';
 import versor from 'versor';
@@ -192,6 +192,21 @@ type RouteMapProps = {
   colours: Map<string, string>;
   projection: Projection;
   onProjectionChange: (projection: Projection) => void;
+  /**
+   * Something to stand in the toolbar, beside Reset.
+   *
+   * A slot rather than a prop that names what goes in it. What the page puts
+   * here is the watchlist's save state, which is a fact about a stored document
+   * and none of a map's business — a `saveState` prop would have this component
+   * importing storage types to render a word it cannot interpret. The map owns
+   * the strip and nothing else about what stands on it.
+   *
+   * Why the strip at all: the status used to sit in the page header, in a row
+   * with the collect button, and when that button went the row was one control
+   * wide and the header was a title with a word floating at the far end of it.
+   * The toolbar already carries this panel's chrome.
+   */
+  status?: ReactNode;
 };
 
 function readToken(element: HTMLElement, name: string): string {
@@ -205,6 +220,7 @@ export function RouteMap({
   colours,
   projection,
   onProjectionChange,
+  status,
 }: RouteMapProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1334,15 +1350,24 @@ export function RouteMap({
           The wheel does it continuously and about the cursor; `+` and `-` on
           the focused map do it for anyone without one.
         */}
-        <Button
-          variant="ghost"
-          size="small"
-          onClick={reset}
-          disabled={!moved}
-          aria-label="Reset the view"
-        >
-          Reset
-        </Button>
+        {/*
+          The right end of the strip: whatever the page handed over, then Reset.
+          Grouped rather than left to `space-between`, which with three children
+          would put the status in the middle of the toolbar — a status is not a
+          control and does not belong between two of them.
+        */}
+        <div className={styles.tools}>
+          {status}
+          <Button
+            variant="ghost"
+            size="small"
+            onClick={reset}
+            disabled={!moved}
+            aria-label="Reset the view"
+          >
+            Reset
+          </Button>
+        </div>
       </div>
 
       <div

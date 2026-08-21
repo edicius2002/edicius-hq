@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { passProgress, type PassProgress } from '@/features/airfare/lib/passProgress';
 import {
   describeCollection,
   describeProgress,
@@ -66,6 +67,17 @@ export type RouteCollection = {
   collecting: readonly string[];
   /** What the last press on a row came back with, by route id. */
   reports: ReadonlyMap<string, RowReport>;
+  /**
+   * How far each running pass has got, by route id.
+   *
+   * Separate from `reports` and not a field inside one, because the two have
+   * different lifetimes on purpose: a report is the last thing a row was told
+   * and outlives the press, while this exists only while a pass is running and
+   * is dropped the moment it stops. A row with an entry here has a bar; a row
+   * without one has words. Merging them would mean every reader of a finished
+   * report carrying a fraction that no longer means anything.
+   */
+  progress: ReadonlyMap<string, PassProgress>;
   collect: (route: FareRoute) => void;
   /** Drop a row's report, for when the row itself goes. */
   forget: (id: string) => void;
@@ -75,6 +87,7 @@ export function useRouteCollection(): RouteCollection {
   const queryClient = useQueryClient();
   const [collecting, setCollecting] = useState<readonly string[]>([]);
   const [reports, setReports] = useState<ReadonlyMap<string, RowReport>>(() => new Map());
+  const [progress, setProgress] = useState<ReadonlyMap<string, PassProgress>>(() => new Map());
   const inFlight = useRef<Set<string>>(new Set());
   // The poll outlives the render that started it, so it has to be able to find
   // out that the page has gone. Without this, a pass left running while the
@@ -97,10 +110,35 @@ export function useRouteCollection(): RouteCollection {
     });
   }, []);
 
-  const release = useCallback((id: string) => {
-    inFlight.current.delete(id);
-    setCollecting((current) => current.filter((other) => other !== id));
+  /**
+   * Where the bar is, or that there is no bar.
+   *
+   * `passProgress` answers null for every pass a row should not draw — finished,
+   * somebody else's, or planned at nothing — so this deletes on null rather than
+   * asking the same three questions a second time here. One rule, one place, and
+   * a row can never be left with a bar the rule would not have drawn.
+   */
+  const mark = useCallback((id: string, at: PassProgress | null) => {
+    setProgress((current) => {
+      if (at === null && !current.has(id)) return current;
+      const next = new Map(current);
+      if (at) next.set(id, at);
+      else next.delete(id);
+      return next;
+    });
   }, []);
+
+  const release = useCallback(
+    (id: string) => {
+      inFlight.current.delete(id);
+      setCollecting((current) => current.filter((other) => other !== id));
+      // The bar goes with the press it belonged to, whichever way the press
+      // ended. A pass that failed leaves its reason in words; a bar frozen at
+      // four of thirty-one beside that reason would read as still working.
+      mark(id, null);
+    },
+    [mark],
+  );
 
   /**
    * Watch a pass the press has already started, until it stops running.
@@ -127,6 +165,7 @@ export function useRouteCollection(): RouteCollection {
         if (!mounted.current) return;
         if (progress.state === 'running') {
           write(id, describeProgress(route, progress));
+          mark(id, passProgress(route, progress));
           continue;
         }
         write(id, describeCollection(route, progress));
@@ -136,7 +175,7 @@ export function useRouteCollection(): RouteCollection {
         return;
       }
     },
-    [queryClient, release, write],
+    [mark, queryClient, release, write],
   );
 
   // Only `mutate` is taken off the result: the object React Query returns is
@@ -172,6 +211,7 @@ export function useRouteCollection(): RouteCollection {
         return;
       }
       write(id, describeProgress(route, data));
+      mark(id, passProgress(route, data));
       void watch(route);
     },
     onError: (error, route) => {
@@ -198,5 +238,5 @@ export function useRouteCollection(): RouteCollection {
 
   const forget = useCallback((id: string) => write(id, null), [write]);
 
-  return { collecting, reports, collect, forget };
+  return { collecting, reports, progress, collect, forget };
 }

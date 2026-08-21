@@ -32,6 +32,7 @@ import {
   type Plot,
   type ScatterPoint,
 } from '@/features/airfare/lib/flightScatter';
+import { fullViewport } from '@/features/airfare/lib/viewport';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
 /**
@@ -669,5 +670,121 @@ describe('one vertical scale over two kinds of price', () => {
 
   it('has nothing to say about an empty frame', () => {
     expect(spanOfPrices([])).toBeNull();
+  });
+});
+
+describe('the same arithmetic under a zoom', () => {
+  const week = scatterWindow('2027-W10', 'week');
+  const DAY = 1440;
+
+  it('draws the whole frame when handed no viewport, exactly as before there was one', () => {
+    for (const offset of [0, DAY, 5_000, 10_079]) {
+      expect(xOf(offset, week, PLOT, fullViewport(week.spanMinutes))).toBeCloseTo(
+        xOf(offset, week, PLOT),
+        6,
+      );
+    }
+  });
+
+  it('spreads the visible stretch across the whole track', () => {
+    // Two days of a week filling the plot: the first of them lands on the left
+    // edge and the last minute of the second on the right.
+    const view = { start: 2 * DAY, span: 2 * DAY };
+    expect(xOf(2 * DAY, week, PLOT, view)).toBeCloseTo(PLOT.pad.left, 6);
+    expect(xOf(4 * DAY, week, PLOT, view)).toBeCloseTo(PLOT.width - PLOT.pad.right, 6);
+  });
+
+  it('gives a minute outside the viewport an x off the plot rather than no x', () => {
+    // The cheapest-flight line has to run to the edge rather than stop at the
+    // last visible node, so clipping is the chart's job and not this
+    // function's.
+    const view = { start: 2 * DAY, span: DAY };
+    expect(xOf(0, week, PLOT, view)).toBeLessThan(PLOT.pad.left);
+    expect(xOf(6 * DAY, week, PLOT, view)).toBeGreaterThan(PLOT.width - PLOT.pad.right);
+  });
+
+  it('stays the exact inverse of itself under a viewport', () => {
+    const view = { start: 3 * DAY + 120, span: 300 };
+    for (const offset of [3 * DAY + 120, 3 * DAY + 300, 3 * DAY + 420]) {
+      expect(offsetAt(xOf(offset, week, PLOT, view), week, PLOT, view)).toBeCloseTo(offset, 6);
+    }
+  });
+
+  it('keeps the axis labelled when a zoom would otherwise leave none on screen', () => {
+    // Six hours of a month view: every fifth midnight is off the plot, so the
+    // frame's own step would return a bare axis — which is the thing the zoom
+    // was supposed to fix.
+    const month = scatterWindow('2027-03', 'month');
+    const view = { start: 9 * DAY + 360, span: 360 };
+    expect(axisTicks(month, view).length).toBeGreaterThan(2);
+  });
+
+  it('reads as a clock once the visible stretch is under two days', () => {
+    // The frame's own step is a whole day; twelve hours of it ticks every two.
+    // The first tick lands on a midnight, so by the rule below it carries the
+    // date rather than a clock reading of 00:00.
+    const ticks = axisTicks(week, { start: 2 * DAY, span: 720 });
+    expect(ticks.map((tick) => tick.label)).toEqual([
+      '10/03',
+      '02:00',
+      '04:00',
+      '06:00',
+      '08:00',
+      '10:00',
+      '12:00',
+    ]);
+  });
+
+  it('writes the date at midnight and the clock between, so the calendar appears where it changes', () => {
+    // Zoomed across a midnight the reader can lose which date they are on, and
+    // the one place to say it is the place it changes.
+    const labels = axisTicks(week, { start: 2 * DAY - 360, span: 720 }).map((tick) => tick.label);
+    expect(labels).toContain('10/03');
+    expect(labels).toContain('22:00');
+    expect(labels).toContain('02:00');
+  });
+
+  it('leaves the clock alone on a day frame, whose date is already in the caption', () => {
+    const day = scatterWindow('2027-03-09', 'day');
+    const labels = axisTicks(day, { start: 0, span: 120 }).map((tick) => tick.label);
+    expect(labels).toContain('00:00');
+    expect(labels.some((label) => label.includes('/'))).toBe(false);
+  });
+
+  it('reproduces the full day view exactly when the viewport is the frame', () => {
+    const day = scatterWindow('2027-03-09', 'day');
+    expect(axisTicks(day, fullViewport(day.spanMinutes))).toEqual(axisTicks(day));
+  });
+
+  it('returns only ticks that are on screen, since the labels sit outside the clip', () => {
+    const month = scatterWindow('2027-03', 'month');
+    const view = { start: 10 * DAY, span: 5 * DAY };
+    for (const tick of axisTicks(month, view)) {
+      expect(tick.offset).toBeGreaterThanOrEqual(view.start);
+      expect(tick.offset).toBeLessThanOrEqual(view.start + view.span);
+    }
+  });
+
+  it('places every dot through the same viewport the axis used', () => {
+    const points: ScatterPoint[] = [
+      {
+        key: 'a',
+        day: '2027-03-10',
+        offset: 2 * DAY + 600,
+        price: 300,
+        airline: 'LA',
+        airlineName: null,
+        flightNumber: '1',
+        transfers: 0,
+        durationMinutes: 120,
+        cheapestOfDay: true,
+        departureAt: '2027-03-10T10:00',
+        clock: '10:00',
+        currency: 'USD',
+      },
+    ];
+    const view = { start: 2 * DAY, span: DAY };
+    const [placed] = placePoints(points, week, { low: 200, high: 400 }, PLOT, view);
+    expect(placed.x).toBeCloseTo(xOf(2 * DAY + 600, week, PLOT, view), 6);
   });
 });

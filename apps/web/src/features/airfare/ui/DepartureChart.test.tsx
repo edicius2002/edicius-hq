@@ -104,14 +104,28 @@ const WEEK = [
 /** The whole of March 2027 is what these snapshots are a watch on. */
 const MARCH = { from: '2027-03-01', to: '2027-03-31' };
 
-function curveOf(from: string, to: string, prices: CalendarPoint[]): CalendarCurve {
+const COLLECTED_AT = '2026-08-19T15:49:46+00:00';
+
+/**
+ * A horizon collected all at once, unless a test asks for otherwise.
+ *
+ * Every price defaults to the horizon's own stamp, so a test that predates
+ * per-date provenance still describes a chart where nothing is carried over.
+ * A test about carried-over prices passes an older `observedAt` on the dates it
+ * means.
+ */
+function curveOf(
+  from: string,
+  to: string,
+  prices: Array<Omit<CalendarPoint, 'observedAt'> & { observedAt?: string }>,
+): CalendarCurve {
   return {
-    capturedAt: '2026-08-19T15:49:46+00:00',
+    capturedAt: COLLECTED_AT,
     source: 'google-flights',
     currency: 'USD',
     fromDate: from,
     toDate: to,
-    prices,
+    prices: prices.map((point) => ({ observedAt: COLLECTED_AT, ...point })),
   };
 }
 
@@ -490,8 +504,40 @@ describe('a period that straddles the end of the watched month', () => {
   it('says where the dates beyond the month came from, and when', () => {
     straddling();
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'booking horizon collected 19/08/2026 15:49',
+      'booking horizon, last collected 19/08/2026 15:49',
     );
+  });
+
+  it('does not claim the newest collection for a price an older one answered', () => {
+    /*
+     * The horizon is assembled from every stored curve, so the far end can be
+     * older than the near end. The stamp above names the freshest thing on
+     * screen; without this the reader would take it for the age of all of them,
+     * which is the quiet lie the merge would otherwise introduce.
+     */
+    chart({
+      snapshots: LAST_WEEK,
+      granularity: 'week',
+      curve: curveOf('2027-03-01', '2027-04-03', [
+        { departureDate: '2027-04-01', price: 61.5 },
+        { departureDate: '2027-04-02', price: null },
+        { departureDate: '2027-04-03', price: 74, observedAt: '2026-08-16T09:00:00+00:00' },
+      ]),
+    });
+
+    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
+      '1 of them was carried over from earlier collections, the oldest from 16/08/2026 09:00',
+    );
+    // And it is drawn as its own kind of mark, so the sentence has something to
+    // point at.
+    expect(screen.getAllByTestId('curve-day-carried')).toHaveLength(1);
+    expect(screen.getAllByTestId('curve-day')).toHaveLength(1);
+  });
+
+  it('says nothing about age where every price came from the same collection', () => {
+    straddling();
+    expect(screen.getByTestId('horizon-note-live')).not.toHaveTextContent('carried over');
+    expect(screen.queryByTestId('curve-day-carried')).toBeNull();
   });
 
   it('keeps the frame exactly the same size whichever archive answers', () => {
@@ -973,12 +1019,14 @@ describe('the chrome around the plot', () => {
   });
 
   it('says each legend mark in three words or fewer', () => {
-    // The cut itself, asserted rather than described: five entries that were
-    // forty-eight words of explanation are five names. The sentences are not
-    // lost — each is the entry's `title` — and the test above reads two of them.
+    // The cut itself, asserted rather than described: entries that were
+    // forty-eight words of explanation are names. The sentences are not lost —
+    // each is the entry's `title` — and the test above reads two of them.
+    // Six since the horizon gained a carried-over mark, and the rule it is held
+    // to is the same one.
     const { container } = chart();
     const entries = [...container.querySelectorAll('figcaption span')];
-    expect(entries).toHaveLength(5);
+    expect(entries).toHaveLength(6);
     for (const entry of entries) {
       expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
       expect(entry.getAttribute('title')).toBeTruthy();

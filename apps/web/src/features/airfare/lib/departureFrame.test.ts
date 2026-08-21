@@ -28,14 +28,29 @@ import type { CalendarCurve, CalendarPoint } from '@/shared/api/fares';
 
 const MARCH: { from: string; to: string } = { from: '2027-03-01', to: '2027-03-31' };
 
-function curve(from: string, to: string, prices: CalendarPoint[]): CalendarCurve {
+const COLLECTED_AT = '2026-08-19T15:49:46+00:00';
+
+/**
+ * A horizon whose every price came from the same collection, unless a test says
+ * otherwise.
+ *
+ * The stamp defaults to the horizon's own so that the tests written before
+ * prices carried one still describe what they always described. A test about
+ * inherited prices passes an older `observedAt` on the point it means, which is
+ * the only way to build one — see `stale` below.
+ */
+function curve(
+  from: string,
+  to: string,
+  prices: Array<Omit<CalendarPoint, 'observedAt'> & { observedAt?: string }>,
+): CalendarCurve {
   return {
-    capturedAt: '2026-08-19T15:49:46+00:00',
+    capturedAt: COLLECTED_AT,
     source: 'google-flights',
     currency: 'USD',
     fromDate: from,
     toDate: to,
-    prices,
+    prices: prices.map((point) => ({ observedAt: COLLECTED_AT, ...point })),
   };
 }
 
@@ -183,6 +198,42 @@ describe('the two absences a curve date can carry', () => {
     const marks = curveMarks(days, null);
     expect(marks).toHaveLength(4);
     expect(marks.every((mark) => !mark.answered && mark.price === null)).toBe(true);
+  });
+});
+
+describe('a price older than the newest one on the chart', () => {
+  const days = frameDays(scatterWindow('2027-W13', 'week'), MARCH);
+
+  it('is marked as carried over rather than passing for the latest', () => {
+    // The far end of this horizon was filled in from a collection three days
+    // back, because the newest pass never reached it.
+    const mixed = curve('2027-04-01', '2027-04-04', [
+      { departureDate: '2027-04-01', price: 61.5 },
+      { departureDate: '2027-04-03', price: 88, observedAt: '2026-08-16T09:00:00+00:00' },
+    ]);
+    const marks = curveMarks(days, mixed);
+
+    const fresh = marks.find((mark) => mark.day === '2027-04-01')!;
+    expect(fresh.inherited).toBe(false);
+    expect(fresh.observedAt).toBe('2026-08-19T15:49:46+00:00');
+
+    const carried = marks.find((mark) => mark.day === '2027-04-03')!;
+    expect(carried.inherited).toBe(true);
+    expect(carried.observedAt).toBe('2026-08-16T09:00:00+00:00');
+    // Still a real price. Being older is a thing to say about it, not a reason
+    // to withhold it — withholding is what the fault did.
+    expect(carried.price).toBe(88);
+  });
+
+  it('leaves an absence with no age, because an absence has none', () => {
+    const marks = curveMarks(days, curve('2027-04-01', '2027-04-04', []));
+    expect(marks.every((mark) => mark.inherited === false)).toBe(true);
+    expect(marks.every((mark) => mark.observedAt === null)).toBe(true);
+  });
+
+  it('carries no age where there is no curve to compare against', () => {
+    const marks = curveMarks(days, null);
+    expect(marks.every((mark) => !mark.inherited && mark.observedAt === null)).toBe(true);
   });
 });
 

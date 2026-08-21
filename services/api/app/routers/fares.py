@@ -11,9 +11,11 @@ types that mirror them.
 """
 
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.adapters.fares.models import (
@@ -31,6 +33,8 @@ from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import FareWatch
 from app.services.fare_history import HISTORY
+from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
+from app.services.sse import KEEP_ALIVE, sse
 
 logger = logging.getLogger(__name__)
 
@@ -437,23 +441,45 @@ def get_history(
 
 class CalendarPointModel(BaseModel):
     """
-    One departure date and the cheapest fare on it.
+    One departure date, the cheapest fare on it, and when that fare was seen.
 
     `price` is `null` when the provider answered about the date and had nothing
     to sell. A date absent from the list altogether was never answered for —
     the two are different facts and the window below is what tells them apart.
+
+    `observedAt` is not decoration. The horizon below is assembled from every
+    curve on disk, so two prices side by side can be days apart in age, and a
+    client that drew them alike would be showing a stale figure as today's.
     """
 
     departureDate: str
     price: float | None
+    #: When this date's price was collected. Compare it against the horizon's
+    #: own `capturedAt` to tell an inherited price from a fresh one.
+    observedAt: str
 
 
-class CalendarCurveModel(BaseModel):
+class CalendarHorizonModel(BaseModel):
+    """
+    The whole booking horizon, assembled from every curve stored for the pair.
+
+    Shaped exactly as one collected curve is — a window and one price per
+    departure date inside it — and deliberately so: it is what a reader of the
+    year wants and what this endpoint has always served. What it is not is a
+    single observation, which is why every price carries its own stamp.
+    """
+
+    #: **The freshest price in `prices`**, and only that. It does not describe
+    #: the dates around it — those carry their own `observedAt` — and a client
+    #: that spreads this stamp over the whole window is claiming a freshness
+    #: most of it may not have. See `FareCalendar.horizon` for why this reading
+    #: was chosen over "the newest curve that contributed".
     capturedAt: str
     source: str
     currency: str
-    #: The window that was asked for, so a missing date reads as a gap in the
-    #: answer rather than as a date nobody wanted.
+    #: The window this answer covers: the newest curve's near end, and the far
+    #: end of whichever curve reached furthest. A date inside it and missing
+    #: from `prices` was answered for by no collection at all.
     fromDate: str
     toDate: str
     prices: list[CalendarPointModel]
@@ -462,8 +488,14 @@ class CalendarCurveModel(BaseModel):
 class CalendarResponse(BaseModel):
     origin: str
     destination: str
-    #: The most recent curve, or `null` when this pair has never been collected.
-    latest: CalendarCurveModel | None
+    #: Every departure date any stored curve answered for, or `null` when this
+    #: pair has never been collected.
+    #:
+    #: This field was `latest` and held the newest curve alone. The name went
+    #: with the behaviour rather than outliving it: a merged answer called
+    #: "latest" would be telling a client that every price in it is the newest,
+    #: which is the one thing this change exists to stop it believing.
+    horizon: CalendarHorizonModel | None
     health: WatchHealthModel
 
 
@@ -482,29 +514,43 @@ def get_calendar(
     one number a day with no carrier and no times, and serving them together
     would invite a client to draw them on one axis.
 
-    The latest curve only. The store keeps every one that was ever different,
-    so a series of curves can be served later without collecting anything
-    again — but nothing today reads more than the newest, and three hundred
-    points times a year of curves is not a payload to ship on speculation.
+    **One answer built from every stored curve, not the newest one served
+    whole** — `a-curve-fills-what-newer-lost`. This used to be
+    `CALENDAR.latest()`, and a curve can be shorter than the one before it:
+    since 12.245 a refused far window is walked back and only the answered part
+    is kept, so a collection that ran into a refusal took months off the chart
+    while the longer curve sat on disk beside it. `FareCalendar.horizon` is
+    where the merge and its refusals are argued; the payload is still one price
+    per departure date and is bounded by the same window it always was, because
+    the near end comes from the newest curve and old dates are not carried
+    forward.
+
+    Still one curve's worth of dates rather than a series of curves. Nothing
+    here reads the history of a single date over time, and three hundred points
+    times a year of collections is not a payload to ship on speculation.
     """
     origin, destination = normalize_code(origin), normalize_code(destination)
-    curve = CALENDAR.latest(origin, destination)
+    horizon = CALENDAR.horizon(origin, destination)
     checks = CALENDAR.checks(origin, destination)
     return CalendarResponse(
         origin=origin,
         destination=destination,
-        latest=(
+        horizon=(
             None
-            if curve is None
-            else CalendarCurveModel(
-                capturedAt=curve.captured_at,
-                source=curve.source,
-                currency=curve.currency,
-                fromDate=curve.start,
-                toDate=curve.end,
+            if horizon is None
+            else CalendarHorizonModel(
+                capturedAt=horizon.captured_at,
+                source=horizon.source,
+                currency=horizon.currency,
+                fromDate=horizon.start,
+                toDate=horizon.end,
                 prices=[
-                    CalendarPointModel(departureDate=point.departure_date, price=point.price)
-                    for point in curve.prices
+                    CalendarPointModel(
+                        departureDate=point.departure_date,
+                        price=point.price,
+                        observedAt=point.observed_at,
+                    )
+                    for point in horizon.prices
                 ],
             )
         ),
@@ -689,8 +735,106 @@ def collect_progress() -> CollectResponse:
     a client that can read the press's answer can read this one, and the
     summary it builds for a finished pass is the function it already had.
     """
+    return _current_pass()
+
+
+def _current_pass() -> CollectResponse:
+    """
+    The pass document as it stands, for whoever is asking.
+
+    Named because two endpoints now render it — the poll above and the stream
+    below — and they must render the same thing. A stream that built its own
+    view of a pass would be a second answer to the question `GET /collect`
+    already answers, which is the drift the frame docstring is about.
+    """
     running = RUNNER.current()
     return IDLE if running is None else _pass_model(running)
+
+
+# Declared after `GET /collect`, and the two do not collide: both are literal
+# paths with no parameter in them, so FastAPI matches `/collect/stream` exactly
+# and never reaches the shorter route. See the note above `/calendar/collect`
+# for what stops being true the moment anybody adds a parameterised sibling.
+@router.get("/collect/stream")
+async def stream_collection(request: Request) -> StreamingResponse:
+    """
+    A collection pass as it unfolds, pushed — `a-pass-is-pushed-not-polled`.
+
+    The same shape as `/api/market/stream` and for the same reasons — 8.19:
+    server-sent events rather than a socket, because this direction is the only
+    one carrying anything and an `EventSource` reconnects by itself. Nothing in
+    a frame names a provider (8.3); `source` is the same word `/collect` has
+    always answered with.
+
+    **What replaces what.** `GET /collect` used to be asked every two seconds by
+    every row that had pressed. That poll is cheap — it reads memory and reaches
+    no upstream — and it stays as the client's fallback, so this is an
+    improvement rather than a dependency. What it could never do is the third
+    thing: a pass is minutes long, the charts read `GET /history`, and that
+    endpoint answers with **every** snapshot for the city pair — measured on this
+    archive at 91 snapshots, ~327 kB, plus 1,846 baseline points at ~123 kB, and
+    growing without bound. Polling *that* every two seconds to keep a chart fresh
+    would trade a frozen page for 21 MB of refetching per four-minute pass, so
+    the archive's queries were only ever refreshed when the pass ended — and a
+    reader watching four minutes of nothing reloads the page, which is the
+    complaint this exists to answer.
+
+    **Two events, and both are documents this API already defines.**
+
+    - `pass` carries `CollectResponse`, byte for byte the thing `GET /collect`
+      answers with. The client's summary of a pass, its "whose pass is this"
+      check and its progress bar are the functions they already were.
+    - `snapshot` carries `SnapshotModel`, byte for byte an element of
+      `HistoryResponse.snapshots`. It is sent only for a look that actually
+      **wrote**, which on a half-hourly cadence is a minority of looks.
+
+    Both are the existing models rather than thinner cousins, and that is the
+    decision rather than an implementation detail. `tick_payload` in the market
+    router is the same idea done the other way — a shape invented for the socket
+    — and it drifted: the socket emitted an `EXTENDED` market state the browser
+    had no branch for, because one question was being answered in two places. A
+    frame that is the REST model cannot drift from the REST model.
+
+    The first `pass` frame is sent before anything is waited for, so a tab that
+    connects halfway through a pass is caught up rather than left waiting for
+    the next departure — and a tab that connects to an idle machine is told so
+    at once instead of sitting silent for twenty seconds.
+    """
+
+    async def events() -> AsyncIterator[str]:
+        # Subscribed *before* the catch-up frame is rendered, so a departure
+        # that lands between the two is queued rather than lost. The `with` is
+        # what makes that true — see `PassBroadcast.subscribe`, where doing it
+        # the other way left a hole exactly one document-render wide.
+        with COLLECTION_STREAM.subscribe() as updates:
+            yield sse("pass", _current_pass().model_dump(mode="json"))
+            # No timeout around this iteration — the broadcast does its own
+            # waiting and reports silence as a falsy update. `asyncio.wait_for`
+            # around `anext` delivers its cancellation *into* the generator,
+            # which runs the `finally`, unsubscribes and ends the response; the
+            # market stream paid roughly 150 reconnects an hour for that before
+            # it was found.
+            async for update in updates:
+                if await request.is_disconnected():
+                    return
+                if not update:
+                    yield KEEP_ALIVE
+                    continue
+                for snapshot in update.items:
+                    yield sse("snapshot", _snapshot_model(snapshot).model_dump(mode="json"))
+                if update.moved:
+                    yield sse("pass", _current_pass().model_dump(mode="json"))
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Nginx buffers by default, which would hold a departure until the
+            # buffer filled — the exact latency this endpoint exists to remove.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --------------------------------------------------------- collecting a curve --
@@ -748,12 +892,18 @@ class CalendarCollectResponse(BaseModel):
     """
     A calendar pass, whether or not it has finished.
 
-    Deliberately the same shape as `CollectResponse` minus the fields a curve
-    has no meaning for, so a client that already reads one press's answer reads
-    this one the same way. `polling` is the notable absence: a board pass polls
-    dozens of departures and a progress bar wants a denominator, whereas a
-    calendar pass is one city pair and two requests, so the only figure it
-    could report is one.
+    Deliberately close to `CollectResponse`, so a client that reads one press's
+    answer reads this one the same way — but it counts in its own units and
+    that is the one place the two deliberately part. `polling` and its
+    `completed` are departures; this pass polls no departures at all. What it
+    spends is **requests** and what it achieves is **windows priced**, and
+    since 12.245 those are not the same number, because a far window the
+    provider refuses is asked for again with a nearer end.
+
+    That distinction is the whole reason the four figures below are four and
+    not one. A pass measured live on 2026-08-21 sent three requests over twenty
+    seconds to price two windows; a client told only "running" for the whole of
+    it cannot tell a retry from a hang.
     """
 
     #: `idle` before anything has ever run, then `running`, then `finished` or
@@ -773,6 +923,20 @@ class CalendarCollectResponse(BaseModel):
     #: How many pairs have come back so far. Equal to `len(results)`, named
     #: because a caller wants a number and not a list length.
     completed: int
+    #: How many date windows this pass means to price — the pairs it found due
+    #: times the windows the horizon is cut into. `null` until the plan settles,
+    #: which is a different fact from zero: zero is every pair already collected
+    #: inside its cadence, and a bar drawn at zero for the other one would be
+    #: claiming a denominator that does not exist yet. Same contract as
+    #: `CollectResponse.polling`, in this pass's own units.
+    windows: int | None
+    #: Windows that have come back. The numerator for `windows`.
+    windowsPriced: int
+    #: Upstream requests sent so far. Above `windowsPriced` whenever a window
+    #: was refused and walked back.
+    requests: int
+    #: Departure dates priced so far, across every window that has landed.
+    dates: int
     collected: int
     changed: int
     failed: int
@@ -797,6 +961,10 @@ CALENDAR_IDLE = CalendarCollectResponse(
     source=DEFAULT_PROVIDER,
     watching=[],
     completed=0,
+    windows=None,
+    windowsPriced=0,
+    requests=0,
+    dates=0,
     collected=0,
     changed=0,
     failed=0,
@@ -815,6 +983,10 @@ def _calendar_pass_model(running: CalendarPass) -> CalendarCollectResponse:
         source=running.source,
         watching=list(running.watching),
         completed=running.completed,
+        windows=running.windows,
+        windowsPriced=running.windows_priced,
+        requests=running.requests,
+        dates=running.dates,
         collected=report.collected,
         changed=report.changed,
         failed=report.failed,
@@ -934,5 +1106,54 @@ def collect_calendar_progress() -> CalendarCollectResponse:
     reason the board pair share theirs: a client that can read the press's
     answer can read this one without knowing which of the two it holds.
     """
+    return _current_calendar_pass()
+
+
+def _current_calendar_pass() -> CalendarCollectResponse:
+    """The curve pass as it stands, for both the poll above and the stream below."""
     running = CALENDAR_RUNNER.current()
     return CALENDAR_IDLE if running is None else _calendar_pass_model(running)
+
+
+@router.get("/calendar/collect/stream")
+async def stream_calendar_collection(request: Request) -> StreamingResponse:
+    """
+    A booking-horizon pass as it unfolds, pushed.
+
+    The board pass's twin, minus the half it has no use for. There is no
+    `snapshot` event here and there is nothing missing: a board pass writes a
+    file per departure and a chart draws each one as it lands, whereas a
+    horizon pass writes **one** curve at the very end of the pair, so the only
+    thing to fetch afterwards is the whole of `GET /calendar` — which the row
+    already does when the pass stops.
+
+    What did turn out to be missing is the middle. This endpoint used to carry
+    only the two moments a pass has by definition, on the argument that a curve
+    is one pair and two requests with no halfway point. Measured live on
+    2026-08-21 that pass was three requests and twenty seconds, because a far
+    window was refused and walked back (12.245) — so the `pass` frames now carry
+    windows priced, requests spent and dates so far, and a row watching one can
+    draw it rather than print an unchanging sentence for twenty seconds.
+
+    The chart still refreshes from `GET /calendar` when the pass ends, as it
+    did: a curve is a few hundred points collected once a day per pair, which is
+    nothing like the unbounded `/history` payload that made pushing the board's
+    snapshots worth the trouble.
+    """
+
+    async def events() -> AsyncIterator[str]:
+        with CALENDAR_STREAM.subscribe() as updates:
+            yield sse("pass", _current_calendar_pass().model_dump(mode="json"))
+            async for update in updates:
+                if await request.is_disconnected():
+                    return
+                if update.moved:
+                    yield sse("pass", _current_calendar_pass().model_dump(mode="json"))
+                else:
+                    yield KEEP_ALIVE
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

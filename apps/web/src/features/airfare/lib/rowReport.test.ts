@@ -4,6 +4,7 @@ import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import {
   describeCollection,
   describeHorizon,
+  describeHorizonProgress,
   describeRefusal,
 } from '@/features/airfare/lib/rowReport';
 import type {
@@ -235,6 +236,10 @@ describe('the horizon collection an added route fires', () => {
       source: 'google-flights',
       watching: ['LIM-CUZ'],
       completed: 1,
+      windows: 2,
+      windowsPriced: 2,
+      requests: 2,
+      dates: 331,
       collected: 1,
       changed: 1,
       failed: 0,
@@ -265,5 +270,55 @@ describe('the horizon collection an added route fires', () => {
     expect(line.ok).toBe(false);
     expect(line.text).toContain('without a word about this route');
     expect(line.text).toContain('It is watched all the same');
+  });
+
+  describe('while it is still running', () => {
+    it('promises no duration, because the one it used to promise was false', () => {
+      // It said "two requests, about four seconds". Measured live on
+      // 2026-08-21: three requests and twenty seconds, because a far window was
+      // refused and walked back. Five times the promised wait reads as a broken
+      // control, so nothing is promised and the pass reports itself instead.
+      const line = describeHorizonProgress(
+        LIM_CUZ,
+        horizon({ state: 'running', windows: null, windowsPriced: 0, requests: 0, dates: 0 }),
+      );
+      expect(line.ok).toBe(true);
+      expect(line.text).toBe('Collecting the booking horizon for LIM → CUZ…');
+      expect(line.text).not.toContain('second');
+    });
+
+    it('counts windows and requests separately once the plan has settled', () => {
+      const line = describeHorizonProgress(
+        LIM_CUZ,
+        horizon({ state: 'running', windows: 2, windowsPriced: 1, requests: 3, dates: 181 }),
+      );
+      // Three requests for one window is the retry showing through, which is
+      // the thing that makes twenty seconds legible as work.
+      expect(line.text).toBe(
+        'Collecting LIM → CUZ: 1 of 2 windows priced in 3 requests, 181 departure dates so far.',
+      );
+    });
+
+    it('says "none yet" rather than a count of zero dates', () => {
+      const line = describeHorizonProgress(
+        LIM_CUZ,
+        horizon({ state: 'running', windows: 2, windowsPriced: 0, requests: 1, dates: 0 }),
+      );
+      expect(line.text).toContain('1 request,');
+      expect(line.text).toContain('no departure dates yet');
+    });
+
+    it('will not report a stranger’s pass as this route’s own', () => {
+      // The server keeps one calendar slot, so a press that arrives mid-pass is
+      // answered with that pass. A row claiming it would be the quietest lie
+      // this control could tell.
+      const line = describeHorizonProgress(
+        LIM_CUZ,
+        horizon({ state: 'running', watching: ['ARI-SCL'] }),
+      );
+      expect(line.ok).toBe(false);
+      expect(line.text).toContain('ARI-SCL');
+      expect(line.text).toContain('this route is watched');
+    });
   });
 });

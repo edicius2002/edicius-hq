@@ -1,6 +1,7 @@
 import { feature } from 'topojson-client';
 
 import type { LngLat } from '@/features/airfare/lib/geo';
+import { type Capped, capOf, cappedRuns } from '@/features/airfare/lib/visible';
 import type { SubdivisionsResponse } from '@/shared/api/geography';
 
 /**
@@ -61,6 +62,23 @@ export type Subdivisions = {
    */
   land: { type: 'MultiPolygon'; coordinates: LngLat[][][] } | null;
   labels: SubdivisionLabel[];
+  /**
+   * The same two geometries taken apart into pieces the map can skip.
+   *
+   * This is the reason the whole module exists said one rung further in. A
+   * country's file is 1:10m and holds the geometry of a whole country, which at
+   * the map's 32x ceiling is two hundred times more coastline and more internal
+   * border than the frame can show — so a frame that projects all of it spends
+   * the reader's time on ground they cannot see. `lib/visible` carries the
+   * measurements; the index costs one more pass over points that are already
+   * being walked here, and it is paid once when the country lands rather than
+   * sixty times a second for as long as the reader looks at it.
+   *
+   * Empty rather than absent when there is nothing to draw, so the drawing code
+   * has one shape to handle instead of two.
+   */
+  borderRuns: Capped<{ type: 'LineString'; coordinates: LngLat[] }>[];
+  landParts: Capped<{ type: 'Polygon'; coordinates: LngLat[][] }>[];
 };
 
 /**
@@ -123,5 +141,19 @@ export function readSubdivisions(response: SubdivisionsResponse | null): Subdivi
   }
 
   if (!borders && !land && labels.length === 0) return null;
-  return { country: response.country, borders, land, labels };
+  return {
+    country: response.country,
+    borders,
+    land,
+    labels,
+    borderRuns: borders ? cappedRuns(borders) : [],
+    // One entry per polygon rather than one for the whole country, because an
+    // archipelago is exactly the case where most of a shape is nowhere near the
+    // rest of it: Chile's file carries Easter Island 3,500 km off its coast, and
+    // a reader looking at Santiago should not be paying to project it.
+    landParts: (land?.coordinates ?? []).map((coordinates) => {
+      const shape = { type: 'Polygon' as const, coordinates };
+      return { shape, cap: capOf(shape) };
+    }),
+  };
 }

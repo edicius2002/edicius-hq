@@ -92,16 +92,19 @@ for (let day = 1; day <= 31; day += 1) {
  * something a test can assert on, with the two absences kept in it — the 24th
  * of August answered and empty, the 25th never answered for.
  */
+const COLLECTED_AT = '2026-08-19T15:49:46+00:00';
+
 const CURVE_PRICES: CalendarPoint[] = [
-  { departureDate: '2026-08-19', price: 164.88 },
-  { departureDate: '2026-08-20', price: 119.5 },
-  { departureDate: '2026-08-24', price: null },
-  { departureDate: '2026-08-26', price: 62.94 },
+  { departureDate: '2026-08-19', price: 164.88, observedAt: COLLECTED_AT },
+  { departureDate: '2026-08-20', price: 119.5, observedAt: COLLECTED_AT },
+  { departureDate: '2026-08-24', price: null, observedAt: COLLECTED_AT },
+  { departureDate: '2026-08-26', price: 62.94, observedAt: COLLECTED_AT },
 ];
 for (let day = 1; day <= 30; day += 1) {
   CURVE_PRICES.push({
     departureDate: `2027-04-${String(day).padStart(2, '0')}`,
     price: 70 + (day % 7),
+    observedAt: COLLECTED_AT,
   });
 }
 

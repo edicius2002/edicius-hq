@@ -108,8 +108,26 @@ class PassObserver(Protocol):
     def planned(self, *, polling: int, skipped: list[tuple[str, str]]) -> None:
         """How many departures this pass means to poll, before the first one."""
 
-    def collected(self, result: "RouteResult") -> None:
-        """One departure has come back, whatever it came back with."""
+    def collected(self, result: "RouteResult", snapshot: "FareSnapshot | None" = None) -> None:
+        """
+        One departure has come back, whatever it came back with.
+
+        `snapshot` is the board that was **written**, and is `None` whenever
+        nothing was: a look that the provider refused, a look the archive could
+        not store, and — much the commonest — a look that found the board
+        exactly as it was left, which on a half-hourly cadence is most looks.
+        That distinction is the whole value of the argument. An observer that
+        pushed the board on every look would put a point in front of a reader
+        that a page reload would then take away again, because `append_if_changed`
+        had decided there was nothing new to record.
+
+        It is a second argument rather than a field on `RouteResult` because the
+        two have different jobs and different weights: a result is a summary of
+        what happened and is kept for the whole pass, a snapshot is roughly
+        3.6 kB of offers that only the observer wants. Thirty-one of them held
+        on a report that already says everything the report is read for would be
+        a payload riding on a summary.
+        """
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,10 +244,10 @@ async def collect(
         for index, query in enumerate(queries):
             if index:
                 await asyncio.sleep(gap_seconds)
-            result = await _collect_one(session, query, provider, store)
+            result, written = await _collect_one(session, query, provider, store)
             results.append(result)
             if observer is not None:
-                observer.collected(result)
+                observer.collected(result, written)
     finally:
         if owned:
             await session.aclose()
@@ -387,6 +405,52 @@ async def collect_due(
 # gap itself is three since 12.211 and the shape of it has not moved.
 
 
+class CalendarObserver(Protocol):
+    """
+    Somewhere for a horizon pass to say what it is doing while it is doing it.
+
+    `PassObserver`'s twin and deliberately not `PassObserver` itself, because
+    the two passes count different things and a shared protocol would have to
+    be about neither. A board pass counts **departures**: it settles a list of
+    up to thirty-one of them, polls each one once, and `completed / polling` is
+    the whole story. A horizon pass has one city pair and no departures to
+    count — what moves is **windows priced and requests spent**, and those are
+    not the same number since 12.245, because a refused far end is walked back
+    and asked for again.
+
+    Reusing the departure vocabulary would have meant reporting "1 of 2
+    departures" for a pass that polls none, which is the class of borrowed unit
+    that makes a progress bar mean nothing.
+
+    Every method is called from the collector's own task and must not block.
+    """
+
+    def planned(self, *, windows: int, skipped: list[tuple[str, str]]) -> None:
+        """
+        How many windows this pass means to price, before the first request.
+
+        A real denominator and settled early, which is what lets the row draw a
+        bar rather than a spinner: `calendar_windows` cuts the horizon into a
+        fixed list before anything is asked for, and which pairs are due is a
+        read off the archive. Zero is a genuine answer — every pair collected
+        inside its cadence — and is a different fact from "not settled yet".
+        """
+
+    def requested(self) -> None:
+        """
+        One upstream request has just been sent.
+
+        Separate from `priced` below because of what 12.245 does to the
+        relationship: a refused window is asked for again with a nearer end, so
+        one window can cost up to six requests. A reader watching a pass that
+        has sent three requests and priced one window is watching the retry
+        work, and collapsing the two counts would hide it.
+        """
+
+    def priced(self, *, dates: int) -> None:
+        """One window has come back, with however many departure dates in it."""
+
+
 @dataclass(frozen=True, slots=True)
 class CalendarResult:
     origin: str
@@ -481,6 +545,7 @@ async def collect_calendars(
     calendar: FareCalendar | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
+    observer: CalendarObserver | None = None,
 ) -> CalendarReport:
     """
     One cheapest fare per departure date, out to the horizon, per city pair.
@@ -506,18 +571,39 @@ async def collect_calendars(
     results: list[CalendarResult] = []
     skipped: list[tuple[str, str]] = []
 
+    # Which pairs are due, decided for all of them before any of them is
+    # collected. It used to be decided inside the loop, one pair at a time, and
+    # the move is what lets the pass state its own size before it spends a
+    # request — `CalendarObserver.planned` needs a denominator, and a plan that
+    # settles pair by pair is a denominator that grows while a bar is drawing
+    # against it. Nothing about the outcome changes: `due` reads the last check
+    # for one pair, and collecting a different pair cannot alter it.
+    due: list[tuple[tuple[str, str], str]] = []
+    for pair, currency in pairs.items():
+        if store.due(pair[0], pair[1], moment, every_minutes=every_minutes):
+            due.append((pair, currency))
+        else:
+            skipped.append((f"{pair[0]}-{pair[1]}", "not-due"))
+    if observer is not None:
+        observer.planned(windows=len(due) * len(windows), skipped=list(skipped))
+
     owned = client is None
     session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
     spent = 0
     try:
-        for (origin, destination), currency in pairs.items():
-            if not store.due(origin, destination, moment, every_minutes=every_minutes):
-                skipped.append((f"{origin}-{destination}", "not-due"))
-                continue
+        for (origin, destination), currency in due:
             if spent:
                 await asyncio.sleep(gap_seconds)
             result = await _collect_calendar(
-                session, origin, destination, currency, windows, provider, store, gap_seconds
+                session,
+                origin,
+                destination,
+                currency,
+                windows,
+                provider,
+                store,
+                gap_seconds,
+                observer,
             )
             spent += result.requests
             results.append(result)
@@ -564,6 +650,7 @@ async def _price_window(
     end: str,
     provider: str,
     gap_seconds: float,
+    observer: CalendarObserver | None = None,
 ) -> tuple[list[CalendarPrice], int, FareError | None]:
     """
     One window's prices, narrowing the far end if the provider will not reach it.
@@ -586,6 +673,12 @@ async def _price_window(
                 break
             await asyncio.sleep(gap_seconds)
         requests += 1
+        # Announced before the wait for the answer rather than after it, which
+        # is the only placement that helps: a request takes seconds and it is
+        # exactly those seconds a reader is sitting through. Saying so
+        # afterwards would move the count at the moment the wait ended.
+        if observer is not None:
+            observer.requested()
         try:
             points = await fetch_calendar(
                 client,
@@ -630,6 +723,7 @@ async def _collect_calendar(
     provider: str,
     store: FareCalendar,
     gap_seconds: float,
+    observer: CalendarObserver | None = None,
 ) -> CalendarResult:
     looked_at = _now()
     points = []
@@ -639,11 +733,18 @@ async def _collect_calendar(
         if index:
             await asyncio.sleep(gap_seconds)
         window_points, spent, error = await _price_window(
-            client, origin, destination, currency, start, end, provider, gap_seconds
+            client, origin, destination, currency, start, end, provider, gap_seconds, observer
         )
         requests += spent
         if error is None:
             points.extend(window_points)
+            # Counted as it comes back rather than at the end of the pair. The
+            # second window is a request and a paced wait behind the first, and
+            # a reader who is told nothing until both have landed is watching
+            # the same sentence for the whole of it — which is the fault this
+            # is here to remove.
+            if observer is not None:
+                observer.priced(dates=len(window_points))
         else:
             # The whole curve fails, not the window. Two windows are one
             # observation of one year, and storing half of it would put a curve
@@ -733,7 +834,19 @@ async def _collect_one(
     query: FareQuery,
     provider: str,
     store: FareHistory,
-) -> RouteResult:
+) -> tuple[RouteResult, FareSnapshot | None]:
+    """
+    Look at one departure, and say what happened and what was written.
+
+    The second half of the pair is the board **if the archive took it**, and
+    `None` on every path where nothing was stored — a refusal, a failed write,
+    or a board that had not moved. It exists so a `PassObserver` can push the
+    new point at a reader while the pass is still running, and the alternative
+    was for that observer to re-read the file it had just been told about.
+    Nothing in the returned report carries it; `collect` hands it straight to
+    the observer and lets it go.
+    """
+
     def outcome(
         *,
         ok: bool,
@@ -780,7 +893,7 @@ async def _collect_one(
             outcome="error",
             error_code=error.code,
         )
-        return outcome(ok=False, error_code=error.code, error_message=error.message)
+        return outcome(ok=False, error_code=error.code, error_message=error.message), None
 
     snapshot = FareSnapshot(
         captured_at=looked_at,
@@ -838,7 +951,7 @@ async def _collect_one(
             outcome="error",
             error_code="write-failed",
         )
-        return outcome(ok=False, error_code="write-failed", error_message=str(error))
+        return outcome(ok=False, error_code="write-failed", error_message=str(error)), None
 
     cheapest = snapshot.cheapest
     store.record_check(
@@ -854,11 +967,17 @@ async def _collect_one(
         offers=len(result.offers),
         cheapest=cheapest.price if cheapest else None,
     )
-    return outcome(
-        ok=True,
-        changed=changed,
-        seeded=seeded,
-        offers=len(result.offers),
-        cheapest=cheapest.price if cheapest else None,
-        currency=snapshot.currency,
+    return (
+        outcome(
+            ok=True,
+            changed=changed,
+            seeded=seeded,
+            offers=len(result.offers),
+            cheapest=cheapest.price if cheapest else None,
+            currency=snapshot.currency,
+        ),
+        # Only when the archive actually took it. A look that found the board
+        # unchanged wrote nothing, so pushing the board would show a reader a
+        # point that is not in the file behind it.
+        snapshot if changed else None,
     )

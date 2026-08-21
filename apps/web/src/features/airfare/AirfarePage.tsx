@@ -250,11 +250,65 @@ export function AirfarePage() {
             }}
             onMove={(from, to) => void watchlist.move(from, to)}
           />
+          {/*
+            The horizon reports, coloured by what they say.
+
+            This list was `styles.failures`, and that class paints every line in
+            `--color-expense` unconditionally — so a horizon collected perfectly,
+            three hundred dates priced and not a refusal in sight, was printed in
+            red. The owner reported errors they did not have, and this is a large
+            part of why. `RowReport` has carried `ok` since it was written and
+            nothing here was reading it.
+
+            The rule is the row list's, taken rather than reinvented: the line is
+            muted by default and red only when `!report.ok`. Two lists reporting
+            the same kind of outcome in two colour schemes would be the same
+            fault waiting to come back.
+          */}
           {horizon.reports.size > 0 ? (
-            <ul className={styles.failures} data-testid="horizon-reports">
-              {[...horizon.reports.entries()].map(([id, report]) => (
-                <li key={id}>{report.text}</li>
-              ))}
+            <ul className={styles.reports} data-testid="horizon-reports">
+              {[...horizon.reports.entries()].map(([id, report]) => {
+                const bar = horizon.progress.get(id) ?? null;
+                return (
+                  <li key={id}>
+                    {/*
+                      The bar above the words, and only while a pass is
+                      running. `horizonProgress` returns null for a pass that
+                      has stopped, for somebody else's, and for one that
+                      settled at nothing to do — so a track in the document at
+                      all means work is genuinely in flight.
+
+                      `aria-hidden`, with no `progressbar` role and no figures
+                      on it: the sentence underneath already says how many
+                      windows have been priced and how many requests it took,
+                      and a bar carrying the same numbers would make a screen
+                      reader hear the pass twice. The row list settled this
+                      question the same way.
+                    */}
+                    {bar ? (
+                      <span
+                        className={
+                          bar.fraction === null
+                            ? `${styles.progress} ${styles.unplanned}`
+                            : styles.progress
+                        }
+                        data-testid={`horizon-progress-${id}`}
+                        aria-hidden="true"
+                      >
+                        <span
+                          className={styles.fill}
+                          style={
+                            bar.fraction === null
+                              ? undefined
+                              : { width: `${Math.min(1, bar.fraction) * 100}%` }
+                          }
+                        />
+                      </span>
+                    ) : null}
+                    <span className={report.ok ? undefined : styles.refused}>{report.text}</span>
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
         </Panel>
@@ -296,7 +350,7 @@ export function AirfarePage() {
           route={selected}
           snapshots={snapshots}
           baseline={history.data?.baseline ?? []}
-          curve={calendar.data?.latest ?? null}
+          curve={calendar.data?.horizon ?? null}
           /*
             `isPending` is false on a failed query, so passing it alone left a
             500 from `/api/fares/calendar` rendering as "no booking horizon

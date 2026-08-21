@@ -13,6 +13,7 @@ from app.routers.market import close_client
 from app.services.calendar_job import CALENDAR_RUNNER
 from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
+from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
 from app.services.stream_hub import HUB
 
 # Two lines against the day this runs somewhere nobody can attach a debugger.
@@ -47,6 +48,12 @@ async def lifespan(_app: FastAPI):
     # reintroduce the confusing failure for the half that was left running.
     await RUNNER.aclose()
     await CALENDAR_RUNNER.aclose()
+    # After the runners, because cancelling a pass is itself something the
+    # watchers are owed — a row holding a `running` document for a pass that
+    # will never move again is the spinner-forever failure 8.8 names. Closing
+    # the broadcasts first would swallow that last frame.
+    COLLECTION_STREAM.close()
+    CALENDAR_STREAM.close()
     # The shared upstream clients outlive a request but not the process.
     await close_client()
     await close_fares_client()

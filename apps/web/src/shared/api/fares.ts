@@ -122,31 +122,57 @@ export type FareHistoryResponse = {
 };
 
 /**
- * One departure date and what the cheapest seat on it costs.
+ * One departure date, what the cheapest seat on it costs, and when that was seen.
  *
  * `price` is `null` when the provider answered about the date and had nothing
  * to sell. A date absent from the list altogether was never answered for. Those
  * are two different facts — 12.154 — and the curve's `fromDate`/`toDate` are
  * what tell them apart, which is why they travel together below.
+ *
+ * `observedAt` is the third fact and the newest one. The horizon below is
+ * assembled from every curve the server has stored, so two prices side by side
+ * can be days apart in age — `a-curve-fills-what-newer-lost`.
  */
 export type CalendarPoint = {
   departureDate: string;
   price: number | null;
+  /**
+   * When this date's price was collected. Equal to the horizon's `capturedAt`
+   * for a price collected on the newest pass, and older for one inherited from
+   * a curve that reached further than the newest one did.
+   */
+  observedAt: string;
 };
 
 /**
- * One collection of the whole booking horizon: a cheapest fare per departure
- * date, out to the day the provider stops answering.
+ * The whole booking horizon: a cheapest fare per departure date, out to the day
+ * the provider stops answering.
  *
  * One number a day and nothing else — no carrier, no times, no itineraries —
  * so it is not a board and cannot be drawn on the same axis as one.
+ *
+ * **Not one collection.** It is assembled server-side from every curve stored
+ * for the pair, because a curve can be shorter than the one before it and
+ * serving the newest alone dropped months the archive still held. Each price
+ * therefore carries its own `observedAt` and this object's `capturedAt` speaks
+ * only for the freshest of them.
  */
 export type CalendarCurve = {
-  /** When this curve was collected. The chart's domain comes from the row, not from this. */
+  /**
+   * The freshest observation in `prices`, and only that.
+   *
+   * It is not the age of the curve as a whole, because the curve as a whole has
+   * no single age. A reader that spreads this over every point is claiming a
+   * freshness most of the window may not have — compare `point.observedAt`.
+   */
   capturedAt: string;
   source: string;
   currency: string;
-  /** The window that was asked for, so a missing date reads as a gap in the answer. */
+  /**
+   * The window this answer covers: the newest curve's near end, and the far end
+   * of whichever stored curve reached furthest. A date inside it and missing
+   * from `prices` was answered for by no collection at all.
+   */
   fromDate: string;
   toDate: string;
   prices: CalendarPoint[];
@@ -155,8 +181,15 @@ export type CalendarCurve = {
 export type FareCalendarResponse = {
   origin: string;
   destination: string;
-  /** The newest curve, or null where this pair has never been collected. */
-  latest: CalendarCurve | null;
+  /**
+   * Every departure date any stored curve answered for, or null where this pair
+   * has never been collected.
+   *
+   * This was `latest` and held the newest curve alone. The name went with the
+   * behaviour: calling a merged answer "latest" would tell a reader every price
+   * in it is the newest, which is the one belief this change exists to remove.
+   */
+  horizon: CalendarCurve | null;
   health: WatchHealth;
 };
 
@@ -409,7 +442,10 @@ export type CalendarRouteResult = {
   cheapest: number | null;
   cheapestOn: string | null;
   currency: string | null;
-  /** Upstream requests spent. Two, on a horizon that answers in two windows. */
+  /**
+   * Upstream requests spent on this pair. Two where both windows answer first
+   * time, and more where a far end was refused and walked back — 12.245.
+   */
   requests: number;
   errorCode: string | null;
   errorMessage: string | null;
@@ -420,8 +456,9 @@ export type CalendarRouteResult = {
  *
  * Same shape from the press that starts one and from every poll that follows,
  * for `CollectResponse`'s reason: a client that can read the first can read the
- * second. There is no `polling` denominator — a horizon pass is one city pair
- * and two requests, so the only number it could report is one.
+ * second. It counts in its own units, though, and that is where the two part:
+ * a board pass polls departures, and this one polls none. What it spends is
+ * requests and what it achieves is windows priced.
  */
 export type CalendarCollectResponse = {
   state: CollectState;
@@ -431,6 +468,24 @@ export type CalendarCollectResponse = {
   /** What this pass covers, as `LIM-SCL`. */
   watching: string[];
   completed: number;
+  /**
+   * How many date windows this pass means to price. Null until the plan
+   * settles, which is a different fact from zero — zero is a pair already
+   * collected inside its cadence, and a bar drawn at zero for the other one
+   * would be claiming a denominator nobody has yet.
+   */
+  windows: number | null;
+  /** Windows that have come back. The numerator for `windows`. */
+  windowsPriced: number;
+  /**
+   * Upstream requests sent so far. Above `windowsPriced` whenever a far window
+   * was refused and asked for again with a nearer end — 12.245. The two are
+   * separate because one is what the pass is spending and the other is what it
+   * is achieving, and a reader watching only one cannot tell a retry from a hang.
+   */
+  requests: number;
+  /** Departure dates priced so far, across every window that has landed. */
+  dates: number;
   collected: number;
   changed: number;
   failed: number;

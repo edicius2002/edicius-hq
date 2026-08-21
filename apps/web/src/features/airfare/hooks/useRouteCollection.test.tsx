@@ -527,6 +527,38 @@ describe('collecting one watched route from its own row', () => {
     expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
   });
 
+  it('marks the day’s spend for a re-read when the pass it started ends', async () => {
+    /*
+     * `spend-is-read-back-not-only-written`. The header strip refetches on its own every
+     * minute, so this is not what keeps it current — it is what keeps it from
+     * lagging the one piece of spending the reader can attribute to themselves.
+     * A press that visibly polls thirty-one departures and leaves the figure
+     * beside the title unchanged for the best part of a minute teaches the
+     * reader that the strip is slow, which is the belief it can least afford.
+     */
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    client.setQueryData(['fares', 'spend'], { spent: 12 });
+
+    stubPassInProgress(passRunning(LIM_CUZ));
+    const { result } = renderHook(() => useRouteCollection(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    act(() => result.current.collect(LIM_CUZ));
+    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    expect(client.getQueryState(['fares', 'spend'])?.isInvalidated).toBe(false);
+
+    await act(async () => {
+      streamed().emit('pass', passOver(LIM_CUZ));
+    });
+
+    expect(client.getQueryState(['fares', 'spend'])?.isInvalidated).toBe(true);
+  });
+
   it('falls back to asking when the stream cannot be established', async () => {
     /*
      * The stream is an improvement on a poll that worked, so it must not be

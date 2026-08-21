@@ -170,6 +170,17 @@ MAX_POLL_MINUTES = 24 * 60
 # of every pass, so ninety-six passes share one 600 rather than taking one each.
 DEFAULT_DAILY_REQUEST_BUDGET = 600
 
+# The most this address has ever sent in one day, counted from 494 heartbeat
+# lines across four days. A constant rather than a sentence inside the comment
+# above, because it is the only number in this pair that anything measured, and
+# it has a second reader now: `GET /api/fares/spend` puts it on the wire beside
+# the ceiling so that a page drawing the day's spend can mark where the busiest
+# real day fell. Without it a bar filling towards 600 reads as a fraction of a
+# safe maximum, and nobody knows that 600 is safe — the note above says so
+# outright, and a picture that quietly disagrees with its own configuration is
+# worse than no picture.
+BUSIEST_DAY_ON_RECORD = 329
+
 # Cadence against how far away the departure is, as (days out, minutes between
 # polls). The shape follows the measurement: at 14 days out a fare moved on 27%
 # of days with a median jump of 14%, while at 150 days it moved on 22% of days

@@ -192,6 +192,15 @@ export function useRouteCollection(): RouteCollection {
   const refreshArchive = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
     void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+    /*
+     * And the day's spend, which this pass has just moved —
+     * `spend-is-read-back-not-only-written`. It refetches on its own every minute
+     * anyway; what this buys is that a press the reader made themselves is on
+     * the header strip when the row's line appears rather than up to a minute
+     * afterwards. A press is the one piece of spending they can attribute, and
+     * a figure that lagged it would teach them the strip is slow.
+     */
+    void queryClient.invalidateQueries({ queryKey: ['fares', 'spend'] });
   }, [queryClient]);
 
   const stopStream = useCallback(() => {

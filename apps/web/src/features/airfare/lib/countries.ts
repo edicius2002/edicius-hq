@@ -342,10 +342,20 @@ export type CountryInView = {
  * **What made the old numbers look worse than they were: the panel is not the
  * stage.** The cost goes with the area swept, and the last round of this work
  * quoted it at 2100x1200 on the assumption that a maximised window gives the
- * map a maximised stage. It does not. `.stage` has `min-height: 460px` and the
- * row does not grow, so the height is 460 at every window size measured — 526
- * wide at a 1518-pixel viewport, 910 at 1902, 1550 at 2542. The sweep grows
- * with the width of one panel, not with the area of a screen.
+ * map a maximised stage. It does not. `.stage` carries the row's whole height
+ * and the row does not grow, so that one number is the height at every window
+ * size — the sweep grows with the width of one panel, not with the area of a
+ * screen.
+ *
+ * **The figures above were taken at `min-height: 460px`, which is now 640, and
+ * a narrower watchlist beside it.** `a-taller-row-is-four-more-routes` moved
+ * both. The stage is 606 wide at a 1518-pixel viewport where it was 526, 990
+ * at 1902 where it was 910, and 1630 at 2542 where it was 1550 — so the widest
+ * this layout produces goes from 129x38 samples to 136x53, 4,902 to 7,208, up
+ * 47%. The ten views quoted at 1.20 to 4.42 ms are 1.76 to 6.50 ms there, and
+ * step 12 is still the right side of the trade the paragraph above argues:
+ * what was bought with two milliseconds nobody can feel is now bought with
+ * three.
  */
 export const VIEW_SAMPLE_STEP = 12;
 

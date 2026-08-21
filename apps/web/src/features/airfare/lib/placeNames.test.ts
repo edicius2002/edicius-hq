@@ -702,10 +702,13 @@ describe('subdivisionFade', () => {
     for (const name of ['Peru', 'Chile', 'Spain', 'Japan', 'United States of America']) {
       const { at, area } = country(name);
       // Turned to face the country, which is what a reader who has zoomed
-      // into it has done, and on the stage's own 460px minimum.
+      // into it has done, and on the stage's own minimum — 640 since
+      // `a-taller-row-is-four-more-routes`, which only moves the answer away
+      // from the gate: `LABEL_ROOM` is an absolute area, so a bigger globe
+      // fills it at a lower zoom.
       const looking = (zoom: number): View => ({
         globe: true,
-        scale: 0.42 * 460 * zoom,
+        scale: 0.42 * 640 * zoom,
         rotation: [-at[0], -at[1], 0],
       });
       const full = [...Array(80).keys()]

@@ -52,7 +52,7 @@ type AirportFieldProps = {
    * pins to *that* row's left or right edge and is capped at *its* width.
    *
    * The reason is a measurement — 12.268. A label beside a field pushes the
-   * input inwards by the whole label column, 99px at this panel's 20rem floor,
+   * input inwards by the whole label column, 99px at this panel's floor,
    * and a 17rem list opening rightwards from there ran 90px past the viewport:
    * a horizontal scrollbar on the one page that must never have one. Pinned to
    * the row, the list can be neither wider than the form nor start outside it,

@@ -144,10 +144,18 @@ const BOUNDARY_RUNS = cappedRuns(BOUNDARIES as never);
 /**
  * How far in the map goes.
  *
- * 32x, not the 8x it was. The stage is at least 460px on its short side and
- * the globe's radius is `0.42 x 460 x zoom`, so the short side spans 1,896 km
- * at 8x and 474 km at 32x, and the ground under one pixel goes from 4.12 km to
- * 1.03 km. Both geometry layers were re-cut to meet it — decision 12.165 for
+ * 32x, not the 8x it was. The stage was at least 460px on its short side when
+ * this was settled and the globe's radius is `0.42 x min(width, height) x
+ * zoom`, so at 460 the short side spanned 1,896 km at 8x and 474 km at 32x,
+ * and the ground under one pixel went from 4.12 km to 1.03 km. The short side
+ * is 606 at the narrowest viewport and 640 above 1552px since
+ * `a-taller-row-is-four-more-routes`, so the ground under one pixel at the
+ * ceiling is 0.78 km and 0.74 km — 28% finer than the number this ceiling was
+ * chosen against. It is still well inside what the served 1:10m outlines
+ * carry, whose own vertices are hundreds of metres apart, so the ceiling holds
+ * where it is; what it is not is untouched, and 32x is the rung to look at
+ * first if the coastlines ever start to read as polygons.
+ * Both layers were re-cut to meet it — 12.165 for
  * the served outlines, and 12.164 for what the bundled 1:110m base can no
  * longer be asked to do on its own.
  */
@@ -1186,8 +1194,9 @@ export function RouteMap({
    * `approach` is an exponential and an exponential never arrives, so it snaps
    * once the remainder is under a twentieth of a percent of the target. That is
    * small and it is not nothing: measured after a sixteen-notch wheel zoom, the
-   * loop shut down with the scale 0.022 short of 24.51, which on a globe whose
-   * radius is `0.42 x 460 x zoom` is 1.3 px of the reader's frame. The map then
+   * loop shut down with the scale 0.022 short of 24.51, which on the globe of
+   * the day — a radius of `0.42 x 460 x zoom` — was 1.3 px of the reader's
+   * frame, and is more on the larger one this row carries now. The map then
    * sat there — until a country's subdivisions landed a second later, woke the
    * frame loop for the fade, and the loop picked the abandoned glide back up.
    * So the reader's whole view crept a pixel at a time *while* the detail was

@@ -469,7 +469,17 @@ describe('the price axis says only what was quoted', () => {
   });
 });
 
-describe('the crosshair over a period with no figure', () => {
+/**
+ * What the price axis shows on a date we have no median for.
+ *
+ * The chart holds two series and the archive is young, so on most dates the
+ * only figure that exists is the provider's. The plate used to read our median
+ * alone and was therefore absent across nearly the whole chart, which is what
+ * the owner was looking at when they asked for this. It falls back now — and
+ * because the two series are not the same measurement, the fallback has to say
+ * which one it is showing, in ink and in words both.
+ */
+describe('the crosshair over a period with no median of ours', () => {
   const OURS_ONE = [bucket('2026-08-17', '08-17', 118, 142, 125)];
   const BASELINE_ONLY = [bucket('2026-08-19', '08-19', 96, 96, 96)];
 
@@ -486,36 +496,136 @@ describe('the crosshair over a period with no figure', () => {
     return screen.getByRole('img');
   }
 
-  it('prints no price at all for a keyboard reader who lands on one', () => {
-    // The fallback used to be the middle of the padded domain, drawn on a plate
-    // as currency: a number invented twice over, beside a readout saying `—`.
+  it('shows the provider’s baseline for a keyboard reader who lands on one', () => {
+    // The keyboard is not a lesser path here: 12.245 put the hairline on the
+    // series "for the pointer and the keyboard alike", and a fallback that only
+    // a hand could reach would put this chart back where 12.234 found it.
     const svg = chartWithHole();
     svg.focus();
     fireEvent.keyDown(svg, { key: 'ArrowLeft' });
 
     expect(screen.getByTestId('time-tag-text')).toHaveTextContent('08-19');
-    expect(screen.queryByTestId('price-tag-text')).not.toBeInTheDocument();
+    expect(screen.getByTestId('price-tag-text')).toHaveTextContent('$96.00');
   });
 
-  it('still prints one where the period has a median to sit on', () => {
+  it('shows it under a pointer too, on the same date', () => {
+    const svg = chartWithHole();
+    fireEvent.pointerMove(svg, { clientX: 744, clientY: 100 });
+    expect(screen.getByTestId('time-tag-text')).toHaveTextContent('08-19');
+    expect(screen.getByTestId('price-tag-text')).toHaveTextContent('$96.00');
+  });
+
+  it('lets our own median win wherever we have one', () => {
+    // Both the 17th and the 19th are on this axis; only the 17th is ours. The
+    // fallback is a fallback, not a preference.
     const svg = chartWithHole();
     svg.focus();
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
     expect(screen.getByTestId('price-tag-text')).toHaveTextContent('$125.00');
+    expect(screen.getByTestId('price-tag-text')).toHaveAttribute('data-source', 'ours');
   });
 
-  it('prints none under a pointer either, now that the plate is a readout', () => {
+  it('says which of the two series the plate is showing, in words', () => {
     /*
-     * This used to be the exception: under a pointer the hairline was a ruler
-     * the reader was holding, so the plate stayed and reported the height. With
-     * the plate reading the series instead, a period the series has no figure
-     * for has nothing for it to say — and a number there would be the invention
-     * this whole change removes, wearing the pointer's clothes.
+     * The plate has room for a figure and nothing else — the margin is 76 view
+     * units and a long-haul fare in soles fills it — so the ink carries the
+     * attribution and every reading that is not ink has to carry it too. A
+     * screen reader hears the live region; a sighted reader who cannot tell a
+     * dashed outline from a filled one reads the row under the plot.
      */
     const svg = chartWithHole();
-    fireEvent.pointerMove(svg, { clientX: 744, clientY: 100 });
+    svg.focus();
+
+    fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Price axis shows the provider’s baseline, $96.00.',
+    );
+    expect(screen.getByTestId('axis-source')).toHaveTextContent(
+      'on the price axis: the provider’s baseline',
+    );
+
+    fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+    expect(screen.getByRole('status')).toHaveTextContent('Price axis shows our median, $125.00.');
+    expect(screen.getByTestId('axis-source')).toHaveTextContent('on the price axis: our median');
+  });
+
+  it('draws the plate in the series it is reading, not one treatment for both', () => {
+    // Ink, since the words cannot fit on a 52-unit plate: the solid line's
+    // plate is the filled one it always was, and the dashed line's plate is an
+    // outline echoing that dash — the grammar the chart already teaches with
+    // `.middle` and `.baseline`.
+    const svg = chartWithHole();
+    svg.focus();
+
+    fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+    const provider = screen.getByTestId('price-tag-plate').getAttribute('class');
+    expect(screen.getByTestId('price-tag-plate')).toHaveAttribute('data-source', 'baseline');
+    expect(provider).toMatch(/tagBaseline/);
+    expect(screen.getByTestId('price-tag-text').getAttribute('class')).toMatch(/tagTextBaseline/);
+    expect(screen.getByTestId('price-hair').getAttribute('class')).toMatch(/hairBaseline/);
+    expect(screen.getByTestId('baseline-marker')).toBeInTheDocument();
+
+    fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+    const mine = screen.getByTestId('price-tag-plate').getAttribute('class');
+    expect(mine).not.toBe(provider);
+    expect(mine).not.toMatch(/tagBaseline/);
+    expect(screen.getByTestId('price-hair').getAttribute('class')).not.toMatch(/hairBaseline/);
+    expect(screen.queryByTestId('baseline-marker')).not.toBeInTheDocument();
+  });
+
+  it('states the rule in the chart’s own accessible name', () => {
+    // The plate reads one series on some dates and the other on the rest. A
+    // reader who cannot see which treatment it is wearing needs that said once,
+    // somewhere that does not move as the hairline does.
+    chartWithHole();
+    expect(screen.getByRole('img')).toHaveAccessibleName(
+      /price axis shows our median where we have one for that day, and the provider’s baseline where we do not\.$/,
+    );
+  });
+
+  it('still prints nothing where neither series reached the period', () => {
+    /*
+     * 12.234 in full, and the half of 12.245 that is not narrowed by any of
+     * this. The old fallback here was the middle of the padded domain, drawn as
+     * currency; the pointer's own height is no better a source, and neither is
+     * anything else. A second real series is not a ruler.
+     */
+    render(
+      <PriceBandChart
+        ours={OURS_ONE}
+        baseline={[]}
+        unsold={[{ key: '2026-08-19', label: '08-19', count: 2 }]}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
+    );
+    const svg = screen.getByRole('img');
+    svg.focus();
+    fireEvent.keyDown(svg, { key: 'ArrowLeft' });
+
     expect(screen.getByTestId('time-tag-text')).toHaveTextContent('08-19');
     expect(screen.queryByTestId('price-tag-text')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('price-hair')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('axis-source')).not.toBeInTheDocument();
+  });
+
+  it('does not follow the hand up and down while it falls back', () => {
+    /*
+     * The objection 12.245 closed, checked against the new source: two very
+     * different pointer heights over one date print the same number, and it is
+     * the provider's figure for that date rather than anything the reader's arm
+     * chose. A fallback that reintroduced the ruler would be the audited bug
+     * back with a different justification.
+     */
+    const svg = chartWithHole();
+    fireEvent.pointerMove(svg, { clientX: 744, clientY: 20 });
+    const high = screen.getByTestId('price-tag-text').textContent;
+    fireEvent.pointerMove(svg, { clientX: 744, clientY: 230 });
+    const low = screen.getByTestId('price-tag-text').textContent;
+
+    expect(high).toBe(low);
+    expect(high).toBe('$96.00');
   });
 });
 

@@ -235,9 +235,14 @@ class PassBroadcast[T]:
 COLLECTION_STREAM: PassBroadcast[FareSnapshot] = PassBroadcast()
 
 #: The booking-horizon pass — `CalendarRunner`. `Never` rather than a payload
-#: type it would not use: a calendar pass is one city pair and two requests, so
-#: there is no halfway point to report and `CalendarPass` deliberately has no
-#: observer to report one from. What this carries is the pass moving between its
-#: three states, which is the whole of what a caller was polling for. The chart
-#: still refreshes from `GET /calendar` when the pass ends, exactly as it did.
+#: type it would not use, and that half of the original reasoning stands: a pair
+#: writes exactly one curve and it writes it at the very end, so there is no
+#: item to ride along and the chart refreshes from `GET /calendar` when the pass
+#: stops, exactly as it did.
+#:
+#: What this carries is therefore the pass document alone — but it now moves
+#: more than three times. `CalendarPass` gained an observer once a pass was
+#: measured at three requests and twenty seconds rather than the two requests
+#: and few seconds it was designed against, so `publish` also fires as each
+#: request goes out and each window comes back.
 CALENDAR_STREAM: PassBroadcast[Never] = PassBroadcast()

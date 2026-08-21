@@ -89,6 +89,10 @@ function horizonPass(overrides: Record<string, unknown> = {}) {
     source: 'google-flights',
     watching: ['LIM-SCL'],
     completed: 1,
+    windows: 2,
+    windowsPriced: 2,
+    requests: 2,
+    dates: 331,
     collected: 1,
     changed: 1,
     failed: 0,
@@ -245,14 +249,36 @@ describe('collecting a route’s booking horizon when the route is added', () =>
     );
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
 
-    // A frame for a pass still running says nothing: a curve has no halfway
-    // point, so there is nothing between the two states to report.
+    /*
+     * A frame for a pass still running used to say nothing at all, on the
+     * belief that a horizon pass has no halfway point — so the sentence written
+     * on the press stood unchanged for as long as the pass ran, which against a
+     * refused window is twenty seconds. It reports what the pass has done now,
+     * and the bar beside it moves.
+     */
     await act(async () => {
-      streamed().emit('pass', horizonPass({ state: 'running', finishedAt: null, results: [] }));
+      streamed().emit(
+        'pass',
+        horizonPass({
+          state: 'running',
+          finishedAt: null,
+          results: [],
+          windowsPriced: 1,
+          requests: 2,
+          dates: 181,
+        }),
+      );
     });
-    expect(result.current.reports.get(routeId(LIM_SCL))!.text).toContain(
-      'Collecting the booking horizon',
+    expect(result.current.reports.get(routeId(LIM_SCL))!.text).toBe(
+      'Collecting LIM → SCL: 1 of 2 windows priced in 2 requests, 181 departure dates so far.',
     );
+    expect(result.current.progress.get(routeId(LIM_SCL))).toEqual({
+      windows: 2,
+      windowsPriced: 1,
+      requests: 2,
+      dates: 181,
+      fraction: 0.5,
+    });
     expect(result.current.collecting).toEqual([routeId(LIM_SCL)]);
 
     await act(async () => {
@@ -262,6 +288,9 @@ describe('collecting a route’s booking horizon when the route is added', () =>
       'Booking horizon collected',
     );
     expect(result.current.collecting).toEqual([]);
+    // The bar goes with the pass. Left at half, it would go on claiming work
+    // beside a line saying the work is finished.
+    expect(result.current.progress.has(routeId(LIM_SCL))).toBe(false);
     expect(streamed().closed).toBe(true);
     // Not one poll: the answer was pushed.
     expect(api.polls).toHaveLength(0);

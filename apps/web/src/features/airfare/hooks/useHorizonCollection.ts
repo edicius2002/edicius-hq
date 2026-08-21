@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { openHorizonStream } from '@/features/airfare/data/collectionStream';
 import { routeId, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
-import { describeHorizon, describeRefusal, type RowReport } from '@/features/airfare/lib/rowReport';
+import { horizonProgress, type HorizonProgress } from '@/features/airfare/lib/horizonProgress';
+import {
+  describeHorizon,
+  describeHorizonProgress,
+  describeRefusal,
+  type RowReport,
+} from '@/features/airfare/lib/rowReport';
 import {
   collectCalendar,
   fetchCalendarCollection,
@@ -39,12 +45,12 @@ const STREAM_GRACE_MS = 8_000;
  * **Why this is the one collection that happens by itself.** Everything else on
  * this page is collected on a press or on the schedule, and deliberately: the
  * upstream is unmetered and the repository paces itself against it by hand. A
- * horizon is the exception because of what it costs and what it buys. It is two
- * requests and about four seconds, once per city pair rather than once per
- * departure — and without it the departure chart has nothing at all to draw
- * outside the watched month, which since the zoom went is most of what that
- * chart is for. A route added and then found to be blank everywhere except its
- * own month is a route that looks broken.
+ * horizon is the exception because of what it costs and what it buys. It is a
+ * handful of requests once per city pair, rather than one per departure — and
+ * without it the departure chart has nothing at all to draw outside the watched
+ * month, which since the zoom went is most of what that chart is for. A route
+ * added and then found to be blank everywhere except its own month is a route
+ * that looks broken.
  *
  * **The route is added whatever happens here.** The add is a write to the
  * reader's own stored document; this is a request to somebody else's server,
@@ -61,13 +67,20 @@ const STREAM_GRACE_MS = 8_000;
  * **It listens rather than asks** — `a-pass-is-pushed-not-polled`. This used to
  * sleep two seconds in a loop and re-ask `GET /api/fares/calendar/collect`; it
  * now opens `GET /api/fares/calendar/collect/stream` and is told. There is no
- * `snapshot` event on that stream and there is nothing missing: a curve is one
- * city pair and two paced requests, so there is no halfway point a reader could
- * act on, and "has it stopped yet" is the whole of what the poll was asking.
- * The chart still refreshes from `GET /calendar` when the pass ends, as it did
- * — a curve is a few hundred points collected once a day per pair, nothing like
- * the unbounded `/history` payload that made pushing the board's snapshots
- * worth the trouble.
+ * `snapshot` event on that stream and nothing is missing by it: a pair writes
+ * one curve and writes it at the very end, so the chart refreshes from
+ * `GET /calendar` when the pass stops — a few hundred points once a day per
+ * pair, nothing like the unbounded `/history` payload that made pushing the
+ * board's snapshots worth the trouble.
+ *
+ * **What was missing was the middle** — `a-horizon-pass-shows-its-work`. This
+ * hook used to treat every `running` frame as nothing to say, on the belief
+ * that a pass of two requests has no halfway point. A pass measured live on
+ * 2026-08-21 was three requests and twenty seconds, because a far window was
+ * refused and walked back (12.245), and for the whole of it one unchanging
+ * sentence sat under the watchlist. The frames now carry windows priced,
+ * requests spent and dates so far, and both the bar and the words move with
+ * them.
  *
  * The poll stays as the fallback, for the board collection's reason: on a
  * network where server-sent events do not survive the trip, this must not be
@@ -78,6 +91,8 @@ export type HorizonCollection = {
   collecting: readonly string[];
   /** What the last pass for a row came back with, by route id. */
   reports: ReadonlyMap<string, RowReport>;
+  /** How far each running horizon pass has got, by route id. Absent means no bar. */
+  progress: ReadonlyMap<string, HorizonProgress>;
   collect: (route: FareRoute) => void;
   /** Drop a row's report, for when the row itself goes. */
   forget: (id: string) => void;
@@ -87,6 +102,14 @@ export function useHorizonCollection(): HorizonCollection {
   const queryClient = useQueryClient();
   const [collecting, setCollecting] = useState<readonly string[]>([]);
   const [reports, setReports] = useState<ReadonlyMap<string, RowReport>>(() => new Map());
+  /**
+   * The bar, kept beside the words rather than derived from them.
+   *
+   * Separate state for the same reason `useRouteCollection` keeps its own: the
+   * sentence outlives the pass and the fraction does not, so a finished pass
+   * clears this map and leaves `reports` standing.
+   */
+  const [progress, setProgress] = useState<ReadonlyMap<string, HorizonProgress>>(() => new Map());
   const inFlight = useRef<Set<string>>(new Set());
   /**
    * The rows following the pass, by route id.
@@ -114,10 +137,30 @@ export function useHorizonCollection(): HorizonCollection {
     });
   }, []);
 
-  const release = useCallback((id: string) => {
-    inFlight.current.delete(id);
-    setCollecting((current) => current.filter((other) => other !== id));
+  const draw = useCallback((id: string, bar: HorizonProgress | null) => {
+    setProgress((current) => {
+      // A pass with nothing to draw and a map that already has nothing for this
+      // row is the commonest call here — every frame of a finished pass. Left
+      // unchecked it would replace the map on each one and re-render the panel
+      // for no change at all.
+      if (bar === null && !current.has(id)) return current;
+      const next = new Map(current);
+      if (bar) next.set(id, bar);
+      else next.delete(id);
+      return next;
+    });
   }, []);
+
+  const release = useCallback(
+    (id: string) => {
+      inFlight.current.delete(id);
+      setCollecting((current) => current.filter((other) => other !== id));
+      // The bar goes when the pass does. A track left at whatever fraction it
+      // reached would go on claiming work beside a line saying the work is done.
+      draw(id, null);
+    },
+    [draw],
+  );
 
   /**
    * The curve is a fact about a city pair rather than about a watch, so every
@@ -162,9 +205,29 @@ export function useHorizonCollection(): HorizonCollection {
   const applyPass = useCallback(
     (response: CalendarCollectResponse) => {
       if (!mounted.current) return;
-      // Nothing to say about a pass still running: a curve has no halfway
-      // point, which is why this stream carries only the two states it has.
-      if (response.state === 'running') return;
+      /*
+       * A running pass now has something to say, and this is where it used to
+       * be thrown away.
+       *
+       * The line here was `if (response.state === 'running') return;` — the
+       * client half of the belief that a horizon pass has no halfway point. It
+       * meant the row wrote one sentence when the press landed and then
+       * literally nothing until the pass stopped, so the same words sat
+       * unchanged for the twenty seconds a refused window costs. A control that
+       * says the same thing for twenty seconds is indistinguishable from one
+       * that has hung.
+       *
+       * The server sends a frame as each request goes out and as each window
+       * comes back, so every one of these is news. Both halves are written: the
+       * bar, and the sentence under it.
+       */
+      if (response.state === 'running') {
+        for (const [id, route] of following.current) {
+          draw(id, horizonProgress(route, response));
+          write(id, describeHorizonProgress(route, response));
+        }
+        return;
+      }
       for (const [id, route] of [...following.current]) {
         following.current.delete(id);
         write(id, describeHorizon(route, response));
@@ -173,7 +236,7 @@ export function useHorizonCollection(): HorizonCollection {
       }
       if (following.current.size === 0) stopStream();
     },
-    [refresh, release, stopStream, write],
+    [draw, refresh, release, stopStream, write],
   );
 
   /**
@@ -189,23 +252,33 @@ export function useHorizonCollection(): HorizonCollection {
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, PROGRESS_POLL_MS));
         if (!mounted.current || !inFlight.current.has(id)) return;
-        let progress: CalendarCollectResponse;
+        // Named for the pass rather than for progress: `progress` is now the
+        // hook's own state a few lines up, and a local shadowing it would be a
+        // bug waiting for somebody to move a line.
+        let running: CalendarCollectResponse;
         try {
-          progress = await fetchCalendarCollection();
+          running = await fetchCalendarCollection();
         } catch (error) {
           write(id, describeRefusal(error instanceof Error ? error.message : String(error)));
           release(id);
           return;
         }
         if (!mounted.current) return;
-        if (progress.state === 'running') continue;
-        write(id, describeHorizon(route, progress));
+        if (running.state === 'running') {
+          // The same two writes the stream makes, two seconds later. A row that
+          // fell back loses the promptness of the answer and nothing else,
+          // which is the whole contract of `the-poll-is-the-fallback`.
+          draw(id, horizonProgress(route, running));
+          write(id, describeHorizonProgress(route, running));
+          continue;
+        }
+        write(id, describeHorizon(route, running));
         release(id);
         refresh(route);
         return;
       }
     },
-    [refresh, release, write],
+    [draw, refresh, release, write],
   );
 
   /**
@@ -280,9 +353,27 @@ export function useHorizonCollection(): HorizonCollection {
         refresh(route);
         return;
       }
+      /*
+       * No duration, on purpose.
+       *
+       * This said "two requests, about four seconds". Measured live on
+       * 2026-08-21 it was three requests and twenty seconds, because the
+       * provider refused a far window and the collector walked it back — 12.245
+       * working exactly as designed, not a fault. Five times the promised wait
+       * is worse than no promise: a reader who was told four seconds and waits
+       * twenty concludes the thing is broken, and next time believes nothing
+       * the control says.
+       *
+       * A larger number was the obvious alternative and there is not one to
+       * defend. The pass costs however many requests the provider makes it
+       * cost, and each is paced three seconds apart, so the honest range runs
+       * from about six seconds to about half a minute. What replaces the
+       * estimate is not a wider one, it is the thing itself: `describeHorizonProgress`
+       * below reports what the pass has actually done, as it does it.
+       */
       write(id, {
         ok: true,
-        text: `Collecting the booking horizon for ${routeLabel(route)} — two requests, about four seconds.`,
+        text: `Collecting the booking horizon for ${routeLabel(route)}…`,
       });
       follow(route);
     },
@@ -307,7 +398,13 @@ export function useHorizonCollection(): HorizonCollection {
     [mutate, write],
   );
 
-  const forget = useCallback((id: string) => write(id, null), [write]);
+  const forget = useCallback(
+    (id: string) => {
+      write(id, null);
+      draw(id, null);
+    },
+    [draw, write],
+  );
 
-  return { collecting, reports, collect, forget };
+  return { collecting, reports, progress, collect, forget };
 }

@@ -441,23 +441,45 @@ def get_history(
 
 class CalendarPointModel(BaseModel):
     """
-    One departure date and the cheapest fare on it.
+    One departure date, the cheapest fare on it, and when that fare was seen.
 
     `price` is `null` when the provider answered about the date and had nothing
     to sell. A date absent from the list altogether was never answered for —
     the two are different facts and the window below is what tells them apart.
+
+    `observedAt` is not decoration. The horizon below is assembled from every
+    curve on disk, so two prices side by side can be days apart in age, and a
+    client that drew them alike would be showing a stale figure as today's.
     """
 
     departureDate: str
     price: float | None
+    #: When this date's price was collected. Compare it against the horizon's
+    #: own `capturedAt` to tell an inherited price from a fresh one.
+    observedAt: str
 
 
-class CalendarCurveModel(BaseModel):
+class CalendarHorizonModel(BaseModel):
+    """
+    The whole booking horizon, assembled from every curve stored for the pair.
+
+    Shaped exactly as one collected curve is — a window and one price per
+    departure date inside it — and deliberately so: it is what a reader of the
+    year wants and what this endpoint has always served. What it is not is a
+    single observation, which is why every price carries its own stamp.
+    """
+
+    #: **The freshest price in `prices`**, and only that. It does not describe
+    #: the dates around it — those carry their own `observedAt` — and a client
+    #: that spreads this stamp over the whole window is claiming a freshness
+    #: most of it may not have. See `FareCalendar.horizon` for why this reading
+    #: was chosen over "the newest curve that contributed".
     capturedAt: str
     source: str
     currency: str
-    #: The window that was asked for, so a missing date reads as a gap in the
-    #: answer rather than as a date nobody wanted.
+    #: The window this answer covers: the newest curve's near end, and the far
+    #: end of whichever curve reached furthest. A date inside it and missing
+    #: from `prices` was answered for by no collection at all.
     fromDate: str
     toDate: str
     prices: list[CalendarPointModel]
@@ -466,8 +488,14 @@ class CalendarCurveModel(BaseModel):
 class CalendarResponse(BaseModel):
     origin: str
     destination: str
-    #: The most recent curve, or `null` when this pair has never been collected.
-    latest: CalendarCurveModel | None
+    #: Every departure date any stored curve answered for, or `null` when this
+    #: pair has never been collected.
+    #:
+    #: This field was `latest` and held the newest curve alone. The name went
+    #: with the behaviour rather than outliving it: a merged answer called
+    #: "latest" would be telling a client that every price in it is the newest,
+    #: which is the one thing this change exists to stop it believing.
+    horizon: CalendarHorizonModel | None
     health: WatchHealthModel
 
 
@@ -486,29 +514,43 @@ def get_calendar(
     one number a day with no carrier and no times, and serving them together
     would invite a client to draw them on one axis.
 
-    The latest curve only. The store keeps every one that was ever different,
-    so a series of curves can be served later without collecting anything
-    again — but nothing today reads more than the newest, and three hundred
-    points times a year of curves is not a payload to ship on speculation.
+    **One answer built from every stored curve, not the newest one served
+    whole** — `a-curve-fills-what-newer-lost`. This used to be
+    `CALENDAR.latest()`, and a curve can be shorter than the one before it:
+    since 12.245 a refused far window is walked back and only the answered part
+    is kept, so a collection that ran into a refusal took months off the chart
+    while the longer curve sat on disk beside it. `FareCalendar.horizon` is
+    where the merge and its refusals are argued; the payload is still one price
+    per departure date and is bounded by the same window it always was, because
+    the near end comes from the newest curve and old dates are not carried
+    forward.
+
+    Still one curve's worth of dates rather than a series of curves. Nothing
+    here reads the history of a single date over time, and three hundred points
+    times a year of collections is not a payload to ship on speculation.
     """
     origin, destination = normalize_code(origin), normalize_code(destination)
-    curve = CALENDAR.latest(origin, destination)
+    horizon = CALENDAR.horizon(origin, destination)
     checks = CALENDAR.checks(origin, destination)
     return CalendarResponse(
         origin=origin,
         destination=destination,
-        latest=(
+        horizon=(
             None
-            if curve is None
-            else CalendarCurveModel(
-                capturedAt=curve.captured_at,
-                source=curve.source,
-                currency=curve.currency,
-                fromDate=curve.start,
-                toDate=curve.end,
+            if horizon is None
+            else CalendarHorizonModel(
+                capturedAt=horizon.captured_at,
+                source=horizon.source,
+                currency=horizon.currency,
+                fromDate=horizon.start,
+                toDate=horizon.end,
                 prices=[
-                    CalendarPointModel(departureDate=point.departure_date, price=point.price)
-                    for point in curve.prices
+                    CalendarPointModel(
+                        departureDate=point.departure_date,
+                        price=point.price,
+                        observedAt=point.observed_at,
+                    )
+                    for point in horizon.prices
                 ],
             )
         ),
@@ -850,12 +892,18 @@ class CalendarCollectResponse(BaseModel):
     """
     A calendar pass, whether or not it has finished.
 
-    Deliberately the same shape as `CollectResponse` minus the fields a curve
-    has no meaning for, so a client that already reads one press's answer reads
-    this one the same way. `polling` is the notable absence: a board pass polls
-    dozens of departures and a progress bar wants a denominator, whereas a
-    calendar pass is one city pair and two requests, so the only figure it
-    could report is one.
+    Deliberately close to `CollectResponse`, so a client that reads one press's
+    answer reads this one the same way — but it counts in its own units and
+    that is the one place the two deliberately part. `polling` and its
+    `completed` are departures; this pass polls no departures at all. What it
+    spends is **requests** and what it achieves is **windows priced**, and
+    since 12.245 those are not the same number, because a far window the
+    provider refuses is asked for again with a nearer end.
+
+    That distinction is the whole reason the four figures below are four and
+    not one. A pass measured live on 2026-08-21 sent three requests over twenty
+    seconds to price two windows; a client told only "running" for the whole of
+    it cannot tell a retry from a hang.
     """
 
     #: `idle` before anything has ever run, then `running`, then `finished` or
@@ -875,6 +923,20 @@ class CalendarCollectResponse(BaseModel):
     #: How many pairs have come back so far. Equal to `len(results)`, named
     #: because a caller wants a number and not a list length.
     completed: int
+    #: How many date windows this pass means to price — the pairs it found due
+    #: times the windows the horizon is cut into. `null` until the plan settles,
+    #: which is a different fact from zero: zero is every pair already collected
+    #: inside its cadence, and a bar drawn at zero for the other one would be
+    #: claiming a denominator that does not exist yet. Same contract as
+    #: `CollectResponse.polling`, in this pass's own units.
+    windows: int | None
+    #: Windows that have come back. The numerator for `windows`.
+    windowsPriced: int
+    #: Upstream requests sent so far. Above `windowsPriced` whenever a window
+    #: was refused and walked back.
+    requests: int
+    #: Departure dates priced so far, across every window that has landed.
+    dates: int
     collected: int
     changed: int
     failed: int
@@ -899,6 +961,10 @@ CALENDAR_IDLE = CalendarCollectResponse(
     source=DEFAULT_PROVIDER,
     watching=[],
     completed=0,
+    windows=None,
+    windowsPriced=0,
+    requests=0,
+    dates=0,
     collected=0,
     changed=0,
     failed=0,
@@ -917,6 +983,10 @@ def _calendar_pass_model(running: CalendarPass) -> CalendarCollectResponse:
         source=running.source,
         watching=list(running.watching),
         completed=running.completed,
+        windows=running.windows,
+        windowsPriced=running.windows_priced,
+        requests=running.requests,
+        dates=running.dates,
         collected=report.collected,
         changed=report.changed,
         failed=report.failed,
@@ -1051,12 +1121,19 @@ async def stream_calendar_collection(request: Request) -> StreamingResponse:
     A booking-horizon pass as it unfolds, pushed.
 
     The board pass's twin, minus the half it has no use for. There is no
-    `snapshot` event here and the omission is the same judgement `CalendarPass`
-    already made about having no observer: a curve is one city pair and two
-    paced requests, so there is no halfway point a reader could act on and
-    nothing to push between the start and the end. What a client was polling
-    `GET /calendar/collect` every two seconds to find out is exactly and only
-    "has it stopped yet", and one `pass` frame answers that the moment it has.
+    `snapshot` event here and there is nothing missing: a board pass writes a
+    file per departure and a chart draws each one as it lands, whereas a
+    horizon pass writes **one** curve at the very end of the pair, so the only
+    thing to fetch afterwards is the whole of `GET /calendar` — which the row
+    already does when the pass stops.
+
+    What did turn out to be missing is the middle. This endpoint used to carry
+    only the two moments a pass has by definition, on the argument that a curve
+    is one pair and two requests with no halfway point. Measured live on
+    2026-08-21 that pass was three requests and twenty seconds, because a far
+    window was refused and walked back (12.245) — so the `pass` frames now carry
+    windows priced, requests spent and dates so far, and a row watching one can
+    draw it rather than print an unchanging sentence for twenty seconds.
 
     The chart still refreshes from `GET /calendar` when the pass ends, as it
     did: a curve is a few hundred points collected once a day per pair, which is

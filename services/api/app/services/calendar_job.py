@@ -73,12 +73,16 @@ class CalendarPass:
     and is what this becomes at the end, so nothing downstream of a finished
     pass has to know a mutable version ever existed.
 
-    There is no progress observer here, unlike `CollectionPass`. A board pass is
-    dozens of departures and a reader watching it wants to see it move; a
-    calendar pass is two requests for one city pair, so the only two states
-    worth reporting are the two it already has. Wiring an observer through
-    `collect_calendars` for a denominator that is always one would be machinery
-    in exchange for nothing.
+    **This used to say it had no halfway point, and that was wrong.** The
+    argument was that a calendar pass is one city pair and two requests, so
+    there was nothing between the start and the end worth reporting. Measured
+    against the live provider on 2026-08-21 a pass took **three requests and
+    twenty seconds** — two windows three seconds apart, one of them refused and
+    asked for again with a nearer end (12.245). Twenty seconds is not an
+    instant, and for the whole of it the row that started the pass showed one
+    unchanging sentence, which is indistinguishable from a control that did
+    nothing. The observer is `CalendarObserver` rather than `PassObserver`
+    because what moves here is windows and requests, not departures.
     """
 
     started_at: str
@@ -90,6 +94,21 @@ class CalendarPass:
     #: `running`, `finished` or `failed`.
     state: str = "running"
     finished_at: str | None = None
+    #: How many date windows this pass means to price. `None` until the plan is
+    #: settled, which is a different thing from zero — zero is every pair
+    #: collected inside its cadence, and a bar drawn at zero for the other one
+    #: would be claiming a denominator nobody has yet.
+    windows: int | None = None
+    #: Windows that have come back. The numerator for `windows`. Named in full
+    #: rather than `priced`, which is the observer method's name and would have
+    #: shadowed this field with a function the moment the dataclass was built.
+    windows_priced: int = 0
+    #: Upstream requests sent so far. Deliberately not equal to `priced`: a
+    #: refused far end is walked back and asked for again, so this is what the
+    #: pass is spending where the other is what it is achieving.
+    requests: int = 0
+    #: Departure dates priced so far, across every window that has landed.
+    dates: int = 0
     results: list[CalendarResult] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)
     #: Set only when `state` is `failed` — the pass itself fell over, as
@@ -100,6 +119,32 @@ class CalendarPass:
     @property
     def completed(self) -> int:
         return len(self.results)
+
+    # `planned`, `requested` and `priced` are `CalendarObserver`. Spelled out on
+    # the pass itself rather than on a separate adapter, exactly as
+    # `CollectionPass` does it and for the same reason: the pass is the only
+    # thing that wants them and an adapter would exist purely to forward.
+
+    def planned(self, *, windows: int, skipped: list[tuple[str, str]]) -> None:
+        self.windows = windows
+        self.skipped = skipped
+        # Worth a frame of its own. Until the denominator lands a bar can only
+        # say "moving, length unknown", and on a pass where nothing was due this
+        # is also the moment the reader learns there is nothing to wait for.
+        CALENDAR_STREAM.publish()
+
+    def requested(self) -> None:
+        self.requests += 1
+        # The one frame that arrives *before* a wait rather than after it. A
+        # request takes seconds and those seconds are what the reader is sitting
+        # through; this is what makes a retry visible as work rather than as a
+        # pause.
+        CALENDAR_STREAM.publish()
+
+    def priced(self, *, dates: int) -> None:
+        self.windows_priced += 1
+        self.dates += dates
+        CALENDAR_STREAM.publish()
 
     def as_report(self) -> CalendarReport:
         return CalendarReport(
@@ -203,7 +248,11 @@ class CalendarRunner:
     ) -> None:
         try:
             report = await collect_calendars(
-                watches, provider=provider, client=client, every_minutes=every_minutes
+                watches,
+                provider=provider,
+                client=client,
+                every_minutes=every_minutes,
+                observer=started,
             )
         except asyncio.CancelledError:
             started.state = "failed"
@@ -224,10 +273,13 @@ class CalendarRunner:
             started.error = f"{type(error).__name__}: {error}"
             started.finished_at = _now()
         else:
-            # Filled in at the end rather than as they arrive, because unlike a
-            # board pass there is nothing in between to watch: `collect_calendars`
-            # returns a whole report and a pass over one city pair has no
-            # halfway point a reader could act on.
+            # The results are still filled in at the end, and that is not the
+            # same claim the observer above disproves. What moves during a pass
+            # is windows and requests, and those are pushed as they happen; a
+            # `CalendarResult` is the summary of a whole city pair and does not
+            # exist until that pair is done. `collect_calendars` returns them
+            # together because there is nothing to be gained by handing over a
+            # summary one pair at a time when a pass is usually one pair.
             started.results = list(report.results)
             started.skipped = list(report.skipped)
             started.state = "finished"
@@ -238,11 +290,9 @@ class CalendarRunner:
                 report.failed,
                 len(report.skipped),
             )
-        # Both endings, in one place after the branch. There is nothing in
-        # between to announce — a pass over one city pair has no halfway point,
-        # which is the same reason it has no observer — so this stream carries
-        # only the two moments that exist, and that is the whole of what the
-        # two-second poll it replaces was ever asking about.
+        # Both endings, in one place after the branch. The frames in between are
+        # the observer's; this is the one that says the pass has stopped, which
+        # is what the two-second poll it replaced was ever asking about.
         CALENDAR_STREAM.publish()
 
     async def aclose(self) -> None:

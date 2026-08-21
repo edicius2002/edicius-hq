@@ -148,8 +148,19 @@ export function AirfarePage() {
    * back should leave the first as it was, which is a thing the old single
    * granularity and the panel's own cleared-on-change anchor together could not
    * do.
+   *
+   * The month goes down with the key because it is what a route that has never
+   * been opened is read as — the whole watched month, on the month it is watched
+   * for, `a-watch-opens-on-its-own-month`. It is the seed for a reading that does
+   * not exist yet and nothing else: a route the reader has already set a period
+   * on is handed back that period whatever month it is watching.
    */
-  const { view: routeView, setGranularity, setAnchor, setViewport } = useRouteView(selectedKey);
+  const {
+    view: routeView,
+    setGranularity,
+    setAnchor,
+    setViewport,
+  } = useRouteView(selectedKey, selected?.month ?? null);
   const granularity = routeView.granularity;
 
   const history = useFareHistory(selected);

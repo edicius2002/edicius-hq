@@ -655,6 +655,43 @@ describe('RouteMap', () => {
     );
   });
 
+  it('holds the view still while the detail arrives, instead of resuming the glide', async () => {
+    /*
+     * The fade wakes the frame loop, and the frame loop used to pick up an
+     * unfinished zoom.
+     *
+     * `approach` is an exponential and an exponential never arrives, so it
+     * snaps once the remainder is under a twentieth of a percent of the target.
+     * Small, and not nothing: measured in Chrome after a sixteen-notch wheel
+     * zoom, the loop shut down 320 ms past the last notch with the scale 0.022
+     * short of 24.51, which on a globe whose radius is `0.42 x 460 x zoom` is
+     * 1.3 px. The map sat there until Peru's subdivisions landed a second
+     * later, the arrival woke the loop for the fade, and the loop went back to
+     * easing — so the whole view crept while the borders were coming up
+     * underneath it, which is two movements where the map means to show one.
+     *
+     * Geometry rather than opacity is what this watches, because opacity is
+     * *supposed* to be changing here: the airports must be exactly where they
+     * were, from the frame the first name appears to the frame the fade ends.
+     */
+    servingPeru();
+    const { container } = renderMap({ routes: [LIM_CUZ] });
+    await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+
+    const airports = () =>
+      [...container.querySelectorAll('circle')]
+        .map((dot) => `${dot.getAttribute('cx')},${dot.getAttribute('cy')}`)
+        .join(' ');
+    const asDetailLands = airports();
+    // Past `ARRIVAL_MS`, so the whole of the fade has run.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+
+    expect(airports()).toBe(asDetailLands);
+  });
+
   it('names a subdivision its own name fits and refuses one three times too wide', async () => {
     /*
      * The room a name needs is the room *that name* needs. Two units with

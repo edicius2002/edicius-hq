@@ -5,10 +5,16 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
 } from 'react';
 
 import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
+import {
+  airlineSearchUrl,
+  flightLinkLabel,
+  type FlightSearch,
+} from '@/features/airfare/lib/airlineSearch';
 import { boundsLabel, type Granularity } from '@/features/airfare/lib/buckets';
 import { collectedAtLabel } from '@/features/airfare/lib/calendarCurve';
 import {
@@ -108,6 +114,20 @@ const AXIS_BASELINE = 311;
 /** And the source rail below them, so the two never overprint. */
 const SOURCE_BASELINE = 327;
 
+/*
+ * The two marks the cloud draws, as one pair of numbers rather than two.
+ *
+ * `r + ring / 2` is what a reader sees, so the sizes only mean anything read
+ * together: 2.6 against 1.9, which is 5.2 across against 3.8. Kept here and not
+ * split between a radius in the markup and a `stroke-width` in the stylesheet,
+ * which is exactly how the marked mark came to be the same width as the plain
+ * one — leaving hue as the only difference between them, which is what a
+ * red-green deficiency cannot read. `PLAIN_MARK` carries no ring; the plain dot
+ * is a flat disc and always was.
+ */
+const PLAIN_MARK = { r: 2.6, ring: 0 };
+const LINKED_MARK = { r: 1.5, ring: 0.8 };
+
 /** The anchor as a class, never as an attribute — the reason is 12.62. */
 const ANCHOR: Record<TagAnchor, string> = {
   start: styles.tagStart,
@@ -120,9 +140,10 @@ const UNIT: Record<Granularity, string> = { day: 'day', week: 'week', month: 'mo
 /**
  * The affordances, in one sentence, for a reader who is not looking at the plot.
  *
- * A constant rather than JSX because it is said in two places and must not
- * drift between them: the screen reader hears it through `aria-describedby`,
- * and a pointer finds it on the chart's own `title`. It used to be a paragraph
+ * A constant because it is the chart's `aria-describedby` and is read on
+ * arrival. It was said in two places until 2026-08-21: the chart also carried
+ * it as an SVG `<title>`, which a pointer resting anywhere on the plot turned
+ * into five lines of tooltip over the marks. It used to be a paragraph
  * under the plot — which it never visibly was, being `srOnly` throughout, but
  * it was the first of three descriptions concatenated onto one chart and so the
  * whole of it was read out before every fare the crosshair landed on.
@@ -131,7 +152,32 @@ const HELP =
   'Left and right arrow keys move one departure date at a time; up and down move through that ' +
   'date’s board by price, where there is a board to move through. Plus and minus close and open ' +
   'the frame around whatever the crosshair is on, zero returns to the whole period, and shift ' +
-  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer.';
+  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer. ' +
+  'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
+  'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
+  'plot does both. Where the airline that flies a mark has a booking search we can reach, that ' +
+  'mark is drawn with a coloured centre and the flight number in the line under the plot is a ' +
+  'link to it, which Tab reaches from here.';
+
+/**
+ * How near a right-click has to land to count as a right-click *on* a mark.
+ *
+ * There has to be a number here, and it is the whole of what keeps this gesture
+ * honest. `nearestPlaced` has no cut-off — it is built for a crosshair, where
+ * the pointer is always reading *something* and the nearest dot is the right
+ * answer wherever the hand is. A pin is not that: it is a press the reader
+ * aimed, and taking the browser's own context menu away from the entire plot in
+ * order to answer presses aimed at nothing would be this chart charging every
+ * reader for a feature aimed at one mark.
+ *
+ * So a right-click further than this from anything drawn is not ours. It opens
+ * the menu, with copy, translate, back, and inspect in it, exactly as it does
+ * over the axis words and the legend, which carry no handler at all. Twelve view
+ * units is about three times a dot's radius and a little under half the gap
+ * between two adjacent hours, so a press that looks aimed lands and a press into
+ * open space does not.
+ */
+const PIN_REACH = 12;
 
 /**
  * How far one keyboard press moves the frame, as a fraction of what is on
@@ -187,11 +233,50 @@ type DepartureChartProps = {
   horizonLoading?: boolean;
   /** Why the horizon could not be read, where the request itself failed — 12.237. */
   horizonError?: Error | null;
+  /**
+   * Where these flights leave from and go to, and which country the origin is
+   * in — the three things a link out to an airline's own search needs and a
+   * mark on this plot does not carry.
+   *
+   * A `ScatterPoint` knows its carrier, its flight number and its departure day;
+   * it does not know the city pair, because the boards are one itinerary
+   * followed through the archive rather than a route, and the country is not in
+   * the archive at all — it comes off the airports table the page already holds.
+   * Null while either is unknown, which draws no link and no marker rather than
+   * a link into the wrong storefront.
+   *
+   * **Must be a stable object.** It is a dependency of the memo that builds the
+   * cloud, and a fresh literal each render would rebuild ~899 `<circle>`
+   * elements on every pointer move — the exact cost that memo exists to avoid.
+   */
+  leg?: { origin: string; destination: string; originCountry: string | null } | null;
 };
 
 /** Where the crosshair is: on one itinerary, or on one whole departure date. */
 type Reading =
   { kind: 'flight'; placed: PlacedPoint } | { kind: 'curve'; mark: CurveMark; index: number };
+
+type Leg = NonNullable<DepartureChartProps['leg']>;
+
+/**
+ * One mark plus the route it was found on, which together are what an airline's
+ * own search takes.
+ *
+ * The date is `point.day`, the calendar date the dot belongs to, and it is
+ * already a `YYYY-MM-DD` string cut off a wall-clock stamp — never a `Date`,
+ * because a 00:15 departure from Lima read in the reader's own offset would
+ * search the day before.
+ */
+function searchFor(point: ScatterPoint, leg: Leg | null): FlightSearch | null {
+  if (leg === null) return null;
+  return {
+    airline: point.airline,
+    origin: leg.origin,
+    destination: leg.destination,
+    date: point.day,
+    originCountry: leg.originCountry,
+  };
+}
 
 /**
  * What each departure date costs, drawn from whichever archive can answer for
@@ -239,6 +324,7 @@ export function DepartureChart({
   label,
   horizonLoading = false,
   horizonError = null,
+  leg = null,
 }: DepartureChartProps) {
   /*
    * The crosshair is this canvas's own state and the period is not — 12.170.
@@ -246,6 +332,25 @@ export function DepartureChart({
    * keeping; the period the reader walked to is, and it lives in the panel.
    */
   const [cursor, setCursor] = useState<Reading | null>(null);
+  /*
+   * Whether that reading is held where it is, rather than following the hand.
+   *
+   * A flag beside the reading and not a second copy of it, which is the whole
+   * design: everything the reader can see of a reading — the hairlines, the two
+   * plates, the marker, the line under the plot and the sentence a screen reader
+   * hears — is already derived from `cursor` and from nothing else. So there is
+   * no question of which parts pin. Pinning is the reading ceasing to be
+   * overwritten, and the four things downstream of it stop moving because their
+   * one input does.
+   *
+   * Holding a *copy* of the reading instead was the alternative and it is worse
+   * in the way that matters: the copy would be a snapshot of a price, and a
+   * pinned flight whose fare changed under the next collection pass would go on
+   * showing the old one. Held as a flag, the pin names a flight and the flight
+   * keeps its own current price — see `resolve`, which re-finds it by key on
+   * every render.
+   */
+  const [pinned, setPinned] = useState(false);
 
   const help = useId();
   const status = useId();
@@ -313,6 +418,17 @@ export function DepartureChart({
    * so what a test sees is what a reader sees.
    */
   const svg = useRef<SVGSVGElement | null>(null);
+  /*
+   * The line under the plot, held so the chart can tell "focus left" from
+   * "focus moved into the reading".
+   *
+   * Since the flight number in that line became a link, `Tab` out of the plot
+   * lands on it — and the chart's own `onBlur` cleared the crosshair, so the
+   * reading was gone before the reader could reach the anchor it had just drawn
+   * for them. A keyboard reader could only get there by pinning first, which is
+   * a thing nobody is told.
+   */
+  const readout = useRef<HTMLParagraphElement | null>(null);
   const latest = useRef({ view, frameSpan, write });
   useEffect(() => {
     latest.current = { view, frameSpan, write };
@@ -435,6 +551,34 @@ export function DepartureChart({
   const rail = useMemo(() => railLabels(shownDays, TRACK), [shownDays]);
 
   /*
+   * Which of the marks on screen can be reached at their own airline, by key.
+   *
+   * A set rather than a flag on each placed point, because linkability is not a
+   * property of the archive: it is a property of the archive *and this route*,
+   * and `placePoints` is arithmetic over a window that knows nothing about
+   * either. Cached on carrier and date inside the loop — a month of one route is
+   * four carriers over thirty-one days, so ~899 marks ask about ~124 distinct
+   * URLs and the rest are lookups.
+   */
+  const linkable = useMemo(() => {
+    const found = new Set<string>();
+    if (leg === null) return found;
+    const asked = new Map<string, boolean>();
+    for (const entry of shownPlaced) {
+      const { point } = entry;
+      const key = `${point.airline}|${point.day}`;
+      let reachable = asked.get(key);
+      if (reachable === undefined) {
+        const search = searchFor(point, leg);
+        reachable = search !== null && airlineSearchUrl(search) !== null;
+        asked.set(key, reachable);
+      }
+      if (reachable) found.add(point.key);
+    }
+    return found;
+  }, [shownPlaced, leg]);
+
+  /*
    * The cloud and the rings, held as elements rather than rebuilt each render.
    *
    * Measured on the scatter this replaces: every pointer move sets state, and
@@ -442,16 +586,65 @@ export function DepartureChart({
    * React walks all of them — 16.9 to 18.4 ms a move in jsdom against 4.3 to
    * 6.1 ms memoised, on exactly the same DOM. That is what keeps 12.12: SVG at
    * this size is not slow, re-creating it on every pointer event is.
+   *
+   * **A flight with a link is a smaller, brighter dot in the same grey collar**
+   * — the owner's _"que en el grafico se vea como es los circulos pero con un
+   * color en el medio para distinguir de los demas"_, with the size doing half
+   * the work. It is drawn as one circle and not as two stacked ones: a second
+   * `<circle>` per linked mark would have been the obvious build and would have
+   * put ~880 more nodes on a plot whose node count is the one thing 12.12 asks
+   * to be watched.
+   *
+   * **The radius and the ring are here, together, and that is deliberate.** The
+   * first cut of this marker kept `r` in the markup and `stroke-width` in the
+   * stylesheet, and the two happened to sum to exactly the plain dot's 2.6 — so
+   * a marked mark was the same size as its neighbours and hue was the only thing
+   * telling them apart, which is a WCAG 1.4.1 failure and one the owner, who has
+   * a red-green deficiency, could not see past. Split across two files nobody
+   * added the numbers up. Added up here they are 1.5 and 0.8, an outer 1.9
+   * against 2.6: **3.8 across against 5.2**, 53% of the area.
+   *
+   * **Smaller and not larger**, because the marker lands on ~98% of the offers
+   * and a bigger common mark is a denser cloud; this takes ink off a plot that
+   * draws ~899 of them.
+   *
+   * **The colour is the link's hue lifted until lightness carries it.**
+   * `--color-link-mark` is `--color-link` at the same 207° and far brighter:
+   * 5.42:1 against the grey the mark sits in and 5.59/5.33:1 under protanopia
+   * and deuteranopia, where the link blue itself measured 2.52:1 and fell to
+   * 2.42:1. Same hue, so the dot and the anchor in the readout are still one
+   * claim in two places; different lightness, so the claim survives a reader who
+   * cannot use the hue.
+   *
+   * **Roughly 98% of the archive's offers carry it**, and that is recorded
+   * rather than discovered later: LATAM 2912, JetSMART 839 and Aerolíneas 205 of
+   * 4044 offers are linkable, and only Avianca's 88 are not, plus anything
+   * leaving a country outside Peru, Chile and Argentina. So this marker draws
+   * the normal state and the *bare* dot is the exception — which is what the
+   * owner asked for and is worth their knowing. Marking the ~2% instead is the
+   * same code with `!reachable` in `linkable` and the two styles swapped, and
+   * would read as "this one you cannot reach".
    */
   const cloud = useMemo(
     () => (
       <g className={styles.dots} aria-hidden="true" data-testid="flight-dots">
-        {shownPlaced.map((entry) => (
-          <circle key={entry.point.key} cx={entry.x} cy={entry.y} r={2.6} />
-        ))}
+        {shownPlaced.map((entry) => {
+          const linked = linkable.has(entry.point.key);
+          return (
+            <circle
+              key={entry.point.key}
+              cx={entry.x}
+              cy={entry.y}
+              r={linked ? LINKED_MARK.r : PLAIN_MARK.r}
+              strokeWidth={linked ? LINKED_MARK.ring : undefined}
+              className={linked ? styles.linked : undefined}
+              data-linked={linked ? 'true' : undefined}
+            />
+          );
+        })}
       </g>
     ),
-    [shownPlaced],
+    [shownPlaced, linkable],
   );
 
   const rings = useMemo(
@@ -477,6 +670,31 @@ export function DepartureChart({
     () => resolve(cursor, shownPlaced, shownMarks),
     [cursor, shownPlaced, shownMarks],
   );
+
+  /*
+   * A pin cannot outlive the thing it was stuck through.
+   *
+   * `resolve` above is what decides that, and it already answers every question
+   * the pin could be asked about surviving. **A zoom or a pan it survives**, and
+   * more than survives: the reading is a flight, not a coordinate, so the
+   * crosshair is redrawn at wherever that flight now sits and follows the mark
+   * across the plot. **Being panned off the plot it does not** — the flight
+   * leaves `shownPlaced`, `resolve` returns nothing, and the pin goes with it,
+   * which is the rule this chart already keeps for everything a reader can point
+   * at or walk to: what is not on screen is not readable. **A new collection
+   * pass it survives**, because the key is the itinerary and not the price, so
+   * the pinned row updates to the new fare — unless the flight has left the
+   * board, in which case there is nothing left to be pinned to. **A period step
+   * or a granularity change it does not survive**, for the same reason: the
+   * marks under it are all different marks.
+   *
+   * Cleared while rendering rather than in an effect. An effect would paint one
+   * frame showing a pin with nothing under it — the trap this feature exists to
+   * avoid, in the one place it would be the code's own doing — and React
+   * discards a render that sets state during it, so nothing inconsistent is ever
+   * committed. It is the pattern the flight table's page reset already uses.
+   */
+  if (pinned && reading === null) setPinned(false);
 
   /**
    * The drag in progress, or nothing.
@@ -544,6 +762,32 @@ export function DepartureChart({
     VIEW.width - VIEW.pad.right,
   );
 
+  /*
+   * Which mark a position in the plot is asking about, and that is a different
+   * snap on each side of the seam.
+   *
+   * A curve date is one price for a whole column, so anywhere in the column is
+   * that date — a two-dimensional snap would let a pointer at the top of an
+   * unpriced column jump to a flight in the next one. A board date stacks twenty
+   * itineraries in the same column, so there the nearest dot in two dimensions is
+   * the only snap that can reach them all.
+   *
+   * Its own function because two gestures now ask it: the pointer, which reads
+   * whatever is nearest and is never wrong to, and the right-click, which has to
+   * know how far away the answer was before it decides whether the press was
+   * aimed at anything at all.
+   */
+  const readingAt = (x: number, y: number): Reading | null => {
+    const index = dayIndexAt(x, period, days.length, view);
+    const day = days[index];
+    if (day !== undefined && day.source === 'curve') {
+      const mark = shownMarks.find((entry) => entry.day === day.day);
+      return mark ? { kind: 'curve', mark, index } : null;
+    }
+    const nearest = nearestPlaced(shownPlaced, x, y);
+    return nearest === null ? null : { kind: 'flight', placed: shownPlaced[nearest] };
+  };
+
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -566,30 +810,62 @@ export function DepartureChart({
       const travelled = event.clientX - held.clientX;
       if (!held.moved && Math.abs(travelled) < DRAG_SLOP) return;
       held.moved = true;
-      setCursor(null);
+      // A drag clears the crosshair — unless it is pinned, in which case it is
+      // being dragged *around*: the reader pinned a fare precisely so they could
+      // go and put another stretch of the frame beside it.
+      if (!pinned) setCursor(null);
       const fraction = ((travelled / box.width) * VIEW.width) / (TRACK || 1);
       write(clampViewport({ start: held.from - fraction * view.span, span: view.span }, frameSpan));
       return;
     }
 
-    /*
-     * Which date the pointer is over decides which question is being asked, and
-     * that is a different snap on each side of the seam. A curve date is one
-     * price for a whole column, so anywhere in the column is that date — a
-     * two-dimensional snap would let a pointer at the top of an unpriced column
-     * jump to a flight in the next one. A board date stacks twenty itineraries
-     * in the same column, so there the nearest dot in two dimensions is the
-     * only snap that can reach them all.
-     */
-    const index = dayIndexAt(x, period, days.length, view);
-    const day = days[index];
-    if (day !== undefined && day.source === 'curve') {
-      const mark = shownMarks.find((entry) => entry.day === day.day);
-      if (mark) setCursor({ kind: 'curve', mark, index });
+    // And the whole of what a pin does to the pointer: the hand goes on moving
+    // and stops being what the chart is reading.
+    if (pinned) return;
+
+    const found = readingAt(x, y);
+    if (found !== null) setCursor(found);
+  };
+
+  /**
+   * A right-click on a mark holds the reading there — the owner's *"fijar la
+   * vista en un punto con anticlick"*.
+   *
+   * **The browser's menu is taken only from the marks.** The handler is on this
+   * one `<svg>` and on nothing above it, so the rest of the page is untouched;
+   * and inside it `preventDefault` runs only once a mark has been found within
+   * `PIN_REACH` of the press. A right-click on the axis dates, on the source
+   * rail, in the empty top-left of the plot, on the legend or on the readout
+   * gets the menu it has always got. What a reader does give up is the menu over
+   * a twelve-unit disc around each drawn mark — and over a curve column, twelve
+   * units either side of its price line — which is where "search the web for"
+   * and "translate" have the least to offer and where the press now means
+   * something.
+   *
+   * **A second right-click on the same mark lets it go**, which is convenient
+   * and is deliberately not the way out this feature relies on: nothing tells a
+   * reader that a gesture is a toggle. The pin button above the plot is the
+   * discoverable one, Escape is the one every reader already knows, and this is
+   * the one that saves a trip to either.
+   */
+  const pinAt = (event: MouseEvent<SVGSVGElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+    const x = ((event.clientX - box.left) / box.width) * VIEW.width;
+    const y = ((event.clientY - box.top) / box.height) * VIEW.height;
+
+    const found = readingAt(x, y);
+    if (found === null) return;
+    const at = hairFor(found, period, span, view);
+    if (reachOf(found, at, x, y) > PIN_REACH) return;
+
+    event.preventDefault();
+    if (pinned && reading !== null && sameReading(found, reading)) {
+      setPinned(false);
       return;
     }
-    const nearest = nearestPlaced(shownPlaced, x, y);
-    if (nearest !== null) setCursor({ kind: 'flight', placed: shownPlaced[nearest] });
+    setCursor(found);
+    setPinned(true);
   };
 
   /*
@@ -633,6 +909,36 @@ export function DepartureChart({
    * date there is one number and nothing to walk through.
    */
   const walk = (event: KeyboardEvent<SVGSVGElement>) => {
+    /*
+     * The pin on the keyboard, first, because a chart that can only be pinned
+     * with a right-click is a chart half the readers of this page cannot pin at
+     * all — and this one has arrow keys, a zoom, a pan and a spoken readout
+     * precisely so that it does not have two classes of reader.
+     *
+     * `P` for pin, which is free here: every other letter this chart binds is a
+     * symbol. Enter and Space were the obvious alternatives and both were
+     * rejected — Space scrolls the page from a focused element that is not a
+     * control, and Enter is what a reader expects to *open* something, which is
+     * the promise this chart most needs not to make.
+     *
+     * Escape only lets go, and never pins. A key that toggles is a key a reader
+     * has to have been watching to use; Escape has one meaning everywhere, and
+     * it is this one. It is left to the browser when there is no pin, so it can
+     * still close whatever else the reader has open.
+     */
+    if (event.key === 'Escape') {
+      if (!pinned) return;
+      event.preventDefault();
+      setPinned(false);
+      return;
+    }
+    if (event.key === 'p' || event.key === 'P') {
+      event.preventDefault();
+      if (pinned) setPinned(false);
+      else if (reading !== null) setPinned(true);
+      return;
+    }
+
     /*
      * The zoom on the keyboard, before the walk, because `Shift` with an arrow
      * has to be read as a pan rather than as a walk with a modifier held.
@@ -699,6 +1005,62 @@ export function DepartureChart({
     // Up the chart is dearer, which is the direction the price axis runs.
     const to = Math.min(Math.max(at + (event.key === 'ArrowUp' ? 1 : -1), 0), board.length - 1);
     if (board[to]) setCursor({ kind: 'flight', placed: board[to] });
+  };
+
+  /**
+   * The flight number in the line under the plot: a link where the carrier can
+   * be reached, plain text where it cannot.
+   *
+   * **This is where the owner asked for the link** — _"colocalo en AR 1281 ...
+   * como hipervinculo ... coloreado azul y subrayado"_ — and it replaces a
+   * muted `↗` in the flight table that worked and that they could not find.
+   *
+   * **The visible text overpromises and the accessible name does not.** `AR
+   * 1281` in link blue reads as a link to AR 1281; the destination is that
+   * carrier's own search filled in with the route and the date, and the reader
+   * matches their departure by the clock. That gap is wider than the arrow's
+   * was and is taken on purpose, so the truth is carried where a wrong reading
+   * would cost money: `flightLinkLabel` gives the anchor the name and the
+   * tooltip `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on
+   * 02/03/2027`, which starts with the words on screen (WCAG 2.5.3) and then
+   * says, in a verb, what pressing it actually does.
+   *
+   * **Nothing stands where there is no link.** Avianca and any origin outside
+   * the three countries with a loaded storefront get plain text — no marker, no
+   * greyed anchor, no tooltip explaining an absence.
+   */
+  const flightNameNode = (point: ScatterPoint) => {
+    const name = flightName(point);
+    const search = searchFor(point, leg);
+    const url = search === null ? null : airlineSearchUrl(search);
+    if (search === null || url === null) return <strong aria-hidden="true">{name}</strong>;
+    return (
+      <a
+        className={styles.link}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title={flightLinkLabel(name, search, point.airlineName)}
+        aria-label={flightLinkLabel(name, search, point.airlineName)}
+        /*
+          Focus leaving the link for somewhere that is neither the plot nor this
+          line takes the reading with it, which is the rule the chart already
+          keeps for its own blur. Focus leaving the document — the new tab this
+          link just opened — is deliberately not that: coming back to an empty
+          readout would look like the press had cleared the chart.
+        */
+        onBlur={(event) => {
+          if (pinned) return;
+          const to = event.relatedTarget as Node | null;
+          if (to === null) return;
+          if (svg.current?.contains(to) === true) return;
+          if (readout.current?.contains(to) === true) return;
+          setCursor(null);
+        }}
+      >
+        {name}
+      </a>
+    );
   };
 
   return (
@@ -771,6 +1133,46 @@ export function DepartureChart({
             control's words have to: the accessible name, and the tooltip a
             pointer finds.
           */}
+          {/*
+            The pin, beside the way out of a zoom, because both are things done
+            to the frame rather than to the archive — and because this corner is
+            where this chart already keeps its own controls.
+
+            **It is the discoverable half of the gesture.** A right-click on a
+            mark pins it, and no reader has ever been told that by looking at a
+            chart; a control that is on screen, that is in the tab order, that
+            says "Pin the reading" when asked its name and that visibly stays
+            pressed is what makes the state findable and, more importantly,
+            leaveable. A pinned reading whose only exit was a second right-click
+            in the same place would be a trap, and the repository's rule against
+            text that reads as a fact and is not one has a sibling here: a state
+            with no visible way out is a state that reads as a bug.
+
+            Always rendered and disabled when there is nothing to pin, for the
+            same reason as the button beside it — a control that appeared when a
+            reader first pointed at a dot would reflow this corner at the exact
+            moment they were watching the plot.
+
+            `aria-pressed` rather than two labels. The name of this control does
+            not change when the state does; what changes is whether it is on,
+            which is a thing the platform already has a word for.
+          */}
+          <button
+            type="button"
+            className={`${styles.reset} ${styles.pin}`}
+            onClick={() => {
+              if (pinned) setPinned(false);
+              else if (reading !== null) setPinned(true);
+            }}
+            disabled={!pinned && reading === null}
+            aria-pressed={pinned}
+            aria-label="Pin the reading"
+            title={pinned ? 'Unpin the reading' : 'Pin the reading'}
+            data-testid="pin-reading"
+          >
+            <span aria-hidden="true">&#9679;</span>
+          </button>
+
           <button
             type="button"
             className={styles.reset}
@@ -806,8 +1208,10 @@ export function DepartureChart({
           description is for: what this chart can be asked to do.
         */
         aria-describedby={help}
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0"
+        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0 P Escape"
         data-zoomed={zoomed ? 'true' : undefined}
+        data-pinned={pinned ? 'true' : undefined}
+        onContextMenu={pinAt}
         onPointerMove={trackPointer}
         onPointerDown={startDrag}
         onPointerUp={endDrag}
@@ -820,24 +1224,44 @@ export function DepartureChart({
           hand that has left and wrong for a hand that is still working.
         */
         onPointerLeave={() => {
-          if (drag.current === null) setCursor(null);
+          if (drag.current === null && !pinned) setCursor(null);
         }}
         onKeyDown={walk}
-        onBlur={() => setCursor(null)}
+        /*
+          A pinned reading survives the pointer leaving and survives the chart
+          losing focus, and those two are not a detail — they are the feature.
+          The reader pins a fare in order to go and look at something else: the
+          flight table under the plot, the figures beside it, another tab. A pin
+          that let go the moment their attention did would hold the reading for
+          exactly as long as the crosshair already did.
+        */
+        onBlur={(event) => {
+          if (pinned) return;
+          // Unless the focus is going *into* the reading. The flight number in
+          // the line below is now a link, and `Tab` from the plot is how a
+          // keyboard reader reaches it; clearing here would delete the link on
+          // the way to it.
+          const to = event.relatedTarget as Node | null;
+          if (to !== null && readout.current?.contains(to) === true) return;
+          setCursor(null);
+        }}
       >
         {/*
-          The same sentence again, for a hand rather than an ear.
+          No `<title>` child here, and that is the whole of the change.
 
-          An SVG has no `title` *attribute* — a tooltip on an SVG element comes
-          from a `<title>` child and from nothing else, which is worth writing
-          down because the attribute is accepted silently by JSX and by the DOM
-          and simply never appears. It does not become the chart's name: an
-          `aria-label` beats a `<title>` in the accessible-name calculation, so
-          the label above is still what is announced and this is only what
-          hovering shows. That ordering is the reason the help can be in both
-          places at once without being said twice.
+          An SVG has no `title` *attribute* — a tooltip comes from a `<title>`
+          child and from nothing else — so this element was the one thing making
+          the browser paint five lines of keyboard help over the plot whenever
+          the pointer rested anywhere on it, including on a flight. The reader
+          who has a pointer is being told about arrow keys, in front of the mark
+          they were trying to look at.
+
+          Nothing accessible is lost. `HELP` is still in the document below and
+          still the chart's `aria-describedby`, which is where a screen reader
+          has always heard it — the `<title>` never was the chart's name, since
+          an `aria-label` beats it in the accessible-name calculation. Only the
+          hover copy is gone.
         */}
-        <title>{HELP}</title>
 
         {/*
           What the zoom is allowed to hide.
@@ -1074,7 +1498,22 @@ export function DepartureChart({
         </g>
 
         {hair ? (
-          <g className={styles.crosshair} aria-hidden="true" data-testid="departure-crosshair">
+          /*
+            A reading that looked the same pinned and unpinned would be the
+            trap this whole feature is for: a reader who has forgotten they
+            pinned it would read a fare that is no longer under their pointer as
+            the one that is. So the crosshair says so in ink — the hairlines
+            stop being dashed and the marker takes the accent — in three places
+            at once with the chip under the plot and the pressed button above
+            it, because one of the three is a colour, one is a word, and one is
+            a control.
+          */
+          <g
+            className={pinned ? `${styles.crosshair} ${styles.held}` : styles.crosshair}
+            aria-hidden="true"
+            data-testid="departure-crosshair"
+            data-pinned={pinned ? 'true' : undefined}
+          >
             <line
               x1={hair.x}
               x2={hair.x}
@@ -1153,33 +1592,73 @@ export function DepartureChart({
         words are enough to tell a reader this row is waiting for them rather
         than broken.
       */}
-      <p className={styles.readout} aria-hidden="true">
+      {/*
+        The row itself is no longer `aria-hidden`, and each of its words is.
+
+        It carried the attribute on the paragraph, which was right while every
+        word in it was a duplicate of the `role="status"` sentence below —
+        hiding the container said each fact once. It stopped being right the
+        moment one of those words became a link: an interactive control inside
+        an `aria-hidden` subtree is focusable and unreadable at the same time,
+        which is worse than either, and it is the one control this change exists
+        to make findable.
+
+        So the hiding moved down a level. Every span and every `<strong>` here
+        is hidden individually, the sentence below still says all of it exactly
+        once, and the only node this row now puts in the accessible tree is the
+        anchor — which carries its own name and says something the status
+        sentence does not.
+      */}
+      <p className={styles.readout} ref={readout}>
+        {/*
+          The word, in the row the reader is actually reading. It goes first
+          because it changes how everything after it should be read: what
+          follows is not what is under the pointer, it is what was under it when
+          they pinned it. The row is a wrapping flex line and the chip is one
+          more item on it, so it costs no height — the same way `cheapest of the
+          day` already appears and disappears at the other end of the line.
+        */}
+        {pinned ? (
+          <span className={styles.flag} aria-hidden="true">
+            pinned
+          </span>
+        ) : null}
         {reading === null ? (
-          <span className={styles.hint}>Point at the chart, or press an arrow key</span>
+          <span className={styles.hint} aria-hidden="true">
+            Point at the chart, or press an arrow key
+          </span>
         ) : reading.kind === 'flight' ? (
           <>
-            <strong>{flightName(reading.placed.point)}</strong>
-            <span className={styles.muted}>
+            {flightNameNode(reading.placed.point)}
+            <span className={styles.muted} aria-hidden="true">
               {reading.placed.point.airlineName ?? reading.placed.point.airline}
             </span>
-            <span>{pointTimeLabel(reading.placed.point, period)}</span>
-            <span className={styles.muted}>{stopsLabel(reading.placed.point.transfers)}</span>
-            <span className={styles.muted}>
+            <span aria-hidden="true">{pointTimeLabel(reading.placed.point, period)}</span>
+            <span className={styles.muted} aria-hidden="true">
+              {stopsLabel(reading.placed.point.transfers)}
+            </span>
+            <span className={styles.muted} aria-hidden="true">
               {formatDuration(reading.placed.point.durationMinutes)}
             </span>
-            <strong>{formatMoney(reading.placed.point.price, currency)}</strong>
+            <strong aria-hidden="true">{formatMoney(reading.placed.point.price, currency)}</strong>
             {reading.placed.point.cheapestOfDay ? (
-              <span className={styles.flag}>cheapest of the day</span>
+              <span className={styles.flag} aria-hidden="true">
+                cheapest of the day
+              </span>
             ) : null}
           </>
         ) : (
           <>
-            <strong>{formatFlightDate(reading.mark.day)}</strong>
-            <span className={styles.muted}>whole date, no departure time</span>
+            <strong aria-hidden="true">{formatFlightDate(reading.mark.day)}</strong>
+            <span className={styles.muted} aria-hidden="true">
+              whole date, no departure time
+            </span>
             {reading.mark.price === null ? (
-              <span className={styles.muted}>{absenceWords(reading.mark)}</span>
+              <span className={styles.muted} aria-hidden="true">
+                {absenceWords(reading.mark)}
+              </span>
             ) : (
-              <strong>{formatMoney(reading.mark.price, currency)}</strong>
+              <strong aria-hidden="true">{formatMoney(reading.mark.price, currency)}</strong>
             )}
           </>
         )}
@@ -1197,12 +1676,25 @@ export function DepartureChart({
       <p id={help} className={styles.srOnly}>
         {HELP}
       </p>
+      {/*
+        And the same word said out loud, on the end of the sentence rather than
+        in front of it: a reader who is hearing this region is hearing it
+        because the reading changed, and the reading is what they asked for. The
+        pin is the qualification on it, and a qualification belongs after the
+        thing it qualifies — "LA 191 … pinned", not "pinned, LA 191".
+
+        It is on this region and not on a fourth one because pinning does not
+        happen on its own: every press that pins also settles which reading is
+        pinned, so the two would interrupt each other for no gain.
+      */}
       <p id={status} className={styles.srOnly} role="status">
         {reading === null
           ? ''
-          : reading.kind === 'flight'
-            ? flightSentence(reading.placed.point, currency)
-            : curveSentence(reading.mark, currency)}
+          : `${
+              reading.kind === 'flight'
+                ? flightSentence(reading.placed.point, currency)
+                : curveSentence(reading.mark, currency)
+            }${pinned ? ' Pinned; press Escape to let it go.' : ''}`}
       </p>
 
       {/*
@@ -1240,6 +1732,26 @@ export function DepartureChart({
       <figcaption className={styles.legend}>
         <span className={styles.keyDot} title="One dot is one itinerary, at the hour it departs">
           <i /> One itinerary
+        </span>
+        {/*
+          The small bright mark, named — because on this route it is on almost
+          every dot and a reader has to be able to find out what it means from
+          the chart rather than by pressing one. Its swatch is drawn narrower
+          than the plain dot's above it, because the width is half of the
+          distinction and a legend that showed only the colour would teach the
+          half a colourblind reader cannot use.
+
+          Permanent like every entry beside it, and worded as what the *mark*
+          says rather than as what the reader can do: the dot is not the link,
+          the flight number under the plot is, and a legend reading "click to
+          book" would make the promise this whole feature is built around not
+          making.
+        */}
+        <span
+          className={styles.keyLinked}
+          title="This flight's airline can be searched for its route and date — the flight number in the line above the legend is the link"
+        >
+          <i /> Reaches its airline
         </span>
         <span
           className={styles.keyLine}
@@ -1354,6 +1866,26 @@ function resolve(
   }
   const found = marks.find((mark) => mark.day === cursor.mark.day);
   return found ? { kind: 'curve', mark: found, index: cursor.index } : null;
+}
+
+/**
+ * How far a press landed from the mark it resolved to, in view units.
+ *
+ * Measured against the mark as it is *drawn*, which is why it takes `hairFor`'s
+ * answer rather than recomputing anything: the crosshair is placed on the data
+ * and never on the pointer, so the place the reader was aiming at is exactly
+ * the place the hairlines would have gone.
+ *
+ * A curve date is measured vertically alone. It is one price spanning a whole
+ * column, so how far along the column a press landed says nothing about whether
+ * it was aimed at the price — the horizontal distance is an artefact of the date
+ * being a day wide, and counting it would make the far end of every column
+ * unpinnable. A date with no price at all is on the rail under the plot floor,
+ * and that is the height a press near it has to be near.
+ */
+function reachOf(reading: Reading, at: { x: number; y?: number }, x: number, y: number): number {
+  if (reading.kind === 'flight') return Math.hypot((at.y ?? y) - y, at.x - x);
+  return Math.abs((at.y ?? RAIL_Y) - y);
 }
 
 function sameReading(a: Reading, b: Reading): boolean {

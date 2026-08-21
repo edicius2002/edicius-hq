@@ -59,6 +59,15 @@ function crowded(count: number, capturedAt = '2026-08-18T12:00:00+00:00'): FareS
   return { ...SNAPSHOT, capturedAt, offers };
 }
 
+/**
+ * The route these flights fly, which is what turns a row into a link out.
+ *
+ * Peru, because that is where LIM is and because the storefront is picked off
+ * the origin's country. A test that left this null would exercise the table
+ * with every link switched off and never notice one going missing.
+ */
+const LEG = { origin: 'LIM', destination: 'SCL', originCountry: 'Peru' };
+
 function bodyRows() {
   return screen.getAllByRole('row').slice(1);
 }
@@ -71,7 +80,9 @@ function pagerText(): string {
 
 describe('FlightTable', () => {
   it('shows each itinerary with its airline, departure time and stops', () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     const rows = bodyRows();
     expect(rows).toHaveLength(2);
@@ -93,7 +104,7 @@ describe('FlightTable', () => {
   });
 
   it('says so when the latest observation is empty', () => {
-    render(<FlightTable snapshots={[]} granularity="day" departure="09/03/2027" />);
+    render(<FlightTable snapshots={[]} granularity="day" departure="09/03/2027" leg={LEG} />);
     expect(screen.getByText(/No itineraries/i)).toBeInTheDocument();
     // A panel whose heading disappears with its data reads as a panel that
     // lost its name, so the heading is outside the early return.
@@ -104,7 +115,9 @@ describe('FlightTable', () => {
     // 12.257. The middot is the separator the watchlist row already uses
     // between a pair and its month, and it is `aria-hidden` because a screen
     // reader announcing "middle dot" between a name and a date is noise.
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     const heading = screen.getByRole('heading', { level: 2 });
     expect(heading).toHaveAccessibleName('Flights seen 09/03/2027');
@@ -119,7 +132,7 @@ describe('FlightTable', () => {
   });
 
   it('says only what it knows when no route is selected', () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure={null} />);
+    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure={null} leg={LEG} />);
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Flights seen');
   });
 
@@ -131,6 +144,7 @@ describe('FlightTable', () => {
         snapshots={[SNAPSHOT, { ...SNAPSHOT, capturedAt: '2026-08-18T12:00:00+00:00' }]}
         granularity="week"
         departure="09/03/2027"
+        leg={LEG}
       />,
     );
     expect(
@@ -147,6 +161,7 @@ describe('FlightTable', () => {
         ]}
         granularity="day"
         departure="09/03/2027"
+        leg={LEG}
       />,
     );
 
@@ -157,7 +172,9 @@ describe('FlightTable', () => {
   });
 
   it('marks every column as sortable and says which one is in force', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     const headers = screen.getAllByRole('columnheader');
     expect(headers.map((header) => header.getAttribute('aria-sort'))).toEqual([
@@ -184,7 +201,9 @@ describe('FlightTable', () => {
   });
 
   it('offers only the airlines that are actually on this board', () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
     const options = within(screen.getByLabelText('Airline'))
       .getAllByRole('option')
       .map((option) => option.textContent);
@@ -213,7 +232,7 @@ describe('FlightTable', () => {
         },
       ],
     };
-    render(<FlightTable snapshots={[long]} granularity="day" departure="09/03/2027" />);
+    render(<FlightTable snapshots={[long]} granularity="day" departure="09/03/2027" leg={LEG} />);
 
     const select = screen.getByLabelText('Airline');
     const cut = within(select).getByRole('option', { name: 'Aerolin…' });
@@ -229,7 +248,9 @@ describe('FlightTable', () => {
   });
 
   it('says how many rows a filter took away, rather than reporting the rest as the board', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     await userEvent.selectOptions(screen.getByLabelText('Airline'), 'AV');
     expect(bodyRows()).toHaveLength(1);
@@ -237,7 +258,9 @@ describe('FlightTable', () => {
   });
 
   it('pages ten at a time and reaches the rest with a labelled control', async () => {
-    render(<FlightTable snapshots={[crowded(12)]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[crowded(12)]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     expect(bodyRows()).toHaveLength(10);
     expect(pagerText()).toBe('Page 1 of 2');
@@ -249,7 +272,9 @@ describe('FlightTable', () => {
   });
 
   it('goes back to the first page when a filter changes, but not when the sort does', async () => {
-    render(<FlightTable snapshots={[crowded(12)]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[crowded(12)]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(pagerText()).toBe('Page 2 of 2');
@@ -269,17 +294,21 @@ describe('FlightTable', () => {
     // is not a page of this one.
     const snapshots = [crowded(12)];
     const { rerender } = render(
-      <FlightTable snapshots={snapshots} granularity="day" departure="09/03/2027" />,
+      <FlightTable snapshots={snapshots} granularity="day" departure="09/03/2027" leg={LEG} />,
     );
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(pagerText()).toBe('Page 2 of 2');
 
-    rerender(<FlightTable snapshots={snapshots} granularity="month" departure="09/03/2027" />);
+    rerender(
+      <FlightTable snapshots={snapshots} granularity="month" departure="09/03/2027" leg={LEG} />,
+    );
     expect(pagerText()).toBe('Page 1 of 2');
   });
 
   it('clears every filter at once and says nothing is hidden any more', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     await userEvent.selectOptions(screen.getByLabelText('Airline'), 'AV');
     await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
@@ -288,7 +317,9 @@ describe('FlightTable', () => {
   });
 
   it('asks for a price as one range with two ends, not as two filters', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     // One group, named once, holding both ends — and each end still answers to
     // its own name, so nothing that reads the page loses track of which is
@@ -323,6 +354,7 @@ describe('FlightTable', () => {
         ]}
         granularity="day"
         departure="09/03/2027"
+        leg={LEG}
       />,
     );
 
@@ -346,6 +378,7 @@ describe('FlightTable', () => {
         ]}
         granularity="day"
         departure="09/03/2027"
+        leg={LEG}
       />,
     );
 
@@ -359,12 +392,106 @@ describe('FlightTable', () => {
   });
 
   it('says the filters emptied the table rather than showing a bare header', async () => {
-    render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" />);
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
 
     await userEvent.type(screen.getByLabelText('Min price'), '999');
     expect(bodyRows()).toHaveLength(0);
     expect(screen.getByText(/hidden by the filters above/i)).toBeInTheDocument();
     expect(screen.getByText(/0 shown, 2 hidden by filters/)).toBeInTheDocument();
+  });
+
+  /* --------------------------------------------- the link out to the airline -- */
+
+  it('links a flight to its own airline’s search, on that flight’s departure date', () => {
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const link = screen.getByRole('link', {
+      name: 'LA 529 — Search LATAM for LIM to SCL on 16/10/2026',
+    });
+    // The date is the flight's own, off `departureAt` and not off the snapshot,
+    // and the storefront is the origin's — LIM is in Peru.
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.latamairlines.com/pe/es/ofertas-vuelos?origin=LIM&outbound=2026-10-16T00%3A00%3A00.000Z&destination=SCL&adt=1&chd=0&inf=0&trip=OW&cabin=Economy&redemption=false&sort=RECOMMENDED',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('makes the flight number itself the link, and draws no arrow beside it', () => {
+    /*
+     * The owner's report: the `↗` worked and could not be found. It was
+     * `--color-muted` at 0.7rem with `text-decoration: none`, so what replaces
+     * it is the one word in the row a reader is already looking at, drawn the
+     * way the web draws links.
+     */
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const row = bodyRows().find((each) => within(each).queryByText('LA 529'))!;
+    expect(within(row).getByText('LA 529').tagName).toBe('A');
+    // Nothing else in the cell — the arrow is gone rather than moved.
+    expect(within(row).getAllByRole('cell')[2].textContent).toBe('LA 529');
+    expect(row.textContent).not.toContain('↗');
+  });
+
+  it('names the flight in the link and still promises only a search', () => {
+    /*
+     * The whole scope of the feature, guarded where a reader meets it. The
+     * carrier's page is a list of that route's departures on that date, so the
+     * name must not read as "book LA 529" — and it does not: the verb is
+     * `Search` and its object is a carrier, a city pair and a date.
+     *
+     * The flight number leads it because the *visible* label is now the flight
+     * number, and WCAG 2.5.3 asks that an accessible name contain the words on
+     * screen. While the anchor was a bare glyph there were none to contain.
+     */
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const link = screen.getByRole('link', { name: /LA 529/ });
+    expect(link).toHaveAccessibleName('LA 529 — Search LATAM for LIM to SCL on 16/10/2026');
+    expect(link).toHaveAccessibleName(expect.not.stringContaining('Book'));
+    // And a pointer resting on it is told exactly the same thing.
+    expect(link).toHaveAttribute('title', 'LA 529 — Search LATAM for LIM to SCL on 16/10/2026');
+  });
+
+  it('gives an Avianca flight no link at all rather than a guessed one', () => {
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const row = bodyRows().find((each) => within(each).queryByText('AV 812'))!;
+    expect(within(row).queryByRole('link')).toBeNull();
+    // And nothing stands in its place: no marker, no greyed affordance, no
+    // tooltip explaining an absence. Plain text, as the number always was.
+    expect(within(row).getByText('AV 812').textContent).toBe('AV 812');
+    expect(within(row).getByText('AV 812').tagName).not.toBe('A');
+  });
+
+  it('draws no links at all while the route or its country is unknown', () => {
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={null} />,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('draws no link where the origin country has no storefront we have loaded', () => {
+    render(
+      <FlightTable
+        snapshots={[SNAPSHOT]}
+        granularity="day"
+        departure="09/03/2027"
+        leg={{ origin: 'LIM', destination: 'SCL', originCountry: 'Brazil' }}
+      />,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
   });
 });
 

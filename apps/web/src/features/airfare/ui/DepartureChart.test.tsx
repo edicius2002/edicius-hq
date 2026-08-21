@@ -321,6 +321,225 @@ describe('the flight under the pointer', () => {
   });
 });
 
+/**
+ * Holding the reading still.
+ *
+ * The owner: *"creo una accion para poder fijar la vista en un punto con
+ * anticlick"* — an action that fixes the view on a point, with a right-click.
+ * What is under test is not one gesture but the state it puts the chart into:
+ * that the reading stops following the hand, that it is obvious it has, that
+ * there is more than one way out of it, and that it lets go by itself of
+ * anything it can no longer be pinned to.
+ */
+describe('pinning the reading', () => {
+  /** The dearest dot of the week — $310 on the 8th — and where it is drawn. */
+  function dearest(container: HTMLElement) {
+    const dot = dots(container).reduce((highest, each) =>
+      Number(each.getAttribute('cy')) < Number(highest.getAttribute('cy')) ? each : highest,
+    );
+    return { x: Number(dot.getAttribute('cx')), y: Number(dot.getAttribute('cy')) };
+  }
+
+  function pinTheDearest(container: HTMLElement) {
+    const svg = container.querySelector('svg')!;
+    const at = dearest(container);
+    fireEvent.contextMenu(svg, { clientX: at.x, clientY: at.y });
+    return { svg, at };
+  }
+
+  it('holds the reading where the right-click landed, and the pointer stops moving it', () => {
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+    expect(container.textContent).toContain('$310.00');
+
+    // The other end of the week, and a fare the crosshair would certainly have
+    // moved to a moment ago.
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
+    expect(container.textContent).toContain('$310.00');
+    expect(container.textContent).not.toContain('$288.00');
+  });
+
+  it('takes the browser’s menu on a mark, and only on a mark', () => {
+    /*
+     * The cost of using the right button, kept as small as it can be made.
+     * `nearestPlaced` has no cut-off, so without `PIN_REACH` this handler would
+     * answer every press anywhere on the plot and the reader would lose copy,
+     * translate, back and inspect over the whole panel. Below the plot floor is
+     * the axis and the source rail, which are drawn text and nothing else.
+     */
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    const at = dearest(container);
+
+    expect(fireEvent.contextMenu(svg, { clientX: at.x, clientY: at.y })).toBe(false);
+    expect(fireEvent.contextMenu(svg, { clientX: at.x, clientY: 320 })).toBe(true);
+  });
+
+  it('says it is pinned in ink, in a word and out loud', () => {
+    /*
+     * A reading that looked the same held as live is the trap: a reader who has
+     * forgotten they pinned it reads a stale fare as the current one. Three
+     * places, because one of them is a colour, one is a word and one is a
+     * control — and a reader who cannot see the first can hear the third.
+     */
+    const { container } = chart();
+    pinTheDearest(container);
+
+    expect(
+      container.querySelector('[data-testid="departure-crosshair"]')?.getAttribute('data-pinned'),
+    ).toBe('true');
+    expect(container.textContent).toContain('pinned');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Pinned');
+  });
+
+  it('stays put when the pointer leaves the chart and when the chart loses focus', () => {
+    // Which is the point of it: the reader pinned a fare so they could go and
+    // read the flight table under it.
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+
+    fireEvent.pointerLeave(svg);
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeTruthy();
+    fireEvent.blur(svg);
+    expect(container.textContent).toContain('$310.00');
+  });
+
+  it('lets go on Escape, and the pointer takes over again', () => {
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+
+    fireEvent.keyDown(svg, { key: 'Escape' });
+    expect(container.textContent).not.toContain('pinned');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
+    expect(container.textContent).not.toContain('$310.00');
+  });
+
+  it('lets go on a second right-click on the same mark', () => {
+    const { container } = chart();
+    const { svg, at } = pinTheDearest(container);
+    fireEvent.contextMenu(svg, { clientX: at.x, clientY: at.y });
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('pins what the arrow keys walked to, with P, and lets go with P', () => {
+    // A pointer-only action on a chart with two keyboard axes, a keyboard zoom
+    // and a spoken readout would be a regression, not a feature.
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    fireEvent.keyDown(svg, { key: 'ArrowRight' });
+    expect(container.textContent).toContain('$240.00');
+
+    fireEvent.keyDown(svg, { key: 'p' });
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
+    expect(container.textContent).toContain('$240.00');
+
+    fireEvent.keyDown(svg, { key: 'p' });
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('names the two keys where the chart says what it can do', () => {
+    const { container } = chart();
+    expect(container.textContent).toContain('P pins the reading');
+    expect(container.textContent).toContain('Escape lets it go');
+    expect(container.querySelector('svg')?.getAttribute('aria-keyshortcuts')).toContain('Escape');
+  });
+
+  it('offers a control that does both, disabled while there is nothing to pin', () => {
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    const button = screen.getByTestId('pin-reading');
+    expect(button).toBeDisabled();
+
+    fireEvent.keyDown(svg, { key: 'ArrowRight' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('survives a zoom, staying on its flight rather than on a coordinate', () => {
+    /*
+     * The pin names an itinerary and not a place on the plot, so the crosshair
+     * is redrawn at wherever that flight now sits. Which is what makes a pin
+     * usable at all while the reader works the zoom around it.
+     *
+     * The mark does not visibly move under *this* zoom, and that is a second
+     * property rather than a missing one: a keyboard zoom anchors on the
+     * crosshair, so the thing the reader is looking at is the thing that holds
+     * its place. What is asserted is the invariant underneath both — the
+     * hairline is wherever the dot is.
+     */
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+
+    fireEvent.keyDown(svg, { key: '+' });
+    expect(container.textContent).toContain('$310.00');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
+
+    const hair = container.querySelector('[data-testid="departure-crosshair"] line')!;
+    expect(Number(hair.getAttribute('x1'))).toBeCloseTo(dearest(container).x, 6);
+  });
+
+  it('keeps the flight and takes its new price when a pass brings one', () => {
+    // The pin is a flag beside the reading rather than a copy of it, which is
+    // exactly this: a held copy would still be showing $310 an hour later.
+    const { container, rerender } = chart();
+    pinTheDearest(container);
+    expect(container.textContent).toContain('$310.00');
+
+    const cheaper = WEEK.map((each) =>
+      each.flightDate !== '2027-03-08'
+        ? each
+        : {
+            ...each,
+            offers: each.offers.map((one) =>
+              one.flightNumber === '2' ? { ...one, price: 275 } : one,
+            ),
+          },
+    );
+    rerender(<Harness snapshots={cheaper} />);
+
+    expect(container.textContent).toContain('$275.00');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('lets go of a flight that has left the board', () => {
+    const { container, rerender } = chart();
+    pinTheDearest(container);
+
+    const without = WEEK.map((each) =>
+      each.flightDate !== '2027-03-08'
+        ? each
+        : { ...each, offers: each.offers.filter((one) => one.flightNumber !== '2') },
+    );
+    rerender(<Harness snapshots={without} />);
+
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+    expect(container.textContent).not.toContain('pinned');
+  });
+
+  it('lets go when the reader steps to another period', () => {
+    // Every mark under it is a different mark. A pin that survived would be
+    // pointing at a flight that is not on screen.
+    // A day frame, because that is the granularity this archive has more than
+    // one period of — a week frame of these three departures is one week, and a
+    // chart with one period draws no arrows to step with.
+    const { container } = chart({ granularity: 'day' });
+    pinTheDearest(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
 describe('crossing the chart without a mouse', () => {
   it('walks the cheapest flight of each day with left and right', () => {
     const { container } = chart();
@@ -991,14 +1210,29 @@ describe('the chrome around the plot', () => {
     expect(container.querySelectorAll('[role="status"]').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('offers the same help to a pointer, without naming the chart twice', () => {
-    // An SVG tooltip comes from a `<title>` child and from nothing else — the
-    // attribute is accepted silently and never appears. It must not become the
-    // chart's name, and does not: an `aria-label` beats a `<title>` in the
-    // accessible-name calculation.
+  it('shows a pointer no tooltip, while the ear keeps the help', () => {
+    // An SVG tooltip comes from a `<title>` child and from nothing else, so the
+    // absence of that child is the whole assertion: a pointer resting on a
+    // flight used to get five lines of keyboard help painted over the mark it
+    // was aimed at.
+    //
+    // `:scope > title` and not `title`, deliberately. The marks inside carry
+    // titles of their own — a hole says "never collected", a curve day says its
+    // date and price — and those are wanted: they are short, they are about the
+    // thing under the pointer, and they are the reason a hole is legible at
+    // all. What was removed is the one on the plot itself, which answered for
+    // every pixel of it.
     const { container } = chart();
     const svg = container.querySelector('svg')!;
-    expect(svg.querySelector('title')?.textContent).toContain('The wheel and a drag');
+    expect(svg.querySelector(':scope > title')).toBeNull();
+
+    // And nothing was lost with it: the help is still a node in the document
+    // and still what the chart points `aria-describedby` at.
+    const described = svg.getAttribute('aria-describedby')!;
+    expect(described).toBeTruthy();
+    expect(container.querySelector(`#${described}`)?.textContent).toContain(
+      'Left and right arrow keys move one departure date',
+    );
     expect(frameLabel(container)).toContain('What each departure date costs');
   });
 
@@ -1022,11 +1256,11 @@ describe('the chrome around the plot', () => {
     // The cut itself, asserted rather than described: entries that were
     // forty-eight words of explanation are names. The sentences are not lost —
     // each is the entry's `title` — and the test above reads two of them.
-    // Six since the horizon gained a carried-over mark, and the rule it is held
-    // to is the same one.
+    // Seven since a mark gained a coloured centre for "this flight's airline can
+    // be reached", and the rule each is held to is the same one.
     const { container } = chart();
     const entries = [...container.querySelectorAll('figcaption span')];
-    expect(entries).toHaveLength(6);
+    expect(entries).toHaveLength(7);
     for (const entry of entries) {
       expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
       expect(entry.getAttribute('title')).toBeTruthy();
@@ -1042,5 +1276,205 @@ describe('the chrome around the plot', () => {
     expect(reset).toHaveAttribute('title', 'Reset zoom');
     // Nothing to undo yet, so it is offered and disabled rather than absent.
     expect(reset).toBeDisabled();
+  });
+});
+
+/**
+ * The way out to the airline, where the owner asked for it.
+ *
+ * _"quita esa flecha apagada de la tabla y en vez de eso colocalo en AR 1281 ...
+ * como hipervinculo a AR1281 y que este coloreado azul y subrayado como
+ * hipervinculo y que en el grafico se vea como es los circulos pero con un color
+ * en el medio para distinguir de los demas"_ — the link is the flight number in
+ * the line under the plot, and the marks that have one say so with a coloured
+ * centre.
+ *
+ * What is under test is not the URL, which is `lib/airlineSearch`'s and is
+ * tested there. It is the three things a rendered chart decides: that the link
+ * is somewhere a reader can meet it, that its name says what it does rather
+ * than what its visible text implies, and that a mark with no link draws and
+ * says nothing at all.
+ */
+describe('reaching the airline from the chart', () => {
+  /** LIM is in Peru, which is what picks LATAM's storefront. */
+  const LEG = { origin: 'LIM', destination: 'SCL', originCountry: 'Peru' };
+
+  /** One reachable carrier and one that is not, on the same date. */
+  const BOARD = [
+    snapshot('2027-03-09', [
+      offer({ flightNumber: '4', departureAt: '2027-03-09T06:30', price: 195 }),
+      offer({
+        airline: 'AV',
+        airlineName: 'Avianca',
+        flightNumber: '812',
+        departureAt: '2027-03-09T19:55',
+        price: 260,
+      }),
+    ]),
+  ];
+
+  /** Put the crosshair on a drawn mark. */
+  function point(container: HTMLElement, at: SVGCircleElement) {
+    fireEvent.pointerMove(container.querySelector('svg')!, {
+      clientX: Number(at.getAttribute('cx')),
+      clientY: Number(at.getAttribute('cy')),
+    });
+  }
+
+  /** That board's two dots in clock order — LA 4 at 06:30, then AV 812. */
+  function board(container: HTMLElement) {
+    return dots(container).sort(
+      (a, b) => Number(a.getAttribute('cx')) - Number(b.getAttribute('cx')),
+    );
+  }
+
+  it('makes the flight number in the readout a link to that airline’s own search', () => {
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[0]);
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    expect(link.textContent).toBe('LA 4');
+    // The date is the mark's own departure date, taken off a wall-clock stamp
+    // by string: read through `Date` a 00:15 departure would search the day
+    // before.
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.latamairlines.com/pe/es/ofertas-vuelos?origin=LIM&outbound=2027-03-09T00%3A00%3A00.000Z&destination=SCL&adt=1&chd=0&inf=0&trip=OW&cabin=Economy&redemption=false&sort=RECOMMENDED',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('names the link after what it does, not after what its text implies', () => {
+    /*
+     * The tension this change accepts on purpose. `LA 4` drawn blue and
+     * underlined reads as a link to LA 4; the page it opens is a list of that
+     * route's departures on that date, matched by the clock. So the visible
+     * text overpromises and the accessible name is where the truth has to live
+     * — with the flight leading it, because WCAG 2.5.3 asks that a name contain
+     * the words on screen.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[0]);
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    expect(link).toHaveAccessibleName('LA 4 — Search LATAM for LIM to SCL on 09/03/2027');
+    expect(link).toHaveAttribute('title', 'LA 4 — Search LATAM for LIM to SCL on 09/03/2027');
+    expect((link.getAttribute('aria-label') ?? '').toLowerCase()).not.toContain('book');
+  });
+
+  it('puts the link in the accessible tree and every word beside it out of one', () => {
+    /*
+     * The defect this arrangement exists to avoid. The readout carried
+     * `aria-hidden` on the paragraph, which was right while every word in it
+     * duplicated the `role="status"` sentence below — and became a real fault
+     * the moment one of those words was a control, because a focusable node in
+     * an `aria-hidden` subtree is reachable by Tab and invisible to the thing
+     * doing the reading.
+     *
+     * So the hiding is per word now: the anchor is the only node this row puts
+     * in the tree, and the sentence below still says the fare exactly once.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[0]);
+
+    const readout = container.querySelector('p[class*="readout"]')!;
+    expect(readout.getAttribute('aria-hidden')).toBeNull();
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    expect(link.closest('[aria-hidden="true"]')).toBeNull();
+    const words = [...readout.querySelectorAll(':scope > span, :scope > strong')];
+    expect(words.length).toBeGreaterThan(0);
+    for (const word of words) expect(word.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('keeps the reading when focus moves from the plot into the link', () => {
+    /*
+     * Tab out of the plot is how a keyboard reader reaches the anchor, and the
+     * chart's own blur used to clear the crosshair — so the link was deleted on
+     * the way to it, and the only route through was to pin first, which nothing
+     * tells anybody.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const svg = container.querySelector('svg')!;
+    point(container, board(container)[0]);
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    fireEvent.blur(svg, { relatedTarget: link });
+    expect(screen.getByRole('link', { name: /^LA 4 —/ })).toBeTruthy();
+
+    // And focus leaving both for somewhere else still takes it away.
+    fireEvent.blur(svg, { relatedTarget: document.body });
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+  });
+
+  it('marks the flights that have a link and no others', () => {
+    /*
+     * The marker, and the number that makes it worth stating: LATAM 2912,
+     * JetSMART 839 and Aerolíneas 205 of 4044 offers are reachable and only
+     * Avianca's 88 are not, so this mark lands on roughly 98% of the archive
+     * and draws the normal state rather than the exception. Marked the other
+     * way round it would be the same set with this test inverted.
+     *
+     * One node and not two, still: the mark is a single `<circle>` with a fill
+     * and a stroke, so ~899 marks are ~899 elements.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const [latam, avianca] = board(container);
+
+    expect(latam.getAttribute('data-linked')).toBe('true');
+    expect(avianca.getAttribute('data-linked')).toBeNull();
+    expect(latam.tagName).toBe('circle');
+  });
+
+  it('draws a marked flight smaller than a plain one, so colour is not the only difference', () => {
+    /*
+     * The defect this pins, so it cannot come back quietly.
+     *
+     * The marker's first cut set `r` in the markup and `stroke-width` in the
+     * stylesheet, and the two summed to exactly the plain dot's 2.6 — a marked
+     * mark and a plain one were the same 5.2 across and the *only* thing between
+     * them was hue. The owner has a red-green deficiency and could not see it,
+     * which is WCAG 1.4.1: colour was the sole visual means of conveying the
+     * distinction.
+     *
+     * So the size is asserted rather than the colour. What a reader sees is
+     * `r + stroke-width / 2`, and the marked mark has to be materially narrower
+     * — not merely different, because 2.55 against 2.6 would pass a `<` and fail
+     * a person. A quarter off the width is the floor; the chart draws 1.9
+     * against 2.6, which is 27%.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const [latam, avianca] = board(container);
+    const across = (mark: SVGCircleElement) =>
+      Number(mark.getAttribute('r')) + Number(mark.getAttribute('stroke-width') ?? 0) / 2;
+
+    expect(across(latam)).toBeLessThanOrEqual(across(avianca) * 0.75);
+    // And it is still a dot inside a collar rather than a bare disc, because the
+    // owner asked for a colour *in the middle* of the circles.
+    expect(Number(latam.getAttribute('stroke-width'))).toBeGreaterThan(0);
+    expect(avianca.getAttribute('stroke-width')).toBeNull();
+  });
+
+  it('gives a carrier we cannot reach plain text and no mark', () => {
+    // Avianca is behind Akamai and was never loaded cold, so there is no URL to
+    // send anyone to. Nothing stands in its place — no greyed link, no marker.
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[1]);
+
+    expect(container.textContent).toContain('AV 812');
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('draws no link and no marker while the route is unknown', () => {
+    // The chart is handed snapshots rather than a route, and the origin's
+    // country is not in the archive at all. Without both there is no storefront
+    // to pick, and a guessed one is a 404 in the reader's face.
+    const { container } = chart({ snapshots: BOARD, granularity: 'day' });
+    point(container, board(container)[0]);
+
+    expect(container.textContent).toContain('LA 4');
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(container.querySelector('[data-linked]')).toBeNull();
   });
 });

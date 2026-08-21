@@ -333,3 +333,44 @@
 .gone {
   opacity: 0.55;
 }
+
+/*
+ * The flight number as the way out to the airline's own booking search.
+ *
+ * **Blue and underlined, which is the whole of the fix.** What stood here was a
+ * `↗` beside the number in `--color-muted` at 0.7rem with `text-decoration:
+ * none`, on the argument that an underline inside a run of tabular text would
+ * read as the number having become a link. The number *has* become the link, on
+ * the owner's instruction, so the argument has changed sides: the underline is
+ * now the thing that says so, and it is asked for by name. Colour alone would
+ * have been the same mistake in a brighter shade — a reader who cannot separate
+ * these two hues would be back to hunting.
+ *
+ * `--color-link` rather than `--color-accent`, because the accent already means
+ * "the cheapest thing here" on both charts on this page, and one colour saying
+ * two things is one of them unread. Its contrast is in `tokens.css`.
+ *
+ * Rows with no link — Avianca, and any origin whose country has no storefront we
+ * have loaded — render no anchor at all rather than a greyed one, so the column
+ * holds a live link or plain text and never a dead one.
+ *
+ * `0.15em` of underline offset keeps the rule clear of the descenders in a
+ * column that is otherwise all figures, and the column's width is unchanged: the
+ * anchor holds exactly the characters the cell already held.
+ */
+.flightLink {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.flightLink:hover,
+.flightLink:focus-visible {
+  color: var(--color-link-strong);
+}
+
+.flightLink:focus-visible {
+  outline: 2px solid var(--color-link-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

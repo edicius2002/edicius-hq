@@ -30,16 +30,11 @@ import {
 } from '@/features/airfare/lib/flightScatter';
 import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
+import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
 import styles from './AnalysisPanel.module.css';
-
-const GRANULARITIES: { value: Granularity; label: string }[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-];
 
 /**
  * **Two charts over one route, and one control each — 12.240, answering 12.201.**
@@ -85,18 +80,33 @@ const DAYS_NAMES: Record<FrameSource, string> = {
   mixed: 'Flights and cheapest per date',
 };
 
-/** Which clock the chart under the switches is drawn on, said in full. */
+/**
+ * Which archive is answering for the chart under the switch, in one short line.
+ *
+ * Each of these was two or three clauses restating the axis directly above the
+ * axis, and the longest ran to three lines at the narrow end of this panel —
+ * the single biggest block of prose on the page, and the one the owner quoted
+ * first. What a reader cannot get from looking is which of two archives is
+ * answering and therefore what one mark means, so that is what survives; how
+ * the x axis works is the axis's own business and it is drawn, labelled and
+ * railed below.
+ *
+ * **Which is also why none of them says "at the hour it departs" any more.**
+ * Shortened to one clause, `days/boards` came out as `Every itinerary, at the
+ * hour it departs.` — and the source rail under the same plot already reads
+ * `every flight, at the hour it departs`, per stretch of the frame and with
+ * more precision than a line above the chart can have. Two near-identical
+ * sentences a few rows apart are worse than the long one they replaced, because
+ * a reader now has to work out whether they are being told two things. So these
+ * name the archive in the words the panel uses for it elsewhere — the boards,
+ * the booking horizon — and leave the hour to the rail that is drawn on it.
+ */
 const WHAT: Record<string, string> = {
-  moves:
-    'Across the days we looked — the x axis is when the price was observed, one point a day, whatever the period switch is set to.',
-  'days/none':
-    'Across the departure dates being watched — nothing has been collected for them yet.',
-  'days/boards':
-    'Across the month being flown — the x axis is a clock, and every itinerary sits at the hour it departs.',
-  'days/curve':
-    'Beyond the watched month — the x axis is departure dates, and each carries one cheapest fare for the whole date with no time of day.',
-  'days/mixed':
-    'Across the end of the watched month — itineraries at the hour they depart up to its last date, then one price a date beyond it. The rule in the chart is where the axis stops being a clock.',
+  moves: 'One point a day, at the price we observed.',
+  'days/none': 'Nothing collected for these departure dates yet.',
+  'days/boards': 'The flight boards for the watched month.',
+  'days/curve': 'The booking horizon, beyond the watched month.',
+  'days/mixed': 'The boards to the end of the month, then the booking horizon.',
 };
 
 type AnalysisPanelProps = {
@@ -268,16 +278,16 @@ export function AnalysisPanel({
           {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
         </h2>
         {/*
-          One switch, and a second that belongs to half of it.
-          
-          The order is still the order the questions come in — which chart,
-          then how much calendar one period covers — but the second question is
-          only a question about chart B. Chart A is drawn by day and by nothing
-          else (12.242), so beside it the period switch was a live control that
-          did nothing to the thing it sat next to, and the reader's reading of
-          that was the correct one: it looks broken.
-          
-          So it now unfolds from chart B's own button, and folds away with it.
+          One switch, and only one — `period-switch-follows-its-chart` superseded.
+
+          The period switch used to stand here too, unfolding from chart B's
+          button and holding its own space open by `visibility` so that folding
+          away could not slide these two buttons under a pressing hand. All of
+          that apparatus existed to keep a control next to a chart it governed
+          only half the time. It is inside chart B now, in the chart's own
+          corner, so this head asks exactly one question and its contents no
+          longer change with the answer — which is the no-reflow property the
+          held-open strip was built to fake, arrived at by construction instead.
         */}
         <div className={styles.switches}>
           <div className={styles.switch} role="group" aria-label="Chart">
@@ -313,88 +323,102 @@ export function AnalysisPanel({
               </span>
             </button>
           </div>
-
-          {/*
-            "How much time one period covers", not "Group observations by" —
-            12.205 — unfolded to the right of the button whose chart it moves.
-            
-            **The space it takes is reserved whether or not it is showing.** The
-            head is `space-between` and this strip is at its right edge, so a
-            group that left the layout would slide the two chart buttons under
-            the reader's hand at the exact moment they pressed one — the reflow
-            12.240 refused, arriving by the other door. Held open and hidden, the
-            two buttons cannot move a pixel, which is the same mechanism the
-            chart's own name already uses to change without moving (12.246).
-            
-            `visibility` rather than opacity alone, because a control the reader
-            cannot see must also be one Tab cannot reach and a screen reader does
-            not read. `inert` would say it once instead of three times and is not
-            safe to rely on yet.
-            
-            It is still never a lie about what it governs: the flight table below
-            this panel is grouped by the same period, and the table says so on
-            its own heading now rather than leaving this switch to imply it.
-          */}
-          <div
-            className={styles.periods}
-            data-open={view === 'days' ? 'true' : 'false'}
-            aria-hidden={view === 'days' ? undefined : true}
-          >
-            <div
-              className={styles.switch}
-              role="group"
-              aria-label="How much time one period covers"
-            >
-              {GRANULARITIES.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  tabIndex={view === 'days' ? undefined : -1}
-                  aria-pressed={granularity === option.value}
-                  onClick={() => onGranularityChange(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
 
-      <p className={styles.what}>{WHAT[what]}</p>
+      {/*
+        The line naming the archive, and — on chart B only — the switch that
+        belongs to chart B's tab.
 
-      {view === 'moves' ? (
-        <PriceBandChart
-          ours={ours}
-          baseline={theirs}
-          unsold={oursUnsold}
-          currency={currency}
-          axis={axis}
-          label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
-        />
-      ) : (
-        /*
-          Keyed by route so the crosshair the reader left on a flight resets
-          when they open a different watch. The period does not reset with it —
-          it is held above this component and cleared by the route change.
-        */
-        <DepartureChart
-          key={routeKey ?? 'none'}
-          snapshots={snapshots}
-          curve={curve}
-          watched={watched}
-          granularity={granularity}
-          currency={currency}
-          periodKey={periodKey}
-          keys={keys}
-          onStep={step}
-          viewport={viewport}
-          onViewportChange={onViewportChange}
-          horizonLoading={curveLoading}
-          horizonError={curveError}
-          label={route ? `What each departure date costs for ${where}` : 'Fares by departure date'}
-        />
-      )}
+        **The switch hangs off "Flights seen", and it reserves nothing.**
+        `period-switch-follows-its-chart` had the placement right and the
+        mechanism wrong: it stood inside `.switches`, to the right of the chart
+        pill, held open by `visibility` so that folding away could not slide the
+        two chart buttons under a pressing hand. That bought no-reflow by paying
+        for the space permanently, on both charts, including the one that must
+        never have the control at all.
+
+        This row is the better tool for the same job. The pill above is flush
+        with the panel's right edge and so is this row, so the switch lands
+        directly beneath the "Flights seen" button and reads as an extension of
+        it — but it is in a *different row*, so appearing and disappearing cannot
+        move the pill by a pixel. Nothing is reserved: on chart A the element is
+        simply not rendered, and the row is the one `.what` was already using, at
+        a `min-height` it already had. The height cannot change either, because
+        the switch is shorter than the two lines that floor is set to.
+      */}
+      <div className={styles.whatRow}>
+        <p className={styles.what}>{WHAT[what]}</p>
+        {view === 'days' ? (
+          <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+        ) : null}
+      </div>
+
+      {/*
+        **One box, one height, whichever chart is inside it.**
+
+        The two charts are different shapes and always were: chart A's viewBox is
+        760×284 and chart B's is 760×338, and chart B carries a head, a crosshair
+        readout and a note that chart A has none of. Measured in Chrome at the
+        real panel: chart A stood 719px tall and chart B 869, so switching
+        question moved everything below this panel — the whole flight table — by
+        **150px**. That is the reflow 12.240 refused and
+        `period-switch-follows-its-chart` built a hidden strip to prevent,
+        arriving by a third door: the head was fixed and the body was left free.
+
+        So the body is the fixed thing, and the marks move inside it. A height
+        rather than a `min-height`, because a floor is only half a promise — the
+        taller chart would simply exceed it. The charts' own SVGs carry
+        `preserveAspectRatio` at its default `xMidYMid meet`, so a drawing given a
+        box of the wrong shape scales to fit and centres in it rather than
+        stretching or spilling: what varies between the two is how large the
+        drawing is and where its marks sit, which is exactly what is allowed to
+        vary. It is also what finally centres the plot vertically, which an
+        earlier pass could only do horizontally.
+
+        Chart A is a bare figure in here now. The strip that gave it a corner
+        went with the control that used to stand in it, and it was costing a row
+        of height and a band of letterbox to hold a switch chart A must never
+        have.
+      */}
+      <div className={styles.stage}>
+        <div className={styles.body}>
+          {view === 'moves' ? (
+            <PriceBandChart
+              ours={ours}
+              baseline={theirs}
+              unsold={oursUnsold}
+              currency={currency}
+              axis={axis}
+              label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
+            />
+          ) : (
+            /*
+            Keyed by route so the crosshair the reader left on a flight resets
+            when they open a different watch. The period does not reset with it —
+            it is held above this component and cleared by the route change.
+          */
+            <DepartureChart
+              key={routeKey ?? 'none'}
+              snapshots={snapshots}
+              curve={curve}
+              watched={watched}
+              granularity={granularity}
+              currency={currency}
+              periodKey={periodKey}
+              keys={keys}
+              onStep={step}
+              viewport={viewport}
+              onViewportChange={onViewportChange}
+              horizonLoading={curveLoading}
+              horizonError={curveError}
+              label={
+                route ? `What each departure date costs for ${where}` : 'Fares by departure date'
+              }
+            />
+          )}
+        </div>
+      </div>
     </>
   );
 }

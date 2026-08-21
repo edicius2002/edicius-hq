@@ -15,16 +15,17 @@
 }
 
 /*
- * The switches side by side, wrapping together rather than one under the other.
- * At the narrow end of the panel they stack, which is why this is a flex row
- * with a gap and not a second element in `.head` — that one already pushes its
- * children to opposite edges, and the set belongs together.
+ * The switch, at the right of the head, wrapping under the title at the narrow
+ * end of the panel rather than squeezing beside it.
  *
- * There are exactly two of them and there always are. The middle one — how to
- * read chart A's axis, how far out chart B stood — is gone with the modes it
- * switched between, and the one that remains is never absent, because a switch
- * that came and went with the open chart would move the head every time the
- * reader changed question.
+ * There is exactly one of them now and there always is. The middle one — how to
+ * read chart A's axis, how far out chart B stood — went with the modes it
+ * switched between, and the period switch has gone into the chart it moves, so
+ * what is left is the one control that is a question about the panel: which of
+ * the two charts is open. A wrapper for a single child, kept because `.head` is
+ * `space-between` and this is the half that has to stay at the right edge —
+ * and because it is what makes the head's contents fixed, which is the property
+ * the vanished period switch needed a held-open strip to imitate.
  */
 .switches {
   display: flex;
@@ -94,79 +95,150 @@
 }
 
 /*
- * What the reader is looking at, in one sentence under the switches.
+ * What the reader is looking at, in one short line under the switch.
  *
  * The two charts are drawn on different clocks, and chart B is drawn on two at
- * once when a period straddles the end of the watched month. A line that names
- * the clock in full is what keeps a short axis label from being the only thing
- * standing between a departure hour and a departure date.
+ * once when a period straddles the end of the watched month. Naming which
+ * archive is answering is the part a reader cannot get by looking; how the axis
+ * itself works is drawn, labelled and railed a few rows below, and saying it
+ * again here in three clauses was the largest block of prose on the page.
  *
- * A fixed height, because that sentence is a different length on each of the
- * four frames chart B can draw. Three lines is what the longest of them takes
- * at the narrow end of this panel; without the floor, stepping a week out of
- * the watched month would shove the chart up the page mid-comparison.
+ * A fixed height still, for the reason it always had: the line is a different
+ * length on each of the four frames chart B can draw, and without a floor,
+ * stepping a week out of the watched month would shove the chart up the page
+ * mid-comparison. Two lines rather than three, because that is what the longest
+ * of the shortened lines can take at the narrow end of this panel — an em floor
+ * is a guess where the note under the chart uses a stack, and it is kept here
+ * because these five strings are one line each at any width this panel has and
+ * the floor only has to survive the narrow end.
  */
+/*
+ * The row under the head: what the chart is drawn from, and — on chart B — the
+ * switch that belongs to chart B's tab.
+ *
+ * The pill above is flush with the panel's right edge and so is this row, so a
+ * control at this row's right edge lands directly beneath the "Flights seen"
+ * button and reads as an extension of it. Being a *different row* is the whole
+ * mechanism: `period-switch-follows-its-chart` put the switch beside the pill,
+ * where appearing and disappearing would slide the two chart buttons sideways
+ * under a pressing hand, and paid for that with a permanently reserved strip.
+ * A row of its own cannot move the pill at all, so nothing has to be reserved
+ * and chart A can simply not render the control.
+ *
+ * `align-items: flex-start` so the switch sits on the first line of the text
+ * rather than centring itself against a paragraph that may wrap to two.
+ */
+.whatRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  /*
+   * The floor is on the row rather than on the paragraph now, and it is what
+   * makes the switch free: it is shorter than two lines of this text, so a row
+   * that is always two lines tall cannot change height when the switch comes
+   * and goes.
+   */
+  min-height: 2.6em;
+}
+
 .what {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   color: var(--color-muted);
   font-size: 0.82rem;
-  min-height: 3.9em;
+  /* It takes the width the switch leaves, and wraps rather than pushing it. */
+  min-width: 0;
 }
 
 /*
- * The period switch, unfolded from chart B's button — and the space it takes
- * whether or not it is unfolded.
+ * The stage, which exists only to be something `cqw` can measure.
  *
- * The grid is the mechanism, exactly as `.names` is: the switch occupies `1 / 1`
- * and the cell is therefore as wide as the switch always, so the two chart
- * buttons to its left cannot move when it appears. `.head` is
- * `justify-content: space-between` and this strip sits at its right edge, so a
- * group that left the layout would slide those buttons sideways under the hand
- * that just pressed one.
- *
- * `visibility` and not opacity alone: a control the reader cannot see must also
- * be one Tab cannot reach and a screen reader does not read. The transform is
- * what makes it read as unfolding from the button rather than fading in on top
- * of it, and it is anchored on the left edge for the same reason.
+ * A container query unit resolves against the nearest *ancestor* container, so
+ * the box cannot be its own — hence a wrapper rather than a property on `.body`.
+ * It is a plain full-width block and changes no layout.
  */
-.periods {
-  display: grid;
-  overflow: hidden;
-}
-
-.periods > * {
-  grid-area: 1 / 1;
-  transform-origin: left center;
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease;
-}
-
-.periods[data-open='false'] > * {
-  visibility: hidden;
-  opacity: 0;
-  transform: scaleX(0.7);
-  pointer-events: none;
-}
-
-.periods[data-open='true'] > * {
-  visibility: visible;
-  opacity: 1;
-  transform: none;
+.stage {
+  container-type: inline-size;
 }
 
 /*
- * A reader who has asked for less motion gets the same reveal without the
- * unfolding. The visibility still switches, because that is what makes the
- * control reachable rather than decorative.
+ * The chart body: one box, one height, whichever chart is inside it.
+ *
+ * Measured in Chrome at the real panel: chart A stood 719px tall and chart B
+ * 869, so changing question moved the flight table below by 150px; at a 1200px
+ * viewport it was 670 against 926, a 256px jump. The two charts are simply
+ * different shapes — 760×284 against 760×338 — and chart B carries a head, a
+ * crosshair readout and a note that chart A does not. Neither is a defect to be
+ * evened out; what was wrong is that the box was free to follow them.
+ *
+ * **The height tracks the panel's width rather than sitting at a fixed rem, and
+ * that is the difference between saving space and moving it.** Chart B's plot
+ * is a fixed *proportion* of the width it is given — 338/760, or 44.5% — while
+ * its chrome is a constant, so its requirement is affine in the width and no
+ * single rem can be right at two panel widths. A 34.5rem box was measured at
+ * both: correct at 1160px of chart, and at 1278px it left chart B's plot 1181px
+ * wide inside a 1278px box, letterboxed by 48px a side for want of 43px of
+ * height. `calc(44.5cqw + 170px)` is that requirement written down, so chart B
+ * gets its whole plot at every width and a narrow panel stops reserving a tall
+ * panel's worth of height.
+ *
+ * **Clamped at both ends, and both bounds were measured rather than guessed.**
+ * The 28rem floor is for the stacked layout, where the width is small enough
+ * that the chrome — a legend and a note both wrapping to several lines —
+ * outgrows the proportional term. The 34.5rem ceiling is the height this
+ * box already had, kept deliberately so that the panel is **never taller than it
+ * was at any width** and only ever shorter. Uncapped, a 1278px chart asks for
+ * 739px of panel: chart B's plot is what that buys, but the panel is also the
+ * thing the owner asked to shrink, and growing it to win 45px of plot width is
+ * the wrong side of that trade. Capped, a wide panel letterboxes chart B by
+ * about 48px a side — which `meet` does by scaling, so the plot is smaller and
+ * never cropped — while every panel narrower than about 1170px of chart gets its
+ * exact requirement and nothing spare. That is where the saving actually is: at
+ * a 1200px viewport the box drops from 690px to 560, and the panel with it, from
+ * 920 to 799.
+ *
+ * `height` and not `min-height` throughout, because a floor alone is half a
+ * promise: the taller chart simply exceeds it and the reflow comes back.
+ *
+ * Nothing is stretched or cropped by any of this. Both SVGs carry
+ * `preserveAspectRatio` at its default `xMidYMid meet`, so a drawing handed a
+ * box of the wrong shape scales down and centres in it — which is also the
+ * vertical half of "centre the chart" that a full-bleed figure could only ever
+ * do horizontally. Chart A is the one that letterboxes, which is the right way
+ * round: it is the sparser drawing and the one with room to spare.
  */
-@media (prefers-reduced-motion: reduce) {
-  .periods > * {
-    transition: none;
-    transform: none;
-  }
+.body {
+  height: clamp(28rem, calc(44.5cqw + 170px), 34.5rem);
+  display: flex;
+  flex-direction: column;
+  /* Or a flex item refuses to shrink below its content and the box grows anyway. */
+  min-height: 0;
+}
 
-  .periods[data-open='false'] > * {
-    transform: none;
-  }
+.body > * {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/*
+ * The plot takes whatever the chrome around it leaves.
+ *
+ * `flex: 1 1 0` rather than the `height: auto` the charts set for themselves:
+ * with a basis of zero the SVG's box is the leftover space rather than a height
+ * derived from its own aspect ratio, which is the whole mechanism by which two
+ * differently-shaped drawings can live in one box. Nothing is stretched or
+ * cropped — both SVGs carry `preserveAspectRatio` at its default `xMidYMid
+ * meet`, so a drawing handed a box of the wrong shape scales down to fit and
+ * centres in it. That centring is also the vertical half of "centre the chart",
+ * which a full-bleed figure could only ever do horizontally.
+ *
+ * Written here rather than in each chart's own stylesheet on purpose: filling a
+ * fixed box is this panel's arrangement, not a property of either chart, and a
+ * chart rendered anywhere else should still size itself.
+ */
+.body figure > svg {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
 }

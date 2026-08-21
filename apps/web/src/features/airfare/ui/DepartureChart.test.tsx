@@ -321,6 +321,225 @@ describe('the flight under the pointer', () => {
   });
 });
 
+/**
+ * Holding the reading still.
+ *
+ * The owner: *"creo una accion para poder fijar la vista en un punto con
+ * anticlick"* — an action that fixes the view on a point, with a right-click.
+ * What is under test is not one gesture but the state it puts the chart into:
+ * that the reading stops following the hand, that it is obvious it has, that
+ * there is more than one way out of it, and that it lets go by itself of
+ * anything it can no longer be pinned to.
+ */
+describe('pinning the reading', () => {
+  /** The dearest dot of the week — $310 on the 8th — and where it is drawn. */
+  function dearest(container: HTMLElement) {
+    const dot = dots(container).reduce((highest, each) =>
+      Number(each.getAttribute('cy')) < Number(highest.getAttribute('cy')) ? each : highest,
+    );
+    return { x: Number(dot.getAttribute('cx')), y: Number(dot.getAttribute('cy')) };
+  }
+
+  function pinTheDearest(container: HTMLElement) {
+    const svg = container.querySelector('svg')!;
+    const at = dearest(container);
+    fireEvent.contextMenu(svg, { clientX: at.x, clientY: at.y });
+    return { svg, at };
+  }
+
+  it('holds the reading where the right-click landed, and the pointer stops moving it', () => {
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+    expect(container.textContent).toContain('$310.00');
+
+    // The other end of the week, and a fare the crosshair would certainly have
+    // moved to a moment ago.
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
+    expect(container.textContent).toContain('$310.00');
+    expect(container.textContent).not.toContain('$288.00');
+  });
+
+  it('takes the browser’s menu on a mark, and only on a mark', () => {
+    /*
+     * The cost of using the right button, kept as small as it can be made.
+     * `nearestPlaced` has no cut-off, so without `PIN_REACH` this handler would
+     * answer every press anywhere on the plot and the reader would lose copy,
+     * translate, back and inspect over the whole panel. Below the plot floor is
+     * the axis and the source rail, which are drawn text and nothing else.
+     */
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    const at = dearest(container);
+
+    expect(fireEvent.contextMenu(svg, { clientX: at.x, clientY: at.y })).toBe(false);
+    expect(fireEvent.contextMenu(svg, { clientX: at.x, clientY: 320 })).toBe(true);
+  });
+
+  it('says it is pinned in ink, in a word and out loud', () => {
+    /*
+     * A reading that looked the same held as live is the trap: a reader who has
+     * forgotten they pinned it reads a stale fare as the current one. Three
+     * places, because one of them is a colour, one is a word and one is a
+     * control — and a reader who cannot see the first can hear the third.
+     */
+    const { container } = chart();
+    pinTheDearest(container);
+
+    expect(
+      container.querySelector('[data-testid="departure-crosshair"]')?.getAttribute('data-pinned'),
+    ).toBe('true');
+    expect(container.textContent).toContain('pinned');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Pinned');
+  });
+
+  it('stays put when the pointer leaves the chart and when the chart loses focus', () => {
+    // Which is the point of it: the reader pinned a fare so they could go and
+    // read the flight table under it.
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+
+    fireEvent.pointerLeave(svg);
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeTruthy();
+    fireEvent.blur(svg);
+    expect(container.textContent).toContain('$310.00');
+  });
+
+  it('lets go on Escape, and the pointer takes over again', () => {
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+
+    fireEvent.keyDown(svg, { key: 'Escape' });
+    expect(container.textContent).not.toContain('pinned');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
+    expect(container.textContent).not.toContain('$310.00');
+  });
+
+  it('lets go on a second right-click on the same mark', () => {
+    const { container } = chart();
+    const { svg, at } = pinTheDearest(container);
+    fireEvent.contextMenu(svg, { clientX: at.x, clientY: at.y });
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('pins what the arrow keys walked to, with P, and lets go with P', () => {
+    // A pointer-only action on a chart with two keyboard axes, a keyboard zoom
+    // and a spoken readout would be a regression, not a feature.
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    fireEvent.keyDown(svg, { key: 'ArrowRight' });
+    expect(container.textContent).toContain('$240.00');
+
+    fireEvent.keyDown(svg, { key: 'p' });
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
+    expect(container.textContent).toContain('$240.00');
+
+    fireEvent.keyDown(svg, { key: 'p' });
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('names the two keys where the chart says what it can do', () => {
+    const { container } = chart();
+    expect(container.textContent).toContain('P pins the reading');
+    expect(container.textContent).toContain('Escape lets it go');
+    expect(container.querySelector('svg')?.getAttribute('aria-keyshortcuts')).toContain('Escape');
+  });
+
+  it('offers a control that does both, disabled while there is nothing to pin', () => {
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    const button = screen.getByTestId('pin-reading');
+    expect(button).toBeDisabled();
+
+    fireEvent.keyDown(svg, { key: 'ArrowRight' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('survives a zoom, staying on its flight rather than on a coordinate', () => {
+    /*
+     * The pin names an itinerary and not a place on the plot, so the crosshair
+     * is redrawn at wherever that flight now sits. Which is what makes a pin
+     * usable at all while the reader works the zoom around it.
+     *
+     * The mark does not visibly move under *this* zoom, and that is a second
+     * property rather than a missing one: a keyboard zoom anchors on the
+     * crosshair, so the thing the reader is looking at is the thing that holds
+     * its place. What is asserted is the invariant underneath both — the
+     * hairline is wherever the dot is.
+     */
+    const { container } = chart();
+    const { svg } = pinTheDearest(container);
+
+    fireEvent.keyDown(svg, { key: '+' });
+    expect(container.textContent).toContain('$310.00');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
+
+    const hair = container.querySelector('[data-testid="departure-crosshair"] line')!;
+    expect(Number(hair.getAttribute('x1'))).toBeCloseTo(dearest(container).x, 6);
+  });
+
+  it('keeps the flight and takes its new price when a pass brings one', () => {
+    // The pin is a flag beside the reading rather than a copy of it, which is
+    // exactly this: a held copy would still be showing $310 an hour later.
+    const { container, rerender } = chart();
+    pinTheDearest(container);
+    expect(container.textContent).toContain('$310.00');
+
+    const cheaper = WEEK.map((each) =>
+      each.flightDate !== '2027-03-08'
+        ? each
+        : {
+            ...each,
+            offers: each.offers.map((one) =>
+              one.flightNumber === '2' ? { ...one, price: 275 } : one,
+            ),
+          },
+    );
+    rerender(<Harness snapshots={cheaper} />);
+
+    expect(container.textContent).toContain('$275.00');
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('lets go of a flight that has left the board', () => {
+    const { container, rerender } = chart();
+    pinTheDearest(container);
+
+    const without = WEEK.map((each) =>
+      each.flightDate !== '2027-03-08'
+        ? each
+        : { ...each, offers: each.offers.filter((one) => one.flightNumber !== '2') },
+    );
+    rerender(<Harness snapshots={without} />);
+
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+    expect(container.textContent).not.toContain('pinned');
+  });
+
+  it('lets go when the reader steps to another period', () => {
+    // Every mark under it is a different mark. A pin that survived would be
+    // pointing at a flight that is not on screen.
+    // A day frame, because that is the granularity this archive has more than
+    // one period of — a week frame of these three departures is one week, and a
+    // chart with one period draws no arrows to step with.
+    const { container } = chart({ granularity: 'day' });
+    pinTheDearest(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
 describe('crossing the chart without a mouse', () => {
   it('walks the cheapest flight of each day with left and right', () => {
     const { container } = chart();

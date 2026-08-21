@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
 } from 'react';
 
@@ -132,7 +133,30 @@ const HELP =
   'Left and right arrow keys move one departure date at a time; up and down move through that ' +
   'date’s board by price, where there is a board to move through. Plus and minus close and open ' +
   'the frame around whatever the crosshair is on, zero returns to the whole period, and shift ' +
-  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer.';
+  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer. ' +
+  'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
+  'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
+  'plot does both.';
+
+/**
+ * How near a right-click has to land to count as a right-click *on* a mark.
+ *
+ * There has to be a number here, and it is the whole of what keeps this gesture
+ * honest. `nearestPlaced` has no cut-off — it is built for a crosshair, where
+ * the pointer is always reading *something* and the nearest dot is the right
+ * answer wherever the hand is. A pin is not that: it is a press the reader
+ * aimed, and taking the browser's own context menu away from the entire plot in
+ * order to answer presses aimed at nothing would be this chart charging every
+ * reader for a feature aimed at one mark.
+ *
+ * So a right-click further than this from anything drawn is not ours. It opens
+ * the menu, with copy, translate, back, and inspect in it, exactly as it does
+ * over the axis words and the legend, which carry no handler at all. Twelve view
+ * units is about three times a dot's radius and a little under half the gap
+ * between two adjacent hours, so a press that looks aimed lands and a press into
+ * open space does not.
+ */
+const PIN_REACH = 12;
 
 /**
  * How far one keyboard press moves the frame, as a fraction of what is on
@@ -247,6 +271,25 @@ export function DepartureChart({
    * keeping; the period the reader walked to is, and it lives in the panel.
    */
   const [cursor, setCursor] = useState<Reading | null>(null);
+  /*
+   * Whether that reading is held where it is, rather than following the hand.
+   *
+   * A flag beside the reading and not a second copy of it, which is the whole
+   * design: everything the reader can see of a reading — the hairlines, the two
+   * plates, the marker, the line under the plot and the sentence a screen reader
+   * hears — is already derived from `cursor` and from nothing else. So there is
+   * no question of which parts pin. Pinning is the reading ceasing to be
+   * overwritten, and the four things downstream of it stop moving because their
+   * one input does.
+   *
+   * Holding a *copy* of the reading instead was the alternative and it is worse
+   * in the way that matters: the copy would be a snapshot of a price, and a
+   * pinned flight whose fare changed under the next collection pass would go on
+   * showing the old one. Held as a flag, the pin names a flight and the flight
+   * keeps its own current price — see `resolve`, which re-finds it by key on
+   * every render.
+   */
+  const [pinned, setPinned] = useState(false);
 
   const help = useId();
   const status = useId();
@@ -479,6 +522,31 @@ export function DepartureChart({
     [cursor, shownPlaced, shownMarks],
   );
 
+  /*
+   * A pin cannot outlive the thing it was stuck through.
+   *
+   * `resolve` above is what decides that, and it already answers every question
+   * the pin could be asked about surviving. **A zoom or a pan it survives**, and
+   * more than survives: the reading is a flight, not a coordinate, so the
+   * crosshair is redrawn at wherever that flight now sits and follows the mark
+   * across the plot. **Being panned off the plot it does not** — the flight
+   * leaves `shownPlaced`, `resolve` returns nothing, and the pin goes with it,
+   * which is the rule this chart already keeps for everything a reader can point
+   * at or walk to: what is not on screen is not readable. **A new collection
+   * pass it survives**, because the key is the itinerary and not the price, so
+   * the pinned row updates to the new fare — unless the flight has left the
+   * board, in which case there is nothing left to be pinned to. **A period step
+   * or a granularity change it does not survive**, for the same reason: the
+   * marks under it are all different marks.
+   *
+   * Cleared while rendering rather than in an effect. An effect would paint one
+   * frame showing a pin with nothing under it — the trap this feature exists to
+   * avoid, in the one place it would be the code's own doing — and React
+   * discards a render that sets state during it, so nothing inconsistent is ever
+   * committed. It is the pattern the flight table's page reset already uses.
+   */
+  if (pinned && reading === null) setPinned(false);
+
   /**
    * The drag in progress, or nothing.
    *
@@ -545,6 +613,32 @@ export function DepartureChart({
     VIEW.width - VIEW.pad.right,
   );
 
+  /*
+   * Which mark a position in the plot is asking about, and that is a different
+   * snap on each side of the seam.
+   *
+   * A curve date is one price for a whole column, so anywhere in the column is
+   * that date — a two-dimensional snap would let a pointer at the top of an
+   * unpriced column jump to a flight in the next one. A board date stacks twenty
+   * itineraries in the same column, so there the nearest dot in two dimensions is
+   * the only snap that can reach them all.
+   *
+   * Its own function because two gestures now ask it: the pointer, which reads
+   * whatever is nearest and is never wrong to, and the right-click, which has to
+   * know how far away the answer was before it decides whether the press was
+   * aimed at anything at all.
+   */
+  const readingAt = (x: number, y: number): Reading | null => {
+    const index = dayIndexAt(x, period, days.length, view);
+    const day = days[index];
+    if (day !== undefined && day.source === 'curve') {
+      const mark = shownMarks.find((entry) => entry.day === day.day);
+      return mark ? { kind: 'curve', mark, index } : null;
+    }
+    const nearest = nearestPlaced(shownPlaced, x, y);
+    return nearest === null ? null : { kind: 'flight', placed: shownPlaced[nearest] };
+  };
+
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -567,30 +661,62 @@ export function DepartureChart({
       const travelled = event.clientX - held.clientX;
       if (!held.moved && Math.abs(travelled) < DRAG_SLOP) return;
       held.moved = true;
-      setCursor(null);
+      // A drag clears the crosshair — unless it is pinned, in which case it is
+      // being dragged *around*: the reader pinned a fare precisely so they could
+      // go and put another stretch of the frame beside it.
+      if (!pinned) setCursor(null);
       const fraction = ((travelled / box.width) * VIEW.width) / (TRACK || 1);
       write(clampViewport({ start: held.from - fraction * view.span, span: view.span }, frameSpan));
       return;
     }
 
-    /*
-     * Which date the pointer is over decides which question is being asked, and
-     * that is a different snap on each side of the seam. A curve date is one
-     * price for a whole column, so anywhere in the column is that date — a
-     * two-dimensional snap would let a pointer at the top of an unpriced column
-     * jump to a flight in the next one. A board date stacks twenty itineraries
-     * in the same column, so there the nearest dot in two dimensions is the
-     * only snap that can reach them all.
-     */
-    const index = dayIndexAt(x, period, days.length, view);
-    const day = days[index];
-    if (day !== undefined && day.source === 'curve') {
-      const mark = shownMarks.find((entry) => entry.day === day.day);
-      if (mark) setCursor({ kind: 'curve', mark, index });
+    // And the whole of what a pin does to the pointer: the hand goes on moving
+    // and stops being what the chart is reading.
+    if (pinned) return;
+
+    const found = readingAt(x, y);
+    if (found !== null) setCursor(found);
+  };
+
+  /**
+   * A right-click on a mark holds the reading there — the owner's *"fijar la
+   * vista en un punto con anticlick"*.
+   *
+   * **The browser's menu is taken only from the marks.** The handler is on this
+   * one `<svg>` and on nothing above it, so the rest of the page is untouched;
+   * and inside it `preventDefault` runs only once a mark has been found within
+   * `PIN_REACH` of the press. A right-click on the axis dates, on the source
+   * rail, in the empty top-left of the plot, on the legend or on the readout
+   * gets the menu it has always got. What a reader does give up is the menu over
+   * a twelve-unit disc around each drawn mark — and over a curve column, twelve
+   * units either side of its price line — which is where "search the web for"
+   * and "translate" have the least to offer and where the press now means
+   * something.
+   *
+   * **A second right-click on the same mark lets it go**, which is convenient
+   * and is deliberately not the way out this feature relies on: nothing tells a
+   * reader that a gesture is a toggle. The pin button above the plot is the
+   * discoverable one, Escape is the one every reader already knows, and this is
+   * the one that saves a trip to either.
+   */
+  const pinAt = (event: MouseEvent<SVGSVGElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+    const x = ((event.clientX - box.left) / box.width) * VIEW.width;
+    const y = ((event.clientY - box.top) / box.height) * VIEW.height;
+
+    const found = readingAt(x, y);
+    if (found === null) return;
+    const at = hairFor(found, period, span, view);
+    if (reachOf(found, at, x, y) > PIN_REACH) return;
+
+    event.preventDefault();
+    if (pinned && reading !== null && sameReading(found, reading)) {
+      setPinned(false);
       return;
     }
-    const nearest = nearestPlaced(shownPlaced, x, y);
-    if (nearest !== null) setCursor({ kind: 'flight', placed: shownPlaced[nearest] });
+    setCursor(found);
+    setPinned(true);
   };
 
   /*
@@ -634,6 +760,36 @@ export function DepartureChart({
    * date there is one number and nothing to walk through.
    */
   const walk = (event: KeyboardEvent<SVGSVGElement>) => {
+    /*
+     * The pin on the keyboard, first, because a chart that can only be pinned
+     * with a right-click is a chart half the readers of this page cannot pin at
+     * all — and this one has arrow keys, a zoom, a pan and a spoken readout
+     * precisely so that it does not have two classes of reader.
+     *
+     * `P` for pin, which is free here: every other letter this chart binds is a
+     * symbol. Enter and Space were the obvious alternatives and both were
+     * rejected — Space scrolls the page from a focused element that is not a
+     * control, and Enter is what a reader expects to *open* something, which is
+     * the promise this chart most needs not to make.
+     *
+     * Escape only lets go, and never pins. A key that toggles is a key a reader
+     * has to have been watching to use; Escape has one meaning everywhere, and
+     * it is this one. It is left to the browser when there is no pin, so it can
+     * still close whatever else the reader has open.
+     */
+    if (event.key === 'Escape') {
+      if (!pinned) return;
+      event.preventDefault();
+      setPinned(false);
+      return;
+    }
+    if (event.key === 'p' || event.key === 'P') {
+      event.preventDefault();
+      if (pinned) setPinned(false);
+      else if (reading !== null) setPinned(true);
+      return;
+    }
+
     /*
      * The zoom on the keyboard, before the walk, because `Shift` with an arrow
      * has to be read as a pan rather than as a walk with a modifier held.
@@ -772,6 +928,46 @@ export function DepartureChart({
             control's words have to: the accessible name, and the tooltip a
             pointer finds.
           */}
+          {/*
+            The pin, beside the way out of a zoom, because both are things done
+            to the frame rather than to the archive — and because this corner is
+            where this chart already keeps its own controls.
+
+            **It is the discoverable half of the gesture.** A right-click on a
+            mark pins it, and no reader has ever been told that by looking at a
+            chart; a control that is on screen, that is in the tab order, that
+            says "Pin the reading" when asked its name and that visibly stays
+            pressed is what makes the state findable and, more importantly,
+            leaveable. A pinned reading whose only exit was a second right-click
+            in the same place would be a trap, and the repository's rule against
+            text that reads as a fact and is not one has a sibling here: a state
+            with no visible way out is a state that reads as a bug.
+
+            Always rendered and disabled when there is nothing to pin, for the
+            same reason as the button beside it — a control that appeared when a
+            reader first pointed at a dot would reflow this corner at the exact
+            moment they were watching the plot.
+
+            `aria-pressed` rather than two labels. The name of this control does
+            not change when the state does; what changes is whether it is on,
+            which is a thing the platform already has a word for.
+          */}
+          <button
+            type="button"
+            className={`${styles.reset} ${styles.pin}`}
+            onClick={() => {
+              if (pinned) setPinned(false);
+              else if (reading !== null) setPinned(true);
+            }}
+            disabled={!pinned && reading === null}
+            aria-pressed={pinned}
+            aria-label="Pin the reading"
+            title={pinned ? 'Unpin the reading' : 'Pin the reading'}
+            data-testid="pin-reading"
+          >
+            <span aria-hidden="true">&#9679;</span>
+          </button>
+
           <button
             type="button"
             className={styles.reset}
@@ -807,8 +1003,10 @@ export function DepartureChart({
           description is for: what this chart can be asked to do.
         */
         aria-describedby={help}
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0"
+        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0 P Escape"
         data-zoomed={zoomed ? 'true' : undefined}
+        data-pinned={pinned ? 'true' : undefined}
+        onContextMenu={pinAt}
         onPointerMove={trackPointer}
         onPointerDown={startDrag}
         onPointerUp={endDrag}
@@ -821,10 +1019,20 @@ export function DepartureChart({
           hand that has left and wrong for a hand that is still working.
         */
         onPointerLeave={() => {
-          if (drag.current === null) setCursor(null);
+          if (drag.current === null && !pinned) setCursor(null);
         }}
         onKeyDown={walk}
-        onBlur={() => setCursor(null)}
+        /*
+          A pinned reading survives the pointer leaving and survives the chart
+          losing focus, and those two are not a detail — they are the feature.
+          The reader pins a fare in order to go and look at something else: the
+          flight table under the plot, the figures beside it, another tab. A pin
+          that let go the moment their attention did would hold the reading for
+          exactly as long as the crosshair already did.
+        */
+        onBlur={() => {
+          if (!pinned) setCursor(null);
+        }}
       >
         {/*
           No `<title>` child here, and that is the whole of the change.
@@ -1078,7 +1286,22 @@ export function DepartureChart({
         </g>
 
         {hair ? (
-          <g className={styles.crosshair} aria-hidden="true" data-testid="departure-crosshair">
+          /*
+            A reading that looked the same pinned and unpinned would be the
+            trap this whole feature is for: a reader who has forgotten they
+            pinned it would read a fare that is no longer under their pointer as
+            the one that is. So the crosshair says so in ink — the hairlines
+            stop being dashed and the marker takes the accent — in three places
+            at once with the chip under the plot and the pressed button above
+            it, because one of the three is a colour, one is a word, and one is
+            a control.
+          */
+          <g
+            className={pinned ? `${styles.crosshair} ${styles.held}` : styles.crosshair}
+            aria-hidden="true"
+            data-testid="departure-crosshair"
+            data-pinned={pinned ? 'true' : undefined}
+          >
             <line
               x1={hair.x}
               x2={hair.x}
@@ -1158,6 +1381,15 @@ export function DepartureChart({
         than broken.
       */}
       <p className={styles.readout} aria-hidden="true">
+        {/*
+          The word, in the row the reader is actually reading. It goes first
+          because it changes how everything after it should be read: what
+          follows is not what is under the pointer, it is what was under it when
+          they pinned it. The row is a wrapping flex line and the chip is one
+          more item on it, so it costs no height — the same way `cheapest of the
+          day` already appears and disappears at the other end of the line.
+        */}
+        {pinned ? <span className={styles.flag}>pinned</span> : null}
         {reading === null ? (
           <span className={styles.hint}>Point at the chart, or press an arrow key</span>
         ) : reading.kind === 'flight' ? (
@@ -1201,12 +1433,25 @@ export function DepartureChart({
       <p id={help} className={styles.srOnly}>
         {HELP}
       </p>
+      {/*
+        And the same word said out loud, on the end of the sentence rather than
+        in front of it: a reader who is hearing this region is hearing it
+        because the reading changed, and the reading is what they asked for. The
+        pin is the qualification on it, and a qualification belongs after the
+        thing it qualifies — "LA 191 … pinned", not "pinned, LA 191".
+
+        It is on this region and not on a fourth one because pinning does not
+        happen on its own: every press that pins also settles which reading is
+        pinned, so the two would interrupt each other for no gain.
+      */}
       <p id={status} className={styles.srOnly} role="status">
         {reading === null
           ? ''
-          : reading.kind === 'flight'
-            ? flightSentence(reading.placed.point, currency)
-            : curveSentence(reading.mark, currency)}
+          : `${
+              reading.kind === 'flight'
+                ? flightSentence(reading.placed.point, currency)
+                : curveSentence(reading.mark, currency)
+            }${pinned ? ' Pinned; press Escape to let it go.' : ''}`}
       </p>
 
       {/*
@@ -1358,6 +1603,26 @@ function resolve(
   }
   const found = marks.find((mark) => mark.day === cursor.mark.day);
   return found ? { kind: 'curve', mark: found, index: cursor.index } : null;
+}
+
+/**
+ * How far a press landed from the mark it resolved to, in view units.
+ *
+ * Measured against the mark as it is *drawn*, which is why it takes `hairFor`'s
+ * answer rather than recomputing anything: the crosshair is placed on the data
+ * and never on the pointer, so the place the reader was aiming at is exactly
+ * the place the hairlines would have gone.
+ *
+ * A curve date is measured vertically alone. It is one price spanning a whole
+ * column, so how far along the column a press landed says nothing about whether
+ * it was aimed at the price — the horizontal distance is an artefact of the date
+ * being a day wide, and counting it would make the far end of every column
+ * unpinnable. A date with no price at all is on the rail under the plot floor,
+ * and that is the height a press near it has to be near.
+ */
+function reachOf(reading: Reading, at: { x: number; y?: number }, x: number, y: number): number {
+  if (reading.kind === 'flight') return Math.hypot((at.y ?? y) - y, at.x - x);
+  return Math.abs((at.y ?? RAIL_Y) - y);
 }
 
 function sameReading(a: Reading, b: Reading): boolean {

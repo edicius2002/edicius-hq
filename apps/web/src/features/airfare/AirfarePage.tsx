@@ -519,10 +519,28 @@ export function AirfarePage() {
           (12.260), so the table's name is `Flights seen · March 2027` and can
           no longer be a single date over a month of rows.
         */}
+        {/*
+          And the leg, which the table needs for one thing only: the link from
+          each row out to that airline's own booking search. A row carries its
+          carrier and its departure stamp and nothing about the city pair, and
+          the origin's country is not in the archive at all — it is on the
+          airports table this page already holds for the map. Null until both
+          are known, which draws no links rather than links into a storefront
+          picked by guesswork.
+        */}
         <FlightTable
           snapshots={snapshots}
           granularity={granularity}
           departure={selected ? formatFlightMonth(selected.month) : null}
+          leg={
+            selected
+              ? {
+                  origin: selected.origin,
+                  destination: selected.destination,
+                  originCountry: airports.data?.get(selected.origin)?.country ?? null,
+                }
+              : null
+          }
         />
       </Panel>
     </section>

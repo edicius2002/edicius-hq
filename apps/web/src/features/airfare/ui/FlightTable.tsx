@@ -1,5 +1,10 @@
 import { useId, useMemo, useState } from 'react';
 
+import {
+  airlineSearchUrl,
+  searchLabel,
+  type FlightSearch,
+} from '@/features/airfare/lib/airlineSearch';
 import type { Granularity } from '@/features/airfare/lib/buckets';
 import {
   CHANGE_LABELS,
@@ -48,6 +53,19 @@ type FlightTableProps = {
    * handed snapshots, not a route. Null when nothing is selected.
    */
   departure: string | null;
+  /**
+   * Where these flights leave from and go to, and which country the origin is
+   * in — the three things a link out to an airline's own search needs and a
+   * row does not carry.
+   *
+   * A row knows its carrier, its flight number and its departure stamp. It does
+   * not know the city pair, because a `FlightTrack` is one itinerary followed
+   * through the archive rather than a route; and the country is not in the
+   * archive at all, it comes off the airports table the page already holds.
+   * Null while either is unknown, which draws no links rather than links into
+   * the wrong storefront.
+   */
+  leg: { origin: string; destination: string; originCountry: string | null } | null;
 };
 
 const COLUMNS: { column: SortColumn; label: string; numeric?: boolean }[] = [
@@ -163,7 +181,59 @@ function TableHeading({ departure }: { departure: string | null }) {
   );
 }
 
-function FlightRowCells({ row }: { row: FlightRow }) {
+/**
+ * The way out to the airline's own booking search, beside the flight it was
+ * found on — or nothing, where there is nowhere we know to send the reader.
+ *
+ * **It sits beside `LA 191` and it is not `LA 191`.** The flight number stays
+ * plain text and the link is its own small mark, because the two say different
+ * things: the number names this itinerary, and the link opens a list of every
+ * departure on that route that day, which the reader then matches by the clock.
+ * Making the number itself the anchor would have given the link the accessible
+ * name "LA 191" — a promise to open that flight, which no carrier here can
+ * keep. `searchLabel` writes the name instead, and it starts with a verb.
+ *
+ * **The scatter above deliberately has none of these.** Its ~899 marks are bare
+ * `<circle>` elements inside a chart that pans on a drag and tells a click from
+ * a drag by how far the pointer travelled; an anchor on each of them would have
+ * the browser's own link activation racing that disambiguation on every press.
+ *
+ * **No marker on the rows that have no link.** The owner asked for a dot in the
+ * circle back when links were expected to be rare; with a route-and-date search
+ * about 98% of the archive's offers get one, so a marker would be an almost-
+ * always-on decoration, and whether to draw it is a decision to take with that
+ * number in hand rather than on the old assumption.
+ *
+ * A new tab, because the reader is mid-comparison: this table is one of four
+ * panels about a route they are reading, and navigating the page away from it
+ * throws the sort, the filters and the page number they set. `noreferrer` with
+ * it as the standard guard on a cross-origin `_blank`.
+ */
+function AirlineSearch({
+  search,
+  airlineName,
+}: {
+  search: FlightSearch;
+  airlineName: string | null;
+}) {
+  const url = airlineSearchUrl(search);
+  if (url === null) return null;
+  const label = searchLabel(search, airlineName);
+  return (
+    <a
+      className={styles.search}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title={label}
+      aria-label={label}
+    >
+      <span aria-hidden="true">&#8599;</span>
+    </a>
+  );
+}
+
+function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['leg'] }) {
   const { track } = row;
   return (
     <>
@@ -184,7 +254,27 @@ function FlightRowCells({ row }: { row: FlightRow }) {
       */}
       <td>{formatStamp(track.departureAt)}</td>
       <td>{track.airlineName ?? track.airline}</td>
-      <td>{track.flightNumber ? `${track.airline} ${track.flightNumber}` : track.airline}</td>
+      <td>
+        {track.flightNumber ? `${track.airline} ${track.flightNumber}` : track.airline}
+        {leg === null ? null : (
+          <AirlineSearch
+            airlineName={track.airlineName}
+            search={{
+              airline: track.airline,
+              origin: leg.origin,
+              destination: leg.destination,
+              /*
+                The departure date off the wall clock by string, never through
+                `Date` — the same rule the cell to the left keeps. A 00:15
+                departure from Lima read in the reader's own offset would search
+                the day before.
+              */
+              date: track.departureAt.slice(0, 10),
+              originCountry: leg.originCountry,
+            }}
+          />
+        )}
+      </td>
       <td>{stopsLabel(track.transfers)}</td>
       <td>{formatDuration(track.durationMinutes)}</td>
       <td className={styles.numeric}>{formatMoney(track.price, track.currency)}</td>
@@ -221,7 +311,7 @@ function FlightRowCells({ row }: { row: FlightRow }) {
  * filtering the table moved the line, "cheapest" would mean something
  * different depending on which airline was selected.
  */
-export function FlightTable({ snapshots, granularity, departure }: FlightTableProps) {
+export function FlightTable({ snapshots, granularity, departure, leg }: FlightTableProps) {
   const priceLabelId = useId();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
@@ -465,7 +555,7 @@ export function FlightTable({ snapshots, granularity, departure }: FlightTablePr
         <tbody>
           {slice.rows.map((row) => (
             <tr key={row.track.key} className={row.track.present ? undefined : styles.gone}>
-              <FlightRowCells row={row} />
+              <FlightRowCells row={row} leg={leg} />
             </tr>
           ))}
         </tbody>

@@ -96,6 +96,28 @@
   outline-offset: 2px;
 }
 
+/*
+ * The pin, which wears `.reset` for its shape and this for its state.
+ *
+ * Two classes rather than one, and rather than a pressed rule hung on `.reset`
+ * itself: the shape above is a round glyph button the size of the step arrows,
+ * and both controls in this corner are one, but only one of them is a toggle.
+ * `.reset[aria-pressed='true']` would have worked — the reset button carries no
+ * `aria-pressed` to match — and it would have said that the way out of a zoom
+ * has a pressed state, which it does not.
+ *
+ * A pressed toggle has to look pressed from across the panel, because that is
+ * the whole of what it is for: it is one of the three things telling a reader
+ * that the reading under the plot is held rather than live. Filled rather than
+ * outlined, which is the difference a disc glyph can carry at 26px, and the same
+ * accent the pinned crosshair takes — one colour for one state.
+ */
+.pin[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+
 .steps {
   display: inline-flex;
   align-items: center;
@@ -323,6 +345,34 @@
   fill: var(--color-surface);
   stroke: var(--color-accent);
   stroke-width: 2.5;
+}
+
+/*
+ * The crosshair, held.
+ *
+ * Solid where it was dashed, and darker. A dashed hairline is the right weight
+ * for a line that is following a hand — it is provisional, and it says so — and
+ * the same line, held, is a statement about one fare, so it stops apologising.
+ *
+ * The dash is the channel and not the colour, because colour is already spoken
+ * for on this plot: the accent is the cheapest-of-date ring and the crosshair's
+ * own marker, and a third meaning on it would make all three unreadable. This
+ * is the same argument the carried-over curve prices settled by taking opacity
+ * rather than a dash, in the other direction.
+ */
+.held .hair {
+  stroke-dasharray: none;
+  opacity: 0.9;
+}
+
+.held .marker {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+}
+
+.held .spanMarker {
+  stroke: var(--color-accent);
+  stroke-width: 5;
 }
 
 /*

@@ -49,15 +49,37 @@ export type RouteGeometry = {
   /** Every watch this arc stands for, in watchlist order. Never empty. */
   watches: ArcWatch[];
   /**
-   * The watch the arc is currently expressing, by id.
+   * The watch the arc is **pointed at**, by id — its direction and its name.
    *
-   * One arc, several watches, but only ever **one** of them at a time on
-   * screen: the arc runs in this watch's direction, wears its colour and is
-   * named after it. Everything the reader can see about the arc therefore
-   * agrees about which watch it is talking about, which is the whole of
-   * decision `arc-wears-its-leading-watch`.
+   * Not its colour. An arc used to express one watch in everything it showed —
+   * `arc-wears-its-leading-watch` — and that is over: the owner asked for the
+   * dashes to run the way of the route they have selected and for the line's
+   * colour not to move when they select it, so the two halves are now decided
+   * separately and can name different watches. `wearing` is the other half.
+   *
+   * **The open watch leads its own arc** — `the-open-watch-leads-its-arc`. On
+   * the arc the reader has open the answer is the watch they opened, whatever
+   * has collected since; every other arc is still pointed by
+   * `flow-follows-the-last-collected` and then by watchlist order.
    */
   leading: string;
+  /**
+   * The watch whose colour the arc is drawn in, by id.
+   *
+   * The **first** of its watches in watchlist order, and nothing moves it —
+   * `colour-holds-the-first-watch`. Not the open one, because the owner was
+   * explicit that clicking between the two legs of a pair must not change the
+   * line's colour; not the last-collected one, because that moves on its own
+   * while the reader is looking elsewhere. Watchlist order is the one anchor
+   * the reader owns outright: it changes when they drag a row and at no other
+   * time.
+   *
+   * What it costs is that the swatch beside the watchlist is no longer a
+   * complete index into the map. On a pair watched both ways, one of the two
+   * rows' colours is drawn and the other's is not — the arc is one line and
+   * cannot carry two.
+   */
+  wearing: string;
   /** The leading watch's origin — the end the arc runs *from*. */
   origin: string;
   destination: string;
@@ -117,18 +139,36 @@ export function legKey(origin: string, destination: string): string {
  * were resolved by the outbound leg's first collection, so its arc is drawable
  * the instant the watch is added, before anything has been fetched for it.
  *
- * `flowing` says which way each pair's arc runs: a pair key from `pairKey`
- * against a leg key from `legKey`. The leading watch is the first one in
- * watchlist order that flies that way; where the pair is not in the map, or is
- * pointed down a leg nothing watches any more — the case where the reader has
- * just removed one of two watches — the first watch in watchlist order leads.
- * That default is deterministic across reloads and is an order the reader owns,
- * because dragging a row changes it.
+ * Which watch an arc is **pointed at** is decided in three steps, and the first
+ * one that answers wins. Which watch it is **coloured for** is not decided here
+ * at all in the sense of being chosen: it is `watches[0]`, the first in
+ * watchlist order, whatever the other three steps say —
+ * `colour-holds-the-first-watch`.
+ *
+ * 1. **`open`, if it is one of this arc's watches** —
+ *    `the-open-watch-leads-its-arc`. The owner asked for the animation to run
+ *    the way of the route they have selected, and direction is a property of
+ *    the geometry here, so the selection has to reach this function or it
+ *    cannot reach the dashes. It is matched by watch id rather than by leg, so
+ *    the arc expresses the watch the reader opened and not merely a watch that
+ *    happens to fly the same way — which is what keeps the colour and the name
+ *    on the row they clicked when a pair is watched twice in one direction.
+ * 2. **`flowing`** — which way each pair's arc runs by what collected last: a
+ *    pair key from `pairKey` against a leg key from `legKey`. The leading watch
+ *    is the first one in watchlist order that flies that way. A leg key rather
+ *    than a route id on purpose: a heading is a fact about a leg, shared by
+ *    every month watched along it.
+ * 3. **Watchlist order** — where the pair is in neither, or is pointed down a
+ *    leg nothing watches any more (the case where the reader has just removed
+ *    one of two watches), the first watch in watchlist order leads. That
+ *    default is deterministic across reloads and is an order the reader owns,
+ *    because dragging a row changes it.
  */
 export function routeGeometries(
   routes: { origin: string; destination: string; id: string }[],
   airports: Map<string, Airport>,
   flowing: ReadonlyMap<string, string> = new Map(),
+  open: string | null = null,
 ): RouteGeometry[] {
   // Insertion order is watchlist order, and a `Map` keeps it — so a pair sits
   // where its *earliest* watch sits, and an arc does not jump down the map
@@ -151,7 +191,11 @@ export function routeGeometries(
   for (const [id, watches] of byPair) {
     const heading = flowing.get(id);
     const leading =
-      watches.find((watch) => legKey(watch.origin, watch.destination) === heading) ?? watches[0];
+      // The open watch first, and only on the arc it belongs to: an arc the
+      // reader has not opened is left to say what it has always said.
+      watches.find((watch) => watch.id === open) ??
+      watches.find((watch) => legKey(watch.origin, watch.destination) === heading) ??
+      watches[0];
     const from = airports.get(leading.origin);
     const to = airports.get(leading.destination);
     // Both were present when the watch was gathered; this is what says so to
@@ -161,6 +205,9 @@ export function routeGeometries(
       id,
       watches,
       leading: leading.id,
+      // Watchlist order, and only watchlist order. Neither the selection nor a
+      // finished collection reaches this line.
+      wearing: watches[0].id,
       origin: leading.origin,
       destination: leading.destination,
       from: airportPoint(from),
@@ -189,6 +236,23 @@ export function routeGeometries(
  * On the ordinary arc, which stands for a single watch, this is a press that
  * selects that watch and a second press that selects it again. The cycling
  * only appears where there is something to cycle through.
+ *
+ * **`the-open-watch-leads-its-arc` does not disturb it**, and that is worth
+ * saying because the two rules meet exactly here. On the arc that holds the
+ * open watch, `leading` is now that watch — so the first branch is the one
+ * that never fires and every press takes the second, which walks the list and
+ * wraps. On every other arc `open` is not among its watches at all, `leading`
+ * is whatever the flow and the watchlist made it, and the first branch answers
+ * as before. Either way each press moves on by one and none of an arc's
+ * watches becomes unreachable.
+ *
+ * `colour-holds-the-first-watch` does not disturb it either, and that is the
+ * colder of the two checks: colour has no part in this function. What it
+ * changes is what a first press on an unopened both-ways arc *means* — it
+ * opens the watch the line is pointing at, which is no longer necessarily the
+ * watch the line is coloured for. That is the price of the split rather than a
+ * fault in the cycle: the press still lands on a watch this arc stands for,
+ * and the press after it reaches the other one.
  */
 export function nextWatch(arc: RouteGeometry, openId: string | null): string {
   const at = arc.watches.findIndex((watch) => watch.id === openId);

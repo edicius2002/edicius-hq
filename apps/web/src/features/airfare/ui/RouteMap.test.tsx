@@ -111,6 +111,9 @@ function arcFor(
     id: pairKey(origin, destination),
     watches: [{ id: watchId, origin, destination }],
     leading: watchId,
+    // One watch, so the arc points at it and is coloured for it — the two
+    // fields part company only on a pair watched more than once.
+    wearing: watchId,
     origin,
     destination,
     from,
@@ -145,6 +148,9 @@ const LIM_SCL_BOTH: RouteGeometry = {
     { id: 'SCL|LIM|2027-03', origin: 'SCL', destination: 'LIM' },
   ],
   leading: 'SCL|LIM|2027-03',
+  // The outbound leg, because it is first in the watchlist — and it stays that
+  // whichever way the arc is pointed. `colour-holds-the-first-watch`.
+  wearing: 'LIM|SCL|2027-03',
   origin: 'SCL',
   destination: 'LIM',
   from: SCL,
@@ -152,6 +158,52 @@ const LIM_SCL_BOTH: RouteGeometry = {
   fromCity: 'Santiago',
   toCity: 'Lima',
   bothWays: true,
+};
+
+/**
+ * The same pair, pointed the other way — which is what the page hands down once
+ * the outbound leg is the open one.
+ *
+ * `the-open-watch-leads-its-arc` is decided in `lib/geo`, so from this
+ * component's side it arrives as nothing more than a different `leading` on the
+ * same two watches — and, deliberately, the *same* `wearing`. That is the point
+ * of the split: the rules are tested where they are decided, and what is
+ * checked here is which field each visible thing reads.
+ */
+const LIM_SCL_OUTBOUND: RouteGeometry = {
+  ...LIM_SCL_BOTH,
+  leading: 'LIM|SCL|2027-03',
+  origin: 'LIM',
+  destination: 'SCL',
+  from: LIMA,
+  to: SCL,
+  fromCity: 'Lima',
+  toCity: 'Santiago',
+};
+
+/**
+ * One pair watched twice in the same direction — March and June.
+ *
+ * The other way `leading` and `wearing` come apart, and the only one that keeps
+ * an arrival dot: nothing here flies the other way, so the far end is still a
+ * coloured marker rather than a second departure. June is open and points the
+ * arc; March is first in the watchlist and colours it.
+ */
+const LIM_MAD_TWICE: RouteGeometry = {
+  id: pairKey('LIM', 'MAD'),
+  watches: [
+    { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+    { id: 'LIM|MAD|2027-06', origin: 'LIM', destination: 'MAD' },
+  ],
+  leading: 'LIM|MAD|2027-06',
+  wearing: 'LIM|MAD|2027-03',
+  origin: 'LIM',
+  destination: 'MAD',
+  from: LIMA,
+  to: MADRID,
+  fromCity: 'Lima',
+  toCity: 'Madrid',
+  bothWays: false,
 };
 
 /**
@@ -463,6 +515,111 @@ describe('RouteMap', () => {
       expect(container.querySelectorAll('[class*="active"]').length).toBeGreaterThan(0);
       unmount();
     }
+  });
+
+  it('turns the arc round without changing the colour it is drawn in', () => {
+    /*
+     * The owner, having seen the direction rule working: "no debe cambiar el
+     * color". `colour-holds-the-first-watch` against
+     * `the-open-watch-leads-its-arc` — the two now name different watches on a
+     * both-ways pair, and this is the one place a reader can see both at once.
+     * The line reverses when the other leg is opened; the stroke does not move.
+     */
+    const colours = new Map([
+      ['LIM|SCL|2027-03', '#d6a65d'],
+      ['SCL|LIM|2027-03', '#70b9c9'],
+    ]);
+
+    const outbound = renderMap({
+      routes: [LIM_SCL_OUTBOUND],
+      selectedId: 'LIM|SCL|2027-03',
+      colours,
+    });
+    const named = outbound.container.querySelector(
+      '[aria-label="Lima to Santiago, watched both ways"]',
+    );
+    expect(named).toBeInTheDocument();
+    // The arc leaves the airport it is named after: the first point of the
+    // drawn path sits on the dot labelled LIM.
+    const start = outbound.container
+      .querySelector('path[class*="arc"]')!
+      .getAttribute('d')!
+      .slice(1)
+      .split('L')[0]
+      .split(',')
+      .map(Number);
+    const at = [...outbound.container.querySelectorAll('circle')].find(
+      (dot) => Math.abs(Number(dot.getAttribute('cx')) - start[0]) < 0.5,
+    );
+    expect(at?.closest('g')?.querySelector('text')?.textContent).toBe('LIM');
+    expect((named as SVGElement).style.stroke).toBe('#d6a65d');
+    outbound.unmount();
+
+    // The other leg opened. The same line now runs the other way and says so,
+    // and it is the same colour it was before the click.
+    const inbound = renderMap({
+      routes: [LIM_SCL_BOTH],
+      selectedId: 'SCL|LIM|2027-03',
+      colours,
+    });
+    const back = inbound.container.querySelector(
+      '[aria-label="Santiago to Lima, watched both ways"]',
+    );
+    expect(back).toBeInTheDocument();
+    expect((back as SVGElement).style.stroke).toBe('#d6a65d');
+    // And the second row's colour is on no line at all, which is what one arc
+    // standing for two watches costs.
+    const strokes = [...inbound.container.querySelectorAll('path[class*="arc"]')].map(
+      (arc) => (arc as SVGElement).style.stroke,
+    );
+    expect(strokes).not.toContain('#70b9c9');
+  });
+
+  it('colours the arrival dot for the same watch the line is drawn for', () => {
+    /*
+     * The arrival marker is the map's other coloured thing, and it had the
+     * same fault to inherit: a 4px dot that repainted when the reader opened
+     * the other month is the stroke's fault repeated small. Two months on one
+     * pair is the case that shows it — the arc keeps an arrival dot because
+     * neither watch flies the other way, and June points the line while March
+     * colours it.
+     */
+    const { container } = renderMap({
+      routes: [LIM_MAD_TWICE],
+      selectedId: 'LIM|MAD|2027-06',
+      colours: new Map([
+        ['LIM|MAD|2027-03', '#d6a65d'],
+        ['LIM|MAD|2027-06', '#70b9c9'],
+      ]),
+    });
+    const arrival = container.querySelector('circle[class*="node"]') as SVGElement;
+    expect(arrival).toBeInTheDocument();
+    expect(arrival.style.fill).toBe('#d6a65d');
+    const stroke = (container.querySelector('path[class*="arc"]') as SVGElement).style.stroke;
+    expect(stroke).toBe('#d6a65d');
+  });
+
+  it('cycles to the other watch whichever of the two is leading the arc', () => {
+    /*
+     * `arc-click-cycles-its-watches` under `the-open-watch-leads-its-arc`. With
+     * the open watch leading, the branch that opens the leading one never
+     * fires on this arc — so what has to be checked is that the press still
+     * moves on by one from *either* end rather than answering the watch that is
+     * already open.
+     */
+    const outbound = renderMap({
+      routes: [LIM_SCL_OUTBOUND],
+      selectedId: 'LIM|SCL|2027-03',
+    });
+    expect(outbound.container.querySelector('[class*="hit"]')?.getAttribute('data-route')).toBe(
+      'SCL|LIM|2027-03',
+    );
+    outbound.unmount();
+
+    const inbound = renderMap({ routes: [LIM_SCL_BOTH], selectedId: 'SCL|LIM|2027-03' });
+    expect(inbound.container.querySelector('[class*="hit"]')?.getAttribute('data-route')).toBe(
+      'LIM|SCL|2027-03',
+    );
   });
 
   it('offers the other watch on a shared arc once the first one is open', () => {
@@ -1188,10 +1345,10 @@ describe('RouteMap', () => {
     // routes a reader can follow.
     const { container } = renderMap({
       // Keyed by the watch, not by the arc — an arc has no colour of its own
-      // and wears its leading watch's.
+      // and wears the colour of its first watch in watchlist order.
       colours: new Map([
-        [LIM_CUZ.leading, '#d6a65d'],
-        [LIM_MAD.leading, '#70b9c9'],
+        [LIM_CUZ.wearing, '#d6a65d'],
+        [LIM_MAD.wearing, '#70b9c9'],
       ]),
     });
     const strokes = [...container.querySelectorAll('[class*="arc"]')].map(

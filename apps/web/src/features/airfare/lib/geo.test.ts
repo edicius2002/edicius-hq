@@ -214,6 +214,142 @@ describe('routeGeometries', () => {
     expect(arc.origin).toBe('LIM');
     expect(arc.bothWays).toBe(false);
   });
+
+  it('runs the arc the way the open watch flies, over the last collection', () => {
+    /*
+     * `the-open-watch-leads-its-arc`, and the owner's own words: the direction
+     * of the animation must follow the origin and destination of the selected
+     * route. The return leg is the one that collected, so without this the arc
+     * would leave Madrid while the reader had the outbound route open, its
+     * chart, its month and its "Lima to Madrid" heading all on screen below.
+     */
+    const flowing = new Map([[pairKey('LIM', 'MAD'), legKey('MAD', 'LIM')]]);
+    const [arc] = routeGeometries(
+      [
+        { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+        { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+      ],
+      airports,
+      flowing,
+      'LIM|MAD|2027-03',
+    );
+    expect(arc.leading).toBe('LIM|MAD|2027-03');
+    expect(arc.origin).toBe('LIM');
+    expect(arc.from).toEqual(airportPoint(LIMA));
+    expect(arc.fromCity).toBe('Lima');
+    // The other watch has not gone anywhere; it is simply not the one being
+    // pointed at.
+    expect(arc.bothWays).toBe(true);
+  });
+
+  it('turns the arc round without moving its colour', () => {
+    /*
+     * `colour-holds-the-first-watch`, in the owner's words: "no debe cambiar
+     * el color". The direction follows the selection and the colour does not
+     * follow it anywhere — so the same two watches, selected either way, give
+     * two directions and one `wearing`.
+     */
+    const watches = [
+      { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+      { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+    ];
+    const [outbound] = routeGeometries(watches, airports, new Map(), 'LIM|MAD|2027-03');
+    const [inbound] = routeGeometries(watches, airports, new Map(), 'MAD|LIM|2027-03');
+
+    expect(outbound.origin).toBe('LIM');
+    expect(inbound.origin).toBe('MAD');
+    expect(outbound.wearing).toBe('LIM|MAD|2027-03');
+    expect(inbound.wearing).toBe('LIM|MAD|2027-03');
+  });
+
+  it('holds the colour still when a collection lands, too', () => {
+    /*
+     * The other half of the rule, and the half nobody clicked for: a pass
+     * finishing on the return leg turns an unopened arc round, and a colour
+     * that went with it would repaint a line while the reader was reading
+     * something else entirely. Watchlist order is the anchor precisely because
+     * it moves only when the reader drags a row.
+     */
+    const flowing = new Map([[pairKey('LIM', 'MAD'), legKey('MAD', 'LIM')]]);
+    const [arc] = routeGeometries(
+      [
+        { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+        { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+      ],
+      airports,
+      flowing,
+    );
+    expect(arc.leading).toBe('MAD|LIM|2027-03');
+    expect(arc.wearing).toBe('LIM|MAD|2027-03');
+  });
+
+  it('gives the ordinary arc the one colour it has', () => {
+    // A single watch is pointed at and coloured for itself, which is nearly
+    // every arc on the page: the split shows up only where a pair is watched
+    // more than once.
+    const [arc] = routeGeometries(
+      [{ id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' }],
+      airports,
+      new Map(),
+      'LIM|MAD|2027-03',
+    );
+    expect(arc.wearing).toBe(arc.leading);
+  });
+
+  it('leaves every arc the open watch is not on to the last collection', () => {
+    /*
+     * The selection points one line, not the map. An open route on one pair
+     * saying anything at all about another pair's direction would be a rule
+     * about a route reaching a line that route is not drawn on.
+     */
+    const flowing = new Map([[pairKey('LIM', 'MAD'), legKey('MAD', 'LIM')]]);
+    const [cusco, madrid] = routeGeometries(
+      [
+        { id: 'LIM|CUZ|2027-03', origin: 'LIM', destination: 'CUZ' },
+        { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+        { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+      ],
+      airports,
+      flowing,
+      'LIM|CUZ|2027-03',
+    );
+    expect(cusco.leading).toBe('LIM|CUZ|2027-03');
+    expect(madrid.leading).toBe('MAD|LIM|2027-03');
+    expect(madrid.origin).toBe('MAD');
+  });
+
+  it('names the open watch itself, not merely a watch flying its way', () => {
+    /*
+     * Two months on one pair are one arc and one direction, so a heading could
+     * not tell them apart — matching by leg would hand the arc June's colour
+     * and June's name while the reader had March open. The open watch is
+     * matched by id for exactly this case.
+     */
+    const [arc] = routeGeometries(
+      [
+        { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+        { id: 'LIM|MAD|2027-06', origin: 'LIM', destination: 'MAD' },
+      ],
+      airports,
+      new Map(),
+      'LIM|MAD|2027-06',
+    );
+    expect(arc.leading).toBe('LIM|MAD|2027-06');
+  });
+
+  it('ignores an open watch that has no arc here at all', () => {
+    // Nothing selected, or a route whose airports have not arrived: the arcs
+    // fall back to what collected last, which is the state a fresh page is in.
+    const flowing = new Map([[pairKey('LIM', 'MAD'), legKey('MAD', 'LIM')]]);
+    const routes = [
+      { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+      { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+    ];
+    for (const open of [null, 'LIM|XXX|2027-03']) {
+      const [arc] = routeGeometries(routes, airports, flowing, open);
+      expect(arc.leading).toBe('MAD|LIM|2027-03');
+    }
+  });
 });
 
 describe('nextWatch', () => {
@@ -243,6 +379,53 @@ describe('nextWatch', () => {
 
   it('wraps, so a shared arc is a loop rather than a dead end', () => {
     expect(nextWatch(both, 'MAD|LIM|2027-03')).toBe('LIM|MAD|2027-03');
+  });
+
+  it('still reaches every watch once the open one leads the arc', () => {
+    /*
+     * `arc-click-cycles-its-watches` against `the-open-watch-leads-its-arc`,
+     * which is where the two rules meet: on the open arc the leading watch is
+     * now the open watch, so the "open the leading one" branch is the one that
+     * never fires and every press walks the list. Built through
+     * `routeGeometries` with the selection handed in rather than by hand,
+     * because the pairing of `leading` and `openId` is the thing being checked
+     * and a fixture could assert any pairing it liked.
+     */
+    const watches = [
+      { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+      { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+    ];
+    const [outbound] = routeGeometries(watches, airports, new Map(), 'LIM|MAD|2027-03');
+    expect(outbound.leading).toBe('LIM|MAD|2027-03');
+    expect(nextWatch(outbound, 'LIM|MAD|2027-03')).toBe('MAD|LIM|2027-03');
+
+    // And the press after that, on the arc as it is then drawn: back round.
+    const [inbound] = routeGeometries(watches, airports, new Map(), 'MAD|LIM|2027-03');
+    expect(inbound.leading).toBe('MAD|LIM|2027-03');
+    expect(nextWatch(inbound, 'MAD|LIM|2027-03')).toBe('LIM|MAD|2027-03');
+  });
+
+  it('opens the watch the line points at, which need not be the one it wears', () => {
+    /*
+     * `arc-click-cycles-its-watches` re-checked under
+     * `colour-holds-the-first-watch`, because the split gives an unopened arc
+     * two watches to be about: the return leg collected, so the line runs
+     * Madrid to Lima while carrying the outbound leg's colour. A press opens
+     * what the line is pointing at, and the press after it reaches the other —
+     * so both are still reachable, which is all this rule ever promised.
+     */
+    const flowing = new Map([[pairKey('LIM', 'MAD'), legKey('MAD', 'LIM')]]);
+    const [arc] = routeGeometries(
+      [
+        { id: 'LIM|MAD|2027-03', origin: 'LIM', destination: 'MAD' },
+        { id: 'MAD|LIM|2027-03', origin: 'MAD', destination: 'LIM' },
+      ],
+      airports,
+      flowing,
+    );
+    expect(arc.wearing).toBe('LIM|MAD|2027-03');
+    expect(nextWatch(arc, null)).toBe('MAD|LIM|2027-03');
+    expect(nextWatch(arc, 'MAD|LIM|2027-03')).toBe('LIM|MAD|2027-03');
   });
 
   it('is a plain selection on the ordinary arc, which has one watch', () => {

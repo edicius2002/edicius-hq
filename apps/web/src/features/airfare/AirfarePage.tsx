@@ -71,6 +71,12 @@ export function AirfarePage() {
    * collection has finished this session it runs the way of whichever watch
    * sits higher in the watchlist, which is an order the reader owns.
    *
+   * **This is the second thing that points an arc, not the first.** The open
+   * route points its own arc — `the-open-watch-leads-its-arc` — so what is
+   * recorded here decides every arc the reader does not have open, which is
+   * every arc but one. The two never contend for the same line: the open arc
+   * takes the selection, the rest take this.
+   *
    * **This is the live signal, and it costs nothing.** The page cannot ask the
    * archive when each leg was last collected: `/api/fares/history` answers one
    * city pair at a time and is fetched for the open route alone, so learning
@@ -176,6 +182,21 @@ export function AirfarePage() {
   const insights = latest?.insights ?? null;
   const health = history.data?.health ?? null;
 
+  /*
+   * The arcs, pointed by the open route first and by the last collection after.
+   *
+   * `selectedKey` rather than `selectedId`: the open route is the one this page
+   * is actually showing — the one the detail panel describes, the one the
+   * watchlist marks and the one the map thickens — and with `selectedId` at
+   * null that is the first row rather than nothing. Handing the raw state down
+   * would leave the arc pointed one way and every other thing on the page
+   * talking about the other.
+   *
+   * The selection reaches `lib/geo` rather than `RouteMap` because direction is
+   * a property of the geometry here: the keyframes always travel towards the
+   * path's end, so the only way to turn an arc round is to swap its `from` and
+   * its `to`, and that is done where the arc is built.
+   */
   const geometries = useMemo(
     () =>
       routeGeometries(
@@ -186,8 +207,9 @@ export function AirfarePage() {
         })),
         airports.data ?? EMPTY_AIRPORTS,
         flow.legs,
+        selectedKey,
       ),
-    [watchlist.routes, airports.data, flow.legs],
+    [watchlist.routes, airports.data, flow.legs, selectedKey],
   );
 
   /*
@@ -214,6 +236,12 @@ export function AirfarePage() {
    * Built from the watchlist rather than from the drawn geometries, so a route
    * whose coordinates have not arrived yet still holds its slot and the arcs
    * do not renumber when one of them appears.
+   *
+   * Still one colour per **watch**, and an arc still draws only one of them —
+   * its first in watchlist order, `colour-holds-the-first-watch`. So on a pair
+   * watched both ways the second row's colour is in this map and on no line,
+   * which is what a single arc standing for two watches costs. The row still
+   * carries it, which is where a watch is a thing you can count.
    */
   const colours = useMemo(() => {
     const map = new Map<string, string>();
@@ -225,10 +253,12 @@ export function AirfarePage() {
    * The open route's two cities, read straight from the airports.
    *
    * This used to come off the drawn geometry, and it cannot any more: an arc
-   * names the leg it is currently flowing along, which for a pair watched both
-   * ways may be the *other* watch. The detail panel underneath says "Santiago
-   * to Lima" about the route the reader has open, so it has to ask about that
-   * route rather than about the line drawn for its pair.
+   * names the leg it is currently flowing along, and only the arc holding the
+   * open watch is guaranteed to be flowing along that one. The detail panel
+   * underneath says "Santiago to Lima" about the route the reader has open, so
+   * it has to ask about that route rather than about the line drawn for its
+   * pair — a question that stays answerable while the watchlist is loading and
+   * there is no geometry at all.
    *
    * Asking the airport table directly is also the simpler question. The map's
    * geometry was only ever a place these two strings happened to be sitting.

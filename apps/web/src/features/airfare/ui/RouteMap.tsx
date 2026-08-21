@@ -1621,20 +1621,28 @@ export function RouteMap({
 
           {arcs.map(({ route, line }) => {
             /*
-             * The leading watch's colour, not the arc's own — an arc has no
-             * colour of its own to have. `arc-wears-its-leading-watch`: the
-             * line runs the leading watch's way, is named after it and is
-             * stroked in the colour of its row in the list beside the map, so
-             * a reader following a swatch out onto the globe finds one line
-             * and it is the right one.
+             * `wearing`, not `leading` — the first watch in watchlist order,
+             * and the one thing about this arc that nothing moves.
+             * `colour-holds-the-first-watch`: the owner asked for the dashes
+             * to run the way of the route they have selected and said in the
+             * same breath that the colour must not change, so an arc now
+             * points at one watch and is coloured for another, which
+             * `arc-wears-its-leading-watch` was written to forbid and which
+             * supersedes it.
              *
-             * Blending the two watches' colours was rejected: the blend is a
-             * colour no row carries, so the swatch stops being an index into
-             * the map. So was colouring by whichever watch is open, which
-             * would have the arc changing colour when the reader clicks
-             * something else entirely.
+             * Colouring by `leading` is what that leaves behind, and it is
+             * what the owner rejected: the line would change colour when they
+             * clicked between the two legs of a pair, and again on its own
+             * whenever a collection finished on an arc they had not opened.
+             * Blending the two watches' colours stays rejected on its original
+             * ground — the blend is a colour no row carries, so the swatch
+             * stops being an index into the map at all rather than only for
+             * one row of a both-ways pair.
+             *
+             * Nothing here decides any of it. The geometry arrives already
+             * pointed and already assigned, and this file reads the field.
              */
-            const stroke = colours.get(route.leading) ?? DEFAULT_ARC;
+            const stroke = colours.get(route.wearing) ?? DEFAULT_ARC;
             // Open if *any* of this arc's watches is the open one. One line
             // stands for both, so it thickens for either — the alternative is
             // an arc that is plainly the reader's route and does not look it.
@@ -1710,11 +1718,32 @@ export function RouteMap({
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        // The name states the direction the line is running
-                        // in, so it moves when the flow does — and says so
-                        // when the same line is also watched the other way,
-                        // which is the one thing a reader who cannot see the
-                        // dashes move has no other way to learn.
+                        /*
+                         * The name follows the **direction**, not the colour,
+                         * and that is a choice rather than a leftover.
+                         *
+                         * A name is a description of what is on screen, and
+                         * what is on screen is a line drawn from one airport
+                         * to another. "Lima to Santiago" over a line running
+                         * Santiago to Lima would be false about the only thing
+                         * this element is — and a reader who cannot see the
+                         * dashes move has no other way to learn which way it
+                         * runs, which is precisely why the direction is worth
+                         * saying out loud.
+                         *
+                         * What it costs, now that `colour-holds-the-first-
+                         * watch` has pinned the colour elsewhere: on a
+                         * both-ways pair the name and the swatch can point at
+                         * different rows of the watchlist, so the two readings
+                         * of the same arc do not meet. `, watched both ways`
+                         * is what keeps that honest rather than merely
+                         * inconsistent — it says the line stands for two
+                         * watches, so neither reading is claiming to be the
+                         * whole of it. The name also changes when the reader
+                         * selects the other leg, which the colour no longer
+                         * does; a name pinned to `wearing` would have been
+                         * steady and wrong.
+                         */
                         aria-label={
                           index === 0
                             ? `${route.fromCity ?? route.origin} to ${route.toCity ?? route.destination}${
@@ -1766,8 +1795,11 @@ export function RouteMap({
                     // A departure stays neutral: every route on this page
                     // leaves from one, so colouring it would claim it belongs
                     // to a single arc.
+                    // `wearing` again, and for the same reason the line uses
+                    // it: an arrival dot that changed colour when the reader
+                    // clicked would be the stroke's fault repeated at 4px.
                     style={
-                      departure ? undefined : { fill: colours.get(route.leading) ?? DEFAULT_ARC }
+                      departure ? undefined : { fill: colours.get(route.wearing) ?? DEFAULT_ARC }
                     }
                     className={departure ? styles.home : styles.node}
                   />

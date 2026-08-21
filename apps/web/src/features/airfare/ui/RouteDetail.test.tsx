@@ -155,6 +155,32 @@ describe('RouteDetail', () => {
     expect(within(board as HTMLElement).queryByText('Last look')).not.toBeInTheDocument();
   });
 
+  it('writes the carrier and its departure out in full, however long the name', () => {
+    /*
+     * `Aerolineas Argentinas · 14:35` used to be drawn on top of the figure
+     * beside it — see `a-figure-takes-what-it-holds`. The repair is a value
+     * that folds, and the thing a repair like that is tempted into is cutting
+     * the name short instead, which tells the reader less than it looks like
+     * it does.
+     *
+     * jsdom lays nothing out, so this cannot see an overlap; what it can see
+     * is that the whole string is in the document and that nothing has put an
+     * ellipsis in it. The overlap itself was measured in a browser, over
+     * thirteen viewport widths and eight strip widths, and the arithmetic is
+     * in the stylesheet.
+     */
+    const longName = 'Aerolineas Argentinas Sociedad Anonima';
+    const offers = [{ ...SNAPSHOT.offers[0], airlineName: longName }];
+    renderDetail({ latest: { ...SNAPSHOT, offers } });
+
+    const value = screen.getByText('Cheapest on').parentElement!.querySelector('dd')!;
+    expect(value.textContent).toBe(`${longName} · 08:55`);
+    expect(value.textContent).not.toContain('…');
+    // The separator and the clock are one unbreakable run, so a fold can never
+    // leave the dot at the end of a line with its time on the next.
+    expect(value.querySelector('span')?.textContent).toBe('· 08:55');
+  });
+
   it('counts failures only when there have been some', () => {
     renderDetail();
     expect(screen.queryByText('Failed')).not.toBeInTheDocument();

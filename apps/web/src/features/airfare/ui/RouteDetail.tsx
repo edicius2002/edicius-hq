@@ -97,8 +97,8 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
           Which of the month's departures the figures below belong to, written
           `dd/mm/yyyy` like every other real date here — the month in the
           heading is spelled out precisely so these two can never be read as
-          the same kind of thing. It is a line rather than a fifth figure
-          because the figures box is measured to four across.
+          the same kind of thing. It is a line here rather than a fifth figure
+          because the box beside it holds money and a date is not money.
 
           Unconditional again: it used to be hidden under a focus, where the
           heading already named the only departure there was.
@@ -114,11 +114,14 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
       <dl className={styles.figures}>
         <div>
           {/*
-            Still four figures in this box, and deliberately: the widths here
-            were measured against a 736px row at 8rem a column, and a fifth
-            would put one of them on a line of its own. Which day the price
-            belongs to goes in the header instead, where there is a column of
-            room and no arithmetic.
+            Four figures in this box, and all four are money. The reason used
+            to be a width — the row was measured at 8rem a column and a fifth
+            would have fallen onto a line of its own — and since
+            `a-figure-takes-what-it-holds` it is not, because a figure now
+            takes the room it needs and a fifth would simply fit. What is left
+            is the better reason: this box answers "what does it cost", and
+            which day the price belongs to is not a price. It goes in the
+            header, with the other facts about the route.
           */}
           <dt>Cheapest now</dt>
           <dd className={styles.big}>
@@ -153,8 +156,16 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
           </div>
           <div>
             <dt>Cheapest on</dt>
+            {/*
+              The whole name, never an abbreviation of it: `Aerolineas
+              Argentinas · 14:35` is what this figure says, and if the box is
+              too narrow to hold it on one line it folds between the two words
+              rather than losing either. The separator and the clock are one
+              span so they cannot be parted at a line end.
+            */}
             <dd>
-              {cheapest.airlineName ?? cheapest.airline} · {departureClock(cheapest.departureAt)}
+              {cheapest.airlineName ?? cheapest.airline}{' '}
+              <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
             </dd>
           </div>
           <div>

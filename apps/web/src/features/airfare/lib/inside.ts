@@ -6,7 +6,9 @@ import { geoContains } from 'd3-geo';
  * **`geoContains` was the whole cost of the settle sweep, and it was not
  * close.** `countriesInView` inverts a grid over the frame and asks which
  * country each sample landed in. On a 1550x460 stage — the widest this layout
- * produces, at a 2560-pixel viewport — the sweep at the 32x ceiling cost 50.8
+ * produced then, at a 2560-pixel viewport; it is 1630x640 since
+ * `a-taller-row-is-four-more-routes`, 47% more samples — the sweep at the 32x
+ * ceiling cost 50.8
  * ms, of which inverting its 2,457 samples was under a millisecond. Asked
  * directly: 8,804 bare `geoContains` calls against Chile are 122 ms. The grid
  * was never the expensive part.

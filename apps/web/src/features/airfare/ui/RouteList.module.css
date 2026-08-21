@@ -189,8 +189,9 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  /* Measured: with both legs shown the row had one pixel to spare at this
-     panel width, which is not room, it is a coincidence. */
+  /* 7px, from when this held two legs and the row had a single pixel to
+     spare. There is one leg now (12.113) and the gap draws nothing, but it is
+     still what the floor beside `.collect` is measured with. */
   gap: 7px;
   min-width: 0;
 }
@@ -224,31 +225,46 @@
  * The collect control, and why it is a mark rather than a word.
  *
  * Measured, at 1rem = 20px — `tokens.css` sets `--font-size-base: 125%`, so
- * every rem below is twenty pixels and not sixteen. The panel column is
- * `minmax(20rem, 27rem)`; at its 27rem ceiling that is 540px, less the panel's
- * 1px borders and its `--space-4` (20px) padding either side, leaving 498px of
- * content. Remove is a `small` ghost button: `Remove` at 0.8rem is six
- * monospace advances of 16 × 0.6, so 57.6px, plus 2 × `--space-2` of padding
- * and 2px of border — 79.6px. Take that and the row's 10px gap off, and the
- * route button has 408.4px, of which its own padding and border eat 22: 386.4px.
+ * every rem below is twenty pixels and not sixteen. **This is also where the
+ * width of the whole panel is decided**, because the row is the widest thing
+ * in it: `AirfarePage.module.css` cites the floor below rather than keeping a
+ * second copy of it.
+ *
+ * The panel column is `minmax(22rem, 23rem)`; at its 23rem ceiling that is
+ * 460px, less the panel's 1px borders and its `--space-4` (20px) padding
+ * either side, leaving 418px of content. Remove is a `small` ghost button:
+ * `Remove` at 0.8rem is six monospace advances of 16 × 0.6, so 57.6px, plus
+ * 2 × `--space-2` of padding and 2px of border — 79.6px. The collect mark is
+ * 12px inside the same padding and border, 34px. With the row's two 10px gaps
+ * and the route button's own 22px of padding and border, 155.6px of the row is
+ * spoken for before a word of it is drawn, leaving the route button 262.4px.
  *
  * Its content, at the same 0.6em advance: an 8px swatch, a 7px gap, the pair
- * at 0.78rem (`LIM ` 37.44 + `→` at 0.62rem 7.44 + ` CUZ` 37.44 = 82.3), a 7px
- * gap, and two date legs at 0.66rem (arrow 8.4 + 2px + ten digits at 7.92 =
- * 89.6 each, 7px between them = 186.2). That is 290.5px used and 95.9px spare.
+ * at 0.78rem (`LIM ` 37.44 + `→` at 0.62rem 7.44 + ` CUZ` 37.44 = 82.32), a
+ * 7px gap, and **one** leg at 0.66rem — arrow 8.4 + 2px + the month, which
+ * 12.110 made a name and a year rather than a date, so `September 2027` is
+ * fourteen advances of 7.92 = 110.88, and the leg is 121.28. That is 225.6px
+ * used and **36.8px spare**.
  *
- * A second *text* button does not fit in 95.9px. `Collect` is seven advances,
- * 67.2px, plus the same 22px of chrome and the row's 10px gap: 99.2px, which is
- * 3.3px more than there is — and the `.dates` comment above records that the
- * row had a single pixel of slack before the column was widened, so there is no
- * history of getting away with it. A 12px mark inside the same padding is
- * 12 + 20 + 2 = 34px, 44px with the gap, and leaves 51.9px standing. The
- * accessible name carries the whole sentence, so nothing is lost but the ink.
+ * The two-date row this comment used to be about is gone with 12.113, and with
+ * it the 186.2px it spent on legs — which is the whole reason the column could
+ * come in from 27rem without the row noticing.
  *
- * At the column's 20rem floor the row already overflowed before this control
- * existed — 290.5px of content into 246.4px — and the list scrolls. This adds
- * 44px to a row that is over budget there either way; the fit above is stated
- * against the 27rem the panel actually takes on a desktop.
+ * A second *text* button still does not fit. `Collect` is seven advances,
+ * 67.2px, plus the same 22px of chrome and the row's 10px gap: 99.2px against
+ * 36.8, so the mark is not a preference. A 12px mark is 34px, 44px with its
+ * gap, and the accessible name carries the whole sentence — nothing is lost
+ * but the ink.
+ *
+ * **The binding row is a departed one, and it is the panel's floor.** A
+ * departed route drops the collect control (−34px, and −10 with its gap) but
+ * gains a `Departed` span, which is a fourth child of a three-track grid: it
+ * lands in a second row under the swatch and widens that `auto` track from 8px
+ * to eight advances of 0.65rem, 62.4px. Net +10.4px. So the worst row needs
+ * 391.6px of panel content — 433.6px of column, 21.68rem — and 22rem is that
+ * rounded up. Below it the `1fr` date track has `min-width: 0` and will not
+ * push back: the month simply overruns its track and paints across the
+ * control beside it, which is `fix/route-detail-fits` arriving in a new panel.
  */
 .collect {
   /* Square rather than wide: the padding is `.small`'s, and with no text

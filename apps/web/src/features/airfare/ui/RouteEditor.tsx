@@ -44,9 +44,10 @@ type RouteEditorProps = {
  * they are one decision; the departure has the second. What made that look
  * impossible was the input width rather than the labels: an 8rem minimum on a
  * field that holds three letters left the row 500-odd pixels wide against the
- * 358px this panel has at its 20rem floor. Three letters need 32px of text,
- * and the row now fits inside 358 with the pair at 63px each — see the
- * stylesheet, where the arithmetic is written out.
+ * 358px this panel had when its floor was 20rem. Three letters need 32px of
+ * text, and the row fits with room to spare — at the 22rem floor the panel
+ * now carries, 398px with the pair at 83px each. See the stylesheet, where
+ * the arithmetic is written out.
  *
  * **The departure is a month and a year, not a date** — 12.262, superseding
  * 12.180 and with it the focus that 12.130 introduced and this change removes

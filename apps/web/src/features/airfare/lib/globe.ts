@@ -244,12 +244,21 @@ export const SUBDIVISION_REACH = 4 - 1.2 / 2;
  * **Where the crossover sits, and why 4.6.** A country should never lose its
  * name before that name has been at full strength, and the room test decides
  * when that is: `roomFade` saturates at twice `LABEL_ROOM`, which on the
- * stage's own 460px minimum lands at 2.0x for Peru, 2.7x for Chile, 3.2x for
- * Spain and 3.7x for Japan — the binding case among the countries this
- * reader's routes touch. So the fall starts at 4.0, clear of Japan, and with
- * 12.28's ramp the crossover is at 4.6. Earlier and Japan's name would begin
- * fading before it had ever been fully lit; much later and there is not enough
- * of the 8x ceiling left for the layer to be worth arriving.
+ * stage's 460px minimum of the day landed at 2.0x for Peru, 2.7x for Chile,
+ * 3.2x for Spain and 3.7x for Japan — the binding case among the countries
+ * this reader's routes touch. So the fall starts at 4.0, clear of Japan, and
+ * with 12.28's ramp the crossover is at 4.6. Earlier and Japan's name would
+ * begin fading before it had ever been fully lit; much later and there is not
+ * enough of the 8x ceiling left for the layer to be worth arriving.
+ *
+ * **The minimum is 640 now (`a-taller-row-is-four-more-routes`) and 4.0 has
+ * more room than it did, not less.** `LABEL_ROOM` is an absolute area in
+ * pixels rather than a fraction of the frame, and `screenArea` goes as the
+ * square of the scale, so a taller stage buys a country its full name earlier:
+ * every zoom above falls by 460/640, to 1.44x for Peru, 1.94x for Chile,
+ * 2.30x for Spain and 2.66x for Japan. The binding case has moved a full
+ * 1.34x further from the gate. Nothing here has to move, which is the only
+ * reason it did not.
  *
  * Only the country the reader has actually zoomed into is affected, because it
  * is the only one whose subdivisions are ever fetched. Every other name on

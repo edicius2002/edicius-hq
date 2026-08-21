@@ -204,6 +204,32 @@
 }
 
 /*
+ * A whole-date price that an older collection answered for.
+ *
+ * The horizon is assembled from every stored curve, so a date the newest pass
+ * never reached is filled in from an earlier one — and it has to be possible to
+ * see which. Drawn identically it would read as today's price, which is the
+ * class of quiet lie this panel spent a release removing.
+ *
+ * **Opacity, not a dash.** Dashed against solid already means something exactly
+ * here — the legend spells it out as cheapest-of-date against whole-date price —
+ * and a second meaning on the same channel makes both unreadable. Opacity is
+ * unclaimed on this mark and is the better fit anyway: age is a matter of
+ * degree and so is ink, so a faint rule reads as the same fact, less certain,
+ * rather than as a different kind of fact.
+ *
+ * On the group rather than per line, which is safe here and is not on `.dots`:
+ * those overlap, and group opacity flattens a stack of itineraries into one
+ * grey smear. Whole-date rules never overlap — each spans its own date.
+ *
+ * 0.45 rather than something fainter: it still has to be readable against the
+ * grid at the far end of a year, where most of these live.
+ */
+.carried {
+  opacity: 0.45;
+}
+
+/*
  * A midnight. Fainter than the price grid on purpose: on a month there are
  * thirty of these and the eye has to be able to see the dots through them.
  */
@@ -428,6 +454,16 @@
 .keySpan i {
   height: 0;
   border-top: 2.2px solid var(--color-accent);
+}
+
+/*
+ * The same rule at the same weight, faint — which is the whole distinction, so
+ * the swatch has to be the same mark and not merely a similar one.
+ */
+.keyCarried i {
+  height: 0;
+  border-top: 2.2px solid var(--color-accent);
+  opacity: 0.45;
 }
 
 /* The same solid-versus-hollow pair the horizon chart draws, at legend size. */

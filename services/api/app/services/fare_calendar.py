@@ -39,6 +39,13 @@ with a `null` price is a day the provider answered about and had nothing to
 sell. A departure date inside the window that is absent from `prices` is a day
 we never got an answer for. Collapsing those two into one absence would make an
 unserved Tuesday indistinguishable from a truncated collection.
+
+**And the year is read from every curve, not from the newest one** —
+`a-curve-fills-what-newer-lost`. That is what `horizon()` at the bottom of
+this file is, and it is a reading rule rather than a writing one: nothing here
+merges on the way in, because a stored curve is the record of what was observed
+at one moment and a merged one would destroy exactly that. See `horizon()` for
+what the merge does and what it refuses to do.
 """
 
 import hashlib
@@ -89,6 +96,60 @@ class CalendarCurve:
     @property
     def cheapest(self) -> CalendarPrice | None:
         """The cheapest day in the window, which is the question this exists for."""
+        priced = [point for point in self.prices if point.price is not None]
+        return min(priced, key=lambda point: point.price or 0.0, default=None)
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedPrice:
+    """
+    One departure date, its cheapest fare, and **when that fare was seen**.
+
+    A `CalendarPrice` with the one fact it could afford to leave out while the
+    only answer to "what does the year cost" was a single curve. Inside one
+    curve every date shares the curve's `captured_at`, so carrying it per date
+    would have been the same string three hundred times. Across several curves
+    it is not the same string, and it stops being metadata: a price merged in
+    from a collection three days ago is being shown beside one collected an hour
+    ago, and a reader cannot weigh the two without knowing which is which.
+    """
+
+    departure_date: str
+    price: float | None
+    #: The `captured_at` of the curve this price came from.
+    observed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class Horizon:
+    """
+    What the whole year costs, assembled from every curve on disk.
+
+    Shaped like a `CalendarCurve` on purpose — a window and one price per
+    departure date inside it — because that is what a reader of the year wants
+    and it is what the endpoint already serves. What it is not is an
+    observation: no single moment produced it, which is why its prices carry
+    their own stamps and why nothing ever writes one of these to a file.
+    """
+
+    origin: str
+    destination: str
+    source: str
+    currency: str
+    start: str
+    end: str
+    #: Oldest departure date first. A date inside `start`..`end` that is absent
+    #: from here was answered for by nobody — 12.154 survives the merge intact.
+    prices: list[ObservedPrice]
+    #: The freshest observation in `prices`. See `FareCalendar.horizon`.
+    captured_at: str
+
+    @property
+    def route(self) -> str:
+        return f"{self.origin}-{self.destination}"
+
+    @property
+    def cheapest(self) -> ObservedPrice | None:
         priced = [point for point in self.prices if point.price is not None]
         return min(priced, key=lambda point: point.price or 0.0, default=None)
 
@@ -305,9 +366,115 @@ class FareCalendar:
         return curves
 
     def latest(self, origin: str, destination: str) -> CalendarCurve | None:
-        """The most recent curve, which is what "what does the year cost" means."""
+        """
+        The most recent curve, exactly as it was observed.
+
+        Still here, and still the right answer to "has this pair ever been
+        collected" — which is the one question left that wants a single curve.
+        It is no longer the answer to "what does the year cost": see `horizon`.
+        """
         curves = self.read(origin, destination)
         return curves[-1] if curves else None
+
+    def horizon(self, origin: str, destination: str) -> Horizon | None:
+        """
+        What the year costs, taking each date from the newest curve that answered.
+
+        **The fault this repairs.** `latest()` was what the endpoint served, and
+        a curve can be *shorter* than the one before it. Since 12.245 the
+        collector walks a refused window's far end back and keeps only what the
+        provider would actually price, which is honest on disk and was silently
+        destructive on the way out: the day MAD-BCN was narrowed to 2027-02-18
+        after one refusal, five months of departure dates left the chart, while
+        the curve holding them sat on disk beside the new one, whole and
+        readable. Nothing was lost — the archive is append-only and always was —
+        so this is a reading rule and there is nothing to migrate.
+
+        **Newest wins, per date.** Walking the curves newest first and keeping
+        the first answer for each date is all the arithmetic there is. What
+        deserves the words is what counts as an answer.
+
+        **Presence decides who answered; the window decides what an absence
+        means.** A date is answered by a curve when it is *in that curve's
+        prices*, whether the price is a number or `null` — 12.154, and it holds
+        per curve here rather than only per file. A date the newest curve never
+        reached is not in its prices at all, so the walk falls through to the
+        curve behind it; a date the provider answered about and had nothing to
+        sell on is present with a `null`, so the walk stops there and the `null`
+        is what the reader gets. Testing "is the price null" instead of "is the
+        date present" would have inverted exactly that: an unserved Tuesday
+        would have been overwritten by whatever last week thought it cost, which
+        is a fare invented out of two true facts.
+
+        The window is still load-bearing, one level up. `start`..`end` is what
+        makes a date that appears in *no* curve legible as "nobody ever answered
+        for this" rather than as "nobody wanted it", and a merged answer needs
+        its own or the distinction dies at the boundary.
+
+        **The near end is the newest curve's; the far end is the furthest any
+        curve reached.** The two ends move for opposite reasons and only one of
+        them is a loss. A window's near end advances because time passes and
+        yesterday's departure has gone — inheriting it would put flights nobody
+        can book back on the chart and would grow this payload by a date a day
+        forever. The far end retreats because a provider refused, and that is
+        the loss this exists to repair.
+
+        **Not on write.** Storing the merged curve would be a smaller endpoint
+        and would destroy the archive: the file would stop being a record of
+        what was observed when, and no later reader could ever separate the two
+        again. Nothing about the merge belongs anywhere near `append_if_changed`.
+        """
+        curves = self.read(origin, destination)
+        if not curves:
+            return None
+
+        newest = curves[-1]
+        start = newest.start
+        end = max(curve.end for curve in curves)
+
+        answered: dict[str, ObservedPrice] = {}
+        for curve in reversed(curves):
+            for point in curve.prices:
+                if point.departure_date < start or point.departure_date > end:
+                    continue
+                if point.departure_date in answered:
+                    continue
+                answered[point.departure_date] = ObservedPrice(
+                    departure_date=point.departure_date,
+                    price=point.price,
+                    observed_at=curve.captured_at,
+                )
+
+        prices = sorted(answered.values(), key=lambda point: point.departure_date)
+        return Horizon(
+            origin=origin,
+            destination=destination,
+            # The newest curve's, both of them. `source` is which provider
+            # answered and `currency` is what the numbers are denominated in;
+            # taking either from an older curve would describe the majority of
+            # the prices on screen by a fact about the minority.
+            source=newest.source,
+            currency=newest.currency,
+            start=start,
+            end=end,
+            prices=prices,
+            # **The freshest thing actually on screen**, which is the decision
+            # rather than the arithmetic. A merged answer has no one capture
+            # time, and the field is read to answer "how old is what I am
+            # looking at" — so it names the newest price a reader can see and
+            # never a collection that contributed none of them. In practice the
+            # two candidate readings coincide: the newest curve sets `start` and
+            # so always contributes, which makes the newest observation its own.
+            # They part only where a stored curve holds no prices at all, and
+            # there the fallback below is the newest curve rather than nothing —
+            # a stamp is still owed even when there is nothing to stamp.
+            #
+            # What it is emphatically *not* is a claim about every price beside
+            # it. Dates inherited from older curves carry their own
+            # `observed_at`, and a reader that showed this one stamp over all of
+            # them would be doing the thing this merge was written to avoid.
+            captured_at=max((point.observed_at for point in prices), default=newest.captured_at),
+        )
 
     def routes(self) -> list[tuple[str, str]]:
         directory = self.directory

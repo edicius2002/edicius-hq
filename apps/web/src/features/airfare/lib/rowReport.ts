@@ -1,4 +1,4 @@
-import { formatFlightDate, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { formatFlightDate, routeLabel, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import type {
   CalendarCollectResponse,
   CollectResponse,
@@ -216,15 +216,89 @@ export function describeCollection(
  * upstream veto a watchlist edit, so the collection is reported and never
  * rolled back into.
  */
-export function describeHorizon(route: FareRoute, response: CalendarCollectResponse): RowReport {
-  const pair = `${route.origin}-${route.destination}`;
-  if (!response.watching.includes(pair)) {
-    const others = response.watching.join(', ') || 'another route';
-    return {
-      ok: false,
-      text: `A booking horizon collection for ${others} is already running; this route is watched and its horizon will need a pass of its own.`,
-    };
+/**
+ * How the collector names a city pair. A horizon covers every month at once,
+ * so unlike `skipPrefix` there is no departure in it.
+ */
+function pairOf(route: FareRoute): string {
+  return `${route.origin}-${route.destination}`;
+}
+
+/**
+ * Whether the horizon pass in hand is the one this row asked for.
+ *
+ * `isOurPass`'s twin, and separate for the reason those two passes are
+ * separate everywhere else: that one matches a route *and a month*, because a
+ * board pass is a month's worth of departures. A curve is a fact about the city
+ * pair alone, so this matches on the pair and would be wrong if it did more.
+ *
+ * Exported for `horizonProgress`, which has to answer the same question before
+ * it draws a bar and must answer it the same way — the identical argument
+ * `isOurPass` makes: two readings of `watching` would let the words and the bar
+ * on one row disagree about whose pass they are describing.
+ */
+export function isOurHorizonPass(route: FareRoute, response: CalendarCollectResponse): boolean {
+  return response.watching.includes(pairOf(route));
+}
+
+/**
+ * A horizon pass that is still going, counted rather than described.
+ *
+ * **What this replaces was a promise, and the promise was false.** The row used
+ * to say "two requests, about four seconds" once and then hold that sentence,
+ * unchanged, until the pass ended. Measured live on 2026-08-21 the pass was
+ * three requests and twenty seconds — the provider refused a far window and the
+ * collector walked it back, which is 12.245 working — so the reader was told a
+ * figure five times under what they then sat through, by a line that never
+ * moved to suggest otherwise.
+ *
+ * **It counts windows and requests, not departures.** A horizon pass polls no
+ * departures at all, so `describeProgress`'s units would have been borrowed and
+ * meaningless here. The two figures are both reported because they come apart:
+ * a refused far end is asked for again, so three requests can buy two windows,
+ * and a reader who can see that is watching a retry rather than a machine that
+ * has stopped.
+ */
+export function describeHorizonProgress(
+  route: FareRoute,
+  response: CalendarCollectResponse,
+): RowReport {
+  if (!isOurHorizonPass(route, response)) return notOurHorizonPass(response);
+
+  const label = routeLabel(route);
+  // The plan has not settled. The server decides which windows it means to
+  // price before it sends anything, so this is the first instant or two only —
+  // and a count of zero out of nothing would be worse than saying less.
+  if (response.windows === null) {
+    return { ok: true, text: `Collecting the booking horizon for ${label}…` };
   }
+
+  const windows = `${response.windowsPriced} of ${response.windows} window${
+    response.windows === 1 ? '' : 's'
+  } priced`;
+  const requests = `${response.requests} request${response.requests === 1 ? '' : 's'}`;
+  // A pass that has priced nothing yet has no dates, and "0 departure dates" is
+  // a figure where "none yet" is the fact.
+  const dates =
+    response.dates === 0
+      ? 'no departure dates yet'
+      : `${response.dates} departure date${response.dates === 1 ? '' : 's'} so far`;
+
+  return { ok: true, text: `Collecting ${label}: ${windows} in ${requests}, ${dates}.` };
+}
+
+/** What a row says about a horizon pass that belongs to some other route. */
+function notOurHorizonPass(response: CalendarCollectResponse): RowReport {
+  const others = response.watching.join(', ') || 'another route';
+  return {
+    ok: false,
+    text: `A booking horizon collection for ${others} is already running; this route is watched and its horizon will need a pass of its own.`,
+  };
+}
+
+export function describeHorizon(route: FareRoute, response: CalendarCollectResponse): RowReport {
+  const pair = pairOf(route);
+  if (!isOurHorizonPass(route, response)) return notOurHorizonPass(response);
   if (response.state === 'failed') {
     return {
       ok: false,

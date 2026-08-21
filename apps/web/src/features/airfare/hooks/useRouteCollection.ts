@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { openCollectionStream } from '@/features/airfare/data/collectionStream';
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { withSnapshot } from '@/features/airfare/lib/liveSnapshot';
 import { passProgress, type PassProgress } from '@/features/airfare/lib/passProgress';
 import {
   describeCollection,
@@ -9,17 +11,38 @@ import {
   describeRefusal,
   type RowReport,
 } from '@/features/airfare/lib/rowReport';
-import { collectFares, fetchCollectionProgress, type CollectResponse } from '@/shared/api/fares';
+import {
+  collectFares,
+  fetchCollectionProgress,
+  type CollectResponse,
+  type FareHistoryResponse,
+  type FareSnapshot,
+} from '@/shared/api/fares';
 
 /**
- * How often a running pass is asked how it is getting on.
+ * How often a running pass is asked how it is getting on, **when the stream is
+ * not available**.
  *
  * Two seconds against a pass whose own requests are three apart, so the row
  * never sits on a figure that is more than one departure stale. The call reads
  * state the API already holds in memory and reaches no upstream, which is what
- * makes polling the cheap half of this arrangement.
+ * makes polling cheap enough to keep as the fallback rather than delete.
  */
 const PROGRESS_POLL_MS = 2_000;
+
+/**
+ * How long a broken stream is given to come back before the row stops waiting
+ * for it.
+ *
+ * An `EventSource` reconnects by itself — most of why it was chosen over a
+ * socket — and its default retry is about three seconds, so a blip costs one
+ * attempt and this window covers two. What it protects against is the other
+ * case: a stream that cannot be established at all, or one whose server has
+ * gone for good. Without a deadline that row waits for a frame that is never
+ * coming and shows a bar that never moves, which is the failure 8.8 and 8.41
+ * name — a failure that is not reported is worse than one that is.
+ */
+const STREAM_GRACE_MS = 8_000;
 
 /**
  * Collecting one watched route on its own, from the row it sits on.
@@ -37,17 +60,28 @@ const PROGRESS_POLL_MS = 2_000;
  * **A press starts a pass and then watches it** — 12.210. The call used to
  * hold the connection open for the whole collection, and the browser's own
  * five-minute deadline was therefore what decided how much of a watchlist one
- * press could cover: the server capped a pass at forty requests because forty
- * paced requests was what fitted. The owner's two watched months expand to
- * sixty-two departures, so a full refresh took two presses with a person in
- * between. Now the press returns as soon as the pass has started and this
- * polls `GET /api/fares/collect` until it stops running, so the row reports a
- * pass it is watching rather than one it is blocking on, and nothing bounds a
- * pass except the request budget.
+ * press could cover. Now the press returns as soon as the pass has started and
+ * the row follows it, so nothing bounds a pass except the request budget.
  *
- * The invalidation moved with it. Refreshing the archive's queries at the
- * moment the press returns would now refetch exactly what is already on
- * screen, so it happens when the pass ends.
+ * **And it follows it by listening rather than by asking** —
+ * `a-pass-is-pushed-not-polled`. This used to sleep two seconds in a loop and
+ * re-ask `GET /api/fares/collect`. That poll was cheap and is still here as the
+ * fallback; what it could never buy was the thing the reader actually
+ * complained about. A pass is minutes long, the charts read
+ * `GET /api/fares/history`, and that endpoint answers with every snapshot for
+ * the city pair — 91 snapshots at ~327 kB plus 1,846 baseline points at ~123 kB
+ * on this archive, growing without bound. So the archive was refreshed only
+ * when the pass *ended*, the charts sat still for four minutes, and the reader
+ * reloaded the page to make something happen. `GET /collect/stream` pushes each
+ * departure as it lands, snapshot and all, and the chart gains its point with
+ * nobody asking for anything.
+ *
+ * **One stream, however many rows are watching.** The server keeps one pass
+ * slot, so every watching row is watching the same pass and a second
+ * `EventSource` would carry the same frames twice. The rows live in a ref keyed
+ * by `routeId` and each frame is applied to all of them — which is also what
+ * keeps `watching` honest: each row asks `isOurPass` of the same document and
+ * answers for itself.
  *
  * **One mutation, many rows.** A hook cannot be called in a loop, so per-row
  * state lives here as two collections keyed by `routeId`: which presses are in
@@ -89,17 +123,22 @@ export function useRouteCollection(): RouteCollection {
   const [reports, setReports] = useState<ReadonlyMap<string, RowReport>>(() => new Map());
   const [progress, setProgress] = useState<ReadonlyMap<string, PassProgress>>(() => new Map());
   const inFlight = useRef<Set<string>>(new Set());
-  // The poll outlives the render that started it, so it has to be able to find
-  // out that the page has gone. Without this, a pass left running while the
-  // reader navigates away sets state on an unmounted tree every two seconds
-  // until it finishes.
+  /**
+   * The rows following the pass, by route id.
+   *
+   * A ref rather than state: it is read by stream callbacks that outlive the
+   * render which registered them, and rendering is not what it is for. What the
+   * reader sees is `reports` and `progress`, which are state and are written
+   * from here.
+   */
+  const following = useRef<Map<string, FareRoute>>(new Map());
+  const closeStream = useRef<(() => void) | null>(null);
+  const graceTimer = useRef<number | null>(null);
+  // The stream and the poll both outlive the render that started them, so both
+  // have to be able to find out that the page has gone. Without this, a pass
+  // left running while the reader navigates away sets state on an unmounted
+  // tree until it finishes.
   const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   const write = useCallback((id: string, report: RowReport | null) => {
     setReports((current) => {
@@ -141,41 +180,185 @@ export function useRouteCollection(): RouteCollection {
   );
 
   /**
-   * Watch a pass the press has already started, until it stops running.
+   * What the archive is asked for again once a pass has stopped.
    *
-   * The refresh happens here rather than in `onSuccess` for the reason the
-   * whole change exists — 12.210: the press now returns before a single
-   * departure has been collected, so invalidating the archive's queries at
-   * that moment would refetch exactly what was already on screen.
+   * Still here, and still at the end, even though the snapshots now arrive as
+   * they are written. The stream carries the points; it deliberately carries
+   * neither the baseline nor the health counts nor the airports, none of which
+   * is a point on a chart and all of which a finished pass may have moved. This
+   * is how those catch up, which is exactly how current they were before.
    */
-  const watch = useCallback(
+  const refreshArchive = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
+    void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+  }, [queryClient]);
+
+  const stopStream = useCallback(() => {
+    closeStream.current?.();
+    closeStream.current = null;
+    if (graceTimer.current !== null) {
+      window.clearTimeout(graceTimer.current);
+      graceTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stopStream();
+    };
+  }, [stopStream]);
+
+  /**
+   * One pass document, read by every row that is following it.
+   *
+   * Each row asks `isOurPass` of the same document and answers for itself,
+   * which is what keeps the one thing that must not regress: a press arriving
+   * while a pass is running is answered with *that* pass (12.210), and a row
+   * reporting a stranger's pass as its own would be the quietest lie this
+   * control can tell.
+   */
+  const applyPass = useCallback(
+    (response: CollectResponse) => {
+      if (!mounted.current) return;
+      let ended = false;
+      for (const [id, route] of [...following.current]) {
+        if (response.state === 'running') {
+          write(id, describeProgress(route, response));
+          mark(id, passProgress(route, response));
+          continue;
+        }
+        following.current.delete(id);
+        write(id, describeCollection(route, response));
+        release(id);
+        ended = true;
+      }
+      if (ended) refreshArchive();
+      if (following.current.size === 0) stopStream();
+    },
+    [mark, refreshArchive, release, stopStream, write],
+  );
+
+  /**
+   * A snapshot laid straight into the archive the charts are drawn from.
+   *
+   * Every cached month for that city pair, because that is what the endpoint
+   * itself answers: `/history` narrows the baseline and the health counts to a
+   * departure prefix and returns `snapshots` for the whole pair. A merge into
+   * only the month that pressed would leave the other month's cache holding
+   * less than a refetch would give it, and the two would disagree.
+   */
+  const applySnapshot = useCallback(
+    (snapshot: FareSnapshot) => {
+      if (!mounted.current) return;
+      queryClient.setQueriesData<FareHistoryResponse>(
+        { queryKey: ['fares', 'history', snapshot.origin, snapshot.destination] },
+        (held) => (held ? withSnapshot(held, snapshot) : held),
+      );
+    },
+    [queryClient],
+  );
+
+  /**
+   * Ask instead of listen, for as long as this row's pass runs.
+   *
+   * The fallback, and unchanged in what it reports: the same document, the same
+   * three readings of it. What a row loses by arriving here is only liveness —
+   * the chart stops gaining points as they land and catches up when the pass
+   * ends, which is what it did before any of this existed. That is why the poll
+   * was kept rather than deleted: on a network where server-sent events do not
+   * survive the trip, this change must not be able to make the row worse than
+   * it was.
+   */
+  const pollUntilDone = useCallback(
     async (route: FareRoute) => {
       const id = routeId(route);
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, PROGRESS_POLL_MS));
-        if (!mounted.current) return;
-        let progress: CollectResponse;
+        if (!mounted.current || !inFlight.current.has(id)) return;
+        let latest: CollectResponse;
         try {
-          progress = await fetchCollectionProgress();
+          latest = await fetchCollectionProgress();
         } catch (error) {
           write(id, describeRefusal(error instanceof Error ? error.message : String(error)));
           release(id);
           return;
         }
         if (!mounted.current) return;
-        if (progress.state === 'running') {
-          write(id, describeProgress(route, progress));
-          mark(id, passProgress(route, progress));
+        if (latest.state === 'running') {
+          write(id, describeProgress(route, latest));
+          mark(id, passProgress(route, latest));
           continue;
         }
-        write(id, describeCollection(route, progress));
+        write(id, describeCollection(route, latest));
         release(id);
-        void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
-        void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+        refreshArchive();
         return;
       }
     },
-    [mark, queryClient, release, write],
+    [mark, refreshArchive, release, write],
+  );
+
+  /**
+   * The stream has gone quiet for longer than a reconnect takes.
+   *
+   * Said in words first and then acted on. The words are superseded by the next
+   * progress line two seconds later, which is a fair trade rather than an
+   * oversight: what the reader needs to know is that the chart has stopped
+   * filling in, and what the row needs to do is keep reporting the pass. A row
+   * that simply waited for a frame that is not coming would be a spinner with
+   * no end, which is the one outcome that is worse than saying so.
+   */
+  const fallBackToPolling = useCallback(() => {
+    const stranded = [...following.current.values()];
+    following.current.clear();
+    stopStream();
+    for (const route of stranded) {
+      write(routeId(route), {
+        ok: false,
+        text: 'The live feed dropped; checking every two seconds instead. The charts will catch up when the pass ends.',
+      });
+      void pollUntilDone(route);
+    }
+  }, [pollUntilDone, stopStream, write]);
+
+  const armGrace = useCallback(() => {
+    if (graceTimer.current !== null) return;
+    graceTimer.current = window.setTimeout(() => {
+      graceTimer.current = null;
+      if (following.current.size > 0) fallBackToPolling();
+    }, STREAM_GRACE_MS);
+  }, [fallBackToPolling]);
+
+  const disarmGrace = useCallback(() => {
+    if (graceTimer.current === null) return;
+    window.clearTimeout(graceTimer.current);
+    graceTimer.current = null;
+  }, []);
+
+  /**
+   * Follow a pass the press has already started.
+   *
+   * The stream is opened once and shared: the server keeps one slot, so every
+   * following row is following the same pass and a second `EventSource` would
+   * carry identical frames.
+   */
+  const follow = useCallback(
+    (route: FareRoute) => {
+      following.current.set(routeId(route), route);
+      if (closeStream.current) return;
+      closeStream.current = openCollectionStream({
+        onOpen: disarmGrace,
+        onPass: (response) => {
+          disarmGrace();
+          applyPass(response);
+        },
+        onSnapshot: applySnapshot,
+        onError: armGrace,
+      });
+    },
+    [applyPass, applySnapshot, armGrace, disarmGrace],
   );
 
   // Only `mutate` is taken off the result: the object React Query returns is
@@ -197,22 +380,21 @@ export function useRouteCollection(): RouteCollection {
           currency: route.currency,
         },
       ]),
-    // The press only starts the pass — 12.210 — so this is where the watching
+    // The press only starts the pass — 12.210 — so this is where the following
     // begins rather than where the outcome is written. A pass that came back
     // already finished (nothing was due, or somebody else's pass was handed
-    // over) is done here and never polls.
+    // over) is done here and never opens a stream at all.
     onSuccess: (data, route) => {
       const id = routeId(route);
       if (data.state !== 'running') {
         write(id, describeCollection(route, data));
         release(id);
-        void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
-        void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+        refreshArchive();
         return;
       }
       write(id, describeProgress(route, data));
       mark(id, passProgress(route, data));
-      void watch(route);
+      follow(route);
     },
     onError: (error, route) => {
       const id = routeId(route);

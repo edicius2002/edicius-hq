@@ -6,7 +6,6 @@ of it belongs in the KV store and none of it belongs in Postgres later (plan
 decisions 5.4 and 5.8).
 """
 
-import json
 import logging
 from collections.abc import AsyncIterator
 
@@ -26,6 +25,12 @@ from app.config import (
     UPSTREAM_TIMEOUT_SECONDS,
 )
 from app.services.market_cache import BarCache, MemoryCache
+
+# Re-exported by the import rather than defined here since the fares router
+# began streaming a collection pass too. It was a private helper for as long as
+# this was the only endpoint that framed events, and a second copy of a format
+# is where a format drifts — see `app.services.sse`.
+from app.services.sse import KEEP_ALIVE, sse
 from app.services.stream_hub import HUB
 
 logger = logging.getLogger(__name__)
@@ -311,10 +316,6 @@ def _as_http_error(exc: ProviderError) -> HTTPException:
     )
 
 
-def sse(event: str, data: object) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
-
-
 def tick_payload(tick: Tick) -> dict:
     """
     Deliberately the fields a row needs, and no provider name among them.
@@ -378,7 +379,7 @@ async def stream_quotes(
                 if batch:
                     yield sse("quotes", [tick_payload(t) for t in batch])
                 else:
-                    yield ": keep-alive\n\n"
+                    yield KEEP_ALIVE
         finally:
             await listener.aclose()
 

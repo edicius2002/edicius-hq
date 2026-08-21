@@ -504,7 +504,7 @@ export function DepartureChart({
   );
 
   const priced = points.length + marks.filter((mark) => mark.price !== null).length;
-  const notes = horizonNote(days, curve, horizonLoading, horizonError, priced);
+  const notes = horizonNote(days, curve, horizonLoading, horizonError, priced, marks);
 
   if (period === null) {
     return (
@@ -993,15 +993,35 @@ export function DepartureChart({
           {/*
           A curve date: one price for the whole date, drawn across the whole
           date. Not a dot — a dot sits at an hour, and this number has none.
+
+          **Faint where the figure is older than the newest one on the chart.**
+          The horizon is assembled from every stored curve, so a date the last
+          collection never reached is answered by an earlier one — and drawn
+          identically it would pass for today's price, which is exactly the
+          quiet lie 12.230–12.237 spent a release removing from this panel.
+          Opacity rather than a dash: dashed against solid is already spoken
+          for here, as cheapest-of-date against whole-date price, and a second
+          meaning on the same channel would make both unreadable. Age is a
+          matter of degree and so is ink, which is the argument for this
+          channel rather than merely the room on it.
         */}
           {span === null
             ? null
             : marks.map((mark) =>
                 mark.price === null ? null : (
-                  <g key={mark.day} className={styles.curveDay} data-testid="curve-day">
+                  <g
+                    key={mark.day}
+                    className={
+                      mark.inherited ? `${styles.curveDay} ${styles.carried}` : styles.curveDay
+                    }
+                    data-testid={mark.inherited ? 'curve-day-carried' : 'curve-day'}
+                  >
                     <title>
                       {formatFlightDate(mark.day)}: {formatMoney(mark.price, currency)} — the
                       cheapest fare for the whole date, with no departure time
+                      {mark.inherited && mark.observedAt !== null
+                        ? `, carried over from the collection of ${collectedAtLabel(mark.observedAt)}`
+                        : ''}
                     </title>
                     <line
                       x1={xOf(mark.from, period, VIEW, view)}
@@ -1233,6 +1253,18 @@ export function DepartureChart({
         >
           <i /> Whole-date price
         </span>
+        {/*
+          Permanent, like every entry beside it. The legend is stated in full
+          whatever the frame holds, so the box never changes height — a row
+          appearing only when a carried-over price happens to be on screen
+          would move the chart under the reader.
+        */}
+        <span
+          className={styles.keyCarried}
+          title="A whole-date price from an earlier collection — the last pass did not reach this date"
+        >
+          <i /> Carried over
+        </span>
         <span className={styles.keyUnsold} title="Nothing on sale — we asked and there was none">
           <i /> None on sale
         </span>
@@ -1444,6 +1476,14 @@ function accessibleTail(
  * The collection stamp is in the sentence rather than tucked into a legend,
  * because a curve is only written when something moved: the one on screen can
  * be weeks old, and a price a reader is about to act on has to carry its age.
+ *
+ * **And the stamp no longer speaks for the whole frame.** The horizon is
+ * assembled from every stored curve, so `capturedAt` is the freshest thing on
+ * screen rather than the age of everything on it — printing it alone would
+ * claim that freshness for dates that an older collection answered for. Where
+ * the frame holds any of those, the sentence names how many and how far back
+ * the oldest reaches, which is the figure a reader needs to decide whether to
+ * trust the far end.
  */
 function horizonNote(
   days: FrameDay[],
@@ -1451,15 +1491,31 @@ function horizonNote(
   loading: boolean,
   error: Error | null,
   priced: number,
+  marks: CurveMark[] = [],
 ): { said: string[]; live: number } {
   const needsCurve = days.some((day) => day.source === 'curve');
+  // Only the priced ones. An absence has no age, and counting the unanswered
+  // dates as "carried over" would put a number on the sentence that the chart
+  // has drawn nothing for.
+  const carried = marks.filter((mark) => mark.inherited && mark.price !== null);
+  const oldest = carried.reduce<string | null>(
+    (found, mark) =>
+      mark.observedAt !== null && (found === null || mark.observedAt < found)
+        ? mark.observedAt
+        : found,
+    null,
+  );
+  const inherited =
+    carried.length === 0 || oldest === null
+      ? ''
+      : ` ${carried.length} of them ${carried.length === 1 ? 'was' : 'were'} carried over from earlier collections, the oldest from ${collectedAtLabel(oldest)}, and ${carried.length === 1 ? 'is' : 'are'} drawn faint.`;
   const inside = 'Every date here is inside the watched month.';
   const failed = `The booking horizon could not be read: ${error?.message ?? 'no reason given'}. That is a fault at our end and says nothing about what these dates cost.`;
   const pending = 'Reading the booking horizon…';
   const uncollected =
     'The booking horizon has not been collected for this route yet, so the dates outside the watched month are blank. Adding a route now collects its horizon; a route added before that does it needs one collection pass.';
   const empty = 'Nothing in this frame carried a price.';
-  const collected = `Dates outside the watched month come from the booking horizon collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.`;
+  const collected = `Dates outside the watched month come from the booking horizon, last collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.${inherited}`;
 
   const said = [inside, failed, pending, uncollected, empty, collected];
   if (!needsCurve) return { said, live: 0 };

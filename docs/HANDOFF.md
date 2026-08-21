@@ -36,9 +36,25 @@ only thing on this list that could affect someone outside this machine. Spend no
 accumulates in `.local-data/fares/spend/<day>.jsonl`, one line per request
 actually sent, and the horizon pass spends from the same ceiling instead of being
 uncounted. The default rose from 300 to 600, because the watchlist costs 442 a
-day and the busiest day this address has ever had was 329. What is still open is
-the item above: **nothing is scheduled yet**, and creating the task is a decision
-for the owner rather than something an agent should do on their machine.
+day and the busiest day this address has ever had was 329.
+
+**And two passes can no longer both plan a day** — `one-pass-at-a-time-is-a-file`,
+S.40. The ledger alone made the day's total right only in arrears: every pass
+re-reads it before every request, but two starting together each read a day with
+600 left and each size a whole day of work before either has written a line. The
+runner's single slot could not help, because it is one object in one process and
+a scheduled command is a second one. A pass now takes a lock file before it plans
+and gives it back when it is done; the second to arrive sends nothing and reports
+every departure as `another-pass-is-running`, which is not a failure and does not
+exit non-zero. A killed pass's lock is cleared by the next pass after five minutes
+of nobody touching it. There are two locks, one per slot, so a board pass and a
+calendar pass still overlap exactly as `calendar_job` decided they should — the
+shared-queue question that module leaves open is still open. The ledger also
+stops growing forever: a day file is kept ninety days.
+
+What is still open is the item above: **nothing is scheduled yet**, and creating
+the task is a decision for the owner rather than something an agent should do on
+their machine. Everything that was standing in the way of it is now closed.
 
 **Whether a manual press may override the cadence.** Recorded as open in 12.212.
 The recommendation from the measurement work: keep the cadence as the default and

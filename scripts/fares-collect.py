@@ -45,6 +45,17 @@ budget is a day's and not a pass's — see below.
       "cmd /c cd /d D:\\Work\\research\\edicius-hq && npm run fares:collect" ^
       /sc minute /mo 15
 
+**It is also safe to run while another pass is running**, which is the case the
+line above creates: a task firing every fifteen minutes will sooner or later fire
+while the owner has pressed Collect in the browser, and the browser's pass is a
+different process from this one. One board pass and one calendar pass collect
+from this address at a time — two locks, because those are two slots on purpose.
+The second one of either kind to arrive takes nothing, sends nothing, and reports
+every departure or pair as `another-pass-is-running` in the same list
+`over-budget` appears in; it exits 0, because being second is not a failure. A
+pass whose process is killed leaves its lock behind and the next pass clears it
+once nothing has touched it for five minutes.
+
 **Run it from a residential connection.** The upstream is Google Flights, which
 fingerprints datacenter addresses; the plan's runner decision is "local now,
 GCP later" precisely because a Cloud Run job would meet a consent wall.

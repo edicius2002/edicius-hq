@@ -170,6 +170,30 @@ MAX_POLL_MINUTES = 24 * 60
 # of every pass, so ninety-six passes share one 600 rather than taking one each.
 DEFAULT_DAILY_REQUEST_BUDGET = 600
 
+# How long the day files under `fares/spend/` are kept. A day file is at most
+# `DEFAULT_DAILY_REQUEST_BUDGET` short lines — about 36 KB on a full day — and
+# nothing reads one after its own day, so what accumulates is a directory, not a
+# disk problem: 365 files a year, forever, none of them ever opened again.
+#
+# **Ninety days, and this is the one bound in the airfare feature that is
+# neither measured nor a judgement about the upstream — it is a judgement about
+# us.** The two questions an old day file can answer are "what did those 600
+# requests go on", which is asked when tuning the cadence table or the calendar
+# windows, and "how much did this address send on the day something went wrong".
+# Both are questions about recent behaviour: the cadence table was settled on
+# four days of evidence and the 2.43 requests-per-pair figure on one, so a
+# quarter is more history than any decision here has ever wanted.
+#
+# What it costs is real and is why it is not shorter. Deleting a day file
+# deletes the only per-request record of that day. The mitigation is that it is
+# not the only record of the day at all: `fares/checks/` keeps one heartbeat per
+# *look* forever and is never pruned, so the shape of an old day survives to
+# within the look-to-request multiplier — exactly 1 for a board, the measured
+# 2.43 for a calendar. The archive proper (`fares/history/`, `fares/checks/`)
+# stays append-only, because those record what the world cost and cannot be
+# collected again once the day passes; this records what we sent.
+SPEND_RETENTION_DAYS = 90
+
 # Cadence against how far away the departure is, as (days out, minutes between
 # polls). The shape follows the measurement: at 14 days out a fare moved on 27%
 # of days with a median jump of 14%, while at 150 days it moved on 22% of days

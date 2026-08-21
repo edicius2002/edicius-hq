@@ -120,9 +120,10 @@ const UNIT: Record<Granularity, string> = { day: 'day', week: 'week', month: 'mo
 /**
  * The affordances, in one sentence, for a reader who is not looking at the plot.
  *
- * A constant rather than JSX because it is said in two places and must not
- * drift between them: the screen reader hears it through `aria-describedby`,
- * and a pointer finds it on the chart's own `title`. It used to be a paragraph
+ * A constant because it is the chart's `aria-describedby` and is read on
+ * arrival. It was said in two places until 2026-08-21: the chart also carried
+ * it as an SVG `<title>`, which a pointer resting anywhere on the plot turned
+ * into five lines of tooltip over the marks. It used to be a paragraph
  * under the plot — which it never visibly was, being `srOnly` throughout, but
  * it was the first of three descriptions concatenated onto one chart and so the
  * whole of it was read out before every fare the crosshair landed on.
@@ -826,18 +827,21 @@ export function DepartureChart({
         onBlur={() => setCursor(null)}
       >
         {/*
-          The same sentence again, for a hand rather than an ear.
+          No `<title>` child here, and that is the whole of the change.
 
-          An SVG has no `title` *attribute* — a tooltip on an SVG element comes
-          from a `<title>` child and from nothing else, which is worth writing
-          down because the attribute is accepted silently by JSX and by the DOM
-          and simply never appears. It does not become the chart's name: an
-          `aria-label` beats a `<title>` in the accessible-name calculation, so
-          the label above is still what is announced and this is only what
-          hovering shows. That ordering is the reason the help can be in both
-          places at once without being said twice.
+          An SVG has no `title` *attribute* — a tooltip comes from a `<title>`
+          child and from nothing else — so this element was the one thing making
+          the browser paint five lines of keyboard help over the plot whenever
+          the pointer rested anywhere on it, including on a flight. The reader
+          who has a pointer is being told about arrow keys, in front of the mark
+          they were trying to look at.
+
+          Nothing accessible is lost. `HELP` is still in the document below and
+          still the chart's `aria-describedby`, which is where a screen reader
+          has always heard it — the `<title>` never was the chart's name, since
+          an `aria-label` beats it in the accessible-name calculation. Only the
+          hover copy is gone.
         */}
-        <title>{HELP}</title>
 
         {/*
           What the zoom is allowed to hide.

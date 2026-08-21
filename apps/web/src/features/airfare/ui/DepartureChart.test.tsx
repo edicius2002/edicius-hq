@@ -991,14 +991,29 @@ describe('the chrome around the plot', () => {
     expect(container.querySelectorAll('[role="status"]').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('offers the same help to a pointer, without naming the chart twice', () => {
-    // An SVG tooltip comes from a `<title>` child and from nothing else — the
-    // attribute is accepted silently and never appears. It must not become the
-    // chart's name, and does not: an `aria-label` beats a `<title>` in the
-    // accessible-name calculation.
+  it('shows a pointer no tooltip, while the ear keeps the help', () => {
+    // An SVG tooltip comes from a `<title>` child and from nothing else, so the
+    // absence of that child is the whole assertion: a pointer resting on a
+    // flight used to get five lines of keyboard help painted over the mark it
+    // was aimed at.
+    //
+    // `:scope > title` and not `title`, deliberately. The marks inside carry
+    // titles of their own — a hole says "never collected", a curve day says its
+    // date and price — and those are wanted: they are short, they are about the
+    // thing under the pointer, and they are the reason a hole is legible at
+    // all. What was removed is the one on the plot itself, which answered for
+    // every pixel of it.
     const { container } = chart();
     const svg = container.querySelector('svg')!;
-    expect(svg.querySelector('title')?.textContent).toContain('The wheel and a drag');
+    expect(svg.querySelector(':scope > title')).toBeNull();
+
+    // And nothing was lost with it: the help is still a node in the document
+    // and still what the chart points `aria-describedby` at.
+    const described = svg.getAttribute('aria-describedby')!;
+    expect(described).toBeTruthy();
+    expect(container.querySelector(`#${described}`)?.textContent).toContain(
+      'Left and right arrow keys move one departure date',
+    );
     expect(frameLabel(container)).toContain('What each departure date costs');
   });
 

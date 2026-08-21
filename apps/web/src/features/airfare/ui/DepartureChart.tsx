@@ -114,6 +114,20 @@ const AXIS_BASELINE = 311;
 /** And the source rail below them, so the two never overprint. */
 const SOURCE_BASELINE = 327;
 
+/*
+ * The two marks the cloud draws, as one pair of numbers rather than two.
+ *
+ * `r + ring / 2` is what a reader sees, so the sizes only mean anything read
+ * together: 2.6 against 1.9, which is 5.2 across against 3.8. Kept here and not
+ * split between a radius in the markup and a `stroke-width` in the stylesheet,
+ * which is exactly how the marked mark came to be the same width as the plain
+ * one — leaving hue as the only difference between them, which is what a
+ * red-green deficiency cannot read. `PLAIN_MARK` carries no ring; the plain dot
+ * is a flat disc and always was.
+ */
+const PLAIN_MARK = { r: 2.6, ring: 0 };
+const LINKED_MARK = { r: 1.5, ring: 0.8 };
+
 /** The anchor as a class, never as an attribute — the reason is 12.62. */
 const ANCHOR: Record<TagAnchor, string> = {
   start: styles.tagStart,
@@ -573,19 +587,34 @@ export function DepartureChart({
    * 6.1 ms memoised, on exactly the same DOM. That is what keeps 12.12: SVG at
    * this size is not slow, re-creating it on every pointer event is.
    *
-   * **A flight with a link is the same dot with a colour in the middle** — the
-   * owner's _"que en el grafico se vea como es los circulos pero con un color en
-   * el medio para distinguir de los demas"_. It is drawn as one circle and not
-   * as two stacked ones: `r` drops from 2.6 to 1.9 and a 1.4-wide muted stroke
-   * takes the difference, so the mark is the same 2.6 across as its neighbours,
-   * sits in the same grey ring, and carries a blue disc inside it. A second
+   * **A flight with a link is a smaller, brighter dot in the same grey collar**
+   * — the owner's _"que en el grafico se vea como es los circulos pero con un
+   * color en el medio para distinguir de los demas"_, with the size doing half
+   * the work. It is drawn as one circle and not as two stacked ones: a second
    * `<circle>` per linked mark would have been the obvious build and would have
    * put ~880 more nodes on a plot whose node count is the one thing 12.12 asks
    * to be watched.
    *
-   * **The blue is the link's own colour, and that is the point of it.** The dot
-   * and the anchor in the readout are the same claim in two places, so a reader
-   * who has followed one link knows what every marked dot is offering.
+   * **The radius and the ring are here, together, and that is deliberate.** The
+   * first cut of this marker kept `r` in the markup and `stroke-width` in the
+   * stylesheet, and the two happened to sum to exactly the plain dot's 2.6 — so
+   * a marked mark was the same size as its neighbours and hue was the only thing
+   * telling them apart, which is a WCAG 1.4.1 failure and one the owner, who has
+   * a red-green deficiency, could not see past. Split across two files nobody
+   * added the numbers up. Added up here they are 1.5 and 0.8, an outer 1.9
+   * against 2.6: **3.8 across against 5.2**, 53% of the area.
+   *
+   * **Smaller and not larger**, because the marker lands on ~98% of the offers
+   * and a bigger common mark is a denser cloud; this takes ink off a plot that
+   * draws ~899 of them.
+   *
+   * **The colour is the link's hue lifted until lightness carries it.**
+   * `--color-link-mark` is `--color-link` at the same 207° and far brighter:
+   * 5.42:1 against the grey the mark sits in and 5.59/5.33:1 under protanopia
+   * and deuteranopia, where the link blue itself measured 2.52:1 and fell to
+   * 2.42:1. Same hue, so the dot and the anchor in the readout are still one
+   * claim in two places; different lightness, so the claim survives a reader who
+   * cannot use the hue.
    *
    * **Roughly 98% of the archive's offers carry it**, and that is recorded
    * rather than discovered later: LATAM 2912, JetSMART 839 and Aerolíneas 205 of
@@ -606,7 +635,8 @@ export function DepartureChart({
               key={entry.point.key}
               cx={entry.x}
               cy={entry.y}
-              r={linked ? 1.9 : 2.6}
+              r={linked ? LINKED_MARK.r : PLAIN_MARK.r}
+              strokeWidth={linked ? LINKED_MARK.ring : undefined}
               className={linked ? styles.linked : undefined}
               data-linked={linked ? 'true' : undefined}
             />
@@ -1704,9 +1734,12 @@ export function DepartureChart({
           <i /> One itinerary
         </span>
         {/*
-          The coloured centre, named — because on this route it is on almost
+          The small bright mark, named — because on this route it is on almost
           every dot and a reader has to be able to find out what it means from
-          the chart rather than by pressing one.
+          the chart rather than by pressing one. Its swatch is drawn narrower
+          than the plain dot's above it, because the width is half of the
+          distinction and a legend that showed only the colour would teach the
+          half a colourblind reader cannot use.
 
           Permanent like every entry beside it, and worded as what the *mark*
           says rather than as what the reader can do: the dot is not the link,

@@ -1408,7 +1408,7 @@ describe('reaching the airline from the chart', () => {
     expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
   });
 
-  it('draws a coloured centre on the marks that have a link and on no others', () => {
+  it('marks the flights that have a link and no others', () => {
     /*
      * The marker, and the number that makes it worth stating: LATAM 2912,
      * JetSMART 839 and Aerolíneas 205 of 4044 offers are reachable and only
@@ -1416,15 +1416,44 @@ describe('reaching the airline from the chart', () => {
      * and draws the normal state rather than the exception. Marked the other
      * way round it would be the same set with this test inverted.
      *
-     * Same overall size as a plain dot, by construction: `r` drops and a stroke
-     * takes the difference, so a marked mark is one node and not two.
+     * One node and not two, still: the mark is a single `<circle>` with a fill
+     * and a stroke, so ~899 marks are ~899 elements.
      */
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
     const [latam, avianca] = board(container);
 
     expect(latam.getAttribute('data-linked')).toBe('true');
     expect(avianca.getAttribute('data-linked')).toBeNull();
-    expect(Number(latam.getAttribute('r'))).toBeLessThan(Number(avianca.getAttribute('r')));
+    expect(latam.tagName).toBe('circle');
+  });
+
+  it('draws a marked flight smaller than a plain one, so colour is not the only difference', () => {
+    /*
+     * The defect this pins, so it cannot come back quietly.
+     *
+     * The marker's first cut set `r` in the markup and `stroke-width` in the
+     * stylesheet, and the two summed to exactly the plain dot's 2.6 — a marked
+     * mark and a plain one were the same 5.2 across and the *only* thing between
+     * them was hue. The owner has a red-green deficiency and could not see it,
+     * which is WCAG 1.4.1: colour was the sole visual means of conveying the
+     * distinction.
+     *
+     * So the size is asserted rather than the colour. What a reader sees is
+     * `r + stroke-width / 2`, and the marked mark has to be materially narrower
+     * — not merely different, because 2.55 against 2.6 would pass a `<` and fail
+     * a person. A quarter off the width is the floor; the chart draws 1.9
+     * against 2.6, which is 27%.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const [latam, avianca] = board(container);
+    const across = (mark: SVGCircleElement) =>
+      Number(mark.getAttribute('r')) + Number(mark.getAttribute('stroke-width') ?? 0) / 2;
+
+    expect(across(latam)).toBeLessThanOrEqual(across(avianca) * 0.75);
+    // And it is still a dot inside a collar rather than a bare disc, because the
+    // owner asked for a colour *in the middle* of the circles.
+    expect(Number(latam.getAttribute('stroke-width'))).toBeGreaterThan(0);
+    expect(avianca.getAttribute('stroke-width')).toBeNull();
   });
 
   it('gives a carrier we cannot reach plain text and no mark', () => {

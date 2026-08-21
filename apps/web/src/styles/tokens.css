@@ -39,6 +39,31 @@
    */
   --color-link: #79b8e8;
   --color-link-strong: #a9d2f2;
+  /*
+   * The same hue again at 207°, lifted until *lightness* carries it — for the
+   * one place a link is drawn as a mark a few pixels across rather than as a
+   * word.
+   *
+   * A contrast ratio earned against a panel is not transferable to a mark that
+   * sits inside a grey dot. Composited the way the chart actually paints them —
+   * the plain dot is `--color-muted` at 45% over `Panel`'s gradient, so #665e56
+   * at its darkest — `--color-link` at 90% comes out #70a9d3, which is 2.52:1
+   * against that grey. Under a protanopia simulation it is 2.71:1 and under
+   * deuteranopia 2.42:1, and it is 6.53:1 against the panel behind both: the
+   * mark is bright against the *page* and nearly flush with the *dot*, which is
+   * the one comparison a reader makes. This is that blue taken to 14.06:1 on the
+   * panel and **5.42:1 against the grey**, prot 5.59:1 and deut 5.33:1 — the
+   * separation more than doubles and it barely moves under either simulation,
+   * which is the proof that it is lightness doing the work and not hue.
+   *
+   * Not a warm mark, and not on taste: a red at #e0574a measures 1.71:1 against
+   * the same grey and **1.30:1 under protanopia** — worse than the blue it would
+   * replace — while sitting 1.68:1 from `--color-accent` and 1.56:1 from
+   * `--color-expense`, which already mean cheapest-of-date and expense on this
+   * page. Not white either: #ffffff is 6.38:1 rather than 5.42 and buys 0.96 by
+   * giving up the hue that ties the mark to the anchor under it.
+   */
+  --color-link-mark: #dcefff;
   --color-shadow: rgba(0, 0, 0, 0.28);
 
   --sidebar-width: 15rem;

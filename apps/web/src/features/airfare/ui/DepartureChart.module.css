@@ -309,30 +309,36 @@
 }
 
 /*
- * A flight whose airline can be reached: the same dot, with a colour in the
- * middle — the owner's own description of what they wanted.
+ * A flight whose airline can be reached: a smaller, brighter dot inside the
+ * same grey collar.
  *
- * One circle and not two. `r` is 1.9 in the markup rather than 2.6, and a
- * 1.4-wide stroke takes the 0.7 back, so a marked mark is the same 2.6 across
- * as an unmarked one and sits in the same grey ring; a second `<circle>` per
- * link would have added ~880 nodes to a plot whose node count is the thing
- * 12.12 asks to be watched.
+ * One circle and not two, unchanged: a second `<circle>` per link would have
+ * added ~880 nodes to a plot whose node count is the thing 12.12 asks to be
+ * watched.
  *
- * The fill is `--color-link` and that is deliberate rather than decorative: it
- * is the colour of the anchor in the line under the plot, so the mark and the
- * link are visibly one claim. Not the accent, which on this chart already means
- * cheapest-of-date and is spoken for twice over.
+ * **Two things separate it from a plain dot, and only one of them is colour.**
+ * The fill is `--color-link-mark`, which is `--color-link`'s hue lifted until
+ * lightness rather than hue carries it — 5.42:1 against the grey the mark sits
+ * in, holding at 5.59:1 under protanopia and 5.33:1 under deuteranopia, where
+ * `--color-link` was 2.52:1 and fell to 2.42:1 under deuteranopia. And the mark
+ * is **smaller**: 3.8 across against a plain dot's 5.2, so the two differ in
+ * size as well as in ink and the distinction survives a reader who sees no
+ * colour at all. The geometry is in the markup, both numbers together, because
+ * a radius in the JSX and a stroke width in this file is how the two marks came
+ * to be exactly the same size across without anyone noticing.
  *
- * Nearly opaque where the plain dots are at 0.45. The stroke keeps the cloud's
- * own alpha so density still reads through a stack of itineraries, but a blue
- * that faded into the grey at the same alpha would be a marker nobody could
- * find — which is the defect this whole change is fixing.
+ * Smaller rather than larger because the marker lands on ~98% of the offers:
+ * a bigger common mark is a denser cloud, and this one takes 47% of the ink off
+ * the plot instead.
+ *
+ * Opaque where the plain dots are at 0.45. The collar keeps the cloud's own
+ * alpha, and stacked itineraries read better than they did — six marks at half
+ * the area overlap less, so the stack is countable rather than one blot.
  */
 .dots circle.linked {
-  fill: var(--color-link);
-  fill-opacity: 0.9;
+  fill: var(--color-link-mark);
+  fill-opacity: 1;
   stroke: var(--color-muted);
-  stroke-width: 1.4;
   stroke-opacity: 0.45;
 }
 
@@ -555,18 +561,22 @@
 }
 
 /*
- * The same donut the plot draws, at legend size: a muted ring with the link
- * colour inside it. `box-sizing: border-box` so the border eats into the 9px
- * rather than growing it, which is what makes this swatch the same construction
- * as the mark rather than merely a similar-looking one.
+ * The same mark the plot draws, at legend size: a bright core in a muted
+ * collar, and **narrower than the plain dot beside it** — 5px against
+ * `.keyDot`'s 7, which is the 3.8-against-5.2 the chart draws. The size
+ * relation is half of what this entry has to teach, so a swatch drawn at the
+ * plain dot's width would name the colour and hide the cue that works without
+ * it. `box-sizing: border-box` so the border eats into the 5px rather than
+ * growing it, which is what makes this the same construction as the mark rather
+ * than a similar-looking one.
  */
 .keyLinked i {
-  width: 9px;
-  height: 9px;
+  width: 5px;
+  height: 5px;
   box-sizing: border-box;
-  border: 2px solid var(--color-muted);
+  border: 1px solid var(--color-muted);
   border-radius: 999px;
-  background: var(--color-link);
+  background: var(--color-link-mark);
 }
 
 .keyLine i {

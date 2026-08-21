@@ -173,6 +173,15 @@ export function useHorizonCollection(): HorizonCollection {
       void queryClient.invalidateQueries({
         queryKey: ['fares', 'calendar', route.origin, route.destination],
       });
+      /*
+       * And the day's spend — `spend-is-read-back-not-only-written`. A horizon pass is
+       * the cheapest thing on this page and still not free: measured, a city
+       * pair costs 2.43 requests, because a refused far window is walked back
+       * (12.245). Adding a route fires one of these, so leaving it out would
+       * make the strip lag the reader's own spending by up to a minute at
+       * exactly the moment they had spent it.
+       */
+      void queryClient.invalidateQueries({ queryKey: ['fares', 'spend'] });
     },
     [queryClient],
   );

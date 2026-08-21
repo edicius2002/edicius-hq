@@ -14,6 +14,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** A quiet day's ledger, for the shell walk that now passes through Airfare. */
+const FARE_SPEND = {
+  day: '2026-08-21',
+  resetsAt: '2026-08-22T00:00:00+00:00',
+  spent: 0,
+  ceiling: 600,
+  remaining: 600,
+  busiestOnRecord: 329,
+  kinds: [],
+};
+
 beforeEach(() => {
   // The layout tests exercise the chart shell, not canvas pixels. jsdom emits
   // a noisy "not implemented" error before returning null without this stub.
@@ -31,6 +42,13 @@ beforeEach(() => {
       }
       if (url.includes('/api/market/bars')) {
         return Response.json({ symbol: 'AAPL', timeframe: '1d', provider: 'test', bars: [] });
+      }
+      // Airfare's header reads the day's request spend — the catch-all below is
+      // `{ status: 'ok' }`, which is not a document any of these endpoints
+      // answers with and which the other pages survive only because everything
+      // they read from it is optional.
+      if (url.includes('/api/fares/spend')) {
+        return Response.json(FARE_SPEND);
       }
       return Response.json({ status: 'ok' });
     }),

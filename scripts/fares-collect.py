@@ -19,10 +19,13 @@ daily.
 **Every other month is collected too, and far more cheaply.** A watched month
 gets a full board per departure; every remaining month out to the 330-day
 horizon gets one cheapest fare per departure date, from Google's own price
-graph. That is two requests per city pair per day for the whole year, against
-thirty for one month of boards, and it is what stops the eleven months nobody
-watched from being dark. It carries one number a day and nothing else — no
-carrier, no times, no itineraries — so it does not replace a board.
+graph. That is 2.43 requests per city pair per day for the whole year, measured
+rather than planned — two windows, plus the walk-back when the far end is
+refused — against thirty for one month of boards, and it is what stops the
+eleven months nobody watched from being dark. It carries one number a day and
+nothing else — no carrier, no times, no itineraries — so it does not replace a
+board. Those requests are counted against the same daily budget as the boards,
+which they were not until now.
 
 **It is safe to run often, and meant to be.** The pass decides for itself what
 is due: each departure has a poll interval that depends on how far away it is,
@@ -34,12 +37,24 @@ of days by a median 14%, while one 150 days out moved on 22% of days by 1.7%.
 
 `--dry-run` prints what a month costs per day under that cadence, which is the
 number to look at before adding one: a month whose first day is a week away
-costs 936 requests a day against a budget of 300, and the same month at 200
-days out costs 31.
+costs 936 requests a day against a budget of 600, and the same month at 200
+days out costs 31. It also prints what the day has spent so far, because the
+budget is a day's and not a pass's — see below.
 
     schtasks /create /tn "Edicius airfare" /tr ^
       "cmd /c cd /d D:\\Work\\research\\edicius-hq && npm run fares:collect" ^
       /sc minute /mo 15
+
+**It is also safe to run while another pass is running**, which is the case the
+line above creates: a task firing every fifteen minutes will sooner or later fire
+while the owner has pressed Collect in the browser, and the browser's pass is a
+different process from this one. One board pass and one calendar pass collect
+from this address at a time — two locks, because those are two slots on purpose.
+The second one of either kind to arrive takes nothing, sends nothing, and reports
+every departure or pair as `another-pass-is-running` in the same list
+`over-budget` appears in; it exits 0, because being second is not a failure. A
+pass whose process is killed leaves its lock behind and the next pass clears it
+once nothing has touched it for five minutes.
 
 **Run it from a residential connection.** The upstream is Google Flights, which
 fingerprints datacenter addresses; the plan's runner decision is "local now,
@@ -48,7 +63,16 @@ GCP later" precisely because a Cloud Run job would meet a consent wall.
 The day's request budget is the one ceiling that is a judgement rather than a
 measurement — the endpoint is unmetered, and the real limit is how much traffic
 one address can send before it stops being answered. `FARES_DAILY_REQUEST_BUDGET`
-sets it; the default is 300.
+sets it; the default is 600.
+
+**It is genuinely a day's, which is what makes the line above safe to schedule.**
+Spend is accumulated in `.local-data/fares/spend/<day>.jsonl`, one line per
+request actually sent, so ninety-six passes share one 600 rather than taking one
+each — and because the ledger is on disk rather than in this process, a pass
+that starts fresh every fifteen minutes still knows what the fourteen before it
+spent. When the day runs out the pass polls nothing and reports every departure
+as `over-budget` by name; the nearest departures are the ones that got the
+requests, because that is the order a truncated pass keeps (12.111).
 """
 
 import argparse
@@ -57,12 +81,19 @@ import json
 import sys
 from collections import Counter
 from datetime import UTC, date, datetime
+from math import ceil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.config import MAX_DEPARTURE_HORIZON_DAYS, daily_request_budget, kv_dir  # noqa: E402
+from app.config import (  # noqa: E402
+    CALENDAR_REQUESTS_PER_PAIR,
+    MAX_DEPARTURE_HORIZON_DAYS,
+    daily_request_budget,
+    kv_dir,
+)
+from app.services.fare_budget import daily_budget  # noqa: E402
 from app.services.fare_collector import (  # noqa: E402
     FareWatch,
     calendar_windows,
@@ -78,8 +109,12 @@ from app.services.fare_schedule import days_until, month_dates, poll_minutes  # 
 # accented airline name — and a scheduled task that dies on its own summary
 # line looks exactly like a collection that failed. Measured: the first real
 # pass crashed here.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+#
+# The suppression is the stub's shape and not a doubt about the call:
+# `sys.stdout` is typed `TextIO`, which has no `reconfigure`, while the
+# object actually standing there is a `TextIOWrapper`, which does.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 ROUTES_KEY = "airfare-routes"
 
@@ -143,22 +178,20 @@ def to_watches(routes: list[dict[str, object]]) -> tuple[list[FareWatch], list[s
             dropped.append(f"{label}: the month is over")
             continue
 
-        # The focused departure, if the reader named one (12.130). Kept only
-        # when it is inside its own month, the same rule the web normalizer
-        # applies on read — the two sides must not disagree about which watches
-        # survive a document. A focus that has already departed is *not*
-        # dropped here: the collector reports it as `departed` by name, which
-        # is more use to a reader than its silent disappearance.
-        focus = route.get("focusDate")
-        focus = str(focus) if isinstance(focus, str) and focus[:7] == month else None
-
+        # A `focusDate` was read off the document here and passed to
+        # `FareWatch(focus=...)`. Nothing names a departure any more — 12.260
+        # took the field out of the model and 12.266 took the parameter and the
+        # ordering it fed — so this script raised `TypeError` on its first watch
+        # and had done since, which nobody saw because the page collects over
+        # HTTP and this is the path a scheduler would use. A stale `focusDate`
+        # left in the stored document is now ignored the same way the web
+        # normalizer ignores it: read past, not repaired.
         watches.append(
             FareWatch(
                 origin=origin,
                 destination=destination,
                 month=month,
                 currency=str(route.get("currency", "USD")).upper(),
-                focus=focus,
             )
         )
     return watches, dropped
@@ -208,9 +241,9 @@ def main() -> int:
         "--no-calendar",
         action="store_true",
         help=(
-            "Skip the whole-horizon calendar pass. It is two requests per city "
-            "pair per day, so this is for isolating a board problem, not for "
-            "saving budget."
+            "Skip the whole-horizon calendar pass. It is 2.43 requests per city "
+            "pair per day measured, so this is for isolating a board problem, "
+            "not for saving budget."
         ),
     )
     args = parser.parse_args()
@@ -228,14 +261,10 @@ def main() -> int:
     for watch in watches:
         collectable, requests = per_day(watch, today)
         demand += requests
-        # The focus is printed beside the demand rather than in a line of its
-        # own: it is the day this month keeps when the sum below reads OVER,
-        # and the two numbers only mean anything read together.
-        starred = f"  focus {watch.focus}" if watch.focus else ""
         print(
             f"  {watch.origin} -> {watch.destination}  departs in {watch.month}  "
             f"({collectable} of {len(month_dates(watch.month))} day(s) collectable, "
-            f"{requests} request(s)/day){starred}"
+            f"{requests} request(s)/day)"
         )
     if not watches:
         print("nothing to do")
@@ -246,24 +275,39 @@ def main() -> int:
     # that its whole cost is a rounding error against the boards above — the
     # windows are what make it so, and they are printed for the same reason the
     # cadence demand is.
+    #
+    # Costed at the **measured** 2.43 requests per pair rather than at the two
+    # windows it plans, because a far window is sometimes refused and walked
+    # back and one check is 2 to 12 requests (12.245). Rounded up: a demand
+    # figure that is read to decide whether a watchlist fits should not be the
+    # optimistic end of a range.
     pairs = {(watch.origin, watch.destination) for watch in watches}
     windows = calendar_windows(datetime.now(UTC))
-    calendar_demand = len(pairs) * len(windows)
+    calendar_demand = ceil(len(pairs) * CALENDAR_REQUESTS_PER_PAIR)
     demand += calendar_demand
     print(
         f"  calendar: {len(pairs)} city pair(s) x {len(windows)} window(s) "
-        f"({windows[0][0]}..{windows[-1][1]}) = {calendar_demand} request(s)/day"
+        f"({windows[0][0]}..{windows[-1][1]}) at {CALENDAR_REQUESTS_PER_PAIR} measured "
+        f"= {calendar_demand} request(s)/day"
     )
 
     # The cadence is what makes a month affordable, so the arithmetic is
     # printed rather than trusted. Over budget is not an error here: the pass
-    # keeps the focused departures and then the nearest ones, and reports the
-    # rest as `over-budget` — which is the honest shape of "you are watching
-    # more than 300 a day of". The current watchlist is 62 a day; the same two
-    # months come to 302 on 2026-11-24 and 2,208 by the March they depart in,
-    # which is when the focus starts deciding something.
+    # keeps the nearest departures and reports the rest as `over-budget`, which
+    # is the honest shape of "you are watching more than 600 a day of".
     fit = "fits" if demand <= budget else "OVER"
     print(f"\ncadence demand: {demand} request(s)/day against a budget of {budget} -- {fit}")
+
+    # And what the day has actually spent, which is a different question from
+    # what the watchlist costs and is the one that decides what this pass can
+    # do. The demand above is a property of the watchlist; this is a property of
+    # the day, and it is why the same watchlist collects at 08:00 and reports
+    # `over-budget` at 23:00.
+    allowance = daily_budget(now=datetime.now(UTC))
+    print(
+        f"today {allowance.day}: {allowance.spent()} request(s) already spent, "
+        f"{allowance.remaining()} left -> {allowance.ledger.path_for(allowance.day)}"
+    )
 
     if args.dry_run:
         print("dry run; nothing was fetched")
@@ -274,7 +318,14 @@ def main() -> int:
         queries, unreadable = expand(watches)
         for what in unreadable:
             print(f"  -- {what}: unreadable month")
-        report = asyncio.run(collect(list(queries.values()), **kwargs))
+        # Nearest departure first. `--all` ignores the cadence and it does not
+        # ignore the budget, so this list can still be cut short by the day
+        # running out — and when it is, the rule has to be the one every other
+        # truncation follows: keep the near departures, drop the far ones
+        # (12.111). `expand` returns watchlist order, which is nobody's idea of
+        # a spending priority.
+        ordered = sorted(queries.values(), key=lambda query: query.flight_date)
+        report = asyncio.run(collect(ordered, **kwargs))
     else:
         report = asyncio.run(collect_due(watches, **kwargs))
 

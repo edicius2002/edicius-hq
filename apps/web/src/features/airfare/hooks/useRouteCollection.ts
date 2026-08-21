@@ -51,8 +51,9 @@ const STREAM_GRACE_MS = 8_000;
  * superseding the second half of 12.90. That decision was right while a press
  * bought one request: someone who has decided where to spend one should not be
  * argued with by a cadence table. Under 12.110 a row is a month and the same
- * press buys up to thirty-one, which is a tenth of the day's budget per click
- * — so `POST /api/fares/collect` calls `collect_due` and the press collects
+ * press buys up to thirty-one, a twentieth of the day's budget per click, out
+ * of a budget that is now genuinely spent by the day rather than reset every
+ * pass — so `POST /api/fares/collect` calls `collect_due` and the press collects
  * every departure that has news in it and declines the rest. What it declined
  * comes back in `skipped` and the row says so, which is why `describeCollection`
  * has always had that branch.
@@ -191,6 +192,15 @@ export function useRouteCollection(): RouteCollection {
   const refreshArchive = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
     void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
+    /*
+     * And the day's spend, which this pass has just moved —
+     * `spend-is-read-back-not-only-written`. It refetches on its own every minute
+     * anyway; what this buys is that a press the reader made themselves is on
+     * the header strip when the row's line appears rather than up to a minute
+     * afterwards. A press is the one piece of spending they can attribute, and
+     * a figure that lagged it would teach them the strip is slow.
+     */
+    void queryClient.invalidateQueries({ queryKey: ['fares', 'spend'] });
   }, [queryClient]);
 
   const stopStream = useCallback(() => {

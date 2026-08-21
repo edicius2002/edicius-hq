@@ -36,6 +36,15 @@ mean a route added mid-board-pass waits minutes for the curve this endpoint
 exists to fetch immediately. A shared *queue* rather than a shared slot would
 serve both, and that is the shape to build if the doubled pace ever shows up as
 a refusal; nothing measured so far says it has.
+
+**Both halves of that survive the cross-process lock, deliberately.**
+`collect_calendars` takes `collect-calendar.lock` and the boards take
+`collect.lock`, so what became true is that a *second calendar pass* — a
+scheduled command firing while this runner is mid-curve — declines instead of
+running. Two slots stay two slots. Merging them into one lock was rejected here
+rather than quietly: it would have made a route added mid-board-pass go without
+its curve entirely, since a lock declines rather than queues, which is worse than
+the case this paragraph already rejected.
 """
 
 import asyncio

@@ -24,6 +24,23 @@ makes pacing our responsibility rather than theirs. Sequential with a gap, not
 concurrent: there is nothing to gain by going faster and an address to lose by
 it.
 
+**And they are counted, once each, against the day rather than the pass.** The
+gap decides how tightly a day's requests are packed and not how many there are;
+what decides how many is `fare_budget`, a ledger on disk that both passes below
+spend from. Every request either function sends is written to it immediately
+before it goes out, so a pass cannot spend without saying so and ninety-six
+scheduled passes cannot each believe they have the whole budget.
+
+**And a pass does not run twice at once.** Counting is not enough on its own:
+two board passes starting together would each read a day with room in it and
+each plan a whole day of work before either could see the other. Both entry
+points below take a `PassLock` before they plan and hold it until they are done,
+which also keeps the gap above meaning what it says — one loop pacing one
+address, rather than two loops halving it. A pass that finds its lock held
+declines and says so; it does not wait and it does not raise. The boards and the
+calendar take **different** locks, because they are two slots on purpose and
+`calendar_job` argues why.
+
 **Every look leaves a mark; only a change leaves a snapshot.** Measured
 2026-08-18, four of five real snapshots were byte-identical to the one before —
 two of them taken 23 seconds and 8 minutes apart. Polling on the half hour and
@@ -61,6 +78,13 @@ from app.config import (
     UPSTREAM_TIMEOUT_SECONDS,
     daily_request_budget,
 )
+from app.services.fare_budget import (
+    CALENDAR_LOCK_NAME,
+    DailyBudget,
+    PassLock,
+    RequestLedger,
+    daily_budget,
+)
 from app.services.fare_calendar import CALENDAR, CalendarCurve, FareCalendar
 from app.services.fare_history import HISTORY, FareHistory
 from app.services.fare_schedule import due_now, month_dates
@@ -88,6 +112,14 @@ logger = logging.getLogger(__name__)
 # day's requests are packed and not how many there are. A watchlist that spent
 # 66 requests a day at six seconds spends the same 66 at three.
 REQUEST_GAP_SECONDS = 3.0
+
+# What a pass reports for everything it did not do because another pass was
+# already doing it. A word in `skipped`, beside `over-budget` and `not-due`,
+# because that is what it is: an ordinary reason for a departure not to have
+# been polled, arrived at before the first request and reported the same way.
+# A cron firing while somebody presses Collect is not a fault and must not read
+# like one — see `PassLock`.
+ANOTHER_PASS = "another-pass-is-running"
 
 
 class PassObserver(Protocol):
@@ -218,6 +250,36 @@ def _now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
+def _declined(
+    started_at: str,
+    provider: str,
+    skipped: list[tuple[str, str]],
+    *,
+    observer: PassObserver | None = None,
+) -> CollectionReport:
+    """
+    What a pass that never started looks like: a report, not an exception.
+
+    Everything it would have looked at is named, with the reason, which is the
+    shape `over-budget` already produces and is there for the same argument
+    (8.8, 8.41) — a pass that quietly did nothing is indistinguishable from one
+    that found nothing to do, and under a scheduler nobody is watching to tell
+    them apart. An observer hears it too, with a denominator of zero, so a
+    progress bar reads "nothing to wait for" rather than spinning on a pass that
+    is not going to move.
+    """
+    logger.info("a collection pass is already running; %d departure(s) left to it", len(skipped))
+    if observer is not None:
+        observer.planned(polling=0, skipped=list(skipped))
+    return CollectionReport(
+        started_at=started_at,
+        finished_at=_now(),
+        source=provider,
+        results=[],
+        skipped=skipped,
+    )
+
+
 async def collect(
     queries: list[FareQuery],
     *,
@@ -226,6 +288,8 @@ async def collect(
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
     observer: PassObserver | None = None,
+    budget: DailyBudget | None = None,
+    lock: PassLock | None = None,
 ) -> CollectionReport:
     """
     Fetch every query once and append what came back.
@@ -233,17 +297,66 @@ async def collect(
     `gap_seconds` is injectable so tests do not sleep; nothing else about the
     pacing is configurable, because the point of a floor is that callers cannot
     lower it by accident.
+
+    **This is the one place a board request is sent, so it is the one place a
+    board request is counted.** Every query is written to the day's ledger
+    immediately before it goes out, whoever assembled the list — `collect_due`,
+    a manual press, or `--all` from the command line — so no path exists that
+    spends without saying so.
+
+    It also stops. `collect_due` has already sized its list against what is left
+    of the day, so under a scheduler this ceiling is never the thing that bites;
+    what it catches is a day exhausted **while this pass is running**, by
+    another pass or by the calendar, and a list that was never sized at all.
+    The rest come back as `over-budget` in `skipped`, which is the same word and
+    the same shape `due_now` uses — and because the caller hands queries over in
+    the order they should be spent, stopping part way keeps the near departures
+    and drops the far ones, which is 12.111 arriving by a second route.
+
+    **A handed-in `budget` says somebody above already holds the pass lock.**
+    That is what `collect_due` does, and it is why this does not take a second
+    one and deadlock against itself. Called with no budget — `--all` from the
+    command line, a list somebody assembled — this *is* the top of a pass, so it
+    takes the lock itself and declines to a report if another pass has it.
     """
     store = history if history is not None else HISTORY
     started_at = _now()
     results: list[RouteResult] = []
+    unaffordable: list[tuple[str, str]] = []
+
+    # See the docstring: a budget arriving from above brings the lock with it.
+    holds_the_pass = budget is None
+    pass_lock = lock if lock is not None else PassLock()
+    if holds_the_pass and not pass_lock.acquire():
+        return _declined(
+            started_at,
+            provider,
+            [(f"{query.route} {query.flight_date}", ANOTHER_PASS) for query in queries],
+            observer=observer,
+        )
+    allowance = budget if budget is not None else daily_budget(lock=pass_lock)
 
     owned = client is None
     session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
     try:
         for index, query in enumerate(queries):
+            if allowance.remaining() <= 0:
+                unaffordable = [
+                    (f"{later.route} {later.flight_date}", "over-budget")
+                    for later in queries[index:]
+                ]
+                logger.warning(
+                    "fare collection stopped on the day's budget: %d of %d departure(s) left",
+                    len(unaffordable),
+                    len(queries),
+                )
+                break
             if index:
                 await asyncio.sleep(gap_seconds)
+            # Before the request rather than after it. The budget protects how
+            # much this address has been seen to send, so a request recorded and
+            # then failing to leave is the error to make, not the reverse.
+            allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
             result, written = await _collect_one(session, query, provider, store)
             results.append(result)
             if observer is not None:
@@ -251,12 +364,15 @@ async def collect(
     finally:
         if owned:
             await session.aclose()
+        if holds_the_pass:
+            pass_lock.release()
 
     report = CollectionReport(
         started_at=started_at,
         finished_at=_now(),
         source=provider,
         results=results,
+        skipped=unaffordable,
     )
     logger.info(
         "fare collection finished: %d looked at, %d changed, %d failed",
@@ -310,6 +426,8 @@ async def collect_due(
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
     observer: PassObserver | None = None,
+    ledger: RequestLedger | None = None,
+    lock: PassLock | None = None,
 ) -> CollectionReport:
     """
     One pass over only the departures that are actually due.
@@ -334,54 +452,102 @@ async def collect_due(
     ordered by readiness and then by distance, which is 12.111 and is what the
     focus was jumping ahead of.
 
-    That truncation is reached by **watching more routes**, not by waiting.
-    `spend` below is a per-pass ceiling and one pass has as many candidates as
-    there are watched departures, so 300 / 31 is the whole of it: nine routes
-    never truncate and ten always can. Measured in `due_now`'s docstring, where
-    the ordering it decides lives.
+    **`budget` is the day's ceiling and no longer the pass's.** It used to be
+    both: `daily_request_budget()` was handed straight to `due_now` as a
+    per-pass cap and nothing carried spend from one pass to the next, so a
+    scheduler running this every fifteen minutes gave ninety-six passes the
+    whole budget each and the day's total was bounded by nothing. What a pass
+    may spend is now the ceiling **less what the day has already spent**, read
+    off the ledger in `fare_budget`, and the truncation is unchanged in every
+    other respect — same `over-budget` reason, same nearest-first ordering
+    (12.111), same everything-is-reported contract (8.8, 8.41).
 
-    `spend` also falls back to `daily_request_budget()`, which is a day's
-    figure being used as a pass's. Nothing here or anywhere else carries spend
-    from one pass to the next, so the daily budget the name promises is not
-    actually enforced — a gap from 12.111, named here rather than fixed here.
+    So the truncation is now reached two ways rather than one. By **watching
+    more routes**, as before: a pass has as many candidates as there are watched
+    departures, thirty-one per month, so against a fresh 600 that is nineteen
+    routes before a single day is dropped. And by **the day filling up**, which
+    is new and is the point — the fifteenth pass of a day that has spent 600
+    polls nothing at all and says so, thirty-one times, by name.
+
+    **And it is the one pass on this address, which the ledger alone cannot make
+    true.** The lock is taken *before* the plan below rather than around the
+    ledger's append, because the append was never the dangerous part: two passes
+    starting together would each read a day with room in it, each size a whole
+    day's work against that, and each begin spending before either could see the
+    other. Taken here, the second finds it held and declines with every departure
+    named — a report, not an exception, because a cron firing while the owner
+    presses Collect is the ordinary case and not a fault.
     """
     store = history if history is not None else HISTORY
     moment = now if now is not None else datetime.now(UTC)
-    spend = budget if budget is not None else daily_request_budget()
+    started_at = _now()
 
     by_key, unreadable = expand(watched)
-    plan = due_now(
-        list(by_key),
-        store.last_checked(),
-        moment,
-        cadence=cadence,
-        budget=spend,
-    )
-
-    queries = [by_key[(d.origin, d.destination, d.flight_date)] for d in plan if d.ready]
-    # Settled before the first request rather than after the last, because a
-    # pass that now runs unattended has to be able to say what it is not going
-    # to do at the moment it starts — otherwise the only honest progress figure
-    # for the first four minutes is "unknown".
     skipped = [(what, "unreadable-month") for what in unreadable]
-    skipped += [(f"{d.route} {d.flight_date}", d.reason) for d in plan if not d.ready]
-    if observer is not None:
-        observer.planned(polling=len(queries), skipped=skipped)
 
-    report = await collect(
-        queries,
-        provider=provider,
-        history=store,
-        client=client,
-        gap_seconds=gap_seconds,
-        observer=observer,
-    )
+    pass_lock = lock if lock is not None else PassLock()
+    if not pass_lock.acquire():
+        return _declined(
+            started_at,
+            provider,
+            skipped
+            + [
+                (f"{origin}-{destination} {day}", ANOTHER_PASS)
+                for origin, destination, day in by_key
+            ],
+            observer=observer,
+        )
+
+    try:
+        allowance = daily_budget(
+            ceiling=budget if budget is not None else daily_request_budget(),
+            ledger=ledger,
+            now=moment,
+            lock=pass_lock,
+        )
+
+        plan = due_now(
+            list(by_key),
+            store.last_checked(),
+            moment,
+            cadence=cadence,
+            budget=allowance.remaining(),
+        )
+
+        queries = [by_key[(d.origin, d.destination, d.flight_date)] for d in plan if d.ready]
+        # Settled before the first request rather than after the last, because a
+        # pass that now runs unattended has to be able to say what it is not going
+        # to do at the moment it starts — otherwise the only honest progress figure
+        # for the first four minutes is "unknown".
+        skipped += [(f"{d.route} {d.flight_date}", d.reason) for d in plan if not d.ready]
+        if observer is not None:
+            observer.planned(polling=len(queries), skipped=skipped)
+
+        report = await collect(
+            queries,
+            provider=provider,
+            history=store,
+            client=client,
+            gap_seconds=gap_seconds,
+            observer=observer,
+            # Handing the allowance over is also what tells `collect` the lock is
+            # already held, so it does not take a second one against itself.
+            budget=allowance,
+        )
+    finally:
+        pass_lock.release()
+
     return CollectionReport(
         started_at=report.started_at,
         finished_at=report.finished_at,
         source=report.source,
         results=report.results,
-        skipped=skipped,
+        # The plan's skips, then anything the day ran out on while the pass was
+        # still running. Two lists because they are settled at two different
+        # moments and only the first one can be announced to an observer before
+        # the first request; joined here because a reader wants one answer to
+        # "what did this pass not do".
+        skipped=skipped + report.skipped,
     )
 
 
@@ -546,6 +712,9 @@ async def collect_calendars(
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
     observer: CalendarObserver | None = None,
+    budget: int | None = None,
+    ledger: RequestLedger | None = None,
+    lock: PassLock | None = None,
 ) -> CalendarReport:
     """
     One cheapest fare per departure date, out to the horizon, per city pair.
@@ -555,6 +724,44 @@ async def collect_calendars(
     actually watches are collected board by board elsewhere and are not skipped
     here — the curve is what makes the *other* eleven months visible, and having
     both is what lets a reader see that the month they picked is the dear one.
+
+    **These requests are counted, and until now they were not.** This function
+    took no budget at all. At today's daily cadence that is about 12 requests a
+    day and invisible; at an hourly refresh it would be ~350, more than the
+    whole ceiling, spent by the cheap pass on the far months while the boards
+    the reader is actually watching went unpolled. It shares the day's ledger
+    with the boards rather than getting an allowance of its own, because what
+    the budget bounds is one address and the upstream cannot tell the two passes
+    apart.
+
+    **What is counted is what was sent.** A pair costs two windows in the
+    ordinary case and up to twelve requests in the worst, because a refused far
+    end is walked back and asked for again (12.245) — measured, the real rate is
+    **2.43 requests per pair per day and not 2**. So the count is taken in
+    `_price_window`, one per attempt including every retry, rather than derived
+    from the window list, which is what a pass planned rather than what it did.
+
+    **A pair is begun only if the whole of it fits.** Two windows are one
+    observation of one year and half a curve is never stored (12.4), so a pair
+    that cannot afford its own window count is skipped whole, as `over-budget`,
+    before the first request. Watchlist order decides who goes short, which is
+    the order this pass already polls in — a curve spans every distance at once
+    and so has no nearest-first to sort by, unlike the boards.
+
+    **It takes a lock of its own and deliberately not the boards'.** The two
+    slots are a decision `calendar_job` already records and argues: a board pass
+    is minutes long over dozens of departures and a calendar pass is two
+    requests, so sharing one would make a route added mid-board-pass go without
+    the curve this exists to fetch immediately — and it would not queue for it,
+    it would decline. So what this closes is the calendar slot across processes,
+    which is a second calendar pass. Nothing about the boards changes and the
+    open question about a shared *queue* is left exactly where that module left
+    it. The day is still safe either way: only a board pass ever plans a whole
+    day, while this allots one request per window per pair, checks what is left
+    before each pair, and re-checks before every walk-back attempt.
+
+    A pass declined here reports every pair as `another-pass-is-running`, the
+    same word the boards use for every departure.
     """
     store = calendar if calendar is not None else CALENDAR
     moment = now if now is not None else datetime.now(UTC)
@@ -567,49 +774,92 @@ async def collect_calendars(
     for watch in watched:
         pairs.setdefault((watch.origin, watch.destination), watch.currency)
 
+    pass_lock = lock if lock is not None else PassLock(name=CALENDAR_LOCK_NAME)
+    if not pass_lock.acquire():
+        declined = [(f"{origin}-{destination}", ANOTHER_PASS) for origin, destination in pairs]
+        logger.info(
+            "a collection pass is already running; %d calendar(s) left to it", len(declined)
+        )
+        if observer is not None:
+            observer.planned(windows=0, skipped=list(declined))
+        return CalendarReport(
+            started_at=started_at,
+            finished_at=_now(),
+            source=provider,
+            results=[],
+            skipped=declined,
+        )
+
+    allowance = daily_budget(
+        ceiling=budget if budget is not None else daily_request_budget(),
+        ledger=ledger,
+        now=moment,
+        lock=pass_lock,
+    )
+
     windows = calendar_windows(moment)
     results: list[CalendarResult] = []
     skipped: list[tuple[str, str]] = []
 
-    # Which pairs are due, decided for all of them before any of them is
-    # collected. It used to be decided inside the loop, one pair at a time, and
-    # the move is what lets the pass state its own size before it spends a
-    # request — `CalendarObserver.planned` needs a denominator, and a plan that
-    # settles pair by pair is a denominator that grows while a bar is drawing
-    # against it. Nothing about the outcome changes: `due` reads the last check
-    # for one pair, and collecting a different pair cannot alter it.
-    due: list[tuple[tuple[str, str], str]] = []
-    for pair, currency in pairs.items():
-        if store.due(pair[0], pair[1], moment, every_minutes=every_minutes):
-            due.append((pair, currency))
-        else:
-            skipped.append((f"{pair[0]}-{pair[1]}", "not-due"))
-    if observer is not None:
-        observer.planned(windows=len(due) * len(windows), skipped=list(skipped))
-
-    owned = client is None
-    session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
-    spent = 0
     try:
-        for (origin, destination), currency in due:
-            if spent:
-                await asyncio.sleep(gap_seconds)
-            result = await _collect_calendar(
-                session,
-                origin,
-                destination,
-                currency,
-                windows,
-                provider,
-                store,
-                gap_seconds,
-                observer,
-            )
-            spent += result.requests
-            results.append(result)
+        # Which pairs are due, decided for all of them before any of them is
+        # collected. It used to be decided inside the loop, one pair at a time,
+        # and the move is what lets the pass state its own size before it spends
+        # a request — `CalendarObserver.planned` needs a denominator, and a plan
+        # that settles pair by pair is a denominator that grows while a bar is
+        # drawing against it. Nothing about the outcome changes: `due` reads the
+        # last check for one pair, and collecting a different pair cannot alter
+        # it.
+        #
+        # The day's allowance is allotted here too, for the same reason: a pair
+        # that cannot afford its own windows is a pair this pass is not going to
+        # poll, and a denominator that says otherwise is a bar drawing against
+        # work that will never happen. Allotted at the ordinary cost of a pair —
+        # one request per window — because that is the only figure knowable
+        # before the first answer; the walk-back can push a pair past its
+        # allotment and the guard in `_price_window` is what catches that.
+        due: list[tuple[tuple[str, str], str]] = []
+        allotted = 0
+        for pair, currency in pairs.items():
+            if not store.due(pair[0], pair[1], moment, every_minutes=every_minutes):
+                skipped.append((f"{pair[0]}-{pair[1]}", "not-due"))
+            elif allotted + len(windows) > allowance.remaining():
+                skipped.append((f"{pair[0]}-{pair[1]}", "over-budget"))
+            else:
+                allotted += len(windows)
+                due.append((pair, currency))
+        if observer is not None:
+            observer.planned(windows=len(due) * len(windows), skipped=list(skipped))
+
+        owned = client is None
+        session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
+        spent = 0
+        try:
+            for (origin, destination), currency in due:
+                if spent:
+                    await asyncio.sleep(gap_seconds)
+                result = await _collect_calendar(
+                    session,
+                    origin,
+                    destination,
+                    currency,
+                    windows,
+                    provider,
+                    store,
+                    gap_seconds,
+                    observer,
+                    allowance,
+                )
+                spent += result.requests
+                results.append(result)
+        finally:
+            if owned:
+                await session.aclose()
     finally:
-        if owned:
-            await session.aclose()
+        # Outside the session's own `finally`, so a pass that fell over while
+        # reading its own store — before a client existed — still lets the next
+        # one start rather than leaving it to time out as stale.
+        pass_lock.release()
 
     report = CalendarReport(
         started_at=started_at,
@@ -651,6 +901,7 @@ async def _price_window(
     provider: str,
     gap_seconds: float,
     observer: CalendarObserver | None = None,
+    budget: DailyBudget | None = None,
 ) -> tuple[list[CalendarPrice], int, FareError | None]:
     """
     One window's prices, narrowing the far end if the provider will not reach it.
@@ -663,6 +914,14 @@ async def _price_window(
     The window that comes back is the window that was answered, and the curve
     records its own `from`/`to`, so a horizon that fell short says so on disk
     instead of looking like a year nobody priced the end of.
+
+    **This is where a calendar request is counted, because this is where one is
+    sent.** The caller allotted a pair one request per window; the walk-back can
+    ask for up to five more, so the ceiling is checked again here, immediately
+    before each attempt. Running out mid-curve is reported as `budget-exhausted`
+    and the whole curve fails — the same treatment a refusal gets, and for the
+    same reason: half a year in the archive is a curve that stops in February
+    for a reason the file does not record.
     """
     requests = 0
     attempt_end = end
@@ -672,6 +931,16 @@ async def _price_window(
             if attempt_end <= start:
                 break
             await asyncio.sleep(gap_seconds)
+        if budget is not None and budget.remaining() <= 0:
+            return (
+                [],
+                requests,
+                FareError(
+                    "budget-exhausted",
+                    "The day's request budget ran out part way through this curve",
+                    route=f"{origin}-{destination}",
+                ),
+            )
         requests += 1
         # Announced before the wait for the answer rather than after it, which
         # is the only placement that helps: a request takes seconds and it is
@@ -679,6 +948,8 @@ async def _price_window(
         # afterwards would move the count at the moment the wait ended.
         if observer is not None:
             observer.requested()
+        if budget is not None:
+            budget.take(kind="calendar", what=f"{origin}-{destination} {start}..{attempt_end}")
         try:
             points = await fetch_calendar(
                 client,
@@ -724,6 +995,7 @@ async def _collect_calendar(
     store: FareCalendar,
     gap_seconds: float,
     observer: CalendarObserver | None = None,
+    budget: DailyBudget | None = None,
 ) -> CalendarResult:
     looked_at = _now()
     points = []
@@ -733,7 +1005,16 @@ async def _collect_calendar(
         if index:
             await asyncio.sleep(gap_seconds)
         window_points, spent, error = await _price_window(
-            client, origin, destination, currency, start, end, provider, gap_seconds, observer
+            client,
+            origin,
+            destination,
+            currency,
+            start,
+            end,
+            provider,
+            gap_seconds,
+            observer,
+            budget,
         )
         requests += spent
         if error is None:

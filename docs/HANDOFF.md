@@ -29,17 +29,39 @@ accumulating. This was the premise of the whole feature: no source sells a deep
 fare history, so it has to be built one day at a time starting now. It is not
 being built.
 
-**The daily budget is not enforced.** `daily_request_budget()` is spent as a
-_per-pass_ ceiling and nothing carries spend across passes, so the day's total is
-unbounded. Pre-existing, from decision 12.111. It matters most in combination
-with the item above: turning on a schedule without closing this is the only thing
-on this list that can affect someone outside this machine.
+**The daily budget is enforced now** — `a-day-is-what-the-budget-bounds`, S.39.
+It was spent as a _per-pass_ ceiling with nothing carrying across passes, so the
+day's total was unbounded and turning on a schedule without closing it was the
+only thing on this list that could affect someone outside this machine. Spend now
+accumulates in `.local-data/fares/spend/<day>.jsonl`, one line per request
+actually sent, and the horizon pass spends from the same ceiling instead of being
+uncounted. The default rose from 300 to 600, because the watchlist costs 442 a
+day and the busiest day this address has ever had was 329.
+
+**And two passes can no longer both plan a day** — `one-pass-at-a-time-is-a-file`,
+S.40. The ledger alone made the day's total right only in arrears: every pass
+re-reads it before every request, but two starting together each read a day with
+600 left and each size a whole day of work before either has written a line. The
+runner's single slot could not help, because it is one object in one process and
+a scheduled command is a second one. A pass now takes a lock file before it plans
+and gives it back when it is done; the second to arrive sends nothing and reports
+every departure as `another-pass-is-running`, which is not a failure and does not
+exit non-zero. A killed pass's lock is cleared by the next pass after five minutes
+of nobody touching it. There are two locks, one per slot, so a board pass and a
+calendar pass still overlap exactly as `calendar_job` decided they should — the
+shared-queue question that module leaves open is still open. The ledger also
+stops growing forever: a day file is kept ninety days.
+
+What is still open is the item above: **nothing is scheduled yet**, and creating
+the task is a decision for the owner rather than something an agent should do on
+their machine. Everything that was standing in the way of it is now closed.
 
 **Whether a manual press may override the cadence.** Recorded as open in 12.212.
 The recommendation from the measurement work: keep the cadence as the default and
 add a separately-named force. A press is now cheap to start and returns instantly,
 which makes it _easier_ to press and so more dangerous — one press is roughly a
-fifth of the day's budget.
+tenth of the day's budget, and since S.39 that budget is one the day is actually
+keeping, so a press spends against the scheduled passes rather than beside them.
 
 **The table and the chart use different clocks.** The flight table groups rows by
 _observation_ date; the chart above it plots _departure_ date. On screen the

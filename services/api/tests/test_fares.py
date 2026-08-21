@@ -1093,9 +1093,10 @@ def test_the_collect_endpoint_runs_the_schedule_rather_than_bypassing_it(monkeyp
 
     A press used to buy one request, and someone who has decided where to spend
     one should not be argued with by a cadence table. Under 12.110 the same
-    press buys up to thirty-one — a tenth of the day's budget per click — so it
-    runs the schedule and reports what it declined, which is what stops a press
-    that collected nothing from looking like a broken button.
+    press buys up to thirty-one — a twentieth of the day's budget per click, and
+    of a budget that is now spent across the whole day rather than restarted
+    every pass — so it runs the schedule and reports what it declined, which is
+    what stops a press that collected nothing from looking like a broken button.
     """
     _, fake = stub_pass(skipped=[("LIM-SCL 2027-03-01", "not-due")])
     monkeypatch.setattr(collection_job, "collect_due", fake)

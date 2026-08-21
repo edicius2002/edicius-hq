@@ -24,6 +24,15 @@ rather than starting a second one. That was already the honest behaviour and
 was previously not enforced anywhere: two rows pressed together really did run
 two loops.
 
+**This slot is one process's, and the other half is a file.** A scheduled
+command is a second process and this object cannot see it, so the runner alone
+would have answered a press with the running pass while a cron three seconds
+later started a second loop anyway. `PassLock` in `fare_budget` is the same rule
+written where both processes can read it, and `collect_due` takes it before it
+plans. Nothing here changes: a press that loses that lock still gets a pass
+back, still finishes, and reports every departure as `another-pass-is-running`
+rather than raising.
+
 **A pass that is still running still says what it is doing.** `planned` lands
 before the first request, so the progress document knows its own denominator
 from the start; every result is added as it arrives. A reader watching a

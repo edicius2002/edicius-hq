@@ -4,6 +4,8 @@ import { calendarAxis, type Bucket } from '@/features/airfare/lib/buckets';
 import {
   TAG_CHAR_WIDTH,
   TAG_PADDING,
+  axisPrice,
+  axisPriceSentence,
   clampToTrack,
   labelSpan,
   marginForPrices,
@@ -286,5 +288,88 @@ describe('marginForPrices', () => {
   it('is measured from the widest figure rather than chosen', () => {
     // 62 was chosen, and it was too small. This is `S/12,458.00` plus the gap.
     expect(marginForPrices(8)).toBe(84);
+  });
+});
+
+describe('axisPrice', () => {
+  const ours = [bucket('2026-08-17', 118, 142, 125), bucket('2026-08-18', 130, 160, 139, 2)];
+  const baseline = [bucket('2026-08-16', 90, 90, 90, 1), bucket('2026-08-18', 96, 96, 96, 1)];
+  const day = calendarAxis('day');
+  const at = (key: string, unsold: { key: string; label: string; count: number }[] = []) =>
+    axisPrice(readingAt(key, ours, baseline, day, unsold));
+
+  it('reads our own median wherever we have one', () => {
+    // The 18th has both. Ours is a median of real boards and it is the figure
+    // the solid line is drawn at, so pointing the axis anywhere else on a day
+    // we observed would be the chart preferring a worse number it holds.
+    expect(at('2026-08-18')).toEqual({ value: 139, source: 'ours' });
+  });
+
+  it('falls back to the provider’s baseline where we have none', () => {
+    // The 16th is the ordinary case rather than the edge: our archive starts
+    // the day a route is watched and the provider ships sixty days behind it,
+    // so most dates of this chart have no median at all. Before this the plate
+    // was simply absent across nearly the whole series.
+    expect(at('2026-08-16')).toEqual({ value: 90, source: 'baseline' });
+  });
+
+  it('has nothing to show where neither series reached the period', () => {
+    // 12.234, untouched. The only remaining candidate for a figure here would
+    // be the pointer's own height, which is what 12.245 removed.
+    expect(at('2026-08-19', [{ key: '2026-08-19', label: '08-19', count: 2 }])).toBeNull();
+    expect(axisPrice(null)).toBeNull();
+  });
+
+  it('never invents a middle out of the two, and never returns both', () => {
+    // Averaging them would be a third number nobody was quoted, and a second
+    // plate would not fit: the margin is 76 view units and the two series sit
+    // within a few pounds of each other on most days, so the plates would
+    // overlap exactly when the reader most needs to tell them apart.
+    const both = at('2026-08-18')!;
+    expect(both.value).toBe(139);
+    expect(both.value).not.toBe((139 + 96) / 2);
+  });
+});
+
+describe('axisPriceSentence', () => {
+  it('names the series, not just the figure', () => {
+    // The plate changes which series it reads from one day to the next, and a
+    // reader who hears only the number cannot tell that it did.
+    expect(axisPriceSentence({ value: 139, source: 'ours' }, 'USD')).toBe(
+      'Price axis shows our median, $139.00.',
+    );
+    expect(axisPriceSentence({ value: 96, source: 'baseline' }, 'USD')).toBe(
+      'Price axis shows the provider’s baseline, $96.00.',
+    );
+  });
+
+  it('says nothing at all where there is no plate to describe', () => {
+    expect(axisPriceSentence(null, 'USD')).toBe('');
+  });
+});
+
+/**
+ * The half of this module the departure chart reads, pinned where it is.
+ *
+ * Chart B imports exactly four things from here — `clampToTrack`,
+ * `marginForPrices`, `priceAxisTag` and `timeAxisTag` — and the price-axis
+ * readout added to chart A had to leave every one of them alone. The additions
+ * above are new exports and nothing else, and these are the numbers that say
+ * so: chart B's margin, its plate placement and its clamping are the values it
+ * was built against.
+ */
+describe('what the departure chart reads from here', () => {
+  it('still gets the same margin, plate and clamp it was built against', () => {
+    expect(marginForPrices(8)).toBe(84);
+    expect(priceAxisTag(76, '$139.00')).toEqual({ x: 24, width: 52, textX: 74, anchor: 'end' });
+    expect(timeAxisTag(400, '08-18', 84, 744)).toEqual({
+      x: 380,
+      width: 40,
+      textX: 400,
+      anchor: 'middle',
+    });
+    expect(clampToTrack(20, 16, 14, 236)).toBe(14);
+    expect(clampToTrack(140, 16, 14, 236)).toBe(132);
+    expect(clampToTrack(235, 16, 14, 236)).toBe(220);
   });
 });

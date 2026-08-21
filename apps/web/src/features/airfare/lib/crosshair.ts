@@ -150,6 +150,81 @@ export function readingSentence(reading: CrosshairReading, currency: string): st
   return `${parts.join('. ')}.`;
 }
 
+/* ------------------------------------------------ the price on the axis -- */
+
+/**
+ * Which of the two series a price on the axis came from.
+ *
+ * The chart draws two things that are both money and are not the same
+ * measurement: our own median, from however many boards we caught in that
+ * period, and the provider's daily baseline — one rounded integer, cheapest
+ * only, no airline and no departure time. A plate that prints a figure from
+ * either without saying which is a plate that changes meaning by the day and
+ * never mentions it.
+ */
+export type AxisPriceSource = 'ours' | 'baseline';
+
+/** A figure the price axis can name, and the series it was read from. */
+export type AxisPrice = { value: number; source: AxisPriceSource };
+
+/**
+ * The one price the axis plate shows: ours when we have it, the provider's when
+ * we do not.
+ *
+ * **Ours wins wherever it exists, and there is never a second plate.** Our
+ * median is a median of real boards we polled and it is the figure the solid
+ * line is drawn at, so where it exists it is the better answer and the axis
+ * would be lying by pointing anywhere else. Drawing both at once was rejected:
+ * two plates in a 76-unit margin overlap whenever the two series are close,
+ * which on this data is most days, and the reader is then looking at two prices
+ * with no way to tell which hairline belongs to which.
+ *
+ * The fallback exists because the alternative shipped and showed nothing. Our
+ * archive starts the day a route is watched and the provider ships sixty days
+ * behind it, so on most dates of chart A there is no median at all — the plate
+ * was absent across nearly the whole series, and a readout that is usually
+ * blank is one nobody learns to read. The baseline has a figure on nearly every
+ * date. It is a worse number and it is a real one.
+ *
+ * Null where neither series reached the period. That is the case 12.234 was
+ * written for and it is untouched: a period with nothing behind it still gets
+ * no horizontal hairline and no plate, because the only remaining source for
+ * one would be the pointer's own height.
+ */
+export function axisPrice(reading: CrosshairReading | null): AxisPrice | null {
+  if (reading === null) return null;
+  if (reading.ours !== null) return { value: reading.ours.middle, source: 'ours' };
+  if (reading.baseline !== null) return { value: reading.baseline, source: 'baseline' };
+  return null;
+}
+
+/**
+ * What to call each series in prose, so the words match the ink.
+ *
+ * Kept here rather than in the component because the live region, the readout
+ * strip and the chart's accessible name all have to say the same thing, and
+ * three string literals in three places is how they stop saying it.
+ */
+export const AXIS_PRICE_WORDS: Record<AxisPriceSource, string> = {
+  ours: 'our median',
+  baseline: 'the provider’s baseline',
+};
+
+/**
+ * The axis plate, said out loud.
+ *
+ * A separate sentence rather than a clause spliced into `readingSentence`,
+ * because the two answer different questions: that one reports the period, this
+ * one reports what the plate beside the reader's hairline currently is. A
+ * period with no figure at all draws no plate, and gets no sentence rather than
+ * a sentence about an absent plate — the reading itself already says the
+ * period holds nothing.
+ */
+export function axisPriceSentence(price: AxisPrice | null, currency: string): string {
+  if (price === null) return '';
+  return `Price axis shows ${AXIS_PRICE_WORDS[price.source]}, ${formatMoney(price.value, currency)}.`;
+}
+
 /**
  * Where a label pinned to a hairline starts, so the box stays inside the plot.
  *

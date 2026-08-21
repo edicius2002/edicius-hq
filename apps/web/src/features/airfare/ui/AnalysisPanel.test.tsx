@@ -371,6 +371,26 @@ describe('the controls that are gone', () => {
     expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
   });
 
+  it('opens on Flights seen, with its period switch already on screen', () => {
+    /*
+     * The chart a reader arrives to, pinned so it cannot drift back.
+     *
+     * Both halves matter and they are one decision. Opening on chart B is what
+     * `the-panel-opens-on-flights-seen` says; the switch being present at the
+     * first paint is what `period-switch-follows-its-chart` makes of that, and
+     * it is the half a reader notices — `a-watch-opens-on-its-own-month` seeds
+     * Month, and a control they cannot see is a choice made for them silently.
+     */
+    render(<Harness />);
+    expect(screen.getByTestId('days-chart-button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: MOVES })).toHaveAttribute('aria-pressed', 'false');
+    expect(chartName()).toBe('Flights seen');
+    expect(
+      screen.getByRole('group', { name: 'How much time one period covers' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('shows no period switch on chart A, in any form', () => {
     /*
      * The owner's rule, stated as flatly as they stated it: "How the price
@@ -384,6 +404,9 @@ describe('the controls that are gone', () => {
      * query catches a node that is present with neither.
      */
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     expect(
       screen.queryByRole('group', { name: 'How much time one period covers' }),
     ).not.toBeInTheDocument();
@@ -481,6 +504,9 @@ describe('how the price moved, on one axis and one period', () => {
     // doing rather than the panel's — it is a route's reading and outlives
     // both charts — and it is what makes this test say anything at all.
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     expect(screen.getByRole('img').getAttribute('aria-label')).toContain('by day');
 
     openDeparture();
@@ -496,6 +522,9 @@ describe('how the price moved, on one axis and one period', () => {
 
   it('still counts the same observation days after the switch has been moved', () => {
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     const before = screen.getByRole('img').getAttribute('aria-label');
     openDeparture();
     click('Month');
@@ -505,6 +534,9 @@ describe('how the price moved, on one axis and one period', () => {
 
   it('reads the price of the day under the crosshair rather than the pointer height', () => {
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     const chart = screen.getByRole('img');
     fireEvent.pointerMove(chart, { clientX: 744, clientY: 40 });
     const high = screen.getByTestId('price-tag-text').textContent;

@@ -131,6 +131,7 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
   const [route, setRoute] = useState<FareRoute | null>(ROUTE);
   const { view, setGranularity, setAnchor, setViewport } = useRouteView(
     route ? routeId(route) : null,
+    route?.month ?? null,
   );
   return (
     <>
@@ -213,9 +214,29 @@ function frameLabel(): string {
 }
 
 describe('the period the reader is on', () => {
+  it('opens a watch it has never read on the whole of its own month', () => {
+    /*
+     * `a-watch-opens-on-its-own-month`, at the level a reader meets it. The
+     * frame is March 2027 end to end — the month this watch is on — rather than
+     * the first of its thirty-one departure days, and the switch says so.
+     *
+     * The month is named in full rather than checked as "not a day", because
+     * the failure this is guarding against is landing on the *wrong* month: with
+     * no anchor the frame falls back to the earliest thing on the axis, which
+     * for this route is the booking horizon's August 2026.
+     */
+    render(<Harness />);
+    openDeparture();
+
+    expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
+    expect(frameLabel()).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
+    expect(chartName()).toBe('Flights seen');
+  });
+
   it('is still the ninth departure after a look at the price chart and back', () => {
     render(<Harness />);
     openDeparture();
+    click('Day');
     press('Next day', 8);
     expect(screen.getByText('9 / 31')).toBeInTheDocument();
 
@@ -231,20 +252,43 @@ describe('the period the reader is on', () => {
     // the periods — 12.143 — so the switch resolves it rather than reusing it.
     render(<Harness />);
     openDeparture();
+    click('Day');
     press('Next day', 8);
 
     click('Week');
     expect(frameLabel()).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
   });
 
-  it('goes back to the start when the reader opens a different watch', () => {
+  it('opens a different watch on its own month rather than where the last one was left', () => {
     render(<Harness />);
     openDeparture();
+    click('Day');
     press('Next day', 8);
     expect(screen.getByText('9 / 31')).toBeInTheDocument();
 
     click('Open another route');
-    expect(screen.getByText('1 / 31')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
+    expect(frameLabel()).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
+  });
+
+  it('gives the reader back the day they chose rather than reopening on the month', () => {
+    /*
+     * The test that stops `a-watch-opens-on-its-own-month` becoming a bug: the
+     * month is where a route with no reading *starts*, not a setting reapplied
+     * every time the route is opened. Walk to one departure day, look at another
+     * watch, come back — and the day is still there.
+     */
+    render(<Harness />);
+    openDeparture();
+    click('Day');
+    press('Next day', 8);
+
+    click('Open another route');
+    click('Back to the first route');
+
+    expect(screen.getByRole('button', { name: 'Day' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('9 / 31')).toBeInTheDocument();
+    expect(frameLabel()).toContain('on 09/03/2027, 00:00 to 23:59');
   });
 });
 
@@ -327,6 +371,26 @@ describe('the controls that are gone', () => {
     expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
   });
 
+  it('opens on Flights seen, with its period switch already on screen', () => {
+    /*
+     * The chart a reader arrives to, pinned so it cannot drift back.
+     *
+     * Both halves matter and they are one decision. Opening on chart B is what
+     * `the-panel-opens-on-flights-seen` says; the switch being present at the
+     * first paint is what `period-switch-follows-its-chart` makes of that, and
+     * it is the half a reader notices — `a-watch-opens-on-its-own-month` seeds
+     * Month, and a control they cannot see is a choice made for them silently.
+     */
+    render(<Harness />);
+    expect(screen.getByTestId('days-chart-button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: MOVES })).toHaveAttribute('aria-pressed', 'false');
+    expect(chartName()).toBe('Flights seen');
+    expect(
+      screen.getByRole('group', { name: 'How much time one period covers' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('shows no period switch on chart A, in any form', () => {
     /*
      * The owner's rule, stated as flatly as they stated it: "How the price
@@ -340,6 +404,9 @@ describe('the controls that are gone', () => {
      * query catches a node that is present with neither.
      */
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     expect(
       screen.queryByRole('group', { name: 'How much time one period covers' }),
     ).not.toBeInTheDocument();
@@ -437,6 +504,9 @@ describe('how the price moved, on one axis and one period', () => {
     // doing rather than the panel's — it is a route's reading and outlives
     // both charts — and it is what makes this test say anything at all.
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     expect(screen.getByRole('img').getAttribute('aria-label')).toContain('by day');
 
     openDeparture();
@@ -452,6 +522,9 @@ describe('how the price moved, on one axis and one period', () => {
 
   it('still counts the same observation days after the switch has been moved', () => {
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     const before = screen.getByRole('img').getAttribute('aria-label');
     openDeparture();
     click('Month');
@@ -461,6 +534,9 @@ describe('how the price moved, on one axis and one period', () => {
 
   it('reads the price of the day under the crosshair rather than the pointer height', () => {
     render(<Harness />);
+    // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
+    // reaching chart A is now setup rather than the starting state.
+    click(MOVES);
     const chart = screen.getByRole('img');
     fireEvent.pointerMove(chart, { clientX: 744, clientY: 40 });
     const high = screen.getByTestId('price-tag-text').textContent;
@@ -538,6 +614,7 @@ describe('where the reader may walk', () => {
     // periods and every one of them is a date the boards hold.
     render(<Harness />);
     openDeparture();
+    click('Day');
     press('Next day', 40);
     expect(screen.getByText('31 / 31')).toBeInTheDocument();
     expect(frameLabel()).toContain('on 31/03/2027, 00:00 to 23:59');

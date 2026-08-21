@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
-import type { Granularity } from '@/features/airfare/lib/buckets';
+import { periodBounds, type Granularity } from '@/features/airfare/lib/buckets';
 import type { Viewport } from '@/features/airfare/lib/viewport';
 
 /**
@@ -39,13 +39,44 @@ export type RouteView = {
 };
 
 /**
- * Where a route that has never been opened starts: a day at a time, the
- * earliest departure the boards hold, and nothing hidden.
+ * Where a route that has never been opened starts: the whole watched month, on
+ * the month it is watched for, and nothing hidden —
+ * `a-watch-opens-on-its-own-month`.
  *
- * `day` because it is the only period the collector's own cadence can fill, and
- * a route with one collection pass behind it has nothing a week could average.
+ * It was `day`, on the grounds that a day is the only period the collector's own
+ * cadence can fill and a route with one pass behind it has nothing a week could
+ * average. That argument was about chart A, and 12.242 took chart A off this
+ * value altogether — it is drawn by day and by nothing else now. What is left
+ * pointed at is chart B, whose x axis is *departure* time, and there the
+ * collector's cadence decides nothing: one pass brings back the board for every
+ * day of the month at once, so the month is full from the first pass and the day
+ * view is one thirty-first of what was collected.
+ *
+ * **The anchor is the first of that month, and it is not decoration.** An anchor
+ * is a departure day, and at month granularity `activeKey` uses it for one
+ * thing: `bucketKey` it and see whether that month is a period the frame can
+ * reach. Left null the frame falls back to the earliest thing on the axis, which
+ * is the boards' first day only *once the history request has landed* — before
+ * that the boards are empty and the earliest thing on the axis is the booking
+ * horizon's first month, which is this month rather than the watched one. So a
+ * null anchor opens a March watch on August and jumps to March a moment later.
+ * Naming the month up front is what stops that, and it costs nothing when the
+ * boards are there, because the first of the month buckets to the same month
+ * they do.
+ *
+ * The date comes from `periodBounds` rather than from `${month}-01`, because
+ * that function is this feature's single answer to "what does a key cover" and a
+ * second one here is how the chart and the table come to disagree about a
+ * period.
  */
-const DEFAULT_VIEW: RouteView = { granularity: 'day', anchor: null, viewport: null };
+export function openingView(month: string | null): RouteView {
+  return {
+    granularity: 'month',
+    // Null only for the no-route slot, which has no month to open on.
+    anchor: month === null ? null : periodBounds(month, 'month').from.slice(0, 10),
+    viewport: null,
+  };
+}
 
 /**
  * The slot used while no route is selected.
@@ -58,7 +89,29 @@ const DEFAULT_VIEW: RouteView = { granularity: 'day', anchor: null, viewport: nu
  */
 const NO_ROUTE = '';
 
-export function useRouteView(routeKey: string | null): {
+/**
+ * @param routeKey Which route's reading is wanted, or null for the empty page.
+ * @param month The month that route is watched for, which is what it opens on.
+ *
+ * `month` is a second argument rather than something read out of `routeKey` —
+ * which does carry it, `routeId` being `origin|destination|month`. Splitting a
+ * key back apart would make the opening month depend on the *format* of an id,
+ * so a change to how routes are named would silently move which month every
+ * watch opens on, with nothing in either file mentioning the other.
+ *
+ * **It seeds the record and never overwrites one.** The opening view is the
+ * fallback for a key this hook has not been written for; the moment the reader
+ * touches the period switch there is a record under that key and it is returned
+ * unchanged from then on, including after a walk to another watch and back. That
+ * is why this is a value read at lookup rather than an effect that writes: an
+ * effect would have to decide, every render, whether the record it is looking at
+ * is a reader's choice or its own seed, and would rewrite the reader's choice
+ * the first time it got that wrong.
+ */
+export function useRouteView(
+  routeKey: string | null,
+  month: string | null,
+): {
   view: RouteView;
   setGranularity: (granularity: Granularity) => void;
   setAnchor: (anchor: string | null) => void;
@@ -66,13 +119,14 @@ export function useRouteView(routeKey: string | null): {
 } {
   const [views, setViews] = useState<Record<string, RouteView>>({});
   const key = routeKey ?? NO_ROUTE;
-  const view = views[key] ?? DEFAULT_VIEW;
+  const opening = useMemo(() => openingView(month), [month]);
+  const view = views[key] ?? opening;
 
   const write = useCallback(
     (change: (held: RouteView) => RouteView) => {
-      setViews((held) => ({ ...held, [key]: change(held[key] ?? DEFAULT_VIEW) }));
+      setViews((held) => ({ ...held, [key]: change(held[key] ?? opening) }));
     },
-    [key],
+    [key, opening],
   );
 
   /*

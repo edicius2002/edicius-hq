@@ -179,7 +179,23 @@ export function AnalysisPanel({
   onViewportChange,
   leg = null,
 }: AnalysisPanelProps) {
-  const [view, setView] = useState<ChartView>('moves');
+  /*
+   * The panel opens on chart B — `the-panel-opens-on-flights-seen`.
+   *
+   * It used to open on chart A because chart A was the older reading and the
+   * one that needed no choosing. What changed is what a reader arrives to
+   * answer: chart B draws the flights themselves against the departure dates
+   * of the month they are watching, which is the question the watchlist row
+   * beside it was pressed to ask. Chart A answers what the route has cost over
+   * time, which is a second question and is one press away.
+   *
+   * The period switch unfolds from chart B's button (`period-switch-follows-
+   * its-chart`), so opening here also means the switch is on screen from the
+   * first paint rather than after a press. That is the visible cost and it is
+   * wanted: `a-watch-opens-on-its-own-month` seeds the month, and a reader who
+   * cannot see the control cannot tell the month was chosen for them.
+   */
+  const [view, setView] = useState<ChartView>('days');
   const routeKey = route ? routeId(route) : null;
 
   /*

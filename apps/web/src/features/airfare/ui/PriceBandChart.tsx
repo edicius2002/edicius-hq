@@ -4,6 +4,9 @@ import type { Bucket, BucketAxis, UnsoldPeriod } from '@/features/airfare/lib/bu
 import { contiguousRuns, spanOf } from '@/features/airfare/lib/buckets';
 import { niceTicks } from '@/features/airfare/lib/scales';
 import {
+  AXIS_PRICE_WORDS,
+  axisPrice,
+  axisPriceSentence,
   clampToTrack,
   nearestBucket,
   marginForPrices,
@@ -335,7 +338,26 @@ export function PriceBandChart({
    * quoted. This sentence is where a reader who cannot see the plot learns what
    * the route actually cost, so it states the range the data has.
    */
-  const accessibleName = `${label}. ${ours.length} ${ours.length === 1 ? axis.unit.one : axis.unit.many} observed, from ${formatMoney(geometry.observed.low, currency)} to ${formatMoney(geometry.observed.high, currency)}.`;
+  /*
+   * And what the plate on the price axis is, in words rather than in ink.
+   *
+   * The plate reads one series on some dates and the other on the rest — see
+   * `axisPrice` — so a reader who cannot see which of the two treatments it is
+   * wearing needs the rule stated somewhere that does not move. Stated here
+   * because it is a property of the chart rather than of the period under the
+   * hairline: a name that rewrote itself on every pointer move would be a live
+   * region wearing an accessible name's clothes, and the live region below
+   * already says which series each individual reading came from.
+   *
+   * Only where there is a baseline to fall back to. On a chart drawn from our
+   * own observations alone the sentence describes a case that cannot arise, and
+   * a screen reader hears the accessible name in full before anything else.
+   */
+  const accessibleName =
+    `${label}. ${ours.length} ${ours.length === 1 ? axis.unit.one : axis.unit.many} observed, from ${formatMoney(geometry.observed.low, currency)} to ${formatMoney(geometry.observed.high, currency)}.` +
+    (baseline.length > 0
+      ? ` The price axis shows ${AXIS_PRICE_WORDS.ours} where we have one for that ${unit}, and ${AXIS_PRICE_WORDS.baseline} where we do not.`
+      : '');
 
   const hairX = active === null ? 0 : geometry.positions[active];
   /*
@@ -350,21 +372,41 @@ export function PriceBandChart({
    * a readout — move along the chart and the plate says what each day actually
    * cost.
    *
-   * Null where the period has no figure of ours — 12.234, and now the rule
-   * under a pointer too. The old fallback was the middle of the padded domain,
-   * which printed the halfway point of an invented range as currency; the
-   * pointer's own height is no better a source for it. Nothing is drawn: no
-   * horizontal hair, no price plate. The provider's baseline for that period is
-   * still named in the readout and in the live region, where it can be labelled
-   * as the provider's rather than mistaken for ours.
+   * **On a period with no median of ours it now sits on the provider's
+   * baseline, labelled as the provider's.** That is `axisPrice`'s rule and it
+   * is the one thing about this plate that has changed: the source is still a
+   * series, and the pointer's height is still not one of the candidates. Our
+   * archive is young and the provider ships sixty days behind it, so the median
+   * is missing on most dates of this chart — the plate was absent across nearly
+   * the whole series, which is a readout nobody learns to read. The baseline
+   * has a figure on nearly every date; it is the worse number and it is a real
+   * one, and it was already named in the readout and the live region. What is
+   * new is that it reaches the axis, and that the plate says whose it is.
+   *
+   * Still null where neither series reached the period — 12.234 in full, for
+   * the pointer and the keyboard alike. The old fallback there was the middle
+   * of the padded domain, which printed the halfway point of an invented range
+   * as currency; the pointer's own height is no better a source for it, and
+   * neither is anything else. Nothing is drawn: no horizontal hair, no plate.
    */
-  const hairPrice = reading?.ours ? reading.ours.middle : null;
-  const hairY = hairPrice === null ? null : geometry.y(hairPrice);
+  const hairPrice = axisPrice(reading);
+  const hairY = hairPrice === null ? null : geometry.y(hairPrice.value);
   const priceTagY = hairY === null ? 0 : clampToTrack(hairY, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
   const priceTag = priceAxisTag(
     VIEW.pad.left - PRICE_GAP,
-    hairPrice === null ? '' : formatMoney(hairPrice, currency),
+    hairPrice === null ? '' : formatMoney(hairPrice.value, currency),
   );
+  /*
+   * The plate wears the series it reads, in the grammar this chart already
+   * teaches — the solid accent line and its filled plate, the muted dashed
+   * baseline and a plate outlined in the same dash. Two words would say it
+   * better and there is no room for them: the margin is 76 view units, which
+   * `S/12,458.00` fills on its own. So the ink carries the attribution and the
+   * words carry it everywhere ink cannot be read — the accessible name states
+   * the rule, the live region names the series on every reading, and the
+   * readout under the plot names it too.
+   */
+  const fromBaseline = hairPrice?.source === 'baseline';
   const timeTag = timeAxisTag(
     hairX,
     reading?.label ?? '',
@@ -530,7 +572,9 @@ export function PriceBandChart({
                   x2={VIEW.width - VIEW.pad.right}
                   y1={hairY}
                   y2={hairY}
-                  className={styles.hair}
+                  className={`${styles.hair}${fromBaseline ? ` ${styles.hairBaseline}` : ''}`}
+                  data-testid="price-hair"
+                  data-source={hairPrice.source}
                 />
                 <rect
                   x={priceTag.x}
@@ -538,26 +582,43 @@ export function PriceBandChart({
                   width={priceTag.width}
                   height={TAG.height}
                   rx={3}
-                  className={styles.tag}
+                  className={`${styles.tag}${fromBaseline ? ` ${styles.tagBaseline}` : ''}`}
+                  data-testid="price-tag-plate"
+                  data-source={hairPrice.source}
                 />
                 <text
                   x={priceTag.textX}
                   y={priceTagY + TAG.baseline}
-                  className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}`}
+                  className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}${
+                    fromBaseline ? ` ${styles.tagTextBaseline}` : ''
+                  }`}
                   data-testid="price-tag-text"
+                  data-source={hairPrice.source}
                 >
-                  {formatMoney(hairPrice, currency)}
+                  {formatMoney(hairPrice.value, currency)}
                 </text>
+                {/*
+                  The dot where the two hairlines cross, so they meet on a mark
+                  rather than in mid-air. Ours is the filled accent ring the
+                  solid line already carries; the provider's is a hollow muted
+                  one, smaller, matching the dash it sits on. Which is drawn
+                  follows the plate rather than the data, because a period with
+                  a median of ours reads that median whether or not the provider
+                  reached it too — one crossing, one mark.
+                */}
+                {fromBaseline ? (
+                  <circle
+                    cx={hairX}
+                    cy={hairY}
+                    r={3.5}
+                    className={styles.markerBaseline}
+                    data-testid="baseline-marker"
+                  />
+                ) : (
+                  <circle cx={hairX} cy={hairY} r={4.5} className={styles.marker} />
+                )}
               </>
             )}
-            {reading.ours ? (
-              <circle
-                cx={hairX}
-                cy={geometry.y(reading.ours.middle)}
-                r={4.5}
-                className={styles.marker}
-              />
-            ) : null}
 
             <rect
               x={timeTag.x}
@@ -600,13 +661,25 @@ export function PriceBandChart({
                 ? `${formatMoney(reading.ours.low, currency)}–${formatMoney(reading.ours.high, currency)}`
                 : NO_VALUE}
             </span>
-            <span>
+            {/*
+              The figure the axis plate is showing is marked here rather than
+              only in the plate's own ink, because that is where a reader looks
+              to check what they just read off the axis. Both figures stay in
+              the row whichever is on the axis: the plate is a readout of one
+              of them, not a reason to hide the other.
+            */}
+            <span className={hairPrice?.source === 'ours' ? styles.onAxis : undefined}>
               median {reading.ours ? formatMoney(reading.ours.middle, currency) : NO_VALUE}
             </span>
-            <span>
+            <span className={fromBaseline ? styles.onAxis : undefined}>
               baseline{' '}
               {reading.baseline === null ? NO_VALUE : formatMoney(reading.baseline, currency)}
             </span>
+            {hairPrice === null ? null : (
+              <span className={styles.axisNote} data-testid="axis-source">
+                on the price axis: {AXIS_PRICE_WORDS[hairPrice.source]}
+              </span>
+            )}
             {reading.unsold > 0 ? (
               <span className={styles.absence}>
                 {reading.unsold} board{reading.unsold === 1 ? '' : 's'} with nothing on sale
@@ -621,7 +694,9 @@ export function PriceBandChart({
         period&rsquo;s figures.
       </p>
       <p id={status} className={styles.srOnly} role="status">
-        {reading === null ? '' : readingSentence(reading, currency)}
+        {reading === null
+          ? ''
+          : `${readingSentence(reading, currency)} ${axisPriceSentence(hairPrice, currency)}`.trim()}
       </p>
 
       {/*

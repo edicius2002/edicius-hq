@@ -101,8 +101,55 @@
   stroke-width: 2.5;
 }
 
+/*
+ * The crossing mark when the axis is reading the provider's line: thinner,
+ * smaller and muted, so it reads as a point on that line rather than as one of
+ * our observations. Our own points are 3-unit accent dots with a marker ring at
+ * 4.5, and a mark of that weight sitting on the dashed line would claim we
+ * observed a period we did not.
+ */
+.markerBaseline {
+  fill: var(--color-surface);
+  stroke: var(--color-muted);
+  stroke-width: 1.6;
+}
+
+/*
+ * The horizontal hair when it is resting on the provider's line, wearing that
+ * line's own dash rather than the crosshair's 3-3. It is a continuation of the
+ * dashed series across the plot, which is exactly what it is.
+ */
+.hairBaseline {
+  stroke: var(--color-muted);
+  stroke-dasharray: 5 4;
+  opacity: 0.7;
+}
+
 .tag {
   fill: var(--color-text);
+}
+
+/*
+ * The price plate when it is reading the provider's line rather than ours.
+ *
+ * Same grammar as the series themselves, one step up: `.middle` is a solid
+ * accent stroke and its plate is a solid fill, `.baseline` is a muted 5-4 dash
+ * and its plate is an outline in that same dash on the chart's own surface.
+ * The plate has room for a figure and nothing else — the margin is 76 view
+ * units and `S/12,458.00` fills it — so a word beside the number was never
+ * available, and treatment is the only attribution ink can carry here. Every
+ * reading that does not go through ink says it in words instead: the chart's
+ * accessible name, the live region, and the row under the plot.
+ *
+ * Declared after `.tag` deliberately. These are single-class selectors of equal
+ * specificity, so source order is what decides, and the same ordering guard the
+ * `.tagText` comment records applies unchanged.
+ */
+.tagBaseline {
+  fill: var(--color-surface);
+  stroke: var(--color-muted);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
 }
 
 /*
@@ -123,6 +170,16 @@
   font-family: var(--font-sans);
   font-size: 10px;
   fill: var(--color-surface);
+}
+
+/*
+ * On an outlined plate the label cannot stay `--color-surface`: that is the
+ * plate's own fill now, and the figure would be invisible. Muted is what the
+ * provider's line and the axis ticks are already drawn in, so the plate reads
+ * as one of them rather than as a broken version of ours.
+ */
+.tagTextBaseline {
+  fill: var(--color-muted);
 }
 
 .tagStart {
@@ -160,6 +217,24 @@
 
 .period,
 .hint {
+  color: var(--color-muted);
+}
+
+/*
+ * The figure that is currently on the price axis, marked in the row where a
+ * reader checks what they just read off it. Underlined rather than coloured or
+ * bolded: this row already spends colour on "muted means secondary", and both
+ * figures in it are equally real — one of them is simply the one the plate is
+ * showing.
+ */
+.onAxis {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+/* And the same fact spelled out, because an underline is not a word. */
+.axisNote {
   color: var(--color-muted);
 }
 

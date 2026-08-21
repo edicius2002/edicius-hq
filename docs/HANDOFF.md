@@ -49,10 +49,12 @@ sitting together they read as a contradiction. Which clock should govern the
 table is a product decision, deliberately left alone by every agent who touched
 it.
 
-**The price plate is absent across most of chart 1.** Now that the crosshair
-reads the series rather than the pointer's height, a young archive means there is
-no figure to report on most dates. That is the honest reading, but it may not be
-the reading anyone wants.
+**The price plate is absent across most of chart 1.** Answered, and it was not
+the reading anyone wanted: the plate falls back to the provider's baseline where
+we have no median of our own, and says which of the two it is showing
+(`the-plate-falls-back-to-the-provider`, `a-plate-wears-the-line-it-reads`). It
+still never reads the pointer's height, and a period neither series reached still
+draws nothing.
 
 **Filters survive a route change.** `FlightTable` is not keyed by route, so
 switching routes keeps a carrier filter that the new board may not contain — zero

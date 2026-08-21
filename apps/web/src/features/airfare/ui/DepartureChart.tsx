@@ -10,6 +10,11 @@ import {
 } from 'react';
 
 import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
+import {
+  airlineSearchUrl,
+  flightLinkLabel,
+  type FlightSearch,
+} from '@/features/airfare/lib/airlineSearch';
 import { boundsLabel, type Granularity } from '@/features/airfare/lib/buckets';
 import { collectedAtLabel } from '@/features/airfare/lib/calendarCurve';
 import {
@@ -136,7 +141,9 @@ const HELP =
   'with left or right moves the frame along it. The wheel and a drag do the same with a pointer. ' +
   'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
   'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
-  'plot does both.';
+  'plot does both. Where the airline that flies a mark has a booking search we can reach, that ' +
+  'mark is drawn with a coloured centre and the flight number in the line under the plot is a ' +
+  'link to it, which Tab reaches from here.';
 
 /**
  * How near a right-click has to land to count as a right-click *on* a mark.
@@ -212,11 +219,50 @@ type DepartureChartProps = {
   horizonLoading?: boolean;
   /** Why the horizon could not be read, where the request itself failed — 12.237. */
   horizonError?: Error | null;
+  /**
+   * Where these flights leave from and go to, and which country the origin is
+   * in — the three things a link out to an airline's own search needs and a
+   * mark on this plot does not carry.
+   *
+   * A `ScatterPoint` knows its carrier, its flight number and its departure day;
+   * it does not know the city pair, because the boards are one itinerary
+   * followed through the archive rather than a route, and the country is not in
+   * the archive at all — it comes off the airports table the page already holds.
+   * Null while either is unknown, which draws no link and no marker rather than
+   * a link into the wrong storefront.
+   *
+   * **Must be a stable object.** It is a dependency of the memo that builds the
+   * cloud, and a fresh literal each render would rebuild ~899 `<circle>`
+   * elements on every pointer move — the exact cost that memo exists to avoid.
+   */
+  leg?: { origin: string; destination: string; originCountry: string | null } | null;
 };
 
 /** Where the crosshair is: on one itinerary, or on one whole departure date. */
 type Reading =
   { kind: 'flight'; placed: PlacedPoint } | { kind: 'curve'; mark: CurveMark; index: number };
+
+type Leg = NonNullable<DepartureChartProps['leg']>;
+
+/**
+ * One mark plus the route it was found on, which together are what an airline's
+ * own search takes.
+ *
+ * The date is `point.day`, the calendar date the dot belongs to, and it is
+ * already a `YYYY-MM-DD` string cut off a wall-clock stamp — never a `Date`,
+ * because a 00:15 departure from Lima read in the reader's own offset would
+ * search the day before.
+ */
+function searchFor(point: ScatterPoint, leg: Leg | null): FlightSearch | null {
+  if (leg === null) return null;
+  return {
+    airline: point.airline,
+    origin: leg.origin,
+    destination: leg.destination,
+    date: point.day,
+    originCountry: leg.originCountry,
+  };
+}
 
 /**
  * What each departure date costs, drawn from whichever archive can answer for
@@ -264,6 +310,7 @@ export function DepartureChart({
   label,
   horizonLoading = false,
   horizonError = null,
+  leg = null,
 }: DepartureChartProps) {
   /*
    * The crosshair is this canvas's own state and the period is not — 12.170.
@@ -357,6 +404,17 @@ export function DepartureChart({
    * so what a test sees is what a reader sees.
    */
   const svg = useRef<SVGSVGElement | null>(null);
+  /*
+   * The line under the plot, held so the chart can tell "focus left" from
+   * "focus moved into the reading".
+   *
+   * Since the flight number in that line became a link, `Tab` out of the plot
+   * lands on it — and the chart's own `onBlur` cleared the crosshair, so the
+   * reading was gone before the reader could reach the anchor it had just drawn
+   * for them. A keyboard reader could only get there by pinning first, which is
+   * a thing nobody is told.
+   */
+  const readout = useRef<HTMLParagraphElement | null>(null);
   const latest = useRef({ view, frameSpan, write });
   useEffect(() => {
     latest.current = { view, frameSpan, write };
@@ -479,6 +537,34 @@ export function DepartureChart({
   const rail = useMemo(() => railLabels(shownDays, TRACK), [shownDays]);
 
   /*
+   * Which of the marks on screen can be reached at their own airline, by key.
+   *
+   * A set rather than a flag on each placed point, because linkability is not a
+   * property of the archive: it is a property of the archive *and this route*,
+   * and `placePoints` is arithmetic over a window that knows nothing about
+   * either. Cached on carrier and date inside the loop — a month of one route is
+   * four carriers over thirty-one days, so ~899 marks ask about ~124 distinct
+   * URLs and the rest are lookups.
+   */
+  const linkable = useMemo(() => {
+    const found = new Set<string>();
+    if (leg === null) return found;
+    const asked = new Map<string, boolean>();
+    for (const entry of shownPlaced) {
+      const { point } = entry;
+      const key = `${point.airline}|${point.day}`;
+      let reachable = asked.get(key);
+      if (reachable === undefined) {
+        const search = searchFor(point, leg);
+        reachable = search !== null && airlineSearchUrl(search) !== null;
+        asked.set(key, reachable);
+      }
+      if (reachable) found.add(point.key);
+    }
+    return found;
+  }, [shownPlaced, leg]);
+
+  /*
    * The cloud and the rings, held as elements rather than rebuilt each render.
    *
    * Measured on the scatter this replaces: every pointer move sets state, and
@@ -486,16 +572,49 @@ export function DepartureChart({
    * React walks all of them — 16.9 to 18.4 ms a move in jsdom against 4.3 to
    * 6.1 ms memoised, on exactly the same DOM. That is what keeps 12.12: SVG at
    * this size is not slow, re-creating it on every pointer event is.
+   *
+   * **A flight with a link is the same dot with a colour in the middle** — the
+   * owner's _"que en el grafico se vea como es los circulos pero con un color en
+   * el medio para distinguir de los demas"_. It is drawn as one circle and not
+   * as two stacked ones: `r` drops from 2.6 to 1.9 and a 1.4-wide muted stroke
+   * takes the difference, so the mark is the same 2.6 across as its neighbours,
+   * sits in the same grey ring, and carries a blue disc inside it. A second
+   * `<circle>` per linked mark would have been the obvious build and would have
+   * put ~880 more nodes on a plot whose node count is the one thing 12.12 asks
+   * to be watched.
+   *
+   * **The blue is the link's own colour, and that is the point of it.** The dot
+   * and the anchor in the readout are the same claim in two places, so a reader
+   * who has followed one link knows what every marked dot is offering.
+   *
+   * **Roughly 98% of the archive's offers carry it**, and that is recorded
+   * rather than discovered later: LATAM 2912, JetSMART 839 and Aerolíneas 205 of
+   * 4044 offers are linkable, and only Avianca's 88 are not, plus anything
+   * leaving a country outside Peru, Chile and Argentina. So this marker draws
+   * the normal state and the *bare* dot is the exception — which is what the
+   * owner asked for and is worth their knowing. Marking the ~2% instead is the
+   * same code with `!reachable` in `linkable` and the two styles swapped, and
+   * would read as "this one you cannot reach".
    */
   const cloud = useMemo(
     () => (
       <g className={styles.dots} aria-hidden="true" data-testid="flight-dots">
-        {shownPlaced.map((entry) => (
-          <circle key={entry.point.key} cx={entry.x} cy={entry.y} r={2.6} />
-        ))}
+        {shownPlaced.map((entry) => {
+          const linked = linkable.has(entry.point.key);
+          return (
+            <circle
+              key={entry.point.key}
+              cx={entry.x}
+              cy={entry.y}
+              r={linked ? 1.9 : 2.6}
+              className={linked ? styles.linked : undefined}
+              data-linked={linked ? 'true' : undefined}
+            />
+          );
+        })}
       </g>
     ),
-    [shownPlaced],
+    [shownPlaced, linkable],
   );
 
   const rings = useMemo(
@@ -858,6 +977,62 @@ export function DepartureChart({
     if (board[to]) setCursor({ kind: 'flight', placed: board[to] });
   };
 
+  /**
+   * The flight number in the line under the plot: a link where the carrier can
+   * be reached, plain text where it cannot.
+   *
+   * **This is where the owner asked for the link** — _"colocalo en AR 1281 ...
+   * como hipervinculo ... coloreado azul y subrayado"_ — and it replaces a
+   * muted `↗` in the flight table that worked and that they could not find.
+   *
+   * **The visible text overpromises and the accessible name does not.** `AR
+   * 1281` in link blue reads as a link to AR 1281; the destination is that
+   * carrier's own search filled in with the route and the date, and the reader
+   * matches their departure by the clock. That gap is wider than the arrow's
+   * was and is taken on purpose, so the truth is carried where a wrong reading
+   * would cost money: `flightLinkLabel` gives the anchor the name and the
+   * tooltip `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on
+   * 02/03/2027`, which starts with the words on screen (WCAG 2.5.3) and then
+   * says, in a verb, what pressing it actually does.
+   *
+   * **Nothing stands where there is no link.** Avianca and any origin outside
+   * the three countries with a loaded storefront get plain text — no marker, no
+   * greyed anchor, no tooltip explaining an absence.
+   */
+  const flightNameNode = (point: ScatterPoint) => {
+    const name = flightName(point);
+    const search = searchFor(point, leg);
+    const url = search === null ? null : airlineSearchUrl(search);
+    if (search === null || url === null) return <strong aria-hidden="true">{name}</strong>;
+    return (
+      <a
+        className={styles.link}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title={flightLinkLabel(name, search, point.airlineName)}
+        aria-label={flightLinkLabel(name, search, point.airlineName)}
+        /*
+          Focus leaving the link for somewhere that is neither the plot nor this
+          line takes the reading with it, which is the rule the chart already
+          keeps for its own blur. Focus leaving the document — the new tab this
+          link just opened — is deliberately not that: coming back to an empty
+          readout would look like the press had cleared the chart.
+        */
+        onBlur={(event) => {
+          if (pinned) return;
+          const to = event.relatedTarget as Node | null;
+          if (to === null) return;
+          if (svg.current?.contains(to) === true) return;
+          if (readout.current?.contains(to) === true) return;
+          setCursor(null);
+        }}
+      >
+        {name}
+      </a>
+    );
+  };
+
   return (
     <figure className={styles.figure}>
       <div className={styles.head}>
@@ -1030,8 +1205,15 @@ export function DepartureChart({
           that let go the moment their attention did would hold the reading for
           exactly as long as the crosshair already did.
         */
-        onBlur={() => {
-          if (!pinned) setCursor(null);
+        onBlur={(event) => {
+          if (pinned) return;
+          // Unless the focus is going *into* the reading. The flight number in
+          // the line below is now a link, and `Tab` from the plot is how a
+          // keyboard reader reaches it; clearing here would delete the link on
+          // the way to it.
+          const to = event.relatedTarget as Node | null;
+          if (to !== null && readout.current?.contains(to) === true) return;
+          setCursor(null);
         }}
       >
         {/*
@@ -1380,7 +1562,24 @@ export function DepartureChart({
         words are enough to tell a reader this row is waiting for them rather
         than broken.
       */}
-      <p className={styles.readout} aria-hidden="true">
+      {/*
+        The row itself is no longer `aria-hidden`, and each of its words is.
+
+        It carried the attribute on the paragraph, which was right while every
+        word in it was a duplicate of the `role="status"` sentence below —
+        hiding the container said each fact once. It stopped being right the
+        moment one of those words became a link: an interactive control inside
+        an `aria-hidden` subtree is focusable and unreadable at the same time,
+        which is worse than either, and it is the one control this change exists
+        to make findable.
+
+        So the hiding moved down a level. Every span and every `<strong>` here
+        is hidden individually, the sentence below still says all of it exactly
+        once, and the only node this row now puts in the accessible tree is the
+        anchor — which carries its own name and says something the status
+        sentence does not.
+      */}
+      <p className={styles.readout} ref={readout}>
         {/*
           The word, in the row the reader is actually reading. It goes first
           because it changes how everything after it should be read: what
@@ -1389,33 +1588,47 @@ export function DepartureChart({
           more item on it, so it costs no height — the same way `cheapest of the
           day` already appears and disappears at the other end of the line.
         */}
-        {pinned ? <span className={styles.flag}>pinned</span> : null}
+        {pinned ? (
+          <span className={styles.flag} aria-hidden="true">
+            pinned
+          </span>
+        ) : null}
         {reading === null ? (
-          <span className={styles.hint}>Point at the chart, or press an arrow key</span>
+          <span className={styles.hint} aria-hidden="true">
+            Point at the chart, or press an arrow key
+          </span>
         ) : reading.kind === 'flight' ? (
           <>
-            <strong>{flightName(reading.placed.point)}</strong>
-            <span className={styles.muted}>
+            {flightNameNode(reading.placed.point)}
+            <span className={styles.muted} aria-hidden="true">
               {reading.placed.point.airlineName ?? reading.placed.point.airline}
             </span>
-            <span>{pointTimeLabel(reading.placed.point, period)}</span>
-            <span className={styles.muted}>{stopsLabel(reading.placed.point.transfers)}</span>
-            <span className={styles.muted}>
+            <span aria-hidden="true">{pointTimeLabel(reading.placed.point, period)}</span>
+            <span className={styles.muted} aria-hidden="true">
+              {stopsLabel(reading.placed.point.transfers)}
+            </span>
+            <span className={styles.muted} aria-hidden="true">
               {formatDuration(reading.placed.point.durationMinutes)}
             </span>
-            <strong>{formatMoney(reading.placed.point.price, currency)}</strong>
+            <strong aria-hidden="true">{formatMoney(reading.placed.point.price, currency)}</strong>
             {reading.placed.point.cheapestOfDay ? (
-              <span className={styles.flag}>cheapest of the day</span>
+              <span className={styles.flag} aria-hidden="true">
+                cheapest of the day
+              </span>
             ) : null}
           </>
         ) : (
           <>
-            <strong>{formatFlightDate(reading.mark.day)}</strong>
-            <span className={styles.muted}>whole date, no departure time</span>
+            <strong aria-hidden="true">{formatFlightDate(reading.mark.day)}</strong>
+            <span className={styles.muted} aria-hidden="true">
+              whole date, no departure time
+            </span>
             {reading.mark.price === null ? (
-              <span className={styles.muted}>{absenceWords(reading.mark)}</span>
+              <span className={styles.muted} aria-hidden="true">
+                {absenceWords(reading.mark)}
+              </span>
             ) : (
-              <strong>{formatMoney(reading.mark.price, currency)}</strong>
+              <strong aria-hidden="true">{formatMoney(reading.mark.price, currency)}</strong>
             )}
           </>
         )}
@@ -1489,6 +1702,23 @@ export function DepartureChart({
       <figcaption className={styles.legend}>
         <span className={styles.keyDot} title="One dot is one itinerary, at the hour it departs">
           <i /> One itinerary
+        </span>
+        {/*
+          The coloured centre, named — because on this route it is on almost
+          every dot and a reader has to be able to find out what it means from
+          the chart rather than by pressing one.
+
+          Permanent like every entry beside it, and worded as what the *mark*
+          says rather than as what the reader can do: the dot is not the link,
+          the flight number under the plot is, and a legend reading "click to
+          book" would make the promise this whole feature is built around not
+          making.
+        */}
+        <span
+          className={styles.keyLinked}
+          title="This flight's airline can be searched for its route and date — the flight number in the line above the legend is the link"
+        >
+          <i /> Reaches its airline
         </span>
         <span
           className={styles.keyLine}

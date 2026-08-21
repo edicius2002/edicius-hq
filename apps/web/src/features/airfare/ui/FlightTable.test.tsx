@@ -409,7 +409,9 @@ describe('FlightTable', () => {
       <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
     );
 
-    const link = screen.getByRole('link', { name: 'Search LATAM for LIM to SCL on 16/10/2026' });
+    const link = screen.getByRole('link', {
+      name: 'LA 529 — Search LATAM for LIM to SCL on 16/10/2026',
+    });
     // The date is the flight's own, off `departureAt` and not off the snapshot,
     // and the storefront is the origin's — LIM is in Peru.
     expect(link).toHaveAttribute(
@@ -420,21 +422,44 @@ describe('FlightTable', () => {
     expect(link).toHaveAttribute('rel', 'noreferrer');
   });
 
-  it('never names the flight in the link, because the link cannot open it', () => {
+  it('makes the flight number itself the link, and draws no arrow beside it', () => {
     /*
-     * The whole scope of the feature, guarded where a reader meets it. The
-     * carrier's page is a list of that route's departures on that date; a name
-     * carrying `LA 529` would promise a filter nobody applied.
+     * The owner's report: the `↗` worked and could not be found. It was
+     * `--color-muted` at 0.7rem with `text-decoration: none`, so what replaces
+     * it is the one word in the row a reader is already looking at, drawn the
+     * way the web draws links.
      */
     render(
       <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
     );
 
-    const link = screen.getByRole('link', { name: /^Search LATAM/ });
-    expect(link).toHaveAccessibleName(expect.not.stringContaining('529'));
-    // And the flight number beside it is still plain text, not the anchor.
     const row = bodyRows().find((each) => within(each).queryByText('LA 529'))!;
-    expect(within(row).getByText('LA 529').tagName).not.toBe('A');
+    expect(within(row).getByText('LA 529').tagName).toBe('A');
+    // Nothing else in the cell — the arrow is gone rather than moved.
+    expect(within(row).getAllByRole('cell')[2].textContent).toBe('LA 529');
+    expect(row.textContent).not.toContain('↗');
+  });
+
+  it('names the flight in the link and still promises only a search', () => {
+    /*
+     * The whole scope of the feature, guarded where a reader meets it. The
+     * carrier's page is a list of that route's departures on that date, so the
+     * name must not read as "book LA 529" — and it does not: the verb is
+     * `Search` and its object is a carrier, a city pair and a date.
+     *
+     * The flight number leads it because the *visible* label is now the flight
+     * number, and WCAG 2.5.3 asks that an accessible name contain the words on
+     * screen. While the anchor was a bare glyph there were none to contain.
+     */
+    render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const link = screen.getByRole('link', { name: /LA 529/ });
+    expect(link).toHaveAccessibleName('LA 529 — Search LATAM for LIM to SCL on 16/10/2026');
+    expect(link).toHaveAccessibleName(expect.not.stringContaining('Book'));
+    // And a pointer resting on it is told exactly the same thing.
+    expect(link).toHaveAttribute('title', 'LA 529 — Search LATAM for LIM to SCL on 16/10/2026');
   });
 
   it('gives an Avianca flight no link at all rather than a guessed one', () => {
@@ -444,10 +469,10 @@ describe('FlightTable', () => {
 
     const row = bodyRows().find((each) => within(each).queryByText('AV 812'))!;
     expect(within(row).queryByRole('link')).toBeNull();
-    // And nothing stands in its place: no marker, no disabled affordance. About
-    // 98% of offers get a link, so a mark on the 2% that do not would be a
-    // decision taken on the old assumption that links would be rare.
+    // And nothing stands in its place: no marker, no greyed affordance, no
+    // tooltip explaining an absence. Plain text, as the number always was.
     expect(within(row).getByText('AV 812').textContent).toBe('AV 812');
+    expect(within(row).getByText('AV 812').tagName).not.toBe('A');
   });
 
   it('draws no links at all while the route or its country is unknown', () => {

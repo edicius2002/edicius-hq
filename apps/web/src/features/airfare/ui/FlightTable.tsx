@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from 'react';
 
 import {
   airlineSearchUrl,
-  searchLabel,
+  flightLinkLabel,
   type FlightSearch,
 } from '@/features/airfare/lib/airlineSearch';
 import type { Granularity } from '@/features/airfare/lib/buckets';
@@ -182,53 +182,80 @@ function TableHeading({ departure }: { departure: string | null }) {
 }
 
 /**
- * The way out to the airline's own booking search, beside the flight it was
- * found on — or nothing, where there is nowhere we know to send the reader.
+ * The flight number, which is the way out to the airline's own booking search
+ * wherever there is one — and plain text wherever there is not.
  *
- * **It sits beside `LA 191` and it is not `LA 191`.** The flight number stays
- * plain text and the link is its own small mark, because the two say different
- * things: the number names this itinerary, and the link opens a list of every
- * departure on that route that day, which the reader then matches by the clock.
- * Making the number itself the anchor would have given the link the accessible
- * name "LA 191" — a promise to open that flight, which no carrier here can
- * keep. `searchLabel` writes the name instead, and it starts with a verb.
+ * **The number is the anchor now, and the muted `↗` beside it is gone.** That
+ * mark was `color: var(--color-muted); font-size: 0.7rem; text-decoration:
+ * none` — a 14px grey arrow with no underline, which worked and which the owner
+ * could not find: _"quita esa flecha apagada de la tabla y en vez de eso
+ * colocalo en AR 1281 ... como hipervinculo"_. The fix for an invisible
+ * affordance is a visible one, so the link takes the one word in the row a
+ * reader is already looking at and is drawn the way the web draws links, in
+ * `--color-link` and underlined.
  *
- * **The scatter above deliberately has none of these.** Its ~899 marks are bare
+ * **The table keeps a link, and that is a decision rather than an oversight.**
+ * The owner pointed at the chart's readout, which is where the link now
+ * primarily lives; but the readout names exactly one flight — whichever the
+ * crosshair is on — so a table with no link would mean finding a dot in a cloud
+ * of ~899 before a row could reach its carrier, and would leave a keyboard
+ * reader walking an SVG to do it. Both places draw the same link in the same
+ * blue, so the two panels do not disagree about what a linkable flight looks
+ * like.
+ *
+ * **What that costs is that the visible text now overpromises.** `AR 1281` in
+ * link blue reads as a link to AR 1281, and the destination is a route-and-date
+ * search the reader matches by the clock — a bigger claim than the arrow made,
+ * taken deliberately, and answered where the answer is load-bearing:
+ * `flightLinkLabel` writes the accessible name and the tooltip, and it says
+ * `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on 02/03/2027`.
+ *
+ * **The scatter above still carries no anchors.** Its ~899 marks are bare
  * `<circle>` elements inside a chart that pans on a drag and tells a click from
  * a drag by how far the pointer travelled; an anchor on each of them would have
  * the browser's own link activation racing that disambiguation on every press.
- *
- * **No marker on the rows that have no link.** The owner asked for a dot in the
- * circle back when links were expected to be rare; with a route-and-date search
- * about 98% of the archive's offers get one, so a marker would be an almost-
- * always-on decoration, and whether to draw it is a decision to take with that
- * number in hand rather than on the old assumption.
+ * What the marks carry instead is a blue centre saying that this flight has a
+ * link, and the link itself is in the readout under the plot.
  *
  * A new tab, because the reader is mid-comparison: this table is one of four
  * panels about a route they are reading, and navigating the page away from it
  * throws the sort, the filters and the page number they set. `noreferrer` with
  * it as the standard guard on a cross-origin `_blank`.
  */
-function AirlineSearch({
-  search,
-  airlineName,
-}: {
-  search: FlightSearch;
-  airlineName: string | null;
-}) {
+function FlightName({ track, leg }: { track: FlightRow['track']; leg: FlightTableProps['leg'] }) {
+  const name = track.flightNumber ? `${track.airline} ${track.flightNumber}` : track.airline;
+  if (leg === null) return <>{name}</>;
+
+  const search: FlightSearch = {
+    airline: track.airline,
+    origin: leg.origin,
+    destination: leg.destination,
+    /*
+      The departure date off the wall clock by string, never through `Date` —
+      the same rule the departure cell keeps. A 00:15 departure from Lima read
+      in the reader's own offset would search the day before.
+    */
+    date: track.departureAt.slice(0, 10),
+    originCountry: leg.originCountry,
+  };
   const url = airlineSearchUrl(search);
-  if (url === null) return null;
-  const label = searchLabel(search, airlineName);
+  // Avianca, and any origin whose country has no storefront we have loaded:
+  // plain text, no marker and no greyed affordance. A link nobody has opened is
+  // a guess, and 2% of rows quietly reaching a 404 costs more than 2% reaching
+  // nothing.
+  if (url === null) return <>{name}</>;
+
+  const label = flightLinkLabel(name, search, track.airlineName);
   return (
     <a
-      className={styles.search}
+      className={styles.flightLink}
       href={url}
       target="_blank"
       rel="noreferrer"
       title={label}
       aria-label={label}
     >
-      <span aria-hidden="true">&#8599;</span>
+      {name}
     </a>
   );
 }
@@ -255,25 +282,7 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
       <td>{formatStamp(track.departureAt)}</td>
       <td>{track.airlineName ?? track.airline}</td>
       <td>
-        {track.flightNumber ? `${track.airline} ${track.flightNumber}` : track.airline}
-        {leg === null ? null : (
-          <AirlineSearch
-            airlineName={track.airlineName}
-            search={{
-              airline: track.airline,
-              origin: leg.origin,
-              destination: leg.destination,
-              /*
-                The departure date off the wall clock by string, never through
-                `Date` — the same rule the cell to the left keeps. A 00:15
-                departure from Lima read in the reader's own offset would search
-                the day before.
-              */
-              date: track.departureAt.slice(0, 10),
-              originCountry: leg.originCountry,
-            }}
-          />
-        )}
+        <FlightName track={track} leg={leg} />
       </td>
       <td>{stopsLabel(track.transfers)}</td>
       <td>{formatDuration(track.durationMinutes)}</td>

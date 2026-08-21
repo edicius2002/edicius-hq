@@ -335,37 +335,42 @@
 }
 
 /*
- * The link out to the airline's own booking search, beside the flight number it
- * was found on.
+ * The flight number as the way out to the airline's own booking search.
  *
- * Small and muted, and deliberately not allowed to set the Flight column's
- * width: the column is already sized by `LA 191`, and a mark at 0.7rem with a
- * margin on one side of it fits inside the room that number leaves. Rows with
- * no link — Avianca, and any origin whose country has no storefront — render no
- * anchor at all rather than a greyed one, so the column has one mark or none
- * and never a dead one.
+ * **Blue and underlined, which is the whole of the fix.** What stood here was a
+ * `↗` beside the number in `--color-muted` at 0.7rem with `text-decoration:
+ * none`, on the argument that an underline inside a run of tabular text would
+ * read as the number having become a link. The number *has* become the link, on
+ * the owner's instruction, so the argument has changed sides: the underline is
+ * now the thing that says so, and it is asked for by name. Colour alone would
+ * have been the same mistake in a brighter shade — a reader who cannot separate
+ * these two hues would be back to hunting.
  *
- * Colour on hover and on focus rather than an underline. The Flight column is a
- * run of tabular text, and an underline appearing inside it reads as the number
- * itself having become a link — which is the exact promise this mark is
- * separate from the number in order not to make.
+ * `--color-link` rather than `--color-accent`, because the accent already means
+ * "the cheapest thing here" on both charts on this page, and one colour saying
+ * two things is one of them unread. Its contrast is in `tokens.css`.
+ *
+ * Rows with no link — Avianca, and any origin whose country has no storefront we
+ * have loaded — render no anchor at all rather than a greyed one, so the column
+ * holds a live link or plain text and never a dead one.
+ *
+ * `0.15em` of underline offset keeps the rule clear of the descenders in a
+ * column that is otherwise all figures, and the column's width is unchanged: the
+ * anchor holds exactly the characters the cell already held.
  */
-.search {
-  margin-left: 0.4em;
-  color: var(--color-muted);
-  font-size: 0.7rem;
-  line-height: 1;
-  text-decoration: none;
-  vertical-align: baseline;
+.flightLink {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
-.search:hover,
-.search:focus-visible {
-  color: var(--color-accent);
+.flightLink:hover,
+.flightLink:focus-visible {
+  color: var(--color-link-strong);
 }
 
-.search:focus-visible {
-  outline: 2px solid var(--color-accent);
+.flightLink:focus-visible {
+  outline: 2px solid var(--color-link-strong);
   outline-offset: 2px;
   border-radius: 2px;
 }

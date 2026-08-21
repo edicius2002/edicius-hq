@@ -308,6 +308,34 @@
   fill-opacity: 0.45;
 }
 
+/*
+ * A flight whose airline can be reached: the same dot, with a colour in the
+ * middle — the owner's own description of what they wanted.
+ *
+ * One circle and not two. `r` is 1.9 in the markup rather than 2.6, and a
+ * 1.4-wide stroke takes the 0.7 back, so a marked mark is the same 2.6 across
+ * as an unmarked one and sits in the same grey ring; a second `<circle>` per
+ * link would have added ~880 nodes to a plot whose node count is the thing
+ * 12.12 asks to be watched.
+ *
+ * The fill is `--color-link` and that is deliberate rather than decorative: it
+ * is the colour of the anchor in the line under the plot, so the mark and the
+ * link are visibly one claim. Not the accent, which on this chart already means
+ * cheapest-of-date and is spoken for twice over.
+ *
+ * Nearly opaque where the plain dots are at 0.45. The stroke keeps the cloud's
+ * own alpha so density still reads through a stack of itineraries, but a blue
+ * that faded into the grey at the same alpha would be a marker nobody could
+ * find — which is the defect this whole change is fixing.
+ */
+.dots circle.linked {
+  fill: var(--color-link);
+  fill-opacity: 0.9;
+  stroke: var(--color-muted);
+  stroke-width: 1.4;
+  stroke-opacity: 0.45;
+}
+
 /* The shape the chart is for, in the accent, over the grey it sits in. */
 .rings circle {
   fill: none;
@@ -435,6 +463,37 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The flight number, where it is a link to the airline's own search.
+ *
+ * It replaces a `<strong>` and has to weigh the same, or the line would change
+ * shape depending on which flight the crosshair happened to land on — so the
+ * weight and the tabular figures come with it.
+ *
+ * Blue *and* underlined, both asked for by name. Colour alone was the previous
+ * arrangement's mistake in a different shade: the affordance this replaces was
+ * a muted arrow that the owner never found, and an underline is the one mark
+ * that says "link" without depending on the reader separating two hues.
+ */
+.readout .link {
+  color: var(--color-link);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.readout .link:hover,
+.readout .link:focus-visible {
+  color: var(--color-link-strong);
+}
+
+.readout .link:focus-visible {
+  outline: 2px solid var(--color-link-strong);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .muted,
 .hint {
   color: var(--color-muted);
@@ -493,6 +552,21 @@
   border-radius: 999px;
   background: var(--color-muted);
   opacity: 0.6;
+}
+
+/*
+ * The same donut the plot draws, at legend size: a muted ring with the link
+ * colour inside it. `box-sizing: border-box` so the border eats into the 9px
+ * rather than growing it, which is what makes this swatch the same construction
+ * as the mark rather than merely a similar-looking one.
+ */
+.keyLinked i {
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 2px solid var(--color-muted);
+  border-radius: 999px;
+  background: var(--color-link);
 }
 
 .keyLine i {

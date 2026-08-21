@@ -18,6 +18,27 @@
   --color-expense-soft: rgba(240, 141, 120, 0.13);
   --color-danger: #f08d78;
   --color-danger-soft: rgba(240, 141, 120, 0.13);
+  /*
+   * The one cool hue in a warm palette, and it is here because a link has to be
+   * recognisable as a link before it is recognisable as ours.
+   *
+   * Measured against what these links actually sit on, which is `Panel`'s own
+   * gradient rather than a token: it runs `#2d2721` to `#231e19`, over
+   * `--color-bg`. A web-standard `#0d6efd` is 3.28:1 at the light end of that
+   * gradient and 4.04:1 on the page — failing AA for body text everywhere a
+   * link appears. This is that blue lifted and pulled off full chroma: 6.91:1
+   * at the panel's lightest, 7.74:1 at its darkest and 8.52:1 on the page, so
+   * it clears AA by half again over the whole range and AAA over most of it.
+   * Its hue is about 205°, which is
+   * as far from `--color-accent`'s 38° as a link can get — the accent already
+   * means "the cheapest thing here" on two charts, and a link drawn in it would
+   * be the page saying one thing with one colour twice.
+   *
+   * `-strong` is hover and focus, brighter rather than a different hue: a link
+   * that changed colour under the pointer would be a second claim.
+   */
+  --color-link: #79b8e8;
+  --color-link-strong: #a9d2f2;
   --color-shadow: rgba(0, 0, 0, 0.28);
 
   --sidebar-width: 15rem;

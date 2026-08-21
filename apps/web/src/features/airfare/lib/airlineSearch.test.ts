@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   airlineSearchUrl,
+  flightLinkLabel,
   pointOfSale,
   searchLabel,
   type FlightSearch,
@@ -192,5 +193,29 @@ describe('searchLabel', () => {
 
   it('falls back to the IATA code where the archive has no carrier name', () => {
     expect(searchLabel(LIM_CUZ, null)).toBe('Search LA for LIM to CUZ on 12/09/2026');
+  });
+});
+
+describe('flightLinkLabel', () => {
+  it('leads with the words on screen and still promises only a search', () => {
+    /*
+     * Both halves are load-bearing and they pull opposite ways.
+     *
+     * The flight number is there because the link's *visible* text is now the
+     * flight number, and WCAG 2.5.3 asks that a control's accessible name
+     * contain what a reader can see on it — a name with no `LA 191` in it names
+     * a different control from the one on the page. It is safe to put there
+     * because of what follows it: the verb is still `Search` and its object is
+     * still a carrier, a city pair and a date, so nothing here says "book LA
+     * 191", which is the claim no engine behind these URLs can keep.
+     */
+    const label = flightLinkLabel('LA 191', LIM_CUZ, 'LATAM');
+    expect(label).toBe('LA 191 — Search LATAM for LIM to CUZ on 12/09/2026');
+    expect(label.startsWith('LA 191')).toBe(true);
+    expect(label.toLowerCase()).not.toContain('book');
+  });
+
+  it('carries whatever `searchLabel` says, including its fallback carrier', () => {
+    expect(flightLinkLabel('LA 191', LIM_CUZ, null)).toBe(`LA 191 — ${searchLabel(LIM_CUZ, null)}`);
   });
 });

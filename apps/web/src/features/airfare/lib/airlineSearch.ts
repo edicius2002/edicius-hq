@@ -254,3 +254,35 @@ export function searchLabel(search: FlightSearch, airlineName: string | null): s
   const carrier = airlineName ?? search.airline;
   return `Search ${carrier} for ${search.origin} to ${search.destination} on ${formatFlightDate(search.date)}`;
 }
+
+/**
+ * The same name with the flight in front of it, for the link whose *visible*
+ * text is the flight number.
+ *
+ * `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on 02/03/2027`, and
+ * both halves are load-bearing.
+ *
+ * **The flight is there because the visible label is.** WCAG 2.5.3 asks that a
+ * control's accessible name contain the words a reader can see on it, so a
+ * speech-input reader can say "click AR 1281" and hit the thing they are
+ * pointing at. While the link was a bare `↗` glyph there were no visible words
+ * to contain and `searchLabel` alone was correct; now that the number is the
+ * anchor, a name with no `AR 1281` in it names a different control from the one
+ * on screen.
+ *
+ * **And it is a label rather than a promise, because of what follows it.** The
+ * verb is still `Search`, its object is still a carrier, a city pair and a date,
+ * and nothing here says "book AR 1281" — which is the claim this module cannot
+ * keep and `.report` in `RouteList.module.css` refuses in general. The flight
+ * number is the reader's own place-marker for which row they pressed; the
+ * sentence after the dash is what pressing it does. That order matters: read
+ * out, it is the flight, a pause, then an honest account of a route-and-date
+ * search, so the last thing heard before the press is the smaller promise.
+ */
+export function flightLinkLabel(
+  flight: string,
+  search: FlightSearch,
+  airlineName: string | null,
+): string {
+  return `${flight} — ${searchLabel(search, airlineName)}`;
+}

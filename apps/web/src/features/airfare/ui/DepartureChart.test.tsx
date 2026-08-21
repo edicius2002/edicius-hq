@@ -1256,11 +1256,11 @@ describe('the chrome around the plot', () => {
     // The cut itself, asserted rather than described: entries that were
     // forty-eight words of explanation are names. The sentences are not lost —
     // each is the entry's `title` — and the test above reads two of them.
-    // Six since the horizon gained a carried-over mark, and the rule it is held
-    // to is the same one.
+    // Seven since a mark gained a coloured centre for "this flight's airline can
+    // be reached", and the rule each is held to is the same one.
     const { container } = chart();
     const entries = [...container.querySelectorAll('figcaption span')];
-    expect(entries).toHaveLength(6);
+    expect(entries).toHaveLength(7);
     for (const entry of entries) {
       expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
       expect(entry.getAttribute('title')).toBeTruthy();
@@ -1276,5 +1276,176 @@ describe('the chrome around the plot', () => {
     expect(reset).toHaveAttribute('title', 'Reset zoom');
     // Nothing to undo yet, so it is offered and disabled rather than absent.
     expect(reset).toBeDisabled();
+  });
+});
+
+/**
+ * The way out to the airline, where the owner asked for it.
+ *
+ * _"quita esa flecha apagada de la tabla y en vez de eso colocalo en AR 1281 ...
+ * como hipervinculo a AR1281 y que este coloreado azul y subrayado como
+ * hipervinculo y que en el grafico se vea como es los circulos pero con un color
+ * en el medio para distinguir de los demas"_ — the link is the flight number in
+ * the line under the plot, and the marks that have one say so with a coloured
+ * centre.
+ *
+ * What is under test is not the URL, which is `lib/airlineSearch`'s and is
+ * tested there. It is the three things a rendered chart decides: that the link
+ * is somewhere a reader can meet it, that its name says what it does rather
+ * than what its visible text implies, and that a mark with no link draws and
+ * says nothing at all.
+ */
+describe('reaching the airline from the chart', () => {
+  /** LIM is in Peru, which is what picks LATAM's storefront. */
+  const LEG = { origin: 'LIM', destination: 'SCL', originCountry: 'Peru' };
+
+  /** One reachable carrier and one that is not, on the same date. */
+  const BOARD = [
+    snapshot('2027-03-09', [
+      offer({ flightNumber: '4', departureAt: '2027-03-09T06:30', price: 195 }),
+      offer({
+        airline: 'AV',
+        airlineName: 'Avianca',
+        flightNumber: '812',
+        departureAt: '2027-03-09T19:55',
+        price: 260,
+      }),
+    ]),
+  ];
+
+  /** Put the crosshair on a drawn mark. */
+  function point(container: HTMLElement, at: SVGCircleElement) {
+    fireEvent.pointerMove(container.querySelector('svg')!, {
+      clientX: Number(at.getAttribute('cx')),
+      clientY: Number(at.getAttribute('cy')),
+    });
+  }
+
+  /** That board's two dots in clock order — LA 4 at 06:30, then AV 812. */
+  function board(container: HTMLElement) {
+    return dots(container).sort(
+      (a, b) => Number(a.getAttribute('cx')) - Number(b.getAttribute('cx')),
+    );
+  }
+
+  it('makes the flight number in the readout a link to that airline’s own search', () => {
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[0]);
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    expect(link.textContent).toBe('LA 4');
+    // The date is the mark's own departure date, taken off a wall-clock stamp
+    // by string: read through `Date` a 00:15 departure would search the day
+    // before.
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.latamairlines.com/pe/es/ofertas-vuelos?origin=LIM&outbound=2027-03-09T00%3A00%3A00.000Z&destination=SCL&adt=1&chd=0&inf=0&trip=OW&cabin=Economy&redemption=false&sort=RECOMMENDED',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('names the link after what it does, not after what its text implies', () => {
+    /*
+     * The tension this change accepts on purpose. `LA 4` drawn blue and
+     * underlined reads as a link to LA 4; the page it opens is a list of that
+     * route's departures on that date, matched by the clock. So the visible
+     * text overpromises and the accessible name is where the truth has to live
+     * — with the flight leading it, because WCAG 2.5.3 asks that a name contain
+     * the words on screen.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[0]);
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    expect(link).toHaveAccessibleName('LA 4 — Search LATAM for LIM to SCL on 09/03/2027');
+    expect(link).toHaveAttribute('title', 'LA 4 — Search LATAM for LIM to SCL on 09/03/2027');
+    expect((link.getAttribute('aria-label') ?? '').toLowerCase()).not.toContain('book');
+  });
+
+  it('puts the link in the accessible tree and every word beside it out of one', () => {
+    /*
+     * The defect this arrangement exists to avoid. The readout carried
+     * `aria-hidden` on the paragraph, which was right while every word in it
+     * duplicated the `role="status"` sentence below — and became a real fault
+     * the moment one of those words was a control, because a focusable node in
+     * an `aria-hidden` subtree is reachable by Tab and invisible to the thing
+     * doing the reading.
+     *
+     * So the hiding is per word now: the anchor is the only node this row puts
+     * in the tree, and the sentence below still says the fare exactly once.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[0]);
+
+    const readout = container.querySelector('p[class*="readout"]')!;
+    expect(readout.getAttribute('aria-hidden')).toBeNull();
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    expect(link.closest('[aria-hidden="true"]')).toBeNull();
+    const words = [...readout.querySelectorAll(':scope > span, :scope > strong')];
+    expect(words.length).toBeGreaterThan(0);
+    for (const word of words) expect(word.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('keeps the reading when focus moves from the plot into the link', () => {
+    /*
+     * Tab out of the plot is how a keyboard reader reaches the anchor, and the
+     * chart's own blur used to clear the crosshair — so the link was deleted on
+     * the way to it, and the only route through was to pin first, which nothing
+     * tells anybody.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const svg = container.querySelector('svg')!;
+    point(container, board(container)[0]);
+
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+    fireEvent.blur(svg, { relatedTarget: link });
+    expect(screen.getByRole('link', { name: /^LA 4 —/ })).toBeTruthy();
+
+    // And focus leaving both for somewhere else still takes it away.
+    fireEvent.blur(svg, { relatedTarget: document.body });
+    expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+  });
+
+  it('draws a coloured centre on the marks that have a link and on no others', () => {
+    /*
+     * The marker, and the number that makes it worth stating: LATAM 2912,
+     * JetSMART 839 and Aerolíneas 205 of 4044 offers are reachable and only
+     * Avianca's 88 are not, so this mark lands on roughly 98% of the archive
+     * and draws the normal state rather than the exception. Marked the other
+     * way round it would be the same set with this test inverted.
+     *
+     * Same overall size as a plain dot, by construction: `r` drops and a stroke
+     * takes the difference, so a marked mark is one node and not two.
+     */
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const [latam, avianca] = board(container);
+
+    expect(latam.getAttribute('data-linked')).toBe('true');
+    expect(avianca.getAttribute('data-linked')).toBeNull();
+    expect(Number(latam.getAttribute('r'))).toBeLessThan(Number(avianca.getAttribute('r')));
+  });
+
+  it('gives a carrier we cannot reach plain text and no mark', () => {
+    // Avianca is behind Akamai and was never loaded cold, so there is no URL to
+    // send anyone to. Nothing stands in its place — no greyed link, no marker.
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    point(container, board(container)[1]);
+
+    expect(container.textContent).toContain('AV 812');
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('draws no link and no marker while the route is unknown', () => {
+    // The chart is handed snapshots rather than a route, and the origin's
+    // country is not in the archive at all. Without both there is no storefront
+    // to pick, and a guessed one is a 404 in the reader's face.
+    const { container } = chart({ snapshots: BOARD, granularity: 'day' });
+    point(container, board(container)[0]);
+
+    expect(container.textContent).toContain('LA 4');
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(container.querySelector('[data-linked]')).toBeNull();
   });
 });

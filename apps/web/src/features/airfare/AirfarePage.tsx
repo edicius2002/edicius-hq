@@ -8,7 +8,7 @@ import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
-import { type Granularity } from '@/features/airfare/lib/buckets';
+import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
@@ -46,10 +46,6 @@ export function AirfarePage() {
   const [today] = useState(todayIso);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
-  // The granularity is the page's rather than the analysis panel's because the
-  // flight table under that panel is grouped by it too: two owners would let
-  // the chart and the table disagree about what a week is.
-  const [granularity, setGranularity] = useState<Granularity>('day');
 
   const watchlist = useFareRoutes(today);
   const airports = useAirports();
@@ -70,6 +66,21 @@ export function AirfarePage() {
   const selected: FareRoute | null =
     watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
   const selectedKey = selected ? routeId(selected) : null;
+
+  /*
+   * How this route was last read: its period, its place in the archive, and its
+   * zoom.
+   *
+   * Here rather than in the analysis panel because the flight table under that
+   * panel is grouped by the same period — two owners would let the chart and the
+   * table disagree about what a week is. Per route rather than per page because
+   * a watch is what the reader is comparing: opening a second one and coming
+   * back should leave the first as it was, which is a thing the old single
+   * granularity and the panel's own cleared-on-change anchor together could not
+   * do.
+   */
+  const { view: routeView, setGranularity, setAnchor, setViewport } = useRouteView(selectedKey);
+  const granularity = routeView.granularity;
 
   const history = useFareHistory(selected);
   // Beside the archive rather than inside the panel that draws it: the two are
@@ -358,6 +369,10 @@ export function AirfarePage() {
           curveError={calendar.error}
           granularity={granularity}
           onGranularityChange={setGranularity}
+          anchor={routeView.anchor}
+          onAnchorChange={setAnchor}
+          viewport={routeView.viewport}
+          onViewportChange={setViewport}
         />
       </Panel>
 

@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { FareRoute } from '@/features/airfare/data/fareRoutes';
-import type { Granularity } from '@/features/airfare/lib/buckets';
+import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
 import type {
   CalendarCurve,
@@ -115,16 +115,27 @@ const CURVE: CalendarCurve = {
 };
 
 /**
- * The page's half of the arrangement: the granularity is the page's, because
- * the flight table under this panel is grouped by it too.
+ * The page's half of the arrangement, which is now one hook.
+ *
+ * The granularity, the anchor and the zoom all belong to the page because the
+ * flight table under this panel is grouped by the first of them, and because a
+ * reading is a *route's* rather than a page's. Using the real `useRouteView`
+ * here rather than a `useState` of its own is deliberate: what these tests are
+ * about includes what survives a change of route, and a harness that held the
+ * state differently from the page would prove it about the harness.
  */
 function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
-  const [granularity, setGranularity] = useState<Granularity>('day');
   const [route, setRoute] = useState<FareRoute | null>(ROUTE);
+  const { view, setGranularity, setAnchor, setViewport } = useRouteView(
+    route ? routeId(route) : null,
+  );
   return (
     <>
       <button type="button" onClick={() => setRoute({ ...ROUTE, destination: 'CUZ' })}>
         Open another route
+      </button>
+      <button type="button" onClick={() => setRoute(ROUTE)}>
+        Back to the first route
       </button>
       <AnalysisPanel
         route={route}
@@ -132,8 +143,12 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
         baseline={BASELINE}
         curve={CURVE}
         curveLoading={false}
-        granularity={granularity}
+        granularity={view.granularity}
         onGranularityChange={setGranularity}
+        anchor={view.anchor}
+        onAnchorChange={setAnchor}
+        viewport={view.viewport}
+        onViewportChange={setViewport}
         {...props}
       />
     </>
@@ -259,12 +274,26 @@ describe('the controls that are gone', () => {
     expect(screen.queryByRole('button', { name: 'Watched month' })).not.toBeInTheDocument();
   });
 
-  it('keeps the period switch in place on both charts, so the head never moves', () => {
+  it('keeps the period switch in the layout on both charts, so the head never moves', () => {
+    // The switch folds away with chart A and the space it took does not. Beside
+    // a chart drawn by day and by nothing else it was a live control that moved
+    // nothing next to it, which reads as broken; removed from the layout
+    // instead, it would slide the two chart buttons under the hand pressing
+    // one. So it is held open and hidden, and both halves of that are asserted
+    // here — `hidden: true` finds the reserved strip, the plain query finds
+    // only what a reader can reach.
     render(<Harness />);
-    const group = () => screen.getByRole('group', { name: 'How much time one period covers' });
-    expect(group()).toBeInTheDocument();
+    const held = () =>
+      screen.getByRole('group', { name: 'How much time one period covers', hidden: true });
+    const reachable = () =>
+      screen.queryByRole('group', { name: 'How much time one period covers' });
+
+    expect(held()).toBeInTheDocument();
+    expect(reachable()).not.toBeInTheDocument();
+
     openDeparture();
-    expect(group()).toBeInTheDocument();
+    expect(held()).toBeInTheDocument();
+    expect(reachable()).toBeInTheDocument();
   });
 });
 
@@ -272,20 +301,31 @@ describe('how the price moved, on one axis and one period', () => {
   it('is drawn by day whatever the period switch is set to', () => {
     // A week bucket folds a run of daily figures into a median of medians, and
     // what this chart exists to show is that the fare moved.
+    //
+    // The switch now only reaches from chart B, so moving it means going there
+    // and coming back. That the period survives the round trip is the page's
+    // doing rather than the panel's — it is a route's reading and outlives
+    // both charts — and it is what makes this test say anything at all.
     render(<Harness />);
     expect(screen.getByRole('img').getAttribute('aria-label')).toContain('by day');
 
+    openDeparture();
     click('Week');
+    click(MOVES);
     expect(screen.getByRole('img').getAttribute('aria-label')).toContain('by day');
 
+    openDeparture();
     click('Month');
+    click(MOVES);
     expect(screen.getByRole('img').getAttribute('aria-label')).toContain('by day');
   });
 
   it('still counts the same observation days after the switch has been moved', () => {
     render(<Harness />);
     const before = screen.getByRole('img').getAttribute('aria-label');
+    openDeparture();
     click('Month');
+    click(MOVES);
     expect(screen.getByRole('img').getAttribute('aria-label')).toBe(before);
   });
 

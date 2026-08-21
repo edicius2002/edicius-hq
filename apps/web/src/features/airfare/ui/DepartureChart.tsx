@@ -1,4 +1,12 @@
-import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 
 import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
 import { boundsLabel, type Granularity } from '@/features/airfare/lib/buckets';
@@ -27,7 +35,9 @@ import {
   axisTicks,
   cheapestPath,
   cheapestPerDay,
+  clockLabel,
   dayBoundaries,
+  dayPlus,
   flightName,
   flightPoints,
   flightSentence,
@@ -49,6 +59,16 @@ import {
 import { stopsLabel } from '@/features/airfare/lib/flightTable';
 import { niceTicks } from '@/features/airfare/lib/scales';
 import { formatDuration } from '@/features/airfare/lib/series';
+import {
+  clampViewport,
+  fullViewport,
+  isFull,
+  panBy,
+  spanFactorForWheel,
+  visibleDays,
+  zoomAt,
+  type Viewport,
+} from '@/features/airfare/lib/viewport';
 import type { CalendarCurve, FareSnapshot } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
@@ -76,6 +96,10 @@ const VIEW: Plot = {
 };
 
 const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
+/** The two edges the frame is drawn between, and the width they leave. */
+const LEFT = VIEW.pad.left;
+const RIGHT = VIEW.width - VIEW.pad.right;
+const TRACK = RIGHT - LEFT;
 /** Where a departure date with no answer of any kind is marked, under the plot floor. */
 const RAIL_Y = PLOT_BOTTOM + 7;
 const TAG = { height: 16, top: PLOT_BOTTOM + 16, baseline: 11.5 };
@@ -93,6 +117,29 @@ const ANCHOR: Record<TagAnchor, string> = {
 
 const UNIT: Record<Granularity, string> = { day: 'day', week: 'week', month: 'month' };
 
+/**
+ * How far one keyboard press moves the frame, as a fraction of what is on
+ * screen.
+ *
+ * A quarter rather than a whole screen: a press that replaced everything would
+ * make the reader re-find their place on every one, and what they are doing
+ * with these keys is following something across the boundary. The wheel and the
+ * drag have no equivalent constant because the hand supplies its own step.
+ */
+const KEY_PAN = 0.25;
+
+/** And how much one press closes or opens the frame by. */
+const KEY_ZOOM = 1.6;
+
+/**
+ * How far the pointer must travel before a press counts as a drag.
+ *
+ * Without it every click is a one-pixel pan that clears the crosshair, so a
+ * reader who clicks a dot to hold their place loses the reading they clicked
+ * for. Four units is past the tremor and well inside the gap between two dots.
+ */
+const DRAG_SLOP = 4;
+
 type DepartureChartProps = {
   snapshots: FareSnapshot[];
   /** The booking horizon as last collected, or null where there is none yet. */
@@ -106,6 +153,19 @@ type DepartureChartProps = {
   /** Every period the reader can step to, for the counter beside the arrows. */
   keys: string[];
   onStep: (direction: -1 | 1) => void;
+  /**
+   * How much of the frame is on screen, or null for the whole of it.
+   *
+   * A prop rather than state here, and for 12.170's reason carried to a second
+   * value: this component is unmounted by the chart switch and remounted on
+   * every route change, and a reader who zoomed into one morning and looked at
+   * the price history should find that morning again when they come back. The
+   * crosshair is *not* held that way and still is not — a pointer position is
+   * not a place the reader chose to be.
+   */
+  viewport: Viewport | null;
+  /** Null where nothing is hidden, so "the whole frame" has one spelling. */
+  onViewportChange: (viewport: Viewport | null) => void;
   label: string;
   /** True while the horizon request is in flight, so "never collected" is not claimed early. */
   horizonLoading?: boolean;
@@ -158,6 +218,8 @@ export function DepartureChart({
   periodKey,
   keys,
   onStep,
+  viewport,
+  onViewportChange,
   label,
   horizonLoading = false,
   horizonError = null,
@@ -171,6 +233,10 @@ export function DepartureChart({
 
   const help = useId();
   const status = useId();
+  /** What the zoom has left on screen, announced rather than only drawn. */
+  const range = useId();
+  /** The clip the zoom draws inside — an id per instance, since two charts can be mounted. */
+  const clip = useId();
 
   const period = useMemo(
     () => (periodKey === null ? null : scatterWindow(periodKey, granularity)),
@@ -181,6 +247,80 @@ export function DepartureChart({
     [period, watched],
   );
   const source = frameSource(days);
+
+  /*
+   * The zoom, resolved against the frame that exists right now.
+   *
+   * Clamped here rather than trusted, because the stored viewport outlives the
+   * frame it was measured in: the reader who left a route zoomed into six hours
+   * of a week comes back to a frame the archive may have grown under, and a
+   * span wider than its own frame would draw the plot from off its own left
+   * edge. `null` means the whole frame, which is also what a reset writes back,
+   * so "nothing hidden" has exactly one spelling in the stored state.
+   */
+  const frameSpan = period?.spanMinutes ?? 0;
+  const view = useMemo(
+    () => clampViewport(viewport ?? fullViewport(frameSpan), frameSpan),
+    [viewport, frameSpan],
+  );
+  const zoomed = !isFull(view, frameSpan);
+
+  /*
+   * The one way the zoom is written, so "nothing hidden" has one spelling.
+   *
+   * A viewport that has come back to the whole frame is stored as `null` rather
+   * than as a pair of numbers that happen to equal it. Otherwise a reader who
+   * zooms in and back out leaves behind a stored range a rounding error short of
+   * the frame, and every later comparison — is this route zoomed, should the
+   * reset be offered — has to know about that error rather than reading a null.
+   */
+  const write = (next: Viewport) => {
+    onViewportChange(isFull(next, frameSpan) ? null : next);
+  };
+
+  /*
+   * The wheel is bound by hand rather than with `onWheel`, and that is not a
+   * style choice.
+   *
+   * React attaches `wheel` at the root as a **passive** listener, and
+   * `preventDefault` inside a passive listener is ignored — with a warning in
+   * the console and no other symptom. Bound through JSX the zoom would work
+   * perfectly and scroll the page out from under the chart at the same time,
+   * which reads as the chart running away rather than as a listener option.
+   *
+   * The anchor is `clientX` against `getBoundingClientRect`, never `offsetX`. A
+   * synthetic `WheelEvent` carries `offsetX` as 0, so a handler reading it
+   * anchors every scripted zoom at the left edge of the plot and sails off the
+   * frame — the same trap the map's wheel handler is still in, and the reason
+   * four verification attempts were lost to a map that looked broken and was
+   * not. Read this way a scripted wheel and a real one land in the same place,
+   * so what a test sees is what a reader sees.
+   */
+  const svg = useRef<SVGSVGElement | null>(null);
+  const latest = useRef({ view, frameSpan, write });
+  useEffect(() => {
+    latest.current = { view, frameSpan, write };
+  });
+
+  const drawn = period !== null;
+  useEffect(() => {
+    const node = svg.current;
+    if (node === null) return;
+
+    const onWheel = (event: WheelEvent) => {
+      const { view: held, frameSpan: frame, write: put } = latest.current;
+      if (frame <= 0 || event.deltaY === 0) return;
+      const box = node.getBoundingClientRect();
+      if (box.width === 0) return;
+      event.preventDefault();
+      const x = ((event.clientX - box.left) / box.width) * VIEW.width;
+      const anchor = (x - LEFT) / (TRACK || 1);
+      put(zoomAt(held, frame, spanFactorForWheel(event.deltaY, event.deltaMode), anchor));
+    };
+
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, [drawn]);
 
   /*
    * The boards, filtered to the dates the boards may speak for.
@@ -216,10 +356,45 @@ export function DepartureChart({
   );
 
   const placed = useMemo(
-    () => (period === null || span === null ? [] : placePoints(points, period, span, VIEW)),
-    [points, period, span],
+    () => (period === null || span === null ? [] : placePoints(points, period, span, VIEW, view)),
+    [points, period, span, view],
   );
   const line = useMemo(() => cheapestPerDay(points), [points]);
+
+  /*
+   * What the zoom has left on screen — and what it deliberately has not
+   * changed.
+   *
+   * **The price scale is built from the whole frame**, a few lines above, and
+   * that is the invariant this split exists to protect. A vertical scale
+   * rebuilt from the visible dots would make every dot jump as the reader
+   * panned, so a fare would sit at one height before the drag and another after
+   * it, and the one comparison this chart is for — is this departure dear or
+   * cheap — would be against a ruler that moves.
+   *
+   * **Everything a reader can point at, walk to, or hear read out is the
+   * visible set.** A crosshair on a dot that has just been panned off the plot
+   * resolves to nothing, which is the same rule the period step already keeps:
+   * the thing it was on is not on screen. The alternative is a hairline drawn
+   * over the price axis reporting a flight nobody can see.
+   *
+   * The *drawing* stays whole and is clipped. The cheapest-flight line has to
+   * run to the edge of the plot rather than stop at the last visible date, or
+   * the zoom would invent a gap in a series that has none.
+   */
+  const shown = useMemo(() => visibleDays(view, days.length, MINUTES_PER_DAY), [view, days.length]);
+  const shownDays = useMemo(
+    () => (shown === null ? days : days.slice(shown.from, shown.to + 1)),
+    [days, shown],
+  );
+  const shownPlaced = useMemo(
+    () => placed.filter((entry) => entry.x >= LEFT - 0.01 && entry.x <= RIGHT + 0.01),
+    [placed],
+  );
+  const shownMarks = useMemo(() => {
+    const dates = new Set(shownDays.map((day) => day.day));
+    return marks.filter((mark) => dates.has(mark.day));
+  }, [marks, shownDays]);
 
   /*
    * A departure date inside the *watched month* with no flight on it — 12.232.
@@ -235,7 +410,13 @@ export function DepartureChart({
   );
 
   const seams = useMemo(() => sourceSeams(days), [days]);
-  const rail = useMemo(() => railLabels(days, VIEW.width - VIEW.pad.left - VIEW.pad.right), [days]);
+  /*
+   * The rail names the archive answering for each stretch *on screen* rather
+   * than for the frame. Its words sit under the dates they cover, so a rail
+   * built from the whole frame would, under a zoom, put "flights, by hour"
+   * under a stretch the reader can see is a row of whole-date spans.
+   */
+  const rail = useMemo(() => railLabels(shownDays, TRACK), [shownDays]);
 
   /*
    * The cloud and the rings, held as elements rather than rebuilt each render.
@@ -249,25 +430,25 @@ export function DepartureChart({
   const cloud = useMemo(
     () => (
       <g className={styles.dots} aria-hidden="true" data-testid="flight-dots">
-        {placed.map((entry) => (
+        {shownPlaced.map((entry) => (
           <circle key={entry.point.key} cx={entry.x} cy={entry.y} r={2.6} />
         ))}
       </g>
     ),
-    [placed],
+    [shownPlaced],
   );
 
   const rings = useMemo(
     () => (
       <g className={styles.rings} aria-hidden="true" data-testid="cheapest-rings">
-        {placed
+        {shownPlaced
           .filter((entry) => entry.point.cheapestOfDay)
           .map((entry) => (
             <circle key={entry.point.key} cx={entry.x} cy={entry.y} r={4.2} />
           ))}
       </g>
     ),
-    [placed],
+    [shownPlaced],
   );
 
   /*
@@ -276,7 +457,35 @@ export function DepartureChart({
    * before would name an itinerary that is no longer drawn. Resolving to
    * nothing is the honest outcome — the thing it was on is not on screen.
    */
-  const reading = useMemo(() => resolve(cursor, placed, marks), [cursor, placed, marks]);
+  const reading = useMemo(
+    () => resolve(cursor, shownPlaced, shownMarks),
+    [cursor, shownPlaced, shownMarks],
+  );
+
+  /**
+   * The drag in progress, or nothing.
+   *
+   * `from` is the viewport's own start at the moment the press landed, and every
+   * move is measured against it rather than against the previous move. Summing
+   * deltas accumulates the rounding of each one, and the frame then fails to
+   * come back to where it started when the hand does — a drift that reads as the
+   * chart sliding on its own.
+   *
+   * `moved` is what separates a drag from a click: until the pointer has
+   * travelled `DRAG_SLOP` the press is still a click, the crosshair keeps
+   * tracking, and nothing pans.
+   *
+   * **Above the empty-frame return, with the rest of the hooks, and that is not
+   * tidiness.** It sat beside the handler that reads it, which is below a
+   * `return` this component takes whenever the route has nothing collected yet
+   * — so the very first render of a new route called one hook fewer than the
+   * render that followed its first pass, and React counts hooks by order. The
+   * symptom would not have been a bad drag; it would have been the chart
+   * throwing the moment data arrived.
+   */
+  const drag = useRef<{ pointer: number; clientX: number; from: number; moved: boolean } | null>(
+    null,
+  );
 
   const priced = points.length + marks.filter((mark) => mark.price !== null).length;
   const notes = horizonNote(days, curve, horizonLoading, horizonError, priced);
@@ -292,10 +501,10 @@ export function DepartureChart({
 
   const previous = keys.indexOf(period.key) > 0;
   const next = keys.indexOf(period.key) >= 0 && keys.indexOf(period.key) < keys.length - 1;
-  const ticks = axisTicks(period);
+  const ticks = axisTicks(period, view);
   const separators = dayBoundaries(period);
   const priceTicks = span === null ? [] : niceTicks(span.low, span.high);
-  const path = span === null ? '' : cheapestPath(points, period, span, VIEW);
+  const path = span === null ? '' : cheapestPath(points, period, span, VIEW, view);
   const caption = boundsLabel({ from: period.from, to: period.to });
 
   /*
@@ -305,7 +514,7 @@ export function DepartureChart({
    * with no price gets no plate at all rather than a number the reader's hand
    * chose.
    */
-  const hair = reading === null ? null : hairFor(reading, period, span);
+  const hair = reading === null ? null : hairFor(reading, period, span, view);
   const priceTagY =
     hair?.y === undefined ? 0 : clampToTrack(hair.y, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
   const priceTag = priceAxisTag(
@@ -327,6 +536,27 @@ export function DepartureChart({
     const y = ((event.clientY - box.top) / box.height) * VIEW.height;
 
     /*
+     * A drag moves the frame and does not move the crosshair. Reading both from
+     * one gesture would have the hairline chase the dots it is dragging past,
+     * and the readout under the chart would flicker through twenty itineraries
+     * on the way.
+     *
+     * The travel is measured in client pixels, which is the only unit a pointer
+     * actually moves in — converting to view units first would make the slop
+     * depend on how wide the panel happens to be.
+     */
+    const held = drag.current;
+    if (held !== null && held.pointer === event.pointerId) {
+      const travelled = event.clientX - held.clientX;
+      if (!held.moved && Math.abs(travelled) < DRAG_SLOP) return;
+      held.moved = true;
+      setCursor(null);
+      const fraction = ((travelled / box.width) * VIEW.width) / (TRACK || 1);
+      write(clampViewport({ start: held.from - fraction * view.span, span: view.span }, frameSpan));
+      return;
+    }
+
+    /*
      * Which date the pointer is over decides which question is being asked, and
      * that is a different snap on each side of the seam. A curve date is one
      * price for a whole column, so anywhere in the column is that date — a
@@ -335,15 +565,46 @@ export function DepartureChart({
      * in the same column, so there the nearest dot in two dimensions is the
      * only snap that can reach them all.
      */
-    const index = dayIndexAt(x, period, days.length);
+    const index = dayIndexAt(x, period, days.length, view);
     const day = days[index];
     if (day !== undefined && day.source === 'curve') {
-      const mark = marks.find((entry) => entry.day === day.day);
+      const mark = shownMarks.find((entry) => entry.day === day.day);
       if (mark) setCursor({ kind: 'curve', mark, index });
       return;
     }
-    const nearest = nearestPlaced(placed, x, y);
-    if (nearest !== null) setCursor({ kind: 'flight', placed: placed[nearest] });
+    const nearest = nearestPlaced(shownPlaced, x, y);
+    if (nearest !== null) setCursor({ kind: 'flight', placed: shownPlaced[nearest] });
+  };
+
+  /*
+   * A press starts a drag, and a drag is the only thing that ends it.
+   *
+   * The pointer is captured so that a hand which leaves the chart mid-drag keeps
+   * moving the frame instead of stranding it — panning to the last date means
+   * dragging past the edge of the plot, which is exactly when the events would
+   * otherwise stop arriving.
+   *
+   * Only a primary press. A right-click opens the context menu and a middle
+   * click is the platform's own scroll, and taking either would be this chart
+   * deciding what those buttons mean everywhere.
+   */
+  const startDrag = (event: PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return;
+    drag.current = {
+      pointer: event.pointerId,
+      clientX: event.clientX,
+      from: view.start,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const endDrag = (event: PointerEvent<SVGSVGElement>) => {
+    if (drag.current?.pointer !== event.pointerId) return;
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   };
 
   /*
@@ -356,13 +617,48 @@ export function DepartureChart({
    * date there is one number and nothing to walk through.
    */
   const walk = (event: KeyboardEvent<SVGSVGElement>) => {
+    /*
+     * The zoom on the keyboard, before the walk, because `Shift` with an arrow
+     * has to be read as a pan rather than as a walk with a modifier held.
+     *
+     * A wheel and a drag are the whole of this gesture for a hand, and a chart
+     * that can only be zoomed by one is a chart half the readers of this page
+     * cannot zoom at all. `+` and `-` are what every viewer uses and `0` is what
+     * every browser uses for "back to normal", so none of the three has to be
+     * learned.
+     *
+     * **A keyboard zoom anchors on the crosshair where there is one.** The
+     * reader has already said what they are looking at by walking to it, and
+     * closing the frame about the middle instead would carry it towards an edge
+     * — the same reason the wheel anchors on the pointer.
+     */
+    if (event.key === '+' || event.key === '=' || event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      const closer = event.key === '+' || event.key === '=';
+      const anchor = hair === null ? 0.5 : (hair.x - LEFT) / (TRACK || 1);
+      write(zoomAt(view, frameSpan, closer ? 1 / KEY_ZOOM : KEY_ZOOM, anchor));
+      return;
+    }
+    if (event.key === '0') {
+      event.preventDefault();
+      onViewportChange(null);
+      return;
+    }
+
     const horizontal = event.key === 'ArrowLeft' || event.key === 'ArrowRight';
     const vertical = event.key === 'ArrowUp' || event.key === 'ArrowDown';
+
+    if (horizontal && event.shiftKey) {
+      event.preventDefault();
+      write(panBy(view, frameSpan, event.key === 'ArrowRight' ? KEY_PAN : -KEY_PAN));
+      return;
+    }
+
     if (!horizontal && !vertical) return;
     // Otherwise the arrow scrolls the page out from under the chart being read.
     event.preventDefault();
 
-    const stops = walkable(days, line, marks, placed);
+    const stops = walkable(shownDays, line, shownMarks, shownPlaced);
     if (stops.length === 0) return;
 
     if (horizontal) {
@@ -380,7 +676,7 @@ export function DepartureChart({
     }
 
     if (reading === null || reading.kind !== 'flight') return;
-    const board = placed
+    const board = shownPlaced
       .filter((entry) => entry.point.day === reading.placed.point.day)
       .sort((a, b) => a.point.price - b.point.price);
     const at = board.findIndex((entry) => entry.point === reading.placed.point);
@@ -418,20 +714,72 @@ export function DepartureChart({
             </button>
           </div>
         ) : null}
+
+        {/*
+          The way back out of a zoom, beside the arrows that move the frame
+          because both are the same kind of control: where in the archive the
+          reader is looking.
+
+          Always rendered and disabled when there is nothing to undo, rather
+          than appearing with the first wheel notch. A control that arrives when
+          the reader zooms would reflow the head at the exact moment they are
+          watching the chart move, and a disabled button is the honest reading
+          anyway: this is a thing you can do, and there is currently nothing to
+          do it to.
+        */}
+        <div className={styles.zoom}>
+          <button
+            type="button"
+            onClick={() => onViewportChange(null)}
+            disabled={!zoomed}
+            data-testid="reset-zoom"
+          >
+            Reset zoom
+          </button>
+        </div>
       </div>
 
       <svg
+        ref={svg}
         className={styles.chart}
         viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
         role="img"
         tabIndex={0}
         aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption)}`}
-        aria-describedby={`${help} ${status}`}
+        aria-describedby={`${help} ${status} ${range}`}
+        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0"
+        data-zoomed={zoomed ? 'true' : undefined}
         onPointerMove={trackPointer}
-        onPointerLeave={() => setCursor(null)}
+        onPointerDown={startDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+        /*
+          A drag that leaves the chart is still a drag — the pointer is
+          captured, and panning to the last date means dragging past the edge of
+          the plot. Clearing the crosshair on the way out would be right for a
+          hand that has left and wrong for a hand that is still working.
+        */
+        onPointerLeave={() => {
+          if (drag.current === null) setCursor(null);
+        }}
         onKeyDown={walk}
         onBlur={() => setCursor(null)}
       >
+        {/*
+          What the zoom is allowed to hide.
+
+          Everything placed by a minute of the frame is drawn whole and clipped
+          here rather than filtered: the cheapest-flight line has to run to the
+          edge of the plot instead of stopping at the last visible date, or a
+          zoom would invent a gap in a series that has none. The box reaches
+          below the plot floor to take in the rail marks, which are placed by
+          date like everything else and would otherwise paint over the axis
+          words either side of the track.
+        */}
+        <clipPath id={clip}>
+          <rect x={LEFT} y={VIEW.pad.top} width={TRACK} height={RAIL_Y + 5 - VIEW.pad.top} />
+        </clipPath>
         {span === null
           ? null
           : priceTicks.map((value) => (
@@ -454,19 +802,20 @@ export function DepartureChart({
             ))}
 
         {/* A midnight between two dates, so the frame reads as dates and not as a smear. */}
-        {separators.map((offset) => (
-          <line
-            key={offset}
-            x1={xOf(offset, period, VIEW)}
-            x2={xOf(offset, period, VIEW)}
-            y1={VIEW.pad.top}
-            y2={PLOT_BOTTOM}
-            className={styles.separator}
-            aria-hidden="true"
-          />
-        ))}
+        <g clipPath={`url(#${clip})`}>
+          {separators.map((offset) => (
+            <line
+              key={offset}
+              x1={xOf(offset, period, VIEW, view)}
+              x2={xOf(offset, period, VIEW, view)}
+              y1={VIEW.pad.top}
+              y2={PLOT_BOTTOM}
+              className={styles.separator}
+              aria-hidden="true"
+            />
+          ))}
 
-        {/*
+          {/*
           The seam: where the boards stop and the curve starts, and with it
           where the axis stops being a clock. It runs from the top of the plot
           past the date labels and stops above the source rail — a statement
@@ -476,18 +825,19 @@ export function DepartureChart({
           and taken to the rail they crossed `flights, by hour` twice — found
           on a focused watch, before 12.260 stopped one being possible.
         */}
-        {seams.map((offset) => (
-          <line
-            key={offset}
-            x1={xOf(offset, period, VIEW)}
-            x2={xOf(offset, period, VIEW)}
-            y1={VIEW.pad.top}
-            y2={AXIS_BASELINE + 4}
-            className={styles.seam}
-            data-testid="source-seam"
-            aria-hidden="true"
-          />
-        ))}
+          {seams.map((offset) => (
+            <line
+              key={offset}
+              x1={xOf(offset, period, VIEW, view)}
+              x2={xOf(offset, period, VIEW, view)}
+              y1={VIEW.pad.top}
+              y2={AXIS_BASELINE + 4}
+              className={styles.seam}
+              data-testid="source-seam"
+              aria-hidden="true"
+            />
+          ))}
+        </g>
 
         {/* The floor the absence marks hang under, so the rail is a place. */}
         <line
@@ -501,7 +851,7 @@ export function DepartureChart({
         {ticks.map((tick) => (
           <text
             key={tick.offset}
-            x={xOf(tick.offset, period, VIEW)}
+            x={xOf(tick.offset, period, VIEW, view)}
             y={AXIS_BASELINE}
             className={`${styles.axis} ${styles.tagMiddle}`}
           >
@@ -529,79 +879,28 @@ export function DepartureChart({
         ))}
 
         {/*
+          Everything placed by a minute of the frame, clipped to what the zoom
+          has left on screen.
+        */}
+        <g clipPath={`url(#${clip})`}>
+          {/*
           A departure date inside the watched month with no flight on it, and
           which kind of nothing it is — 12.232. Under the plot floor, because a
           mark inside the plot at any height reads as a fare.
         */}
-        {absent.map((day) => (
-          <g
-            key={day.day}
-            className={styles.hole}
-            data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
-          >
-            <title>
-              {axisDayLabel(day.day)}:{' '}
-              {day.answered ? 'nothing on sale — the board came back empty' : 'never collected'}
-            </title>
-            {day.answered ? (
-              <rect
-                x={xOf(day.offset, period, VIEW) - 1.6}
-                y={RAIL_Y - 1.6}
-                width={3.2}
-                height={3.2}
-                className={styles.unsold}
-              />
-            ) : (
-              <circle
-                cx={xOf(day.offset, period, VIEW)}
-                cy={RAIL_Y}
-                r={2}
-                className={styles.unanswered}
-              />
-            )}
-          </g>
-        ))}
-
-        {/*
-          A curve date: one price for the whole date, drawn across the whole
-          date. Not a dot — a dot sits at an hour, and this number has none.
-        */}
-        {span === null
-          ? null
-          : marks.map((mark) =>
-              mark.price === null ? null : (
-                <g key={mark.day} className={styles.curveDay} data-testid="curve-day">
-                  <title>
-                    {formatFlightDate(mark.day)}: {formatMoney(mark.price, currency)} — the cheapest
-                    fare for the whole date, with no departure time
-                  </title>
-                  <line
-                    x1={xOf(mark.from, period, VIEW)}
-                    x2={xOf(mark.to, period, VIEW)}
-                    y1={yOf(mark.price, span, VIEW)}
-                    y2={yOf(mark.price, span, VIEW)}
-                  />
-                </g>
-              ),
-            )}
-
-        {/* A curve date with no price, on the rail, keeping the two absences apart. */}
-        {marks.map((mark) =>
-          mark.price !== null ? null : (
+          {absent.map((day) => (
             <g
-              key={mark.day}
+              key={day.day}
               className={styles.hole}
-              data-testid={mark.answered ? 'curve-unsold' : 'curve-unanswered'}
+              data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
             >
               <title>
-                {formatFlightDate(mark.day)}:{' '}
-                {mark.answered
-                  ? 'nothing on sale — the provider answered and had none'
-                  : 'never answered for — the booking horizon does not reach this date'}
+                {axisDayLabel(day.day)}:{' '}
+                {day.answered ? 'nothing on sale — the board came back empty' : 'never collected'}
               </title>
-              {mark.answered ? (
+              {day.answered ? (
                 <rect
-                  x={xOf(mark.centre, period, VIEW) - 1.6}
+                  x={xOf(day.offset, period, VIEW, view) - 1.6}
                   y={RAIL_Y - 1.6}
                   width={3.2}
                   height={3.2}
@@ -609,20 +908,77 @@ export function DepartureChart({
                 />
               ) : (
                 <circle
-                  cx={xOf(mark.centre, period, VIEW)}
+                  cx={xOf(day.offset, period, VIEW, view)}
                   cy={RAIL_Y}
                   r={2}
                   className={styles.unanswered}
                 />
               )}
             </g>
-          ),
-        )}
+          ))}
 
-        {path ? <path d={path} className={styles.cheapest} aria-hidden="true" /> : null}
+          {/*
+          A curve date: one price for the whole date, drawn across the whole
+          date. Not a dot — a dot sits at an hour, and this number has none.
+        */}
+          {span === null
+            ? null
+            : marks.map((mark) =>
+                mark.price === null ? null : (
+                  <g key={mark.day} className={styles.curveDay} data-testid="curve-day">
+                    <title>
+                      {formatFlightDate(mark.day)}: {formatMoney(mark.price, currency)} — the
+                      cheapest fare for the whole date, with no departure time
+                    </title>
+                    <line
+                      x1={xOf(mark.from, period, VIEW, view)}
+                      x2={xOf(mark.to, period, VIEW, view)}
+                      y1={yOf(mark.price, span, VIEW)}
+                      y2={yOf(mark.price, span, VIEW)}
+                    />
+                  </g>
+                ),
+              )}
 
-        {cloud}
-        {rings}
+          {/* A curve date with no price, on the rail, keeping the two absences apart. */}
+          {marks.map((mark) =>
+            mark.price !== null ? null : (
+              <g
+                key={mark.day}
+                className={styles.hole}
+                data-testid={mark.answered ? 'curve-unsold' : 'curve-unanswered'}
+              >
+                <title>
+                  {formatFlightDate(mark.day)}:{' '}
+                  {mark.answered
+                    ? 'nothing on sale — the provider answered and had none'
+                    : 'never answered for — the booking horizon does not reach this date'}
+                </title>
+                {mark.answered ? (
+                  <rect
+                    x={xOf(mark.centre, period, VIEW, view) - 1.6}
+                    y={RAIL_Y - 1.6}
+                    width={3.2}
+                    height={3.2}
+                    className={styles.unsold}
+                  />
+                ) : (
+                  <circle
+                    cx={xOf(mark.centre, period, VIEW, view)}
+                    cy={RAIL_Y}
+                    r={2}
+                    className={styles.unanswered}
+                  />
+                )}
+              </g>
+            ),
+          )}
+
+          {path ? <path d={path} className={styles.cheapest} aria-hidden="true" /> : null}
+
+          {cloud}
+          {rings}
+        </g>
 
         {hair ? (
           <g className={styles.crosshair} aria-hidden="true" data-testid="departure-crosshair">
@@ -731,7 +1087,10 @@ export function DepartureChart({
 
       <p id={help} className={styles.srOnly}>
         Left and right arrow keys move one departure date at a time; up and down move through that
-        date&rsquo;s board by price, where there is a board to move through.
+        date&rsquo;s board by price, where there is a board to move through. Plus and minus close
+        and open the frame around whatever the crosshair is on, zero returns to the whole period,
+        and shift with left or right moves the frame along it. The wheel and a drag do the same with
+        a pointer.
       </p>
       <p id={status} className={styles.srOnly} role="status">
         {reading === null
@@ -739,6 +1098,20 @@ export function DepartureChart({
           : reading.kind === 'flight'
             ? flightSentence(reading.placed.point, currency)
             : curveSentence(reading.mark, currency)}
+      </p>
+
+      {/*
+        What the zoom has left on screen, said out loud.
+        
+        A zoom is drawn and nothing else, so a reader who is not looking at the
+        plot has no way to know the frame has narrowed under them — and every
+        reading after it would be of a stretch they were never told about. Its
+        own region rather than a sentence added to the crosshair's, because the
+        two change on different gestures and one region would have each
+        interrupting the other.
+      */}
+      <p id={range} className={styles.srOnly} role="status">
+        {zoomed ? `Showing ${rangeWords(period, view)} of ${caption}.` : ''}
       </p>
 
       {/*
@@ -803,9 +1176,27 @@ export function DepartureChart({
 
 /* ------------------------------------------------------------- the helpers -- */
 
+/**
+ * The visible stretch in words, for the reader who is not looking at the plot.
+ *
+ * A date and a clock at each end, and the end read as the bound it is: a
+ * viewport starting at six with six hours in it is "06:00 to 12:00", which is
+ * how anyone would say it, rather than "to 11:59" — the honest last minute and
+ * the wrong words.
+ */
+function rangeWords(window: ScatterWindow, view: Viewport): string {
+  const start = window.from.slice(0, 10);
+  const at = (minutes: number) => {
+    const day = dayPlus(start, Math.floor(minutes / MINUTES_PER_DAY));
+    const clock = clockLabel(Math.round(minutes) % MINUTES_PER_DAY);
+    return day === null ? clock : `${axisDayLabel(day)} ${clock}`;
+  };
+  return `${at(view.start)} to ${at(view.start + view.span)}`;
+}
+
 /** Which date of the frame a horizontal position falls in. */
-function dayIndexAt(x: number, window: ScatterWindow, count: number): number {
-  const offset = offsetAt(x, window, VIEW);
+function dayIndexAt(x: number, window: ScatterWindow, count: number, view: Viewport): number {
+  const offset = offsetAt(x, window, VIEW, view);
   return Math.min(Math.max(Math.floor(offset / MINUTES_PER_DAY), 0), Math.max(count - 1, 0));
 }
 
@@ -846,6 +1237,7 @@ function hairFor(
   reading: Reading,
   window: ScatterWindow,
   span: ScatterSpan | null,
+  view: Viewport,
 ): { x: number; y?: number; price?: number; label: string; span?: { from: number; to: number } } {
   if (reading.kind === 'flight') {
     return {
@@ -855,7 +1247,7 @@ function hairFor(
       label: pointTimeLabel(reading.placed.point, window),
     };
   }
-  const x = xOf(reading.mark.centre, window, VIEW);
+  const x = xOf(reading.mark.centre, window, VIEW, view);
   const label = axisDayLabel(reading.mark.day);
   if (reading.mark.price === null || span === null) return { x, label };
   return {
@@ -864,8 +1256,8 @@ function hairFor(
     price: reading.mark.price,
     label,
     span: {
-      from: xOf(reading.mark.from, window, VIEW),
-      to: xOf(reading.mark.to, window, VIEW),
+      from: xOf(reading.mark.from, window, VIEW, view),
+      to: xOf(reading.mark.to, window, VIEW, view),
     },
   };
 }

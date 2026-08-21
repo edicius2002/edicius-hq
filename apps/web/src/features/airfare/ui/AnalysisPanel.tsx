@@ -28,6 +28,7 @@ import {
   stepKey,
   type WatchedRange,
 } from '@/features/airfare/lib/flightScatter';
+import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
@@ -114,6 +115,15 @@ type AnalysisPanelProps = {
   curveError?: Error | null;
   granularity: Granularity;
   onGranularityChange: (granularity: Granularity) => void;
+  /**
+   * The departure day chart B is anchored on, and where a route change restores
+   * it from — held per route by the page since the reading became a route's own.
+   */
+  anchor: string | null;
+  onAnchorChange: (anchor: string | null) => void;
+  /** How much of chart B's frame is on screen, or null for the whole of it. */
+  viewport: Viewport | null;
+  onViewportChange: (viewport: Viewport | null) => void;
 };
 
 /**
@@ -141,31 +151,28 @@ export function AnalysisPanel({
   curveError = null,
   granularity,
   onGranularityChange,
+  anchor,
+  onAnchorChange,
+  viewport,
+  onViewportChange,
 }: AnalysisPanelProps) {
   const [view, setView] = useState<ChartView>('moves');
   const routeKey = route ? routeId(route) : null;
 
   /*
-   * The departure day the chart is anchored on, and the route it means
-   * something for.
+   * The departure day the chart is anchored on comes from above now.
    *
-   * A day rather than an index into the periods — 12.143 — because the period
-   * switch rebuilds the periods under it: an index kept across a week → day
-   * flip points at the seventh day of the month instead of at the day being
-   * read, where a day survives the flip.
-   *
-   * The route travels with it because an anchor is only a day of *one* watch.
-   * The comparison is made during the render that notices, which is React's own
-   * answer to a prop the state depends on — an effect would paint the stale
-   * period first and then correct it.
+   * It was state here, paired with the route it belonged to and cleared on
+   * every change of route — the right answer while there was nothing to restore
+   * it *to*. A route that remembers how it was last read does not need its
+   * anchor cleared, it needs it looked up, so both the clearing and the
+   * route-tracking state have gone to `useRouteView` and this component takes
+   * the answer as a prop. It is still a *day* rather than an index into the
+   * periods, for 12.143's reason: the period switch rebuilds the periods under
+   * it, and an index kept across a week → day flip points at the seventh day of
+   * the month instead of at the day being read.
    */
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const [anchorRoute, setAnchorRoute] = useState(routeKey);
-  if (anchorRoute !== routeKey) {
-    setAnchorRoute(routeKey);
-    setAnchor(null);
-  }
-  const departureAnchor = anchorRoute === routeKey ? anchor : null;
+  const departureAnchor = anchor;
 
   /*
    * Chart A is drawn by day and by nothing else — 12.242.
@@ -237,7 +244,7 @@ export function AnalysisPanel({
     if (periodKey === null) return;
     const target = stepKey(keys, periodKey, direction);
     if (target === null) return;
-    setAnchor(anchorFor(target, granularity, boardDays));
+    onAnchorChange(anchorFor(target, granularity, boardDays));
   };
 
   /*
@@ -261,10 +268,16 @@ export function AnalysisPanel({
           {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
         </h2>
         {/*
-          Two switches, in the order the questions come: which chart, then how
-          much calendar one period covers. There is no third any more — the
-          labelling control and the zoom that used to sit between them were both
-          the reader being asked to answer something the page already knows.
+          One switch, and a second that belongs to half of it.
+          
+          The order is still the order the questions come in — which chart,
+          then how much calendar one period covers — but the second question is
+          only a question about chart B. Chart A is drawn by day and by nothing
+          else (12.242), so beside it the period switch was a live control that
+          did nothing to the thing it sat next to, and the reader's reading of
+          that was the correct one: it looks broken.
+          
+          So it now unfolds from chart B's own button, and folds away with it.
         */}
         <div className={styles.switches}>
           <div className={styles.switch} role="group" aria-label="Chart">
@@ -303,23 +316,47 @@ export function AnalysisPanel({
 
           {/*
             "How much time one period covers", not "Group observations by" —
-            12.205, and it now covers chart B and the flight table under this
-            panel rather than chart A. It is never inert: the table below is
-            grouped by it whichever chart is on screen, which is also why it
-            stays put instead of vanishing with chart A — a control that
-            disappeared on a chart switch would move the whole head.
+            12.205 — unfolded to the right of the button whose chart it moves.
+            
+            **The space it takes is reserved whether or not it is showing.** The
+            head is `space-between` and this strip is at its right edge, so a
+            group that left the layout would slide the two chart buttons under
+            the reader's hand at the exact moment they pressed one — the reflow
+            12.240 refused, arriving by the other door. Held open and hidden, the
+            two buttons cannot move a pixel, which is the same mechanism the
+            chart's own name already uses to change without moving (12.246).
+            
+            `visibility` rather than opacity alone, because a control the reader
+            cannot see must also be one Tab cannot reach and a screen reader does
+            not read. `inert` would say it once instead of three times and is not
+            safe to rely on yet.
+            
+            It is still never a lie about what it governs: the flight table below
+            this panel is grouped by the same period, and the table says so on
+            its own heading now rather than leaving this switch to imply it.
           */}
-          <div className={styles.switch} role="group" aria-label="How much time one period covers">
-            {GRANULARITIES.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={granularity === option.value}
-                onClick={() => onGranularityChange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+          <div
+            className={styles.periods}
+            data-open={view === 'days' ? 'true' : 'false'}
+            aria-hidden={view === 'days' ? undefined : true}
+          >
+            <div
+              className={styles.switch}
+              role="group"
+              aria-label="How much time one period covers"
+            >
+              {GRANULARITIES.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  tabIndex={view === 'days' ? undefined : -1}
+                  aria-pressed={granularity === option.value}
+                  onClick={() => onGranularityChange(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -351,6 +388,8 @@ export function AnalysisPanel({
           periodKey={periodKey}
           keys={keys}
           onStep={step}
+          viewport={viewport}
+          onViewportChange={onViewportChange}
           horizonLoading={curveLoading}
           horizonError={curveError}
           label={route ? `What each departure date costs for ${where}` : 'Fares by departure date'}

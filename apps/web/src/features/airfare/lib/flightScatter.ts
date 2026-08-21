@@ -7,6 +7,7 @@ import {
 import { flightKey } from '@/features/airfare/lib/flights';
 import { stopsLabel } from '@/features/airfare/lib/flightTable';
 import { formatDuration, formatStamp, latestPerDeparture } from '@/features/airfare/lib/series';
+import type { Viewport } from '@/features/airfare/lib/viewport';
 import type { FareSnapshot } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
@@ -421,9 +422,26 @@ export function spanOfPrices(prices: number[]): ScatterSpan | null {
   return { low: Math.max(0, low - margin), high: high + margin };
 }
 
-export function xOf(offset: number, window: ScatterWindow, plot: Plot): number {
+/**
+ * Where a minute of the frame is drawn.
+ *
+ * **The viewport is optional and its absence is the whole frame**, which is
+ * what every caller meant before there was a zoom. Written as a trailing
+ * parameter rather than as a second function because there is exactly one
+ * mapping from a minute to an x on this chart, and two of them is how the dots
+ * and the axis end up disagreeing about where a date is — the class of bug
+ * 12.60 records on the calendar side.
+ *
+ * A minute outside the viewport still gets an x, off the plot on one side or
+ * the other. That is deliberate: the cheapest-flight line has to run to the
+ * edge rather than stop at the last visible node, so the clipping is the
+ * chart's job and not this function's.
+ */
+export function xOf(offset: number, window: ScatterWindow, plot: Plot, view?: Viewport): number {
   const usable = plot.width - plot.pad.left - plot.pad.right;
-  return plot.pad.left + (offset / window.spanMinutes) * usable;
+  const start = view?.start ?? 0;
+  const span = view?.span ?? window.spanMinutes;
+  return plot.pad.left + ((offset - start) / (span || 1)) * usable;
 }
 
 /**
@@ -436,9 +454,11 @@ export function xOf(offset: number, window: ScatterWindow, plot: Plot): number {
  * pointer in the left margin onto the first date here would hide that from the
  * one place that can tell.
  */
-export function offsetAt(x: number, window: ScatterWindow, plot: Plot): number {
+export function offsetAt(x: number, window: ScatterWindow, plot: Plot, view?: Viewport): number {
   const usable = plot.width - plot.pad.left - plot.pad.right;
-  return ((x - plot.pad.left) / (usable || 1)) * window.spanMinutes;
+  const start = view?.start ?? 0;
+  const span = view?.span ?? window.spanMinutes;
+  return start + ((x - plot.pad.left) / (usable || 1)) * span;
 }
 
 export function yOf(price: number, span: ScatterSpan, plot: Plot): number {
@@ -453,10 +473,11 @@ export function placePoints(
   window: ScatterWindow,
   span: ScatterSpan,
   plot: Plot,
+  view?: Viewport,
 ): PlacedPoint[] {
   return points.map((point) => ({
     point,
-    x: xOf(point.offset, window, plot),
+    x: xOf(point.offset, window, plot, view),
     y: yOf(point.price, span, plot),
   }));
 }
@@ -502,6 +523,7 @@ export function cheapestPath(
   window: ScatterWindow,
   span: ScatterSpan,
   plot: Plot,
+  view?: Viewport,
 ): string {
   const line = cheapestPerDay(points);
   if (line.length < 2) return '';
@@ -515,7 +537,7 @@ export function cheapestPath(
       run
         .map(
           ({ point }, index) =>
-            `${index === 0 ? 'M' : 'L'}${xOf(point.offset, window, plot).toFixed(1)},${yOf(point.price, span, plot).toFixed(1)}`,
+            `${index === 0 ? 'M' : 'L'}${xOf(point.offset, window, plot, view).toFixed(1)},${yOf(point.price, span, plot).toFixed(1)}`,
         )
         .join(''),
     )
@@ -622,25 +644,95 @@ export function clockLabel(minutes: number): string {
  *
  * The rule is one sentence: below a week the axis is a clock, at a week and
  * above it is a calendar with the clock inside each day.
+ *
+ * **A zoom changes the density and never the vocabulary.** Handed a narrowed
+ * viewport the axis picks a step from what is *visible* rather than from the
+ * frame, because the alternative is the thing a zoom is supposed to fix: six
+ * hours of a month view carrying no label at all, since every fifth midnight
+ * fell off the plot. What a tick *says* still follows the frame — a day frame
+ * is a clock because its date is in the caption, a wider one is a calendar —
+ * with one addition that a zoom makes necessary. Zoomed inside a multi-day
+ * frame the clock is what the reader needs and the date is what they can lose,
+ * so the date is written at each midnight and the clock between them: the
+ * calendar appears exactly where the calendar changes.
+ *
+ * Only visible ticks are returned. The labels sit below the plot floor, outside
+ * whatever clips the marks, so one left in for the chart to hide would paint
+ * over the price axis.
  */
-export function axisTicks(window: ScatterWindow): AxisTick[] {
-  if (window.days === 1) {
+export function axisTicks(window: ScatterWindow, view?: Viewport): AxisTick[] {
+  const full = view === undefined || view.span >= window.spanMinutes - 0.5;
+  const start = window.from.slice(0, 10);
+
+  if (full) {
+    if (window.days === 1) {
+      const ticks: AxisTick[] = [];
+      for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += 180) {
+        ticks.push({ offset: minutes, label: clockLabel(minutes) });
+      }
+      return ticks;
+    }
+
+    const every = window.days <= 7 ? 1 : 5;
     const ticks: AxisTick[] = [];
-    for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += 180) {
-      ticks.push({ offset: minutes, label: clockLabel(minutes) });
+    for (let index = 0; index < window.days; index += every) {
+      const day = dayPlus(start, index);
+      if (day === null) continue;
+      ticks.push({ offset: index * MINUTES_PER_DAY, label: axisDayLabel(day) });
     }
     return ticks;
   }
 
-  const start = window.from.slice(0, 10);
-  const every = window.days <= 7 ? 1 : 5;
+  const from = view.start;
+  const to = view.start + view.span;
+
+  /*
+   * Two days is where the axis stops being able to be a calendar. Below it a
+   * calendar has at most two marks on screen and the reader is comparing hours;
+   * above it the clock ticks would be a picket fence.
+   */
+  if (view.span <= 2 * MINUTES_PER_DAY) {
+    const step = clockStep(view.span);
+    const ticks: AxisTick[] = [];
+    for (let minutes = Math.ceil(from / step) * step; minutes <= to; minutes += step) {
+      const into = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+      if (window.days > 1 && into === 0) {
+        const day = dayPlus(start, Math.round(minutes / MINUTES_PER_DAY));
+        ticks.push({ offset: minutes, label: day === null ? clockLabel(into) : axisDayLabel(day) });
+        continue;
+      }
+      ticks.push({ offset: minutes, label: clockLabel(into) });
+    }
+    return ticks;
+  }
+
+  const visible = Math.ceil(view.span / MINUTES_PER_DAY);
+  const every = Math.max(1, Math.ceil(visible / 7));
+  const first = Math.ceil(from / MINUTES_PER_DAY);
   const ticks: AxisTick[] = [];
-  for (let index = 0; index < window.days; index += every) {
+  for (let index = first; index * MINUTES_PER_DAY <= to && index < window.days; index += every) {
     const day = dayPlus(start, index);
     if (day === null) continue;
     ticks.push({ offset: index * MINUTES_PER_DAY, label: axisDayLabel(day) });
   }
   return ticks;
+}
+
+/**
+ * The coarsest clock step that still fits about eight labels across the track.
+ *
+ * A fixed list rather than a computed round number, because the steps a clock
+ * can honestly be read at are not arbitrary: a quarter, a half, an hour, then
+ * multiples of an hour that divide a day. A step of, say, 47 minutes would tick
+ * at 00:47 and 01:34 and be arithmetic rather than a clock.
+ *
+ * Eight is what the full day view already shows — 1,440 over three hours — so
+ * choosing the step this way reproduces that view exactly rather than
+ * approaching it.
+ */
+function clockStep(span: number): number {
+  const steps = [15, 30, 60, 120, 180, 360, 720];
+  return steps.find((step) => span / step <= 9) ?? 720;
 }
 
 /**

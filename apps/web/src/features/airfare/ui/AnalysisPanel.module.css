@@ -112,3 +112,61 @@
   font-size: 0.82rem;
   min-height: 3.9em;
 }
+
+/*
+ * The period switch, unfolded from chart B's button — and the space it takes
+ * whether or not it is unfolded.
+ *
+ * The grid is the mechanism, exactly as `.names` is: the switch occupies `1 / 1`
+ * and the cell is therefore as wide as the switch always, so the two chart
+ * buttons to its left cannot move when it appears. `.head` is
+ * `justify-content: space-between` and this strip sits at its right edge, so a
+ * group that left the layout would slide those buttons sideways under the hand
+ * that just pressed one.
+ *
+ * `visibility` and not opacity alone: a control the reader cannot see must also
+ * be one Tab cannot reach and a screen reader does not read. The transform is
+ * what makes it read as unfolding from the button rather than fading in on top
+ * of it, and it is anchored on the left edge for the same reason.
+ */
+.periods {
+  display: grid;
+  overflow: hidden;
+}
+
+.periods > * {
+  grid-area: 1 / 1;
+  transform-origin: left center;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.periods[data-open='false'] > * {
+  visibility: hidden;
+  opacity: 0;
+  transform: scaleX(0.7);
+  pointer-events: none;
+}
+
+.periods[data-open='true'] > * {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+}
+
+/*
+ * A reader who has asked for less motion gets the same reveal without the
+ * unfolding. The visibility still switches, because that is what makes the
+ * control reachable rather than decorative.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .periods > * {
+    transition: none;
+    transform: none;
+  }
+
+  .periods[data-open='false'] > * {
+    transform: none;
+  }
+}

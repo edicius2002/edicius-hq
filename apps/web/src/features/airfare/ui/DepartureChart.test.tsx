@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Granularity } from '@/features/airfare/lib/buckets';
 import { anchorFor, framePeriodKeys, RAIL_CHAR_WIDTH } from '@/features/airfare/lib/departureFrame';
 import { activeKey, departureDays, stepKey } from '@/features/airfare/lib/flightScatter';
+import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import type { CalendarCurve, CalendarPoint, FareOffer, FareSnapshot } from '@/shared/api/fares';
 
@@ -132,6 +133,10 @@ function Harness({
   ...rest
 }: Partial<Parameters<typeof DepartureChart>[0]>) {
   const [anchor, setAnchor] = useState<string | null>(null);
+  // The zoom is the panel's too, and for the same reason as the anchor: this
+  // component is remounted on every route change and a reader's zoom should
+  // outlive that.
+  const [viewport, setViewport] = useState<Viewport | null>(null);
   const boardDays = departureDays(snapshots);
   const keys = framePeriodKeys(boardDays, curve, granularity);
   const periodKey = activeKey(keys, granularity, anchor ?? boardDays[0] ?? null);
@@ -149,6 +154,8 @@ function Harness({
         const target = stepKey(keys, periodKey, direction);
         if (target !== null) setAnchor(anchorFor(target, granularity, boardDays));
       }}
+      viewport={viewport}
+      onViewportChange={setViewport}
       label="What each departure date costs for LIM to SCL departing in March 2027"
       {...rest}
     />

@@ -314,9 +314,9 @@ describe('the controls that are gone', () => {
     const shape = () => [head.textContent, head.querySelectorAll('button').length] as const;
     const before = shape();
 
-    // The switch is on the page, but never in this row — scoped rather than
-    // global, because it now exists on both charts and the claim here is only
-    // about where it is not.
+    // Never in this row, on either chart. Scoped to the head rather than global,
+    // because on chart B the switch does exist — one row further down — and the
+    // claim here is only about where it is not.
     expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
 
     openDeparture();
@@ -324,36 +324,57 @@ describe('the controls that are gone', () => {
     expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
   });
 
-  it('offers the period switch on both charts, in the corner of each', () => {
+  it('shows no period switch on chart A, in any form', () => {
     /*
-     * The owner's correction, and the half of `period-switch-is-in-its-chart`
-     * that had to change. Putting the switch in chart B's corner took it off
-     * chart A altogether, and a control that disappears when you change question
-     * is one you have to go looking for.
+     * The owner's rule, stated as flatly as they stated it: "How the price
+     * moved" must never show Week or Month. Not live, not inert, not reserved.
      *
-     * It is live on chart A even though chart A is drawn by day and by nothing
-     * else (12.242), because it has never only moved a plot: it decides the
-     * period the flight table below is grouped by, and the frame chart B will
-     * open on. What it must never be again is *absent*.
+     * Three ways it could come back and all three are checked. `queryByRole`
+     * catches a switch a reader can reach; `hidden: true` catches one held in
+     * the layout by `visibility` — the mechanism
+     * `period-switch-follows-its-chart` used, which cost the space permanently
+     * on the one chart that must never have the control; and the raw attribute
+     * query catches a node that is present with neither.
      */
     render(<Harness />);
-    const switchGroup = () =>
-      screen.queryByRole('group', { name: 'How much time one period covers' });
+    expect(
+      screen.queryByRole('group', { name: 'How much time one period covers' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: 'How much time one period covers', hidden: true }),
+    ).not.toBeInTheDocument();
+    for (const name of ['Day', 'Week', 'Month']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+  });
 
-    const onA = switchGroup();
-    expect(onA).toBeInTheDocument();
-    // Chart A's corner is a sibling of its figure rather than inside it: the
-    // price chart has no head of its own to put a control in.
-    expect(screen.getByRole('img').closest('figure')).not.toContainElement(onA);
+  it('extends the period switch from the Flights seen tab and takes it away with it', () => {
+    /*
+     * The placement `period-switch-follows-its-chart` had right: the control
+     * belongs to chart B's tab, appears with it and goes away with it. What is
+     * different is that nothing is reserved for it — it is rendered or it is
+     * not.
+     *
+     * That is safe because it no longer shares a row with the chart pill. The
+     * old arrangement put it beside those two buttons, where appearing would
+     * slide them sideways under the hand that had just pressed one, and the
+     * hidden strip existed to stop that. A row of its own cannot move them at
+     * all, which is the whole reason the strip could go.
+     */
+    render(<Harness />);
+    const head = screen.getByRole('group', { name: 'Chart' }).parentElement!;
 
     openDeparture();
-    const onB = switchGroup();
-    expect(onB).toBeInTheDocument();
-    // Chart B has a head, so the switch stands in it beside the count.
-    expect(screen.getByRole('img').closest('figure')).toContainElement(onB);
+    const shown = screen.getByRole('group', { name: 'How much time one period covers' });
+    expect(shown).toBeInTheDocument();
+    // Below the pill, not beside it, and outside the chart's own figure.
+    expect(head).not.toContainElement(shown);
+    expect(screen.getByRole('img').closest('figure')).not.toContainElement(shown);
 
     click(MOVES);
-    expect(switchGroup()).toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: 'How much time one period covers', hidden: true }),
+    ).not.toBeInTheDocument();
   });
 
   it('draws both charts inside one box that the switch does not replace', () => {
@@ -387,20 +408,19 @@ describe('the controls that are gone', () => {
     expect(before).toContainElement(screen.getByRole('img'));
   });
 
-  it('carries the period across a change of chart, pressed from either side', () => {
-    // One control rendered in two corners, not two controls: pressing Month on
-    // chart A must be the same press as pressing Month on chart B, and the
-    // value lives above both in `useRouteView` either way.
+  it('keeps the period the reader chose across a change of chart', () => {
+    // The switch only exists on chart B, so a period chosen there has to survive
+    // a look at chart A and back — the value lives in `useRouteView`, above both
+    // charts, and the flight table below the panel is grouped by it either way.
     render(<Harness />);
-    click('Month');
     openDeparture();
-
-    expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
+    click('Month');
     expect(frameLabel()).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
 
-    click('Week');
     click(MOVES);
-    expect(screen.getByRole('button', { name: 'Week' }).getAttribute('aria-pressed')).toBe('true');
+    openDeparture();
+    expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
+    expect(frameLabel()).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
   });
 });
 

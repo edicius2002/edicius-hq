@@ -112,35 +112,104 @@
  * because these five strings are one line each at any width this panel has and
  * the floor only has to survive the narrow end.
  */
+/*
+ * The row under the head: what the chart is drawn from, and — on chart B — the
+ * switch that belongs to chart B's tab.
+ *
+ * The pill above is flush with the panel's right edge and so is this row, so a
+ * control at this row's right edge lands directly beneath the "Flights seen"
+ * button and reads as an extension of it. Being a *different row* is the whole
+ * mechanism: `period-switch-follows-its-chart` put the switch beside the pill,
+ * where appearing and disappearing would slide the two chart buttons sideways
+ * under a pressing hand, and paid for that with a permanently reserved strip.
+ * A row of its own cannot move the pill at all, so nothing has to be reserved
+ * and chart A can simply not render the control.
+ *
+ * `align-items: flex-start` so the switch sits on the first line of the text
+ * rather than centring itself against a paragraph that may wrap to two.
+ */
+.whatRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  /*
+   * The floor is on the row rather than on the paragraph now, and it is what
+   * makes the switch free: it is shorter than two lines of this text, so a row
+   * that is always two lines tall cannot change height when the switch comes
+   * and goes.
+   */
+  min-height: 2.6em;
+}
+
 .what {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   color: var(--color-muted);
   font-size: 0.82rem;
-  min-height: 2.6em;
+  /* It takes the width the switch leaves, and wraps rather than pushing it. */
+  min-width: 0;
+}
+
+/*
+ * The stage, which exists only to be something `cqw` can measure.
+ *
+ * A container query unit resolves against the nearest *ancestor* container, so
+ * the box cannot be its own — hence a wrapper rather than a property on `.body`.
+ * It is a plain full-width block and changes no layout.
+ */
+.stage {
+  container-type: inline-size;
 }
 
 /*
  * The chart body: one box, one height, whichever chart is inside it.
  *
- * Measured in Chrome at the real panel, 1160px of chart width: chart A stood
- * 719px tall and chart B 869, so changing question moved the flight table below
- * this panel by 150px. The two charts are simply different shapes — 760×284
- * against 760×338 — and chart B carries a head, a readout and a note that chart
- * A does not. Neither of those is a defect to be evened out; what was wrong is
- * that the box was free to follow them.
+ * Measured in Chrome at the real panel: chart A stood 719px tall and chart B
+ * 869, so changing question moved the flight table below by 150px; at a 1200px
+ * viewport it was 670 against 926, a 256px jump. The two charts are simply
+ * different shapes — 760×284 against 760×338 — and chart B carries a head, a
+ * crosshair readout and a note that chart A does not. Neither is a defect to be
+ * evened out; what was wrong is that the box was free to follow them.
  *
- * A `height` and not a `min-height`, because a floor is half a promise: the
- * taller chart exceeds it and the reflow comes back. 34.5rem is chart B's own
- * requirement at this width — 516px of plot and 167px of chrome, at this app's
- * 125% root where 1rem is 20px — so the denser of the two is never the one
- * squeezed. Measured at 33rem first, and rejected on measurement: chart B's
- * plot came back 1108px wide against the 1160 it wants, inset either side by a
- * box a little too short for it. Chart A spends the difference on letterbox,
- * which is the right way round — it is the sparser drawing and the one with
- * room to spare.
+ * **The height tracks the panel's width rather than sitting at a fixed rem, and
+ * that is the difference between saving space and moving it.** Chart B's plot
+ * is a fixed *proportion* of the width it is given — 338/760, or 44.5% — while
+ * its chrome is a constant, so its requirement is affine in the width and no
+ * single rem can be right at two panel widths. A 34.5rem box was measured at
+ * both: correct at 1160px of chart, and at 1278px it left chart B's plot 1181px
+ * wide inside a 1278px box, letterboxed by 48px a side for want of 43px of
+ * height. `calc(44.5cqw + 170px)` is that requirement written down, so chart B
+ * gets its whole plot at every width and a narrow panel stops reserving a tall
+ * panel's worth of height.
+ *
+ * **Clamped at both ends, and both bounds were measured rather than guessed.**
+ * The 28rem floor is for the stacked layout, where the width is small enough
+ * that the chrome — a legend and a note both wrapping to several lines —
+ * outgrows the proportional term. The 34.5rem ceiling is the height this
+ * box already had, kept deliberately so that the panel is **never taller than it
+ * was at any width** and only ever shorter. Uncapped, a 1278px chart asks for
+ * 739px of panel: chart B's plot is what that buys, but the panel is also the
+ * thing the owner asked to shrink, and growing it to win 45px of plot width is
+ * the wrong side of that trade. Capped, a wide panel letterboxes chart B by
+ * about 48px a side — which `meet` does by scaling, so the plot is smaller and
+ * never cropped — while every panel narrower than about 1170px of chart gets its
+ * exact requirement and nothing spare. That is where the saving actually is: at
+ * a 1200px viewport the box drops from 690px to 560, and the panel with it, from
+ * 920 to 799.
+ *
+ * `height` and not `min-height` throughout, because a floor alone is half a
+ * promise: the taller chart simply exceeds it and the reflow comes back.
+ *
+ * Nothing is stretched or cropped by any of this. Both SVGs carry
+ * `preserveAspectRatio` at its default `xMidYMid meet`, so a drawing handed a
+ * box of the wrong shape scales down and centres in it — which is also the
+ * vertical half of "centre the chart" that a full-bleed figure could only ever
+ * do horizontally. Chart A is the one that letterboxes, which is the right way
+ * round: it is the sparser drawing and the one with room to spare.
  */
 .body {
-  height: 34.5rem;
+  height: clamp(28rem, calc(44.5cqw + 170px), 34.5rem);
   display: flex;
   flex-direction: column;
   /* Or a flex item refuses to shrink below its content and the box grows anyway. */
@@ -172,32 +241,4 @@
   flex: 1 1 0;
   min-height: 0;
   height: auto;
-}
-
-/*
- * Chart A's frame, which exists only to give it the corner chart B has.
- *
- * Chart B's period switch sits in its own head, beside the count and the
- * stepper. Chart A has no head of its own and no periods to step, so its corner
- * is this strip — the same place on screen, holding the same control, so a
- * reader who changes question finds it where they left it.
- */
-.frame {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-}
-
-.corner {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  /* The height chart B's head takes, so the plots start at the same y on both. */
-  min-height: 31px;
-}
-
-.frame > figure {
-  flex: 1 1 0;
-  min-height: 0;
 }

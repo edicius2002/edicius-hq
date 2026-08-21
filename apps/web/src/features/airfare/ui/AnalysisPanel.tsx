@@ -326,7 +326,33 @@ export function AnalysisPanel({
         </div>
       </div>
 
-      <p className={styles.what}>{WHAT[what]}</p>
+      {/*
+        The line naming the archive, and — on chart B only — the switch that
+        belongs to chart B's tab.
+
+        **The switch hangs off "Flights seen", and it reserves nothing.**
+        `period-switch-follows-its-chart` had the placement right and the
+        mechanism wrong: it stood inside `.switches`, to the right of the chart
+        pill, held open by `visibility` so that folding away could not slide the
+        two chart buttons under a pressing hand. That bought no-reflow by paying
+        for the space permanently, on both charts, including the one that must
+        never have the control at all.
+
+        This row is the better tool for the same job. The pill above is flush
+        with the panel's right edge and so is this row, so the switch lands
+        directly beneath the "Flights seen" button and reads as an extension of
+        it — but it is in a *different row*, so appearing and disappearing cannot
+        move the pill by a pixel. Nothing is reserved: on chart A the element is
+        simply not rendered, and the row is the one `.what` was already using, at
+        a `min-height` it already had. The height cannot change either, because
+        the switch is shorter than the two lines that floor is set to.
+      */}
+      <div className={styles.whatRow}>
+        <p className={styles.what}>{WHAT[what]}</p>
+        {view === 'days' ? (
+          <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+        ) : null}
+      </div>
 
       {/*
         **One box, one height, whichever chart is inside it.**
@@ -334,45 +360,30 @@ export function AnalysisPanel({
         The two charts are different shapes and always were: chart A's viewBox is
         760×284 and chart B's is 760×338, and chart B carries a head, a crosshair
         readout and a note that chart A has none of. Measured in Chrome at the
-        real panel, 1160px of chart width: chart A stood 719px tall and chart B
-        869, so switching question moved everything below this panel — the whole
-        flight table — by **150px**. That is the reflow 12.240 refused and
+        real panel: chart A stood 719px tall and chart B 869, so switching
+        question moved everything below this panel — the whole flight table — by
+        **150px**. That is the reflow 12.240 refused and
         `period-switch-follows-its-chart` built a hidden strip to prevent,
         arriving by a third door: the head was fixed and the body was left free.
 
-        So the body is the fixed thing now, and the marks move inside it. A
-        height rather than a `min-height`, because a floor is only half a promise
-        — the taller chart would simply exceed it. The charts' own SVGs carry
+        So the body is the fixed thing, and the marks move inside it. A height
+        rather than a `min-height`, because a floor is only half a promise — the
+        taller chart would simply exceed it. The charts' own SVGs carry
         `preserveAspectRatio` at its default `xMidYMid meet`, so a drawing given a
         box of the wrong shape scales to fit and centres in it rather than
         stretching or spilling: what varies between the two is how large the
         drawing is and where its marks sit, which is exactly what is allowed to
-        vary. It is also what finally centres the plot vertically, which the
-        previous pass could only do horizontally.
+        vary. It is also what finally centres the plot vertically, which an
+        earlier pass could only do horizontally.
 
-        33rem is chart B's own requirement at this panel's width — 516px of plot
-        plus 144px of chrome — so the denser chart is never the one squeezed. A
-        narrower panel needs less and gets the same box; a wider one squeezes
-        chart B a few per cent, gracefully, because `meet` shrinks a drawing
-        rather than cropping it.
+        Chart A is a bare figure in here now. The strip that gave it a corner
+        went with the control that used to stand in it, and it was costing a row
+        of height and a band of letterbox to hold a switch chart A must never
+        have.
       */}
-      <div className={styles.body}>
-        {view === 'moves' ? (
-          /*
-            Chart A's frame, which exists to give it the same corner chart B has.
-
-            The switch is live here and does not move the plot beside it — chart
-            A is drawn by day and by nothing else (12.242). It moves the flight
-            table below the panel, which is grouped by the same period and says
-            so on its own heading, and it moves the frame chart B will open on.
-            Folding it away instead was tried and is what the owner rejected: a
-            control that vanishes when you change question is one you have to go
-            looking for.
-          */
-          <div className={styles.frame}>
-            <div className={styles.corner}>
-              <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-            </div>
+      <div className={styles.stage}>
+        <div className={styles.body}>
+          {view === 'moves' ? (
             <PriceBandChart
               ours={ours}
               baseline={theirs}
@@ -381,33 +392,32 @@ export function AnalysisPanel({
               axis={axis}
               label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
             />
-          </div>
-        ) : (
-          /*
+          ) : (
+            /*
             Keyed by route so the crosshair the reader left on a flight resets
             when they open a different watch. The period does not reset with it —
             it is held above this component and cleared by the route change.
           */
-          <DepartureChart
-            key={routeKey ?? 'none'}
-            snapshots={snapshots}
-            curve={curve}
-            watched={watched}
-            granularity={granularity}
-            onGranularityChange={onGranularityChange}
-            currency={currency}
-            periodKey={periodKey}
-            keys={keys}
-            onStep={step}
-            viewport={viewport}
-            onViewportChange={onViewportChange}
-            horizonLoading={curveLoading}
-            horizonError={curveError}
-            label={
-              route ? `What each departure date costs for ${where}` : 'Fares by departure date'
-            }
-          />
-        )}
+            <DepartureChart
+              key={routeKey ?? 'none'}
+              snapshots={snapshots}
+              curve={curve}
+              watched={watched}
+              granularity={granularity}
+              currency={currency}
+              periodKey={periodKey}
+              keys={keys}
+              onStep={step}
+              viewport={viewport}
+              onViewportChange={onViewportChange}
+              horizonLoading={curveLoading}
+              horizonError={curveError}
+              label={
+                route ? `What each departure date costs for ${where}` : 'Fares by departure date'
+              }
+            />
+          )}
+        </div>
       </div>
     </>
   );

@@ -69,7 +69,6 @@ import {
   zoomAt,
   type Viewport,
 } from '@/features/airfare/lib/viewport';
-import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
 import type { CalendarCurve, FareSnapshot } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
@@ -164,14 +163,6 @@ type DepartureChartProps = {
   /** The departure dates the boards cover — the watched month, or one day of it. */
   watched: WatchedRange | null;
   granularity: Granularity;
-  /**
-   * How much calendar one period covers, changed from this chart's own corner.
-   *
-   * The switch is the chart's now rather than the panel's, but the value still
-   * is not: the flight table below the panel is grouped by the same period, so
-   * the state stays where both readers of it can see it.
-   */
-  onGranularityChange: (granularity: Granularity) => void;
   currency: string;
   /** The period on screen, resolved by the panel that owns the anchor — 12.170. */
   periodKey: string | null;
@@ -239,7 +230,6 @@ export function DepartureChart({
   curve,
   watched,
   granularity,
-  onGranularityChange,
   currency,
   periodKey,
   keys,
@@ -730,19 +720,16 @@ export function DepartureChart({
         </p>
 
         {/*
-          The chart's own top-right corner: what a period is, which one is open,
-          and the way back out of a zoom.
+          The chart's own top-right corner: which period is open, and the way
+          back out of a zoom.
 
-          All three answer "where in the archive am I looking", so they are one
-          cluster rather than three things spread along a row. The period switch
-          arrived here from the panel head above — `period-switch-follows-its-chart`
-          superseded — because it governs this chart and nothing else, and a
-          control standing beside the thing it moves needs no apparatus to
-          explain which of two charts it belongs to.
+          Both answer "where in the archive am I looking", so they are one
+          cluster rather than two things spread along a row. The period switch is
+          deliberately *not* here: it belongs to the tab that opens this chart
+          rather than to the chart, and it stands under that tab, where a reader
+          who has just pressed "Flights seen" is already looking.
         */}
         <div className={styles.corner}>
-          <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-
           {keys.length > 1 ? (
             <div className={styles.steps}>
               <button

@@ -127,7 +127,7 @@ function curveOf(from: string, to: string, prices: CalendarPoint[]): CalendarCur
  */
 function Harness({
   snapshots = WEEK,
-  granularity: initialGranularity = 'week',
+  granularity = 'week',
   curve = null,
   watched = MARCH,
   ...rest
@@ -137,14 +137,6 @@ function Harness({
   // component is remounted on every route change and a reader's zoom should
   // outlive that.
   const [viewport, setViewport] = useState<Viewport | null>(null);
-  /*
-   * And so is the period, which the chart now offers a switch for in its own
-   * corner. Held here rather than passed as a constant so that pressing Week or
-   * Month in a test moves the frame the way it moves for a reader — the value
-   * still belongs above the chart, because the flight table below the panel is
-   * grouped by the same period.
-   */
-  const [granularity, setGranularity] = useState<Granularity>(initialGranularity);
   const boardDays = departureDays(snapshots);
   const keys = framePeriodKeys(boardDays, curve, granularity);
   const periodKey = activeKey(keys, granularity, anchor ?? boardDays[0] ?? null);
@@ -152,7 +144,6 @@ function Harness({
     <DepartureChart
       snapshots={snapshots}
       granularity={granularity}
-      onGranularityChange={setGranularity}
       curve={curve}
       watched={watched}
       currency="USD"
@@ -1003,22 +994,5 @@ describe('the chrome around the plot', () => {
     expect(reset).toHaveAttribute('title', 'Reset zoom');
     // Nothing to undo yet, so it is offered and disabled rather than absent.
     expect(reset).toBeDisabled();
-  });
-
-  it('changes the period from the corner of the chart it moves', () => {
-    /*
-     * `period-switch-follows-its-chart` superseded — the switch is inside the
-     * chart it moves. That it is reachable only from here is the panel's test;
-     * what this one proves is that pressing it moves this frame, which is the
-     * whole reason it was worth moving.
-     */
-    const { container } = chart({ snapshots: WEEK });
-    expect(frameLabel(container)).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Month' }));
-    expect(frameLabel(container)).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Day' }));
-    expect(frameLabel(container)).toContain('on 08/03/2027, 00:00 to 23:59');
   });
 });

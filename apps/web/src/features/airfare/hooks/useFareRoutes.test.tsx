@@ -11,8 +11,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const TODAY = '2026-08-17';
-
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
@@ -51,7 +49,7 @@ function stubRoutes(initial: unknown) {
 describe('useFareRoutes storage sync', () => {
   it('hydrates stored routes and persists an add', async () => {
     const api = stubRoutes({ version: 1, routes: [] });
-    const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
+    const { result } = renderHook(() => useFareRoutes(), { wrapper });
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.routes).toEqual([]);
@@ -67,7 +65,7 @@ describe('useFareRoutes storage sync', () => {
 
   it('persists a removal', async () => {
     const api = stubRoutes({ version: 1, routes: [LIM_SCL] });
-    const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
+    const { result } = renderHook(() => useFareRoutes(), { wrapper });
 
     await waitFor(() => expect(result.current.routes).toHaveLength(1));
 
@@ -82,21 +80,10 @@ describe('useFareRoutes storage sync', () => {
 
   it('repairs a stored document rather than handing the UI a shape to re-check', async () => {
     stubRoutes({ version: 1, routes: [{ origin: 'lim', destination: 'scl', month: 'soon' }] });
-    const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
+    const { result } = renderHook(() => useFareRoutes(), { wrapper });
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.routes).toEqual([]);
-  });
-
-  it('offers only the months the calendar has not finished with for collection', async () => {
-    stubRoutes({
-      version: 1,
-      routes: [LIM_SCL, { ...LIM_SCL, month: '2026-07' }],
-    });
-    const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
-
-    await waitFor(() => expect(result.current.routes).toHaveLength(2));
-    expect(result.current.collectable).toEqual([LIM_SCL]);
   });
 
   it('loads a stored route that carries a focus date as simply its month', async () => {
@@ -124,7 +111,7 @@ describe('useFareRoutes storage sync', () => {
         },
       ],
     });
-    const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
+    const { result } = renderHook(() => useFareRoutes(), { wrapper });
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.routes).toEqual([
@@ -154,7 +141,7 @@ describe('useFareRoutes storage sync', () => {
       'fetch',
       vi.fn(async () => new Response(null, { status: 404 })),
     );
-    const { result } = renderHook(() => useFareRoutes(TODAY), { wrapper });
+    const { result } = renderHook(() => useFareRoutes(), { wrapper });
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.routes).toEqual([]);

@@ -64,6 +64,21 @@
   flex-wrap: wrap;
 }
 
+/*
+ * The right end of the toolbar: the page's status, then Reset.
+ *
+ * Its own row rather than two children of a `space-between` strip, which would
+ * have put the status in the middle of the toolbar with a control either side
+ * of it. `baseline` so a word and a button sit on the same line however their
+ * two font sizes differ — `center` lines up their boxes, which is not the same
+ * thing and reads as the word floating.
+ */
+.tools {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
 .zoomGroup {
   display: inline-flex;
   gap: var(--space-1);

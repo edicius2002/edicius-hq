@@ -1,8 +1,5 @@
-import { useMemo } from 'react';
-
 import {
   addRoute,
-  collectableRoutes,
   EMPTY_FARE_ROUTES,
   FARE_ROUTES_KEY,
   normalizeFareRoutes,
@@ -20,8 +17,15 @@ import { useStoredDocument } from '@/shared/storage/useStoredDocument';
  * Every change goes through `store.edit`, which serialises writes and refuses
  * to write over a failed read. The rules live in `data/fareRoutes`, so nothing
  * here decides anything — the same division `useWatchlist` keeps.
+ *
+ * It took a `today` and no longer does. The date was here for one derived
+ * value, `collectable`, which existed for the page-wide collect button and for
+ * nothing else; with the button gone the parameter was a clock this hook asked
+ * for and never read. What survives the button is the *rule*, as `hasDeparted`
+ * in `data/fareRoutes` — asked by the one row that draws the answer, which is
+ * also the only place that ever needed today's date to say it.
  */
-export function useFareRoutes(today: string) {
+export function useFareRoutes() {
   const store = useStoredDocument<FareRoutes>({
     key: FARE_ROUTES_KEY,
     normalize: normalizeFareRoutes,
@@ -29,12 +33,9 @@ export function useFareRoutes(today: string) {
   });
 
   const document = store.data;
-  const collectable = useMemo(() => collectableRoutes(document, today), [document, today]);
 
   return {
     routes: document.routes,
-    /** Those whose departure has not passed; the only ones worth asking about. */
-    collectable,
     isFetching: store.isFetching,
     isError: store.isError,
     saveState: store.saveState,

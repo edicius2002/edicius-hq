@@ -285,6 +285,74 @@
 }
 
 /*
+ * How far this row's pass has got.
+ *
+ * Three pixels of track under the row, in the same horizontal padding the
+ * report line takes, so the bar and the words it draws are one column. It is
+ * only in the document while a pass of this row's own is running — `.report`
+ * below is always there and costs no height when empty, and this one is not,
+ * because a track with nothing to say is still three pixels of ink on every row
+ * of an idle watchlist.
+ *
+ * The track is the accent at low alpha rather than the border colour: the fill
+ * is the accent, and a bar whose empty half is a different hue reads as two
+ * things meeting rather than as one thing partly done.
+ */
+.progress {
+  margin: 2px var(--space-2) 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  overflow: hidden;
+}
+
+/*
+ * `width` rather than `transform: scaleX`, which would be the cheaper animation
+ * and is the wrong one here: the fill has a rounded cap, and scaling the box
+ * that carries it stretches the radius into an ellipse that grows fatter as the
+ * pass runs. Three pixels of height is not enough for a compositor hint to be
+ * worth a visibly deforming end.
+ *
+ * The transition is a quarter of a second against a poll that arrives every two,
+ * so each step glides and settles well before the next one — the alternative is
+ * a bar that jumps thirty-one times and reads as a series of separate events
+ * rather than as one pass under way.
+ */
+.fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 240ms ease;
+}
+
+/*
+ * A pass whose plan has not settled yet.
+ *
+ * For the first poll or two the server has not decided which departures it
+ * means to poll, so there is no denominator and a bar at zero would be claiming
+ * one. A short fill sweeping the track says "moving, length unknown", which is
+ * exactly what is true — and it is replaced by a real fraction the moment
+ * `polling` lands, which is before the first upstream request.
+ */
+.unplanned .fill {
+  width: 30%;
+  transition: none;
+  animation: sweeping 1.2s ease-in-out infinite;
+}
+
+@keyframes sweeping {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(333%);
+  }
+}
+
+/*
  * What the last press on this row came back with.
  *
  * Empty until there is something to say, and an empty paragraph with no margin
@@ -311,6 +379,18 @@
    * press is being worked on.
    */
   .spinning {
+    animation: none;
+  }
+
+  /*
+   * The sweep stops and the fill stays put, filling the track. A bar that
+   * cannot say how long it is has to say *something*, and a still empty track
+   * is indistinguishable from a pass that has not started; a still full one is
+   * the same shape a determinate bar takes when it lands, which arrives within
+   * a poll of this anyway.
+   */
+  .unplanned .fill {
+    width: 100%;
     animation: none;
   }
 }

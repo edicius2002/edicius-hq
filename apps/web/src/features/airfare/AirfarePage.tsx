@@ -1,4 +1,3 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
 import { formatFlightMonth, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
@@ -18,7 +17,7 @@ import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
-import { collectFares, type Airport, type CollectResponse } from '@/shared/api/fares';
+import type { Airport } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
@@ -47,9 +46,8 @@ export function AirfarePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
 
-  const watchlist = useFareRoutes(today);
+  const watchlist = useFareRoutes();
   const airports = useAirports();
-  const queryClient = useQueryClient();
   // Per-row collection is its own hook, not more state on this page: the
   // in-flight set, the reports and the mutation that keeps them in step are one
   // mechanism, and the page's job is to hand it to the list.
@@ -149,65 +147,27 @@ export function AirfarePage() {
     return { from: found?.fromCity ?? null, to: found?.toCity ?? null };
   }, [geometries, selectedKey]);
 
-  const collect = useMutation<CollectResponse>({
-    mutationFn: () =>
-      collectFares(
-        watchlist.collectable.map((route) => ({
-          origin: route.origin,
-          destination: route.destination,
-          month: route.month,
-          currency: route.currency,
-        })),
-      ),
-    // The archive just grew, so every route's series is stale — including ones
-    // the reader is not looking at, which they may switch to in a second. A
-    // pass can also be the first to learn where a new airport is.
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['fares', 'history'] });
-      void queryClient.invalidateQueries({ queryKey: ['fares', 'airports'] });
-    },
-  });
-
-  const failures = collect.data?.results.filter((result) => !result.ok) ?? [];
-
-  /*
-   * The skips of a pass, counted by reason.
-   *
-   * A watched month expands to thirty-one departures and a daily cadence polls
-   * one at a time, so `skipped` is routinely the longer of the two lists — the
-   * old line read "62 not due" and named a reason it had not checked. Counting
-   * them keeps 8.8 honest without printing sixty lines: "60 not-due, 2
-   * departed" is the whole of what happened.
-   */
-  const skipSummary = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const entry of collect.data?.skipped ?? []) {
-      counts.set(entry.reason, (counts.get(entry.reason) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([reason, count]) => `${count} ${reason}`)
-      .join(', ');
-  }, [collect.data]);
-
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader
-        title="Airfare"
-        actions={
-          <div className={styles.collectRow}>
-            <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
-            <Button
-              variant="primary"
-              size="small"
-              onClick={() => collect.mutate()}
-              disabled={collect.isPending || watchlist.collectable.length === 0}
-            >
-              {collect.isPending ? 'Collecting…' : `Collect now (${watchlist.collectable.length})`}
-            </Button>
-          </div>
-        }
-      />
+      {/*
+        A title and nothing beside it.
+
+        The page-wide "Collect now" is withdrawn rather than fixed. It had been
+        wrong since 12.210 in a way that is invisible from the outside: the
+        press used to hold the connection open for the length of the pass, and
+        once the pass moved onto the server's own task the same call returned in
+        milliseconds — so the button flashed "Collecting…" for an instant, the
+        archive's queries were invalidated at the moment the pass *started* and
+        refetched exactly what was already on screen, and the "Last collection"
+        panel underneath described a pass with no results in it yet, every time.
+
+        What replaced it is per-row and was always the better shape. A press on
+        a row says which month it means; this one meant "everything", which the
+        server was going to reduce to whatever the cadence allowed anyway, and
+        the reader could not see which part of "everything" was moving. The row
+        watches its own pass to the end and draws it.
+      */}
+      <PageHeader title="Airfare" />
 
       {/*
         Four cells, laid out in order: map and watchlist across the top row,
@@ -225,6 +185,15 @@ export function AirfarePage() {
             colours={colours}
             projection={projection}
             onProjectionChange={setProjection}
+            /*
+              The watchlist's save state, in the map's toolbar — which is not
+              where it belongs by subject but is where it belongs on screen.
+              It stood in the page header beside the collect button; with that
+              button withdrawn the header was a title and a word floating at the
+              far end of an empty row. The two panels below it already carry
+              their own chrome, and this one had a strip with room on it.
+            */
+            status={<SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />}
           />
           {geometries.length < watchlist.routes.length ? (
             <p className={styles.note}>
@@ -254,6 +223,7 @@ export function AirfarePage() {
             today={today}
             collecting={rowCollection.collecting}
             reports={rowCollection.reports}
+            progress={rowCollection.progress}
             onSelect={setSelectedId}
             onRemove={(id) => {
               if (id === selectedId) setSelectedId(null);
@@ -290,45 +260,14 @@ export function AirfarePage() {
         </Panel>
 
         {/*
-            A collection pass reports what it could not do beside what it could
-            — decisions 8.8 and 8.41. Hiding the refusals would make a scraper
-            that stopped working look like a week of unchanged prices.
-          */}
-        {collect.data ? (
-          <Panel>
-            <h2 className={styles.panelTitle}>Last collection</h2>
-            {/*
-              "departures", not "routes": since 12.110 one watched route is a
-              month and a pass counts the days inside it. The skipped figure
-              carries its reasons rather than assuming "not due" — a month
-              expands across the horizon and the days past it are skipped for a
-              reason nobody can fix by waiting.
-            */}
-            <p className={styles.note}>
-              {collect.data.collected} departure{collect.data.collected === 1 ? '' : 's'} looked at,{' '}
-              {collect.data.changed} changed, {collect.data.failed} failed
-              {skipSummary ? `, ${skipSummary}` : ''}.
-            </p>
-            {failures.length > 0 ? (
-              <ul className={styles.failures}>
-                {failures.map((failure) => (
-                  <li key={`${failure.origin}-${failure.destination}-${failure.flightDate}`}>
-                    {failure.origin} → {failure.destination} ({failure.flightDate}):{' '}
-                    {failure.errorCode} — {failure.errorMessage}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </Panel>
-        ) : null}
-
-        {collect.isError ? (
-          <Panel>
-            <p className={styles.note} role="alert">
-              The collection call failed: {collect.error.message}
-            </p>
-          </Panel>
-        ) : null}
+          "Last collection" stood here and is withdrawn with the button that
+          filled it. It said what a pass looked at, changed, failed and skipped
+          — decisions 8.8 and 8.41, and none of that rule is abandoned: what a
+          press could not do still travels beside what it could, on the row that
+          pressed. What went is the panel, which since 12.210 was reporting a
+          document read at the instant the pass began and so printed "0
+          departures looked at, 0 changed, 0 failed" for every press.
+        */}
       </div>
 
       {/*

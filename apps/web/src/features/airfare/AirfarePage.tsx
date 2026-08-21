@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { formatFlightMonth, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
@@ -8,7 +8,7 @@ import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
-import { routeGeometries } from '@/features/airfare/lib/geo';
+import { legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
 import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
@@ -61,6 +61,78 @@ export function AirfarePage() {
    */
   const horizon = useHorizonCollection();
 
+  /*
+   * Which way each pair's arc flows, and which watch collected most recently.
+   *
+   * A pair watched both ways draws one arc — `a-pair-draws-one-arc` — so the
+   * direction its dashes run in is the one thing left to say which of the two
+   * legs was last looked at. `flow-follows-the-last-collected`: the arc runs
+   * the way of the leg whose collection finished most recently, and where no
+   * collection has finished this session it runs the way of whichever watch
+   * sits higher in the watchlist, which is an order the reader owns.
+   *
+   * **This is the second thing that points an arc, not the first.** The open
+   * route points its own arc — `the-open-watch-leads-its-arc` — so what is
+   * recorded here decides every arc the reader does not have open, which is
+   * every arc but one. The two never contend for the same line: the open arc
+   * takes the selection, the rest take this.
+   *
+   * **This is the live signal, and it costs nothing.** The page cannot ask the
+   * archive when each leg was last collected: `/api/fares/history` answers one
+   * city pair at a time and is fetched for the open route alone, so learning
+   * this from the server would be one request per watched route on every page
+   * load, to move a dash pattern. What the page *does* already know is the
+   * exact moment a pass it started came to an end — both collection hooks poll
+   * their pass to completion and drop the route from `collecting` when it
+   * stops — and that is the only moment in a session when a leg's fares
+   * genuinely become newer than the other leg's. So the direction is read off
+   * the passes this tab watched, in memory, with no refresh and no extra call.
+   *
+   * What it therefore does not survive is a reload: a fresh page has watched
+   * no passes and every arc goes back to watchlist order. That is honest
+   * rather than cheap — after a reload nothing in this tab has seen a leg
+   * collected, and pretending otherwise would need the per-route figures this
+   * paragraph declines to fetch.
+   */
+  const [flow, setFlow] = useState<{ legs: Map<string, string>; freshest: string | null }>(() => ({
+    legs: new Map<string, string>(),
+    freshest: null,
+  }));
+  /*
+   * Which routes were mid-pass on the last run of the effect below.
+   *
+   * A ref rather than state, because it exists only to be compared against —
+   * a route that was in `collecting` and is not any more is a pass that ended,
+   * whichever way it ended. Holding it as state would re-render the page every
+   * time a pass started as well, for a value nothing draws.
+   *
+   * A failed pass counts. It is still the leg the reader most recently asked
+   * about, the arc still points at what they were looking at, and a direction
+   * that only moved on success would leave a refusal looking like nothing had
+   * happened at all.
+   */
+  const passing = useRef<readonly string[]>([]);
+  useEffect(() => {
+    const running = new Set([...rowCollection.collecting, ...horizon.collecting]);
+    const ended = passing.current.filter((id) => !running.has(id));
+    passing.current = [...running];
+    if (ended.length === 0) return;
+    setFlow((current) => {
+      const legs = new Map(current.legs);
+      let freshest = current.freshest;
+      for (const id of ended) {
+        // A route removed while its pass was still running has no direction to
+        // record and no arc left to point: it is simply skipped, and the pair
+        // falls back to whatever its remaining watch says.
+        const route = watchlist.routes.find((watched) => routeId(watched) === id);
+        if (!route) continue;
+        legs.set(pairKey(route.origin, route.destination), legKey(route.origin, route.destination));
+        freshest = id;
+      }
+      return { legs, freshest };
+    });
+  }, [horizon.collecting, rowCollection.collecting, watchlist.routes]);
+
   const selected: FareRoute | null =
     watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
   const selectedKey = selected ? routeId(selected) : null;
@@ -110,6 +182,21 @@ export function AirfarePage() {
   const insights = latest?.insights ?? null;
   const health = history.data?.health ?? null;
 
+  /*
+   * The arcs, pointed by the open route first and by the last collection after.
+   *
+   * `selectedKey` rather than `selectedId`: the open route is the one this page
+   * is actually showing — the one the detail panel describes, the one the
+   * watchlist marks and the one the map thickens — and with `selectedId` at
+   * null that is the first row rather than nothing. Handing the raw state down
+   * would leave the arc pointed one way and every other thing on the page
+   * talking about the other.
+   *
+   * The selection reaches `lib/geo` rather than `RouteMap` because direction is
+   * a property of the geometry here: the keyframes always travel towards the
+   * path's end, so the only way to turn an arc round is to swap its `from` and
+   * its `to`, and that is done where the arc is built.
+   */
   const geometries = useMemo(
     () =>
       routeGeometries(
@@ -119,9 +206,23 @@ export function AirfarePage() {
           destination: route.destination,
         })),
         airports.data ?? EMPTY_AIRPORTS,
+        flow.legs,
+        selectedKey,
       ),
-    [watchlist.routes, airports.data],
+    [watchlist.routes, airports.data, flow.legs, selectedKey],
   );
+
+  /*
+   * How many watched routes have no arc, counted in watches rather than arcs.
+   *
+   * `geometries.length` was the count before `a-pair-draws-one-arc`, and it
+   * cannot be any more: one arc can now stand for two watches, so subtracting
+   * arcs from routes would report a route "not drawn yet" the moment a return
+   * leg was added — a note about missing coordinates raised by a route whose
+   * coordinates are on screen.
+   */
+  const undrawn =
+    watchlist.routes.length - geometries.reduce((total, arc) => total + arc.watches.length, 0);
 
   /*
    * A colour per route, by its place in the watchlist.
@@ -135,6 +236,12 @@ export function AirfarePage() {
    * Built from the watchlist rather than from the drawn geometries, so a route
    * whose coordinates have not arrived yet still holds its slot and the arcs
    * do not renumber when one of them appears.
+   *
+   * Still one colour per **watch**, and an arc still draws only one of them —
+   * its first in watchlist order, `colour-holds-the-first-watch`. So on a pair
+   * watched both ways the second row's colour is in this map and on no line,
+   * which is what a single arc standing for two watches costs. The row still
+   * carries it, which is where a watch is a thing you can count.
    */
   const colours = useMemo(() => {
     const map = new Map<string, string>();
@@ -142,10 +249,28 @@ export function AirfarePage() {
     return map;
   }, [watchlist.routes]);
 
+  /*
+   * The open route's two cities, read straight from the airports.
+   *
+   * This used to come off the drawn geometry, and it cannot any more: an arc
+   * names the leg it is currently flowing along, and only the arc holding the
+   * open watch is guaranteed to be flowing along that one. The detail panel
+   * underneath says "Santiago to Lima" about the route the reader has open, so
+   * it has to ask about that route rather than about the line drawn for its
+   * pair — a question that stays answerable while the watchlist is loading and
+   * there is no geometry at all.
+   *
+   * Asking the airport table directly is also the simpler question. The map's
+   * geometry was only ever a place these two strings happened to be sitting.
+   */
   const cities = useMemo(() => {
-    const found = geometries.find((geometry) => geometry.id === selectedKey);
-    return { from: found?.fromCity ?? null, to: found?.toCity ?? null };
-  }, [geometries, selectedKey]);
+    const known = airports.data;
+    if (!selected || !known) return { from: null, to: null };
+    return {
+      from: known.get(selected.origin)?.city ?? null,
+      to: known.get(selected.destination)?.city ?? null,
+    };
+  }, [airports.data, selected]);
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
@@ -183,6 +308,7 @@ export function AirfarePage() {
             selectedId={selectedKey}
             onSelect={setSelectedId}
             colours={colours}
+            lastCollectedId={flow.freshest}
             projection={projection}
             onProjectionChange={setProjection}
             /*
@@ -195,11 +321,10 @@ export function AirfarePage() {
             */
             status={<SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />}
           />
-          {geometries.length < watchlist.routes.length ? (
+          {undrawn > 0 ? (
             <p className={styles.note}>
-              {watchlist.routes.length - geometries.length} route
-              {watchlist.routes.length - geometries.length === 1 ? '' : 's'} not drawn yet —
-              coordinates arrive with a route&rsquo;s first collection.
+              {undrawn} route{undrawn === 1 ? '' : 's'} not drawn yet — coordinates arrive with a
+              route&rsquo;s first collection.
             </p>
           ) : null}
         </Panel>

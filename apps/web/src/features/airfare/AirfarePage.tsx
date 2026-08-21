@@ -5,6 +5,7 @@ import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
+import { useFareSpend } from '@/features/airfare/hooks/useFareSpend';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
@@ -17,6 +18,7 @@ import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
+import { SpendToday } from '@/features/airfare/ui/SpendToday';
 import type { Airport } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
@@ -60,6 +62,15 @@ export function AirfarePage() {
    * separate slots for the same reason.
    */
   const horizon = useHorizonCollection();
+  /*
+   * What this address has already sent today — `spend-is-read-back-not-only-written`.
+   *
+   * Here rather than inside the strip that draws it, like every other query on
+   * this page: the components are handed what they draw. It is also the only
+   * query here that is not about a route, which is the whole reason the strip
+   * sits in the header and not in a panel.
+   */
+  const spend = useFareSpend();
 
   /*
    * Which way each pair's arc flows, and which watch collected most recently.
@@ -333,7 +344,22 @@ export function AirfarePage() {
         the reader could not see which part of "everything" was moving. The row
         watches its own pass to the end and draws it.
       */}
-      <PageHeader title="Airfare" />
+      {/*
+        A title, and beside it the one fact on this page that is about **us**.
+
+        The paragraph above still stands: nothing that *acts* belongs here, and
+        the page-wide press is not coming back. What sits at the far end of the
+        row now is a reading rather than a control — how many upstream requests
+        this address has sent today, against a ceiling that is a judgement and a
+        busiest day that was measured. It is the alarm for a collector that is
+        about to run every fifteen minutes with nobody watching, and the header
+        is the only part of this page that is about the page rather than about a
+        route. `SpendToday` argues the placement out in full.
+      */}
+      <PageHeader
+        title="Airfare"
+        actions={<SpendToday spend={spend.data} loading={spend.isPending} />}
+      />
 
       {/*
         Four cells, laid out in order: map and watchlist across the top row,

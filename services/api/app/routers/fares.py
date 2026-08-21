@@ -26,13 +26,14 @@ from app.adapters.fares.models import (
     FareSnapshot,
 )
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
-from app.config import CALENDAR_POLL_MINUTES, UPSTREAM_TIMEOUT_SECONDS
+from app.config import BUSIEST_DAY_ON_RECORD, CALENDAR_POLL_MINUTES, UPSTREAM_TIMEOUT_SECONDS
 from app.services import airport_search
 from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import FareWatch
 from app.services.fare_history import HISTORY
+from app.services.fare_spend import read_spend
 from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
 from app.services.sse import KEEP_ALIVE, sse
 
@@ -1158,4 +1159,99 @@ async def stream_calendar_collection(request: Request) -> StreamingResponse:
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ------------------------------------------------------ what the day has cost --
+
+
+class SpendKindModel(BaseModel):
+    """How many of the day's requests one kind of look accounts for."""
+
+    #: `board` or `calendar`, as the ledger wrote it. Passed through rather than
+    #: validated against a list: an old file holding a word this build does not
+    #: know is a thing to show, not a 500.
+    kind: str
+    requests: int
+
+
+class SpendResponse(BaseModel):
+    """
+    What this address has already sent today — `spend-is-read-back-not-only-written`.
+
+    The ledger has been written since `a-day-is-what-the-budget-bounds` and read
+    by nothing but the budget. That was tolerable while a pass was pressed and
+    watched; it stops being tolerable the moment a scheduler runs one every
+    fifteen minutes, because the first visible sign of a pass spending badly
+    would then be Google declining to answer at all — from an address 12.9 says
+    cannot be swapped for another.
+
+    **What is left out.** The ledger holds one line per request with a timestamp
+    and the route it went on, so a curve of the day and a table per route are
+    both available. Neither is here. A per-route table is as long as the
+    watchlist and is a second watchlist on a page that already has one; the file
+    is where somebody actually tuning a cadence should look, and it says so in
+    `RequestLedger.spend`. What survives is the four facts a reader can act on —
+    how much, out of what, how much is left, and when the day turns over — plus
+    the split between boards and calendars, which is the one breakdown that says
+    *which half* of the collector to go and look at.
+    """
+
+    #: The day these figures are about, `YYYY-MM-DD`, in **UTC** — the ledger
+    #: names its files after the UTC date, so this is not the reader's today
+    #: everywhere and must not be rendered as though it were.
+    day: str
+    #: When the count starts again, as an instant. Derivable from `day` only by
+    #: a client that knows the zone; sent rather than left to be guessed.
+    resetsAt: str
+    #: Requests recorded today, or `null` when the ledger cannot be read.
+    #: **`null` is not zero.** A day whose spend cannot be established is one the
+    #: collector treats as fully spent — fail closed — so nothing will collect
+    #: until it can be read, and a client that renders `null` as `0` would be
+    #: drawing a quiet morning over a stopped collector.
+    spent: int | None
+    #: The day's ceiling. **A judgement, not a measured limit** — `config.py`
+    #: says so outright, and `busiestOnRecord` is what it should be read against.
+    ceiling: int
+    #: What a pass starting now could still spend. Zero on an unreadable ledger,
+    #: which is `DailyBudget`'s own answer rather than a second opinion.
+    remaining: int
+    #: The most this address has ever sent in one day, measured. It travels with
+    #: the ceiling because the ceiling on its own invites a percentage, and a
+    #: percentage of a number nobody has verified is a claim about safety that
+    #: nothing supports.
+    busiestOnRecord: int
+    #: Requests by kind, largest first. Can sum to less than `spent`: the total
+    #: is counted in lines and this is parsed, and a line a crash cut in half is
+    #: still a request that left. Empty on a day with no file and on one that
+    #: cannot be read.
+    kinds: list[SpendKindModel]
+
+
+@router.get("/spend", response_model=SpendResponse)
+def get_spend() -> SpendResponse:
+    """
+    Today's request spend, for a page that is not otherwise told.
+
+    A poll rather than a frame on `/collect/stream`, and that is the decision
+    rather than the easy option. The stream carries a pass, exists only while
+    one is running, and in the browser is opened by a row that pressed and
+    closed when its pass ends — so the passes it could report are exactly the
+    ones somebody was already watching. The passes this endpoint is for are the
+    other ninety-six: unattended, on a schedule, with the page shut. A figure
+    that only moved while a stream was open would be freshest precisely when it
+    mattered least.
+
+    It reads one file of at most `ceiling` short lines and touches no upstream,
+    which is what makes asking for it on a timer honest.
+    """
+    reading = read_spend()
+    return SpendResponse(
+        day=reading.day.isoformat(),
+        resetsAt=reading.resets_at.isoformat(),
+        spent=reading.spent,
+        ceiling=reading.ceiling,
+        remaining=reading.remaining,
+        busiestOnRecord=BUSIEST_DAY_ON_RECORD,
+        kinds=[SpendKindModel(kind=kind.kind, requests=kind.requests) for kind in reading.kinds],
     )

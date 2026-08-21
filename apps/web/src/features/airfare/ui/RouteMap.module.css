@@ -207,6 +207,14 @@
  * samples from `from` to `to`, so the path's end is the destination. Reversing
  * the sign here is invisible on LIM-CUZ and obviously wrong on LIM-MAD.
  *
+ * **This is also the whole of how an arc reverses.** A pair watched both ways
+ * is one line, and it flows whichever way the leg that collected most recently
+ * flies — so `lib/geo` swaps that line's `from` and `to`, the samples come out
+ * in the other order, and the same rule above carries the dashes the other
+ * way. No second keyframes, no positive-offset twin, nothing here to keep in
+ * step with anything: the direction is a property of the geometry, which is
+ * where a direction belongs.
+ *
  * The distance travelled per cycle is exactly one period, so the pattern lands
  * back on itself and the loop has no seam.
  */
@@ -223,10 +231,18 @@
 /*
  * Its own class rather than folded into `.dashed`, because the two are
  * separately switchable and both of them have to be: reduced motion stops the
- * flow and keeps the dash, and only the open route carries this class at all —
+ * flow and keeps the dash, and at most two arcs carry this class at all —
  * every other arc on the globe is `.dashed` without it, refining 12.70. Nine
- * lines moving at once is a page of activity with nothing singled out; one
- * moving line is the route the reader has open, saying which way it goes.
+ * lines moving at once is a page of activity with nothing singled out.
+ *
+ * The two are the route the reader has open and the route that collected most
+ * recently — `freshest-arc-flows-too` — and usually they are the same one. The
+ * second exists because a pair watched both ways draws a single arc, so what
+ * a finished collection on the return leg changes is the *direction* of a line
+ * already on screen, and a still line cannot show a direction changing.
+ *
+ * Which way it runs is not decided here at all: the keyframes always travel
+ * towards the path's end, and `lib/geo` orients the path.
  *
  * `animation-delay` is set per path, inline, from `flowDelay` — one route can
  * be several paths once the limb has cut it, and the delay is what makes them
@@ -263,9 +279,11 @@
  * `7 4` before there was anything moving, and 4 + 7 is 11: an 11-unit pattern
  * under an animation that travels 10 units a cycle slides backwards a unit
  * every time round, which reads as the one route the reader has opened
- * flowing the wrong way. The open route is now the only one that flows, so
- * this pattern and the animation are always on the same path — the agreement
- * matters more than it did, not less.
+ * flowing the wrong way. The open route always flows, so this pattern and the
+ * animation are always on the same path — the agreement matters more than it
+ * did, not less. The freshly collected arc flows too and is not `.active`
+ * unless it is also the open one, so it runs the same animation over `5 5`;
+ * both patterns repeat every 10 units, which is why either works.
  */
 .active.dashed {
   stroke-dasharray: 7 3;

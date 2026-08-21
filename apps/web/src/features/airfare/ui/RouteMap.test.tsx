@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { flowDelay } from '@/features/airfare/lib/arcFlow';
-import type { RouteGeometry } from '@/features/airfare/lib/geo';
+import { pairKey, type LngLat, type RouteGeometry } from '@/features/airfare/lib/geo';
 import { nameBox } from '@/features/airfare/lib/globe';
 import { RouteMap } from '@/features/airfare/ui/RouteMap';
 
@@ -88,24 +88,70 @@ afterEach(() => {
 
 let subdivisionRequests: string[] = [];
 
-const LIM_CUZ: RouteGeometry = {
-  id: 'LIM-CUZ-2026-10-17',
-  origin: 'LIM',
-  destination: 'CUZ',
-  from: [-77.114444, -12.021944],
-  to: [-71.938889, -13.535833],
-  fromCity: 'Lima',
-  toCity: 'Cusco',
-};
+/**
+ * An arc standing for a single watch, which is what most of this suite wants.
+ *
+ * Built rather than written out since `a-pair-draws-one-arc`, because an arc
+ * carries the watches it was collapsed from and repeating that bookkeeping in
+ * every fixture would bury the two coordinates each one is actually about. The
+ * arc's own `id` is its city pair; `leading` is the watch id, and it is what a
+ * `selectedId`, a colour key or a `data-route` is compared against.
+ *
+ * `lib/geo` builds the real ones and is where the collapsing is tested. This
+ * is a shape, not a second implementation of the rule.
+ */
+function arcFor(
+  watchId: string,
+  [origin, destination]: [string, string],
+  from: LngLat,
+  to: LngLat,
+  [fromCity, toCity]: [string, string],
+): RouteGeometry {
+  return {
+    id: pairKey(origin, destination),
+    watches: [{ id: watchId, origin, destination }],
+    leading: watchId,
+    origin,
+    destination,
+    from,
+    to,
+    fromCity,
+    toCity,
+    bothWays: false,
+  };
+}
 
-const LIM_MAD: RouteGeometry = {
-  id: 'LIM-MAD-2026-10-17',
-  origin: 'LIM',
-  destination: 'MAD',
-  from: [-77.114444, -12.021944],
-  to: [-3.567222, 40.498333],
-  fromCity: 'Lima',
-  toCity: 'Madrid',
+const LIMA: LngLat = [-77.114444, -12.021944];
+const CUSCO: LngLat = [-71.938889, -13.535833];
+const MADRID: LngLat = [-3.567222, 40.498333];
+const TOKYO: LngLat = [140.3864, 35.7647];
+
+const LIM_CUZ = arcFor('LIM-CUZ-2026-10-17', ['LIM', 'CUZ'], LIMA, CUSCO, ['Lima', 'Cusco']);
+
+const LIM_MAD = arcFor('LIM-MAD-2026-10-17', ['LIM', 'MAD'], LIMA, MADRID, ['Lima', 'Madrid']);
+
+/**
+ * Lima and Santiago watched both ways, drawn as the one arc they are.
+ *
+ * Pointed at Lima, which is the return leg — the case the owner asked for:
+ * `SCL→LIM` collected after `LIM→SCL` was already on the map, and no second
+ * dotted line laid over the first.
+ */
+const SCL: LngLat = [-70.7858, -33.393];
+const LIM_SCL_BOTH: RouteGeometry = {
+  id: pairKey('LIM', 'SCL'),
+  watches: [
+    { id: 'LIM|SCL|2027-03', origin: 'LIM', destination: 'SCL' },
+    { id: 'SCL|LIM|2027-03', origin: 'SCL', destination: 'LIM' },
+  ],
+  leading: 'SCL|LIM|2027-03',
+  origin: 'SCL',
+  destination: 'LIM',
+  from: SCL,
+  to: LIMA,
+  fromCity: 'Santiago',
+  toCity: 'Lima',
+  bothWays: true,
 };
 
 /**
@@ -135,26 +181,10 @@ function pointer(
  * and runs on to Lima — one drawn path, but one that begins part-way along its
  * own great circle. It is the case the flow's phase exists for.
  */
-const NRT_LIM: RouteGeometry = {
-  id: 'NRT-LIM-2026-11-28',
-  origin: 'NRT',
-  destination: 'LIM',
-  from: [140.3864, 35.7647],
-  to: [-77.114444, -12.021944],
-  fromCity: 'Tokyo',
-  toCity: 'Lima',
-};
+const NRT_LIM = arcFor('NRT-LIM-2026-11-28', ['NRT', 'LIM'], TOKYO, LIMA, ['Tokyo', 'Lima']);
 
 /** Lima to Tokyo goes round the back of the globe from the home view. */
-const LIM_TOKYO: RouteGeometry = {
-  id: 'LIM-NRT-2026-11-14',
-  origin: 'LIM',
-  destination: 'NRT',
-  from: [-77.114444, -12.021944],
-  to: [140.3864, 35.7647],
-  fromCity: 'Lima',
-  toCity: 'Tokyo',
-};
+const LIM_TOKYO = arcFor('LIM-NRT-2026-11-14', ['LIM', 'NRT'], LIMA, TOKYO, ['Lima', 'Tokyo']);
 
 /**
  * A wheel notch over a given spot on the map.
@@ -203,6 +233,7 @@ function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {
     selectedId: null,
     onSelect: vi.fn(),
     colours: new Map<string, string>(),
+    lastCollectedId: null,
     projection: 'globe' as const,
     onProjectionChange: vi.fn(),
     ...overrides,
@@ -268,6 +299,7 @@ describe('RouteMap', () => {
         selectedId={null}
         onSelect={vi.fn()}
         colours={new Map()}
+        lastCollectedId={null}
         projection="mercator"
         onProjectionChange={vi.fn()}
       />,
@@ -294,7 +326,7 @@ describe('RouteMap', () => {
 
   it('starts an arc that is wholly in view at the start of the pattern', () => {
     // Opened, because only the open route flows now.
-    const { container } = renderMap({ routes: [LIM_CUZ], selectedId: LIM_CUZ.id });
+    const { container } = renderMap({ routes: [LIM_CUZ], selectedId: LIM_CUZ.leading });
     const arc = container.querySelector('[class*="flow"]') as SVGElement;
     expect(arc.style.animationDelay).toBe(flowDelay(0));
   });
@@ -309,7 +341,7 @@ describe('RouteMap', () => {
      * class that carries the keyframes and the phase set beside it. That the
      * dashes actually travel is not provable here.
      */
-    const { container } = renderMap({ routes: [LIM_CUZ, LIM_MAD], selectedId: LIM_CUZ.id });
+    const { container } = renderMap({ routes: [LIM_CUZ, LIM_MAD], selectedId: LIM_CUZ.leading });
 
     const flowing = [...container.querySelectorAll('[class*="flow"]')];
     expect(flowing.length).toBeGreaterThan(0);
@@ -335,14 +367,15 @@ describe('RouteMap', () => {
     // travel when the selection does.
     const { container, rerender } = renderMap({
       routes: [LIM_CUZ, LIM_MAD],
-      selectedId: LIM_CUZ.id,
+      selectedId: LIM_CUZ.leading,
     });
     rerender(
       <RouteMap
         routes={[LIM_CUZ, LIM_MAD]}
-        selectedId={LIM_MAD.id}
+        selectedId={LIM_MAD.leading}
         onSelect={vi.fn()}
         colours={new Map()}
+        lastCollectedId={null}
         projection="globe"
         onProjectionChange={vi.fn()}
       />,
@@ -366,6 +399,90 @@ describe('RouteMap', () => {
     expect(container.querySelectorAll('[class*="dashed"]').length).toBeGreaterThan(0);
   });
 
+  it('flows the arc a collection has just landed on, without it being opened', () => {
+    /*
+     * The case the whole of `a-pair-draws-one-arc` has to answer for. A pair
+     * watched both ways is one line, so what a finished collection on the
+     * return leg changes is that line's *direction* — and a line that is not
+     * moving cannot show a direction changing. Adding a route does not open
+     * it, so waiting for the reader to click first would mean nothing at all
+     * happened when the fetch came back.
+     */
+    const { container } = renderMap({
+      routes: [LIM_CUZ, LIM_SCL_BOTH],
+      selectedId: LIM_CUZ.leading,
+      lastCollectedId: 'SCL|LIM|2027-03',
+    });
+
+    const santiago = container
+      .querySelector('[aria-label^="Santiago to Lima"]')
+      ?.closest('g[role="listitem"]') as SVGElement;
+    expect(santiago.querySelectorAll('[class*="flow"]').length).toBeGreaterThan(0);
+    // And it is not the open one, so it does not also thicken.
+    expect(santiago.querySelectorAll('[class*="active"]')).toHaveLength(0);
+  });
+
+  it('draws a pair watched both ways as one arc, running the leading way', () => {
+    // Two watches, one line — and the line leaves Santiago, because that is
+    // the leg the geometry was pointed at.
+    const { container } = renderMap({ routes: [LIM_SCL_BOTH] });
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(1);
+
+    const arc = container.querySelector('path[class*="arc"]')!;
+    const [x, y] = arc.getAttribute('d')!.slice(1).split('L')[0].split(',').map(Number);
+    const dots = [...container.querySelectorAll('circle')];
+    const santiago = dots.find((dot) => Math.abs(Number(dot.getAttribute('cx')) - x) < 0.5);
+    expect(santiago).toBeDefined();
+    expect(Number(santiago!.getAttribute('cy'))).toBeCloseTo(y, 1);
+  });
+
+  it('leaves both ends of a both-ways pair neutral, because both are departures', () => {
+    /*
+     * `a-both-ways-pair-has-two-homes`. Lima carries every other arc on this
+     * page and each draws its own neutral dot there; letting one arc flip to
+     * point *at* Lima and colour it would drop a smaller coloured dot on that
+     * stack, and which ended up on top would come down to watchlist order.
+     */
+    const { container } = renderMap({ routes: [LIM_SCL_BOTH] });
+    expect(container.querySelectorAll('circle[class*="node"]')).toHaveLength(0);
+    expect(container.querySelectorAll('circle[class*="home"]')).toHaveLength(2);
+  });
+
+  it('names a both-ways arc after the way it is running, and says it is both', () => {
+    // A reader who cannot see the dashes move has no other way to learn either
+    // of those two things.
+    renderMap({ routes: [LIM_SCL_BOTH] });
+    expect(screen.getByLabelText('Santiago to Lima, watched both ways')).toBeInTheDocument();
+  });
+
+  it('thickens a shared arc when either of its watches is the open one', () => {
+    // One line stands for both; an arc that is plainly the reader's route and
+    // does not look it is the worse failure.
+    for (const open of ['LIM|SCL|2027-03', 'SCL|LIM|2027-03']) {
+      const { container, unmount } = renderMap({ routes: [LIM_SCL_BOTH], selectedId: open });
+      expect(container.querySelectorAll('[class*="active"]').length).toBeGreaterThan(0);
+      unmount();
+    }
+  });
+
+  it('offers the other watch on a shared arc once the first one is open', () => {
+    /*
+     * `arc-click-cycles-its-watches`. Answering the leading watch whatever is
+     * open would leave the second one a line the reader can see, can hover and
+     * cannot reach.
+     */
+    const closed = renderMap({ routes: [LIM_SCL_BOTH], selectedId: null });
+    expect(closed.container.querySelector('[class*="hit"]')?.getAttribute('data-route')).toBe(
+      'SCL|LIM|2027-03',
+    );
+    closed.unmount();
+
+    const open = renderMap({ routes: [LIM_SCL_BOTH], selectedId: 'SCL|LIM|2027-03' });
+    expect(open.container.querySelector('[class*="hit"]')?.getAttribute('data-route')).toBe(
+      'LIM|SCL|2027-03',
+    );
+  });
+
   it('picks up the phase the hidden half of an arc carried round the back', () => {
     /*
      * Tokyo to Lima leaves from behind the globe: the stretch before the limb
@@ -375,7 +492,7 @@ describe('RouteMap', () => {
      * with the limb as the globe turns rather than staying on the arc. The
      * hidden length is counted, so they stay put.
      */
-    const { container } = renderMap({ routes: [NRT_LIM], selectedId: NRT_LIM.id });
+    const { container } = renderMap({ routes: [NRT_LIM], selectedId: NRT_LIM.leading });
     const arcs = [...container.querySelectorAll('[class*="flow"]')] as SVGElement[];
     expect(arcs).toHaveLength(1);
     expect(arcs[0].style.animationDelay).not.toBe(flowDelay(0));
@@ -385,7 +502,7 @@ describe('RouteMap', () => {
     // Mercator arcs are solid by decision, so there is nothing to animate and
     // no phase to give them — including the open one, which is the case that
     // would break if the flow were hung on the selection alone.
-    const { container } = renderMap({ projection: 'mercator', selectedId: LIM_CUZ.id });
+    const { container } = renderMap({ projection: 'mercator', selectedId: LIM_CUZ.leading });
     expect(container.querySelectorAll('[class*="flow"]')).toHaveLength(0);
     for (const arc of container.querySelectorAll('[class*="arc"]')) {
       expect((arc as SVGElement).style.animationDelay).toBe('');
@@ -405,6 +522,7 @@ describe('RouteMap', () => {
         selectedId={null}
         onSelect={vi.fn()}
         colours={new Map()}
+        lastCollectedId={null}
         projection="mercator"
         onProjectionChange={vi.fn()}
       />,
@@ -1032,9 +1150,11 @@ describe('RouteMap', () => {
     // one colour they are one shape; the colour is what makes them separate
     // routes a reader can follow.
     const { container } = renderMap({
+      // Keyed by the watch, not by the arc — an arc has no colour of its own
+      // and wears its leading watch's.
       colours: new Map([
-        [LIM_CUZ.id, '#d6a65d'],
-        [LIM_MAD.id, '#70b9c9'],
+        [LIM_CUZ.leading, '#d6a65d'],
+        [LIM_MAD.leading, '#70b9c9'],
       ]),
     });
     const strokes = [...container.querySelectorAll('[class*="arc"]')].map(
@@ -1047,7 +1167,7 @@ describe('RouteMap', () => {
   it('opens a route when its line is pressed', () => {
     const { props, container } = renderMap();
     const stage = container.querySelector('[class*="stage"]')!;
-    const hit = container.querySelector(`[data-route="${LIM_MAD.id}"]`)!;
+    const hit = container.querySelector(`[data-route="${LIM_MAD.leading}"]`)!;
 
     // Down on the line, up in the same place. Selection is settled on the way
     // up rather than with a click handler on the path: the stage captures the
@@ -1056,13 +1176,13 @@ describe('RouteMap', () => {
     pointer(hit, 'pointerDown', [500, 300]);
     pointer(stage, 'pointerUp', [500, 300]);
 
-    expect(props.onSelect).toHaveBeenCalledWith(LIM_MAD.id);
+    expect(props.onSelect).toHaveBeenCalledWith(LIM_MAD.leading);
   });
 
   it('does not open a route when the press was a drag across it', () => {
     const { props, container } = renderMap();
     const stage = container.querySelector('[class*="stage"]')!;
-    const hit = container.querySelector(`[data-route="${LIM_MAD.id}"]`)!;
+    const hit = container.querySelector(`[data-route="${LIM_MAD.leading}"]`)!;
 
     pointer(hit, 'pointerDown', [500, 300]);
     pointer(stage, 'pointerMove', [560, 320]);
@@ -1093,7 +1213,9 @@ describe('RouteMap', () => {
     for (const arc of arcs) expect(arc.getAttribute('class')).not.toContain('behind');
 
     // Cut at the limb, not dropped whole: Lima is still joined to the horizon.
-    expect(container.querySelectorAll(`[data-route="${LIM_TOKYO.id}"]`).length).toBe(arcs.length);
+    expect(container.querySelectorAll(`[data-route="${LIM_TOKYO.leading}"]`).length).toBe(
+      arcs.length,
+    );
 
     // Tokyo is on the far side and still on screen.
     const tokyo = [...container.querySelectorAll('text')].find((t) => t.textContent === 'NRT');

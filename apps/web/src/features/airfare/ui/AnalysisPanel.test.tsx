@@ -192,6 +192,23 @@ function chartName(): string {
   return screen.getByTestId('days-chart-name').textContent ?? '';
 }
 
+/**
+ * Which stretch of calendar the open chart is drawing, from the chart itself.
+ *
+ * The frame used to print its own bounds — `16 flights departing on 09/03/2027,
+ * 00:00 to 23:59` — in the head above the plot, and these tests read them from
+ * the page's text. It prints the count alone now, because the second half of
+ * that sentence was the x axis saying in words what it draws two rows below.
+ * The bounds are not gone: they are the chart's accessible name, which is where
+ * a reader who cannot see the axis gets them, and that is the one place they
+ * have to be right. So the assertions follow them there rather than being
+ * dropped — what they were proving is that the panel's navigation lands the
+ * frame on the period it claims, and that is exactly as true of the name.
+ */
+function frameLabel(): string {
+  return screen.getByRole('img').getAttribute('aria-label') ?? '';
+}
+
 describe('the period the reader is on', () => {
   it('is still the ninth departure after a look at the price chart and back', () => {
     render(<Harness />);
@@ -203,7 +220,7 @@ describe('the period the reader is on', () => {
     openDeparture();
 
     expect(screen.getByText('9 / 31')).toBeInTheDocument();
-    expect(screen.getByText(/on 09\/03\/2027, 00:00 to 23:59/)).toBeInTheDocument();
+    expect(frameLabel()).toContain('on 09/03/2027, 00:00 to 23:59');
   });
 
   it('lands on the week holding the ninth, not on the first week of the month', () => {
@@ -214,9 +231,7 @@ describe('the period the reader is on', () => {
     press('Next day', 8);
 
     click('Week');
-    expect(
-      screen.getByText(/between 08\/03\/2027 00:00 and 14\/03\/2027 23:59/),
-    ).toBeInTheDocument();
+    expect(frameLabel()).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
   });
 
   it('goes back to the start when the reader opens a different watch', () => {
@@ -274,26 +289,58 @@ describe('the controls that are gone', () => {
     expect(screen.queryByRole('button', { name: 'Watched month' })).not.toBeInTheDocument();
   });
 
-  it('keeps the period switch in the layout on both charts, so the head never moves', () => {
-    // The switch folds away with chart A and the space it took does not. Beside
-    // a chart drawn by day and by nothing else it was a live control that moved
-    // nothing next to it, which reads as broken; removed from the layout
-    // instead, it would slide the two chart buttons under the hand pressing
-    // one. So it is held open and hidden, and both halves of that are asserted
-    // here — `hidden: true` finds the reserved strip, the plain query finds
-    // only what a reader can reach.
+  it('keeps no period switch in the panel head, on either chart', () => {
+    /*
+     * `period-switch-follows-its-chart` superseded, and this is the assertion
+     * that replaces the one proving it.
+     *
+     * The switch used to stand in this head and fold away with chart A, holding
+     * its own space open by `visibility` so that folding could not slide the two
+     * chart buttons under a pressing hand — so the old test looked for a strip
+     * that was in the layout and out of reach. There is no strip now: the switch
+     * is inside the chart it moves, and the head's contents are the same on both
+     * charts because they no longer depend on which chart is open. That is the
+     * same no-reflow guarantee, so it is still asserted — by the stronger fact
+     * that nothing here changes at all.
+     */
     render(<Harness />);
-    const held = () =>
-      screen.getByRole('group', { name: 'How much time one period covers', hidden: true });
-    const reachable = () =>
-      screen.queryByRole('group', { name: 'How much time one period covers' });
+    const head = screen.getByRole('group', { name: 'Chart' }).parentElement!;
+    /*
+     * The text and the controls, which are between them what sets this row's
+     * width — not `innerHTML`, because pressing a chart button flips its own
+     * `aria-pressed` and that is the change the reader asked for. What must not
+     * move is how many controls are here and how wide their words are.
+     */
+    const shape = () => [head.textContent, head.querySelectorAll('button').length] as const;
+    const before = shape();
 
-    expect(held()).toBeInTheDocument();
-    expect(reachable()).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: 'How much time one period covers', hidden: true }),
+    ).not.toBeInTheDocument();
 
     openDeparture();
-    expect(held()).toBeInTheDocument();
-    expect(reachable()).toBeInTheDocument();
+    expect(shape()).toEqual(before);
+  });
+
+  it('offers the period switch only from inside the chart it moves', () => {
+    // Chart A is drawn by day and by nothing else (12.242), so beside it the
+    // switch was a live control that moved nothing next to it. It is now absent
+    // rather than hidden, which is the honest state: there is nothing on screen
+    // for it to change.
+    render(<Harness />);
+    const switchGroup = () =>
+      screen.queryByRole('group', { name: 'How much time one period covers' });
+
+    expect(switchGroup()).not.toBeInTheDocument();
+
+    openDeparture();
+    const reachable = switchGroup();
+    expect(reachable).toBeInTheDocument();
+    // And it is inside chart B's own figure, not floating above it.
+    expect(screen.getByRole('img').closest('figure')).toContainElement(reachable);
+
+    click(MOVES);
+    expect(switchGroup()).not.toBeInTheDocument();
   });
 });
 
@@ -370,7 +417,10 @@ describe('the name of the chart that follows what it draws', () => {
 
     expect(chartName()).toBe('Cheapest per date');
     expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
-    expect(screen.getByText(/each carries one cheapest fare for the whole date/)).toBeTruthy();
+    // The line under the switch still names the archive that is answering, which
+    // is the half of it a reader cannot get by looking; how the axis is built is
+    // no longer restated above the axis.
+    expect(screen.getByText('One fare per departure date, beyond the watched month.')).toBeTruthy();
   });
 
   it('holds every name it can wear at once, so the switch cannot change width', () => {
@@ -406,7 +456,7 @@ describe('where the reader may walk', () => {
     openDeparture();
     press('Next day', 40);
     expect(screen.getByText('31 / 31')).toBeInTheDocument();
-    expect(screen.getByText(/on 31\/03\/2027, 00:00 to 23:59/)).toBeInTheDocument();
+    expect(frameLabel()).toContain('on 31/03/2027, 00:00 to 23:59');
   });
 
   it('lets the month view walk out to wherever the horizon reaches', () => {
@@ -414,7 +464,7 @@ describe('where the reader may walk', () => {
     openDeparture();
     click('Month');
     press('Next month', 1);
-    expect(screen.getByText(/between 01\/04\/2027 00:00 and 30\/04\/2027 23:59/)).toBeTruthy();
+    expect(frameLabel()).toContain('between 01/04/2027 00:00 and 30/04/2027 23:59');
   });
 
   it('has nowhere outside the month to walk to where no horizon is on disk', () => {

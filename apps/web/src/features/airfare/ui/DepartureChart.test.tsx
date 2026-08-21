@@ -127,7 +127,7 @@ function curveOf(from: string, to: string, prices: CalendarPoint[]): CalendarCur
  */
 function Harness({
   snapshots = WEEK,
-  granularity = 'week',
+  granularity: initialGranularity = 'week',
   curve = null,
   watched = MARCH,
   ...rest
@@ -137,6 +137,14 @@ function Harness({
   // component is remounted on every route change and a reader's zoom should
   // outlive that.
   const [viewport, setViewport] = useState<Viewport | null>(null);
+  /*
+   * And so is the period, which the chart now offers a switch for in its own
+   * corner. Held here rather than passed as a constant so that pressing Week or
+   * Month in a test moves the frame the way it moves for a reader — the value
+   * still belongs above the chart, because the flight table below the panel is
+   * grouped by the same period.
+   */
+  const [granularity, setGranularity] = useState<Granularity>(initialGranularity);
   const boardDays = departureDays(snapshots);
   const keys = framePeriodKeys(boardDays, curve, granularity);
   const periodKey = activeKey(keys, granularity, anchor ?? boardDays[0] ?? null);
@@ -144,6 +152,7 @@ function Harness({
     <DepartureChart
       snapshots={snapshots}
       granularity={granularity}
+      onGranularityChange={setGranularity}
       curve={curve}
       watched={watched}
       currency="USD"
@@ -169,6 +178,23 @@ function chart(props: Partial<Parameters<typeof DepartureChart>[0]> = {}) {
 function dots(container: HTMLElement): SVGCircleElement[] {
   const group = container.querySelector('[data-testid="flight-dots"]');
   return [...(group?.querySelectorAll('circle') ?? [])] as SVGCircleElement[];
+}
+
+/**
+ * Which stretch of calendar the frame is drawing, read from the chart itself.
+ *
+ * The head above the plot used to print `5 flights departing between 08/03/2027
+ * 00:00 and 14/03/2027 23:59`, and these tests read the bounds out of the page's
+ * text. It prints the count alone now — the rest of that sentence was the x axis
+ * spelling itself out directly above the axis that draws it — and the bounds
+ * moved to the one place that has to carry them whatever is printed: the
+ * chart's accessible name, which is how a reader who cannot see the axis is told
+ * what it spans. Every assertion that was reading them from `textContent` reads
+ * them from here instead, because what each of those tests is proving is that
+ * the frame lands on the period it claims, and that is unchanged.
+ */
+function frameLabel(container: HTMLElement): string {
+  return container.querySelector('svg')?.getAttribute('aria-label') ?? '';
 }
 
 describe('one dot per itinerary', () => {
@@ -209,7 +235,25 @@ describe('one dot per itinerary', () => {
 
   it('names the whole window it is drawing, both ends and both clocks', () => {
     const { container } = chart();
-    expect(container.textContent).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
+    expect(frameLabel(container)).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
+  });
+
+  it('prints the count and leaves the window to the axis and the name', () => {
+    /*
+     * The head is the figure now rather than the opening of a sentence about
+     * it. `16 flights departing on 30/11/2026, 00:00 to 23:59` was a count and
+     * then the x axis restated in words immediately above the x axis, and the
+     * owner read the whole of it as noise around the chart.
+     *
+     * Both halves of the change are asserted, because dropping the bounds from
+     * the page without keeping them anywhere would be a loss and not a cleanup:
+     * the printed head is the count and nothing else, and the bounds are still
+     * on the chart's accessible name, where a reader who cannot see the axis is
+     * the one person who has no other way to them.
+     */
+    const { container } = chart();
+    expect(screen.getByTestId('frame-summary').textContent).toBe('5 flights');
+    expect(frameLabel(container)).toContain('5 flights departing between 08/03/2027 00:00');
   });
 });
 
@@ -341,7 +385,7 @@ describe('moving between periods', () => {
     const { container } = chart({ snapshots: TWO_WEEKS });
     expect(container.textContent).toContain('1 / 2');
     fireEvent.click(screen.getByLabelText('Next week'));
-    expect(container.textContent).toContain('between 22/03/2027 00:00 and 28/03/2027 23:59');
+    expect(frameLabel(container)).toContain('between 22/03/2027 00:00 and 28/03/2027 23:59');
     expect(container.textContent).toContain('2 / 2');
   });
 
@@ -366,7 +410,7 @@ describe('moving between periods', () => {
     for (const [granularity, count, caption] of cases) {
       const { container, unmount } = chart({ snapshots: TWO_WEEKS, granularity });
       expect(dots(container)).toHaveLength(count);
-      expect(container.textContent).toContain(caption);
+      expect(frameLabel(container)).toContain(caption);
       unmount();
     }
   });
@@ -399,7 +443,7 @@ describe('a period that straddles the end of the watched month', () => {
 
   it('draws the whole week, boards to the end of the month and the curve past it', () => {
     const { container } = straddling();
-    expect(container.textContent).toContain('between 29/03/2027 00:00 and 04/04/2027 23:59');
+    expect(frameLabel(container)).toContain('between 29/03/2027 00:00 and 04/04/2027 23:59');
     expect(dots(container)).toHaveLength(1);
     expect(screen.getAllByTestId('curve-day')).toHaveLength(2);
   });
@@ -561,7 +605,7 @@ describe('a frame with no boards in it at all', () => {
     fireEvent.click(screen.getByLabelText('Next month'));
     fireEvent.click(screen.getByLabelText('Next month'));
 
-    expect(container.textContent).toContain('between 01/05/2027 00:00 and 31/05/2027 23:59');
+    expect(frameLabel(container)).toContain('between 01/05/2027 00:00 and 31/05/2027 23:59');
     expect(screen.queryByTestId('source-seam')).toBeNull();
     expect(screen.queryByTestId('source-board')).toBeNull();
     expect(screen.getByTestId('source-curve')).toBeInTheDocument();
@@ -815,7 +859,7 @@ describe('a watched range narrower than the frame', () => {
 
   it('draws the frame the defect was found in', () => {
     const { container } = focused();
-    expect(container.textContent).toContain('between 01/03/2027 00:00 and 07/03/2027 23:59');
+    expect(frameLabel(container)).toContain('between 01/03/2027 00:00 and 07/03/2027 23:59');
     expect(container.textContent).toContain('2 flights and 6 priced dates');
   });
 
@@ -860,5 +904,121 @@ describe('a watched range narrower than the frame', () => {
     focused('month');
     expect(screen.getByTestId('source-board')).toHaveTextContent('flights, by hour');
     expect(screen.getByTestId('source-curve')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The chrome around the plot, which is where the ink was rather than where the
+ * data is.
+ *
+ * The owner read this panel and quoted back a keyboard-help paragraph, five
+ * legend sentences, a crosshair readout and a caption naming the axis, all of it
+ * printed around a chart that draws its own axis. What this block pins is the
+ * half of that cleanup a reader cannot see: that the words which came off the
+ * page are still reachable by everyone who was relying on them, and that the two
+ * facts this panel exists to keep apart did not collapse into one when their
+ * sentences became labels.
+ */
+describe('the chrome around the plot', () => {
+  it('keeps the keyboard help on the chart for a screen reader', () => {
+    /*
+     * The help is the only account a screen reader gets of the two keyboard
+     * axes and the three zoom keys, so it is a regression if it stops being
+     * reachable — and "not printed" and "not there" are exactly the two states
+     * this has to tell apart. The chart points at it by id, which is the route
+     * assistive technology takes.
+     */
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    const describedBy = svg.getAttribute('aria-describedby')!;
+    const help = container.querySelector(`#${CSS.escape(describedBy)}`);
+
+    expect(help?.textContent).toContain('Left and right arrow keys move one departure date');
+    expect(help?.textContent).toContain('Plus and minus close and open the frame');
+    expect(help?.textContent).toContain('shift with left or right moves the frame along it');
+  });
+
+  it('describes the chart with the help alone, not with the live readout', () => {
+    /*
+     * The defect the owner's paste is a fingerprint of. All three ids were on
+     * `aria-describedby`, so the chart's description was the whole keyboard
+     * paragraph immediately followed by whatever the crosshair was on, with no
+     * pause between them — read out in full every time focus arrived, and again
+     * in front of every fare. The readout and the zoom range are `role="status"`,
+     * which is what makes them speak; they do not need to be pointed at as well.
+     */
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    expect(svg.getAttribute('aria-describedby')!.trim().split(/\s+/)).toHaveLength(1);
+    // And the live regions are still there and still live.
+    expect(container.querySelectorAll('[role="status"]').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('offers the same help to a pointer, without naming the chart twice', () => {
+    // An SVG tooltip comes from a `<title>` child and from nothing else — the
+    // attribute is accepted silently and never appears. It must not become the
+    // chart's name, and does not: an `aria-label` beats a `<title>` in the
+    // accessible-name calculation.
+    const { container } = chart();
+    const svg = container.querySelector('svg')!;
+    expect(svg.querySelector('title')?.textContent).toContain('The wheel and a drag');
+    expect(frameLabel(container)).toContain('What each departure date costs');
+  });
+
+  it('tells nothing on sale from never collected in two words each', () => {
+    /*
+     * The distinction the whole panel is built on, carried through the cut from
+     * clauses to labels. An answer that came back empty is a fact about the
+     * route; an answer that never came is a fact about us, and a legend that let
+     * the two read as one mark would undo what the two marks are for.
+     */
+    chart();
+    const unsold = screen.getByTitle('Nothing on sale — we asked and there was none');
+    const never = screen.getByTitle('Never collected — we have no reading either way');
+
+    expect(unsold).toHaveTextContent('None on sale');
+    expect(never).toHaveTextContent('Never collected');
+    expect(unsold.textContent).not.toBe(never.textContent);
+  });
+
+  it('says each legend mark in three words or fewer', () => {
+    // The cut itself, asserted rather than described: five entries that were
+    // forty-eight words of explanation are five names. The sentences are not
+    // lost — each is the entry's `title` — and the test above reads two of them.
+    const { container } = chart();
+    const entries = [...container.querySelectorAll('figcaption span')];
+    expect(entries).toHaveLength(5);
+    for (const entry of entries) {
+      expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
+      expect(entry.getAttribute('title')).toBeTruthy();
+    }
+  });
+
+  it('keeps the words on the reset button after taking them off it', () => {
+    // The glyph is the size reduction; the two words move to the accessible name
+    // and the tooltip, which is where a control showing a glyph has to keep them.
+    chart();
+    const reset = screen.getByTestId('reset-zoom');
+    expect(reset).toHaveAccessibleName('Reset zoom');
+    expect(reset).toHaveAttribute('title', 'Reset zoom');
+    // Nothing to undo yet, so it is offered and disabled rather than absent.
+    expect(reset).toBeDisabled();
+  });
+
+  it('changes the period from the corner of the chart it moves', () => {
+    /*
+     * `period-switch-follows-its-chart` superseded — the switch is inside the
+     * chart it moves. That it is reachable only from here is the panel's test;
+     * what this one proves is that pressing it moves this frame, which is the
+     * whole reason it was worth moving.
+     */
+    const { container } = chart({ snapshots: WEEK });
+    expect(frameLabel(container)).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }));
+    expect(frameLabel(container)).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Day' }));
+    expect(frameLabel(container)).toContain('on 08/03/2027, 00:00 to 23:59');
   });
 });

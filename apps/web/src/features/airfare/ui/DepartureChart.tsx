@@ -118,6 +118,39 @@ const ANCHOR: Record<TagAnchor, string> = {
 const UNIT: Record<Granularity, string> = { day: 'day', week: 'week', month: 'month' };
 
 /**
+ * How much calendar one period covers, offered in the chart's own corner.
+ *
+ * The list moved here from `AnalysisPanel` with the control it describes —
+ * `period-switch-follows-its-chart` superseded. It sat in the panel head beside
+ * the two chart buttons, where it governed only one of them, and the mechanism
+ * that made that bearable was a strip held open by `visibility` so the buttons
+ * beside it could not reflow when it folded away. A switch that lives inside
+ * the only chart it moves needs no such apparatus: chart A never renders this
+ * component, so there is nothing to fold and nothing beside it to slide.
+ */
+const GRANULARITIES: { value: Granularity; label: string }[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+];
+
+/**
+ * The affordances, in one sentence, for a reader who is not looking at the plot.
+ *
+ * A constant rather than JSX because it is said in two places and must not
+ * drift between them: the screen reader hears it through `aria-describedby`,
+ * and a pointer finds it on the chart's own `title`. It used to be a paragraph
+ * under the plot — which it never visibly was, being `srOnly` throughout, but
+ * it was the first of three descriptions concatenated onto one chart and so the
+ * whole of it was read out before every fare the crosshair landed on.
+ */
+const HELP =
+  'Left and right arrow keys move one departure date at a time; up and down move through that ' +
+  'date’s board by price, where there is a board to move through. Plus and minus close and open ' +
+  'the frame around whatever the crosshair is on, zero returns to the whole period, and shift ' +
+  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer.';
+
+/**
  * How far one keyboard press moves the frame, as a fraction of what is on
  * screen.
  *
@@ -147,6 +180,14 @@ type DepartureChartProps = {
   /** The departure dates the boards cover — the watched month, or one day of it. */
   watched: WatchedRange | null;
   granularity: Granularity;
+  /**
+   * How much calendar one period covers, changed from this chart's own corner.
+   *
+   * The switch is the chart's now rather than the panel's, but the value still
+   * is not: the flight table below the panel is grouped by the same period, so
+   * the state stays where both readers of it can see it.
+   */
+  onGranularityChange: (granularity: Granularity) => void;
   currency: string;
   /** The period on screen, resolved by the panel that owns the anchor — 12.170. */
   periodKey: string | null;
@@ -214,6 +255,7 @@ export function DepartureChart({
   curve,
   watched,
   granularity,
+  onGranularityChange,
   currency,
   periodKey,
   keys,
@@ -688,53 +730,97 @@ export function DepartureChart({
   return (
     <figure className={styles.figure}>
       <div className={styles.head}>
+        {/*
+          The count, printed as the figure it is.
+
+          It used to read `16 flights departing on 30/11/2026, 00:00 to 23:59`,
+          and the half after the number was the x axis spelling itself out in
+          words directly above the axis that draws it. The sentence is not lost
+          — it is still the chart's accessible name, where it is the only thing
+          that can say what the axis says — but a reader looking at the plot has
+          the dates under it already, and what they cannot count for themselves
+          is how many dots there are.
+        */}
         <p className={styles.window} data-testid="frame-summary">
-          <strong>{summary(source, placed.length, marks)}</strong> departing {caption}
+          {summary(source, placed.length, marks)}
         </p>
-        {keys.length > 1 ? (
-          <div className={styles.steps}>
-            <button
-              type="button"
-              onClick={() => onStep(-1)}
-              disabled={!previous}
-              aria-label={`Previous ${UNIT[granularity]}`}
-            >
-              &lsaquo;
-            </button>
-            <span>
-              {keys.indexOf(period.key) + 1} / {keys.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => onStep(1)}
-              disabled={!next}
-              aria-label={`Next ${UNIT[granularity]}`}
-            >
-              &rsaquo;
-            </button>
-          </div>
-        ) : null}
 
         {/*
-          The way back out of a zoom, beside the arrows that move the frame
-          because both are the same kind of control: where in the archive the
-          reader is looking.
+          The chart's own top-right corner: what a period is, which one is open,
+          and the way back out of a zoom.
 
-          Always rendered and disabled when there is nothing to undo, rather
-          than appearing with the first wheel notch. A control that arrives when
-          the reader zooms would reflow the head at the exact moment they are
-          watching the chart move, and a disabled button is the honest reading
-          anyway: this is a thing you can do, and there is currently nothing to
-          do it to.
+          All three answer "where in the archive am I looking", so they are one
+          cluster rather than three things spread along a row. The period switch
+          arrived here from the panel head above — `period-switch-follows-its-chart`
+          superseded — because it governs this chart and nothing else, and a
+          control standing beside the thing it moves needs no apparatus to
+          explain which of two charts it belongs to.
         */}
-        <div className={styles.zoom}>
+        <div className={styles.corner}>
+          <div className={styles.switch} role="group" aria-label="How much time one period covers">
+            {GRANULARITIES.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={granularity === option.value}
+                onClick={() => onGranularityChange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          {keys.length > 1 ? (
+            <div className={styles.steps}>
+              <button
+                type="button"
+                onClick={() => onStep(-1)}
+                disabled={!previous}
+                aria-label={`Previous ${UNIT[granularity]}`}
+              >
+                &lsaquo;
+              </button>
+              <span>
+                {keys.indexOf(period.key) + 1} / {keys.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => onStep(1)}
+                disabled={!next}
+                aria-label={`Next ${UNIT[granularity]}`}
+              >
+                &rsaquo;
+              </button>
+            </div>
+          ) : null}
+
+          {/*
+            The way back out of a zoom, beside the arrows that move the frame
+            because both are the same kind of control.
+
+            Always rendered and disabled when there is nothing to undo, rather
+            than appearing with the first wheel notch. A control that arrives
+            when the reader zooms would reflow the corner at the exact moment
+            they are watching the chart move, and a disabled button is the
+            honest reading anyway: this is a thing you can do, and there is
+            currently nothing to do it to.
+
+            The two words became a glyph, which is the whole of the size
+            reduction — `Reset zoom` set the width of this cluster while saying
+            what a return arrow already says, and the words survive where a
+            control's words have to: the accessible name, and the tooltip a
+            pointer finds.
+          */}
           <button
             type="button"
+            className={styles.reset}
             onClick={() => onViewportChange(null)}
             disabled={!zoomed}
+            aria-label="Reset zoom"
+            title="Reset zoom"
             data-testid="reset-zoom"
           >
-            Reset zoom
+            <span aria-hidden="true">&#8634;</span>
           </button>
         </div>
       </div>
@@ -746,7 +832,20 @@ export function DepartureChart({
         role="img"
         tabIndex={0}
         aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption)}`}
-        aria-describedby={`${help} ${status} ${range}`}
+        /*
+          The description is the affordances, and the two live regions are not
+          part of it.
+
+          All three ids used to be listed here, which is what made the chart's
+          description the keyboard help immediately followed by whatever the
+          crosshair was on — one run-on string, no pause between the last word
+          of the help and the flight number, read out in full on every arrival.
+          A live region does not need to be pointed at to be announced; being
+          `role="status"` is the whole of what makes the readout and the zoom
+          range speak, and they still do. What is left here is the thing a
+          description is for: what this chart can be asked to do.
+        */
+        aria-describedby={help}
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0"
         data-zoomed={zoomed ? 'true' : undefined}
         onPointerMove={trackPointer}
@@ -766,6 +865,20 @@ export function DepartureChart({
         onKeyDown={walk}
         onBlur={() => setCursor(null)}
       >
+        {/*
+          The same sentence again, for a hand rather than an ear.
+
+          An SVG has no `title` *attribute* — a tooltip on an SVG element comes
+          from a `<title>` child and from nothing else, which is worth writing
+          down because the attribute is accepted silently by JSX and by the DOM
+          and simply never appears. It does not become the chart's name: an
+          `aria-label` beats a `<title>` in the accessible-name calculation, so
+          the label above is still what is announced and this is only what
+          hovering shows. That ordering is the reason the help can be in both
+          places at once without being said twice.
+        */}
+        <title>{HELP}</title>
+
         {/*
           What the zoom is allowed to hide.
 
@@ -1049,13 +1162,20 @@ export function DepartureChart({
         ) : null}
       </svg>
 
-      {/* Fixed height whether or not anything is under the pointer, so the table below never jumps. */}
+      {/*
+        Fixed height whether or not anything is under the pointer, so the table
+        below never jumps.
+
+        The line it shows while nothing is under the crosshair is a placeholder
+        holding that height open, not a paragraph. It used to name the arrow
+        keys and say what they did — directly beneath a plot whose own `<title>`
+        and whose description both say the same thing at length — and seven
+        words are enough to tell a reader this row is waiting for them rather
+        than broken.
+      */}
       <p className={styles.readout} aria-hidden="true">
         {reading === null ? (
-          <span className={styles.hint}>
-            Point at the chart, or use the arrow keys — left and right walk one departure date at a
-            time.
-          </span>
+          <span className={styles.hint}>Point at the chart, or press an arrow key</span>
         ) : reading.kind === 'flight' ? (
           <>
             <strong>{flightName(reading.placed.point)}</strong>
@@ -1085,12 +1205,17 @@ export function DepartureChart({
         )}
       </p>
 
+      {/*
+        The affordances, for a reader who cannot see the corner they are in.
+
+        Still a node in the document and still the chart's `aria-describedby`,
+        because deleting it would take the only account of the two keyboard axes
+        and the three zoom keys that a screen reader ever gets. What changed is
+        that it no longer shares that attribute with two live regions, so it is
+        read on arrival and not again in front of every fare.
+      */}
       <p id={help} className={styles.srOnly}>
-        Left and right arrow keys move one departure date at a time; up and down move through that
-        date&rsquo;s board by price, where there is a board to move through. Plus and minus close
-        and open the frame around whatever the crosshair is on, zero returns to the whole period,
-        and shift with left or right moves the frame along it. The wheel and a drag do the same with
-        a pointer.
+        {HELP}
       </p>
       <p id={status} className={styles.srOnly} role="status">
         {reading === null
@@ -1120,22 +1245,42 @@ export function DepartureChart({
         reader stepped across the boundary would move the whole panel under
         them, which is the one thing this arrangement must not do — and the
         marks it names are the ones they are about to meet.
+
+        **Names, not sentences.** Every entry was a clause explaining its own
+        swatch — five of them, forty-eight words, wrapping to three lines under
+        a plot they were describing. A legend is read by looking from a mark on
+        the chart to the same mark in the row, and the word beside it only has
+        to be the one that says which mark it is; the explanation belongs to
+        whatever the reader does next, which is point at it. So each keeps a
+        `title` carrying the sentence it used to print, and the two absences
+        keep the distinction the whole panel is built on — an answer that came
+        back empty is not the same fact as an answer that never came — in the
+        two words that are actually different between them.
       */}
       <figcaption className={styles.legend}>
-        <span className={styles.keyDot}>
-          <i /> One dot is one itinerary, at the hour it departs
+        <span className={styles.keyDot} title="One dot is one itinerary, at the hour it departs">
+          <i /> One itinerary
         </span>
-        <span className={styles.keyLine}>
-          <i /> The cheapest flight of each date — broken where a date has none
+        <span
+          className={styles.keyLine}
+          title="The cheapest flight of each date — broken where a date has none"
+        >
+          <i /> Cheapest of date
         </span>
-        <span className={styles.keySpan}>
-          <i /> One price for a whole date — no departure time, so it spans the date
+        <span
+          className={styles.keySpan}
+          title="One price for a whole date — no departure time, so it spans the date"
+        >
+          <i /> Whole-date price
         </span>
-        <span className={styles.keyUnsold}>
-          <i /> Nothing on sale — we asked and there was none
+        <span className={styles.keyUnsold} title="Nothing on sale — we asked and there was none">
+          <i /> None on sale
         </span>
-        <span className={styles.keyUnanswered}>
-          <i /> Never collected — we have no reading either way
+        <span
+          className={styles.keyUnanswered}
+          title="Never collected — we have no reading either way"
+        >
+          <i /> Never collected
         </span>
       </figcaption>
 

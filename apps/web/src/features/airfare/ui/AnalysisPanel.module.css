@@ -15,16 +15,17 @@
 }
 
 /*
- * The switches side by side, wrapping together rather than one under the other.
- * At the narrow end of the panel they stack, which is why this is a flex row
- * with a gap and not a second element in `.head` — that one already pushes its
- * children to opposite edges, and the set belongs together.
+ * The switch, at the right of the head, wrapping under the title at the narrow
+ * end of the panel rather than squeezing beside it.
  *
- * There are exactly two of them and there always are. The middle one — how to
- * read chart A's axis, how far out chart B stood — is gone with the modes it
- * switched between, and the one that remains is never absent, because a switch
- * that came and went with the open chart would move the head every time the
- * reader changed question.
+ * There is exactly one of them now and there always is. The middle one — how to
+ * read chart A's axis, how far out chart B stood — went with the modes it
+ * switched between, and the period switch has gone into the chart it moves, so
+ * what is left is the one control that is a question about the panel: which of
+ * the two charts is open. A wrapper for a single child, kept because `.head` is
+ * `space-between` and this is the half that has to stay at the right edge —
+ * and because it is what makes the head's contents fixed, which is the property
+ * the vanished period switch needed a held-open strip to imitate.
  */
 .switches {
   display: flex;
@@ -94,79 +95,26 @@
 }
 
 /*
- * What the reader is looking at, in one sentence under the switches.
+ * What the reader is looking at, in one short line under the switch.
  *
  * The two charts are drawn on different clocks, and chart B is drawn on two at
- * once when a period straddles the end of the watched month. A line that names
- * the clock in full is what keeps a short axis label from being the only thing
- * standing between a departure hour and a departure date.
+ * once when a period straddles the end of the watched month. Naming which
+ * archive is answering is the part a reader cannot get by looking; how the axis
+ * itself works is drawn, labelled and railed a few rows below, and saying it
+ * again here in three clauses was the largest block of prose on the page.
  *
- * A fixed height, because that sentence is a different length on each of the
- * four frames chart B can draw. Three lines is what the longest of them takes
- * at the narrow end of this panel; without the floor, stepping a week out of
- * the watched month would shove the chart up the page mid-comparison.
+ * A fixed height still, for the reason it always had: the line is a different
+ * length on each of the four frames chart B can draw, and without a floor,
+ * stepping a week out of the watched month would shove the chart up the page
+ * mid-comparison. Two lines rather than three, because that is what the longest
+ * of the shortened lines can take at the narrow end of this panel — an em floor
+ * is a guess where the note under the chart uses a stack, and it is kept here
+ * because these five strings are one line each at any width this panel has and
+ * the floor only has to survive the narrow end.
  */
 .what {
   margin: 0 0 var(--space-3);
   color: var(--color-muted);
   font-size: 0.82rem;
-  min-height: 3.9em;
-}
-
-/*
- * The period switch, unfolded from chart B's button — and the space it takes
- * whether or not it is unfolded.
- *
- * The grid is the mechanism, exactly as `.names` is: the switch occupies `1 / 1`
- * and the cell is therefore as wide as the switch always, so the two chart
- * buttons to its left cannot move when it appears. `.head` is
- * `justify-content: space-between` and this strip sits at its right edge, so a
- * group that left the layout would slide those buttons sideways under the hand
- * that just pressed one.
- *
- * `visibility` and not opacity alone: a control the reader cannot see must also
- * be one Tab cannot reach and a screen reader does not read. The transform is
- * what makes it read as unfolding from the button rather than fading in on top
- * of it, and it is anchored on the left edge for the same reason.
- */
-.periods {
-  display: grid;
-  overflow: hidden;
-}
-
-.periods > * {
-  grid-area: 1 / 1;
-  transform-origin: left center;
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease;
-}
-
-.periods[data-open='false'] > * {
-  visibility: hidden;
-  opacity: 0;
-  transform: scaleX(0.7);
-  pointer-events: none;
-}
-
-.periods[data-open='true'] > * {
-  visibility: visible;
-  opacity: 1;
-  transform: none;
-}
-
-/*
- * A reader who has asked for less motion gets the same reveal without the
- * unfolding. The visibility still switches, because that is what makes the
- * control reachable rather than decorative.
- */
-@media (prefers-reduced-motion: reduce) {
-  .periods > * {
-    transition: none;
-    transform: none;
-  }
-
-  .periods[data-open='false'] > * {
-    transform: none;
-  }
+  min-height: 2.6em;
 }

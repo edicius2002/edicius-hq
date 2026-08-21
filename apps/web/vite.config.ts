@@ -40,8 +40,12 @@ export default defineConfig({
      * the same thing: whether the watchlist's rows scroll inside the row they
      * share with the map turns entirely on `contain: size`, which jsdom does
      * not implement and which was already wrong once on the Investing page for
-     * exactly that reason. Scoped to these files so no other suite changes
-     * behaviour.
+     * exactly that reason. `RouteDetail.module.css` is the fourth: the route
+     * strip holds a fixed height so the chart below it stops moving, and a
+     * height reserved in `calc()` against the font sizes in the same file is
+     * exactly the kind of arithmetic that can drift out of step with the rules
+     * it was derived from without any test noticing. Scoped to these files so
+     * no other suite changes behaviour.
      */
     css: {
       include: [
@@ -49,6 +53,7 @@ export default defineConfig({
         /Positions\.module\.css/,
         /AirfarePage\.module\.css/,
         /RouteList\.module\.css/,
+        /RouteDetail\.module\.css/,
         /styles\/tokens\.css/,
       ],
     },

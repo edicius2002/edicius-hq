@@ -336,6 +336,14 @@ export function AirfarePage() {
           insights={insights}
           health={health}
           cities={cities}
+          /*
+            The whole panel is derived from `history.data`, and a query whose
+            key has just changed has none — so choosing a second route made the
+            strip claim, for the length of the request, that the first thing it
+            had ever been asked about had never been collected. The same wiring
+            the analysis panel got in 12.237, for the same reason.
+          */
+          loading={history.isPending}
         />
       </Panel>
 

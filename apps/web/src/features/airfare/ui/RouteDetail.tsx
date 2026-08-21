@@ -16,6 +16,15 @@ type RouteDetailProps = {
   insights: FareInsights | null;
   health: WatchHealth | null;
   cities: { from: string | null; to: string | null };
+  /**
+   * Whether this route's archive is still being fetched.
+   *
+   * Every other prop here is derived from `useFareHistory`'s `data`, and a
+   * query whose key has changed has no data — so without this the panel cannot
+   * tell "this route has nothing collected" from "we have not been told yet",
+   * and says the first about the second. See `a-fetch-is-not-an-empty-archive`.
+   */
+  loading?: boolean;
 };
 
 /**
@@ -50,7 +59,14 @@ type RouteDetailProps = {
  * two months of context on the day a route is added, where our own median needs
  * two months of collecting to mean anything.
  */
-export function RouteDetail({ route, latest, insights, health, cities }: RouteDetailProps) {
+export function RouteDetail({
+  route,
+  latest,
+  insights,
+  health,
+  cities,
+  loading = false,
+}: RouteDetailProps) {
   if (!route) {
     return <p className={styles.empty}>Add a route to start building its history.</p>;
   }
@@ -197,6 +213,17 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
             </div>
           ) : null}
         </dl>
+      ) : loading ? (
+        /*
+          Not "nothing observed yet" — `a-fetch-is-not-an-empty-archive`.
+          Every figure above is derived from one query's `data`, and react-query
+          has none for a key it has not answered yet, so choosing a route the
+          reader has already collected drew a full "Nothing observed yet. Run a
+          collection pass." for the length of the request. That is a fact about
+          our fetch printed as a fact about their route, which is the same
+          mistake 12.237 caught in the booking-horizon chart.
+        */
+        <p className={`${styles.note} ${styles.wide}`}>Reading the archive…</p>
       ) : (
         <p className={`${styles.note} ${styles.wide}`}>
           Nothing observed yet. Run a collection pass.

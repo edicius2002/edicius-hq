@@ -10,9 +10,35 @@
  */
 .top {
   display: grid;
-  /* Wider than it was: a route is one line now, and the line carries a
-     colour, a pair and up to two dates. */
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
+  /*
+   * **The watchlist is narrower than it was and the map has the difference,
+   * pixel for pixel.** The owner: "aumente de forma proporcional el cuadro
+   * donde esta el globe mercator hacia la derecha y reducir el ancho de
+   * watched routes". Those are one change here rather than two — the map's
+   * track is `1fr`, so it is the only place the 80px this column gives up can
+   * go. Measured at this app's 125% root, where 1rem is 20px, against the
+   * stage widths the reader's own windows produce: 526px becomes 606 at a
+   * 1518-pixel viewport, 697 becomes 777 at 1689, 910 becomes 990 at 1902 and
+   * 1550 becomes 1630 at 2542. Proportionally, that is most where the map was
+   * worst off — 15.2% at the narrowest and 5.2% at the widest.
+   *
+   * **23rem is not the narrowest this column could be; it is the narrowest
+   * that is still true.** The floor is the longest row the list can draw, and
+   * the arithmetic is written out beside `.collect` in `RouteList.module.css`:
+   * a departed `LIM → CUZ` in `September 2027` needs 391.6px of panel
+   * content, which is 433.6px of column, and 23rem is 460 — 26.4px standing.
+   * The add form underneath wants 381.81px and is no longer the binding case.
+   * `fix/route-detail-fits` is why that is measured rather than eyeballed: a
+   * month painted over the collect control is the same bug arriving in a
+   * different panel.
+   *
+   * The `22rem` floor is 21.68rem rounded up, so it too is a width every row
+   * survives. It does not bind in practice — the `1fr` beside it has a
+   * minimum of zero, so this track takes its maximum at every width down to
+   * the 1080px where the page stacks — and it is set to the measured number
+   * anyway, because a floor that would truncate is worse than no floor at all.
+   */
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 23rem);
   gap: var(--space-5);
   /*
    * Deliberately *not* `align-items: start`. The map and the watchlist are the

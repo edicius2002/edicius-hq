@@ -129,7 +129,59 @@
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-  min-height: 460px;
+  /*
+   * The height of the whole first row, because nothing else in that row has
+   * one. The watchlist beside this is sized as if it were empty (12.269), so
+   * what this number settles is not the map's height but the map's and the
+   * watchlist's together — see `AirfarePage.module.css`, where the row is.
+   *
+   * **460 to 640, which is four more watched routes.** The owner: "aumentar
+   * su largo para habilitar espacio para mas rutas y evitar por el momento el
+   * uso de barra de desplazamiento". Written out at this app's 125% root,
+   * where 1rem is 20px: the panel gives its content this stage plus the
+   * toolbar's 43.4px and the map column's 8px gap, so 51.4px; the watchlist
+   * spends the same total on its head (38.5px, the Add button rather than the
+   * title), that head's 15px margin and the panel's 15px gap, then the add
+   * form's 108px, its 15px rule and 1px border and another 15px gap — 207.5px
+   * in all. So the scroller is this height less 156.1px. A row is 38.5px,
+   * which is Remove's height and not the route button's 35.4, plus the 2px
+   * gap that the always-present report line costs even while it is empty; with
+   * the list's own 5px between them, n rows are `45.5n - 5`.
+   *
+   * At 460 the scroller was 303.9px and held **six** rows with 35.9px
+   * standing, and a seventh needed 9.6px more than there was — which is the
+   * scrollbar the owner is looking at, with exactly six routes watched. At 640
+   * it is 483.9px and holds **ten**, with 33.9px standing and an eleventh
+   * needing 11.6px more. Ten was chosen over eight (550px, and only two rows
+   * of headroom on a list that already has six) and over twelve (730px, a
+   * first row taller than a 1080p viewport has to spare above the analysis
+   * panel's own 34.5rem). Past ten the scrollbar comes back, and it should:
+   * "por el momento" is the owner's own qualifier, and a watchlist with
+   * eleven routes on it has outgrown a box rather than broken one.
+   *
+   * **A taller stage is also the only thing that makes the globe bigger.**
+   * `fitted` is `Math.min(rect.width, rect.height) * 0.42`, and this stage is
+   * wider than it is tall at every viewport above 1552px — so the radius is
+   * the height's to give and widening alone would have bought ocean and not
+   * one pixel of planet. 460 to 640 takes the radius from 193.2px to 268.8px
+   * at 1x and Mercator's own cap, `fitted * 0.6`, from 115.9 to 161.3: a 39%
+   * larger drawing at every zoom. Below 1552px the stage is portrait and the
+   * width binds instead, and it grew too — 526x460 becomes 606x640, a radius
+   * of 254.5 against 193.2.
+   *
+   * What it costs is the settle sweep, and only that. `countriesInView` walks
+   * `ceil((d - 6) / 12)` samples per axis, so the widest stage this layout
+   * produces goes from 129x38 to 136x53 — 4,902 samples to 7,208, up 47%. The
+   * ten views `contains-is-flat-not-spherical` measured at 1.20 to 4.42 ms
+   * are 1.76 to 6.50 ms here, once, on the frame after a gesture stops, and
+   * still seven to twelve times cheaper than the 12.5 to 77.8 ms they cost
+   * before that work. The per-frame cost does not follow it: the camera cap
+   * `geometry-off-frame-is-not-drawn` culls against is the frame's
+   * half-diagonal over the radius, and the diagonal grows 8.3% while the
+   * radius grows 39.1%, so the cap narrows from 4.18/zoom to 3.26/zoom
+   * radians and a frame projects *less* geometry than it did.
+   */
+  min-height: 640px;
   flex: 1;
   overflow: hidden;
   border: 1px solid var(--color-border);

@@ -38,7 +38,7 @@
  *
  * A label beside a field pushes the input inwards by the whole label column,
  * and a list pinned to the input then starts 99px in from the panel's edge at
- * the 20rem floor and runs 90px past the viewport. Measured, not feared. The
+ * the panel's floor and runs 90px past the viewport. Measured, not feared. The
  * row is the widest thing the list can safely be, so the row is what it hangs
  * from: `left: 0` and `right: 0` below reach the form's own edges, and the
  * `max-width` reaches its width.
@@ -75,8 +75,8 @@
    *
    * `min-width` beats `max-width` in CSS, so a bare `min-width: 17rem` would
    * walk straight through any ceiling above it. It carries the same one. At
-   * the 20rem floor the row is 358px, so 17rem survives intact and Limoges
-   * keeps its name.
+   * the panel's 22rem floor the row is 398px, so 17rem survives intact and
+   * Limoges keeps its name — as it did at the 358px the old 20rem floor gave.
    */
   min-width: min(17rem, var(--suggestions-fit, 100vw));
   width: max-content;

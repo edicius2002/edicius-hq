@@ -21,10 +21,29 @@
   font-size: 0.88rem;
 }
 
+/*
+ * The header reserves all four of its lines whether or not it has four —
+ * `a-strip-that-holds-its-height`.
+ *
+ * Two of them come and go with the data: "Cheapest on 06/12/2026" is there
+ * only where a board has been read, and "Last look …" only where the collector
+ * has been. So a route with no observations, and any route at all for the
+ * moment between asking for its archive and being handed it, drew a header two
+ * lines shorter — and this header is the taller of the two things in the top
+ * row of `.detail`, so those two lines are the row's height and everything
+ * below moved by them.
+ *
+ * Measured from the rules in this file at `--font-size-base: 125%`, so 1rem is
+ * 20px, and `line-height: 1.5` from `reset.css`: `.pair` at 1.05rem is 1.575rem
+ * of line, `.cities` at 0.8rem is 1.2rem and there are three of them, and the
+ * three gaps between the four are 2px apiece. 109.5px, and it is that whether
+ * one line is missing or three.
+ */
 .head {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-height: calc(1.575rem + 3.6rem + 6px);
 }
 
 .pair {
@@ -54,16 +73,96 @@
   color: var(--color-muted);
 }
 
+/*
+ * A figure is as wide as what it holds — `a-figure-takes-what-it-holds`.
+ *
+ * Every number below is measured at 1rem = 20px: `tokens.css` sets
+ * `--font-size-base: 125%`, so a rem here is twenty pixels and not sixteen.
+ * The face is monospace, one advance to 0.6em, which is the same arithmetic
+ * `.collect` in `RouteList.module.css` does.
+ *
+ * This was `repeat(auto-fit, minmax(8rem, 1fr))` — every column the same width
+ * whatever stood in it — and that is what drew one figure on top of another.
+ * On the owner's `SCL → AEP` the strip is 1278px, so the lower box has 1252px
+ * of content and its six equal columns, minus five 20px gaps, take 192 apiece.
+ * `Aerolineas Argentinas · 14:35` is 29 characters at 0.82rem, an advance of
+ * 9.84px: 285. It was 93px too wide for its column, `white-space: nowrap` on
+ * the value meant it could not fold, and an overflowing grid item is not
+ * clipped — so it was simply painted across `$50.00–$80.00` beside it and
+ * neither string could be read. The `· 14:35` was buried whole.
+ *
+ * Widening the column was the obvious repair and is the wrong one: 8rem became
+ * too narrow the day a longer carrier name arrived, and 10rem would go the
+ * same way on the next one — the fault is that a column's width has nothing to
+ * do with its contents. `ITINERARIES: 9` was given the same 192px as a carrier
+ * and a departure time.
+ *
+ * So: a flex row. Each figure's basis is its own content, and what is left
+ * over is shared equally. Measured on the same strip, the six figures want
+ * 735px between them (the widest is the carrier's 285, the narrowest
+ * `CHANGES` at 61) which with the gaps is 835 of the 1252 available; the
+ * remaining 417 is split six ways, about 70px each. That is 417px of headroom
+ * before anything has to fold at all — some 42 more characters than the
+ * longest name in the archive — and past that it folds instead of overlapping,
+ * because the value below is allowed to wrap.
+ *
+ * The cost, stated plainly: with `flex-wrap` the figures on a second line no
+ * longer sit under those on the first, which equal columns did give. A label
+ * still stands directly over its own figure, which is the pair a reader
+ * follows; unrelated figures lining up in a column is decoration.
+ *
+ * ---
+ *
+ * A box that holds its height, whatever is in it — `a-strip-that-holds-its-
+ * height`, and the answer to what sizing by content cost.
+ *
+ * Nothing above is withdrawn: a figure is still exactly as wide as what it
+ * holds. What was wrong is that its *height* was too, so the box's geometry
+ * followed the archive — a route with nothing collected, a route whose archive
+ * is still being fetched, and a carrier name long enough to fold all drew a
+ * different-sized box, and the chart underneath moved each time.
+ *
+ * The height is reserved instead, at the worst case, and the content lays out
+ * inside it. `align-content: start` is what makes that work: the flex lines
+ * pack at the top and the reserve sits under them, so a value that folds onto
+ * a second line spends room the box already had rather than asking for more.
+ * `both-charts-share-one-fixed-box` settled the same question for the analysis
+ * panel and this is the same move — the box is fixed and the marks move in it.
+ *
+ * A floor rather than a ceiling, and that is a departure from that decision,
+ * which rejected `min-height` on the grounds that a floor is half a promise.
+ * It was right there and is not right here, for a reason worth writing down:
+ * chart B exceeded the floor *always and by a known amount*, so a floor left
+ * the reflow exactly where it found it. Nothing in this box exceeds two lines
+ * at any width the strip is drawn side by side at — the widest value is 29
+ * characters against 417px of slack — and what a ceiling would do in the case
+ * that does exceed it is paint the overflow outside the border, which is the
+ * ink-on-ink this branch exists to remove, arriving by a different door.
+ */
 .figures {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  /* Tops flush, so the row of labels reads as a row even where one label
+     folds onto a second line and its figure drops with it. */
+  align-items: start;
+  align-content: start;
   /*
-   * 8rem, and the unit matters: this app sets `--font-size-base: 125%`, so a
-   * rem is 20px and 9rem was 180 — one pixel-count too wide for four money
-   * figures to share a 736px row, which sent "Vs usual" onto a line of its
-   * own. 8rem is 160, and the widest label here ("Dearest on board") measures
-   * about 119.
+   * The floor under all of the above, inherited by every label and every
+   * value in the box.
+   *
+   * Spaces are found first, so `Aerolineas Argentinas` folds between its two
+   * words and this never applies to it. What it is for is a single word wider
+   * than the space there is, which is a real thing for a provider to hand us:
+   * a carrier written as one run of forty characters has no space to fold at,
+   * and without this it would be drawn straight out of the box the way the
+   * whole figure used to be. Measured by squeezing the strip in a browser:
+   * the labels crossed its right edge at 320px without this and stay inside
+   * it with it. It is not free — at that width every word breaks one letter
+   * to a line and the strip grows very tall — but the side-by-side
+   * arrangement is stacked by the query below long before 320px, and a tall
+   * strip can be read where ink on ink cannot.
    */
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  overflow-wrap: anywhere;
   gap: 8px var(--space-4);
   margin: 0;
   padding: 8px 12px;
@@ -71,28 +170,61 @@
   border-radius: 9px;
   background: var(--color-surface);
   min-width: 0;
+  /*
+   * One row of figures, one line of value — the money box's whole case.
+   *
+   * `box-sizing: border-box` from `reset.css`, so this is the outside of the
+   * box: 8px of padding at each end and a 1px border at each end is 18px, the
+   * label is 0.62rem of type at 1.5 with 3px under it, and the tallest value
+   * in here is `.big` at 1.2rem. 75.6px.
+   *
+   * One line and not two, unlike `.wide` below, because every value in this
+   * box is a money string of a dozen characters at most and it is given the
+   * `1fr` column of a strip that runs the page — it has no fold to reserve
+   * for. The four figures are also unconditional: each renders `—` where there
+   * is no number, so this box never changes how many things are in it.
+   */
+  min-height: calc(0.93rem + 1.8rem + 21px);
+}
+
+/*
+ * `auto` basis is the figure's own width; grow and shrink are 1 apiece. Slack
+ * is handed out in equal shares, while shrinking — which flex weights by
+ * basis — falls hardest on the widest figure, the one that has two lines'
+ * worth of something to say and can best use them.
+ */
+.figures > div {
+  flex: 1 1 auto;
 }
 
 /*
  * The second box runs under both columns: money on the top row beside the
  * route, and everything about the board and the collector across the bottom.
- */
-/*
- * The second box runs under both columns. Its values are longer than the money
- * ones — "18/08/2026 19:45" is about 169px — so it gets a wider minimum and a
- * tighter row gap, and lands on two rows rather than one. Two rows of figures
- * is still read at a glance; the two sentences this replaced were not.
+ * Six figures rather than four and each of them longer, so the row gap is
+ * tighter — it is the box that folds onto a second line first.
  */
 .wide {
   grid-column: 1 / -1;
-  /*
-   * Six figures on one row now that the last look has moved up to the header.
-   * Measured: at 0.82rem the longest value, "JetSMART · 18:45", is about 157px
-   * and each of six columns gets 165 — with the 8.6rem this had before, one
-   * fell to a second line.
-   */
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: 6px var(--space-4);
+  /*
+   * Two lines of value, reserved — the fold this box can actually produce.
+   *
+   * Same 18px of padding and border and the same 0.93rem label with 3px under
+   * it, and then twice `.wide dd`'s 0.82rem at 1.5. 88.8px, and it is 88.8px
+   * whether `Aerolineas Argentinas · 14:35` sits on one line or folds between
+   * its two words.
+   *
+   * It is on `.wide` rather than on the figures inside it deliberately: the
+   * reserve belongs to the box, so a figure that folds grows into room already
+   * paid for and every other figure stays one line tall and top-aligned. Put
+   * on each `dd` instead it would be six reserves rather than one and the
+   * short figures would carry a blank line each for nothing.
+   *
+   * `.note` carries this class too, which is the point — "Nothing observed
+   * yet. Run a collection pass." stands exactly where the box would and is
+   * exactly as tall, so a route with no archive is not a shorter page.
+   */
+  min-height: calc(0.93rem + 2.46rem + 21px);
 }
 
 .wide dd {
@@ -113,6 +245,27 @@
   font-family: var(--font-sans);
   font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
+  /*
+   * Folding, not truncating, and not `nowrap`.
+   *
+   * `white-space: nowrap` stood here, and it is the reason the overflow above
+   * was ink on ink rather than a second line. An ellipsis in its place would
+   * have been worse than either: `Aerolineas Arg…` reads as the name of an
+   * airline and is not one, and there would be nowhere to go and read the
+   * rest — the same objection `.report` in `RouteList.module.css` raises
+   * against a truncated refusal.
+   *
+   * What a value does when it will not fit is `overflow-wrap: anywhere`,
+   * declared once on the box above and inherited here.
+   */
+}
+
+/*
+ * The separator and the departure travel together. Without this the value
+ * could fold after the `·` and leave the dot hanging at the end of a line
+ * with its time on the next, which reads as punctuation nobody finished.
+ */
+.clock {
   white-space: nowrap;
 }
 

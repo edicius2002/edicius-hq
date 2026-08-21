@@ -6,23 +6,29 @@
  * and no wider; `minmax(0, 1fr)` for the two field tracks, so a suggestion
  * list hanging off one of them can never widen the panel.
  *
- * **The whole row, measured at the 20rem floor.** The panel is
- * `minmax(20rem, 27rem)`, so 400px, and at this app's 125% root — 1rem is
- * 20px here, not 16 — that leaves 358px of content. The label tracks are the
+ * **The whole row, measured at the panel's floor.** The panel is
+ * `minmax(22rem, 23rem)`, so 440px, and at this app's 125% root — 1rem is
+ * 20px here, not 16 — that leaves 398px of content. The label tracks are the
  * two fixed costs: "Departing" is 84.38px and shares the first track with
  * "Origin" at 56.25, and "Destination" is 103.13px in the third. Three 15px
- * gaps. 358 − 84.38 − 103.13 − 45 leaves **125.49px for both inputs, 62.75px
+ * gaps. 398 − 84.38 − 103.13 − 45 leaves **165.49px for both inputs, 82.75px
  * each**.
  *
  * That is enough because a field holding a three-letter IATA code does not
  * need 8rem. `LIM` is 31.65px at 0.9rem, and with the padding below the input
- * spends 22px on chrome: 53.65px of the 62.75 it has, with 9.1px standing.
+ * spends 22px on chrome: 53.65px of the 82.75 it has, with 29.1px standing.
  * The 8rem minimum this field used to carry was 160px for 32px of text, and it
- * was what made one row look impossible — 500-odd pixels against 358. Nothing
- * about the labels had to move.
+ * was what made one row look impossible — 500-odd pixels against the 358 this
+ * form had when the panel's floor was 20rem. Nothing about the labels had to
+ * move.
  *
- * At the 27rem the panel actually takes on a desktop there is 498px, and the
- * same arithmetic gives the pair 132.7px each.
+ * At the 23rem the panel actually takes on a desktop there is 418px, and the
+ * same arithmetic gives the pair 92.75px each.
+ *
+ * This form is **no longer what sets the panel's floor**. It would survive
+ * down to 339.81px of content, which is 381.81px of column; the watchlist row
+ * beside it wants 433.6px, and that is where the 22rem comes from. See
+ * `RouteList.module.css`, at `.collect`.
  */
 .form {
   display: grid;

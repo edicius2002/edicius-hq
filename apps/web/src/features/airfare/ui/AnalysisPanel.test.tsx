@@ -314,33 +314,93 @@ describe('the controls that are gone', () => {
     const shape = () => [head.textContent, head.querySelectorAll('button').length] as const;
     const before = shape();
 
-    expect(
-      screen.queryByRole('group', { name: 'How much time one period covers', hidden: true }),
-    ).not.toBeInTheDocument();
+    // The switch is on the page, but never in this row — scoped rather than
+    // global, because it now exists on both charts and the claim here is only
+    // about where it is not.
+    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
 
     openDeparture();
     expect(shape()).toEqual(before);
+    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
   });
 
-  it('offers the period switch only from inside the chart it moves', () => {
-    // Chart A is drawn by day and by nothing else (12.242), so beside it the
-    // switch was a live control that moved nothing next to it. It is now absent
-    // rather than hidden, which is the honest state: there is nothing on screen
-    // for it to change.
+  it('offers the period switch on both charts, in the corner of each', () => {
+    /*
+     * The owner's correction, and the half of `period-switch-is-in-its-chart`
+     * that had to change. Putting the switch in chart B's corner took it off
+     * chart A altogether, and a control that disappears when you change question
+     * is one you have to go looking for.
+     *
+     * It is live on chart A even though chart A is drawn by day and by nothing
+     * else (12.242), because it has never only moved a plot: it decides the
+     * period the flight table below is grouped by, and the frame chart B will
+     * open on. What it must never be again is *absent*.
+     */
     render(<Harness />);
     const switchGroup = () =>
       screen.queryByRole('group', { name: 'How much time one period covers' });
 
-    expect(switchGroup()).not.toBeInTheDocument();
+    const onA = switchGroup();
+    expect(onA).toBeInTheDocument();
+    // Chart A's corner is a sibling of its figure rather than inside it: the
+    // price chart has no head of its own to put a control in.
+    expect(screen.getByRole('img').closest('figure')).not.toContainElement(onA);
 
     openDeparture();
-    const reachable = switchGroup();
-    expect(reachable).toBeInTheDocument();
-    // And it is inside chart B's own figure, not floating above it.
-    expect(screen.getByRole('img').closest('figure')).toContainElement(reachable);
+    const onB = switchGroup();
+    expect(onB).toBeInTheDocument();
+    // Chart B has a head, so the switch stands in it beside the count.
+    expect(screen.getByRole('img').closest('figure')).toContainElement(onB);
 
     click(MOVES);
-    expect(switchGroup()).not.toBeInTheDocument();
+    expect(switchGroup()).toBeInTheDocument();
+  });
+
+  it('draws both charts inside one box that the switch does not replace', () => {
+    /*
+     * The structural half of `both-charts-share-one-fixed-box`. **jsdom lays
+     * nothing out**, so nothing here can assert the height that decision is
+     * about — that was measured in Chrome, at 150px of reflow before and zero
+     * after, and this test cannot see a pixel of it.
+     *
+     * What it can pin is the arrangement the height rests on: there is one box,
+     * both charts are rendered inside it, and changing chart does not replace
+     * it. A future edit that returns either chart to being a direct child of the
+     * panel would take its height back from the box without failing anything
+     * else, and this is the assertion that notices.
+     */
+    const { container } = render(<Harness />);
+    const box = () => container.querySelector('[class*="body"]');
+
+    const before = box();
+    expect(before).not.toBeNull();
+    expect(before).toContainElement(screen.getByRole('img'));
+
+    openDeparture();
+    // The same node, not merely another one matching: a box torn down and
+    // rebuilt per chart is a box that can be a different size per chart.
+    expect(box()).toBe(before);
+    expect(before).toContainElement(screen.getByRole('img'));
+
+    click(MOVES);
+    expect(box()).toBe(before);
+    expect(before).toContainElement(screen.getByRole('img'));
+  });
+
+  it('carries the period across a change of chart, pressed from either side', () => {
+    // One control rendered in two corners, not two controls: pressing Month on
+    // chart A must be the same press as pressing Month on chart B, and the
+    // value lives above both in `useRouteView` either way.
+    render(<Harness />);
+    click('Month');
+    openDeparture();
+
+    expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
+    expect(frameLabel()).toContain('between 01/03/2027 00:00 and 31/03/2027 23:59');
+
+    click('Week');
+    click(MOVES);
+    expect(screen.getByRole('button', { name: 'Week' }).getAttribute('aria-pressed')).toBe('true');
   });
 });
 
@@ -419,8 +479,9 @@ describe('the name of the chart that follows what it draws', () => {
     expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
     // The line under the switch still names the archive that is answering, which
     // is the half of it a reader cannot get by looking; how the axis is built is
-    // no longer restated above the axis.
-    expect(screen.getByText('One fare per departure date, beyond the watched month.')).toBeTruthy();
+    // no longer restated above the axis, and neither is the hour — the source
+    // rail on the plot says that, per stretch, and the two were near-identical.
+    expect(screen.getByText('The booking horizon, beyond the watched month.')).toBeTruthy();
   });
 
   it('holds every name it can wear at once, so the switch cannot change width', () => {
@@ -473,7 +534,7 @@ describe('where the reader may walk', () => {
     click('Month');
     expect(screen.queryByLabelText('Next month')).not.toBeInTheDocument();
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'Every date in this frame is inside the watched month',
+      'Every date here is inside the watched month',
     );
   });
 });

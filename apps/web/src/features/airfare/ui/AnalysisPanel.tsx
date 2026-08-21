@@ -30,6 +30,7 @@ import {
 } from '@/features/airfare/lib/flightScatter';
 import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
+import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
@@ -80,7 +81,7 @@ const DAYS_NAMES: Record<FrameSource, string> = {
 };
 
 /**
- * Which clock the chart under the switch is drawn on, in one short line.
+ * Which archive is answering for the chart under the switch, in one short line.
  *
  * Each of these was two or three clauses restating the axis directly above the
  * axis, and the longest ran to three lines at the narrow end of this panel —
@@ -89,13 +90,23 @@ const DAYS_NAMES: Record<FrameSource, string> = {
  * answering and therefore what one mark means, so that is what survives; how
  * the x axis works is the axis's own business and it is drawn, labelled and
  * railed below.
+ *
+ * **Which is also why none of them says "at the hour it departs" any more.**
+ * Shortened to one clause, `days/boards` came out as `Every itinerary, at the
+ * hour it departs.` — and the source rail under the same plot already reads
+ * `every flight, at the hour it departs`, per stretch of the frame and with
+ * more precision than a line above the chart can have. Two near-identical
+ * sentences a few rows apart are worse than the long one they replaced, because
+ * a reader now has to work out whether they are being told two things. So these
+ * name the archive in the words the panel uses for it elsewhere — the boards,
+ * the booking horizon — and leave the hour to the rail that is drawn on it.
  */
 const WHAT: Record<string, string> = {
   moves: 'One point a day, at the price we observed.',
   'days/none': 'Nothing collected for these departure dates yet.',
-  'days/boards': 'Every itinerary, at the hour it departs.',
-  'days/curve': 'One fare per departure date, beyond the watched month.',
-  'days/mixed': 'Itineraries by the hour, then one fare a date past the month.',
+  'days/boards': 'The flight boards for the watched month.',
+  'days/curve': 'The booking horizon, beyond the watched month.',
+  'days/mixed': 'The boards to the end of the month, then the booking horizon.',
 };
 
 type AnalysisPanelProps = {
@@ -317,39 +328,87 @@ export function AnalysisPanel({
 
       <p className={styles.what}>{WHAT[what]}</p>
 
-      {view === 'moves' ? (
-        <PriceBandChart
-          ours={ours}
-          baseline={theirs}
-          unsold={oursUnsold}
-          currency={currency}
-          axis={axis}
-          label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
-        />
-      ) : (
-        /*
-          Keyed by route so the crosshair the reader left on a flight resets
-          when they open a different watch. The period does not reset with it —
-          it is held above this component and cleared by the route change.
-        */
-        <DepartureChart
-          key={routeKey ?? 'none'}
-          snapshots={snapshots}
-          curve={curve}
-          watched={watched}
-          granularity={granularity}
-          onGranularityChange={onGranularityChange}
-          currency={currency}
-          periodKey={periodKey}
-          keys={keys}
-          onStep={step}
-          viewport={viewport}
-          onViewportChange={onViewportChange}
-          horizonLoading={curveLoading}
-          horizonError={curveError}
-          label={route ? `What each departure date costs for ${where}` : 'Fares by departure date'}
-        />
-      )}
+      {/*
+        **One box, one height, whichever chart is inside it.**
+
+        The two charts are different shapes and always were: chart A's viewBox is
+        760×284 and chart B's is 760×338, and chart B carries a head, a crosshair
+        readout and a note that chart A has none of. Measured in Chrome at the
+        real panel, 1160px of chart width: chart A stood 719px tall and chart B
+        869, so switching question moved everything below this panel — the whole
+        flight table — by **150px**. That is the reflow 12.240 refused and
+        `period-switch-follows-its-chart` built a hidden strip to prevent,
+        arriving by a third door: the head was fixed and the body was left free.
+
+        So the body is the fixed thing now, and the marks move inside it. A
+        height rather than a `min-height`, because a floor is only half a promise
+        — the taller chart would simply exceed it. The charts' own SVGs carry
+        `preserveAspectRatio` at its default `xMidYMid meet`, so a drawing given a
+        box of the wrong shape scales to fit and centres in it rather than
+        stretching or spilling: what varies between the two is how large the
+        drawing is and where its marks sit, which is exactly what is allowed to
+        vary. It is also what finally centres the plot vertically, which the
+        previous pass could only do horizontally.
+
+        33rem is chart B's own requirement at this panel's width — 516px of plot
+        plus 144px of chrome — so the denser chart is never the one squeezed. A
+        narrower panel needs less and gets the same box; a wider one squeezes
+        chart B a few per cent, gracefully, because `meet` shrinks a drawing
+        rather than cropping it.
+      */}
+      <div className={styles.body}>
+        {view === 'moves' ? (
+          /*
+            Chart A's frame, which exists to give it the same corner chart B has.
+
+            The switch is live here and does not move the plot beside it — chart
+            A is drawn by day and by nothing else (12.242). It moves the flight
+            table below the panel, which is grouped by the same period and says
+            so on its own heading, and it moves the frame chart B will open on.
+            Folding it away instead was tried and is what the owner rejected: a
+            control that vanishes when you change question is one you have to go
+            looking for.
+          */
+          <div className={styles.frame}>
+            <div className={styles.corner}>
+              <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+            </div>
+            <PriceBandChart
+              ours={ours}
+              baseline={theirs}
+              unsold={oursUnsold}
+              currency={currency}
+              axis={axis}
+              label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
+            />
+          </div>
+        ) : (
+          /*
+            Keyed by route so the crosshair the reader left on a flight resets
+            when they open a different watch. The period does not reset with it —
+            it is held above this component and cleared by the route change.
+          */
+          <DepartureChart
+            key={routeKey ?? 'none'}
+            snapshots={snapshots}
+            curve={curve}
+            watched={watched}
+            granularity={granularity}
+            onGranularityChange={onGranularityChange}
+            currency={currency}
+            periodKey={periodKey}
+            keys={keys}
+            onStep={step}
+            viewport={viewport}
+            onViewportChange={onViewportChange}
+            horizonLoading={curveLoading}
+            horizonError={curveError}
+            label={
+              route ? `What each departure date costs for ${where}` : 'Fares by departure date'
+            }
+          />
+        )}
+      </div>
     </>
   );
 }

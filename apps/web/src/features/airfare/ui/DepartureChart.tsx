@@ -69,6 +69,7 @@ import {
   zoomAt,
   type Viewport,
 } from '@/features/airfare/lib/viewport';
+import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
 import type { CalendarCurve, FareSnapshot } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
@@ -116,23 +117,6 @@ const ANCHOR: Record<TagAnchor, string> = {
 };
 
 const UNIT: Record<Granularity, string> = { day: 'day', week: 'week', month: 'month' };
-
-/**
- * How much calendar one period covers, offered in the chart's own corner.
- *
- * The list moved here from `AnalysisPanel` with the control it describes —
- * `period-switch-follows-its-chart` superseded. It sat in the panel head beside
- * the two chart buttons, where it governed only one of them, and the mechanism
- * that made that bearable was a strip held open by `visibility` so the buttons
- * beside it could not reflow when it folded away. A switch that lives inside
- * the only chart it moves needs no such apparatus: chart A never renders this
- * component, so there is nothing to fold and nothing beside it to slide.
- */
-const GRANULARITIES: { value: Granularity; label: string }[] = [
-  { value: 'day', label: 'Day' },
-  { value: 'week', label: 'Week' },
-  { value: 'month', label: 'Month' },
-];
 
 /**
  * The affordances, in one sentence, for a reader who is not looking at the plot.
@@ -757,18 +741,7 @@ export function DepartureChart({
           explain which of two charts it belongs to.
         */}
         <div className={styles.corner}>
-          <div className={styles.switch} role="group" aria-label="How much time one period covers">
-            {GRANULARITIES.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={granularity === option.value}
-                onClick={() => onGranularityChange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
 
           {keys.length > 1 ? (
             <div className={styles.steps}>
@@ -1493,7 +1466,7 @@ function horizonNote(
   priced: number,
 ): { said: string[]; live: number } {
   const needsCurve = days.some((day) => day.source === 'curve');
-  const inside = 'Every date in this frame is inside the watched month.';
+  const inside = 'Every date here is inside the watched month.';
   const failed = `The booking horizon could not be read: ${error?.message ?? 'no reason given'}. That is a fault at our end and says nothing about what these dates cost.`;
   const pending = 'Reading the booking horizon…';
   const uncollected =

@@ -118,3 +118,86 @@
   font-size: 0.82rem;
   min-height: 2.6em;
 }
+
+/*
+ * The chart body: one box, one height, whichever chart is inside it.
+ *
+ * Measured in Chrome at the real panel, 1160px of chart width: chart A stood
+ * 719px tall and chart B 869, so changing question moved the flight table below
+ * this panel by 150px. The two charts are simply different shapes — 760×284
+ * against 760×338 — and chart B carries a head, a readout and a note that chart
+ * A does not. Neither of those is a defect to be evened out; what was wrong is
+ * that the box was free to follow them.
+ *
+ * A `height` and not a `min-height`, because a floor is half a promise: the
+ * taller chart exceeds it and the reflow comes back. 34.5rem is chart B's own
+ * requirement at this width — 516px of plot and 167px of chrome, at this app's
+ * 125% root where 1rem is 20px — so the denser of the two is never the one
+ * squeezed. Measured at 33rem first, and rejected on measurement: chart B's
+ * plot came back 1108px wide against the 1160 it wants, inset either side by a
+ * box a little too short for it. Chart A spends the difference on letterbox,
+ * which is the right way round — it is the sparser drawing and the one with
+ * room to spare.
+ */
+.body {
+  height: 34.5rem;
+  display: flex;
+  flex-direction: column;
+  /* Or a flex item refuses to shrink below its content and the box grows anyway. */
+  min-height: 0;
+}
+
+.body > * {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/*
+ * The plot takes whatever the chrome around it leaves.
+ *
+ * `flex: 1 1 0` rather than the `height: auto` the charts set for themselves:
+ * with a basis of zero the SVG's box is the leftover space rather than a height
+ * derived from its own aspect ratio, which is the whole mechanism by which two
+ * differently-shaped drawings can live in one box. Nothing is stretched or
+ * cropped — both SVGs carry `preserveAspectRatio` at its default `xMidYMid
+ * meet`, so a drawing handed a box of the wrong shape scales down to fit and
+ * centres in it. That centring is also the vertical half of "centre the chart",
+ * which a full-bleed figure could only ever do horizontally.
+ *
+ * Written here rather than in each chart's own stylesheet on purpose: filling a
+ * fixed box is this panel's arrangement, not a property of either chart, and a
+ * chart rendered anywhere else should still size itself.
+ */
+.body figure > svg {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+}
+
+/*
+ * Chart A's frame, which exists only to give it the corner chart B has.
+ *
+ * Chart B's period switch sits in its own head, beside the count and the
+ * stepper. Chart A has no head of its own and no periods to step, so its corner
+ * is this strip — the same place on screen, holding the same control, so a
+ * reader who changes question finds it where they left it.
+ */
+.frame {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.corner {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  /* The height chart B's head takes, so the plots start at the same y on both. */
+  min-height: 31px;
+}
+
+.frame > figure {
+  flex: 1 1 0;
+  min-height: 0;
+}

@@ -160,22 +160,30 @@ def due_now(
     depended on the focus: the sort was readiness, then the focus, then
     distance, and readiness already outranked it.
 
-    When the truncation bites is unchanged and is worth keeping written down.
-    `budget` is a per-pass ceiling, and one pass has exactly as many candidates
-    as there are watched departures — thirty-one per month — so the arithmetic
-    is 300 / 31: nine routes never truncate and ten always can. Measured
-    2026-08-19 by calling this function with every departure due and a budget
-    of 300, nine routes gave 279 candidates and none `over-budget`, ten gave
-    310 and ten `over-budget`. The same sweep against a `now` in February 2027
-    gave the same rows: the threshold does not move with the date, because the
-    number of candidates in a pass does not.
+    `budget` is still a per-pass ceiling and this function still knows nothing
+    about days. What changed is where the number comes from: the caller now
+    hands over what is **left of the day** rather than the whole daily figure,
+    because spend is accumulated in a ledger across passes
+    (`app.services.fare_budget`). Nothing here had to move for that, which is
+    the point of it being arithmetic — the rule was always "fit this many, keep
+    the nearest", and it does not care whether the many is a day's or a
+    fraction of one.
 
-    The daily *totals* those months cost do climb with the date — the owner's
-    two are 62 a day now, 302 by 24 November 2026, 2,208 by the March they
-    depart in — and that climb is real and is what `poll_minutes` exists for.
-    See `daily_request_budget` in `app.config`: nothing carries spend across
-    passes, so the day's budget is not enforced anywhere. That gap predates all
-    of this and is not closed here.
+    When the truncation bites is worth keeping written down. One pass has
+    exactly as many candidates as there are watched departures — thirty-one per
+    month — so against a full day's 600 the arithmetic is 600 / 31 and the
+    answer is nineteen routes. Measured 2026-08-19 against the old 300, nine
+    routes gave 279 candidates and none `over-budget`, ten gave 310 and ten
+    `over-budget`; the same sweep against a `now` in February 2027 gave the same
+    rows, because the number of candidates in a pass does not move with the
+    date.
+
+    What does move with the date is the daily *total* those months cost — the
+    owner's are 442 a day now and climb steeply as a month approaches — and
+    that climb is what `poll_minutes` exists for and what the day's ledger now
+    actually enforces. A day that has already spent its 600 arrives here as a
+    budget of zero, and every ready departure comes back `over-budget` by name
+    rather than being collected on a ceiling nobody was keeping.
 
     Everything is returned, ready or not, because a caller that can only see
     the work it is about to do cannot report the work it skipped — decisions

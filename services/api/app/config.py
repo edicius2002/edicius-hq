@@ -153,10 +153,22 @@ MAX_POLL_MINUTES = 24 * 60
 # How many upstream requests one day may spend. This one is a judgement, not a
 # measurement: the endpoint is unmetered and the real limit is how much traffic
 # this address can send before Google stops answering, which is unknown and
-# deliberately unprobed — finding it costs exactly the asset it protects. 300 is
-# the order of a person researching flights hard, against the 2 a day this
-# started at.
-DEFAULT_DAILY_REQUEST_BUDGET = 300
+# deliberately unprobed — finding it costs exactly the asset it protects.
+#
+# 600, and it is a judgement sized against two measured numbers rather than a
+# round one picked twice. The owner's present watchlist costs **442 requests a
+# day** under the cadence table above — 430 boards and 12 calendar — so 300 does
+# not fit it and a ceiling that is already exceeded on the day it starts being
+# enforced is a ceiling nobody can turn on. And the most this address has ever
+# actually sent in a day is **329**, counted from 494 heartbeat lines across
+# four days, so 600 is 1.8x the busiest day on record. Between "covers what is
+# watched" and "stays inside touching distance of what has already been sent
+# without complaint", 600 is the smallest number that is both.
+#
+# It is enforced per **day** since `fare_budget`, which is what the name always
+# claimed: spend is accumulated in a ledger on disk and read back at the start
+# of every pass, so ninety-six passes share one 600 rather than taking one each.
+DEFAULT_DAILY_REQUEST_BUDGET = 600
 
 # Cadence against how far away the departure is, as (days out, minutes between
 # polls). The shape follows the measurement: at 14 days out a fare moved on 27%
@@ -178,13 +190,31 @@ DEFAULT_CADENCE_MINUTES: tuple[tuple[int, int], ...] = (
 # the table is what says it is enough: the months this covers are the far ones,
 # which moved on 22% of days by a median 1.7%, while the near month the reader
 # is actually watching is already collected board by board every half hour.
-# Measured 2026-08-19, this costs 2 requests per route per day against a budget
-# of 300 — two windows, because the whole horizon in one request is refused.
+# Measured 2026-08-19, this costs **2.43 requests per city pair per day** against
+# a budget of 600 — two windows, because the whole horizon in one request is
+# refused, plus the walk-back 12.245 added when a far end is refused too. The
+# 2.43 rather than 2 is why the ledger counts requests and not looks: what a
+# calendar pass costs is not what it planned.
 CALENDAR_POLL_MINUTES = 24 * 60
+
+# What one city pair's calendar actually costs a day, measured rather than
+# planned. Two windows are what a pass asks for; 12.245's walk-back is what it
+# sometimes pays, because the provider's far edge is a calendar date that moves
+# a day closer every day and a refused window is asked for again with a nearer
+# end. This is the figure to cost a watchlist with — the ledger counts what was
+# sent, and a plan of 2 against a bill of 2.43 is how a budget quietly slips.
+CALENDAR_REQUESTS_PER_PAIR = 2.43
 
 
 def daily_request_budget() -> int:
-    """How many upstream requests a day may spend, floor of 1."""
+    """
+    How many upstream requests a day may spend, floor of 1.
+
+    A ceiling and not a counter: what has been spent against it lives in
+    `app.services.fare_budget`, on disk, because the collector is a command a
+    scheduler invokes fresh and anything held in memory here would start every
+    pass at zero.
+    """
     raw = os.getenv("FARES_DAILY_REQUEST_BUDGET", "").strip()
     try:
         return max(1, int(raw)) if raw else DEFAULT_DAILY_REQUEST_BUDGET

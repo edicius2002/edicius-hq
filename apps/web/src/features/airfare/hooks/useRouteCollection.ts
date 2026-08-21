@@ -51,8 +51,9 @@ const STREAM_GRACE_MS = 8_000;
  * superseding the second half of 12.90. That decision was right while a press
  * bought one request: someone who has decided where to spend one should not be
  * argued with by a cadence table. Under 12.110 a row is a month and the same
- * press buys up to thirty-one, which is a tenth of the day's budget per click
- * — so `POST /api/fares/collect` calls `collect_due` and the press collects
+ * press buys up to thirty-one, a twentieth of the day's budget per click, out
+ * of a budget that is now genuinely spent by the day rather than reset every
+ * pass — so `POST /api/fares/collect` calls `collect_due` and the press collects
  * every departure that has news in it and declines the rest. What it declined
  * comes back in `skipped` and the row says so, which is why `describeCollection`
  * has always had that branch.

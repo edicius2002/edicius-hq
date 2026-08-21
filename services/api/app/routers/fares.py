@@ -55,10 +55,12 @@ MAX_COLLECT_MONTHS = 12
 # that no longer makes anyone wait.
 #
 # What bounds a pass now is `daily_request_budget()`, which `collect_due` falls
-# back to and which is what the bound should always have been. Note, as
-# `collect_due` already does, that nothing carries spend from one pass to the
-# next, so that budget is enforced per pass rather than per day; that gap
-# predates this and is not closed here.
+# back to and which is what the bound should always have been. It is a **day's**
+# ceiling and is spent as one: `app.services.fare_budget` keeps the running
+# total on disk, so a press that arrives after the day is gone polls nothing and
+# says so on the row, and a press early in a quiet day still buys the whole
+# watchlist. That budget covers the calendar pass below as well — one address,
+# one day, one number.
 
 _client: httpx.AsyncClient | None = None
 

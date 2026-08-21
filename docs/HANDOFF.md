@@ -29,17 +29,23 @@ accumulating. This was the premise of the whole feature: no source sells a deep
 fare history, so it has to be built one day at a time starting now. It is not
 being built.
 
-**The daily budget is not enforced.** `daily_request_budget()` is spent as a
-_per-pass_ ceiling and nothing carries spend across passes, so the day's total is
-unbounded. Pre-existing, from decision 12.111. It matters most in combination
-with the item above: turning on a schedule without closing this is the only thing
-on this list that can affect someone outside this machine.
+**The daily budget is enforced now** — `a-day-is-what-the-budget-bounds`, S.39.
+It was spent as a _per-pass_ ceiling with nothing carrying across passes, so the
+day's total was unbounded and turning on a schedule without closing it was the
+only thing on this list that could affect someone outside this machine. Spend now
+accumulates in `.local-data/fares/spend/<day>.jsonl`, one line per request
+actually sent, and the horizon pass spends from the same ceiling instead of being
+uncounted. The default rose from 300 to 600, because the watchlist costs 442 a
+day and the busiest day this address has ever had was 329. What is still open is
+the item above: **nothing is scheduled yet**, and creating the task is a decision
+for the owner rather than something an agent should do on their machine.
 
 **Whether a manual press may override the cadence.** Recorded as open in 12.212.
 The recommendation from the measurement work: keep the cadence as the default and
 add a separately-named force. A press is now cheap to start and returns instantly,
 which makes it _easier_ to press and so more dangerous — one press is roughly a
-fifth of the day's budget.
+tenth of the day's budget, and since S.39 that budget is one the day is actually
+keeping, so a press spends against the scheduled passes rather than beside them.
 
 **The table and the chart use different clocks.** The flight table groups rows by
 _observation_ date; the chart above it plots _departure_ date. On screen the

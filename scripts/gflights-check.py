@@ -38,8 +38,12 @@ from app.config import UPSTREAM_TIMEOUT_SECONDS  # noqa: E402
 # accented airline name — and a scheduled task that dies on its own summary
 # line looks exactly like a collection that failed. Measured: the first real
 # pass crashed here.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+#
+# The suppression is the stub's shape and not a doubt about the call:
+# `sys.stdout` is typed `TextIO`, which has no `reconfigure`, while the
+# object actually standing there is a `TextIOWrapper`, which does.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 # Busy routes out of Lima, chosen so a blank answer means the parser rather
 # than the route: domestic, regional, and long haul all serve these daily.

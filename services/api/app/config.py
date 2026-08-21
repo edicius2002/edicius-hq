@@ -153,10 +153,57 @@ MAX_POLL_MINUTES = 24 * 60
 # How many upstream requests one day may spend. This one is a judgement, not a
 # measurement: the endpoint is unmetered and the real limit is how much traffic
 # this address can send before Google stops answering, which is unknown and
-# deliberately unprobed — finding it costs exactly the asset it protects. 300 is
-# the order of a person researching flights hard, against the 2 a day this
-# started at.
-DEFAULT_DAILY_REQUEST_BUDGET = 300
+# deliberately unprobed — finding it costs exactly the asset it protects.
+#
+# 600, and it is a judgement sized against two measured numbers rather than a
+# round one picked twice. The owner's present watchlist costs **442 requests a
+# day** under the cadence table above — 430 boards and 12 calendar — so 300 does
+# not fit it and a ceiling that is already exceeded on the day it starts being
+# enforced is a ceiling nobody can turn on. And the most this address has ever
+# actually sent in a day is **329**, counted from 494 heartbeat lines across
+# four days, so 600 is 1.8x the busiest day on record. Between "covers what is
+# watched" and "stays inside touching distance of what has already been sent
+# without complaint", 600 is the smallest number that is both.
+#
+# It is enforced per **day** since `fare_budget`, which is what the name always
+# claimed: spend is accumulated in a ledger on disk and read back at the start
+# of every pass, so ninety-six passes share one 600 rather than taking one each.
+DEFAULT_DAILY_REQUEST_BUDGET = 600
+
+# How long the day files under `fares/spend/` are kept. A day file is at most
+# `DEFAULT_DAILY_REQUEST_BUDGET` short lines — about 36 KB on a full day — and
+# nothing reads one after its own day, so what accumulates is a directory, not a
+# disk problem: 365 files a year, forever, none of them ever opened again.
+#
+# **Ninety days, and this is the one bound in the airfare feature that is
+# neither measured nor a judgement about the upstream — it is a judgement about
+# us.** The two questions an old day file can answer are "what did those 600
+# requests go on", which is asked when tuning the cadence table or the calendar
+# windows, and "how much did this address send on the day something went wrong".
+# Both are questions about recent behaviour: the cadence table was settled on
+# four days of evidence and the 2.43 requests-per-pair figure on one, so a
+# quarter is more history than any decision here has ever wanted.
+#
+# What it costs is real and is why it is not shorter. Deleting a day file
+# deletes the only per-request record of that day. The mitigation is that it is
+# not the only record of the day at all: `fares/checks/` keeps one heartbeat per
+# *look* forever and is never pruned, so the shape of an old day survives to
+# within the look-to-request multiplier — exactly 1 for a board, the measured
+# 2.43 for a calendar. The archive proper (`fares/history/`, `fares/checks/`)
+# stays append-only, because those record what the world cost and cannot be
+# collected again once the day passes; this records what we sent.
+SPEND_RETENTION_DAYS = 90
+
+# The most this address has ever sent in one day, counted from 494 heartbeat
+# lines across four days. A constant rather than a sentence inside the comment
+# above, because it is the only number in this pair that anything measured, and
+# it has a second reader now: `GET /api/fares/spend` puts it on the wire beside
+# the ceiling so that a page drawing the day's spend can mark where the busiest
+# real day fell. Without it a bar filling towards 600 reads as a fraction of a
+# safe maximum, and nobody knows that 600 is safe — the note above says so
+# outright, and a picture that quietly disagrees with its own configuration is
+# worse than no picture.
+BUSIEST_DAY_ON_RECORD = 329
 
 # Cadence against how far away the departure is, as (days out, minutes between
 # polls). The shape follows the measurement: at 14 days out a fare moved on 27%
@@ -178,13 +225,31 @@ DEFAULT_CADENCE_MINUTES: tuple[tuple[int, int], ...] = (
 # the table is what says it is enough: the months this covers are the far ones,
 # which moved on 22% of days by a median 1.7%, while the near month the reader
 # is actually watching is already collected board by board every half hour.
-# Measured 2026-08-19, this costs 2 requests per route per day against a budget
-# of 300 — two windows, because the whole horizon in one request is refused.
+# Measured 2026-08-19, this costs **2.43 requests per city pair per day** against
+# a budget of 600 — two windows, because the whole horizon in one request is
+# refused, plus the walk-back 12.245 added when a far end is refused too. The
+# 2.43 rather than 2 is why the ledger counts requests and not looks: what a
+# calendar pass costs is not what it planned.
 CALENDAR_POLL_MINUTES = 24 * 60
+
+# What one city pair's calendar actually costs a day, measured rather than
+# planned. Two windows are what a pass asks for; 12.245's walk-back is what it
+# sometimes pays, because the provider's far edge is a calendar date that moves
+# a day closer every day and a refused window is asked for again with a nearer
+# end. This is the figure to cost a watchlist with — the ledger counts what was
+# sent, and a plan of 2 against a bill of 2.43 is how a budget quietly slips.
+CALENDAR_REQUESTS_PER_PAIR = 2.43
 
 
 def daily_request_budget() -> int:
-    """How many upstream requests a day may spend, floor of 1."""
+    """
+    How many upstream requests a day may spend, floor of 1.
+
+    A ceiling and not a counter: what has been spent against it lives in
+    `app.services.fare_budget`, on disk, because the collector is a command a
+    scheduler invokes fresh and anything held in memory here would start every
+    pass at zero.
+    """
     raw = os.getenv("FARES_DAILY_REQUEST_BUDGET", "").strip()
     try:
         return max(1, int(raw)) if raw else DEFAULT_DAILY_REQUEST_BUDGET

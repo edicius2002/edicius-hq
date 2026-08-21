@@ -40,7 +40,15 @@ quote-style = "double"
 # turning it on is to stop that happening again rather than to reach strictness
 # in one move.
 python_version = "3.12"
-files = ["app"]
+# `app` and the repo-root scripts, which is the same widening ruff already got
+# and for a fault that had already happened rather than a hypothetical one:
+# `scripts/fares-collect.py` passed `focus=` to a `FareWatch` that lost the
+# field two decisions ago, so it raised `TypeError` on its first watch and every
+# gate passed anyway. Ruff cannot see that — an argument name is a type
+# question — and mypy was pointed at `app` alone, so the one file a scheduler
+# would actually invoke was the one file nothing typechecked. Four files, four
+# seconds.
+files = ["app", "../../scripts"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true

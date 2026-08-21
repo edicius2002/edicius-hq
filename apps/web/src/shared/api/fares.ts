@@ -528,6 +528,79 @@ export function fetchCalendarCollection(
   });
 }
 
+/** How many of today's requests one kind of look accounts for. */
+export type SpendKind = {
+  /** `board` or `calendar`, as the ledger wrote it — not a closed set. */
+  kind: string;
+  requests: number;
+};
+
+/**
+ * What this address has already sent today — `spend-is-read-back-not-only-written`.
+ *
+ * The one figure on this page that is about **us** rather than about a fare.
+ * The collector has kept a ledger since `a-day-is-what-the-budget-bounds` and
+ * nothing read it back, so a scheduled pass spending badly would first show up
+ * as the upstream declining to answer — and 12.9 records that the address it
+ * would decline is a residential one with no replacement.
+ */
+export type FareSpend = {
+  /**
+   * The day these figures cover, `YYYY-MM-DD`, in **UTC**.
+   *
+   * Not the reader's today everywhere: the ledger names its file after the UTC
+   * date, so in Lima the count starts again at seven in the evening. Render
+   * `resetsAt` rather than this if the question is when.
+   */
+  day: string;
+  /** When the count starts again, as an instant to be shown in the reader's zone. */
+  resetsAt: string;
+  /**
+   * Requests recorded today, or `null` when the ledger cannot be read.
+   *
+   * **`null` is not zero, and rendering it as zero is the one thing this field
+   * must never do.** A day whose spend cannot be established is one the
+   * collector treats as fully spent — it fails closed and refuses every
+   * departure — so a `0` here would draw a stopped collector as a quiet morning.
+   */
+  spent: number | null;
+  /**
+   * The day's ceiling. **A judgement rather than a measured limit**: the API's
+   * own `config.py` says the real limit is how much this address can send
+   * before Google stops answering, which is unknown and deliberately unprobed.
+   * Anything drawn against it has to say so — see `busiestOnRecord`.
+   */
+  ceiling: number;
+  /** What a pass starting now could still spend. Zero on an unreadable ledger. */
+  remaining: number;
+  /**
+   * The most this address has ever sent in one day, measured at 329 from 494
+   * heartbeat lines across four days.
+   *
+   * It travels with the ceiling because the ceiling alone invites a percentage,
+   * and a percentage of a number nobody has verified is a claim about safety.
+   */
+  busiestOnRecord: number;
+  /**
+   * Requests by kind, largest first. Can sum to **less** than `spent`: the total
+   * is counted in lines and this is parsed, and a line a crash cut in half is
+   * still a request that left.
+   */
+  kinds: SpendKind[];
+};
+
+/**
+ * Today's request spend.
+ *
+ * Its own call rather than a field on the pass document, because the passes
+ * that matter most are the ones nobody pressed: a scheduler runs one every
+ * fifteen minutes with this page shut, and a figure carried on `/collect` would
+ * only ever be as fresh as the last press somebody made.
+ */
+export function fetchFareSpend(options: { signal?: AbortSignal } = {}): Promise<FareSpend> {
+  return apiRequest<FareSpend>('/api/fares/spend', { signal: options.signal });
+}
+
 /** How the current pass is getting on, or how the last one ended — 12.210. */
 export function fetchCollectionProgress(
   options: { signal?: AbortSignal } = {},

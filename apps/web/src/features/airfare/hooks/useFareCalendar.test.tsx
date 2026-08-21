@@ -34,13 +34,19 @@ function stubCalendar() {
       JSON.stringify({
         origin: 'ARI',
         destination: 'SCL',
-        latest: {
+        horizon: {
           capturedAt: '2026-08-19T15:49:46+00:00',
           source: 'google-flights',
           currency: 'USD',
           fromDate: '2026-08-19',
           toDate: '2026-08-20',
-          prices: [{ departureDate: '2026-08-19', price: 164.88 }],
+          prices: [
+            {
+              departureDate: '2026-08-19',
+              price: 164.88,
+              observedAt: '2026-08-19T15:49:46+00:00',
+            },
+          ],
         },
         health: { lastCheckedAt: null, checks: 1, changes: 1, errors: 0 },
       }),
@@ -61,7 +67,7 @@ describe('useFareCalendar', () => {
     const url = String(fetcher.mock.calls[0][0]);
     expect(url).toContain('/api/fares/calendar?origin=ARI&destination=SCL');
     expect(url).not.toContain('departure');
-    expect(result.current.data?.latest?.prices).toHaveLength(1);
+    expect(result.current.data?.horizon?.prices).toHaveLength(1);
   });
 
   it('reads one cached curve for two watches on the same pair in different months', async () => {

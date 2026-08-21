@@ -25,8 +25,10 @@ Nothing here touches the network: every upstream answer comes from an
 """
 
 import asyncio
+import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -39,6 +41,17 @@ from app.services.fare_calendar import CalendarCurve, CalendarPrice, FareCalenda
 from app.services.fare_collector import CalendarReport, CalendarResult, FareWatch
 
 PAIR = {"origin": "LIM", "destination": "CUZ"}
+
+#: The two captures next door, borrowed rather than re-recorded: a real answer
+#: and the same endpoint refusing a range. Only one test here needs a pass that
+#: actually parses something, and it needs both.
+FIXTURES = Path(__file__).parent / "fixtures"
+CAPTURE = "google_flights_calendar_lim_cuz.txt"
+REFUSAL = "google_flights_calendar_refused.txt"
+
+
+def read_calendar_fixture(name: str) -> str:
+    return (FIXTURES / name).read_text(encoding="utf-8")
 
 
 @pytest.fixture(autouse=True)
@@ -299,6 +312,56 @@ def test_a_provider_refusal_finishes_the_pass_and_carries_the_reason(monkeypatch
     assert [row["outcome"] for row in FareCalendar(tmp_path).checks("LIM", "CUZ")] == ["error"]
 
 
+def test_the_pass_document_counts_windows_and_requests_separately(monkeypatch, tmp_path):
+    """
+    What a row draws a bar from, and why it is two numbers rather than one.
+
+    A pass that met a refused far end spends more requests than it prices
+    windows — measured live at three requests over twenty seconds for two
+    windows. A document that reported only one of those figures could not tell a
+    reader whether the extra time was a retry or a hang.
+    """
+    monkeypatch.setattr(fare_collector, "CALENDAR", FareCalendar(tmp_path))
+
+    def refuse_the_far_end_once(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("utf-8")
+        end = re.findall(r"\d{4}-\d{2}-\d{2}", body)[-1]
+        horizon = (datetime.now(UTC).date() + timedelta(days=329)).isoformat()
+        if end > horizon:
+            return httpx.Response(200, text=read_calendar_fixture(REFUSAL))
+        return httpx.Response(200, text=read_calendar_fixture(CAPTURE))
+
+    mock_upstream(monkeypatch, refuse_the_far_end_once)
+
+    with TestClient(app) as client:
+        client.post("/api/fares/calendar/collect", json=PAIR)
+        # Longer than the default wait on purpose: this is the only test here
+        # that runs a pass through the real `REQUEST_GAP_SECONDS` three times,
+        # which is two paced waits and about six seconds. That pacing is the
+        # thing being described, so it is waited out rather than patched away.
+        finished = wait_for_the_pass(client, timeout=20.0)
+
+    assert finished["state"] == "finished"
+    assert finished["windows"] == 2
+    assert finished["windowsPriced"] == 2
+    assert finished["requests"] == 3
+    assert finished["dates"] > 0
+
+
+def test_before_anything_has_run_the_progress_figures_are_a_plan_nobody_has_made(monkeypatch):
+    """
+    `windows` is null while idle, not zero.
+
+    Zero is a settled plan with nothing in it. Null is no plan at all, and a bar
+    must be able to tell them apart — the same contract `CollectResponse.polling`
+    keeps for the board pass.
+    """
+    document = TestClient(app).get("/api/fares/calendar/collect").json()
+    assert document["state"] == "idle"
+    assert document["windows"] is None
+    assert (document["windowsPriced"], document["requests"], document["dates"]) == (0, 0, 0)
+
+
 def test_a_pass_that_falls_over_says_so_rather_than_running_forever(monkeypatch):
     """
     A background task that raises hands its exception to the event loop, where a
@@ -446,7 +509,7 @@ def test_collecting_a_curve_and_reading_one_are_two_different_endpoints(monkeypa
     with TestClient(app) as client:
         read = client.get("/api/fares/calendar?origin=LIM&destination=CUZ")
         assert read.status_code == 200
-        assert read.json()["latest"] is None
+        assert read.json()["horizon"] is None
         assert client.get("/api/fares/calendar/collect").json()["state"] == "idle"
 
 

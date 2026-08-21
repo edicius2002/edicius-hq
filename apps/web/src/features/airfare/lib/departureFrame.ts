@@ -6,7 +6,7 @@ import {
   type ScatterWindow,
   type WatchedRange,
 } from '@/features/airfare/lib/flightScatter';
-import type { CalendarCurve } from '@/shared/api/fares';
+import type { CalendarCurve, CalendarPoint } from '@/shared/api/fares';
 
 /**
  * Which archive answers for each departure date in one frame, and what the
@@ -288,6 +288,18 @@ export type CurveMark = {
   price: number | null;
   /** True where an answer came back — priced or explicitly nothing on sale. */
   answered: boolean;
+  /** When this date's price was collected. Null where nothing answered for it. */
+  observedAt: string | null;
+  /**
+   * True where this price was carried over from an older collection than the
+   * newest one in the horizon — `a-curve-fills-what-newer-lost`.
+   *
+   * A separate flag rather than something the chart works out from the two
+   * stamps, so the comparison is made once, in a tested function, rather than
+   * in the middle of a render. Always false where nothing answered: an absence
+   * has no age.
+   */
+  inherited: boolean;
 };
 
 /**
@@ -303,26 +315,39 @@ export type CurveMark = {
  * Dates outside the curve's stated window are ignored rather than trusted: a
  * row whose prices reach past its own `toDate` disagrees with itself, and the
  * window is the half that says which dates were asked about.
+ *
+ * **A third fact now travels with each mark: how old its price is.** The
+ * horizon is assembled from every stored curve, so a date the newest collection
+ * never reached is answered by an older one and is genuinely staler than the
+ * date beside it. `inherited` is that comparison, made here rather than in the
+ * chart: the horizon's own `capturedAt` is the freshest observation in it, so a
+ * point stamped with anything else came from an earlier pass.
  */
 export function curveMarks(days: FrameDay[], curve: CalendarCurve | null): CurveMark[] {
-  const priceByDate = new Map<string, number | null>();
+  const pointByDate = new Map<string, CalendarPoint>();
   if (curve) {
-    for (const point of curve.prices) priceByDate.set(point.departureDate, point.price);
+    for (const point of curve.prices) pointByDate.set(point.departureDate, point);
   }
 
   return days
     .filter((day) => day.source === 'curve')
     .map((day) => {
       const inWindow = curve !== null && day.day >= curve.fromDate && day.day <= curve.toDate;
-      const answered = inWindow && priceByDate.has(day.day);
+      const point = inWindow ? pointByDate.get(day.day) : undefined;
+      const answered = point !== undefined;
       const from = day.index * MINUTES_PER_DAY;
       return {
         day: day.day,
         from,
         to: from + MINUTES_PER_DAY,
         centre: from + MINUTES_PER_DAY / 2,
-        price: answered ? (priceByDate.get(day.day) ?? null) : null,
+        price: point?.price ?? null,
         answered,
+        observedAt: point?.observedAt ?? null,
+        // Compared against the horizon's freshest stamp rather than against
+        // today: what matters to a reader is whether this figure is as new as
+        // the newest thing on the same chart, not how many hours old it is.
+        inherited: point !== undefined && curve !== null && point.observedAt !== curve.capturedAt,
       };
     });
 }

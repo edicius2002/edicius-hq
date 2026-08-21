@@ -28,6 +28,16 @@ two loops.
 before the first request, so the progress document knows its own denominator
 from the start; every result is added as it arrives. A reader watching a
 four-minute pass sees it move rather than seeing a spinner and a promise.
+
+**And it says it out loud, rather than waiting to be asked** —
+`a-pass-is-pushed-not-polled`. Every one of those moments is announced on
+`COLLECTION_STREAM` as well as recorded here, so `GET /collect/stream` can push
+it. The recording stays: the stream is how a watcher hears about a change, and
+this is still what the change *is*, so a tab that connects halfway through a
+pass reads the document rather than the events it missed. Announcing is a flag
+set on each listener and never blocks — these methods run inside the collector's
+own loop, between an upstream request and the next paced wait, and anything that
+awaited there would be pacing the provider by accident.
 """
 
 import asyncio
@@ -38,6 +48,7 @@ from datetime import UTC, datetime
 
 import httpx
 
+from app.adapters.fares.models import FareSnapshot
 from app.adapters.fares.registry import DEFAULT_PROVIDER
 from app.services.fare_collector import (
     CollectionReport,
@@ -45,6 +56,7 @@ from app.services.fare_collector import (
     RouteResult,
     collect_due,
 )
+from app.services.pass_stream import COLLECTION_STREAM
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +107,22 @@ class CollectionPass:
     def planned(self, *, polling: int, skipped: list[tuple[str, str]]) -> None:
         self.polling = polling
         self.skipped = skipped
+        # The denominator arriving is worth a frame of its own: until it lands
+        # the bar can only say "moving, length unknown" (`passProgress`), and on
+        # a pass where nothing was due it is also the moment the reader learns
+        # there is nothing to wait for.
+        COLLECTION_STREAM.publish()
 
-    def collected(self, result: RouteResult) -> None:
+    def collected(self, result: RouteResult, snapshot: FareSnapshot | None = None) -> None:
         self.results.append(result)
+        # Order matters, and only in one direction. The snapshot goes out first
+        # so that a client which draws the point and then re-reads the document
+        # can never see a completed count that its chart has not caught up with;
+        # both ride the same flush anyway, and this is what makes that true even
+        # if they ever stop doing so.
+        if snapshot is not None:
+            COLLECTION_STREAM.write(snapshot)
+        COLLECTION_STREAM.publish()
 
     def as_report(self) -> CollectionReport:
         return CollectionReport(
@@ -172,6 +197,11 @@ class CollectionRunner:
         self._task = asyncio.get_running_loop().create_task(
             self._run(started, watches, provider, client)
         )
+        # A tab that was already watching — the map is on screen and somebody
+        # presses a row in another window — learns that a pass began. The tab
+        # that pressed does not need this: it is holding the same document as
+        # this call's own answer.
+        COLLECTION_STREAM.publish()
         return started
 
     async def _run(
@@ -187,6 +217,11 @@ class CollectionRunner:
             started.state = "failed"
             started.error = "The pass was cancelled before it finished"
             started.finished_at = _now()
+            # Announced before the re-raise, and this is the one path where the
+            # order is load-bearing: cancellation is what shutdown does, and a
+            # listener told nothing would be left holding a `running` document
+            # that will never move again.
+            COLLECTION_STREAM.publish()
             raise
         except Exception as error:  # a dead task is a silent one
             # The alternative is a task that raises into the event loop's
@@ -205,6 +240,12 @@ class CollectionRunner:
                 started.completed,
                 len(started.skipped),
             )
+        # Both endings, in one place after the branch: whichever way a pass
+        # stopped, a row that is watching it has to be told it stopped. A row
+        # left on a `running` document is a spinner that never ends, which is
+        # the failure 8.8 and 8.41 name and the one this stream could most
+        # easily introduce.
+        COLLECTION_STREAM.publish()
 
     async def aclose(self) -> None:
         """

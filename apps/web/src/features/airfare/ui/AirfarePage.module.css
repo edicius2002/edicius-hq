@@ -99,14 +99,116 @@
   font-size: 0.85rem;
 }
 
-.failures {
+/*
+ * What the horizon collections had to say, whatever that was.
+ *
+ * This was `.failures`, and the name was the fault. It set `--color-expense` on
+ * the whole list because a list of failures is all red by definition — but what
+ * it actually holds is `RowReport`, which reports success and refusal alike, so
+ * a horizon collected without a hitch was printed in the colour of an error.
+ * The class is named for what it contains now, and the colour has moved onto
+ * `.refused` below where the caller can put it on the lines that earned it.
+ *
+ * Muted is the default for the same reason it is on the row list: these lines
+ * are almost always ordinary news about a route that is fine.
+ */
+.reports {
   list-style: none;
   margin: var(--space-3) 0 0;
   padding: 0;
   display: grid;
   gap: var(--space-1);
-  color: var(--color-expense);
+  color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+/*
+ * A line that says something went wrong, and only such a line.
+ *
+ * The same token and the same shape as `RouteList.module.css`'s `.refused`,
+ * deliberately — the two lists report the same kind of outcome a few pixels
+ * apart, and one of them saying it in a different colour would be the reader's
+ * problem rather than the stylesheet's.
+ */
+.refused {
+  color: var(--color-expense);
+}
+
+/*
+ * How far a booking-horizon pass has got.
+ *
+ * The row list's bar, in the one other place on this page where a pass runs for
+ * long enough to be worth drawing — deliberately the same three pixels, the same
+ * accent-on-accent-soft track and the same 240ms glide, because a reader who has
+ * learnt what that mark means a few rows up should not have to learn it twice.
+ *
+ * Only in the document while a pass is running. A track under a finished report
+ * is three pixels of ink claiming work that is over.
+ */
+.progress {
+  display: block;
+  margin: 0 0 var(--space-1);
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  overflow: hidden;
+}
+
+/*
+ * `width` rather than `transform: scaleX`, for the row list's reason: the fill
+ * has a rounded cap and scaling its box stretches that radius into an ellipse
+ * that fattens as the pass runs.
+ *
+ * The transition is a quarter second against frames that arrive as each request
+ * goes out — a few seconds apart — so each step glides and settles long before
+ * the next.
+ */
+.fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 240ms ease;
+}
+
+/*
+ * A pass whose plan has not settled yet.
+ *
+ * For the first instant the server has not decided how many windows it means to
+ * price, so there is no denominator and a bar at zero would be claiming one. A
+ * short fill sweeping the track says "moving, length unknown", which is what is
+ * true — and it is replaced by a real fraction the moment the plan lands, which
+ * is before the first upstream request.
+ */
+.unplanned .fill {
+  width: 30%;
+  transition: none;
+  animation: horizon-sweeping 1.2s ease-in-out infinite;
+}
+
+@keyframes horizon-sweeping {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(333%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * The sweep stops and the fill stays put, filling the track. A bar that
+   * cannot say how long it is has to say something, and a still empty track is
+   * indistinguishable from a pass that has not started; a still full one is the
+   * shape a determinate bar takes when it lands, which arrives within a frame
+   * of this anyway.
+   */
+  .unplanned .fill {
+    width: 100%;
+    animation: none;
+  }
 }
 
 @media (max-width: 60rem) {

@@ -36,16 +36,21 @@ export default defineConfig({
      * widths it is derived from, which needs the text to survive as far as the
      * test. `Positions.module.css` joined it for the same reason: the width one
      * position card is given decides how many fit across the panel, and jsdom
-     * can see neither. The three Airfare files joined them for the third case
-     * of the same thing: whether the watchlist's rows scroll inside the row
-     * they share with the map turns entirely on `contain: size`, which jsdom
-     * does not implement and which was already wrong once on the Investing
-     * page for exactly that reason. `RouteMap.module.css` came last, with
+     * can see neither. The Airfare files joined them for the third case of the
+     * same thing: whether the watchlist's rows scroll inside the row they
+     * share with the map turns entirely on `contain: size`, which jsdom does
+     * not implement and which was already wrong once on the Investing page for
+     * exactly that reason. Two more followed, each for a height that lives in
+     * a stylesheet and is asserted in a test. `RouteMap.module.css` carries
      * `a-taller-row-is-four-more-routes`: the stage's `min-height` is the only
      * height in that row, so how many watched routes fit without a scrollbar
      * is a number in *that* file and the two beside it, and `routesScroll`
-     * cannot check the sum with a third of it missing. Scoped to these files
-     * so no other suite changes behaviour.
+     * cannot check the sum with a third of it missing. `RouteDetail.module.css`
+     * carries the route strip's reserves, and a height reserved in `calc()`
+     * against the font sizes in the same file is exactly the kind of
+     * arithmetic that drifts out of step with the rules it came from without
+     * any test noticing. Scoped to these files so no other suite changes
+     * behaviour.
      */
     css: {
       include: [
@@ -54,6 +59,7 @@ export default defineConfig({
         /AirfarePage\.module\.css/,
         /RouteList\.module\.css/,
         /RouteMap\.module\.css/,
+        /RouteDetail\.module\.css/,
         /styles\/tokens\.css/,
       ],
     },

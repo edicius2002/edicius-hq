@@ -16,6 +16,15 @@ type RouteDetailProps = {
   insights: FareInsights | null;
   health: WatchHealth | null;
   cities: { from: string | null; to: string | null };
+  /**
+   * Whether this route's archive is still being fetched.
+   *
+   * Every other prop here is derived from `useFareHistory`'s `data`, and a
+   * query whose key has changed has no data — so without this the panel cannot
+   * tell "this route has nothing collected" from "we have not been told yet",
+   * and says the first about the second. See `a-fetch-is-not-an-empty-archive`.
+   */
+  loading?: boolean;
 };
 
 /**
@@ -50,7 +59,14 @@ type RouteDetailProps = {
  * two months of context on the day a route is added, where our own median needs
  * two months of collecting to mean anything.
  */
-export function RouteDetail({ route, latest, insights, health, cities }: RouteDetailProps) {
+export function RouteDetail({
+  route,
+  latest,
+  insights,
+  health,
+  cities,
+  loading = false,
+}: RouteDetailProps) {
   if (!route) {
     return <p className={styles.empty}>Add a route to start building its history.</p>;
   }
@@ -97,8 +113,8 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
           Which of the month's departures the figures below belong to, written
           `dd/mm/yyyy` like every other real date here — the month in the
           heading is spelled out precisely so these two can never be read as
-          the same kind of thing. It is a line rather than a fifth figure
-          because the figures box is measured to four across.
+          the same kind of thing. It is a line here rather than a fifth figure
+          because the box beside it holds money and a date is not money.
 
           Unconditional again: it used to be hidden under a focus, where the
           heading already named the only departure there was.
@@ -114,11 +130,14 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
       <dl className={styles.figures}>
         <div>
           {/*
-            Still four figures in this box, and deliberately: the widths here
-            were measured against a 736px row at 8rem a column, and a fifth
-            would put one of them on a line of its own. Which day the price
-            belongs to goes in the header instead, where there is a column of
-            room and no arithmetic.
+            Four figures in this box, and all four are money. The reason used
+            to be a width — the row was measured at 8rem a column and a fifth
+            would have fallen onto a line of its own — and since
+            `a-figure-takes-what-it-holds` it is not, because a figure now
+            takes the room it needs and a fifth would simply fit. What is left
+            is the better reason: this box answers "what does it cost", and
+            which day the price belongs to is not a price. It goes in the
+            header, with the other facts about the route.
           */}
           <dt>Cheapest now</dt>
           <dd className={styles.big}>
@@ -153,8 +172,16 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
           </div>
           <div>
             <dt>Cheapest on</dt>
+            {/*
+              The whole name, never an abbreviation of it: `Aerolineas
+              Argentinas · 14:35` is what this figure says, and if the box is
+              too narrow to hold it on one line it folds between the two words
+              rather than losing either. The separator and the clock are one
+              span so they cannot be parted at a line end.
+            */}
             <dd>
-              {cheapest.airlineName ?? cheapest.airline} · {departureClock(cheapest.departureAt)}
+              {cheapest.airlineName ?? cheapest.airline}{' '}
+              <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
             </dd>
           </div>
           <div>
@@ -186,6 +213,17 @@ export function RouteDetail({ route, latest, insights, health, cities }: RouteDe
             </div>
           ) : null}
         </dl>
+      ) : loading ? (
+        /*
+          Not "nothing observed yet" — `a-fetch-is-not-an-empty-archive`.
+          Every figure above is derived from one query's `data`, and react-query
+          has none for a key it has not answered yet, so choosing a route the
+          reader has already collected drew a full "Nothing observed yet. Run a
+          collection pass." for the length of the request. That is a fact about
+          our fetch printed as a fact about their route, which is the same
+          mistake 12.237 caught in the booking-horizon chart.
+        */
+        <p className={`${styles.note} ${styles.wide}`}>Reading the archive…</p>
       ) : (
         <p className={`${styles.note} ${styles.wide}`}>
           Nothing observed yet. Run a collection pass.

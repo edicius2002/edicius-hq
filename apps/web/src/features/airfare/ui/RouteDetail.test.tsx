@@ -62,7 +62,9 @@ const HEALTH: WatchHealth = {
   checks: 1,
   changes: 1,
   errors: 0,
-  lastCheckedAt: '2026-08-19T03:45:00',
+  // The API sends this with an offset, and the naive form this fixture used to
+  // carry is what hid the defect: 03:45 UTC is 22:45 the *previous* day in Lima.
+  lastCheckedAt: '2026-08-19T03:45:00+00:00',
 };
 
 function renderDetail(overrides: Partial<React.ComponentProps<typeof RouteDetail>> = {}) {
@@ -99,7 +101,7 @@ describe('RouteDetail', () => {
   it('names the cities under the pair, and when it was last looked at', () => {
     renderDetail();
     expect(screen.getByText('Lima to Arequipa')).toBeInTheDocument();
-    expect(screen.getByText(/Last look 19\/08\/2026 03:45/)).toBeInTheDocument();
+    expect(screen.getByText(/Last look 18\/08\/2026 22:45/)).toBeInTheDocument();
   });
 
   it('names which day of the month the figures belong to', () => {

@@ -49,7 +49,10 @@ export default defineConfig({
      * carries the route strip's reserves, and a height reserved in `calc()`
      * against the font sizes in the same file is exactly the kind of
      * arithmetic that drifts out of step with the rules it came from without
-     * any test noticing. Scoped to these files so no other suite changes
+     * any test noticing. `MoneyWeekChart.module.css` is the seventh and the
+     * same case as `Positions`: how many month boxes sit in a row and how many
+     * week cards sit across a month are two track counts in that file, and
+     * jsdom lays out neither. Scoped to these files so no other suite changes
      * behaviour.
      */
     css: {
@@ -60,6 +63,7 @@ export default defineConfig({
         /RouteList\.module\.css/,
         /RouteMap\.module\.css/,
         /RouteDetail\.module\.css/,
+        /MoneyWeekChart\.module\.css/,
         /styles\/tokens\.css/,
       ],
     },

@@ -11,6 +11,7 @@ import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection'
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
+import { pairReference } from '@/features/airfare/lib/pairReference';
 import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
 import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
@@ -196,6 +197,28 @@ export function AirfarePage() {
       selected && reading && history.data ? snapshotsFor(history.data.snapshots, reading) : [],
     [history.data, selected, reading],
   );
+  /*
+   * What this city pair usually costs — the one figure on this page built from
+   * the archive rather than from the reading.
+   *
+   * **Here and not in the panel, because here is the last place that still has
+   * the whole pair.** `fetchFareHistory` returns every snapshot the pair has
+   * ever had, whatever `departure` narrowing the baseline and the health counts
+   * got; `snapshotsFor` above throws all but the watched month away, and
+   * everything below this line is about that month. A reference computed after
+   * the narrowing would be a median of what is already on screen, which sits in
+   * the middle of what is on screen and tells the reader nothing —
+   * `lib/pairReference.ts` carries the argument in full.
+   *
+   * Dated with `todayIso`, which is the same clock the add form's earliest
+   * departure uses: this figure is worked out afresh every time the page is
+   * read, and the date is how it admits that.
+   */
+  const reference = useMemo(
+    () => pairReference(history.data?.snapshots ?? [], todayIso()),
+    [history.data],
+  );
+
   // The board the detail panel describes: the cheapest departure in the
   // watched month as it was last seen, not the last snapshot written — that
   // one belongs to whichever departure the collector reached last, which says
@@ -560,6 +583,7 @@ export function AirfarePage() {
           */
           curveLoading={calendar.isPending}
           curveError={calendar.error}
+          reference={reference}
           granularity={granularity}
           onGranularityChange={setGranularity}
           anchor={routeView.anchor}

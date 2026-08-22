@@ -295,6 +295,76 @@
 }
 
 /*
+ * The frame's own two ends, stated as figures: hollow plates where the
+ * crosshair's plate is filled.
+ *
+ * The distinction is the point and it is not colour. A filled plate on this
+ * chart means "the reader is pointing at this" — it is the crosshair's own mark,
+ * on both axes — so three filled plates in one margin would read as three
+ * crosshairs. An outline says the same kind of thing (a price, stated, on a
+ * plate) about something permanent. Fill and outline also survive being seen
+ * with no hue at all, which a second tint would not.
+ */
+.endPlate {
+  fill: var(--color-surface);
+  stroke: var(--color-muted);
+  stroke-width: 1;
+  opacity: 0.9;
+}
+
+.endText {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: var(--color-text);
+}
+
+/*
+ * What this pair usually costs, drawn across a frame scaled to itself.
+ *
+ * **Dot-dash, and the rhythm is the whole distinction.** Every other broken line
+ * this feature draws repeats a single mark — 2-3 on the seam, 3-3 on the
+ * crosshair, 6-4 on the cheapest-of-date line, 5-4 on chart A's provider
+ * baseline. `1 4 7 4` alternates two lengths, which is a different *class* of
+ * line rather than a longer or shorter member of the same one, and that is what
+ * makes it unmistakable for the provider's baseline to a reader who cannot use
+ * hue. The owner has a red-green deficiency; this is the same reasoning
+ * `a-reachable-mark-is-smaller-as-well-as-brighter` applied to a rule.
+ *
+ * In the text colour rather than the accent, because the accent already means
+ * "the cheapest way to fly" on this plot — the ring, the dashed line and the
+ * whole-date rule are all wearing it — and a fourth meaning on it would make all
+ * four unreadable.
+ *
+ * The serifs at either end take the same stroke and no dash, so the rule is
+ * findable where the cloud is dense enough to swallow a mark or two. The stroke
+ * is on the lines and not on the group: the group also holds the plate carrying
+ * the figure, and a group stroke would paint an outline through its glyphs.
+ */
+.reference {
+  pointer-events: none;
+}
+
+.reference line {
+  stroke: var(--color-text);
+  stroke-width: 1.4;
+  opacity: 0.78;
+}
+
+.reference line.referenceLine {
+  stroke-dasharray: 1 4 7 4;
+}
+
+/*
+ * The frame is entirely on one side of the line and the rule is on a rail.
+ * Filled, because it is a mark and not a rule, and in the same ink so it reads
+ * as part of the line it hangs off.
+ */
+.offFrame {
+  fill: var(--color-text);
+  stroke: none;
+}
+
+/*
  * The cloud, in the muted tone rather than the accent.
  *
  * `fill-opacity` on each dot rather than `opacity` on the group: group opacity
@@ -582,6 +652,26 @@
 .keyLine i {
   height: 0;
   border-top: 2px dashed var(--color-accent);
+}
+
+/*
+ * The pair median: a dot-and-dash swatch.
+ *
+ * Drawn as a repeating gradient rather than as a border, because `border-style`
+ * offers exactly one broken rhythm — `dashed` — and that is the provider's
+ * vocabulary. The swatch has to carry the same alternation the plot does or the
+ * legend teaches a mark the chart does not draw.
+ */
+.keyReference i {
+  height: 1.4px;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--color-text) 0 1px,
+    transparent 1px 5px,
+    var(--color-text) 5px 12px,
+    transparent 12px 16px
+  );
+  opacity: 0.75;
 }
 
 /* One price for a whole date: a rule as wide as the key's own swatch. */

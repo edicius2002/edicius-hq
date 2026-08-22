@@ -138,6 +138,50 @@ export function niceTicks(low: number, high: number, target = 4): number[] {
   return best.length < 2 ? [low, high] : best;
 }
 
+/**
+ * The two figures a price axis may state as figures: what the frame's cheapest
+ * fare actually is, and what its dearest actually is.
+ *
+ * **This is not the thing `niceTicks` refuses, and the difference is the whole
+ * of why it is allowed.** That function refuses to *tick* at observed values,
+ * because a scale made of three quotes chosen for their height is a stranger
+ * claim than a scale, and because the padded ends it used to print were figures
+ * nobody was ever quoted. Both objections are about numbers presented as a
+ * ruler. These two are presented as what they are — the extremes of the frame,
+ * each one a fare that is on the plot, drawn at its own height and never at the
+ * padded end of the domain. The round ticks stay exactly as they are and stay
+ * the scale.
+ *
+ * Read off the same array the domain was built from, so the two cannot drift
+ * apart: `spanOfPrices` pads outwards from these, which is also why both are
+ * always strictly inside the plot and neither can be clipped.
+ *
+ * Null for a frame with nothing priced on it, which is the frame that has no
+ * axis either.
+ */
+export function observedEnds(prices: number[]): { low: number; high: number } | null {
+  if (prices.length === 0) return null;
+  return { low: Math.min(...prices), high: Math.max(...prices) };
+}
+
+/**
+ * The ticks far enough from a stated figure to be printed beside it.
+ *
+ * Two labels in a 76-unit margin at ten pixels a line overprint each other long
+ * before they collide numerically, and the pair that collides is exactly the
+ * pair a reader needs: ARI-SCL's March frame runs $62.77 to $69.26 and its round
+ * ticks fall at $62.50 and $70, both within half a dollar of an endpoint. The
+ * gridline stays — the scale is not what is crowded — and only the word is
+ * dropped, so nothing about the axis's spacing changes.
+ *
+ * `gap` is in the axis's own units rather than in view units, because this
+ * function has no plot: the caller converts the height it can spare into a
+ * price, which is one division at the one place that knows both.
+ */
+export function ticksClear(ticks: number[], stated: number[], gap: number): number[] {
+  return ticks.filter((tick) => stated.every((value) => Math.abs(tick - value) >= gap));
+}
+
 /** A power of ten times one of these is a number a reader reads as round. */
 const STEP_FACTORS = [5, 2.5, 2, 1];
 

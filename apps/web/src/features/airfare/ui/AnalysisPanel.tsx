@@ -28,6 +28,7 @@ import {
   stepKey,
   type WatchedRange,
 } from '@/features/airfare/lib/flightScatter';
+import type { PairReference } from '@/features/airfare/lib/pairReference';
 import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
@@ -146,6 +147,16 @@ type AnalysisPanelProps = {
    * which leg they are drawing them for.
    */
   leg?: { origin: string; destination: string; originCountry: string | null } | null;
+  /**
+   * What this city pair usually costs, passed through to chart B and used for
+   * nothing else here.
+   *
+   * Assembled above this component because it is the one figure on the page that
+   * is **not** about the watched month: `snapshots` here has already been
+   * narrowed to that month, and the whole point of the reference is that it
+   * comes from the pair's entire archive. See `lib/pairReference.ts`.
+   */
+  reference?: PairReference | null;
 };
 
 /**
@@ -178,6 +189,7 @@ export function AnalysisPanel({
   viewport,
   onViewportChange,
   leg = null,
+  reference = null,
 }: AnalysisPanelProps) {
   /*
    * The panel opens on chart B — `the-panel-opens-on-flights-seen`.
@@ -442,6 +454,7 @@ export function AnalysisPanel({
               horizonLoading={curveLoading}
               horizonError={curveError}
               leg={leg}
+              reference={reference}
               label={
                 route ? `What each departure date costs for ${where}` : 'Fares by departure date'
               }

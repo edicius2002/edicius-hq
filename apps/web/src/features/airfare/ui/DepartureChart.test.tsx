@@ -190,6 +190,22 @@ function dots(container: HTMLElement): SVGCircleElement[] {
 }
 
 /**
+ * The line under the plot, which is where a reading is reported.
+ *
+ * Every assertion about what the crosshair says used to read
+ * `container.textContent`, which worked only while the fare in question appeared
+ * in exactly one place on the page. The price axis now states the frame's own
+ * two ends permanently — `$195.00` and `$310.00` on this week — so "the document
+ * says $310" is true whether or not anything is under the pointer, and "the
+ * document no longer says $310" is false the moment the chart draws at all.
+ * Neither was ever what those tests meant: they mean the readout is reporting
+ * that flight, or has stopped.
+ */
+function readout(container: HTMLElement): string {
+  return container.querySelector('[data-testid="departure-readout"]')?.textContent ?? '';
+}
+
+/**
  * Which stretch of calendar the frame is drawing, read from the chart itself.
  *
  * The head above the plot used to print `5 flights departing between 08/03/2027
@@ -278,7 +294,7 @@ describe('the flight under the pointer', () => {
       clientY: Number(dearest.getAttribute('cy')),
     });
     // $310 is the dearest flight of the week, so it is the highest dot.
-    expect(container.textContent).toContain('$310.00');
+    expect(readout(container)).toContain('$310.00');
     expect(container.textContent).toContain('LA 2');
   });
 
@@ -589,13 +605,13 @@ describe('pinning the reading', () => {
   it('holds the reading where the right-click landed, and the pointer stops moving it', () => {
     const { container } = chart();
     const { svg } = pinTheDearest(container);
-    expect(container.textContent).toContain('$310.00');
+    expect(readout(container)).toContain('$310.00');
 
     // The other end of the week, and a fare the crosshair would certainly have
     // moved to a moment ago.
     fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
-    expect(container.textContent).toContain('$310.00');
-    expect(container.textContent).not.toContain('$288.00');
+    expect(readout(container)).toContain('$310.00');
+    expect(readout(container)).not.toContain('$288.00');
   });
 
   it('takes the browser’s menu on a mark, and only on a mark', () => {
@@ -641,7 +657,7 @@ describe('pinning the reading', () => {
     fireEvent.pointerLeave(svg);
     expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeTruthy();
     fireEvent.blur(svg);
-    expect(container.textContent).toContain('$310.00');
+    expect(readout(container)).toContain('$310.00');
   });
 
   it('lets go on Escape, and the pointer takes over again', () => {
@@ -653,7 +669,7 @@ describe('pinning the reading', () => {
     expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.pointerMove(svg, { clientX: 700, clientY: 250 });
-    expect(container.textContent).not.toContain('$310.00');
+    expect(readout(container)).not.toContain('$310.00');
   });
 
   it('lets go on a second right-click on the same mark', () => {
@@ -717,7 +733,7 @@ describe('pinning the reading', () => {
     const { svg } = pinTheDearest(container);
 
     fireEvent.keyDown(svg, { key: '+' });
-    expect(container.textContent).toContain('$310.00');
+    expect(readout(container)).toContain('$310.00');
     expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('reset-zoom')).toBeEnabled();
 
@@ -730,7 +746,7 @@ describe('pinning the reading', () => {
     // exactly this: a held copy would still be showing $310 an hour later.
     const { container, rerender } = chart();
     pinTheDearest(container);
-    expect(container.textContent).toContain('$310.00');
+    expect(readout(container)).toContain('$310.00');
 
     const cheaper = WEEK.map((each) =>
       each.flightDate !== '2027-03-08'
@@ -787,7 +803,7 @@ describe('crossing the chart without a mouse', () => {
     // The 8th's cheapest is the 07:00 at $240.
     expect(container.textContent).toContain('$240.00');
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(container.textContent).toContain('$195.00');
+    expect(readout(container)).toContain('$195.00');
     fireEvent.keyDown(svg, { key: 'ArrowLeft' });
     expect(container.textContent).toContain('$240.00');
   });
@@ -811,7 +827,7 @@ describe('crossing the chart without a mouse', () => {
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
     expect(container.textContent).toContain('$240.00');
     fireEvent.keyDown(svg, { key: 'ArrowUp' });
-    expect(container.textContent).toContain('$310.00');
+    expect(readout(container)).toContain('$310.00');
     fireEvent.keyDown(svg, { key: 'ArrowDown' });
     expect(container.textContent).toContain('$240.00');
   });
@@ -1203,19 +1219,55 @@ describe('a departure date in the frame with no flight on it', () => {
 });
 
 describe('the price axis says only what a flight costs', () => {
+  /** Every money figure the axis prints, minus the two plates at its ends. */
+  function scaleLabels(container: HTMLElement): string[] {
+    return [...container.querySelectorAll('text')]
+      .filter((node) => node.closest('[data-testid^="axis-end-"]') === null)
+      .map((node) => node.textContent ?? '')
+      .filter((text) => text.startsWith('$'));
+  }
+
   it('ticks at round numbers rather than at four slices of the padded span', () => {
     // `priceSpan` pads the board's range by a twelfth so the extreme dots are
     // not clipped in half. The four labels used to be the padded ends and two
     // points between them — money-formatted figures no itinerary on the canvas
     // costs.
     const { container } = chart();
-    const ticks = [...container.querySelectorAll('text')]
-      .map((node) => node.textContent ?? '')
-      .filter((text) => text.startsWith('$'));
     // The board runs $195 to $310 and the padded span $185.42 to $319.58 —
-    // neither end of which is drawn, and none of these is a quote either, which
-    // is the point: they read as a scale.
-    expect(ticks).toEqual(['$200.00', '$250.00', '$300.00']);
+    // neither end of which is drawn, and neither of these is a quote either,
+    // which is the point: they read as a scale.
+    //
+    // Two labels rather than the three this used to assert, and the missing one
+    // is $200: it is five dollars from the $195 the axis now states as a figure
+    // at its own end, and two labels five dollars apart in a 252-unit plot
+    // overprint each other. The gridline at $200 is still drawn — only the word
+    // is dropped — which is what `ticksClear` is for.
+    expect(scaleLabels(container)).toEqual(['$250.00', '$300.00']);
+    expect(container.querySelectorAll('[data-testid="price-grid"]')).toHaveLength(3);
+  });
+
+  it('states the frame’s own cheapest and dearest fare, at their own heights', () => {
+    /*
+     * The other half of the same argument. `niceTicks` refuses to *tick* at
+     * observed values and that has not changed; these two are not ticks. They
+     * are the extremes of what is drawn, each a fare on the canvas, each on a
+     * plate at the height of the dot it belongs to — which is what lets a reader
+     * see that a frame's range changed before they have read anything else.
+     */
+    const { container } = chart();
+    const low = container.querySelector('[data-testid="axis-end-low"]')!;
+    const high = container.querySelector('[data-testid="axis-end-high"]')!;
+    expect(low.textContent).toBe('$195.00');
+    expect(high.textContent).toBe('$310.00');
+
+    // At the fare's own height, never at the padded end of the domain: the
+    // cheapest dot on the canvas and the low plate sit on the same line.
+    const cheapest = dots(container).reduce((lowest, dot) =>
+      Number(dot.getAttribute('cy')) > Number(lowest.getAttribute('cy')) ? dot : lowest,
+    );
+    const plate = low.querySelector('rect')!;
+    const centre = Number(plate.getAttribute('y')) + Number(plate.getAttribute('height')) / 2;
+    expect(centre).toBeCloseTo(Number(cheapest.getAttribute('cy')), 6);
   });
 
   it('names what the frame holds in its accessible name', () => {
@@ -1495,11 +1547,14 @@ describe('the chrome around the plot', () => {
     // The cut itself, asserted rather than described: entries that were
     // forty-eight words of explanation are names. The sentences are not lost —
     // each is the entry's `title` — and the test above reads two of them.
-    // Seven since a mark gained a coloured centre for "this flight's airline can
-    // be reached", and the rule each is held to is the same one.
+    // Eight since the pair median joined them — seven when a mark gained a
+    // coloured centre for "this flight's airline can be reached" — and the rule
+    // each is held to is the same one. The median's entry is the only one that
+    // can grow a fourth token, the date it was worked out on, and `Pair median,
+    // 22/08` is three.
     const { container } = chart();
     const entries = [...container.querySelectorAll('figcaption span')];
-    expect(entries).toHaveLength(7);
+    expect(entries).toHaveLength(8);
     for (const entry of entries) {
       expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
       expect(entry.getAttribute('title')).toBeTruthy();
@@ -1715,5 +1770,154 @@ describe('reaching the airline from the chart', () => {
     expect(container.textContent).toContain('LA 4');
     expect(screen.queryByRole('link')).toBeNull();
     expect(container.querySelector('[data-linked]')).toBeNull();
+  });
+});
+
+/**
+ * The rule across the plot saying what this pair usually costs.
+ *
+ * Every frame here is drawn to its own scale — that is `spanOfPrices`, and it is
+ * deliberate, because a shared domain was measured to leave the median month
+ * 4.6% of the plot. The cost of it is that two months at completely different
+ * prices look identical, and this line is what buys that back: one fixed figure
+ * from the whole pair's archive, drawn on whatever scale the frame happens to
+ * have.
+ *
+ * The figure is a prop and not something this chart works out, because this
+ * chart is handed one month. `lib/pairReference.ts` computes it and is tested
+ * there; what is left for a rendered chart is where it lands, what happens when
+ * it lands off the plot, and whether a reader who cannot see it is told.
+ */
+describe('the pair median across the plot', () => {
+  /**
+   * How high one fare of the week is drawn.
+   *
+   * The cloud is built in departure order, which for `WEEK` is $240 on the 8th
+   * at 07:00, $310 on the 8th at 18:00, $260 on the 9th at 06:30, $195 on the
+   * 9th at 19:55 and $288 on the 14th. The first assertion below checks that
+   * ordering against the geometry rather than trusting it.
+   */
+  const WEEK_PRICES = [240, 310, 260, 195, 288];
+  function dotAt(container: HTMLElement, price: number): number {
+    return Number(dots(container)[WEEK_PRICES.indexOf(price)].getAttribute('cy'));
+  }
+
+  function referenceY(container: HTMLElement): number {
+    return Number(
+      container.querySelector('[data-testid="pair-reference-line"]')!.getAttribute('y1'),
+    );
+  }
+
+  const AT_250 = { value: 250, dates: 31, asOf: '2026-08-22' };
+
+  it('draws it at its own height on the frame’s own scale', () => {
+    // The week runs $195 to $310. A pair median of $250 has to sit above the
+    // $240 dot and below the $260 one, whatever padding the domain took.
+    const { container } = chart({ reference: AT_250 });
+    // The lookup this rests on, checked rather than assumed: dearer is higher.
+    expect(dotAt(container, 195)).toBeGreaterThan(dotAt(container, 240));
+    expect(dotAt(container, 240)).toBeGreaterThan(dotAt(container, 260));
+    expect(dotAt(container, 260)).toBeGreaterThan(dotAt(container, 310));
+
+    const y = referenceY(container);
+    expect(y).toBeLessThan(dotAt(container, 240));
+    expect(y).toBeGreaterThan(dotAt(container, 260));
+    expect(screen.getByTestId('pair-reference-price')).toHaveTextContent('$250.00');
+  });
+
+  it('runs the whole track and carries a serif at each end', () => {
+    // Three lines: the rule, and one upright at either end. The serifs are the
+    // second channel — a reader who cannot use hue, and a stretch of plot where
+    // the cloud is dense enough to swallow a dash or two, both still find it.
+    const { container } = chart({ reference: AT_250 });
+    const group = container.querySelector('[data-testid="pair-reference"]')!;
+    expect(group.querySelectorAll('line')).toHaveLength(3);
+    const rule = group.querySelector('[data-testid="pair-reference-line"]')!;
+    expect(Number(rule.getAttribute('x1'))).toBe(84);
+    expect(Number(rule.getAttribute('x2'))).toBe(744);
+  });
+
+  it('does not move when the frame is zoomed, because it is not about the frame', () => {
+    const { container } = chart({ reference: AT_250 });
+    const before = referenceY(container);
+    fireEvent.keyDown(container.querySelector('svg')!, { key: '+' });
+    expect(referenceY(container)).toBe(before);
+  });
+
+  it('sits on the floor with a mark when every fare in the frame is dearer', () => {
+    /*
+     * The failure mode this had to answer, and it is not rare: at day
+     * granularity 30 of LIM-SCL's 62 departure dates hold no fare as cheap as
+     * that pair's own median. Clamped rather than omitted — a frame entirely
+     * above the line is the clearest "this month is dear" the chart can make,
+     * and a line that vanished there would read as nothing having been said.
+     * Stretching the domain to reach it was the third option and is the
+     * shared-scale trade in miniature: it spends the frame's resolution.
+     */
+    const { container } = chart({ reference: { value: 40, dates: 31, asOf: '2026-08-22' } });
+    // The plot floor is 266 and the rail below it is at 273.
+    expect(referenceY(container)).toBe(266);
+    expect(container.querySelector('[data-testid="pair-reference"]')).toHaveAttribute(
+      'data-fall',
+      'below',
+    );
+    expect(screen.getByTestId('pair-reference-off')).toBeTruthy();
+    // Still says what the figure is: the reader is being told the frame is
+    // entirely above $40, not that the line is at $40.
+    expect(screen.getByTestId('pair-reference-price')).toHaveTextContent('$40.00');
+  });
+
+  it('sits on the ceiling with a mark when every fare in the frame is cheaper', () => {
+    const { container } = chart({ reference: { value: 900, dates: 31, asOf: '2026-08-22' } });
+    expect(referenceY(container)).toBe(14);
+    expect(container.querySelector('[data-testid="pair-reference"]')).toHaveAttribute(
+      'data-fall',
+      'above',
+    );
+    expect(screen.getByTestId('pair-reference-off')).toBeTruthy();
+  });
+
+  it('marks nothing when the figure is inside the frame', () => {
+    chart({ reference: AT_250 });
+    expect(screen.queryByTestId('pair-reference-off')).toBeNull();
+  });
+
+  it('draws no line at all for a pair with nothing priced yet', () => {
+    // A pair with no fares has no typical fare, and a rule at zero would be the
+    // chart inventing the cheapest flight ever found.
+    const { container } = chart();
+    expect(container.querySelector('[data-testid="pair-reference"]')).toBeNull();
+  });
+
+  it('says the figure and how it was worked out in the chart’s accessible name', () => {
+    // Reachable without sight, the way the crosshair's own readout is — and on
+    // the name rather than in a live region, because it changes when the frame
+    // does and not when a hand moves.
+    const { container } = chart({ reference: AT_250 });
+    const said = frameLabel(container);
+    expect(said).toContain('This pair usually costs $250.00');
+    expect(said).toContain('median cheapest fare across 31 departure dates');
+    expect(said).toContain('worked out on 22/08');
+  });
+
+  it('says which side of it the frame is on, when the frame is all on one', () => {
+    const { container } = chart({ reference: { value: 40, dates: 31, asOf: '2026-08-22' } });
+    expect(frameLabel(container)).toContain('Every fare in this frame is above it');
+  });
+
+  it('says the frame’s own two ends in words as well as in ink', () => {
+    const { container } = chart({ reference: AT_250 });
+    expect(frameLabel(container)).toContain('This frame runs $195.00 to $310.00');
+  });
+
+  it('names the line in the legend, with the date it was worked out on', () => {
+    // The one legend entry that carries a date, and it has to: the figure is
+    // recomputed every time the page is read, so two screenshots weeks apart
+    // are not comparable and the date is the only thing that admits it.
+    const { container } = chart({ reference: AT_250 });
+    const entry = [...container.querySelectorAll('figcaption span')].find((span) =>
+      (span.textContent ?? '').includes('Pair median'),
+    );
+    expect(entry).toHaveTextContent('Pair median, 22/08');
   });
 });

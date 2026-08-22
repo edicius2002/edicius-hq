@@ -645,3 +645,44 @@ describe('where the reader may walk', () => {
     );
   });
 });
+
+describe('the pair median comes from above and is only passed on', () => {
+  it('draws the figure it was handed, not one worked out from the month it holds', () => {
+    /*
+     * The whole point of the reference is that it is **not** about the month on
+     * screen. `snapshots` here is one watched month — the page has already
+     * narrowed the pair's archive to it — so a panel that computed a median from
+     * what it holds would land inside $61–$68 and say nothing. It is handed
+     * $147.69, which is LIM-SCL's real pair median and nowhere near this frame,
+     * and the chart has to draw exactly that.
+     */
+    const { container } = render(
+      <Harness reference={{ value: 147.69, dates: 62, asOf: '2026-08-22' }} />,
+    );
+    fireEvent.click(screen.getByTestId('days-chart-button'));
+
+    const chart = container.querySelector('[data-testid="pair-reference"]');
+    expect(chart).toBeTruthy();
+    expect(screen.getByTestId('pair-reference-price')).toHaveTextContent('$147.69');
+    // Every fare in this month is cheaper than that, so the rule is on the
+    // ceiling and says so rather than disappearing.
+    expect(chart).toHaveAttribute('data-fall', 'above');
+  });
+
+  it('draws no rule on chart A, which already carries the provider’s own baseline', () => {
+    /*
+     * Deliberate, and recorded: chart A draws a 5-4 dashed line that is the
+     * provider's `insights.typical`, and that figure disagrees with ours by up
+     * to 60% — $102.13 ours against $64.00 theirs on SCL-EZE, and the other way
+     * on LIM-AQP. Two horizontal lines a chart apart are two readings; two on
+     * one chart are two voices saying different things about the same axis.
+     */
+    const { container } = render(
+      <Harness reference={{ value: 147.69, dates: 62, asOf: '2026-08-22' }} />,
+    );
+    // The panel opens on chart B — `the-panel-opens-on-flights-seen` — so the
+    // chart without the rule is the one a press away.
+    fireEvent.click(screen.getByRole('button', { name: MOVES }));
+    expect(container.querySelector('[data-testid="pair-reference"]')).toBeNull();
+  });
+});

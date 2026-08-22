@@ -4,7 +4,7 @@ import {
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
-import { departureClock, formatStamp } from '@/features/airfare/lib/series';
+import { departureClock, formatInstant } from '@/features/airfare/lib/series';
 import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares';
 import { formatMoney, NO_VALUE } from '@/shared/lib/money';
 
@@ -123,7 +123,7 @@ export function RouteDetail({
           <p className={styles.cities}>Cheapest on {formatFlightDate(latest.flightDate)}</p>
         ) : null}
         {health?.lastCheckedAt ? (
-          <p className={styles.cities}>Last look {formatStamp(health.lastCheckedAt)}</p>
+          <p className={styles.cities}>Last look {formatInstant(health.lastCheckedAt)}</p>
         ) : null}
       </header>
 

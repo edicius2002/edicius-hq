@@ -9,6 +9,7 @@ import {
   departureClock,
   departureDay,
   formatDuration,
+  formatInstant,
   formatStamp,
   latestPerDeparture,
   median,
@@ -247,6 +248,47 @@ describe('daysBeforeDeparture', () => {
     expect(daysBeforeDeparture('2026-08-17T12:00:00+00:00', '2026-10-16')).toBe(60);
     expect(daysBeforeDeparture('2026-10-16T06:00:00+00:00', '2026-10-16')).toBe(0);
     expect(daysBeforeDeparture('nope', '2026-10-16')).toBeNull();
+  });
+});
+
+describe('formatInstant', () => {
+  it('writes an instant in the reader’s own zone, not the one it was stored in', () => {
+    // The archive keeps UTC; the reader is in Lima. Printing the stored clock
+    // is what put `Last look` five hours ahead of the reader.
+    expect(formatInstant('2026-08-21T07:24:31+00:00')).toBe('21/08/2026 02:24');
+  });
+
+  it('moves the date when the reader’s day has not turned yet', () => {
+    /*
+     * The failure worth pinning, from the real archive: a pass captured at
+     * 02:33 UTC on the 20th happened at 21:33 on the *19th* in Lima. Every pass
+     * the fifteen-minute schedule runs between 19:00 and midnight reaches this.
+     */
+    expect(formatInstant('2026-08-20T02:33:32+00:00')).toBe('19/08/2026 21:33');
+  });
+
+  it('reads Peru as a constant offset rather than a rule that shifts', () => {
+    // Peru has never observed daylight saving, so January and July agree.
+    expect(formatInstant('2026-01-15T12:00:00+00:00')).toBe('15/01/2026 07:00');
+    expect(formatInstant('2026-07-15T12:00:00+00:00')).toBe('15/07/2026 07:00');
+  });
+
+  it('honours an offset that is not UTC', () => {
+    expect(formatInstant('2026-08-21T09:24:31+02:00')).toBe('21/08/2026 02:24');
+    expect(formatInstant('2026-08-21T02:24:31Z')).toBe('20/08/2026 21:24');
+  });
+
+  it('leaves a stamp carrying no zone to the wall-clock formatter', () => {
+    /*
+     * Guessing UTC for a naive string would invent a zone the archive does not
+     * carry — the same mistake as discarding a real one, in the other direction.
+     */
+    expect(formatInstant('2026-08-18T19:45:03')).toBe('18/08/2026 19:45');
+    expect(formatInstant('2026-08-18')).toBe('18/08/2026');
+  });
+
+  it('hands back anything it cannot read, untouched', () => {
+    for (const odd of ['', 'yesterday', '18/08/2026']) expect(formatInstant(odd)).toBe(odd);
   });
 });
 

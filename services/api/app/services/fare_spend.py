@@ -9,10 +9,17 @@ pass spending badly would be Google refusing to answer — an address that canno
 be replaced, because 12.9 records that datacenter ones are fingerprinted and
 there is no second provider.
 
-**Read-only, and deliberately so.** Nothing here changes what the budget does or
-when. It asks `RequestLedger.spent` for the count and `daily_request_budget()`
+**Read-only, and deliberately so.** Nothing here changes what the collector does
+or when. It asks `RequestLedger.spent` for the count and `daily_request_budget()`
 for the ceiling, both of which the collector already asks, so a reader cannot
-learn a different number from the one a pass is about to enforce.
+learn a different number from the one a pass is about to act on.
+
+**The ceiling is now usually `None`, and the count is the whole answer.** With
+nothing refusing at a number, `spent` stops being a fraction of something and
+becomes the plain figure it always was underneath — which is why the endpoint
+carries `BUSIEST_DAY_ON_RECORD` beside it. That is the only measured number a
+reader can judge today against, and it is what tells somebody whether an
+unbounded day has quietly become an unusual one.
 
 **The count is the ledger's, and the breakdown is ours.** `RequestLedger.spent`
 counts *lines* rather than parsing JSON, on the argument that a half-written last
@@ -23,12 +30,19 @@ attributed to no kind, so the breakdown can sum to one less than the total, whic
 is the honest arrangement: the number that governs is the one the budget
 enforces, and the breakdown is a second, weaker reading beside it.
 
-**`spent` is `None` when the day cannot be read, and that is not zero.**
-`DailyBudget` treats an unreadable ledger as a day fully spent, because guessing
-low is the one guess that spends the asset — so it stops the pass and reports
-every departure as `over-budget`. `remaining` says the same thing here, at zero,
-while `spent` stays `None`: a reader is owed the difference between "600 sent"
-and "we have no idea, and nothing will collect until we do".
+**`spent` is `None` when the day cannot be read, and that is not zero.** Under a
+configured ceiling `DailyBudget` treats an unreadable ledger as a day fully
+spent, because guessing low is the one guess that spends the asset — so it stops
+the pass and reports every departure as `over-budget`, and `remaining` says the
+same thing here at zero while `spent` stays `None`. A reader is owed the
+difference between "600 sent" and "we have no idea, and nothing will collect
+until we do".
+
+With no ceiling, an unreadable ledger stops nothing: `remaining` is `None`
+because there is nothing to have left, and `spent` is still `None` because the
+figure genuinely is not known. The two nulls mean different things and the page
+has to say so — the collector is fine and the record of it is not, which is a
+smaller alarm than the other one but is still not a quiet day.
 """
 
 import json
@@ -67,10 +81,13 @@ class DaySpend:
     resets_at: datetime
     #: Requests recorded today, or `None` when the file cannot be read.
     spent: int | None
-    ceiling: int
+    #: The day's ceiling, or `None` when there is not one — which is the
+    #: default. Not zero, and no reader may round it to one.
+    ceiling: int | None
     #: What a pass starting now could still spend — `DailyBudget.remaining`'s
-    #: answer, zero on an unreadable ledger.
-    remaining: int
+    #: answer: zero on an unreadable ledger under a ceiling, and `None` whenever
+    #: there is no ceiling for anything to be left of.
+    remaining: int | None
     #: Requests by kind, largest first, ties by name. Empty on a day with no
     #: file, and on one that cannot be read.
     kinds: tuple[KindSpend, ...]
@@ -132,6 +149,11 @@ def read_spend(
     rather than calling it, so that reading the ledger cannot construct a budget
     object; the arithmetic is one `max` and there is a test pinning the two
     against each other.
+
+    `ceiling=None` means "whatever is configured", which is itself usually
+    `None`, exactly as in `fare_budget.daily_budget` — the same collapse of the
+    two nulls, for the same reason, and the same escape for a caller with a
+    number in hand.
     """
     moment = now if now is not None else datetime.now(UTC)
     day = (moment.astimezone(UTC) if moment.tzinfo is not None else moment).date()
@@ -139,11 +161,15 @@ def read_spend(
     allowed = ceiling if ceiling is not None else daily_request_budget()
 
     spent = book.spent(day)
+    # `None` when nothing bounds the day. The `spent is None` arm is the
+    # fail-closed one and exists only under a ceiling: an unknown day counts as
+    # fully spent, so what is left of it is nothing.
+    remaining = None if allowed is None else max(0, allowed - (allowed if spent is None else spent))
     return DaySpend(
         day=day,
         resets_at=_resets_at(day),
         spent=spent,
         ceiling=allowed,
-        remaining=max(0, allowed - (allowed if spent is None else spent)),
+        remaining=remaining,
         kinds=_kinds(book, day),
     )

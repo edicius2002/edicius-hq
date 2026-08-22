@@ -24,8 +24,8 @@ rather than planned — two windows, plus the walk-back when the far end is
 refused — against thirty for one month of boards, and it is what stops the
 eleven months nobody watched from being dark. It carries one number a day and
 nothing else — no carrier, no times, no itineraries — so it does not replace a
-board. Those requests are counted against the same daily budget as the boards,
-which they were not until now.
+board. Those requests are written to the same daily ledger as the boards, which
+they were not until now — one address, one day, one count.
 
 **It is safe to run often, and meant to be.** The pass decides for itself what
 is due: each departure has a poll interval that depends on how far away it is,
@@ -37,9 +37,9 @@ of days by a median 14%, while one 150 days out moved on 22% of days by 1.7%.
 
 `--dry-run` prints what a month costs per day under that cadence, which is the
 number to look at before adding one: a month whose first day is a week away
-costs 936 requests a day against a budget of 600, and the same month at 200
-days out costs 31. It also prints what the day has spent so far, because the
-budget is a day's and not a pass's — see below.
+costs 936 requests a day, and the same month at 200 days out costs 31. It also
+prints what the day has spent so far, which is a different question — the first
+is a property of the watchlist and the second of the day.
 
     schtasks /create /tn "Edicius airfare" /tr ^
       "cmd /c cd /d D:\\Work\\research\\edicius-hq && npm run fares:collect" ^
@@ -60,19 +60,22 @@ once nothing has touched it for five minutes.
 fingerprints datacenter addresses; the plan's runner decision is "local now,
 GCP later" precisely because a Cloud Run job would meet a consent wall.
 
-The day's request budget is the one ceiling that is a judgement rather than a
-measurement — the endpoint is unmetered, and the real limit is how much traffic
-one address can send before it stops being answered. `FARES_DAILY_REQUEST_BUDGET`
-sets it; the default is 600.
+**There is no daily request ceiling by default, and that is deliberate.** The
+endpoint is unmetered, and the real limit is how much traffic one address can
+send before it stops being answered — a number nobody has measured and which
+cannot be probed without spending the thing it protects. A count picked in place
+of it stopped a collector on 2026-08-22 for a reason no upstream had given, so
+what bounds a pass is the pace it sends at and the one-pass-at-a-time lock
+rather than a total. `FARES_DAILY_REQUEST_BUDGET` takes a number and puts the
+whole ceiling back — `over-budget` by name, nearest departures kept (12.111) —
+for an environment that wants one; `0`, `off` or `none` say the default out loud.
 
-**It is genuinely a day's, which is what makes the line above safe to schedule.**
-Spend is accumulated in `.local-data/fares/spend/<day>.jsonl`, one line per
-request actually sent, so ninety-six passes share one 600 rather than taking one
-each — and because the ledger is on disk rather than in this process, a pass
-that starts fresh every fifteen minutes still knows what the fourteen before it
-spent. When the day runs out the pass polls nothing and reports every departure
-as `over-budget` by name; the nearest departures are the ones that got the
-requests, because that is the order a truncated pass keeps (12.111).
+**What is kept either way is the ledger**, in `.local-data/fares/spend/<day>.jsonl`,
+one line per request actually sent. It is on disk rather than in this process,
+so a pass that starts fresh every fifteen minutes still knows what the fourteen
+before it sent, and `--dry-run` and the page in the browser both read it back.
+That is the record a future ceiling would have to be sized against, and the
+reason this half was not removed with the other.
 """
 
 import argparse
@@ -294,9 +297,18 @@ def main() -> int:
     # The cadence is what makes a month affordable, so the arithmetic is
     # printed rather than trusted. Over budget is not an error here: the pass
     # keeps the nearest departures and reports the rest as `over-budget`, which
-    # is the honest shape of "you are watching more than 600 a day of".
-    fit = "fits" if demand <= budget else "OVER"
-    print(f"\ncadence demand: {demand} request(s)/day against a budget of {budget} -- {fit}")
+    # is the honest shape of "you are watching more than a day's worth of".
+    #
+    # With no ceiling configured — the default — the demand is still printed and
+    # there is simply nothing for it to fit inside. That is the figure worth
+    # having either way: it is what this watchlist asks of the upstream every
+    # day, and it is the number to bring to any argument about whether a ceiling
+    # should come back and where it should sit.
+    if budget is None:
+        print(f"\ncadence demand: {demand} request(s)/day; no daily ceiling is set")
+    else:
+        fit = "fits" if demand <= budget else "OVER"
+        print(f"\ncadence demand: {demand} request(s)/day against a budget of {budget} -- {fit}")
 
     # And what the day has actually spent, which is a different question from
     # what the watchlist costs and is the one that decides what this pass can
@@ -304,9 +316,11 @@ def main() -> int:
     # the day, and it is why the same watchlist collects at 08:00 and reports
     # `over-budget` at 23:00.
     allowance = daily_budget(now=datetime.now(UTC))
+    left = allowance.remaining()
     print(
         f"today {allowance.day}: {allowance.spent()} request(s) already spent, "
-        f"{allowance.remaining()} left -> {allowance.ledger.path_for(allowance.day)}"
+        f"{'no ceiling' if left is None else f'{left} left'}"
+        f" -> {allowance.ledger.path_for(allowance.day)}"
     )
 
     if args.dry_run:

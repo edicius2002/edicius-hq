@@ -1,17 +1,26 @@
 """
-The day's request budget, and the ledger that makes it a day's.
+The day's request ledger, and the ceiling that is no longer over it by default.
 
-Every other bound in this feature is measured. This one is a judgement, and it
-is the only one that can reach somebody outside this machine: the upstream is a
-Google Flights scraper running from a residential address because Google
-fingerprints datacenter ones (12.9), there is no second provider, and the real
-limit is how much traffic this address can send before it stops being answered.
+Every other bound in this feature is measured. The ceiling never was: the real
+limit is how much traffic this address can send before Google stops answering —
+it runs from a residential one because datacenter addresses are fingerprinted
+(12.9) and there is no second provider — and that number is unknown and cannot
+be probed without spending the thing it protects. So `daily_request_budget()`
+answers `None` unless an environment sets one, and the three tests named for it
+below pin both halves: nothing is refused by default, and the whole enforcement
+comes back with `FARES_DAILY_REQUEST_BUDGET`. Every other test here passes an
+explicit ceiling, which is what keeps that path proven.
 
-It was also, until now, not enforced. `daily_request_budget()` was read once per
-pass and spent as a counter local to one `due_now` call, so a cron every fifteen
-minutes would give ninety-six passes the whole 600 each and the day's total
-would be bounded by nothing at all. These tests are about the four things that
-had to become true before that schedule could be turned on:
+**The ledger is unconditional and is what these tests are mostly about.** It
+still writes one line per request before it leaves, whether or not anything is
+counting against it, because what a day cost is the question a future ceiling
+would have to be sized against and the page in the browser reads it back.
+
+That ledger, and the pass lock beside it, exist because spend was once read once
+per pass and spent as a counter local to one `due_now` call, so a cron every
+fifteen minutes would give ninety-six passes a whole day's allowance each. These
+tests are about the four things that had to become true before that schedule
+could be turned on:
 
 - **The command a scheduler would invoke actually runs.** It had raised
   `TypeError` on its first watch since the focus was removed, and every gate
@@ -294,6 +303,112 @@ def test_a_day_that_runs_out_mid_pass_keeps_the_nearest_departures(tmp_path):
         "LIM-SCL 2026-10-06",
     ]
     assert {reason for _, reason in report.skipped} == {"over-budget"}
+
+
+def test_a_pass_with_no_ceiling_polls_every_due_departure(tmp_path):
+    """
+    The default, and the point of `a-count-nobody-measured-does-not-stop-a-pass`.
+
+    The same watchlist and the same already-busy day as the test below, with the
+    ceiling off: all thirty-one departures are polled, nothing is named
+    `over-budget`, and every request is still written to the ledger. What the
+    day cost is recorded exactly as before; what changed is that recording it is
+    no longer the same act as refusing it.
+    """
+    history = FareHistory(tmp_path / "fares")
+    ledger = RequestLedger(tmp_path / "spend")
+    for _ in range(599):
+        ledger.spend(TODAY, kind="board", what="earlier today")
+    page = read_fixture(BOARD)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10")],
+                now=NOW,
+                # No `budget=`, so the configured ceiling is used and there is
+                # not one — the same path a scheduled pass takes.
+                history=history,
+                client=client,
+                gap_seconds=0,
+                ledger=ledger,
+            )
+
+    report = asyncio.run(run())
+    assert len(report.results) == 31
+    assert not [reason for _, reason in report.skipped if reason == "over-budget"]
+    assert ledger.spent(TODAY) == 599 + 31
+
+
+def test_with_no_ceiling_an_unreadable_ledger_does_not_stop_the_collector(tmp_path):
+    """
+    The inversion that comes with the ceiling going away, and the one worth
+    pinning by name.
+
+    Failing closed on an unreadable ledger existed so an unknown total could not
+    be compared favourably against a ceiling. With no ceiling nothing is
+    compared, and stopping would mean the ledger's own writability decided
+    whether fares are collected — which it was never meant to be. The day's
+    record is what is lost, and the log line in `RequestLedger.spent` is what
+    says so.
+    """
+    history = FareHistory(tmp_path / "fares")
+    ledger = RequestLedger(tmp_path / "spend")
+    # A directory where the day's file goes: `exists()` is true and the read is
+    # not going to work.
+    ledger.path_for(TODAY).mkdir(parents=True)
+    assert ledger.spent(TODAY) is None
+
+    allowance = daily_budget(ledger=ledger, now=NOW)
+    assert allowance.ceiling is None
+    assert allowance.remaining() is None
+    assert allowance.affords(10_000)
+
+    page = read_fixture(BOARD)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10")],
+                now=NOW,
+                history=history,
+                client=client,
+                gap_seconds=0,
+                ledger=ledger,
+            )
+
+    report = asyncio.run(run())
+    assert len(report.results) == 31
+    assert not [reason for _, reason in report.skipped if reason == "over-budget"]
+
+
+def test_a_ceiling_set_in_the_environment_is_enforced_again(tmp_path, monkeypatch):
+    """
+    Nothing was deleted, only defaulted off: an environment that sets a number
+    gets the whole of the old behaviour back, through the same path a pass takes
+    when no caller hands it a ceiling.
+    """
+    monkeypatch.setenv("FARES_DAILY_REQUEST_BUDGET", "600")
+    history = FareHistory(tmp_path / "fares")
+    ledger = RequestLedger(tmp_path / "spend")
+    for _ in range(599):
+        ledger.spend(TODAY, kind="board", what="earlier today")
+    page = read_fixture(BOARD)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10")],
+                now=NOW,
+                history=history,
+                client=client,
+                gap_seconds=0,
+                ledger=ledger,
+            )
+
+    report = asyncio.run(run())
+    assert [result.flight_date for result in report.results] == ["2026-10-01"]
+    assert sum(1 for _, reason in report.skipped if reason == "over-budget") == 30
 
 
 def test_a_scheduled_pass_on_a_spent_day_polls_nothing_and_says_so(tmp_path):

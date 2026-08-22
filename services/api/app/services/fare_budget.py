@@ -1,7 +1,19 @@
 """
-What this address has already spent today, and what is left of the day.
+What this address has already sent today, and — if anything says so — what is
+left of the day.
 
-`daily_request_budget()` says "daily" and was handed to `due_now` as a
+**Two things live here and only one of them is still on by default.** The
+*ledger* records every request this address sends, one line each, and it is
+unconditional: it is written whether or not there is a ceiling over it, because
+what it answers — how much did we send, and on what — is the question that has
+to be answerable before anybody can size a ceiling honestly. The *ceiling* is
+`config.daily_request_budget()`, which now answers `None` unless an environment
+sets a number, and `None` means no ceiling rather than a ceiling of zero. Every
+signature below that used to promise an `int` promises `int | None` for exactly
+that reason: a caller has to say which of the two it has, and the type is what
+makes it say so.
+
+`daily_request_budget()` says "daily" and was once handed to `due_now` as a
 **per-pass** ceiling. Nothing carried spend from one pass to the next, so a cron
 every fifteen minutes — ninety-six passes a day — would have every one of them
 believe it had the whole budget to itself, and the day's total would be
@@ -9,6 +21,14 @@ unbounded by construction. That is the one item on the repository's open list
 that can reach somebody outside this machine: the upstream is a Google Flights
 scraper running from a residential address, because 12.9 records that Google
 fingerprints datacenter ones and there is no second provider to fall back to.
+
+What protects that address today is not a count. `REQUEST_GAP_SECONDS` paces
+every request three seconds apart, `PassLock` below allows one board pass and
+one calendar pass on this machine at a time, and the cadence table decides how
+often a departure is worth looking at at all. Those bound the rate, which is
+what an unmetered endpoint can actually notice. The ceiling bounded a total,
+which it never saw — and `config.py` records why a total nobody has measured
+stopped being allowed to stop a pass.
 
 **One line per request actually sent, in a file named after the day.**
 
@@ -30,28 +50,34 @@ fingerprints datacenter ones and there is no second provider to fall back to.
 - *A file per day, so the reset is not an operation.* Midnight does not clear a
   counter here; it names a different file, and a day nobody has collected on is
   a file that does not exist yet. There is nothing to run at a boundary and
-  nothing to get wrong when it is missed.
+  nothing to get wrong when it is missed. This survives the ceiling being off
+  and matters more without it: with nothing refusing at a number, "today" is the
+  only frame in which the figure means anything.
 
 - *Beside the archive rather than inside `checks/`, and never one file forever.*
   The check files are read end to end on every pass by `last_checked` and they
   grow for the life of the archive, so summing a day out of them would mean
   re-reading a year to learn about today — twice, because the boards and the
-  calendar keep their heartbeats in two different stores. A day file is at most
-  `budget` short lines and is never read again after its day.
+  calendar keep their heartbeats in two different stores. A day file is one
+  short line per request sent and is never read again after its day.
 
 Durability is the whole point. The collector is a stateless command a scheduler
 invokes fresh, so an in-memory counter buys nothing at all: it would be born at
 zero ninety-six times a day, which is the bug rather than the fix.
 
-**And one pass at a time, across processes and not only inside one.** The
-ledger alone bounds the day only *eventually*: `DailyBudget.spent()` re-reads
-the file before every request, so a second spender is noticed within one
-request — but only after both passes have already planned. Two passes starting
-together each read a day with 600 left, each size a whole day's work against it,
-and each begin spending before either can see the other. `PassLock` is what
-makes that impossible: it is the file-system half of `CollectionRunner`'s single
-slot, which serialises passes inside the API process and cannot see the
-scheduled command, which is a second process.
+**And one pass at a time, across processes and not only inside one.** `PassLock`
+is the file-system half of `CollectionRunner`'s single slot, which serialises
+passes inside the API process and cannot see the scheduled command, which is a
+second process.
+
+It was argued for as the thing that made a ceiling enforceable — a ledger alone
+bounds a day only *eventually*, because two passes starting together each read a
+day with room in it, each size a whole day's work against that, and each begin
+spending before either can see the other. That argument is retired with the
+default ceiling and the lock is not, because the other half of what it does was
+never about the count: two passes running at once halve `REQUEST_GAP_SECONDS`
+without anybody deciding to. Pace is what this address is actually protected by,
+so the lock is now the load-bearing one of the pair rather than the support.
 
 **Ninety days of day files, and the ninety-first is deleted.** Nothing reads a
 day file after its day and the directory otherwise grows one file a day forever.
@@ -122,10 +148,14 @@ class RequestLedger:
 
         `None` is not zero and callers must not treat it as such: a day whose
         spend cannot be established is a day this process has no idea how much
-        it has already sent, and guessing low is the one guess that spends the
-        asset. `DailyBudget` reads it as "the day is gone", which stops the pass
-        and reports every departure as `over-budget` — loudly, in the report,
-        rather than by collecting quietly on an unknown total.
+        it has already sent. Under a ceiling, guessing low is the one guess that
+        spends the asset, so `DailyBudget` reads it as "the day is gone", which
+        stops the pass and reports every departure as `over-budget` — loudly, in
+        the report, rather than by collecting quietly on an unknown total. With
+        no ceiling there is nothing to fail closed *against*: an unreadable file
+        costs the record of the day and cannot cost the day's collection, since
+        no number was going to be compared to anything. `DailyBudget.spent`
+        makes that split and is where it is explained.
         """
         path = self.path_for(day)
         if not path.exists():
@@ -143,10 +173,12 @@ class RequestLedger:
 
         `kind` is `board` or `calendar` and `what` is the route and, for a
         board, its departure. Neither is read by anything here — the count is
-        the whole of what the budget needs — and both are written because the
-        day file is also the only place that can answer "what did those 600
+        the whole of what a ceiling would need — and both are written because
+        the day file is the only place that can answer "what did a day's
         requests go on", which is the question anybody tuning the cadence table
-        or the calendar's windows will ask next.
+        or the calendar's windows will ask next. With no ceiling above it that
+        is now the *whole* of this file's purpose rather than a note kept
+        alongside the enforcement, and `GET /api/fares/spend` is the reader.
         """
         row = {"at": _now(), "kind": kind, "what": what}
         path = self.path_for(day)
@@ -244,12 +276,15 @@ CALENDAR_LOCK_NAME = "collect-calendar.lock"
 #: `REQUEST_GAP_SECONDS` is 3 and `UPSTREAM_TIMEOUT_SECONDS` is 12, so fifteen
 #: seconds. Five minutes is twenty times that.
 #:
-#: The alternative — age the lock against how long a whole pass may take — needs
-#: a bound of 600 requests times fifteen seconds, two and a half hours, because
-#: that is what the day's ceiling permits. A pass killed at its first request
-#: would then wedge the collector until mid-afternoon. Timing the *silence*
-#: rather than the *work* is what makes the bound small, and it is small because
-#: the pacing this repository already keeps is what it is measured against.
+#: The alternative — age the lock against how long a whole pass may take — was
+#: already bad when a ceiling bounded a pass: 600 requests times fifteen seconds
+#: is two and a half hours, so a pass killed at its first request would wedge
+#: the collector until mid-afternoon. With no ceiling that alternative has no
+#: bound at all to be computed from, which is the second reason it is not the
+#: one taken. Timing the *silence* rather than the *work* is what makes this
+#: number small, and it is small because the pacing this repository already
+#: keeps is what it is measured against — pacing that no longer has a count
+#: standing behind it and is now the whole of the guard.
 LOCK_STALE_SECONDS = 300.0
 
 
@@ -257,16 +292,19 @@ class PassLock:
     """
     The one collection pass this address is running, across every process.
 
-    **What it protects is planning-plus-spending, not the append.** A lock held
-    only around `RequestLedger.spend` would serialise the writes and nothing
-    else: two passes would still each read a day with 600 left, each plan a
-    whole day of work against it, and each start spending — discovering one
-    another only once both were already talking to the upstream, at which point
-    the day is overspent by whatever the loser sent before it noticed. So the
-    lock is taken before the plan is made and held until the pass is done, which
-    also buys the second thing 12.210 wanted and could only get inside one
-    process: `REQUEST_GAP_SECONDS` paces one loop, and two loops running at once
-    halve it without anybody deciding to.
+    **What it protects is the pace, and it is taken around planning-plus-spending
+    rather than around the append.** A lock held only over `RequestLedger.spend`
+    would serialise the writes and nothing else, leaving two passes talking to
+    the upstream at once — which halves `REQUEST_GAP_SECONDS` without anybody
+    deciding to, and pace is what this address is actually protected by.
+
+    It was also the thing that made a ceiling enforceable, and that is the half
+    that has gone quiet: two passes would each read a day with room left, each
+    plan a whole day of work against it, and each start spending before either
+    could see the other. With no ceiling by default there is no day's work to
+    overcommit, and this is why the lock is still taken where it is anyway — the
+    span it holds is the span in which two loops could interleave, whatever the
+    plan inside it was sized against.
 
     **There are two of these and not one** — see `BOARDS_LOCK_NAME`. The board
     pass and the calendar pass are two slots on purpose, and these close each of
@@ -289,11 +327,13 @@ class PassLock:
     is the kernel's own liveness: a flock dies with the process that held it and
     a file does not, which is what the staleness rule below is for.
 
-    **The ledger, not this, is the ceiling.** A pass that somehow ends up running
-    beside another still re-reads the day's spend before every single request and
-    still stops at `over-budget`. This is what makes that check arrive early
-    enough to matter rather than after two passes have both committed to a day's
-    work.
+    **When there is a ceiling, the ledger and not this is what enforces it.** A
+    pass that somehow ends up running beside another still re-reads the day's
+    spend before every single request and still stops at `over-budget`. This is
+    what makes that check arrive early enough to matter rather than after two
+    passes have both committed to a day's work. With no ceiling configured that
+    backstop has nothing to check and this is the only guard left standing,
+    which is an argument for keeping it rather than against.
     """
 
     def __init__(
@@ -499,21 +539,31 @@ class PassLock:
 @dataclass
 class DailyBudget:
     """
-    What is left of today, for a pass to spend.
+    What today has cost so far, and — if a ceiling was configured — what is left.
 
     Mutable, unlike nearly everything else in the collector, because it is the
     thing that changes while a pass runs — `CollectionPass` is the precedent and
     the reason is the same.
 
+    **`ceiling` is `None` by default and that means unbounded, not exhausted.**
+    Everything a pass asks this object is asked through `affords`, which answers
+    `True` for every cost when there is no ceiling, so no call site has to hold
+    the distinction in its head — see that method for why the arithmetic is not
+    left to callers. `remaining` keeps the `None` visible for the one caller
+    that genuinely needs it, `due_now`, whose `budget` parameter has always read
+    `None` as "do not truncate".
+
     **The day is fixed when this is built and does not move.** A pass that
     starts at 23:58 keeps spending against the day it started in. Re-deriving
     the date per request would hand a running pass a fresh ceiling halfway
     through, which is the same hole as reading the budget once per pass, just
-    with a rarer trigger.
+    with a rarer trigger. Unchanged by the ceiling going away: the day still
+    names the ledger file being appended to, and a pass that wandered onto
+    tomorrow's file at midnight would split one pass's record across two days.
     """
 
     ledger: RequestLedger
-    ceiling: int
+    ceiling: int | None
     day: date
     #: What this object has watched leave the address, whatever the file did
     #: with it. Starts at nothing and is outranked by the file until the pass
@@ -528,14 +578,54 @@ class DailyBudget:
     lock: "PassLock | None" = field(default=None)
 
     def spent(self) -> int:
-        """Today's total: the file's count, or ours, whichever is further on."""
+        """
+        Today's total: the file's count, or ours, whichever is further on.
+
+        **An unreadable ledger answers the ceiling, which is how the pass fails
+        closed** — a day whose spend cannot be established is treated as fully
+        spent, because guessing low is the guess that spends the asset.
+
+        With no ceiling there is nothing to fail closed against and the answer
+        is what this pass has watched leave. That is not a weakening of the old
+        rule: the rule existed so an unknown total could not be compared
+        favourably against a ceiling, and where no comparison is made, reporting
+        an unknown day as fully spent would stop a collector for a reason that
+        no longer exists — it would be the ledger's own writability deciding
+        whether fares get collected, which it was never meant to be.
+        """
         recorded = self.ledger.spent(self.day)
         if recorded is None:
-            return self.ceiling
+            return self.ceiling if self.ceiling is not None else self.witnessed
         return max(recorded, self.witnessed)
 
-    def remaining(self) -> int:
+    def remaining(self) -> int | None:
+        """
+        What a pass may still spend today, or `None` when nothing bounds it.
+
+        `None` is not zero and the type is deliberate: this is handed straight
+        to `due_now`'s `budget`, which has always read `None` as "do not
+        truncate", so an unbounded day arrives there as the absence of a cap
+        rather than as a very large one. Anything comparing this to a number
+        wants `affords` instead.
+        """
+        if self.ceiling is None:
+            return None
         return max(0, self.ceiling - self.spent())
+
+    def affords(self, cost: int = 1) -> bool:
+        """
+        Whether `cost` more requests can be sent today.
+
+        **The one question every spending site asks, so that none of them has to
+        do the `None` arithmetic.** `remaining() <= 0` was the old test and it
+        is exactly the shape that breaks on an unbounded day — in Python
+        `None <= 0` raises, which is the good failure, but the shape that
+        silently substitutes a large sentinel is the bad one and this is what
+        makes it unnecessary. With no ceiling every cost is affordable and the
+        answer does not even read the ledger.
+        """
+        left = self.remaining()
+        return True if left is None else left >= cost
 
     def take(self, *, kind: str, what: str) -> None:
         """Spend one request, before it is sent."""
@@ -557,7 +647,16 @@ def daily_budget(
     now: datetime | None = None,
     lock: PassLock | None = None,
 ) -> DailyBudget:
-    """Today's allowance, read off disk rather than started at zero."""
+    """
+    Today's allowance, read off disk rather than started at zero.
+
+    `ceiling=None` means "whatever is configured", which is itself `None` — no
+    ceiling — unless an environment sets a number. The two `None`s collapsing
+    into one is deliberate rather than tolerated: there is no caller that wants
+    to force an unbounded day while the environment asks for a bounded one, and
+    inventing a second sentinel to express that would put a word in every
+    signature to serve nobody. A caller with a ceiling in hand passes the number.
+    """
     moment = now if now is not None else datetime.now(UTC)
     day = (moment.astimezone(UTC) if moment.tzinfo is not None else moment).date()
     return DailyBudget(

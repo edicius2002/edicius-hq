@@ -1,4 +1,9 @@
-import { describeKinds, formatReset, spendMarks } from '@/features/airfare/lib/spendReading';
+import {
+  describeKinds,
+  describeRemaining,
+  formatReset,
+  spendMarks,
+} from '@/features/airfare/lib/spendReading';
 import type { FareSpend } from '@/shared/api/fares';
 
 import styles from './SpendToday.module.css';
@@ -32,16 +37,26 @@ type SpendTodayProps = {
  * takes about four routes off the visible list — the very trade
  * `a-taller-row-is-four-more-routes` was measured to avoid.
  *
- * **Nothing here draws a percentage, and that is the whole design of the
- * track.** 600 is a judgement: `config.py` says outright that the real limit is
- * how much traffic this address can send before Google stops answering, that it
- * is unknown, and that probing it costs the thing it protects. So a gauge
- * reading "23% used" would be inventing a safe maximum, and a fill that turned
- * amber and then red would be inventing thresholds inside it. What is drawn
- * instead is counts, one flat accent at every level, and a mark on the track at
- * **329** — the busiest day this address has ever actually sent, measured — with
- * the sentence underneath saying which of the two numbers was measured and which
- * was chosen.
+ * **Nothing here draws a percentage, and that argument has now taken the track
+ * with it.** The ceiling was a judgement — `config.py` said outright that the
+ * real limit is how much traffic this address can send before Google stops
+ * answering, that it is unknown, and that probing it costs the thing it
+ * protects — so a gauge reading "23% used" would have been inventing a safe
+ * maximum. The number is gone rather than the caveat: no ceiling is configured
+ * by default, and what is left to draw is a count.
+ *
+ * So on an ordinary day this is words and no track at all. A bar needs an end,
+ * and the one number that could pretend to be one is **329**, the busiest day
+ * this address has ever actually sent — which is a high-water mark, and filling
+ * a bar towards it would make the strip's only measured fact into exactly the
+ * invented maximum the ceiling stopped being. It is printed as a sentence
+ * instead, which is the form a fact of that shape can be read honestly in.
+ *
+ * The track is still here and still drawn where an environment sets
+ * `FARES_DAILY_REQUEST_BUDGET`: a real ceiling, a fill against it, one flat
+ * accent at every level and 329 marked on it. That is the arrangement this
+ * strip was built with, and it was right about everything except whether the
+ * ceiling it drew against should exist.
  */
 export function SpendToday({ spend, loading }: SpendTodayProps) {
   /*
@@ -74,12 +89,16 @@ export function SpendToday({ spend, loading }: SpendTodayProps) {
   /*
    * A ledger that cannot be read, which is not a quiet day.
    *
-   * The collector fails closed on this: an unreadable day is treated as fully
-   * spent, every departure comes back `over-budget`, and nothing will collect
-   * until it can be read. So this branch is an alarm rather than a gap, printed
-   * in the colour the watchlist prints a refusal in — and with no track at all,
-   * because the only two lengths a bar could take here are "none" and "all" and
-   * both would be a claim the words are explicitly declining to make.
+   * Two different faults share this branch and the sentence has to say which.
+   * Under a ceiling the collector fails closed: an unreadable day is treated as
+   * fully spent, every departure comes back `over-budget`, and nothing will
+   * collect until the file can be read. With no ceiling there is nothing to
+   * fail closed against — collection carries on and what is lost is the record
+   * of it, which is a smaller alarm and still not a quiet morning.
+   *
+   * No track either way, because the only two lengths a bar could take here are
+   * "none" and "all" and both would be a claim the words are explicitly
+   * declining to make.
    */
   if (spend.spent === null) {
     return (
@@ -89,7 +108,9 @@ export function SpendToday({ spend, loading }: SpendTodayProps) {
           <span className={styles.unknown}>unknown</span>
         </p>
         <p className={`${styles.note} ${styles.refused}`}>
-          Today&rsquo;s ledger cannot be read, so every pass refuses until it can.
+          {spend.ceiling === null
+            ? 'Today’s ledger cannot be read, so passes collect unrecorded.'
+            : 'Today’s ledger cannot be read, so every pass refuses until it can.'}
         </p>
       </div>
     );
@@ -105,19 +126,23 @@ export function SpendToday({ spend, loading }: SpendTodayProps) {
    * file yet and a day whose file is empty are the same fact — the server
    * answers zero for both, deliberately, because a day nobody has collected on
    * *is* a file that does not exist yet.
+   *
+   * With no ceiling there is no "left" to report at all: what is left of an
+   * unbounded day is not a number, and the only wrong thing this line could do
+   * is invent one. A quiet day still says so, because "nothing sent yet" is a
+   * fact about the collector rather than about an allowance.
    */
-  const facts = [
-    spend.spent === 0 ? 'Nothing sent yet today' : `${spend.remaining} left`,
-    kinds,
-    resets === null ? null : `resets ${resets}`,
-  ].filter((part): part is string => part !== null);
+  const left = spend.spent === 0 ? 'Nothing sent yet today' : describeRemaining(spend.remaining);
+  const facts = [left, kinds, resets === null ? null : `resets ${resets}`].filter(
+    (part): part is string => part !== null,
+  );
 
   return (
     <div className={styles.strip} data-testid="spend-today">
       <p className={styles.head}>
         <span className={styles.label}>Requests today</span>
         <span className={styles.figure}>{spend.spent}</span>
-        <span className={styles.of}>of {spend.ceiling}</span>
+        {spend.ceiling === null ? null : <span className={styles.of}>of {spend.ceiling}</span>}
       </p>
 
       {/*
@@ -141,13 +166,24 @@ export function SpendToday({ spend, loading }: SpendTodayProps) {
 
       <p className={styles.note}>{facts.join(' · ')}</p>
       {/*
-        The sentence that stops the track being a gauge. It names which number
-        was measured and which was chosen, in that order, because the measured
-        one is the only one a reader can safely reason from.
+        The sentence that stops the figure above being read as a fraction of
+        something. It leads with the measured number in both forms, because that
+        is the only one a reader can safely reason from — and where there is no
+        ceiling it is the only one there is, which is precisely when a reader is
+        most likely to supply an imaginary one.
       */}
       <p className={styles.caveat}>
-        {spend.busiestOnRecord} is the busiest day on record; {spend.ceiling} is a ceiling we chose,
-        not a limit anyone has measured.
+        {spend.ceiling === null ? (
+          <>
+            {spend.busiestOnRecord} is the busiest day on record; nothing caps the day, so the pace
+            is what holds it.
+          </>
+        ) : (
+          <>
+            {spend.busiestOnRecord} is the busiest day on record; {spend.ceiling} is a ceiling we
+            chose, not a limit anyone has measured.
+          </>
+        )}
       </p>
     </div>
   );

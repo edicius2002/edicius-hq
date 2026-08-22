@@ -823,6 +823,7 @@ def stub_pass(skipped=None, results=None):
     async def fake_collect_due(watched, **kwargs):
         seen["watched"] = watched
         seen["budget"] = kwargs.get("budget")
+        seen["force"] = kwargs.get("force")
         observer = kwargs.get("observer")
         if observer is not None:
             observer.planned(polling=len(results or []), skipped=list(skipped or []))
@@ -1087,18 +1088,19 @@ def test_the_collect_body_carries_a_city_pair_and_a_month_and_nothing_else(monke
         assert not hasattr(seen["watched"][0], "focus")
 
 
-def test_the_collect_endpoint_runs_the_schedule_rather_than_bypassing_it(monkeypatch):
+def test_the_collect_endpoint_runs_the_schedule_unless_it_is_told_not_to(monkeypatch):
     """
-    12.111, superseding the second half of 12.90.
+    12.111 is still the default here — `a-press-collects-the-month-it-is-on`
+    only adds a way to say otherwise, and a body that says nothing gets exactly
+    what it got before.
 
-    A press used to buy one request, and someone who has decided where to spend
-    one should not be argued with by a cadence table. Under 12.110 the same
-    press buys up to thirty-one — a twentieth of the day's budget per click, and
-    of a budget that is now spent across the whole day rather than restarted
-    every pass — so it runs the schedule and reports what it declined, which is
-    what stops a press that collected nothing from looking like a broken button.
+    A call with no `force` runs the cadence and reports what it declined, which
+    is what stops a press that collected nothing from looking like a broken
+    button. This is the scheduled and command-line shape of the endpoint, and it
+    is asserted rather than assumed because the whole safety of the change rests
+    on the default not having moved.
     """
-    _, fake = stub_pass(skipped=[("LIM-SCL 2027-03-01", "not-due")])
+    seen, fake = stub_pass(skipped=[("LIM-SCL 2027-03-01", "not-due")])
     monkeypatch.setattr(collection_job, "collect_due", fake)
 
     with TestClient(app) as client:
@@ -1109,7 +1111,120 @@ def test_the_collect_endpoint_runs_the_schedule_rather_than_bypassing_it(monkeyp
         assert answer.status_code == 202
         finished = wait_for_the_pass(client)
 
+    assert seen["force"] is False
     assert finished["skipped"] == [{"what": "LIM-SCL 2027-03-01", "reason": "not-due"}]
+
+
+def test_a_forced_press_reaches_the_collector_as_one_route_and_one_month(monkeypatch):
+    """
+    `a-press-collects-the-month-it-is-on`, settling 12.212.
+
+    The reader pressed a control on one row, and what arrives at the collector
+    is one watch with the flag set. The endpoint is what carries it, so this is
+    where the wire word and the collector's parameter are pinned to each other.
+    """
+    seen, fake = stub_pass()
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+
+    with TestClient(app) as client:
+        answer = client.post(
+            "/api/fares/collect",
+            json={
+                "routes": [{"origin": "lim", "destination": "scl", "month": "2027-03"}],
+                "force": True,
+            },
+        )
+        assert answer.status_code == 202
+        wait_for_the_pass(client)
+
+    assert seen["force"] is True
+    assert seen["watched"] == [FareWatch(origin="LIM", destination="SCL", month="2027-03")]
+
+
+def test_a_forced_press_covers_one_route_and_is_refused_anything_wider(monkeypatch):
+    """
+    The narrowing 12.212's cost argument turns on, made structural.
+
+    12.212 costed a press at sixty-two requests and a fifth of the day because
+    it assumed a pass over the whole watchlist. The owner's decision is one
+    route and one month — thirty-one board requests at the very most — and that
+    bound is worth nothing if it lives only in the habits of the one client that
+    happens to call this today. So the endpoint refuses `force` with anything
+    but exactly one route, and the same body without the flag is still accepted
+    at up to `MAX_COLLECT_MONTHS`: what is bounded is the *forced* press.
+    """
+    seen, fake = stub_pass()
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    two = [
+        {"origin": "LIM", "destination": "SCL", "month": "2027-03"},
+        {"origin": "LIM", "destination": "CUZ", "month": "2027-04"},
+    ]
+
+    with TestClient(app) as client:
+        refused = client.post("/api/fares/collect", json={"routes": two, "force": True})
+        assert refused.status_code == 400
+        assert "one route" in refused.json()["detail"]
+
+        allowed = client.post("/api/fares/collect", json={"routes": two})
+        assert allowed.status_code == 202
+        wait_for_the_pass(client)
+        assert seen["force"] is False
+        assert len(seen["watched"]) == 2
+
+
+def test_five_impatient_presses_start_one_pass(monkeypatch):
+    """
+    The hazard 12.212 named, measured rather than reasoned about.
+
+    A forced press is ninety-odd seconds of paced requests behind a control that
+    answers instantly, so the reader who clicks five times waiting for something
+    to happen is the ordinary case rather than the perverse one. Five presses
+    here, all forced, all inside one running pass: `collect_due` is entered
+    once, so the day is charged for one month and not five.
+
+    Pressed straight at the endpoint, past the browser. The row's own guards —
+    a synchronous in-flight ref and a disabled button — are real and are tested
+    on the web side, and they are not what makes this safe: a second tab defeats
+    both. `CollectionRunner`'s single slot is what cannot be defeated, and this
+    is the test of that slot rather than of the button.
+    """
+    entered: list[bool] = []
+    release = asyncio.Event()
+
+    async def slow_collect_due(watched, **kwargs):
+        entered.append(bool(kwargs.get("force")))
+        observer = kwargs.get("observer")
+        if observer is not None:
+            observer.planned(polling=31, skipped=[])
+        await release.wait()
+        return CollectionReport(
+            started_at="2026-08-19T14:00:00+00:00",
+            finished_at="2026-08-19T14:01:33+00:00",
+            source="google-flights",
+            results=[],
+            skipped=[],
+        )
+
+    monkeypatch.setattr(collection_job, "collect_due", slow_collect_due)
+    body = {
+        "routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}],
+        "force": True,
+    }
+
+    with TestClient(app) as client:
+        answers = [client.post("/api/fares/collect", json=body) for _ in range(5)]
+        assert [answer.status_code for answer in answers] == [202] * 5
+        # Every one of them is answered with a document, and it is the *same*
+        # pass: a caller cannot tell it was refused except by the fact that the
+        # pass it was handed started before it pressed.
+        started = {answer.json()["startedAt"] for answer in answers}
+        assert len(started) == 1
+        assert all(answer.json()["state"] == "running" for answer in answers)
+
+        release.set()
+        wait_for_the_pass(client)
+
+    assert entered == [True]
 
 
 def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_path):

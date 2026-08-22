@@ -213,6 +213,21 @@ class RouteBody(BaseModel):
 
 class CollectBody(BaseModel):
     routes: list[RouteBody]
+    #: Poll every departure in the month whether or not its turn has come —
+    #: `a-press-collects-the-month-it-is-on`, settling 12.212.
+    #:
+    #: **Default `False`, so the endpoint's ordinary behaviour is the schedule**
+    #: (12.111) and this is a second way in rather than a change to the first. A
+    #: caller that sends nothing gets exactly what it got before.
+    #:
+    #: **And it is refused unless `routes` holds exactly one.** That is the
+    #: narrowing the whole decision turns on: 12.212 costed a press at
+    #: sixty-two requests and a fifth of the day because it assumed a pass over
+    #: the whole watchlist, and a press that can only ever name one route-month
+    #: costs thirty-one at the very most. Enforcing it here rather than trusting
+    #: the one caller is what makes that a property of the API instead of a
+    #: habit of the client.
+    force: bool = False
 
 
 class RouteResultModel(BaseModel):
@@ -700,15 +715,31 @@ async def collect_routes(
     a two-press job for a reason that had nothing to do with fares. There is no
     ceiling here now beyond the request budget.
 
-    **This still runs the schedule, where it once bypassed it** — 12.111,
-    unchanged. The press does everything that would tell the reader something
-    new and declines the departures whose last look is younger than their own
-    interval, saying so on the row. See 12.212 for why that is still the
-    behaviour now that a press is cheap to leave running.
+    **This runs the schedule unless the body says otherwise** — 12.111 for the
+    default, `a-press-collects-the-month-it-is-on` for the exception, which
+    settles 12.212. With no `force` the pass declines every departure whose last
+    look is younger than its own interval and says so on the row, exactly as it
+    has since 12.111. With `force`, one route-month's departures are all polled
+    whatever the cadence would have said, because a reader who presses has
+    decided they do not believe the last look and 21:04 answering `31 not-due`
+    after a 14:41 pass is the complaint 12.212 reproduced.
+
+    **What `force` does not buy is a bigger press.** It is refused with anything
+    other than exactly one route, so the most it can cost is one month —
+    thirty-one board requests, a twentieth of the day. That bound is the reason
+    the cost objection in 12.212 does not carry: it was costing a pass over the
+    whole watchlist.
+
+    **And it buys nothing against the budget or the lock.** The pass still reads
+    the day's ledger before every request and still stops at `over-budget`; it
+    still takes the pass lock before it plans and still reports
+    `another-pass-is-running` when a scheduled pass holds it. Both come back as
+    ordinary skipped reasons the row already renders.
 
     A press that arrives while a pass is running gets that pass rather than a
     second one, because the gap in `fare_collector` paces a loop and two loops
-    would halve it without anyone deciding to.
+    would halve it without anyone deciding to. That is also the guard a repeated
+    press meets: the second click starts nothing.
     """
     if provider not in PROVIDERS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider {provider!r}")
@@ -719,12 +750,18 @@ async def collect_routes(
             status.HTTP_400_BAD_REQUEST,
             f"Too many months in one call; the limit is {MAX_COLLECT_MONTHS}",
         )
+    if body.force and len(body.routes) != 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "A forced collection covers one route and one month; send exactly one route",
+        )
 
     return _pass_model(
         RUNNER.start(
             [_watch_from(route) for route in body.routes],
             provider=provider,
             client=get_client(),
+            force=body.force,
         )
     )
 

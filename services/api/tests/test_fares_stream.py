@@ -10,13 +10,21 @@ arrive in, which is half of what is worth pinning here.
 
 import asyncio
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 
+import httpx
 import pytest
 
 from app.adapters.fares.models import FareOffer, FareSnapshot
 from app.routers import fares as fares_router
 from app.services import calendar_job, collection_job, pass_stream
 from app.services.fare_collector import CalendarReport, CollectionReport, RouteResult
+from app.services.fare_history import FareHistory
+from app.services.fare_schedule import month_dates
+
+#: The captured board a real forced pass is answered with below.
+BOARD = Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html"
 
 
 class FakeRequest:
@@ -337,6 +345,88 @@ class TestTheBoardPass:
         assert frames[0][1]["watching"] == ["LIM-SCL 2027-03"]
         # And it is still told when the pass ends.
         assert frames[1][1]["state"] == "finished"
+
+    def test_a_forced_press_fills_the_chart_in_as_it_runs(self, monkeypatch, tmp_path):
+        """
+        The ninety seconds a forced press asks the reader to wait for.
+
+        `a-press-collects-the-month-it-is-on` makes a press thirty-one paced
+        requests rather than the handful the cadence would have allowed, which
+        is a minute and a half of a control that has already returned. The
+        question that raised — what does the reader see meanwhile — is answered
+        by the stream that was already there rather than by a second channel:
+        `GET /collect/stream` carries `CollectResponse` byte for byte, so a
+        forced pass needed no frame of its own.
+
+        Driven through the **real** collector against a mock transport, not a
+        stubbed observer, because what is being checked is that a forced plan
+        reaches the stream with a real denominator on it. Only the pacing and
+        the store are replaced: a paced pass is ninety seconds and this suite is
+        not, and the archive must never be the developer's own.
+
+        The month is one every departure of which was looked at a minute ago —
+        12.212's reproduction — so under the cadence the plan would be nothing
+        at all. Forced, the first document a watching tab gets says 31.
+        """
+        page = BOARD.read_text(encoding="utf-8")
+        history = FareHistory(tmp_path)
+        for day in month_dates("2027-03"):
+            history.record_check(
+                "LIM", "SCL", day, at="2026-08-18T11:59:00+00:00", outcome="unchanged"
+            )
+
+        real = collection_job.collect_due
+
+        async def paced_by_nothing(watched, **kwargs):
+            return await real(
+                watched,
+                now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+                history=history,
+                gap_seconds=0,
+                **kwargs,
+            )
+
+        monkeypatch.setattr(collection_job, "collect_due", paced_by_nothing)
+
+        async def scenario():
+            response = await fares_router.stream_collection(FakeRequest())
+            body = response.body_iterator
+            try:
+                frames = await read(body, 1)
+                async with httpx.AsyncClient(
+                    transport=httpx.MockTransport(lambda request: httpx.Response(200, text=page))
+                ) as client:
+                    collection_job.RUNNER.start(
+                        [
+                            collection_job.FareWatch(
+                                origin="LIM", destination="SCL", month="2027-03"
+                            )
+                        ],
+                        client=client,
+                        force=True,
+                    )
+                    frames += await read_until(body, "finished", limit=200)
+                return frames
+            finally:
+                await body.aclose()
+
+        frames = [parse(frame) for frame in asyncio.run(scenario())]
+        documents = [payload for name, payload in frames if name == "pass"]
+        snapshots = [payload for name, payload in frames if name == "snapshot"]
+
+        # The denominator lands before anything is collected, so the bar has a
+        # length for the whole minute and a half rather than for none of it.
+        planned = next(document for document in documents if document.get("polling") is not None)
+        assert planned["polling"] == 31
+        assert planned["skipped"] == []
+        assert planned["watching"] == ["LIM-SCL 2027-03"]
+
+        # And the chart gains its points while the pass is still running, which
+        # is the whole reason this stream exists.
+        assert len(snapshots) == 31
+        assert snapshots[0]["flightDate"] == "2027-03-01"
+        assert documents[-1]["state"] == "finished"
+        assert documents[-1]["completed"] == 31
 
     def test_a_pass_that_falls_over_is_announced_rather_than_left_running(self, monkeypatch):
         """

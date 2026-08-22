@@ -189,6 +189,7 @@ class CollectionRunner:
         *,
         provider: str = DEFAULT_PROVIDER,
         client: httpx.AsyncClient | None = None,
+        force: bool = False,
     ) -> CollectionPass:
         """
         Begin a pass, or hand back the one already going.
@@ -196,6 +197,23 @@ class CollectionRunner:
         Returns which of those happened by way of `watching`: a caller whose
         route is missing from it was answered rather than served, and the
         control that pressed can say so.
+
+        **The already-going branch is what stops a double press from spending
+        twice, and it stops it here rather than in the browser** —
+        `a-press-collects-the-month-it-is-on`. A forced press is a minute and a
+        half of paced requests, and the control returns instantly, so an
+        impatient reader clicking five times is the ordinary hazard rather than
+        a rare one. The second click meets a running pass and is answered with
+        it: no second task, no second plan, no request. The disabled button on
+        the row is the first guard and this is the one that does not depend on a
+        browser having rendered anything; `PassLock` is the third and closes the
+        same hole against a scheduled pass in another process.
+
+        `force` rides with the pass rather than being consulted here, because
+        the runner's slot is about *how many* passes run and force is about what
+        one of them may poll. A press that is handed somebody else's pass is
+        handed it whichever of the two asked for force — there is one loop and
+        it was planned before this caller arrived.
         """
         if self.running():
             assert self._pass is not None
@@ -204,7 +222,7 @@ class CollectionRunner:
         started = CollectionPass(started_at=_now(), source=provider, watching=_watching(watches))
         self._pass = started
         self._task = asyncio.get_running_loop().create_task(
-            self._run(started, watches, provider, client)
+            self._run(started, watches, provider, client, force)
         )
         # A tab that was already watching — the map is on screen and somebody
         # presses a row in another window — learns that a pass began. The tab
@@ -219,9 +237,12 @@ class CollectionRunner:
         watches: list[FareWatch],
         provider: str,
         client: httpx.AsyncClient | None,
+        force: bool = False,
     ) -> None:
         try:
-            await collect_due(watches, provider=provider, client=client, observer=started)
+            await collect_due(
+                watches, provider=provider, client=client, observer=started, force=force
+            )
         except asyncio.CancelledError:
             started.state = "failed"
             started.error = "The pass was cancelled before it finished"

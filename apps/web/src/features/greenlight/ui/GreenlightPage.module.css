@@ -41,13 +41,23 @@
 }
 
 /*
- * Holds the marker segment cards. One marker yields two segments, which measure
- * ~161px at the current font, so this reserves that up front: adding the first
- * marker fills existing space instead of resizing the page. Further segments
- * still grow it, but one card at a time rather than in a jump.
+ * Holds the marker segment cards. One marker yields two segments, so this
+ * reserves what those cost up front: adding the first marker fills existing
+ * space instead of resizing the page. Further segments still grow it, but a row
+ * at a time rather than in a jump.
+ *
+ * The figure moved with `three-fee-cards-to-a-row`. Two segments used to be two
+ * full-width cards stacked, ~161px; they are now two cards side by side in one
+ * row, and a card that stacks its range over three metrics is taller: 30px of
+ * padding, 2px of border, a 1rem line for the range, `--space-2`, three 1.05rem
+ * lines and the two `--space-1` between them — 176.5px, plus the `--space-4` the
+ * list holds itself off by. 10rem covers 196.5px with a little over.
+ * `segmentGrid.test.ts` does that arithmetic against the card's own stylesheet,
+ * because a reserve for a height that lives in another file is exactly the kind
+ * that drifts.
  */
 .segmentsSlot {
-  min-height: 8.5rem;
+  min-height: 10rem;
 }
 
 /* Matches the Clear markers button height so its appearance does not shift the row. */

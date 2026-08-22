@@ -106,6 +106,55 @@ change being observably nothing on it today.
 switching routes keeps a carrier filter that the new board may not contain — zero
 rows, and a select showing a value its own options no longer offer. Pre-existing.
 
+**A five-figure week does not fit a Greenlight week card.** The Weeks panel is
+three months to a row and four weeks across a month since `three-months-to-a-row`
+and `four-weeks-across-a-month` (S.45), which puts a card at 72.4px at the
+owner's window and 64.4px inside its padding. That holds every amount up to
+`$9,999.99` — nine characters at 0.56rem, sized for `en-US`'s grouping because
+`formatMoney` follows the reader's locale and `$4,272.50` is a character longer
+than the `$4272,50` the owner sees. `$12,345.67` is eleven and would spill out
+of the card. The archive's biggest week today is $4,272.50 and its biggest
+*month* is $9,069.46, so nothing is close yet, but a doubling of the work makes
+this real. It was left as a limit rather than solved by rounding the figure or
+shortening it, because a figure that quietly loses a digit is worse than a
+layout that has to change. The three ways out, in the order they cost least:
+drop `.weekValue` to about 0.52rem, take the marker gutter from 0.7rem to
+0.5rem, or go back to two months a row. `moneyWeekGrid.test.ts` holds the
+arithmetic and will go red on the first two.
+
+**The two grids in the Weeks panel are held to the same breakpoints on
+purpose, and only a test says so.** Since `three-fee-cards-to-a-row` (S.48) the
+month boxes and the fee cards below them both fold three → two → one at 1486px
+and 1116px. Those two widths are derived from the _month_ grid's floor
+(`moneyWeekGrid.test.ts`); the fee card's own floor is only reached at 1375.8px,
+so it is following a fold it does not need yet. That is deliberate — both grids
+sit inside the one panel and disagreeing about how many columns a row has reads
+as a bug — but nothing in `SegmentSummary.module.css` forces it except a comment
+and one assertion in `segmentGrid.test.ts` comparing the two files' `@media`
+lists. Retune the month grid and that assertion goes red, which is the intent;
+retune it and _silence_ the assertion and the two grids drift apart at a width
+nobody looks at.
+
+**A fee card has more room than its sizing claims, and that is the safe
+direction.** The ledger is sized for a ten-character figure (`$12,345.67`,
+grouped, because `formatMoney` follows the reader's locale). Measured at the
+owner's window the card actually holds fourteen: 322.4px inside its padding,
+less the 135px `Fee (under min)` needs and the 8px gap, is 179.4px, and a
+character at 1.05rem is 12.6px. The archive's largest segment today is
+$6,451.32. So unlike the week card — which is genuinely tight, see the entry
+above — nothing here is near its limit, and the ten-character figure is what
+sets the _breakpoints_ rather than what sets the owner's view.
+
+**Greenlight's section of the plan is stale, and this branch did not fix it.**
+Noted while adding S.45. `docs/IMPLEMENTATION_PLAN.md` still says
+`Replace modes: all + current-month` where the code has said `'all' | 'weeks'`
+for some time, and **6.7 and 6.8 each appear twice** — once in the numbered table
+and once in a second, header-less table stitched under it, which is the shape the
+old running-number convention leaves behind when two branches take the same id.
+Four rows are involved and none of them were touched here. Whoever reconciles it
+should compare text against an earlier commit rather than counting rows, for the
+reason at the foot of this file.
+
 **Whether the provider's far horizon is a fixed date or a shrinking window.**
 Recorded as open in 12.250. `MAX_DEPARTURE_HORIZON_DAYS = 330` was measured on
 2026-08-19 and was wrong by the next morning. #95 made the collector stop
@@ -162,6 +211,16 @@ touching git.
 run to 326 kB on one line; an agent died of out-of-memory reading one. Measure
 with `curl -o /dev/null -w '%{size_download}'`, inspect with `jq` that prints
 counts and keys, never values.
+
+**A window is not the only way to measure a breakpoint, and resizing one costs
+somebody else their test.** Two other pairs of servers were running on this
+machine while the Greenlight grid was measured, in tabs sharing a window with the
+measuring tab. Widths from 360px to 1920px were checked instead by loading the
+same origin into a same-origin `<iframe>` and setting its width: media queries
+inside an iframe evaluate against the iframe's viewport, `getBoundingClientRect`
+inside it is real layout, and nobody else's window moves. One caveat that cost a
+few minutes: at 125% scale an iframe asked for 1499px lays out at 1499.2px, so a
+`max-width: 1499px` query does not match at the width you typed.
 
 **React batches synchronous clicks.** Six clicks on a pager in one tick advance
 one page. Put a real delay between them before concluding the pager is broken.

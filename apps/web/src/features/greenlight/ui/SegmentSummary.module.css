@@ -1,18 +1,35 @@
+/*
+ * Three cards to a row — `three-fee-cards-to-a-row`. The same three the month
+ * boxes above them sit in, and deliberately the same two widths they give a
+ * column up at: both grids live inside the one Weeks panel, and a window where
+ * the months have folded to two while the fee cards are still three reads as a
+ * mistake even though each would be right on its own. This card's own floor is
+ * reached at 1375.8px, comfortably below both, so following the month grid is
+ * always the earlier fold and never an overflow. `segmentGrid.test.ts` checks
+ * both halves of that: the floor, and that the two files still agree.
+ */
 .list {
   display: grid;
   gap: var(--space-3);
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: var(--space-4);
 }
 
-/* One segment per row: range, status and every metric on a single line. */
+/*
+ * A card a third of a row wide cannot put a date range and three metrics on one
+ * line — it needs 774px of content and it is given 322.4px. So the range is a
+ * row of its own and the metrics are a small ledger under it, rather than a
+ * line that wraps wherever it happens to run out.
+ *
+ * `--space-3` of side padding rather than the `--space-4` a full-width card
+ * could afford: 40px of it against a 356.4px card is 10px more than the widest
+ * metric row has to spare.
+ */
 .card {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: var(--space-5);
-  row-gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  padding: var(--space-3);
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
   background: var(--color-surface-soft);
@@ -26,6 +43,7 @@
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-2);
 }
@@ -42,18 +60,34 @@
   text-transform: uppercase;
 }
 
+/*
+ * One metric per line at a third of a row, two when the months fold to one
+ * column and the card gets the whole list. `auto-fit` counts them rather than a
+ * media query, because unlike the card grid there is no rule to place here and
+ * nothing that needs to know the number.
+ *
+ * The floor is the widest line a metric has to print whole: `Fee (under min)`
+ * at 0.75rem is 15 characters, and beside it a figure that has reached five
+ * places is ten at 1.05rem — 269px together with the gap. 13.5rem is that,
+ * rounded up.
+ *
+ * `min(13.5rem, 100%)` and not `13.5rem`, for the reason `Positions` gives:
+ * a bare floor is a floor the only column still has to clear, so below about
+ * 740px of window the ledger pushed 24px out of the card it sits in. Under
+ * `min()` the single column shrinks with the card instead, and the label wraps.
+ */
 .metrics {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: var(--space-5);
-  row-gap: var(--space-2);
-  margin-inline-start: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(13.5rem, 100%), 1fr));
+  gap: var(--space-1) var(--space-5);
 }
 
+/* Label left, figure right: at this width the two would otherwise sit in the
+   middle of the card with the eye having to find which is which. */
 .metric {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 0.4rem;
 }
 
@@ -68,4 +102,17 @@
 
 .income {
   color: var(--color-income);
+}
+
+/* Two cards, then one, at the widths the month boxes above fold at. */
+@media (max-width: 1486px) {
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1116px) {
+  .list {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

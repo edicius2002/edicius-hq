@@ -340,7 +340,7 @@ async def collect(
     session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
     try:
         for index, query in enumerate(queries):
-            if allowance.remaining() <= 0:
+            if not allowance.affords():
                 unaffordable = [
                     (f"{later.route} {later.flight_date}", "over-budget")
                     for later in queries[index:]
@@ -453,22 +453,32 @@ async def collect_due(
     ordered by readiness and then by distance, which is 12.111 and is what the
     focus was jumping ahead of.
 
-    **`budget` is the day's ceiling and no longer the pass's.** It used to be
-    both: `daily_request_budget()` was handed straight to `due_now` as a
-    per-pass cap and nothing carried spend from one pass to the next, so a
+    **`budget` is a day's ceiling, and by default there is not one.**
+    `daily_request_budget()` answers `None` unless an environment sets a number,
+    `DailyBudget.remaining` passes that `None` through, and `due_now` has always
+    read `budget=None` as "do not truncate" — so on an ordinary install every
+    due departure is polled and nothing here comes back `over-budget` at all.
+    `config.py` records why: the ceiling bounded a count nobody had measured,
+    while what protects this address is the pace, which is untouched.
+
+    Everything below still works the moment a number is configured, and this
+    parameter is how a caller supplies one directly. It is the *day's* ceiling
+    and not the pass's — it used to be both, handed straight to `due_now` as a
+    per-pass cap with nothing carrying spend from one pass to the next, so a
     scheduler running this every fifteen minutes gave ninety-six passes the
     whole budget each and the day's total was bounded by nothing. What a pass
-    may spend is now the ceiling **less what the day has already spent**, read
-    off the ledger in `fare_budget`, and the truncation is unchanged in every
-    other respect — same `over-budget` reason, same nearest-first ordering
-    (12.111), same everything-is-reported contract (8.8, 8.41).
+    may spend is the ceiling **less what the day has already spent**, read off
+    the ledger in `fare_budget`, with the same `over-budget` reason, the same
+    nearest-first ordering (12.111) and the same everything-is-reported contract
+    (8.8, 8.41).
 
-    So the truncation is now reached two ways rather than one. By **watching
-    more routes**, as before: a pass has as many candidates as there are watched
+    Under a configured ceiling the truncation is then reached two ways. By
+    **watching more routes**: a pass has as many candidates as there are watched
     departures, thirty-one per month, so against a fresh 600 that is nineteen
-    routes before a single day is dropped. And by **the day filling up**, which
-    is new and is the point — the fifteenth pass of a day that has spent 600
-    polls nothing at all and says so, thirty-one times, by name.
+    routes before a single day is dropped. And by **the day filling up** — the
+    fifteenth pass of a day that has spent its 600 polls nothing at all and says
+    so, thirty-one times, by name, which is the behaviour that stopped being the
+    default.
 
     **And it is the one pass on this address, which the ledger alone cannot make
     true.** The lock is taken *before* the plan below rather than around the
@@ -845,7 +855,7 @@ async def collect_calendars(
         for pair, currency in pairs.items():
             if not store.due(pair[0], pair[1], moment, every_minutes=every_minutes):
                 skipped.append((f"{pair[0]}-{pair[1]}", "not-due"))
-            elif allotted + len(windows) > allowance.remaining():
+            elif not allowance.affords(allotted + len(windows)):
                 skipped.append((f"{pair[0]}-{pair[1]}", "over-budget"))
             else:
                 allotted += len(windows)
@@ -953,7 +963,7 @@ async def _price_window(
             if attempt_end <= start:
                 break
             await asyncio.sleep(gap_seconds)
-        if budget is not None and budget.remaining() <= 0:
+        if budget is not None and not budget.affords():
             return (
                 [],
                 requests,

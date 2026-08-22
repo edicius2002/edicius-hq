@@ -373,8 +373,8 @@ export function AirfarePage() {
         The paragraph above still stands: nothing that *acts* belongs here, and
         the page-wide press is not coming back. What sits at the far end of the
         row now is a reading rather than a control — how many upstream requests
-        this address has sent today, against a ceiling that is a judgement and a
-        busiest day that was measured. It is the alarm for a collector that is
+        this address has sent today, beside the busiest day anybody has measured,
+        which since the daily ceiling went is the only number to read it against. It is the alarm for a collector that is
         about to run every fifteen minutes with nobody watching, and the header
         is the only part of this page that is about the page rather than about a
         route. `SpendToday` argues the placement out in full.

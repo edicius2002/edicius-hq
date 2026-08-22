@@ -29,19 +29,27 @@ accumulating. This was the premise of the whole feature: no source sells a deep
 fare history, so it has to be built one day at a time starting now. It is not
 being built.
 
-**The daily budget is enforced now** — `a-day-is-what-the-budget-bounds`, S.39.
-It was spent as a _per-pass_ ceiling with nothing carrying across passes, so the
-day's total was unbounded and turning on a schedule without closing it was the
-only thing on this list that could affect someone outside this machine. Spend now
-accumulates in `.local-data/fares/spend/<day>.jsonl`, one line per request
-actually sent, and the horizon pass spends from the same ceiling instead of being
-uncounted. The default rose from 300 to 600, because the watchlist costs 442 a
-day and the busiest day this address has ever had was 329.
+**The daily budget is a ledger now and no longer a ceiling** —
+`a-day-is-what-the-budget-bounds` (S.39), then
+`a-count-nobody-measured-does-not-stop-a-pass` (S.50). Spend accumulates in
+`.local-data/fares/spend/<day>.jsonl`, one line per request actually sent, and
+the horizon pass writes to the same file instead of being uncounted. What is
+gone is the refusal over it: the default was 600, the owner reached it on
+2026-08-22, and the collector stopped for a number we had chosen rather than one
+any upstream had given — `config.py` had said outright that the real limit is
+unknown and unprobed. `FARES_DAILY_REQUEST_BUDGET` restores the whole
+enforcement for an environment that wants it, and the figures both survive as
+figures: the watchlist costs 442 a day and the busiest day this address has ever
+had was 329, which is what the header now prints today's count beside.
 
 **And two passes can no longer both plan a day** — `one-pass-at-a-time-is-a-file`,
 S.40. The ledger alone made the day's total right only in arrears: every pass
 re-reads it before every request, but two starting together each read a day with
-600 left and each size a whole day of work before either has written a line. The
+room in it and each size a whole day of work before either has written a line.
+That argument retired with the ceiling and the lock did not, because its other
+half never depended on a count: two passes at once halve the three-second gap
+without anybody deciding to, and the pace is what actually protects this
+address. The
 runner's single slot could not help, because it is one object in one process and
 a scheduled command is a second one. A pass now takes a lock file before it plans
 and gives it back when it is done; the second to arrive sends nothing and reports

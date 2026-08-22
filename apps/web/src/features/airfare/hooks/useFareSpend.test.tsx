@@ -25,8 +25,8 @@ const SPEND = {
   day: '2026-08-21',
   resetsAt: '2026-08-22T00:00:00+00:00',
   spent: 150,
-  ceiling: 600,
-  remaining: 450,
+  ceiling: null,
+  remaining: null,
   busiestOnRecord: 329,
   kinds: [{ kind: 'board', requests: 150 }],
 };

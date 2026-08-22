@@ -37,6 +37,14 @@ export type SpendMarks = {
 /**
  * Where to put the fill and the high-water mark, or null when there is no track.
  *
+ * **Null when there is no ceiling, which is the ordinary case now.** A bar needs
+ * an end and an unbounded day has none. The tempting substitute — scale the
+ * track to `busiestOnRecord` instead — is the one thing this must not do: that
+ * number is a high-water mark, and a bar filling towards it would turn the
+ * single measured fact on the strip into the invented safe maximum that the
+ * ceiling stopped being. The counts in the words are the whole readout without
+ * one.
+ *
  * Null on an unreadable ledger, because the honest length of a bar for a day
  * whose spend cannot be established is no bar at all — the words carry that
  * case, and a track drawn empty beside them would be the picture contradicting
@@ -44,15 +52,30 @@ export type SpendMarks = {
  */
 export function spendMarks(
   spent: number | null,
-  ceiling: number,
+  ceiling: number | null,
   busiestOnRecord: number,
 ): SpendMarks | null {
-  if (spent === null || !Number.isFinite(ceiling) || ceiling <= 0) return null;
+  if (spent === null || ceiling === null) return null;
+  if (!Number.isFinite(ceiling) || ceiling <= 0) return null;
 
   return {
     fill: Math.max(0, Math.min(1, spent / ceiling)),
     busiest: busiestOnRecord > 0 && busiestOnRecord < ceiling ? busiestOnRecord / ceiling : null,
   };
+}
+
+/**
+ * What is left of the day, in a phrase — `188 left` — or null when nothing is.
+ *
+ * Null is the ordinary answer now: with no ceiling configured the API sends
+ * `remaining: null`, and what is left of an unbounded day is not a number. The
+ * only wrong thing this could do is invent one — "unlimited left" reads as an
+ * allowance too, just an infinite one, and the strip's whole argument is that
+ * there is no allowance to have a fraction of. So the phrase is simply absent
+ * and the counts beside it carry the line.
+ */
+export function describeRemaining(remaining: number | null): string | null {
+  return remaining === null ? null : `${remaining} left`;
 }
 
 /**

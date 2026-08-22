@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeKinds, formatReset, spendMarks } from '@/features/airfare/lib/spendReading';
+import {
+  describeKinds,
+  describeRemaining,
+  formatReset,
+  spendMarks,
+} from '@/features/airfare/lib/spendReading';
 
 /**
  * The day's spend as a strip draws it, and — mostly — what it declines to draw.
  *
- * Three of these are about the honesty of the picture rather than about its
- * arithmetic. The ceiling is a judgement and the busiest day on record is a
- * measurement, so the mark for the second has to be on the track or the first
- * one reads as a safe maximum; a ledger that cannot be read has no bar at all,
+ * Most of these are about the honesty of the picture rather than about its
+ * arithmetic. There is no ceiling by default, so on an ordinary day there is no
+ * track either — a bar needs an end, and the one number that could pretend to
+ * be one is the busiest day on record, which is a measurement of what happened
+ * rather than a limit. Where an environment does set a ceiling the mark for
+ * that measured day has to be on the track, or the chosen number reads as a
+ * safe maximum; a ledger that cannot be read has no bar at all,
  * because the words carry that case and an empty track beside them would be the
  * picture arguing with the sentence; and a timestamp that will not parse draws
  * nothing rather than the words `Invalid Date`.
@@ -47,6 +55,30 @@ describe('spendMarks', () => {
 
   it('has no scale to draw against a ceiling of nothing', () => {
     expect(spendMarks(0, 0, 329)).toBeNull();
+  });
+
+  it('draws no track when there is no ceiling, which is the ordinary case', () => {
+    // The tempting substitute is to scale the track to the busiest day on
+    // record instead. That is the one thing this must not do: it would turn the
+    // strip's single measured fact into the invented safe maximum that the
+    // ceiling stopped being, and a day past 329 would sit pinned at the end
+    // looking like a day that had run out of something.
+    expect(spendMarks(150, null, 329)).toBeNull();
+    expect(spendMarks(900, null, 329)).toBeNull();
+    expect(spendMarks(0, null, 329)).toBeNull();
+  });
+});
+
+describe('describeRemaining', () => {
+  it('names what is left of a day that has a ceiling', () => {
+    expect(describeRemaining(450)).toBe('450 left');
+    expect(describeRemaining(0)).toBe('0 left');
+  });
+
+  it('says nothing at all when nothing bounds the day', () => {
+    // Not "unlimited left", which reads as an allowance too — just an infinite
+    // one — when the point is that there is no allowance to have a share of.
+    expect(describeRemaining(null)).toBeNull();
   });
 });
 

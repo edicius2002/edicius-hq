@@ -10,12 +10,14 @@ import {
   labelSpan,
   marginForPrices,
   nearestBucket,
+  pointerInView,
   priceAxisTag,
   readingAt,
   readingSentence,
   tagHoldsLabel,
   tagWidth,
   timeAxisTag,
+  viewUnitsPerPixel,
 } from '@/features/airfare/lib/crosshair';
 
 /**
@@ -31,6 +33,121 @@ import {
 function bucket(key: string, low: number, high: number, middle: number, count = 3): Bucket {
   return { key, label: key.slice(5), low, high, middle, count };
 }
+
+/**
+ * The pointer, converted the way the browser paints.
+ *
+ * Both charts are drawn in a viewBox and handed a box of the analysis panel's
+ * shape, and `preserveAspectRatio="xMidYMid meet"` scales the drawing to fit
+ * that box and centres it. What follows is the arithmetic of the blank bars
+ * that leaves — which a reader only ever sees as the crosshair landing beside
+ * the dot they are pointing at, and which cannot be checked at all in a box
+ * that happens to share the drawing's shape.
+ */
+describe('pointerInView', () => {
+  const PLOT = { width: 760, height: 338 };
+
+  it('is the identity in a box the shape of the drawing', () => {
+    const box = { left: 0, top: 0, width: 760, height: 338 };
+    expect(pointerInView(box, PLOT, 412, 190)).toEqual({ x: 412, y: 190 });
+  });
+
+  it('scales rather than stretches a box of the same shape and a different size', () => {
+    const box = { left: 0, top: 0, width: 1520, height: 676 };
+    expect(pointerInView(box, PLOT, 824, 380)).toEqual({ x: 412, y: 190 });
+  });
+
+  it('subtracts the blank bars either side of a drawing in a box too wide for it', () => {
+    /*
+     * The owner's window, measured in Chrome on 2026-08-22: chart B's box was
+     * 1099.2 × 465.44 with 26.3 px of pillarbox a side. Dividing by the box's
+     * own width instead put the crosshair 14.9 view units from the leftmost dot
+     * the pointer was sitting on and 14.6 the other way at the rightmost — both
+     * reproduced live — and ±18.2 at the edges of the viewBox itself, with a
+     * zero in the middle. A scale error and not an offset, which is why it
+     * survived everyone who ever checked it near the centre.
+     */
+    const box = { left: 0, top: 0, width: 1099.2, height: 465.44 };
+    const scale = 465.44 / 338;
+    const padX = (1099.2 - 760 * scale) / 2;
+    expect(padX).toBeCloseTo(26.32, 2);
+
+    for (const x of [0, 76, 380, 744, 760]) {
+      const at = pointerInView(box, PLOT, padX + x * scale, 0);
+      expect(at?.x).toBeCloseTo(x, 6);
+    }
+
+    // And what the old formula did with the same presses, so the ramp is on the
+    // record rather than only its fix.
+    const naive = (clientX: number) => (clientX / 1099.2) * 760;
+    expect(naive(padX + 0 * scale) - 0).toBeCloseTo(18.2, 2);
+    expect(naive(padX + 76 * scale) - 76).toBeCloseTo(14.56, 2);
+    expect(naive(padX + 380 * scale) - 380).toBeCloseTo(0, 6);
+    expect(naive(padX + 744 * scale) - 744).toBeCloseTo(-17.43, 2);
+    expect(naive(padX + 760 * scale) - 760).toBeCloseTo(-18.2, 2);
+  });
+
+  it('subtracts the bars above and below a drawing in a box too tall for it', () => {
+    // The narrow-panel case, and it matters more than it looks: the departure
+    // chart picks the nearest mark in two dimensions and its pin is a radius,
+    // so a wrong `y` reads the wrong itinerary out of a stacked day.
+    const box = { left: 0, top: 0, width: 700, height: 420 };
+    const scale = 700 / 760;
+    const padY = (420 - 338 * scale) / 2;
+    expect(padY).toBeCloseTo(54.34, 2);
+
+    for (const y of [0, 14, 169, 266, 338]) {
+      const at = pointerInView(box, PLOT, 0, padY + y * scale);
+      expect(at?.y).toBeCloseTo(y, 6);
+    }
+
+    const naive = (clientY: number) => (clientY / 420) * 338;
+    expect(naive(padY + 14 * scale) - 14).toBeCloseTo(40.11, 2);
+    expect(naive(padY + 0 * scale) - 0).toBeCloseTo(43.73, 2);
+    expect(naive(padY + 169 * scale) - 169).toBeCloseTo(0, 6);
+    expect(naive(padY + 266 * scale) - 266).toBeCloseTo(-25.1, 2);
+  });
+
+  it('reads a box that does not start at the top left of the window', () => {
+    const box = { left: 240, top: 96, width: 760, height: 338 };
+    expect(pointerInView(box, PLOT, 240 + 412, 96 + 190)).toEqual({ x: 412, y: 190 });
+  });
+
+  it('has no answer for a box with no area', () => {
+    // Which is what jsdom reports for everything, and what a chart in a
+    // collapsed panel reports for itself. Dividing by it would place the
+    // crosshair at infinity, so the callers take the null and decline to track.
+    expect(pointerInView({ left: 0, top: 0, width: 0, height: 338 }, PLOT, 10, 10)).toBeNull();
+    expect(pointerInView({ left: 0, top: 0, width: 760, height: 0 }, PLOT, 10, 10)).toBeNull();
+  });
+});
+
+describe('viewUnitsPerPixel', () => {
+  const PLOT = { width: 760, height: 338 };
+
+  it('is one where the box is the drawing', () => {
+    expect(viewUnitsPerPixel({ left: 0, top: 0, width: 760, height: 338 }, PLOT)).toBe(1);
+  });
+
+  it('reports the drawing’s scale and not the box’s, so a drag travels as far as the hand', () => {
+    // 1099.2 px of box holding 1045.5 px of drawing: dividing the travel by the
+    // box under-panned by 4.8%, which reads as the chart being heavy rather
+    // than as arithmetic.
+    const box = { left: 0, top: 0, width: 1099.2, height: 465.44 };
+    expect(viewUnitsPerPixel(box, PLOT)).toBeCloseTo(338 / 465.44, 9);
+
+    const travelled = 200;
+    const naive = (travelled / box.width) * 760;
+    expect(travelled * viewUnitsPerPixel(box, PLOT) - naive).toBeCloseTo(6.96, 2);
+  });
+
+  it('is the vertical scale where the drawing letterboxes instead', () => {
+    expect(viewUnitsPerPixel({ left: 0, top: 0, width: 700, height: 420 }, PLOT)).toBeCloseTo(
+      760 / 700,
+      9,
+    );
+  });
+});
 
 describe('nearestBucket', () => {
   const positions = [62, 200, 400, 682];

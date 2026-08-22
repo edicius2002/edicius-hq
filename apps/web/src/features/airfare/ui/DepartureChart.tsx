@@ -20,8 +20,10 @@ import { collectedAtLabel } from '@/features/airfare/lib/calendarCurve';
 import {
   clampToTrack,
   marginForPrices,
+  pointerInView,
   priceAxisTag,
   timeAxisTag,
+  viewUnitsPerPixel,
   type TagAnchor,
 } from '@/features/airfare/lib/crosshair';
 import {
@@ -443,10 +445,10 @@ export function DepartureChart({
       const { view: held, frameSpan: frame, write: put } = latest.current;
       if (frame <= 0 || event.deltaY === 0) return;
       const box = node.getBoundingClientRect();
-      if (box.width === 0) return;
+      const at = pointerInView(box, VIEW, event.clientX, event.clientY);
+      if (at === null) return;
       event.preventDefault();
-      const x = ((event.clientX - box.left) / box.width) * VIEW.width;
-      const anchor = (x - LEFT) / (TRACK || 1);
+      const anchor = (at.x - LEFT) / (TRACK || 1);
       put(zoomAt(held, frame, spanFactorForWheel(event.deltaY, event.deltaMode), anchor));
     };
 
@@ -791,9 +793,8 @@ export function DepartureChart({
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
-    const x = ((event.clientX - box.left) / box.width) * VIEW.width;
-    const y = ((event.clientY - box.top) / box.height) * VIEW.height;
+    const at = pointerInView(box, VIEW, event.clientX, event.clientY);
+    if (at === null) return;
 
     /*
      * A drag moves the frame and does not move the crosshair. Reading both from
@@ -803,7 +804,11 @@ export function DepartureChart({
      *
      * The travel is measured in client pixels, which is the only unit a pointer
      * actually moves in — converting to view units first would make the slop
-     * depend on how wide the panel happens to be.
+     * depend on how wide the panel happens to be. What it is then converted
+     * *by* is the drawing's own scale rather than the box's width: the frame has
+     * to move as far as the hand did, and dividing by a box wider than the
+     * drawing had it move less — 4.8% short at the owner's window and 11.5%
+     * at the narrowest the panel allows, which is the chart feeling heavy.
      */
     const held = drag.current;
     if (held !== null && held.pointer === event.pointerId) {
@@ -814,7 +819,7 @@ export function DepartureChart({
       // being dragged *around*: the reader pinned a fare precisely so they could
       // go and put another stretch of the frame beside it.
       if (!pinned) setCursor(null);
-      const fraction = ((travelled / box.width) * VIEW.width) / (TRACK || 1);
+      const fraction = (travelled * viewUnitsPerPixel(box, VIEW)) / (TRACK || 1);
       write(clampViewport({ start: held.from - fraction * view.span, span: view.span }, frameSpan));
       return;
     }
@@ -823,7 +828,7 @@ export function DepartureChart({
     // and stops being what the chart is reading.
     if (pinned) return;
 
-    const found = readingAt(x, y);
+    const found = readingAt(at.x, at.y);
     if (found !== null) setCursor(found);
   };
 
@@ -850,14 +855,13 @@ export function DepartureChart({
    */
   const pinAt = (event: MouseEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    if (box.width === 0 || box.height === 0) return;
-    const x = ((event.clientX - box.left) / box.width) * VIEW.width;
-    const y = ((event.clientY - box.top) / box.height) * VIEW.height;
+    const press = pointerInView(box, VIEW, event.clientX, event.clientY);
+    if (press === null) return;
 
-    const found = readingAt(x, y);
+    const found = readingAt(press.x, press.y);
     if (found === null) return;
     const at = hairFor(found, period, span, view);
-    if (reachOf(found, at, x, y) > PIN_REACH) return;
+    if (reachOf(found, at, press.x, press.y) > PIN_REACH) return;
 
     event.preventDefault();
     if (pinned && reading !== null && sameReading(found, reading)) {

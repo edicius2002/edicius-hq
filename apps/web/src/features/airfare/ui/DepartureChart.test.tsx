@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Granularity } from '@/features/airfare/lib/buckets';
 import { anchorFor, framePeriodKeys, RAIL_CHAR_WIDTH } from '@/features/airfare/lib/departureFrame';
@@ -35,11 +35,15 @@ import type { CalendarCurve, CalendarPoint, FareOffer, FareSnapshot } from '@/sh
 const VIEW = { width: 760, height: 338 };
 
 beforeEach(() => {
-  // jsdom measures every element as 0x0, and the chart divides a client
-  // coordinate by the measured width to reach its own viewBox. Given a box the
-  // size of the viewBox, a clientX is a view unit. Left at zero the component
-  // refuses to track, deliberately — dividing by it would place the crosshair
-  // at infinity.
+  // jsdom measures every element as 0x0, and the chart converts a client
+  // coordinate into its own viewBox before it can read anything from it. Given
+  // a box that shares the viewBox's aspect ratio — this one is the viewBox —
+  // that conversion is the identity and a clientX is a view unit, which keeps
+  // the arithmetic in these tests readable. **It is the shared shape and not
+  // the component that makes it so**: `preserveAspectRatio` centres the drawing
+  // in a box of any other shape, and 'a box the drawing does not fill' below is
+  // where that case is pinned. Left at zero the component refuses to track,
+  // deliberately — dividing by it would place the crosshair at infinity.
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
     x: 0,
     y: 0,
@@ -318,6 +322,241 @@ describe('the flight under the pointer', () => {
     const { container } = chart();
     fireEvent.pointerMove(container.querySelector('svg')!, { clientX: 300, clientY: 150 });
     expect(container.querySelector('[data-testid="departure-crosshair"]')).toBeNull();
+  });
+});
+
+/**
+ * A box the drawing does not fill.
+ *
+ * **Every other test in this file mounts the chart in a box that is its own
+ * viewBox, which is the one shape where this arithmetic cannot be wrong.** The
+ * panel never gives it that box: `.body` in `AnalysisPanel.module.css` is a
+ * `clamp()` on the panel's width and the svg takes what the chrome leaves, so
+ * the box has a shape of its own and `preserveAspectRatio="xMidYMid meet"`
+ * scales the drawing to fit it and centres it. The blank bars that leaves are
+ * not part of the plot, and a conversion that divides by the box's own width
+ * counts them as plot.
+ *
+ * Measured in Chrome at the owner's window on 2026-08-22, on the code before
+ * this suite: the box was 1099.2 × 465.44 with 26.3 px of pillarbox a side, and
+ * a pointer placed exactly on the leftmost dot read 103.96 view units where the
+ * dot was drawn at 89.10 — 14.9 units out, with the same error the other way
+ * at the right end and none at all in the middle. What that costs a reader is
+ * an itinerary: the readout named the flight beside the one under their hand.
+ *
+ * So both cases are mounted here rather than described. The box is re-mocked
+ * per test and the pointer is placed where the browser would actually paint the
+ * mark, which is the only placement that tests anything — a clientX equal to a
+ * `cx` is the assumption under test, not a way of stating it.
+ */
+describe('a box the drawing does not fill', () => {
+  /*
+   * jsdom has no pointer capture, and the drag below presses. The chart uses it
+   * only so a hand that leaves the box mid-drag goes on moving the frame — the
+   * same stub `RouteMap.test.tsx` keeps — and it is taken off again because
+   * nothing else in this file presses at all.
+   */
+  beforeEach(() => {
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+  });
+
+  afterEach(() => {
+    delete (Element.prototype as Partial<Element>).setPointerCapture;
+    delete (Element.prototype as Partial<Element>).releasePointerCapture;
+  });
+
+  /**
+   * Re-mock the box, and hand back where `xMidYMid meet` will put the drawing.
+   *
+   * `left` and `top` stay at zero so the numbers in each test are the bars
+   * alone; `'reads a box that does not start at the top left of the window'` in
+   * `crosshair.test.ts` is where the offset is pinned.
+   */
+  function boxOf(width: number, height: number) {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: width,
+      bottom: height,
+      width,
+      height,
+      toJSON: () => ({}),
+    });
+    const scale = Math.min(width / VIEW.width, height / VIEW.height);
+    return {
+      scale,
+      padX: (width - VIEW.width * scale) / 2,
+      padY: (height - VIEW.height * scale) / 2,
+    };
+  }
+
+  type Placement = ReturnType<typeof boxOf>;
+
+  /** Where a mark drawn at these view units is actually painted, in client px. */
+  function painted(place: Placement, dot: SVGCircleElement) {
+    return {
+      clientX: place.padX + Number(dot.getAttribute('cx')) * place.scale,
+      clientY: place.padY + Number(dot.getAttribute('cy')) * place.scale,
+    };
+  }
+
+  function hair(container: HTMLElement) {
+    const mark = container.querySelector('[data-testid="departure-crosshair"] circle');
+    return mark === null
+      ? null
+      : { cx: Number(mark.getAttribute('cx')), cy: Number(mark.getAttribute('cy')) };
+  }
+
+  /**
+   * A month dense enough that fifteen view units is a different flight.
+   *
+   * Six departures a day across March at prices that do not repeat, so both
+   * axes are crowded: the day columns are about 21 units apart and the dots
+   * inside one are stacked. The week the rest of this file uses has five
+   * flights in it, which a drifting crosshair still lands on.
+   */
+  const DENSE: FareSnapshot[] = [];
+  for (let day = 1; day <= 31; day += 1) {
+    const date = `2027-03-${String(day).padStart(2, '0')}`;
+    DENSE.push(
+      snapshot(
+        date,
+        Array.from({ length: 6 }, (_, flight) =>
+          offer({
+            flightNumber: `${day}-${flight}`,
+            departureAt: `${date}T${String(4 + flight * 3).padStart(2, '0')}:20`,
+            price: 180 + ((day * 17 + flight * 29) % 220),
+          }),
+        ),
+      ),
+    );
+  }
+
+  /** The dots at the two ends of the plot, where the ramp is at its steepest. */
+  function ends(container: HTMLElement) {
+    const sorted = [...dots(container)].sort(
+      (a, b) => Number(a.getAttribute('cx')) - Number(b.getAttribute('cx')),
+    );
+    return [sorted[0], sorted[sorted.length - 1]];
+  }
+
+  /**
+   * Every dot the crosshair fails to land on when the pointer is placed on it.
+   *
+   * Every dot rather than the two at the ends, where the ramp is steepest,
+   * because the ends are also where a wrong conversion is most likely to be
+   * right by accident: the pick is two-dimensional, so an `x` that has drifted
+   * onto a neighbouring column still resolves back to the intended dot when
+   * that neighbour is a very different fare. Counting the misses is the only
+   * honest way to say what the drift costs. Run against the conversion this
+   * suite replaces, in the pillarboxed box below, it was 26 dots of 186 and
+   * every one of them out by exactly 18.63 view units — a whole itinerary, in
+   * a chart whose entire job is to say which itinerary.
+   */
+  function missedDots(container: HTMLElement, svg: Element, place: Placement) {
+    const missed: Array<{ dot: string; crosshair: string }> = [];
+    for (const dot of dots(container)) {
+      fireEvent.pointerMove(svg, painted(place, dot));
+      const at = hair(container);
+      const drawn = `${dot.getAttribute('cx')},${dot.getAttribute('cy')}`;
+      const read = at === null ? 'no crosshair' : `${at.cx},${at.cy}`;
+      if (read !== drawn) missed.push({ dot: drawn, crosshair: read });
+    }
+    return missed;
+  }
+
+  it('puts the hairline on the dot the pointer is on, in a box wider than the drawing', () => {
+    const place = boxOf(1099, 465);
+    // Pillarboxed: the drawing is as tall as the box and narrower than it.
+    expect(place.padX).toBeCloseTo(26.72, 2);
+    expect(place.padY).toBe(0);
+
+    const { container } = chart({ snapshots: DENSE, granularity: 'month' });
+    const svg = container.querySelector('svg')!;
+
+    expect(missedDots(container, svg, place)).toEqual([]);
+  });
+
+  it('puts the hairline on the dot the pointer is on, in a box taller than the drawing', () => {
+    const place = boxOf(700, 420);
+    // Letterboxed, which is what the panel does to this chart as it narrows —
+    // and then it is `y` that is wrong, which is the half a one-dimensional
+    // chart would never notice. This chart picks in two dimensions.
+    expect(place.padX).toBe(0);
+    expect(place.padY).toBeCloseTo(54.34, 2);
+
+    const { container } = chart({ snapshots: DENSE, granularity: 'month' });
+    const svg = container.querySelector('svg')!;
+
+    // The ramp is steepest at the top and bottom of the plot — 43.7 view units
+    // there and nothing at all across the middle — and every dot is a fare, so
+    // a height read 43 units low reads out a flight nobody is pointing at.
+    expect(missedDots(container, svg, place)).toEqual([]);
+  });
+
+  it('pins the mark the press was on rather than its neighbour', () => {
+    // The right-click had the same formula and one more consequence: `reachOf`
+    // measures the press against the mark it found, so at the ends of a
+    // pillarboxed plot a press on a dot could both pin the wrong itinerary and
+    // fall outside `PIN_REACH` of the right one and pin nothing at all.
+    const place = boxOf(1099, 465);
+    const { container } = chart({ snapshots: DENSE, granularity: 'month' });
+    const svg = container.querySelector('svg')!;
+    const [leftmost] = ends(container);
+
+    fireEvent.contextMenu(svg, painted(place, leftmost));
+    expect(
+      container.querySelector('[data-testid="departure-crosshair"]')?.getAttribute('data-pinned'),
+    ).toBe('true');
+    expect(hair(container)).toEqual({
+      cx: Number(leftmost.getAttribute('cx')),
+      cy: Number(leftmost.getAttribute('cy')),
+    });
+  });
+
+  it('pans the frame as far as the hand travelled, not as far as the box is wide', () => {
+    /*
+     * A drag is a distance rather than a position, so the bars cancel and only
+     * the scale is left — but the scale is the drawing's, and dividing by the
+     * box's width instead under-panned by 4.8% at the owner's window. The frame
+     * lagging the hand is not a thing a reader can name; it reads as the chart
+     * being heavy.
+     *
+     * Asserted against the same drag in a box of the drawing's own shape, where
+     * a client pixel is a view unit by construction. The two have to move the
+     * frame to the same date.
+     */
+    const dragged = (width: number, height: number, travel: number) => {
+      const place = boxOf(width, height);
+      const moved: Viewport[] = [];
+      // Zoomed in, because a frame already showing the whole month cannot pan:
+      // the drag would be clamped away and this would pass on any arithmetic.
+      const { container, unmount } = chart({
+        snapshots: DENSE,
+        granularity: 'month',
+        viewport: { start: 15_000, span: 10_000 },
+        onViewportChange: (next: Viewport | null) => {
+          if (next !== null) moved.push(next);
+        },
+      });
+      const svg = container.querySelector('svg')!;
+      fireEvent.pointerDown(svg, { pointerId: 1, button: 0, clientX: 600, clientY: 200 });
+      fireEvent.pointerMove(svg, {
+        pointerId: 1,
+        clientX: 600 - travel * place.scale,
+        clientY: 200,
+      });
+      unmount();
+      return moved.at(-1)?.start ?? null;
+    };
+
+    // The same 120 view units of travel, written as pixels in each box.
+    const square = dragged(VIEW.width, VIEW.height, 120);
+    expect(square).not.toBeNull();
+    expect(dragged(1099, 465, 120)).toBeCloseTo(square!, 6);
   });
 });
 

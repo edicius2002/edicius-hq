@@ -13,6 +13,7 @@ import {
   dateRangeLabel,
 } from '@/features/greenlight/lib/segments';
 import type { ToolId } from '@/features/greenlight/model/types';
+import { CompoundProjector } from '@/features/greenlight/ui/CompoundProjector';
 import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
 import { MoneyWeekChart } from '@/features/greenlight/ui/MoneyWeekChart';
 import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
@@ -188,6 +189,8 @@ export function GreenlightPage() {
           )}
         </Panel>
       </div>
+
+      <CompoundProjector capital={hasData ? moneyBreakdown.net : null} currency={totals.currency} />
 
       <Panel aria-labelledby="weeks-title">
         <div className={styles.panelHeading}>

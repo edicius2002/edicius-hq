@@ -205,6 +205,43 @@ export function formatStamp(iso: string): string {
   return `${day}/${month}/${year}${clock}`;
 }
 
+/**
+ * The zone the reader keeps. Peru has never observed daylight saving, so this
+ * is a constant −05:00 and not a rule that shifts twice a year.
+ */
+const READER_ZONE = 'America/Lima';
+
+/**
+ * An instant that carries an offset, written in the reader's own zone.
+ *
+ * `capturedAt` and `lastCheckedAt` are real instants — the API sends them with
+ * `+00:00` — and `formatStamp` above is the wrong tool for them: it splits the
+ * string and keeps the clock, which silently discards the offset and prints a
+ * UTC time as though it were local. Measured 2026-08-22, that put `Last look`
+ * five hours ahead and on the **wrong date** for every pass collected between
+ * 19:00 and midnight in Lima, which the fifteen-minute schedule reaches nightly.
+ *
+ * A stamp with no offset is returned through `formatStamp` untouched rather
+ * than guessed at: reading a naive string as UTC would be inventing a zone the
+ * archive does not carry, which is the same mistake in the other direction.
+ */
+export function formatInstant(iso: string): string {
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso)) return formatStamp(iso);
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: READER_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const of = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${of('day')}/${of('month')}/${of('year')} ${of('hour')}:${of('minute')}`;
+}
+
 /** `215` → `3h 35m`, which is how long a flight is actually described. */
 export function formatDuration(minutes: number | null): string {
   if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) return '—';

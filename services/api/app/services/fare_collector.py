@@ -428,6 +428,7 @@ async def collect_due(
     observer: PassObserver | None = None,
     ledger: RequestLedger | None = None,
     lock: PassLock | None = None,
+    force: bool = False,
 ) -> CollectionReport:
     """
     One pass over only the departures that are actually due.
@@ -477,6 +478,26 @@ async def collect_due(
     other. Taken here, the second finds it held and declines with every departure
     named — a report, not an exception, because a cron firing while the owner
     presses Collect is the ordinary case and not a fault.
+
+    **`force` is the reader saying they do not believe the last look** —
+    `a-press-collects-the-month-it-is-on`, which settles 12.212. It reaches
+    `due_now` and turns `not-due` into `forced` there; it reaches nothing else
+    in this function, and deliberately.
+
+    Three things it does **not** touch, each for its own reason. The lock is
+    taken first exactly as before, so a forced press that arrives while the
+    scheduled pass is running sends nothing and reports every departure as
+    `another-pass-is-running` — being second is not an error and a press cannot
+    make it one. The allowance is read off the same day's ledger and handed to
+    the same truncation, so a forced press on a spent day polls nothing and says
+    `over-budget` thirty-one times; the cadence is a judgement about pace that a
+    reader may overrule, and the budget is a bound on what this address sends
+    that nobody may. And the pacing is untouched, so a forced month is still
+    thirty-one requests three seconds apart rather than a burst.
+
+    What it costs is bounded by its caller rather than by anything here: the one
+    thing that sets it is a press on a single route's row, which is one watch,
+    which is at most thirty-one departures.
     """
     store = history if history is not None else HISTORY
     moment = now if now is not None else datetime.now(UTC)
@@ -512,6 +533,7 @@ async def collect_due(
             moment,
             cadence=cadence,
             budget=allowance.remaining(),
+            force=force,
         )
 
         queries = [by_key[(d.origin, d.destination, d.flight_date)] for d in plan if d.ready]

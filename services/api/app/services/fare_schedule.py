@@ -142,6 +142,7 @@ def due_now(
     *,
     cadence: tuple[tuple[int, int], ...] = DEFAULT_CADENCE_MINUTES,
     budget: int | None = None,
+    force: bool = False,
 ) -> list[Due]:
     """
     Which departures to look at on this pass: the nearest first.
@@ -188,6 +189,26 @@ def due_now(
     Everything is returned, ready or not, because a caller that can only see
     the work it is about to do cannot report the work it skipped — decisions
     8.8 and 8.41 again.
+
+    **`force` is one reader's press and it moves exactly one branch** —
+    `a-press-collects-the-month-it-is-on`, settling 12.212. It replaces the
+    `not-due` answer with `forced`, and it replaces nothing else. A departed
+    day, a day past the horizon and a month nobody can read stay unready under
+    it, because those are not the cadence declining to spend a request — they
+    are the provider having nothing to answer, and a press cannot argue a flight
+    back out of the past. The budget cap below is likewise untouched and runs
+    *after* this, so a forced departure that does not fit the day still comes
+    back `over-budget` by name: the cadence is a policy about pace and a reader
+    may overrule it, while the ledger is a bound on what this address sends and
+    nobody may.
+
+    Default `False`, and that is load-bearing rather than tidy. The scheduled
+    pass, the command-line pass and `POST /api/fares/collect` with no flag all
+    reach this function exactly as they did, so what is added is a second way in
+    and not a weakening of the first. The one caller that passes `True` is a
+    press on one route's own row, which is thirty-one departures at most —
+    12.212 costed a press at sixty-two because it assumed the whole watchlist,
+    and one route-month halves that figure and bounds it.
     """
     today = now.date()
     considered: list[Due] = []
@@ -217,6 +238,13 @@ def due_now(
             reason, ready = "never-collected", True
         elif now - previous >= timedelta(minutes=every):
             reason, ready = "due", True
+        elif force:
+            # A word of its own rather than borrowing `due`, because it is not
+            # the same fact: this departure's turn has *not* come and somebody
+            # asked for it anyway. Nothing on the wire reads it — `collect_due`
+            # reports reasons only for departures it skipped — and it is here
+            # for the log and for anyone reading a plan back.
+            reason, ready = "forced", True
         else:
             reason, ready = "not-due", False
         considered.append(

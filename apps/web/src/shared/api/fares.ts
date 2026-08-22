@@ -409,14 +409,22 @@ export function searchFares(
  * The ordinary request deadline is right for this again: the call no longer
  * waits for minutes of paced upstream requests, it waits for a task to be
  * created. `fetchCollectionProgress` is where the rest of the pass is.
+ *
+ * `force` polls every departure in the month whether or not its turn has come
+ * — `a-press-collects-the-month-it-is-on`. It is sent on every call rather than
+ * only when true, because the server takes it as a field with a default and a
+ * body that omits it is asking for the schedule: writing the word both ways
+ * means a reader of a network log can see which of the two was asked for. The
+ * server refuses it with anything but one route, so this is only ever set by a
+ * press on one row.
  */
 export function collectFares(
   routes: RouteRequest[],
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; force?: boolean } = {},
 ): Promise<CollectResponse> {
   return apiRequest<CollectResponse>('/api/fares/collect', {
     method: 'POST',
-    body: { routes },
+    body: { routes, force: options.force ?? false },
     signal: options.signal,
   });
 }

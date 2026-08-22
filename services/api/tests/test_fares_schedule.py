@@ -760,6 +760,146 @@ def test_a_pass_spends_its_budget_on_the_nearest_departures_first(tmp_path):
     assert sum(1 for _, reason in report.skipped if reason == "over-budget") == 28
 
 
+# -------------------------------------------------------- a forced press --
+#
+# `a-press-collects-the-month-it-is-on`, settling 12.212. The cadence stays the
+# default for the scheduled pass, the command line and every other caller; what
+# is added is that one reader pressing one row's control gets that route-month
+# polled whether or not its turn has come.
+
+
+def a_month_looked_at_a_minute_ago(history: FareHistory, month: str = "2027-01") -> None:
+    """The state 12.212 reproduced: a pass has just run over the whole month."""
+    for day in month_dates(month):
+        history.record_check("LIM", "MAD", day, at="2026-08-18T11:59:00+00:00", outcome="unchanged")
+
+
+def a_pass_over(history: FareHistory, *, force: bool, budget: int | None = None, month="2027-01"):
+    html = (Path(__file__).parent / "fixtures" / "google_flights_lim_scl.html").read_text(
+        encoding="utf-8"
+    )
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=html)) as client:
+            return await collect_due(
+                [FareWatch("LIM", "MAD", month)],
+                now=NOW,
+                budget=budget,
+                history=history,
+                client=client,
+                gap_seconds=0,
+                force=force,
+            )
+
+    return asyncio.run(run())
+
+
+def test_a_press_at_2104_after_a_pass_at_1441_polls_the_month_rather_than_declining_it(tmp_path):
+    """
+    The complaint 12.212 reproduced, and the answer to it, in one test.
+
+    A month every one of whose departures was looked at a minute ago is a month
+    the cadence has nothing to say yes to: the unforced pass polls nothing and
+    names all thirty-one as `not-due`, which is 12.111 working exactly as
+    designed and is nevertheless the wrong thing to hand somebody who has just
+    pressed a control to say they do not believe the last look.
+
+    Forced, the same watch on the same archive polls all thirty-one. Both halves
+    are asserted here rather than in two tests, because the pair is the
+    decision: what changed is the answer to a press, not the cadence.
+    """
+    history = FareHistory(tmp_path)
+    a_month_looked_at_a_minute_ago(history)
+
+    declined = a_pass_over(history, force=False)
+    assert declined.results == []
+    assert len(declined.skipped) == 31
+    assert {reason for _, reason in declined.skipped} == {"not-due"}
+
+    forced = a_pass_over(history, force=True)
+    assert len(forced.results) == 31
+    assert forced.skipped == []
+    assert [result.flight_date for result in forced.results] == month_dates("2027-01")
+
+
+def test_a_forced_press_cannot_argue_a_day_back_out_of_the_past(tmp_path):
+    """
+    Force moves the cadence and nothing else.
+
+    `departed`, `beyond-horizon` and `unreadable-date` are not the schedule
+    declining to spend a request — they are the provider having nothing to
+    answer about, and a reader pressing a button does not change that. NOW is
+    the 18th of August, so seventeen days of that month have gone; a forced pass
+    over it still names them and still polls the fourteen that are left.
+    """
+    history = FareHistory(tmp_path)
+    report = a_pass_over(history, force=True, month="2026-08")
+
+    departed = [what for what, reason in report.skipped if reason == "departed"]
+    assert len(departed) == 17
+    assert [result.flight_date for result in report.results] == [
+        f"2026-08-{day:02d}" for day in range(18, 32)
+    ]
+
+
+def test_a_forced_press_still_stops_where_the_day_stops(tmp_path):
+    """
+    The budget is not a policy about pace and a press may not overrule it.
+
+    The cadence is a judgement about when a fare is worth a request; a reader
+    who disagrees is allowed to. The day's ceiling is a bound on how much this
+    address is seen to send, which is the one thing here that can reach somebody
+    outside this machine, and no press may move it. Three requests of room, a
+    forced month of thirty-one: three polled, twenty-eight `over-budget` by
+    name, and the three kept are the nearest — 12.111's ordering, unmoved.
+    """
+    history = FareHistory(tmp_path)
+    a_month_looked_at_a_minute_ago(history)
+    report = a_pass_over(history, force=True, budget=3)
+
+    assert [result.flight_date for result in report.results] == [
+        "2027-01-01",
+        "2027-01-02",
+        "2027-01-03",
+    ]
+    assert sum(1 for _, reason in report.skipped if reason == "over-budget") == 28
+
+
+def test_force_replaces_not_due_and_leaves_every_other_answer_alone():
+    """
+    The one branch, read straight off `due_now` rather than through a pass.
+
+    A departure whose turn has come is still `due` and one nothing has ever
+    looked at is still `never-collected`: force does not relabel what was
+    already going to be polled, so a plan read back says which departures were
+    the reader's doing.
+    """
+    watched = [
+        ("LIM", "MAD", "2027-01-01"),  # looked at a minute ago — not due
+        ("LIM", "MAD", "2027-01-02"),  # looked at a week ago — due
+        ("LIM", "MAD", "2027-01-03"),  # never looked at
+    ]
+    last_checked = {
+        ("LIM", "MAD", "2027-01-01"): "2026-08-18T11:59:00+00:00",
+        ("LIM", "MAD", "2027-01-02"): "2026-08-11T12:00:00+00:00",
+    }
+
+    ordinary = {
+        due.flight_date: (due.ready, due.reason) for due in due_now(watched, last_checked, NOW)
+    }
+    assert ordinary["2027-01-01"] == (False, "not-due")
+    assert ordinary["2027-01-02"] == (True, "due")
+    assert ordinary["2027-01-03"] == (True, "never-collected")
+
+    forced = {
+        due.flight_date: (due.ready, due.reason)
+        for due in due_now(watched, last_checked, NOW, force=True)
+    }
+    assert forced["2027-01-01"] == (True, "forced")
+    assert forced["2027-01-02"] == (True, "due")
+    assert forced["2027-01-03"] == (True, "never-collected")
+
+
 def test_a_second_look_writes_a_heartbeat_and_no_snapshot(tmp_path):
     """
     The two halves of the design in one assertion: the archive grows only on

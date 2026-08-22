@@ -47,16 +47,22 @@ const STREAM_GRACE_MS = 8_000;
 /**
  * Collecting one watched route on its own, from the row it sits on.
  *
- * **A press now runs the schedule rather than bypassing it** — 12.111,
- * superseding the second half of 12.90. That decision was right while a press
- * bought one request: someone who has decided where to spend one should not be
- * argued with by a cadence table. Under 12.110 a row is a month and the same
- * press buys up to thirty-one, a twentieth of the day's budget per click, out
- * of a budget that is now genuinely spent by the day rather than reset every
- * pass — so `POST /api/fares/collect` calls `collect_due` and the press collects
- * every departure that has news in it and declines the rest. What it declined
- * comes back in `skipped` and the row says so, which is why `describeCollection`
- * has always had that branch.
+ * **A press collects the month it is on, now, whatever the cadence says** —
+ * `a-press-collects-the-month-it-is-on`, settling 12.212 and superseding
+ * 12.111's hold over this one control. 12.111 put the schedule in front of the
+ * press for a reason that was about *cost*: under 12.110 a row is a month, so a
+ * press buys up to thirty-one requests rather than the one 12.90 was arguing
+ * about. What the reproduction showed is that the cost is bounded — one row is
+ * one route-month and never the watchlist — while the cure was worse than the
+ * disease: a press at 21:04 after a pass at 14:41 came back `31 not-due`, and a
+ * button that argues with the person pressing it reads as broken.
+ *
+ * So the press sends `force` and the schedule is left in charge of everything
+ * else: the scheduled pass, the command line and any other caller of
+ * `POST /api/fares/collect` still run the cadence. What the press does **not**
+ * get past is the request budget or the pass lock, and both come back as
+ * ordinary skipped reasons — `over-budget`, `another-pass-is-running` — that
+ * `describeCollection` renders with the word the server used.
  *
  * **A press starts a pass and then watches it** — 12.210. The call used to
  * hold the connection open for the whole collection, and the browser's own
@@ -96,6 +102,18 @@ const STREAM_GRACE_MS = 8_000;
  * double-click, which is tens of milliseconds and several renders later; two
  * presses dispatched inside one tick would both see the old state and both
  * fire, and the ref is what closes that.
+ *
+ * **Three guards stop an impatient reader spending the day, and only the third
+ * is load-bearing.** A forced press is a minute and a half of paced requests
+ * behind a control that answers instantly, which is exactly the hazard 12.212
+ * named. The ref above refuses a repeat while the row's own press is in flight,
+ * and it holds for the whole pass rather than for the call, because `release`
+ * runs when the pass *ends*. The button is disabled over the same window, so
+ * there is usually nothing to click. Neither of those is what makes it safe:
+ * `CollectionRunner` keeps one pass slot, so a press that got past both is
+ * answered with the pass already running and starts nothing, and `PassLock`
+ * says the same thing across processes. A browser guard can be defeated by a
+ * second tab; the server's slot cannot.
  */
 export type RouteCollection = {
   /** Route ids whose own press is in flight. */
@@ -376,20 +394,31 @@ export function useRouteCollection(): RouteCollection {
   // render and defeat the `useCallback` around it. `mutate` itself is stable.
   const { mutate } = useMutation<CollectResponse, Error, FareRoute>({
     mutationFn: (route) =>
-      collectFares([
-        {
-          origin: route.origin,
-          destination: route.destination,
-          month: route.month,
-          // A press buys up to thirty-one departures, and a pass can still
-          // truncate — not at forty any more (12.210 removed that), but at
-          // the request budget. Which of them survives that is the nearest
-          // departure and nothing else since 12.266 took the focus off this
-          // payload: nearest-first is 12.111 and it was always the rule the
-          // focus was jumping ahead of.
-          currency: route.currency,
-        },
-      ]),
+      collectFares(
+        [
+          {
+            origin: route.origin,
+            destination: route.destination,
+            month: route.month,
+            // A press buys up to thirty-one departures, and a pass can still
+            // truncate — not at forty any more (12.210 removed that), but at
+            // the request budget. Which of them survives that is the nearest
+            // departure and nothing else since 12.266 took the focus off this
+            // payload: nearest-first is 12.111 and it was always the rule the
+            // focus was jumping ahead of.
+            currency: route.currency,
+          },
+        ],
+        // And it buys all thirty-one rather than the handful whose turn has
+        // come — `a-press-collects-the-month-it-is-on`. A press at 21:04 after
+        // a pass at 14:41 answered `31 not-due`, which is 12.111 working as
+        // designed and is nevertheless the wrong answer to give somebody who
+        // has just said they do not believe the last look. The budget and the
+        // pass lock are untouched by it, so a spent day still comes back
+        // `over-budget` and a scheduled pass still comes back
+        // `another-pass-is-running` — both of which this row already renders.
+        { force: true },
+      ),
     // The press only starts the pass — 12.210 — so this is where the following
     // begins rather than where the outcome is written. A pass that came back
     // already finished (nothing was due, or somebody else's pass was handed

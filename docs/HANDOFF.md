@@ -78,6 +78,30 @@ we have no median of our own, and says which of the two it is showing
 still never reads the pointer's height, and a period neither series reached still
 draws nothing.
 
+**`AnalysisPanel.module.css`'s height comment does arithmetic that does not
+hold.** Found while fixing the pointer conversion
+(`the-pointer-is-in-the-drawing-not-the-box`) and **deliberately left alone**,
+because correcting it moves the panel's height and that is a different change
+with its own before and after. Two things are wrong with
+`clamp(28rem, calc(44.5cqw + 170px), 34.5rem)`: the comment reasons in 16-px
+rems while the app root is **20px**, so every rem figure in it is a quarter
+short of what ships; and `170px` is chart B's chrome as it was measured then,
+where the real figure at the owner's window on 2026-08-22 is **194px** — body
+659.1px, svg box 465.44. The effect is that chart B is pillarboxed by 26.3px a
+side rather than getting the whole plot the comment promises it, which is a
+smaller plot and nothing worse. Whoever changes it should re-measure both
+numbers and expect the panel to get taller.
+
+**Chart A pillarboxes above about 1658px of chart width.** Measured on
+2026-08-22 by driving the panel's own container query from 300px of stage to
+1858: chart A's 760×284 letterboxes at every chart width from 373 to 1638 and
+pillarboxes from about 1658 up, which is a stage of roughly 1698px — an
+ultrawide, or a 2560-px monitor at 100% scaling. Nothing breaks there any more,
+since the conversion subtracts the bars either way, but the two charts do not
+box the same way at every width and that boundary moves whenever `.body`'s
+height does. It is the reason chart A took the same fix as chart B despite the
+change being observably nothing on it today.
+
 **Filters survive a route change.** `FlightTable` is not keyed by route, so
 switching routes keeps a carrier filter that the new board may not contain — zero
 rows, and a select showing a value its own options no longer offer. Pre-existing.

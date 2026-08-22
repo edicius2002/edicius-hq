@@ -4,12 +4,80 @@ import { NO_VALUE, formatMoney } from '@/shared/lib/money';
 /**
  * The arithmetic behind the price chart's crosshair, kept out of the component.
  *
- * Three questions, none of which needs a browser to answer: which period the
- * pointer is nearest, what that period actually holds, and where a label can
- * sit without hanging off the edge of the plot. The component does the drawing
- * and the event handling; everything a test would want to assert about is here,
- * for the same reason `flightTable.ts` and `series.ts` are.
+ * Four questions, none of which needs a browser to answer: where the pointer
+ * actually is in the units the drawing is drawn in, which period that is
+ * nearest, what that period actually holds, and where a label can sit without
+ * hanging off the edge of the plot. The component does the drawing and the
+ * event handling; everything a test would want to assert about is here, for the
+ * same reason `flightTable.ts` and `series.ts` are.
  */
+
+/* ------------------------------------------ the pointer, in view units -- */
+
+/** A box as `getBoundingClientRect` reports it. */
+export type ClientBox = { left: number; top: number; width: number; height: number };
+
+/** The drawing's own size — a viewBox, in the units everything is placed in. */
+export type PlotSize = { width: number; height: number };
+
+/**
+ * A client coordinate in view units, honouring `preserveAspectRatio`.
+ *
+ * **The drawing does not fill its box, and assuming it does is a scale error
+ * rather than an offset.** Both charts carry `preserveAspectRatio` at its
+ * default `xMidYMid meet` and the analysis panel hands them a fixed box of its
+ * own shape, so the drawing is scaled to fit and centred: blank bars either
+ * side of it, or above and below it, that are not part of the plot. Dividing by
+ * the box's own width instead of by that scale is off by nothing at the centre
+ * and by more the further out the pointer is. Reproduced live in Chrome at the
+ * owner's window on 2026-08-22 — chart B in a 1099.2 × 465.44 box with 26.3 px
+ * of pillarbox a side: a pointer placed exactly on the leftmost dot read 103.96
+ * view units where the dot is drawn at 89.10, the rightmost read 727.81 for a
+ * dot at 742.37, and the dot in the middle was exact. A ramp of ±18.2 at the
+ * edges of the viewBox with a zero at its centre, which is why it went so long
+ * without being noticed.
+ *
+ * Which way the bars fall depends on the two shapes and not on the chart:
+ * a box wider than the drawing pillarboxes and the *x* conversion is the wrong
+ * one, a box narrower letterboxes and *y* is. Both are subtracted here, because
+ * chart B reads both — `nearestPlaced` picks in two dimensions and `PIN_REACH`
+ * is a radius — and because the panel's height is a `clamp()` that crosses
+ * from one case to the other as the viewport narrows. Measured on the same day
+ * by driving that container query from 300 to 1858 px of stage: chart B
+ * letterboxes below about 772 px of chart width and pillarboxes above it, by
+ * anything from 3 px a side to 339, and is never square at any width at all.
+ *
+ * Null for a box with no area, which is what jsdom reports for everything and
+ * what a chart in a collapsed panel reports for itself. Placing a crosshair
+ * from it would divide by zero.
+ */
+export function pointerInView(
+  box: ClientBox,
+  plot: PlotSize,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } | null {
+  if (box.width <= 0 || box.height <= 0) return null;
+  const scale = Math.min(box.width / plot.width, box.height / plot.height);
+  return {
+    x: (clientX - box.left - (box.width - plot.width * scale) / 2) / scale,
+    y: (clientY - box.top - (box.height - plot.height * scale) / 2) / scale,
+  };
+}
+
+/**
+ * How many view units one client pixel is, for a gesture measured in pixels.
+ *
+ * A drag is a distance rather than a position, so it wants the scale alone and
+ * none of the centring: the bars cancel out over a difference of two client
+ * coordinates. It is the same scale all the same, and reaching for the box's
+ * width instead is why a drag under-panned by 4.8% at the owner's window and by
+ * 11.5% at the narrowest width the panel allows — the frame lagging the hand,
+ * which reads as the chart being heavy rather than as arithmetic.
+ */
+export function viewUnitsPerPixel(box: ClientBox, plot: PlotSize): number {
+  return 1 / Math.min(box.width / plot.width, box.height / plot.height);
+}
 
 /**
  * The period nearest a horizontal position, by index.

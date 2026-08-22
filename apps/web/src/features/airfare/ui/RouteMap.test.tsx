@@ -53,6 +53,12 @@ beforeEach(() => {
   // jsdom measures every element as 0×0, and the map genuinely needs a box:
   // place names are culled against the frame, and with no frame they all
   // project onto the same point and collide with each other.
+  //
+  // A client pixel is a map unit here, and unlike on the two airfare charts
+  // that holds at every box: this map sets its viewBox from its own measured
+  // size, so the drawing and the box are the same shape by construction and
+  // `preserveAspectRatio` never has anything to centre. Any box would do; this
+  // one is a plausible stage.
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
     x: 0,
     y: 0,

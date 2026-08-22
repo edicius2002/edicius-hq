@@ -18,11 +18,18 @@ import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 
 beforeEach(() => {
   // jsdom measures every element as 0x0, and the chart converts a client
-  // coordinate into its own viewBox by dividing by the measured width. Given a
-  // box the same size as the viewBox, a clientX is a view unit, which keeps the
-  // arithmetic in these tests readable. Left at zero the component refuses to
-  // track — deliberately, because dividing by it would place the crosshair at
-  // infinity.
+  // coordinate into its own viewBox before it can read anything from it. Given
+  // a box that shares the viewBox's aspect ratio — this one is the viewBox —
+  // that conversion is the identity and a clientX is a view unit, which keeps
+  // the arithmetic in these tests readable. That is a property of the two
+  // shapes agreeing and not of the chart: `preserveAspectRatio` scales the
+  // drawing to fit a box of any other shape and centres it, leaving bars the
+  // conversion has to subtract. `crosshair.test.ts` pins that arithmetic, and
+  // the panel this chart lives in currently hands it a box that letterboxes at
+  // every width — measured 373 to 1638 px of chart — so only the vertical
+  // bars are ever non-zero here and this chart reads no `y`. Left at zero the
+  // component refuses to track — deliberately, because dividing by it would
+  // place the crosshair at infinity.
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
     x: 0,
     y: 0,
@@ -65,6 +72,82 @@ function chart(props: Partial<Parameters<typeof PriceBandChart>[0]> = {}) {
   );
   return screen.getByRole('img');
 }
+
+/**
+ * A box the drawing does not fill.
+ *
+ * **This chart's conversion was the same latent bug the departure chart was
+ * shipping, and it is correct today only by the luck of the panel's height.**
+ * `preserveAspectRatio="xMidYMid meet"` scales a drawing to fit a box of a
+ * different shape and centres it, and the blank bars that leaves are not part
+ * of the plot. Measured in Chrome on 2026-08-22 by driving the analysis panel's
+ * own container query from 300 px of chart width to 1858: this drawing's
+ * 760×284 letterboxes at every width from 373 to 1638, so the horizontal bars
+ * are zero a side and the old formula and this one agree exactly. **They stop
+ * agreeing at about 1658 px of chart** — a stage of roughly 1698 px, which is
+ * an ultrawide or a 2560-px monitor at 100% — where the drawing starts to
+ * pillarbox and the old formula starts reading a period the reader is not over.
+ *
+ * That boundary is a fact about `.body`'s `clamp()` and this chart's chrome and
+ * not about the chart, so it is not something the chart should be relying on.
+ * The pillarboxed case below is the one that is not reachable on the owner's
+ * machine today; it is here because the next change to the panel's height
+ * decides whether it is.
+ */
+describe('a box the drawing does not fill', () => {
+  /** Re-mock the box, and hand back where `xMidYMid meet` puts the drawing. */
+  function boxOf(width: number, height: number) {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: width,
+      bottom: height,
+      width,
+      height,
+      toJSON: () => ({}),
+    });
+    const scale = Math.min(width / 760, height / 284);
+    return { scale, padX: (width - 760 * scale) / 2, padY: (height - 284 * scale) / 2 };
+  }
+
+  it('reads the period the pointer is over in a box wider than the drawing', () => {
+    // 320 px of pillarbox a side. The three periods are painted at 84, 414 and
+    // 744 as ever, and 249 is the midpoint of the first two — so these two
+    // presses are two view units apart across a boundary. Dividing by the box's
+    // own width instead put both of them at about 309, which is period two:
+    // the first press read the wrong day and the boundary was 76 units from
+    // where it is drawn.
+    const place = boxOf(1400, 284);
+    expect(place.padX).toBe(320);
+    expect(place.padY).toBe(0);
+
+    const svg = chart();
+    fireEvent.pointerMove(svg, { clientX: place.padX + 248 * place.scale, clientY: 100 });
+    expect(screen.getByRole('status')).toHaveTextContent('08-17');
+
+    fireEvent.pointerMove(svg, { clientX: place.padX + 250 * place.scale, clientY: 100 });
+    expect(screen.getByRole('status')).toHaveTextContent('08-18');
+  });
+
+  it('is unchanged in a box taller than the drawing, which is every box it gets today', () => {
+    // The measured case, and the reason this change is observably nothing on
+    // this chart: letterboxed, so there is no horizontal bar to subtract and
+    // the two formulas are the same arithmetic. The vertical bar is 68 units
+    // and this chart reads no height — 12.245 — so it costs nothing either.
+    const place = boxOf(760, 420);
+    expect(place.padX).toBe(0);
+    expect(place.padY).toBe(68);
+
+    const svg = chart();
+    fireEvent.pointerMove(svg, { clientX: 248, clientY: 100 });
+    expect(screen.getByRole('status')).toHaveTextContent('08-17');
+
+    fireEvent.pointerMove(svg, { clientX: 250, clientY: 100 });
+    expect(screen.getByRole('status')).toHaveTextContent('08-18');
+  });
+});
 
 describe('PriceBandChart crosshair', () => {
   it('says nothing until the reader points at it', () => {

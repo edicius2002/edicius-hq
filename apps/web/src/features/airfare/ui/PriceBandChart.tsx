@@ -10,6 +10,7 @@ import {
   clampToTrack,
   nearestBucket,
   marginForPrices,
+  pointerInView,
   priceAxisTag,
   readingAt,
   readingSentence,
@@ -417,12 +418,20 @@ export function PriceBandChart({
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    if (box.width === 0) return;
+    const at = pointerInView(box, VIEW, event.clientX, event.clientY);
+    if (at === null) return;
     // Only the horizontal position is read. The pointer's height no longer
-    // decides anything on this chart — 12.245 — so measuring it would be
-    // measuring something nothing uses.
-    const x = ((event.clientX - box.left) / box.width) * VIEW.width;
-    const index = nearestBucket(geometry.positions, x);
+    // decides anything on this chart — 12.245 — so `y` is computed and
+    // discarded rather than being a second thing to keep right.
+    //
+    // This chart letterboxes at every chart width from 373 to 1638 px, measured
+    // in Chrome on 2026-08-22, so `pointerInView` returns exactly what dividing
+    // by the box's width used to and the change is a no-op wherever anyone has
+    // looked. It is here anyway. The old formula was the same latent bug chart B
+    // was actually shipping; which way a drawing boxes is a fact about `.body`'s
+    // height rather than about this chart; and this one starts to pillarbox at
+    // about 1658 px of chart, which is a 2560-px monitor and not a fantasy.
+    const index = nearestBucket(geometry.positions, at.x);
     if (index === null) return;
     setCursor(index);
   };

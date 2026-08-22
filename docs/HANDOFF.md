@@ -119,6 +119,37 @@ box the same way at every width and that boundary moves whenever `.body`'s
 height does. It is the reason chart A took the same fix as chart B despite the
 change being observably nothing on it today.
 
+**The pair median is drawn in the bottom fifth of every month frame, and that
+is the domain rather than the line.** `a-frame-keeps-its-own-scale-and-gains-a-
+fixed-line` shipped and works, but measured across all nine pairs the rule lands
+between **5% and 21% of plot height** on a month frame — 5.4% on LIM-SCL March,
+21% on AEP-SCL March, 7% on the two EZE pairs. The reason is that chart B's
+domain is built from _every_ offer on every board, so a business-class fare at
+$714 or $1,268 sets the top while the reference is a cheapest-fare figure. The
+comparison a reader actually makes — the cheapest-of-date line against the rule
+— therefore happens in the bottom fifth of a 252-unit plot, and on EZE-SCL and
+SCL-EZE the whole of it is inside about fifteen units. **Nothing about the rule
+fixes this; the domain would have to change**, and that is a different decision
+with its own before and after. The obvious candidate is to build the domain from
+the cheapest fare per date rather than from every offer and let the expensive
+tail clip, which is a claim about what chart B is _for_ and has not been made.
+Recorded because a reader who says "the line is too low" is not describing a bug
+in the line.
+
+**Nothing on this archive is ever `above` the line.** 34 of the 245 frames chart
+B can currently draw put the reference outside the plot and every one of them is
+`below` — LIM-SCL's 30 March day frames and 4 of its week frames, plus 4 AEP-SCL
+day frames. The `above` branch (a frame whose dearest fare is cheaper than the
+pair median) is proved by unit test and by nothing else, because a pair median is
+by construction the middle of the cheapest-per-date figures and a whole board
+under it is rare. It will happen; it has not yet.
+
+**The reference is dated `todayIso()` and moves with the clock.** Two screenshots
+of the same route weeks apart are not comparable, because the rule in them is not
+the same rule. Freezing it is one line — hand `pairReference` a literal instead
+of today — and is the right change once there are months of archive rather than
+days. Nothing else in the app depends on the figure.
+
 **Filters survive a route change.** `FlightTable` is not keyed by route, so
 switching routes keeps a carrier filter that the new board may not contain — zero
 rows, and a select showing a value its own options no longer offer. Pre-existing.
@@ -224,8 +255,10 @@ revisited.
 
 ## Running it on this machine
 
-**Ports 8000 and 8001 are dead sockets.** Their processes no longer exist and
-`taskkill` cannot free them; only a reboot does. `npm run api:dev` targets 8000
+**Ports 8000, 8001 and 8025 are dead sockets.** Their processes no longer exist and
+`taskkill` cannot free them; only a reboot does. 8025 joined the list on
+2026-08-22 — a uvicorn started for the reference-line verification, stopped
+cleanly, and its listener outlived the process. `npm run api:dev` targets 8000
 and will fail. Use another port.
 
 A working pair:

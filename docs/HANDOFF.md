@@ -162,6 +162,49 @@ depending on it being exact — it walks a refused far end back and asks again �
 this no longer breaks anything, but the question is unanswered and only a second
 day of measurement settles it.
 
+**Whether the compound projector's capital and rate belong in the document.**
+Left open by `the-projection-is-not-in-the-document`. Both are component state
+today, so a reload puts the rate back to 6 and the capital back to Greenlight's
+net — which is the right default and the wrong thing to do to somebody who has
+just typed a rate they wanted to keep. Storing them means two new fields in the
+Greenlight document, and that document has import modes and a marker migration
+in front of it; the schema decision is the whole of the work and none of it is
+in the projector.
+
+**`pointerInView` now has a caller outside the slice it lives in.** Greenlight's
+compound curve imports it from `airfare/lib/crosshair.ts` — the first import
+this repository has across a feature boundary, recorded as
+`one-conversion-serves-both-slices` and S.46. It is pure geometry and its home
+is `shared/lib`; copying it instead was rejected, because the bug it exists for
+is exactly the kind a second copy reintroduces silently. The move was not made
+because it edits the airfare slice, which the branch adding the third caller was
+told not to touch. Measured consequence of leaving it: Vite emits `crosshair` as
+its own 4.27 kB chunk shared by the two routes rather than duplicating it, so
+this costs nothing at runtime and only reads wrong in the tree. Worth knowing
+before anyone "simplifies" the conversion back: at the owner's 1536-px window
+the compound curve letterboxes by 2.2 units, so the old formula agrees with it
+exactly and the fix is observably nothing — **and the boundary is 29 px away**,
+at a viewport of about 1565, where the box passes 426.67 wide and starts to
+pillarbox. Driven to a 700-px box in the live page, a pointer on month 120 read
+month 120 through `pointerInView` and month 92 through the old formula.
+
+**Whether the ten-year plot should show the balance at all.** It shows the
+balance because that is what was asked for, and it does not look exponential —
+1.82x over ten years is a line with a bend in it. Measured on the shipped
+geometry, 242 units of plot: capital-floored, the deepest the curve falls below
+a straight chord is **17.8 units, 7.34%, at month 63**; zero-floored it is 3.3%
+and the whole series sits in the top 44.8% of the plot. Two alternatives were
+raised and neither was chosen. Plotting **accumulated gain** instead is worth
+nothing here and the measurement says so: floored at zero it bends 7.44% against
+the balance's 7.34% — the same curve, shifted, because a capital-floored balance
+axis has already subtracted the constant that was supposed to be flattening it.
+Plotting **compound against simple** is the one that would show something: at
+month 120 the two are $4,470.82 apart, which on this axis is **26.8% of the plot
+height, about 65 view units** — three and a half times the bend the single curve
+has to offer, and it names what the reader is being shown rather than asking
+them to see a curve in a line. That is the recommendation if the section is
+revisited.
+
 ## Running it on this machine
 
 **Ports 8000 and 8001 are dead sockets.** Their processes no longer exist and

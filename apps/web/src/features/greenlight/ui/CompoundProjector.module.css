@@ -1,0 +1,177 @@
+.heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.fieldLabel {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.input {
+  width: 9rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  text-align: right;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.inputNarrow {
+  width: 5rem;
+}
+
+/*
+ * The two rates the annual figure implies, beside the field that sets it. The
+ * effective one is here rather than in a footnote because without it the year-1
+ * total reads as an arithmetic error: 6% of $20,377.80 is $1,222.67 and the
+ * table says $1,256.86, and the difference is the whole point of the section.
+ */
+.derived {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.derived strong {
+  color: var(--color-accent);
+}
+
+/*
+ * Three columns, and the middle one is the widest because it is the only one
+ * whose content is a shape rather than digits — 120 months in a column narrower
+ * than the tables would be four view units a month before the box is even
+ * scaled.
+ */
+.columns {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr);
+  align-items: start;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+
+.column {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.columnTitle {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 0.2rem var(--space-2);
+}
+
+.table thead th {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table tbody tr:nth-child(even) {
+  background: var(--color-surface-soft);
+}
+
+.table tfoot th,
+.table tfoot td {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+  font-weight: 700;
+}
+
+.numeric {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.footLabel {
+  text-align: left;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.gain {
+  color: var(--color-income);
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+/*
+ * 1100px is where GreenlightPage's own overview row folds, so the two fold
+ * together rather than leaving the page half in one layout and half in the
+ * other. The root font here is 20px and not 16, so a breakpoint reasoned in
+ * rems would land a quarter away from where it was meant to.
+ */
+@media (max-width: 1100px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

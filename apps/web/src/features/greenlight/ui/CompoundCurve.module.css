@@ -1,0 +1,101 @@
+.wrap {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/*
+ * A fixed height against a fluid width, which is what makes the drawing sit in
+ * a box of a shape it does not share: pillarboxed in a wide column, letterboxed
+ * in a narrow one. `preserveAspectRatio` is left at its default, so the pointer
+ * conversion has to subtract those bars — `pointerInView`, in the component.
+ */
+.svg {
+  display: block;
+  width: 100%;
+  height: 12rem;
+}
+
+.svg:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.axis {
+  fill: var(--color-muted);
+  /*
+   * 15 view units, not 11. The drawing is scaled to 0.654 in the column it
+   * lands in at the owner's window, so 11 rendered at 7.2 px on screen — below
+   * reading size for a figure the reader is meant to check against the table
+   * beside it. 15 renders at 9.8 px.
+   */
+  font-size: 15px;
+}
+
+.curve {
+  fill: none;
+  stroke: var(--color-income);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.hair {
+  stroke: var(--color-accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.mark {
+  fill: var(--color-accent);
+  stroke: var(--color-bg);
+  stroke-width: 1.5;
+}
+
+.hairLabel {
+  fill: var(--color-accent);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-soft);
+  /* Two lines' worth, so a wrap at a narrow column does not move the tables. */
+  min-height: 2.4rem;
+}
+
+.readoutMonth {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.readoutBalance {
+  font-size: 1rem;
+}
+
+.readoutGain {
+  color: var(--color-income);
+  font-size: 0.85rem;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}

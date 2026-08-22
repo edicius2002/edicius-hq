@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   linePath,
+  observedEnds,
   priceBand,
   niceTicks,
   priceTicks,
+  ticksClear,
   xAt,
   yAt,
   type Viewport,
@@ -127,5 +129,42 @@ describe('linePath', () => {
 
   it('is empty for no points, so the chart draws nothing rather than a stray mark', () => {
     expect(linePath([], { min: 0, max: 1 }, VIEWPORT)).toBe('');
+  });
+});
+
+describe('observedEnds', () => {
+  it('is the cheapest and the dearest of what is drawn, and not the padded domain', () => {
+    // The two figures the axis may state as figures. Both are prices in the
+    // list, which is the whole of what separates them from `niceTicks`'s
+    // refusal — that one is about numbers the padding invented.
+    expect(observedEnds([210, 195.5, 310, 240])).toEqual({ low: 195.5, high: 310 });
+  });
+
+  it('is one figure twice where every fare on the frame is the same', () => {
+    expect(observedEnds([88])).toEqual({ low: 88, high: 88 });
+  });
+
+  it('is nothing at all for a frame with no price on it', () => {
+    expect(observedEnds([])).toBeNull();
+  });
+});
+
+describe('ticksClear', () => {
+  it('drops the tick whose label would land on a stated figure', () => {
+    // ARI-SCL's March frame, near enough: $62.77 to $69.26 with round ticks at
+    // $62.50 and $70. Both are within half a dollar of an end and both go.
+    expect(ticksClear([62.5, 65, 67.5, 70], [62.77, 69.26], 1.5)).toEqual([65, 67.5]);
+  });
+
+  it('keeps everything where nothing is stated', () => {
+    expect(ticksClear([200, 250, 300], [], 6)).toEqual([200, 250, 300]);
+  });
+
+  it('measures the gap from every stated figure, not only the nearest end', () => {
+    expect(ticksClear([100, 200, 300], [205], 10)).toEqual([100, 300]);
+  });
+
+  it('keeps a tick exactly a gap away, so the rule has one edge and not two', () => {
+    expect(ticksClear([100], [110], 10)).toEqual([100]);
   });
 });

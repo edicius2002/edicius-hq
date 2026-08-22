@@ -22,6 +22,7 @@ import {
   marginForPrices,
   pointerInView,
   priceAxisTag,
+  tagWidth,
   timeAxisTag,
   viewUnitsPerPixel,
   type TagAnchor,
@@ -65,7 +66,15 @@ import {
   type WatchedRange,
 } from '@/features/airfare/lib/flightScatter';
 import { stopsLabel } from '@/features/airfare/lib/flightTable';
-import { niceTicks } from '@/features/airfare/lib/scales';
+import {
+  referenceFall,
+  referenceLegend,
+  referenceSentence,
+  referenceY,
+  type PairReference,
+  type ReferenceFall,
+} from '@/features/airfare/lib/pairReference';
+import { niceTicks, observedEnds, ticksClear } from '@/features/airfare/lib/scales';
 import { formatDuration } from '@/features/airfare/lib/series';
 import {
   clampViewport,
@@ -127,6 +136,27 @@ const SOURCE_BASELINE = 327;
  * red-green deficiency cannot read. `PLAIN_MARK` carries no ring; the plain dot
  * is a flat disc and always was.
  */
+/**
+ * How much height two labels on the price axis need between them, in view
+ * units.
+ *
+ * The axis font is 10px in a 760-unit viewBox, so twelve units is a line and a
+ * fifth: enough that two figures never touch and little enough that a round tick
+ * is only ever dropped when it really is beside an endpoint. It is used to
+ * decide which round ticks lose their word to the frame's own two figures — see
+ * `ticksClear`.
+ */
+const AXIS_LABEL_GAP = 12;
+
+/**
+ * How long the mark saying "the pair median is off this frame" is, and how far
+ * it hangs past the rail the line is clamped to.
+ *
+ * A triangle rather than a second dashed rule: the line is already at the edge
+ * of the plot, and the only thing left to say is which way it kept going.
+ */
+const OFF_FRAME_MARK = 5;
+
 const PLAIN_MARK = { r: 2.6, ring: 0 };
 const LINKED_MARK = { r: 1.5, ring: 0.8 };
 
@@ -252,6 +282,21 @@ type DepartureChartProps = {
    * elements on every pointer move — the exact cost that memo exists to avoid.
    */
   leg?: { origin: string; destination: string; originCountry: string | null } | null;
+  /**
+   * What this city pair usually costs, drawn across the plot as a fixed rule.
+   *
+   * **A prop and not something this component works out, because it is not
+   * about this frame.** Everything else here is derived from the month the page
+   * narrowed to; the reference is the median cheapest fare over the *whole*
+   * pair's archive, which is what the history request actually returns and what
+   * `snapshotsFor` throws away one level up. Computing it from `snapshots`
+   * would compute it from the month on screen, and a line drawn from what is on
+   * screen sits in the middle of what is on screen and says nothing.
+   *
+   * Null where the pair has nothing priced yet, which draws no line rather than
+   * a line at zero.
+   */
+  reference?: PairReference | null;
 };
 
 /** Where the crosshair is: on one itinerary, or on one whole departure date. */
@@ -327,6 +372,7 @@ export function DepartureChart({
   horizonLoading = false,
   horizonError = null,
   leg = null,
+  reference = null,
 }: DepartureChartProps) {
   /*
    * The crosshair is this canvas's own state and the period is not — 12.170.
@@ -480,14 +526,28 @@ export function DepartureChart({
    * left of the seam and the same fare on its right at different heights, which
    * is the one thing a reader crossing the boundary is trying to compare.
    */
-  const span = useMemo(
-    () =>
-      spanOfPrices([
-        ...points.map((point) => point.price),
-        ...marks.flatMap((mark) => (mark.price === null ? [] : [mark.price])),
-      ]),
+  /*
+   * Every price this frame draws, as one array, because two things are built
+   * from it and they must not disagree: the domain, and the two figures the
+   * axis states at its ends. `spanOfPrices` pads outwards from the extremes of
+   * this list, so an endpoint read from a second list could land outside the
+   * plot the first one sized.
+   */
+  const framePrices = useMemo(
+    () => [
+      ...points.map((point) => point.price),
+      ...marks.flatMap((mark) => (mark.price === null ? [] : [mark.price])),
+    ],
     [points, marks],
   );
+  const span = useMemo(() => spanOfPrices(framePrices), [framePrices]);
+  /*
+   * The cheapest and the dearest fare actually on this frame — the two the axis
+   * prints as figures rather than as ticks. Whole-frame and not visible-set, for
+   * the same reason the domain above it is: they are what the ruler is, and a
+   * ruler that changed under a pan would make every height mean something new.
+   */
+  const ends = useMemo(() => observedEnds(framePrices), [framePrices]);
 
   const placed = useMemo(
     () => (period === null || span === null ? [] : placePoints(points, period, span, VIEW, view)),
@@ -739,9 +799,62 @@ export function DepartureChart({
   const next = keys.indexOf(period.key) >= 0 && keys.indexOf(period.key) < keys.length - 1;
   const ticks = axisTicks(period, view);
   const separators = dayBoundaries(period);
-  const priceTicks = span === null ? [] : niceTicks(span.low, span.high);
   const path = span === null ? '' : cheapestPath(points, period, span, VIEW, view);
   const caption = boundsLabel({ from: period.from, to: period.to });
+
+  /*
+   * The axis: a scale of round numbers, and the frame's own two ends stated as
+   * figures beside it.
+   *
+   * The scale is `niceTicks` and is untouched — the whole argument for it is in
+   * that function and none of it has changed. What is new is that the reader can
+   * now read the top and bottom of the axis without doing arithmetic between
+   * gridlines, which is what makes a change of frame visible *as* a change: step
+   * from LIM-SCL's January to its March and the pair of figures goes from
+   * $136.58–$361.82 to $158.79–$714.64 while every dot stays where it was.
+   *
+   * A tick whose label would land on top of an endpoint's loses its label and
+   * keeps its gridline. The figures win because they are the ones a reader
+   * cannot work out for themselves.
+   */
+  const endPlates =
+    span === null || ends === null
+      ? []
+      : ([
+          { key: 'high', value: ends.high },
+          { key: 'low', value: ends.low },
+        ] as const);
+  const labelGap =
+    span === null ? 0 : ((span.high - span.low) * AXIS_LABEL_GAP) / (PLOT_BOTTOM - VIEW.pad.top);
+  const gridTicks = span === null ? [] : niceTicks(span.low, span.high);
+  const labelled = new Set(
+    ticksClear(
+      gridTicks,
+      endPlates.map((end) => end.value),
+      labelGap,
+    ),
+  );
+
+  /*
+   * The pair's own typical fare, placed on this frame's scale.
+   *
+   * Drawn from the whole archive and clamped to the rails — `pairReference`
+   * carries the argument for both. `fall` is what the drawing needs to know:
+   * a line inside the frame is a comparison, and a line on a rail is a
+   * statement that the frame is entirely on one side of it, which has to look
+   * different or it reads as a fare of exactly the cheapest or dearest kind.
+   */
+  const referenceAt =
+    reference === null || span === null
+      ? null
+      : {
+          value: reference.value,
+          fall: referenceFall(reference.value, span),
+          y: referenceY(reference.value, span, { top: VIEW.pad.top, bottom: PLOT_BOTTOM }),
+        };
+  const referenceTag = {
+    width: tagWidth(referenceAt === null ? '' : formatMoney(referenceAt.value, currency)),
+  };
 
   /*
    * The crosshair reads the data and never the pointer's own height — the same
@@ -1197,7 +1310,7 @@ export function DepartureChart({
         viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
         role="img"
         tabIndex={0}
-        aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption)}`}
+        aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption, ends, reference, referenceAt?.fall ?? null)}`}
         /*
           The description is the affordances, and the two live regions are not
           part of it.
@@ -1283,7 +1396,7 @@ export function DepartureChart({
         </clipPath>
         {span === null
           ? null
-          : priceTicks.map((value) => (
+          : gridTicks.map((value) => (
               <g key={value}>
                 <line
                   x1={VIEW.pad.left}
@@ -1291,16 +1404,74 @@ export function DepartureChart({
                   y1={yOf(value, span, VIEW)}
                   y2={yOf(value, span, VIEW)}
                   className={styles.grid}
+                  data-testid="price-grid"
                 />
-                <text
-                  x={VIEW.pad.left - PRICE_GAP}
-                  y={yOf(value, span, VIEW) + 4}
-                  className={`${styles.axis} ${styles.tagEnd}`}
-                >
-                  {formatMoney(value, currency)}
-                </text>
+                {/*
+                  The gridline is always drawn and the word is not. A tick whose
+                  label would sit on top of one of the frame's own two figures
+                  gives the word up and keeps the rule, so the scale's spacing is
+                  never what a collision changes.
+                */}
+                {labelled.has(value) ? (
+                  <text
+                    x={VIEW.pad.left - PRICE_GAP}
+                    y={yOf(value, span, VIEW) + 4}
+                    className={`${styles.axis} ${styles.tagEnd}`}
+                  >
+                    {formatMoney(value, currency)}
+                  </text>
+                ) : null}
               </g>
             ))}
+
+        {/*
+          The two ends of this frame's own price axis, stated as figures.
+
+          **Outlined plates, where the crosshair's plate is filled.** Both are
+          saying "this is a price somebody could pay", which is the vocabulary
+          the margin already has and the reason these are plates rather than two
+          more ticks — a tick is a scale and `niceTicks` explains at length why
+          this axis's scale must not be made of quotes. What separates them is
+          permanence: these two are a property of the frame and stand whether
+          anyone is pointing at it, so they are drawn hollow and the plate under
+          the reader's hand stays the solid one. Filled, a reader would see three
+          crosshair plates and no crosshair.
+
+          Drawn at the fare's own height, never at the padded end of the domain.
+          That is the whole of what keeps them honest: $119.76 is printed level
+          with the dot that costs $119.76, and the figure nobody was ever quoted
+          — the $97.84 the domain actually starts at — is printed nowhere.
+        */}
+        {span === null
+          ? null
+          : endPlates.map((end) => {
+              const y = clampToTrack(
+                yOf(end.value, span, VIEW),
+                TAG.height,
+                VIEW.pad.top,
+                PLOT_BOTTOM,
+              );
+              const tag = priceAxisTag(VIEW.pad.left - PRICE_GAP, formatMoney(end.value, currency));
+              return (
+                <g key={end.key} data-testid={`axis-end-${end.key}`}>
+                  <rect
+                    x={tag.x}
+                    y={y}
+                    width={tag.width}
+                    height={TAG.height}
+                    rx={3}
+                    className={styles.endPlate}
+                  />
+                  <text
+                    x={tag.textX}
+                    y={y + TAG.baseline}
+                    className={`${styles.endText} ${ANCHOR[tag.anchor]}`}
+                  >
+                    {formatMoney(end.value, currency)}
+                  </text>
+                </g>
+              );
+            })}
 
         {/* A midnight between two dates, so the frame reads as dates and not as a smear. */}
         <g clipPath={`url(#${clip})`}>
@@ -1501,6 +1672,96 @@ export function DepartureChart({
           {rings}
         </g>
 
+        {/*
+          What this pair usually costs, across the frame that is drawn to its own
+          scale — the one fixed thing on a chart where everything else is
+          relative.
+
+          **The dash is the channel, and it is a rhythm rather than a length.**
+          Every other broken line in this feature repeats one mark: the seam is
+          2-3, the crosshair 3-3, the provider's baseline on chart A 5-4, the
+          cheapest-of-date line 6-4. This one alternates a dot and a dash, 1-4-7-4,
+          which is a different *kind* of line rather than a longer or shorter one
+          — it is the one pattern on the page that cannot be mistaken for the
+          provider's baseline by a reader who is shortening or lengthening dashes
+          in their head, and it survives being seen with no colour at all. The
+          owner has a red-green deficiency; this is `a-reachable-mark-is-smaller-
+          as-well-as-brighter`'s rule applied to a rule instead of to a dot.
+
+          Two solid serifs at its ends, which no other line here carries, so the
+          rule is identifiable even where the cloud is dense enough to swallow a
+          dash or two.
+
+          Outside the zoom's clip on purpose. It is a fact about the pair rather
+          than about a stretch of the frame, so it runs the whole track at every
+          zoom, exactly as the price gridlines do.
+
+          **Painted after the cloud and before the crosshair, and that order was
+          measured rather than chosen.** Drawn with the gridlines, which is where
+          it began, the plate carrying the figure sits *under* the cheapest-of-
+          date rings — on AEP–SCL's March frame at the owner's window the ring on
+          the 30th crossed it and `$161.30` was four glyphs and two circles. The
+          rule is 1.4 units and hides nothing; the plate hides two dots at the far
+          right of a frame that is 300 wide, which is the trade. The crosshair
+          still paints last, so a reading under the reader's hand is never behind
+          anything.
+        */}
+        {referenceAt === null ? null : (
+          <g
+            className={styles.reference}
+            data-testid="pair-reference"
+            data-fall={referenceAt.fall}
+            aria-hidden="true"
+          >
+            <line
+              x1={LEFT}
+              x2={RIGHT}
+              y1={referenceAt.y}
+              y2={referenceAt.y}
+              className={styles.referenceLine}
+              data-testid="pair-reference-line"
+            />
+            <line x1={LEFT} x2={LEFT} y1={referenceAt.y - 3} y2={referenceAt.y + 3} />
+            <line x1={RIGHT} x2={RIGHT} y1={referenceAt.y - 3} y2={referenceAt.y + 3} />
+            {/*
+              The figure, on a plate at the right end of the rule rather than in
+              the margin. The margin now holds three price plates already and a
+              fourth would be a column of money nobody could tell apart; here it
+              is unambiguously *this line's* number, and the right end is the one
+              the cheapest-of-date line is least often near.
+            */}
+            <rect
+              x={RIGHT - referenceTag.width}
+              y={referenceAt.y - TAG.height / 2}
+              width={referenceTag.width}
+              height={TAG.height}
+              rx={3}
+              className={styles.tag}
+            />
+            <text
+              x={RIGHT - 5}
+              y={referenceAt.y - TAG.height / 2 + TAG.baseline}
+              className={`${styles.tagText} ${styles.tagEnd}`}
+              data-testid="pair-reference-price"
+            >
+              {formatMoney(referenceAt.value, currency)}
+            </text>
+            {/*
+              A frame that is entirely on one side of the line: the rule is on a
+              rail and the triangle says which way it kept going. Without it a
+              line flush against the floor is indistinguishable from a pair
+              median that happens to equal the cheapest fare on screen.
+            */}
+            {referenceAt.fall === 'inside' ? null : (
+              <polygon
+                data-testid="pair-reference-off"
+                className={styles.offFrame}
+                points={offFramePoints(referenceAt.fall, referenceAt.y)}
+              />
+            )}
+          </g>
+        )}
+
         {hair ? (
           /*
             A reading that looked the same pinned and unpinned would be the
@@ -1613,7 +1874,7 @@ export function DepartureChart({
         anchor — which carries its own name and says something the status
         sentence does not.
       */}
-      <p className={styles.readout} ref={readout}>
+      <p className={styles.readout} ref={readout} data-testid="departure-readout">
         {/*
           The word, in the row the reader is actually reading. It goes first
           because it changes how everything after it should be read: what
@@ -1763,6 +2024,28 @@ export function DepartureChart({
         >
           <i /> Cheapest of date
         </span>
+        {/*
+          The one entry here that carries a date, and it has to.
+
+          Every other name in this row is a permanent fact about the vocabulary;
+          this one names a figure that is worked out afresh every time the page
+          is read, so the row says *when*. It is why two screenshots of this
+          chart taken weeks apart are not comparable — the rule in them is not
+          the same rule — and the date is the only thing on screen that admits
+          it. Freezing the figure is a one-line change once there are months of
+          archive behind it; until then a fixed line would be a fixed piece of
+          this week's noise.
+
+          Rendered whether or not the frame's own scale reaches it, like every
+          entry beside it: a legend that came and went as the reader stepped
+          across months would move the whole panel under them.
+        */}
+        <span
+          className={styles.keyReference}
+          title="What this city pair usually costs — the median cheapest fare of every departure date in its archive, worked out afresh each time this page is read"
+        >
+          <i /> {reference === null ? 'Pair median' : referenceLegend(reference)}
+        </span>
         <span
           className={styles.keySpan}
           title="One price for a whole date — no departure time, so it spans the date"
@@ -1828,6 +2111,29 @@ export function DepartureChart({
 }
 
 /* ------------------------------------------------------------- the helpers -- */
+
+/**
+ * The triangle that says the pair median kept going past the rail it is drawn
+ * on, and which way.
+ *
+ * Inside the plot rather than hanging off it. Below the floor is the rail where
+ * a departure date with no answer of any kind is marked, and a triangle down
+ * there would be a mark in the row that means "nothing collected"; above the
+ * ceiling there is no room at all. So it sits against the line on the plot side,
+ * pointing the way the figure went — the tip is further from the line's own side
+ * than the base, which is what makes it read as an arrow rather than as a
+ * bracket.
+ *
+ * At the left end, where the rule's own serif already is, so the two marks are
+ * read together and the plate at the right end is left alone.
+ */
+function offFramePoints(fall: ReferenceFall, y: number): string {
+  const x = LEFT + 14;
+  const half = OFF_FRAME_MARK / 2 + 1;
+  const tip = fall === 'below' ? y - 1 : y + 1;
+  const base = fall === 'below' ? tip - OFF_FRAME_MARK : tip + OFF_FRAME_MARK;
+  return `${x} ${tip} ${x - half} ${base} ${x + half} ${base}`;
+}
 
 /**
  * The visible stretch in words, for the reader who is not looking at the plot.
@@ -1984,6 +2290,9 @@ function accessibleTail(
   marks: CurveMark[],
   currency: string,
   caption: string,
+  ends: { low: number; high: number } | null,
+  reference: PairReference | null,
+  fall: ReferenceFall | null,
 ): string {
   const prices = marks.flatMap((mark) => (mark.price === null ? [] : [mark.price]));
   const said = summary(source, flights, marks);
@@ -1991,7 +2300,20 @@ function accessibleTail(
     prices.length === 0
       ? ''
       : ` The dates beyond the watched month run ${formatMoney(Math.min(...prices), currency)} to ${formatMoney(Math.max(...prices), currency)}.`;
-  return `${said} departing ${caption}.${range}`;
+  /*
+   * The two figures the axis prints, in words — because the axis prints them at
+   * two heights and a height is exactly what this reader does not have. Said
+   * here rather than in a live region for the same reason the frame's dates are:
+   * it changes when the frame does and not when a hand moves, so it belongs to
+   * the chart's name and not to a running commentary.
+   */
+  const axis =
+    ends === null
+      ? ''
+      : ` This frame runs ${formatMoney(ends.low, currency)} to ${formatMoney(ends.high, currency)}.`;
+  const typical =
+    reference === null || fall === null ? '' : ` ${referenceSentence(reference, fall, currency)}`;
+  return `${said} departing ${caption}.${range}${axis}${typical}`;
 }
 
 /**

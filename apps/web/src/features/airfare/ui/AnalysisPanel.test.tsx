@@ -160,9 +160,16 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
 }
 
 beforeEach(() => {
-  // jsdom measures every element as 0x0 and both charts divide a client
-  // coordinate by the measured width. Given a box the size of the viewBox, a
-  // clientX is a view unit.
+  // jsdom measures every element as 0x0 and both charts convert a client
+  // coordinate into their own viewBox before reading anything from it. A
+  // clientX is a view unit only where the box shares the drawing's aspect
+  // ratio, or where the drawing letterboxes inside it — `preserveAspectRatio`
+  // centres a drawing it has to scale, and the bars either side are not part of
+  // the plot. This box is 760×300, which letterboxes chart A's 760×284 with no
+  // horizontal bars at all, and that is the only chart this file points at. It
+  // pillarboxes chart B's 760×338 by 42.7 units a side, so a test that moved a
+  // pointer over chart B here would have to place it as the browser paints it,
+  // the way 'a box the drawing does not fill' does in `DepartureChart.test.tsx`.
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
     x: 0,
     y: 0,

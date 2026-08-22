@@ -52,8 +52,12 @@ export default defineConfig({
      * any test noticing. `MoneyWeekChart.module.css` is the seventh and the
      * same case as `Positions`: how many month boxes sit in a row and how many
      * week cards sit across a month are two track counts in that file, and
-     * jsdom lays out neither. Scoped to these files so no other suite changes
-     * behaviour.
+     * jsdom lays out neither. `SegmentSummary.module.css` is the eighth, for
+     * the third track count in the same panel, and `GreenlightPage.module.css`
+     * came with it: the height that panel reserves for the first two segment
+     * cards is arithmetic over lengths that live in `SegmentSummary`, and a
+     * reserve computed from another file's font sizes drifts the moment either
+     * moves. Scoped to these files so no other suite changes behaviour.
      */
     css: {
       include: [
@@ -64,6 +68,8 @@ export default defineConfig({
         /RouteMap\.module\.css/,
         /RouteDetail\.module\.css/,
         /MoneyWeekChart\.module\.css/,
+        /SegmentSummary\.module\.css/,
+        /GreenlightPage\.module\.css/,
         /styles\/tokens\.css/,
       ],
     },

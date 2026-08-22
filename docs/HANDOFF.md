@@ -122,6 +122,29 @@ drop `.weekValue` to about 0.52rem, take the marker gutter from 0.7rem to
 0.5rem, or go back to two months a row. `moneyWeekGrid.test.ts` holds the
 arithmetic and will go red on the first two.
 
+**The two grids in the Weeks panel are held to the same breakpoints on
+purpose, and only a test says so.** Since `three-fee-cards-to-a-row` (S.48) the
+month boxes and the fee cards below them both fold three → two → one at 1486px
+and 1116px. Those two widths are derived from the _month_ grid's floor
+(`moneyWeekGrid.test.ts`); the fee card's own floor is only reached at 1375.8px,
+so it is following a fold it does not need yet. That is deliberate — both grids
+sit inside the one panel and disagreeing about how many columns a row has reads
+as a bug — but nothing in `SegmentSummary.module.css` forces it except a comment
+and one assertion in `segmentGrid.test.ts` comparing the two files' `@media`
+lists. Retune the month grid and that assertion goes red, which is the intent;
+retune it and _silence_ the assertion and the two grids drift apart at a width
+nobody looks at.
+
+**A fee card has more room than its sizing claims, and that is the safe
+direction.** The ledger is sized for a ten-character figure (`$12,345.67`,
+grouped, because `formatMoney` follows the reader's locale). Measured at the
+owner's window the card actually holds fourteen: 322.4px inside its padding,
+less the 135px `Fee (under min)` needs and the 8px gap, is 179.4px, and a
+character at 1.05rem is 12.6px. The archive's largest segment today is
+$6,451.32. So unlike the week card — which is genuinely tight, see the entry
+above — nothing here is near its limit, and the ten-character figure is what
+sets the _breakpoints_ rather than what sets the owner's view.
+
 **Greenlight's section of the plan is stale, and this branch did not fix it.**
 Noted while adding S.45. `docs/IMPLEMENTATION_PLAN.md` still says
 `Replace modes: all + current-month` where the code has said `'all' | 'weeks'`

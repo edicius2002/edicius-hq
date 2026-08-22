@@ -136,10 +136,10 @@ tail clip, which is a claim about what chart B is _for_ and has not been made.
 Recorded because a reader who says "the line is too low" is not describing a bug
 in the line.
 
-**Nothing on this archive is ever `above` the line.** 34 of the 245 frames chart
+**Nothing on this archive is ever `above` the line.** 38 of the 406 frames chart
 B can currently draw put the reference outside the plot and every one of them is
-`below` — LIM-SCL's 30 March day frames and 4 of its week frames, plus 4 AEP-SCL
-day frames. The `above` branch (a frame whose dearest fare is cheaper than the
+`below` — 34 day frames and 4 week frames, no month frame at all. LIM-SCL owns
+30 of the day frames and all 4 week ones; AEP-SCL owns the other 4 days. The `above` branch (a frame whose dearest fare is cheaper than the
 pair median) is proved by unit test and by nothing else, because a pair median is
 by construction the middle of the cheapest-per-date figures and a whole board
 under it is rare. It will happen; it has not yet.

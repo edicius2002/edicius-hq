@@ -8,8 +8,8 @@ import { fetchFareSpend, type FareSpend } from '@/shared/api/fares';
  * A minute, and it is chosen against two numbers. The scheduler this exists for
  * runs a pass every **fifteen** minutes, so a minute is four readings inside the
  * quietest gap and a reader watching sees a pass land within one of them. And
- * the call is ~200 bytes off a local file of at most `ceiling` short lines with
- * no upstream anywhere in it — which is what makes a timer defensible here and
+ * the call is ~200 bytes off a local file of one short line per request sent
+ * today, with no upstream anywhere in it — which is what makes a timer defensible here and
  * not on `/history`, where the same habit would have cost 21 MB a pass.
  */
 const SPEND_POLL_MS = 60_000;

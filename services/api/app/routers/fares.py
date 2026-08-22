@@ -55,13 +55,19 @@ MAX_COLLECT_MONTHS = 12
 # person in between — a limit imposed by how long a `fetch` waits, on a pass
 # that no longer makes anyone wait.
 #
-# What bounds a pass now is `daily_request_budget()`, which `collect_due` falls
-# back to and which is what the bound should always have been. It is a **day's**
-# ceiling and is spent as one: `app.services.fare_budget` keeps the running
-# total on disk, so a press that arrives after the day is gone polls nothing and
-# says so on the row, and a press early in a quiet day still buys the whole
-# watchlist. That budget covers the calendar pass below as well — one address,
-# one day, one number.
+# What replaced it was `daily_request_budget()` — a **day's** ceiling rather
+# than a pass's, spent as one, with `app.services.fare_budget` keeping the
+# running total on disk. That is still the mechanism and it still covers the
+# calendar pass below, one address and one day; what changed is that the ceiling
+# defaults to none, so a press buys the whole watchlist whenever it arrives and
+# only an environment that sets a number brings back the day where it does not.
+#
+# So no count bounds a press. What does is the pacing and the pass lock, neither
+# of which this endpoint can talk its way past: a press that arrives while a
+# scheduled pass is running is told so and sends nothing, and one that gets
+# through sends its requests three seconds apart like any other pass. Both are
+# in `fare_budget`, which is also where the case for the count going away is
+# argued against what those two actually protect.
 
 _client: httpx.AsyncClient | None = None
 
@@ -1228,10 +1234,12 @@ class SpendResponse(BaseModel):
     both available. Neither is here. A per-route table is as long as the
     watchlist and is a second watchlist on a page that already has one; the file
     is where somebody actually tuning a cadence should look, and it says so in
-    `RequestLedger.spend`. What survives is the four facts a reader can act on —
-    how much, out of what, how much is left, and when the day turns over — plus
-    the split between boards and calendars, which is the one breakdown that says
-    *which half* of the collector to go and look at.
+    `RequestLedger.spend`. What survives is the facts a reader can act on — how
+    much, out of what and how much is left where anything says so, and when the
+    day turns over — plus the split between boards and calendars, which is the
+    one breakdown that says *which half* of the collector to go and look at. Two
+    of those four went optional when the ceiling did, and the shape did not
+    otherwise move.
     """
 
     #: The day these figures are about, `YYYY-MM-DD`, in **UTC** — the ledger
@@ -1242,21 +1250,27 @@ class SpendResponse(BaseModel):
     #: a client that knows the zone; sent rather than left to be guessed.
     resetsAt: str
     #: Requests recorded today, or `null` when the ledger cannot be read.
-    #: **`null` is not zero.** A day whose spend cannot be established is one the
-    #: collector treats as fully spent — fail closed — so nothing will collect
-    #: until it can be read, and a client that renders `null` as `0` would be
-    #: drawing a quiet morning over a stopped collector.
+    #: **`null` is not zero.** A client that renders it as `0` would be drawing a
+    #: quiet morning over a collector whose own record of itself is broken —
+    #: and, where a `ceiling` is set, over a stopped one, because an unknown day
+    #: is treated as fully spent and nothing will collect until it can be read.
     spent: int | None
-    #: The day's ceiling. **A judgement, not a measured limit** — `config.py`
-    #: says so outright, and `busiestOnRecord` is what it should be read against.
-    ceiling: int
-    #: What a pass starting now could still spend. Zero on an unreadable ledger,
-    #: which is `DailyBudget`'s own answer rather than a second opinion.
-    remaining: int
-    #: The most this address has ever sent in one day, measured. It travels with
-    #: the ceiling because the ceiling on its own invites a percentage, and a
-    #: percentage of a number nobody has verified is a claim about safety that
-    #: nothing supports.
+    #: The day's ceiling, or `null` when there is none — **which is the
+    #: default**. Never zero, and `null` must not be rendered as one: no ceiling
+    #: means every due departure is polled, the opposite of a day with nothing
+    #: left. `config.py` records why a count nobody had measured stopped
+    #: bounding a pass, and what does bound one instead.
+    ceiling: int | None
+    #: What a pass starting now could still spend, or `null` when no ceiling
+    #: leaves anything to be left of. Zero on an unreadable ledger under a
+    #: ceiling, which is `DailyBudget`'s own answer rather than a second opinion.
+    remaining: int | None
+    #: The most this address has ever sent in one day, measured. **With no
+    #: ceiling this is the only number on the wire a reader can judge `spent`
+    #: against**, which is why it is sent unconditionally. It is a high-water
+    #: mark and not a limit, and a client drawing it as one — a gauge, a
+    #: percentage, a bar that fills towards it — would be reinventing precisely
+    #: the unmeasured maximum that was removed.
     busiestOnRecord: int
     #: Requests by kind, largest first. Can sum to less than `spent`: the total
     #: is counted in lines and this is parsed, and a line a crash cut in half is
@@ -1279,8 +1293,8 @@ def get_spend() -> SpendResponse:
     that only moved while a stream was open would be freshest precisely when it
     mattered least.
 
-    It reads one file of at most `ceiling` short lines and touches no upstream,
-    which is what makes asking for it on a timer honest.
+    It reads one file of one short line per request sent today and touches no
+    upstream, which is what makes asking for it on a timer honest.
     """
     reading = read_spend()
     return SpendResponse(

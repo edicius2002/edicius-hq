@@ -567,26 +567,37 @@ export type FareSpend = {
    * Requests recorded today, or `null` when the ledger cannot be read.
    *
    * **`null` is not zero, and rendering it as zero is the one thing this field
-   * must never do.** A day whose spend cannot be established is one the
-   * collector treats as fully spent — it fails closed and refuses every
-   * departure — so a `0` here would draw a stopped collector as a quiet morning.
+   * must never do.** The day's figure is not known: a `0` would draw a quiet
+   * morning over a collector whose record of itself is broken — and, where a
+   * `ceiling` is set, over a stopped one, because an unknown day is treated as
+   * fully spent and nothing collects until the file can be read.
    */
   spent: number | null;
   /**
-   * The day's ceiling. **A judgement rather than a measured limit**: the API's
-   * own `config.py` says the real limit is how much this address can send
-   * before Google stops answering, which is unknown and deliberately unprobed.
-   * Anything drawn against it has to say so — see `busiestOnRecord`.
+   * The day's ceiling, or `null` when there is none — **which is the default**.
+   *
+   * `null` is not zero and is nearly its opposite: no ceiling means every due
+   * departure is polled, where zero would mean none is. The API's `config.py`
+   * records why the old 600 went: it was a judgement rather than a measured
+   * limit, the real limit is how much this address can send before Google stops
+   * answering, and that is unknown and deliberately unprobed — so a count
+   * nobody had measured no longer stops a pass, while the pacing and the
+   * one-pass-at-a-time lock that actually protect the address are untouched.
    */
-  ceiling: number;
-  /** What a pass starting now could still spend. Zero on an unreadable ledger. */
-  remaining: number;
+  ceiling: number | null;
+  /**
+   * What a pass starting now could still spend, or `null` when no ceiling
+   * leaves anything to be left of. Zero on an unreadable ledger under a ceiling.
+   */
+  remaining: number | null;
   /**
    * The most this address has ever sent in one day, measured at 329 from 494
    * heartbeat lines across four days.
    *
-   * It travels with the ceiling because the ceiling alone invites a percentage,
-   * and a percentage of a number nobody has verified is a claim about safety.
+   * **With no ceiling this is the only number here to judge `spent` against**,
+   * which is why it is always sent. It is a high-water mark and not a limit: a
+   * gauge, a percentage or a bar filling towards it would reinvent exactly the
+   * unmeasured maximum that was removed.
    */
   busiestOnRecord: number;
   /**

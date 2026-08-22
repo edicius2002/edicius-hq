@@ -150,34 +150,51 @@ MIN_POLL_MINUTES = 15
 # history Google gives away for free, which is already one point per day.
 MAX_POLL_MINUTES = 24 * 60
 
-# How many upstream requests one day may spend. This one is a judgement, not a
-# measurement: the endpoint is unmetered and the real limit is how much traffic
-# this address can send before Google stops answering, which is unknown and
-# deliberately unprobed — finding it costs exactly the asset it protects.
+# How many upstream requests one day may spend, and **by default there is no
+# such number**. `None` is the ceiling being off, not a ceiling of zero.
 #
-# 600, and it is a judgement sized against two measured numbers rather than a
-# round one picked twice. The owner's present watchlist costs **442 requests a
-# day** under the cadence table above — 430 boards and 12 calendar — so 300 does
-# not fit it and a ceiling that is already exceeded on the day it starts being
-# enforced is a ceiling nobody can turn on. And the most this address has ever
-# actually sent in a day is **329**, counted from 494 heartbeat lines across
-# four days, so 600 is 1.8x the busiest day on record. Between "covers what is
-# watched" and "stays inside touching distance of what has already been sent
-# without complaint", 600 is the smallest number that is both.
+# There was one and it was 600, sized against the owner's watchlist at 442
+# requests a day and against the busiest day this address has ever actually sent
+# — 329, which is the only measured figure in the pair and survives below as
+# `BUSIEST_DAY_ON_RECORD`. What settled it now is the sentence that has been at
+# the top of this note the whole time: the endpoint is unmetered, so the real
+# limit is how much traffic this address can send before Google stops answering,
+# and that number is unknown and deliberately unprobed. 600 was never that
+# number. It was a guess wearing the shape of one — and on 2026-08-22 a day
+# reached it, at which point the collector stopped, not because anything
+# upstream had objected but because we had agreed with ourselves in advance that
+# it would.
 #
-# It is enforced per **day** since `fare_budget`, which is what the name always
-# claimed: spend is accumulated in a ledger on disk and read back at the start
-# of every pass, so ninety-six passes share one 600 rather than taking one each.
-DEFAULT_DAILY_REQUEST_BUDGET = 600
+# So a bound nobody has measured no longer stops a pass. What still does is
+# real and is untouched: `REQUEST_GAP_SECONDS` paces every request three seconds
+# apart, `PassLock` allows one board pass and one calendar pass on this address
+# at a time, and the cadence table above is what decides that a far month is
+# looked at daily rather than half-hourly. Those bound the *rate*, which is what
+# an unmetered endpoint actually notices; the ceiling bounded a *count*, which
+# it never saw.
+#
+# **The ledger is not what was removed.** `fare_budget` still writes one line
+# per request before it leaves and `GET /api/fares/spend` still reads it back,
+# so the day's spend is as visible as it was — see `BUSIEST_DAY_ON_RECORD`. What
+# is gone is the refusal, not the record, which is the half that can tell us
+# what a busy day now costs. If a day's figure ever wants a stop put back on it,
+# `FARES_DAILY_REQUEST_BUDGET` takes a number and the whole enforcement returns
+# with it, by then sized against a day somebody has watched rather than against
+# this note.
+DEFAULT_DAILY_REQUEST_BUDGET: int | None = None
 
-# How long the day files under `fares/spend/` are kept. A day file is at most
-# `DEFAULT_DAILY_REQUEST_BUDGET` short lines — about 36 KB on a full day — and
-# nothing reads one after its own day, so what accumulates is a directory, not a
-# disk problem: 365 files a year, forever, none of them ever opened again.
+# How long the day files under `fares/spend/` are kept. A day file is one short
+# line per request — about 60 bytes, so a 600-request day is 36 KB — and nothing
+# reads one after its own day, so what accumulates is a directory, not a disk
+# problem: 365 files a year, forever, none of them ever opened again. It used to
+# be bounded by the ceiling above; with no ceiling it is bounded by the cadence
+# table and the three-second gap, which is 28,800 lines in the pathological case
+# of a pass that never stops sending and about 1.7 MB. Still a directory
+# problem rather than a disk one.
 #
 # **Ninety days, and this is the one bound in the airfare feature that is
 # neither measured nor a judgement about the upstream — it is a judgement about
-# us.** The two questions an old day file can answer are "what did those 600
+# us.** The two questions an old day file can answer are "what did a day's
 # requests go on", which is asked when tuning the cadence table or the calendar
 # windows, and "how much did this address send on the day something went wrong".
 # Both are questions about recent behaviour: the cadence table was settled on
@@ -195,14 +212,23 @@ DEFAULT_DAILY_REQUEST_BUDGET = 600
 SPEND_RETENTION_DAYS = 90
 
 # The most this address has ever sent in one day, counted from 494 heartbeat
-# lines across four days. A constant rather than a sentence inside the comment
-# above, because it is the only number in this pair that anything measured, and
-# it has a second reader now: `GET /api/fares/spend` puts it on the wire beside
-# the ceiling so that a page drawing the day's spend can mark where the busiest
-# real day fell. Without it a bar filling towards 600 reads as a fraction of a
-# safe maximum, and nobody knows that 600 is safe — the note above says so
-# outright, and a picture that quietly disagrees with its own configuration is
-# worse than no picture.
+# lines across four days. It was the measured number standing beside a chosen
+# one; with the chosen one gone it is **the only figure a reader has to judge
+# today's spend against**, which makes it more load-bearing than it was, not
+# less. `GET /api/fares/spend` puts it on the wire and the header prints it: 600
+# sent today means nothing on its own, and means something the moment it sits
+# next to the busiest day anybody has actually observed.
+#
+# It is a high-water mark and not a limit, and the page has to keep saying so.
+# The track that used to draw a fill against the ceiling is gone with the
+# ceiling — a bar needs an end, an unbounded day has none, and scaling one to
+# this number instead would turn the single measured fact on the strip into
+# exactly the invented maximum the ceiling stopped being.
+#
+# **Stale on purpose until somebody re-counts it.** It is dated evidence — four
+# days in August 2026, under a watchlist and a cadence table that have both
+# moved since — and the moment a day passes it without incident it is wrong.
+# Raising it is a measurement, not an edit: count the heartbeats.
 BUSIEST_DAY_ON_RECORD = 329
 
 # Cadence against how far away the departure is, as (days out, minutes between
@@ -225,9 +251,9 @@ DEFAULT_CADENCE_MINUTES: tuple[tuple[int, int], ...] = (
 # the table is what says it is enough: the months this covers are the far ones,
 # which moved on 22% of days by a median 1.7%, while the near month the reader
 # is actually watching is already collected board by board every half hour.
-# Measured 2026-08-19, this costs **2.43 requests per city pair per day** against
-# a budget of 600 — two windows, because the whole horizon in one request is
-# refused, plus the walk-back 12.245 added when a far end is refused too. The
+# Measured 2026-08-19, this costs **2.43 requests per city pair per day** — two
+# windows, because the whole horizon in one request is refused, plus the
+# walk-back 12.245 added when a far end is refused too. The
 # 2.43 rather than 2 is why the ledger counts requests and not looks: what a
 # calendar pass costs is not what it planned.
 CALENDAR_POLL_MINUTES = 24 * 60
@@ -241,17 +267,47 @@ CALENDAR_POLL_MINUTES = 24 * 60
 CALENDAR_REQUESTS_PER_PAIR = 2.43
 
 
-def daily_request_budget() -> int:
-    """
-    How many upstream requests a day may spend, floor of 1.
+#: What `FARES_DAILY_REQUEST_BUDGET` may be set to in order to say "no ceiling"
+#: out loud. `None` is already the default, so these exist for the environment
+#: that has a number in it and wants to turn it off without deleting the line —
+#: a `.env` under version control, a service unit, a scheduled task's argument
+#: list. `0` is here for the same reason and means the same thing: nobody sets a
+#: daily ceiling of zero, and reading it as one would silently stop a collector
+#: that was being asked to stop being stopped.
+NO_DAILY_REQUEST_BUDGET = frozenset({"0", "none", "off", "no", "unlimited", "-1"})
 
-    A ceiling and not a counter: what has been spent against it lives in
+
+def daily_request_budget() -> int | None:
+    """
+    How many upstream requests a day may spend, or `None` for no ceiling.
+
+    **`None` is the default and is not zero.** Every caller has to say which it
+    has: `DailyBudget.remaining` answers `None` rather than a number, and the
+    one thing no reader may do is treat that as an exhausted day. The type is
+    what enforces it, which is why this returns `int | None` rather than a very
+    large `int` — a sentinel of 10**9 would make every comparison below quietly
+    keep working and every one of them quietly meaningless.
+
+    A ceiling and not a counter: what has been spent lives in
     `app.services.fare_budget`, on disk, because the collector is a command a
     scheduler invokes fresh and anything held in memory here would start every
-    pass at zero.
+    pass at zero. That ledger is written whether or not there is a ceiling over
+    it — the count is the useful half and it always was.
+
+    An environment that sets a number gets the whole of the old enforcement
+    back, floor of 1: a positive ceiling that a pass can never fit under is
+    still a coherent instruction — poll nothing — where a ceiling of zero read
+    off a stray `0` is a collector stopped by a typo, so `0` is spelled in
+    `NO_DAILY_REQUEST_BUDGET` and means off. Anything unparseable falls back to
+    the default rather than guessing at a number, which is the same rule the
+    rest of this module follows.
     """
     raw = os.getenv("FARES_DAILY_REQUEST_BUDGET", "").strip()
+    if not raw:
+        return DEFAULT_DAILY_REQUEST_BUDGET
+    if raw.casefold() in NO_DAILY_REQUEST_BUDGET:
+        return None
     try:
-        return max(1, int(raw)) if raw else DEFAULT_DAILY_REQUEST_BUDGET
+        return max(1, int(raw))
     except ValueError:
         return DEFAULT_DAILY_REQUEST_BUDGET

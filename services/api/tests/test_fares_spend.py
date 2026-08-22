@@ -8,9 +8,16 @@ stopped answering, from an address 12.9 says cannot be replaced.
 
 Three of these tests are about the states nobody looks at until they happen: a
 day with no file, a day with an empty one, and a ledger that cannot be read at
-all. The last is the one that must not be rendered as a quiet morning — the
-collector treats it as a day fully spent and stops, so `spent` is `null` and
-`remaining` is zero, which are two different things said at once on purpose.
+all. The last is the one that must not be rendered as a quiet morning: `spent`
+is `null` because the figure is genuinely unknown, and under a configured
+ceiling `remaining` is `0` at the same time, because the collector treats an
+unknown day as fully spent and stops.
+
+**The ceiling is off by default, so `ceiling` and `remaining` are usually
+`null`** — see `config.py` for why a count nobody had measured stopped bounding
+a pass. `null` there is not zero and is close to its opposite: no ceiling means
+every due departure is polled. Both of the tests that pin the ceiling's own
+behaviour set the environment variable, which is the only way to have one now.
 
 Nothing here touches the network and nothing writes outside `tmp_path`;
 `conftest` points `LOCAL_DATA_DIR` at one for every test in the suite.
@@ -220,7 +227,7 @@ def test_a_kind_this_build_does_not_know_is_shown_rather_than_refused(tmp_path):
 # ---------------------------------------------------------------- the wire --
 
 
-def test_the_endpoint_answers_the_day_the_ceiling_and_the_busiest_real_day(tmp_path):
+def test_the_endpoint_answers_the_day_the_count_and_the_busiest_real_day(tmp_path):
     ledger, day = today_ledger()
     write_ledger(ledger, day, [board(), calendar(), calendar()])
 
@@ -231,29 +238,50 @@ def test_the_endpoint_answers_the_day_the_ceiling_and_the_busiest_real_day(tmp_p
     assert body["day"] == day.isoformat()
     assert body["resetsAt"].startswith((day + timedelta(days=1)).isoformat())
     assert body["spent"] == 3
-    assert body["ceiling"] == DEFAULT_DAILY_REQUEST_BUDGET
-    assert body["remaining"] == DEFAULT_DAILY_REQUEST_BUDGET - 3
     assert body["kinds"] == [
         {"kind": "calendar", "requests": 2},
         {"kind": "board", "requests": 1},
     ]
 
-    # The measured high-water mark travels with the ceiling, and is what stops a
-    # bar filling towards 600 from reading as a fraction of a safe maximum. 600
-    # is a judgement — `config.py` says so — and 329 is the only number in the
-    # pair anything measured.
+    # No ceiling by default, and `null` rather than a number nobody chose.
+    assert DEFAULT_DAILY_REQUEST_BUDGET is None
+    assert body["ceiling"] is None
+    assert body["remaining"] is None
+
+    # The measured high-water mark is sent whether or not there is a ceiling,
+    # and with none it is the only figure a reader can judge `spent` against.
     assert body["busiestOnRecord"] == BUSIEST_DAY_ON_RECORD == 329
-    assert body["busiestOnRecord"] < body["ceiling"]
 
 
 def test_the_endpoint_says_nothing_rather_than_zero_when_the_ledger_will_not_open(tmp_path):
+    """
+    `spent` is `null` and never `0`: the day's figure is unknown, which is not a
+    quiet morning. `remaining` is `null` too here, because with no ceiling there
+    is nothing for anything to be left of — under one it is `0`, which is the
+    collector failing closed and is the case below.
+    """
+    ledger, day = today_ledger()
+    ledger.path_for(day).mkdir(parents=True)
+
+    body = client.get("/api/fares/spend").json()
+    assert body["spent"] is None
+    assert body["remaining"] is None
+    assert body["kinds"] == []
+
+
+def test_an_unreadable_ledger_under_a_ceiling_still_reports_nothing_left(tmp_path, monkeypatch):
+    """
+    The fail-closed rule survives for the environments that configure a ceiling:
+    a day whose spend cannot be established is treated as fully spent, because
+    guessing low is the one guess that spends the asset.
+    """
+    monkeypatch.setenv("FARES_DAILY_REQUEST_BUDGET", "120")
     ledger, day = today_ledger()
     ledger.path_for(day).mkdir(parents=True)
 
     body = client.get("/api/fares/spend").json()
     assert body["spent"] is None
     assert body["remaining"] == 0
-    assert body["kinds"] == []
 
 
 def test_the_endpoint_answers_a_first_run_with_zero_rather_than_a_404(tmp_path):
@@ -265,7 +293,7 @@ def test_the_endpoint_answers_a_first_run_with_zero_rather_than_a_404(tmp_path):
     """
     body = client.get("/api/fares/spend").json()
     assert body["spent"] == 0
-    assert body["remaining"] == DEFAULT_DAILY_REQUEST_BUDGET
+    assert body["remaining"] is None
     assert body["kinds"] == []
     assert not (fares_dir() / "spend").exists()
 
@@ -279,3 +307,17 @@ def test_the_ceiling_on_the_wire_is_the_one_the_collector_will_use(monkeypatch):
     body = client.get("/api/fares/spend").json()
     assert body["ceiling"] == 120
     assert body["remaining"] == 120
+
+
+def test_a_ceiling_turned_off_by_name_reads_as_no_ceiling_rather_than_zero(monkeypatch):
+    """
+    An environment with the variable already in it turns the ceiling off by
+    setting a word rather than by deleting the line. `0` is the dangerous one:
+    read as a number it would stop the collector dead, so it means off like the
+    rest — nobody sets a daily ceiling of zero.
+    """
+    for spelling in ("0", "off", "none", "unlimited", "-1", "OFF"):
+        monkeypatch.setenv("FARES_DAILY_REQUEST_BUDGET", spelling)
+        body = client.get("/api/fares/spend").json()
+        assert body["ceiling"] is None, spelling
+        assert body["remaining"] is None, spelling

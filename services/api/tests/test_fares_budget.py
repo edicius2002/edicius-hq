@@ -631,6 +631,116 @@ def test_a_declined_pass_reports_rather_than_raising(tmp_path):
     assert planned == [(0, report.skipped)]
 
 
+# --------------------------------------------- a forced press meets them both --
+#
+# `a-press-collects-the-month-it-is-on` lets one reader overrule the cadence for
+# one route-month. It lets them overrule nothing else, and these are the two
+# things it must not be able to reach: the day's ledger and the pass lock. Both
+# are asserted by counting what left the address rather than by reading the
+# report, because the report is what would be believed if it were wrong.
+
+
+def a_forced_month(tmp_path, *, lock=None, ledger=None, ceiling=600):
+    """One route-month, forced, against a transport that counts what reaches it."""
+    history = FareHistory(tmp_path / "fares")
+    page = read_fixture(BOARD)
+    sent: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, text=page)
+
+    async def run():
+        async with transport(answer) as client:
+            return await collect_due(
+                [FareWatch("LIM", "SCL", "2026-10")],
+                now=NOW,
+                budget=ceiling,
+                history=history,
+                client=client,
+                gap_seconds=0,
+                ledger=ledger if ledger is not None else RequestLedger(tmp_path / "spend"),
+                lock=lock,
+                force=True,
+            )
+
+    return asyncio.run(run()), sent
+
+
+def test_a_forced_press_on_a_spent_day_polls_nothing_and_says_over_budget(tmp_path):
+    """
+    The reader may overrule the cadence. Nobody may overrule the day.
+
+    Six hundred of six hundred already sent, and a press that ignores the
+    schedule: thirty-one departures come back `over-budget` by name, the
+    transport is never reached, and the ledger is exactly where it was. That
+    last pair is what matters — a report saying `over-budget` while requests
+    went out anyway is the failure this exists to exclude, and only counting
+    what left the address can tell the two apart.
+
+    `over-budget` is also already a word the row renders verbatim, so nothing on
+    the web had to learn a new refusal in order to say this.
+    """
+    ledger = RequestLedger(tmp_path / "spend")
+    for _ in range(600):
+        ledger.spend(TODAY, kind="board", what="earlier today")
+
+    report, sent = a_forced_month(tmp_path, ledger=ledger)
+
+    assert sent == []
+    assert report.results == []
+    assert sum(1 for _, reason in report.skipped if reason == "over-budget") == 31
+    assert ("LIM-SCL 2026-10-01", "over-budget") in report.skipped
+    assert ledger.spent(TODAY) == 600
+
+
+def test_a_forced_press_that_meets_a_running_pass_sends_nothing(tmp_path):
+    """
+    Being second is not an error, and a press cannot make it one.
+
+    The scheduled collector is a separate process holding a lock file, which is
+    the case `PassLock` exists for — the runner's single slot cannot see it. A
+    forced press that arrives then plans nothing, sends nothing, spends nothing
+    and names every departure `another-pass-is-running`, which is the same shape
+    and the same place in a report as `over-budget`.
+
+    The lock is taken here before the pass rather than inside it, so this is the
+    real ordering: the press loses the file, not a race inside one process.
+    """
+    scheduled = a_lock(tmp_path)
+    assert scheduled.acquire()
+    ledger = RequestLedger(tmp_path / "spend")
+
+    report, sent = a_forced_month(tmp_path, lock=a_lock(tmp_path), ledger=ledger)
+
+    assert sent == []
+    assert report.results == []
+    assert sum(1 for _, reason in report.skipped if reason == "another-pass-is-running") == 31
+    assert ledger.spent(TODAY) == 0
+
+    # And the press did not take the lock away from the pass that was holding it.
+    scheduled.release()
+    assert not a_lock(tmp_path).path.exists()
+
+
+def test_a_forced_press_that_gets_the_lock_gives_it_back(tmp_path):
+    """
+    The other side of the one above, so the decline is not bought with a wedge.
+
+    A forced pass is an ordinary pass in every respect but its plan: it takes
+    the lock, spends thirty-one requests against the day one line at a time, and
+    leaves the file gone behind it. Otherwise the next scheduled pass would
+    decline for five minutes because a reader pressed a button.
+    """
+    ledger = RequestLedger(tmp_path / "spend")
+    report, sent = a_forced_month(tmp_path, lock=a_lock(tmp_path), ledger=ledger)
+
+    assert len(sent) == 31
+    assert len(report.results) == 31 and report.skipped == []
+    assert ledger.spent(TODAY) == 31
+    assert not a_lock(tmp_path).path.exists()
+
+
 def test_a_declined_calendar_pass_names_its_pairs(tmp_path):
     """
     The whole-horizon pass declines the same way, per city pair.

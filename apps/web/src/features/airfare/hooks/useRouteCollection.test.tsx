@@ -244,7 +244,32 @@ describe('collecting one watched route from its own row', () => {
           currency: 'USD',
         },
       ],
+      force: true,
     });
+  });
+
+  it('asks for the month now rather than for whatever the cadence thinks is due', async () => {
+    /*
+     * `a-press-collects-the-month-it-is-on`, settling 12.212. The complaint it
+     * reproduced was a press at 21:04 after a pass at 14:41 answering
+     * `31 not-due`, which is 12.111 working as designed and is the wrong answer
+     * to give somebody who has just said they do not believe the last look.
+     *
+     * Asserted on the wire word rather than on an outcome, because that is the
+     * whole of what this side decides: the server refuses `force` with anything
+     * but one route, and the row is the only control that sends it.
+     */
+    const api = stubCollect();
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+    act(() => result.current.collect(LIM_CUZ));
+
+    await waitFor(() => expect(api.calls).toHaveLength(1));
+    const body = api.calls[0] as { routes: unknown[]; force: boolean };
+    expect(body.force).toBe(true);
+    // One route and one month, which is the bound the whole decision rests on:
+    // a forced press can cost thirty-one board requests and never sixty-two.
+    expect(body.routes).toHaveLength(1);
   });
 
   it('sends a city pair, a month and a currency, and no reading preference', async () => {
@@ -304,6 +329,59 @@ describe('collecting one watched route from its own row', () => {
 
     await waitFor(() => expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]));
     expect(api.calls).toHaveLength(1);
+  });
+
+  it('spends one month for five impatient presses, all the way to the end of the pass', async () => {
+    /*
+     * The hazard 12.212 named, and the reason it is worth its own test now that
+     * a press ignores the cadence.
+     *
+     * A forced press is roughly ninety seconds of paced requests behind a
+     * control that answers instantly, so a reader clicking again because
+     * nothing has visibly happened is the ordinary case. The guard has to hold
+     * for the whole pass and not just for the call: `release` runs when the
+     * pass **ends**, so `inFlight` is still set while the stream is delivering
+     * departures — which is exactly the window somebody clicks in.
+     *
+     * Five presses, spread across the press being answered and two progress
+     * frames arriving, and one call goes out. The sixth press after the pass
+     * has finished does start a second pass, and that is right: the reader has
+     * seen the outcome and asked again.
+     *
+     * This is the browser's guard. It is not what makes the change safe —
+     * a second tab defeats it — and the server's single pass slot is tested
+     * where it lives, in `test_five_impatient_presses_start_one_pass`.
+     */
+    stubPassInProgress(passRunning(LIM_CUZ));
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+
+    act(() => result.current.collect(LIM_CUZ));
+    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+
+    await act(async () => {
+      result.current.collect(LIM_CUZ);
+      streamed().emit('pass', passRunning(LIM_CUZ, { completed: 4 }));
+    });
+    act(() => result.current.collect(LIM_CUZ));
+    await act(async () => {
+      streamed().emit('pass', passRunning(LIM_CUZ, { completed: 9 }));
+      result.current.collect(LIM_CUZ);
+    });
+    act(() => result.current.collect(LIM_CUZ));
+
+    // One POST across all five, and the row never stopped saying it was busy.
+    const posts = (
+      globalThis.fetch as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
+    // And one stream, not five.
+    expect(FakeEventSource.opened).toHaveLength(1);
+
+    await act(async () => {
+      streamed().emit('pass', passOver(LIM_CUZ));
+    });
+    await waitFor(() => expect(result.current.collecting).toEqual([]));
   });
 
   it('files the outcome under the row that asked for it', async () => {

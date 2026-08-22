@@ -185,10 +185,15 @@ describe('what a row says after its own collection', () => {
 
   it('counts the skips by reason rather than naming thirty departures', () => {
     /*
-     * Since 12.111 a press runs the schedule, so a month already collected
-     * today comes back entirely skipped — and on a daily cadence that is the
-     * normal, healthy answer. It has to be said, and it has to be said in one
-     * line: thirty-one dates in a paragraph is a wall nobody reads.
+     * A month can still come back entirely skipped, and since
+     * `a-press-collects-the-month-it-is-on` the reasons that reach a press are
+     * different ones. The row's own press no longer meets `not-due` — it
+     * forces past the cadence, which is what settles 12.212 — but a scheduled
+     * pass reported through the same document does, and `departed`,
+     * `over-budget` and `another-pass-is-running` all still reach a press.
+     *
+     * Whatever the reason, it has to be said in one line: thirty-one dates in a
+     * paragraph is a wall nobody reads.
      */
     const line = describeCollection(
       LIM_CUZ,
@@ -206,6 +211,42 @@ describe('what a row says after its own collection', () => {
     );
     expect(line.ok).toBe(false);
     expect(line.text).toBe('Not collected: 2 not-due, 1 departed.');
+  });
+
+  it('says the two things a forced press can still be refused for, in the server’s own words', () => {
+    /*
+     * `a-press-collects-the-month-it-is-on` lets the reader overrule the
+     * cadence and nothing else. The day's ledger and the pass lock still stop a
+     * press, and both were deliberately not given a new vocabulary for it: the
+     * collector answers `over-budget` and `another-pass-is-running`, which are
+     * the words a scheduled pass has always used, so this line needed no branch
+     * to learn how to say them.
+     *
+     * Pinned here because "the word is already rendered" is the argument the
+     * server side leans on, and an argument that nothing checks is a guess.
+     */
+    const spent = describeCollection(
+      LIM_CUZ,
+      report({
+        collected: 0,
+        skipped: [
+          { what: 'LIM-CUZ 2026-10-17', reason: 'over-budget' },
+          { what: 'LIM-CUZ 2026-10-18', reason: 'over-budget' },
+        ],
+      }),
+      LOCALE,
+    );
+    expect(spent).toEqual({ ok: false, text: 'Not collected: 2 over-budget.' });
+
+    const second = describeCollection(
+      LIM_CUZ,
+      report({
+        collected: 0,
+        skipped: [{ what: 'LIM-CUZ 2026-10-17', reason: 'another-pass-is-running' }],
+      }),
+      LOCALE,
+    );
+    expect(second).toEqual({ ok: false, text: 'Not collected: 1 another-pass-is-running.' });
   });
 
   it('says what it declined even on a pass that also collected something', () => {

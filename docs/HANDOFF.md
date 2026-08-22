@@ -56,12 +56,29 @@ What is still open is the item above: **nothing is scheduled yet**, and creating
 the task is a decision for the owner rather than something an agent should do on
 their machine. Everything that was standing in the way of it is now closed.
 
-**Whether a manual press may override the cadence.** Recorded as open in 12.212.
-The recommendation from the measurement work: keep the cadence as the default and
-add a separately-named force. A press is now cheap to start and returns instantly,
-which makes it _easier_ to press and so more dangerous — one press is roughly a
-tenth of the day's budget, and since S.39 that budget is one the day is actually
-keeping, so a press spends against the scheduled passes rather than beside them.
+**Whether a manual press may override the cadence.** Answered — the owner decided
+on 2026-08-22 that it may, and more narrowly than 12.212 recommended:
+`a-press-collects-the-month-it-is-on`, S.43. The row's own press sends `force` and
+polls all thirty-one departures of that month; the cadence is untouched for the
+scheduled pass, the command line and any unflagged `POST /api/fares/collect`. No
+second control was built and the booking-horizon curve is deliberately not
+refreshed by it (`the-existing-press-is-the-one-that-changes`,
+`the-press-leaves-the-booking-horizon-alone`).
+
+12.212's cost figure was what turned out to be wrong rather than its worry:
+sixty-two requests is a whole-watchlist pass, and the control is a row's, so one
+press is at most thirty-one. The endpoint refuses `force` with more than one route
+so that stays true of any future client. The budget and the pass lock bind exactly
+as they did, checked by counting what reached the transport rather than by reading
+the report. The repeat press is stopped by `CollectionRunner`'s single slot and
+not by the browser: the disabled button and the in-flight ref help, and a second
+tab defeats both.
+
+What is left open under this heading is small, and named because nobody has wanted
+it yet: **there is no manual way to refresh a booking-horizon curve.** It is
+collected when a route is added and daily by the scheduled pass, and no control
+re-presses it. That was true before this branch and is a slightly sharper hole
+now, because the boards beside it can be refreshed on demand.
 
 **The table and the chart use different clocks.** The flight table groups rows by
 _observation_ date; the chart above it plots _departure_ date. On screen the

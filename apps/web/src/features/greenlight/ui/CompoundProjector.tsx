@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { useProjectorCapital } from '@/features/greenlight/hooks/useProjectorCapital';
 import {
   DEFAULT_ANNUAL_RATE,
   MONTHS_PER_YEAR,
@@ -56,25 +57,26 @@ function toCents(value: number | null): number | null {
 /**
  * What the net becomes if it is left to compound.
  *
- * Nothing here is stored — not the capital, not the rate. The Greenlight
- * document has import modes and a marker migration behind it, and putting two
- * new fields into that schema is a decision about the document rather than
- * about this section; a first version that forgets its rate on reload is the
- * smaller of the two costs. Left open in the handoff.
+ * **The capital is stored; the rate is not.** The handoff left that open, and
+ * the objection it left open with still stands in full: the Greenlight document
+ * carries import modes and a marker migration, and a CSV import rewrites weeks
+ * inside it, so a projector field has no business in that schema. What was
+ * missing was the third option — the field gets a key of its own, next to
+ * `finance-camera-views`, which is where this app already keeps the state that
+ * says *how* a document is being looked at rather than what the document says.
+ * See `useProjectorCapital` for who wins when the page's net and a stored
+ * capital disagree, and the decision log for why the rate did not come along.
  */
 export function CompoundProjector({ capital, currency = 'USD' }: CompoundProjectorProps) {
   /*
-   * Null until the reader types, and the field follows the page's net until
-   * then. An effect that seeded the field once would have to guess when the net
-   * has "arrived" — it is null while the document is loading and a real 0 for a
-   * document with no rows — and would then have to decide whether a later net
-   * overwrites what somebody had already typed. Deriving it answers both: the
-   * page's figure while nobody has an opinion, the reader's the moment they do.
+   * The page's net, ready to be written into a field, and the fallback rather
+   * than the value: it is what the field shows while nobody has an opinion, and
+   * `useProjectorCapital` decides when that is still true.
    */
-  const [typedCapital, setTypedCapital] = useState<string | null>(null);
+  const netText = amountToInput(toCents(capital));
+  const { capitalText, setCapitalText } = useProjectorCapital(netText);
   const [rateText, setRateText] = useState(amountToInput(DEFAULT_ANNUAL_RATE));
 
-  const capitalText = typedCapital ?? amountToInput(toCents(capital));
   const capitalValue = parseAmount(capitalText) ?? 0;
   const rateValue = parseAmount(rateText) ?? 0;
 
@@ -103,7 +105,7 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
               inputMode="decimal"
               autoComplete="off"
               value={capitalText}
-              onChange={(event) => setTypedCapital(event.target.value)}
+              onChange={(event) => setCapitalText(event.target.value)}
             />
           </label>
           <label className={styles.field} htmlFor="compound-rate">

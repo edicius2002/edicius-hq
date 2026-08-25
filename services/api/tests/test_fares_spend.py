@@ -85,6 +85,49 @@ def test_a_day_is_counted_and_split_by_what_it_went_on(tmp_path):
     assert [(kind.kind, kind.requests) for kind in reading.kinds] == [("board", 3), ("calendar", 1)]
 
 
+def test_a_day_of_both_shapes_reads_as_one_day(tmp_path):
+    """
+    **The 952 lines already written, beside the ones written since.**
+
+    A spend line now carries `gap` and `passId`, and the lines on disk from
+    before it did carry neither. This is the reader that would break if the new
+    fields were ever treated as required: the endpoint the page polls, through
+    `read_spend`, which reaches `kind` with `.get` and counts through
+    `RequestLedger.spent`. The mixed file is the real case rather than a
+    contrived one — the day the field arrives has old lines above it and new
+    ones below, and `useFareSpend` is holding the answer either way.
+    """
+    ledger = RequestLedger(tmp_path)
+    write_ledger(
+        ledger,
+        DAY,
+        [
+            board(),
+            calendar(),
+            {**board(), "gap": 1.75, "passId": "0123456789ab"},
+            {**calendar(), "gap": 3.0, "passId": "0123456789ab"},
+        ],
+    )
+
+    reading = read_spend(ledger=ledger, ceiling=600, now=NOON)
+    assert reading.spent == 4
+    assert reading.remaining == 596
+    assert [(kind.kind, kind.requests) for kind in reading.kinds] == [("board", 2), ("calendar", 2)]
+
+    # And through the endpoint the page actually reads, because the shape of the
+    # wire is what `useFareSpend` is written against and nothing on it moved.
+    body = client.get("/api/fares/spend").json()
+    assert set(body) == {
+        "day",
+        "resetsAt",
+        "spent",
+        "ceiling",
+        "remaining",
+        "kinds",
+        "busiestOnRecord",
+    }
+
+
 def test_the_day_rolls_over_in_utc_and_says_when(tmp_path):
     """
     The ledger names its file after the **UTC** date, so the roll is not the

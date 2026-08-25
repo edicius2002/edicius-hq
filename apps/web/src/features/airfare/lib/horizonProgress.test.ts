@@ -15,7 +15,7 @@ import type { CalendarCollectResponse } from '@/shared/api/fares';
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  month: '2027-03',
+  months: ['2027-03'],
   currency: 'USD',
 };
 
@@ -90,7 +90,7 @@ describe('how far a booking-horizon pass has got', () => {
   });
 
   it('matches on the city pair and not on the month, because a curve has none', () => {
-    const april: FareRoute = { ...LIM_SCL, month: '2027-04' };
+    const april: FareRoute = { ...LIM_SCL, months: ['2027-04'] };
     expect(horizonProgress(april, pass())).not.toBeNull();
   });
 });

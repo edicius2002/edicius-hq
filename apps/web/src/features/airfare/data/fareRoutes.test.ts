@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addRoute,
+  collectableMonths,
+  collectableMonthsOf,
+  collidesWith,
+  editRoute,
+  formatFlightMonths,
+  monthHasDeparted,
+  openingMonth,
+  plannedRequests,
+  readingMonth,
   hasDeparted,
   collectableYears,
   EMPTY_FARE_ROUTES,
@@ -23,7 +32,7 @@ import {
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  month: '2026-10',
+  months: ['2026-10'],
   currency: 'USD',
 };
 
@@ -106,9 +115,9 @@ describe('normalizeFareRoutes', () => {
     const { routes } = normalizeFareRoutes({
       routes: [
         { origin: 'LIMA', destination: 'SCL', month: '2026-10' },
-        { origin: 'LIM', destination: 'LIM', month: '2026-10' },
+        { origin: 'LIM', destination: 'LIM', months: ['2026-10'] },
         { origin: 'LIM', destination: 'SCL', month: 'soon' },
-        { origin: 'LIM', destination: 'SCL', month: '2026-13' },
+        { origin: 'LIM', destination: 'SCL', months: ['2026-13'] },
         { origin: 'LIM', destination: 'SCL' },
         null,
         LIM_SCL,
@@ -117,12 +126,95 @@ describe('normalizeFareRoutes', () => {
     expect(routes).toEqual([LIM_SCL]);
   });
 
-  it('keeps two months for one city pair as two separate watches', () => {
+  it('merges two months of one city pair into one watch', () => {
+    /*
+     * The inversion — `a-watch-is-a-pair-and-its-months`. This asserted the
+     * opposite, and the sentence under it ("the price of a city pair is not a
+     * thing; the price of a month of it is") is still true and is not what was
+     * wrong. What was wrong was making the unit of *reading* the unit of
+     * *identity*: two months of one pair are two things to read and one thing
+     * to watch, and the document is the watch.
+     */
     const { routes } = normalizeFareRoutes({
-      routes: [LIM_SCL, { ...LIM_SCL, month: '2026-12' }],
+      routes: [LIM_SCL, { ...LIM_SCL, months: ['2026-12'] }],
     });
-    // The price of a city pair is not a thing; the price of a month of it is.
-    expect(routes).toHaveLength(2);
+    expect(routes).toEqual([{ ...LIM_SCL, months: ['2026-10', '2026-12'] }]);
+  });
+
+  it('gives a merged route the position of the first entry for its pair', () => {
+    /*
+     * Order is not decoration: the collector spends its budget down the list. A
+     * later duplicate is a row the reader never promoted, so folding it in must
+     * not move the row that holds the place.
+     */
+    const { routes } = normalizeFareRoutes({
+      routes: [
+        LIM_SCL,
+        { ...LIM_SCL, destination: 'MAD' },
+        { ...LIM_SCL, months: ['2026-12'], currency: 'PEN' },
+      ],
+    });
+    expect(routes.map((route) => route.destination)).toEqual(['SCL', 'MAD']);
+    expect(routes[0].months).toEqual(['2026-10', '2026-12']);
+    // And the currency comes from the entry that held the place, because a
+    // currency is a property of the pair and one row cannot honour two.
+    expect(routes[0].currency).toBe('USD');
+  });
+
+  it('sorts months ascending however the document listed them', () => {
+    const { routes } = normalizeFareRoutes({
+      routes: [{ ...LIM_SCL, months: ['2026-12', '2026-10', '2026-11'] }],
+    });
+    expect(routes[0].months).toEqual(['2026-10', '2026-11', '2026-12']);
+  });
+
+  it('reads every month an entry states, in all three shapes at once', () => {
+    /*
+     * A union rather than a fallback chain, and the departure from the focus
+     * migration's idiom is deliberate: there one key superseded another, here
+     * they are the same fact written by two generations of this app and a
+     * hand-edited document can carry both.
+     */
+    const { routes } = normalizeFareRoutes({
+      routes: [
+        {
+          origin: 'LIM',
+          destination: 'SCL',
+          months: ['2026-12'],
+          month: '2026-10',
+          flightDate: '2026-11-17',
+          currency: 'USD',
+        },
+      ],
+    });
+    expect(routes[0].months).toEqual(['2026-10', '2026-11', '2026-12']);
+  });
+
+  it('keeps the readable months of an entry and drops only the rest', () => {
+    const { routes } = normalizeFareRoutes({
+      routes: [{ ...LIM_SCL, months: ['2026-10', 'soon', '2026-13'] }],
+    });
+    expect(routes[0].months).toEqual(['2026-10']);
+  });
+
+  it('falls back to the older keys when `months` is not a list', () => {
+    const { routes } = normalizeFareRoutes({
+      routes: [{ origin: 'LIM', destination: 'SCL', months: 'March', month: '2026-10' }],
+    });
+    expect(routes[0].months).toEqual(['2026-10']);
+  });
+
+  it('normalizing twice is normalizing once', () => {
+    /*
+     * Load-bearing rather than tidy: `useStoredDocument` normalizes on read
+     * *and again inside `edit`*, so a merge that was not idempotent would give
+     * a different document to the writer than to the reader.
+     */
+    const stored = {
+      routes: [LIM_SCL, { ...LIM_SCL, months: ['2026-12'] }, { ...LIM_SCL, destination: 'MAD' }],
+    };
+    const once = normalizeFareRoutes(stored);
+    expect(normalizeFareRoutes(once)).toEqual(once);
   });
 
   it('de-duplicates identical watches, which would collect the same month twice', () => {
@@ -152,6 +244,23 @@ describe('route transitions', () => {
     expect(addRoute(once, LIM_SCL)).toBe(once);
   });
 
+  it('adding a month to a pair already watched merges it without moving the row', () => {
+    /*
+     * Under the old identity this built a second row. Under this one it is a
+     * second month for a watch that exists, and a no-op would swallow the
+     * request with no row anywhere to show for it. Asserted against a two-route
+     * document because the failure worth catching is the row jumping to the end
+     * of a list whose order the collector spends its budget down.
+     */
+    const document = addRoute(addRoute(EMPTY_FARE_ROUTES, LIM_SCL), {
+      ...LIM_SCL,
+      destination: 'MAD',
+    });
+    const next = addRoute(document, { ...LIM_SCL, months: ['2026-12'] });
+    expect(next.routes.map((route) => route.destination)).toEqual(['SCL', 'MAD']);
+    expect(next.routes[0].months).toEqual(['2026-10', '2026-12']);
+  });
+
   it('re-adding a watched route changes nothing at all, not even its place', () => {
     /*
      * It used to carry a focus date over, which was the one thing re-adding
@@ -169,17 +278,21 @@ describe('route transitions', () => {
   });
 
   it('refuses a route it could not repair', () => {
-    expect(addRoute(EMPTY_FARE_ROUTES, { ...LIM_SCL, month: 'whenever' })).toBe(EMPTY_FARE_ROUTES);
+    expect(addRoute(EMPTY_FARE_ROUTES, { ...LIM_SCL, months: ['whenever'] })).toBe(
+      EMPTY_FARE_ROUTES,
+    );
   });
 
   it('removes by id and leaves the document alone when nothing matched', () => {
     const document = addRoute(EMPTY_FARE_ROUTES, LIM_SCL);
     expect(removeRoute(document, routeId(LIM_SCL)).routes).toEqual([]);
-    expect(removeRoute(document, 'LIM|MAD|2026-10')).toBe(document);
+    expect(removeRoute(document, 'LIM|MAD')).toBe(document);
   });
 
-  it('distinguishes two months for one pair by id', () => {
-    expect(routeId(LIM_SCL)).not.toBe(routeId({ ...LIM_SCL, month: '2026-12' }));
+  it('gives two months of one pair the same id, because they are one watch', () => {
+    // The inversion, at the identity itself. It asserted `not.toBe`.
+    expect(routeId(LIM_SCL)).toBe(routeId({ origin: 'LIM', destination: 'SCL' }));
+    expect(routeId(LIM_SCL)).toBe('LIM|SCL');
   });
 });
 
@@ -207,7 +320,7 @@ describe('a stored focus date', () => {
       ],
     });
     expect(routes).toEqual([
-      { origin: 'LIM', destination: 'SCL', month: '2027-03', currency: 'USD' },
+      { origin: 'LIM', destination: 'SCL', months: ['2027-03'], currency: 'USD' },
     ]);
     // Asserted on the keys as well, because `toEqual` ignores an undefined
     // property: a `focusDate: undefined` left behind would be written back
@@ -226,7 +339,7 @@ describe('a stored focus date', () => {
     const { routes } = normalizeFareRoutes({
       routes: [{ ...LIM_SCL, focusDate: '2026-10-16' }],
     });
-    expect(routes[0].month).toBe('2026-10');
+    expect(routes[0].months).toEqual(['2026-10']);
     expect(JSON.stringify(routes[0])).not.toContain('2026-10-01');
   });
 
@@ -237,15 +350,14 @@ describe('a stored focus date', () => {
     const { routes } = normalizeFareRoutes({
       routes: [
         { ...LIM_SCL, focusDate: '2026-11-16' },
-        { ...LIM_SCL, month: '2026-12', focusDate: 'nonsense' },
-        { ...LIM_SCL, month: '2027-01', focusDate: 41 },
+        { ...LIM_SCL, months: ['2026-12'], focusDate: 'nonsense' },
+        { ...LIM_SCL, months: ['2027-01'], focusDate: 41 },
       ],
     });
-    expect(routes).toEqual([
-      LIM_SCL,
-      { ...LIM_SCL, month: '2026-12' },
-      { ...LIM_SCL, month: '2027-01' },
-    ]);
+    // One watch now rather than three, because they are one city pair —
+    // `a-watch-is-a-pair-and-its-months`. What this test is about is unchanged:
+    // an unreadable focus is a key nothing reads, and no route is lost over one.
+    expect(routes).toEqual([{ ...LIM_SCL, months: ['2026-10', '2026-12', '2027-01'] }]);
   });
 
   it('two entries for one month collapse to one, as they always did', () => {
@@ -272,13 +384,13 @@ describe('a stored focus date', () => {
      */
     const { routes } = normalizeFareRoutes({
       routes: [
-        { origin: 'LIM', destination: 'SCL', month: '2026-10', currency: 'USD' },
+        { origin: 'LIM', destination: 'SCL', months: ['2026-10'], currency: 'USD' },
         { origin: 'LIM', destination: 'MAD', flightDate: '2026-10-16' },
       ],
     });
     expect(routes).toEqual([
-      { origin: 'LIM', destination: 'SCL', month: '2026-10', currency: 'USD' },
-      { origin: 'LIM', destination: 'MAD', month: '2026-10', currency: 'USD' },
+      { origin: 'LIM', destination: 'SCL', months: ['2026-10'], currency: 'USD' },
+      { origin: 'LIM', destination: 'MAD', months: ['2026-10'], currency: 'USD' },
     ]);
   });
 });
@@ -356,31 +468,42 @@ describe('lastCollectableDay', () => {
 });
 
 describe('hasDeparted', () => {
+  it('counts a route as departed only once every month of it has gone', () => {
+    /*
+     * The whole-route answer is built from the per-month one, and this is why:
+     * its one caller prints "Departed" *and withholds the collect control*. A
+     * watch with one stale month beside two live ones has real work a press can
+     * do, and the word beside a route whose October is still coming is false.
+     */
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-07', '2026-10'] }, '2026-08-17')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-06', '2026-07'] }, '2026-08-17')).toBe(true);
+  });
+
   it('counts the month we are in as still to come, and every one before it as gone', () => {
     // A month is over only once the calendar has left it. The 17th of August
     // is halfway through August and August is still worth collecting — the
     // days inside it that have gone are skipped one at a time by the
     // collector, which is the only side that can say so by name.
-    expect(hasDeparted({ ...LIM_SCL, month: '2026-07' }, '2026-08-17')).toBe(true);
-    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-08-17')).toBe(false);
-    expect(hasDeparted({ ...LIM_SCL, month: '2026-10' }, '2026-08-17')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-07'] }, '2026-08-17')).toBe(true);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-08'] }, '2026-08-17')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-10'] }, '2026-08-17')).toBe(false);
   });
 
   it('reads the first and the last day of a month the same way', () => {
     // The comparison is on `YYYY-MM`, so nothing inside a month can move the
     // answer — which is the whole reason a row cannot decide this day by day.
-    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-08-01')).toBe(false);
-    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-08-31')).toBe(false);
-    expect(hasDeparted({ ...LIM_SCL, month: '2026-08' }, '2026-09-01')).toBe(true);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-08'] }, '2026-08-01')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-08'] }, '2026-08-31')).toBe(false);
+    expect(hasDeparted({ ...LIM_SCL, months: ['2026-08'] }, '2026-09-01')).toBe(true);
   });
 });
 
 describe('reorderRoutes', () => {
   const LIST = normalizeFareRoutes({
     routes: [
-      { origin: 'LIM', destination: 'CUZ', month: '2026-10' },
-      { origin: 'LIM', destination: 'SCL', month: '2026-10' },
-      { origin: 'LIM', destination: 'MAD', month: '2026-12' },
+      { origin: 'LIM', destination: 'CUZ', months: ['2026-10'] },
+      { origin: 'LIM', destination: 'SCL', months: ['2026-10'] },
+      { origin: 'LIM', destination: 'MAD', months: ['2026-12'] },
     ],
   });
   const ids = (document: FareRoutes) => document.routes.map(routeId);
@@ -455,5 +578,230 @@ describe('formatFlightMonth', () => {
     for (const odd of ['', 'soon', '2026-13', '2026-10-16']) {
       expect(formatFlightMonth(odd)).toBe(odd);
     }
+  });
+});
+
+describe('editRoute', () => {
+  const THREE = normalizeFareRoutes({
+    routes: [
+      { origin: 'LIM', destination: 'CUZ', months: ['2026-10'] },
+      { origin: 'LIM', destination: 'SCL', months: ['2026-10'] },
+      { origin: 'LIM', destination: 'MAD', months: ['2026-10'] },
+    ],
+  });
+  const MIDDLE = 'LIM|SCL';
+
+  it('changes the months of a watch and leaves it where it sits', () => {
+    const next = editRoute(THREE, MIDDLE, {
+      origin: 'LIM',
+      destination: 'SCL',
+      months: ['2026-12', '2026-10'],
+      currency: 'USD',
+    });
+    expect(next.routes.map((route) => route.destination)).toEqual(['CUZ', 'SCL', 'MAD']);
+    expect(next.routes[1].months).toEqual(['2026-10', '2026-12']);
+  });
+
+  it('changes the city pair and still leaves it where it sits', () => {
+    /*
+     * The whole reason this is a transition rather than `remove` then `add`:
+     * that pair would send the row to the end of a list whose order the
+     * collector spends its budget down, so an edit would quietly be a
+     * reprioritisation nobody asked for.
+     */
+    const next = editRoute(THREE, MIDDLE, {
+      origin: 'LIM',
+      destination: 'BCN',
+      months: ['2026-10'],
+      currency: 'USD',
+    });
+    expect(next.routes.map((route) => route.destination)).toEqual(['CUZ', 'BCN', 'MAD']);
+  });
+
+  it('writes nothing when nothing differs', () => {
+    const held = THREE.routes[1];
+    expect(editRoute(THREE, MIDDLE, { ...held })).toBe(THREE);
+  });
+
+  it('refuses an edit that would leave the watch with no month', () => {
+    // Clearing every chip is not how a watch ends — the control that ends one
+    // says Remove on it — and deleting the row here would take the colour and
+    // its place in the collector's order with it.
+    expect(
+      editRoute(THREE, MIDDLE, {
+        origin: 'LIM',
+        destination: 'SCL',
+        months: [],
+        currency: 'USD',
+      }),
+    ).toBe(THREE);
+  });
+
+  it('never appends when the row being edited is gone', () => {
+    // The one silent write this function could make: re-creating a watch the
+    // reader deleted in another tab, from a stale editor.
+    expect(
+      editRoute(THREE, 'LIM|NRT', {
+        origin: 'LIM',
+        destination: 'NRT',
+        months: ['2026-10'],
+        currency: 'USD',
+      }),
+    ).toBe(THREE);
+  });
+
+  it('merges into the earlier row when the edit collides with another watch', () => {
+    // Editing the last row onto the first row's pair.
+    const next = editRoute(THREE, 'LIM|MAD', {
+      origin: 'LIM',
+      destination: 'CUZ',
+      months: ['2026-12'],
+      currency: 'USD',
+    });
+    expect(next.routes.map((route) => route.destination)).toEqual(['CUZ', 'SCL']);
+    expect(next.routes[0].months).toEqual(['2026-10', '2026-12']);
+  });
+
+  it('merges into the earlier row in the other direction too', () => {
+    // Editing the first row onto the last row's pair. The survivor is still
+    // the earlier index, which is where the first row already was.
+    const next = editRoute(THREE, 'LIM|CUZ', {
+      origin: 'LIM',
+      destination: 'MAD',
+      months: ['2026-12'],
+      currency: 'USD',
+    });
+    expect(next.routes.map((route) => route.destination)).toEqual(['MAD', 'SCL']);
+    expect(next.routes[0].months).toEqual(['2026-10', '2026-12']);
+  });
+
+  it('names the watch an edit would merge into, or nothing', () => {
+    const held = THREE.routes[1];
+    expect(collidesWith(THREE, MIDDLE, { ...held, months: ['2026-12'] })).toBeNull();
+    expect(collidesWith(THREE, MIDDLE, { ...held, destination: 'BCN' })).toBeNull();
+    expect(collidesWith(THREE, MIDDLE, { ...held, destination: 'MAD' })?.destination).toBe('MAD');
+  });
+});
+
+describe('the months a watch can still be collected for', () => {
+  const ROUTE: FareRoute = {
+    origin: 'LIM',
+    destination: 'SCL',
+    months: ['2026-07', '2026-08', '2026-10'],
+    currency: 'USD',
+  };
+
+  it('leaves out the ones that have gone', () => {
+    expect(collectableMonthsOf(ROUTE, '2026-08-17')).toEqual(['2026-08', '2026-10']);
+  });
+
+  it('answers per month the same way the whole route does', () => {
+    expect(monthHasDeparted('2026-07', '2026-08-17')).toBe(true);
+    expect(monthHasDeparted('2026-08', '2026-08-17')).toBe(false);
+  });
+});
+
+describe('collectableMonths', () => {
+  it('runs from this month to the last the horizon reaches', () => {
+    const months = collectableMonths('2026-08-19');
+    expect(months[0]).toBe('2026-08');
+    expect(months.at(-1)).toBe(lastCollectableMonth('2026-08-19'));
+    expect(months).toHaveLength(12);
+  });
+
+  it('is eleven months from a January date, which is correct rather than short', () => {
+    // 330 days from January lands inside the same year, so there is no twelfth
+    // month to offer. Written down because "twelve chips" invites a literal.
+    expect(collectableMonths('2026-01-01')).toHaveLength(11);
+    expect(collectableMonths('2026-01-01').at(-1)).toBe('2026-11');
+  });
+});
+
+describe('the month a watch opens on', () => {
+  const ROUTE: FareRoute = {
+    origin: 'LIM',
+    destination: 'SCL',
+    months: ['2026-07', '2026-10', '2026-12'],
+    currency: 'USD',
+  };
+
+  it('is the earliest that has not departed, not simply the earliest', () => {
+    // A live watch opening on a dead month would show a chart whose series
+    // stopped, which is the failure `months[0]` invites.
+    expect(openingMonth(ROUTE, '2026-08-17')).toBe('2026-10');
+  });
+
+  it('falls back to the last month when every one of them has gone', () => {
+    expect(openingMonth(ROUTE, '2027-01-05')).toBe('2026-12');
+  });
+
+  it('honours a held month while it is still watched, and lets go when it is not', () => {
+    expect(readingMonth(ROUTE, '2026-12', '2026-08-17')).toBe('2026-12');
+    expect(readingMonth(ROUTE, '2026-11', '2026-08-17')).toBe('2026-10');
+    expect(readingMonth(ROUTE, null, '2026-08-17')).toBe('2026-10');
+  });
+});
+
+describe('plannedRequests', () => {
+  it('counts every day of a whole future month', () => {
+    expect(plannedRequests(['2026-10'], '2026-08-17')).toBe(31);
+    expect(plannedRequests(['2026-11'], '2026-08-17')).toBe(30);
+  });
+
+  it('counts the current month only from today', () => {
+    expect(plannedRequests(['2026-08'], '2026-08-17')).toBe(15);
+  });
+
+  it('stops at the horizon inside the month the horizon lands in', () => {
+    const last = lastCollectableDay('2026-08-17');
+    expect(plannedRequests([last.slice(0, 7)], '2026-08-17')).toBe(Number(last.slice(8, 10)));
+  });
+
+  it('counts a departed month as nothing, and sums the rest', () => {
+    expect(plannedRequests(['2026-07'], '2026-08-17')).toBe(0);
+    expect(plannedRequests(['2026-07', '2026-10', '2026-11'], '2026-08-17')).toBe(61);
+  });
+});
+
+describe('formatFlightMonths', () => {
+  it('writes one month the way one month has always been written', () => {
+    expect(formatFlightMonths(['2027-03'])).toBe('March 2027');
+  });
+
+  it('states the count as well as the ends, so a gap is not claimed as a range', () => {
+    // `March 2027 to July 2027` alone would claim five months; naming two is
+    // what makes the sentence true of a selection with holes in it.
+    expect(formatFlightMonths(['2027-03', '2027-04'])).toBe('2 months, March 2027 to April 2027');
+    expect(formatFlightMonths(['2027-03', '2027-07'])).toBe('2 months, March 2027 to July 2027');
+  });
+});
+
+describe('the stored watchlist this change was written against', () => {
+  it('loads as one row per city pair, and the list gets shorter', () => {
+    /*
+     * Literal data, because this is the migration's proof: the document on
+     * disk at `services/api/.local-data/kv/airfare-routes.json` when this
+     * change was written. Five entries, one pair named twice.
+     *
+     * Five rows becoming four is the visible cost of the merge, and it is
+     * asserted rather than glossed over.
+     */
+    const { routes } = normalizeFareRoutes({
+      version: 1,
+      routes: [
+        { origin: 'ARI', destination: 'SCL', month: '2027-03', currency: 'USD' },
+        { origin: 'SCL', destination: 'ARI', month: '2027-03', currency: 'USD' },
+        { origin: 'SCL', destination: 'AEP', month: '2027-03', currency: 'USD' },
+        { origin: 'AEP', destination: 'SCL', month: '2027-03', currency: 'USD' },
+        { origin: 'AEP', destination: 'SCL', month: '2027-04', currency: 'USD' },
+      ],
+    });
+
+    expect(routes).toEqual([
+      { origin: 'ARI', destination: 'SCL', months: ['2027-03'], currency: 'USD' },
+      { origin: 'SCL', destination: 'ARI', months: ['2027-03'], currency: 'USD' },
+      { origin: 'SCL', destination: 'AEP', months: ['2027-03'], currency: 'USD' },
+      { origin: 'AEP', destination: 'SCL', months: ['2027-03', '2027-04'], currency: 'USD' },
+    ]);
   });
 });

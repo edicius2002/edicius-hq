@@ -15,6 +15,7 @@ ALLOWED_KV_KEYS = frozenset(
         "chart-views",
         "finance-camera-views",
         "airfare-routes",
+        "greenlight-projector",
     }
 )
 
@@ -209,6 +210,14 @@ DEFAULT_DAILY_REQUEST_BUDGET: int | None = None
 # 2.43 for a calendar. The archive proper (`fares/history/`, `fares/checks/`)
 # stays append-only, because those record what the world cost and cannot be
 # collected again once the day passes; this records what we sent.
+#
+# **It bounds `fares/passes/` too, and that is one decision rather than two.**
+# The pass ledger is a line per pass — about 96 lines and 15 KB a day — and its
+# lines carry the `passId` that the spend lines join on. Two retention numbers
+# would mean spend lines whose pass had already been swept, or the reverse, and
+# the join would rot at whichever boundary came first. The sweep itself is the
+# same function on a different directory (`fare_budget.prune_day_files`), run at
+# the same moment: when a day file is created.
 SPEND_RETENTION_DAYS = 90
 
 # The most this address has ever sent in one day, counted from 494 heartbeat
@@ -230,6 +239,25 @@ SPEND_RETENTION_DAYS = 90
 # moved since — and the moment a day passes it without incident it is wrong.
 # Raising it is a measurement, not an edit: count the heartbeats.
 BUSIEST_DAY_ON_RECORD = 329
+
+# How often the scheduled collector fires, in minutes, and therefore how long
+# one invocation has.
+#
+# Not a preference. It is the interval of the Windows task "\Edicius airfare",
+# created 2026-08-22, whose command line is recorded in
+# `scripts/fares-collect.py`. The task is `MultipleInstances = IgnoreNew`, so an
+# invocation that runs past this makes the next firing disappear with no error,
+# no log and no missing data that looks unlike a quiet market — `fare_passes`
+# carries the measurement, and the reason that ledger exists at all.
+#
+# Written here rather than described in a comment because a pass now has to fit
+# inside it: `collect_due` takes a deadline from this and reports what it ran
+# out of window for as `pass-window-full`, the way it already reports what it
+# ran out of budget for. A watch holding several months is what made that worth
+# building — the first scheduled pass after a month is added polls every day of
+# it, because a brand-new month has no heartbeats and nothing in it is
+# `not-due`.
+SCHEDULER_INTERVAL_MINUTES = 15
 
 # Cadence against how far away the departure is, as (days out, minutes between
 # polls). The shape follows the measurement: at 14 days out a fare moved on 27%

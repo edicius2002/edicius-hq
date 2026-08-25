@@ -67,6 +67,10 @@ export default defineConfig({
         /RouteList\.module\.css/,
         /RouteMap\.module\.css/,
         /RouteDetail\.module\.css/,
+        // The month strip: six tracks and twelve children are what make it two
+        // rows, and the height those two rows cost is what `routesScroll`
+        // spends against the map. Neither is observable from the rendered tree.
+        /RouteEditor\.module\.css/,
         /MoneyWeekChart\.module\.css/,
         /SegmentSummary\.module\.css/,
         /GreenlightPage\.module\.css/,

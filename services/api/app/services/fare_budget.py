@@ -118,6 +118,66 @@ def _ignoring_oserror() -> Iterator[None]:
         logger.error("fare budget housekeeping failed: %s", error)
 
 
+def prune_day_files(
+    directory: Path,
+    today: date,
+    *,
+    keep_days: int = SPEND_RETENTION_DAYS,
+    what: str = "fare ledger",
+) -> int:
+    """
+    Delete the day files in `directory` that are more than `keep_days` days old.
+
+    **Run when a day file is created and at no other time.** That is once a day
+    at most, it is the only moment the directory has grown, and in a real pass
+    it is already inside `PassLock`, so nothing has to be said about two
+    processes sweeping at once. A scheduled sweep was rejected for the reason
+    the day file itself was chosen over a rolling counter: a boundary that needs
+    something run at it is a boundary that gets missed.
+
+    Only files this repository could have written are touched — the name has to
+    parse as a date. Anything else in the directory was put there by somebody
+    else and deleting it is not this function's business.
+
+    A failure here is logged and swallowed. The worst case is a directory that
+    keeps a few more days than it meant to, which is not a reason to stop a pass
+    that is otherwise able to collect.
+
+    **A free function rather than a method, because there are two ledgers of
+    days now** — `fares/spend/` a line per request and `fares/passes/` a line per
+    pass — and they must age out together. Two copies of this rule would mean a
+    spend line whose pass had already been swept, and the `passId` that joins
+    them would rot at whichever boundary came first. `what` only names the
+    ledger in the log, so a sweep can be told from a sweep.
+    """
+    cutoff = today - timedelta(days=keep_days)
+    try:
+        files = sorted(directory.glob("*.jsonl"))
+    except OSError as error:
+        logger.error("%s could not list %s: %s", what, directory, error)
+        return 0
+
+    removed = 0
+    for path in files:
+        try:
+            day = date.fromisoformat(path.stem)
+        except ValueError:
+            continue
+        if day >= cutoff:
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            logger.error("%s could not remove %s: %s", what, path, error)
+            continue
+        removed += 1
+    if removed:
+        logger.info("%s removed %d day file(s) from before %s", what, removed, cutoff.isoformat())
+    return removed
+
+
 class RequestLedger:
     """
     Every upstream request this address sent, one line per request, per day.
@@ -167,7 +227,15 @@ class RequestLedger:
             return None
         return sum(1 for line in text.splitlines() if line.strip())
 
-    def spend(self, day: date, *, kind: str, what: str) -> None:
+    def spend(
+        self,
+        day: date,
+        *,
+        kind: str,
+        what: str,
+        gap: float | None = None,
+        pass_id: str | None = None,
+    ) -> None:
         """
         Record one request as sent.
 
@@ -179,8 +247,27 @@ class RequestLedger:
         or the calendar's windows will ask next. With no ceiling above it that
         is now the *whole* of this file's purpose rather than a note kept
         alongside the enforcement, and `GET /api/fares/spend` is the reader.
+
+        **`gap` and `pass_id` are what make the pace a fact rather than an
+        inference.** The gap a pass ran at was recorded nowhere, so telling a
+        1.75-second population of requests from a 3.0-second one meant taking
+        the modal delta between consecutive `at` values and calling that
+        evidence. Written on the line, the comparison is a read. `pass_id` is
+        the same identifier `fares/passes/` writes for the pass as a whole, so
+        the two ledgers join without either having to grow the other's grain.
+
+        **Both are omitted when they are not known, and every reader must cope
+        with a line that has neither.** There are 952 lines already on disk
+        without them, and `RequestLedger.spent` counts lines rather than parsing
+        them while `fare_spend` reads `kind` through `.get` — so an old line is
+        a request with an unknown pace, which is exactly what it is. Writing
+        `null` instead would have been a claim about a gap of nothing.
         """
-        row = {"at": _now(), "kind": kind, "what": what}
+        row: dict[str, object] = {"at": _now(), "kind": kind, "what": what}
+        if gap is not None:
+            row["gap"] = gap
+        if pass_id is not None:
+            row["passId"] = pass_id
         path = self.path_for(day)
         # Read before the append rather than after, because after it is always
         # true. This is the one moment the directory grows by a file, and it is
@@ -203,49 +290,12 @@ class RequestLedger:
         """
         Delete the day files that are more than `keep_days` days old.
 
-        **Run when a day file is created and at no other time.** That is once a
-        day at most, it is the only moment the directory has grown, and in a
-        real pass it is already inside `PassLock`, so nothing has to be said
-        about two processes sweeping at once. A scheduled sweep was rejected for
-        the reason the day file itself was chosen over a rolling counter: a
-        boundary that needs something run at it is a boundary that gets missed.
-
-        Only files this module could have written are touched — the name has to
-        parse as a date. Anything else in the directory was put there by
-        somebody else and deleting it is not this function's business.
-
-        A failure here is logged and swallowed. The worst case is a directory
-        that keeps a few more days than it meant to, which is not a reason to
-        stop a pass that is otherwise able to collect.
+        The rule itself is `prune_day_files` above, because `fares/passes/`
+        follows the same one and the two must age out together — see there for
+        why it is run at a day's opening and nowhere else, and why it only
+        touches files whose name parses as a date.
         """
-        cutoff = today - timedelta(days=keep_days)
-        try:
-            files = sorted(self.directory.glob("*.jsonl"))
-        except OSError as error:
-            logger.error("fare ledger could not list %s: %s", self.directory, error)
-            return 0
-
-        removed = 0
-        for path in files:
-            try:
-                day = date.fromisoformat(path.stem)
-            except ValueError:
-                continue
-            if day >= cutoff:
-                continue
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                continue
-            except OSError as error:
-                logger.error("fare ledger could not remove %s: %s", path, error)
-                continue
-            removed += 1
-        if removed:
-            logger.info(
-                "fare ledger removed %d day file(s) from before %s", removed, cutoff.isoformat()
-            )
-        return removed
+        return prune_day_files(self.directory, today, keep_days=keep_days)
 
 
 #: The files that say a pass is running, beside the ledger rather than inside
@@ -576,6 +626,16 @@ class DailyBudget:
     #: and `take` is already the one place both passes call — the calendar's
     #: walk-back reaches it four functions down without a parameter of its own.
     lock: "PassLock | None" = field(default=None)
+    #: The pace this pass is sending at, written onto every line it records.
+    #: Carried here rather than threaded through the collector for the same
+    #: reason the lock is: `take` is the one place both passes spend, and the
+    #: calendar's walk-back reaches it four functions down without a parameter
+    #: of its own. `None` for a caller that built a budget with no pass around
+    #: it, and the line is written without the field rather than with a null.
+    gap: float | None = field(default=None)
+    #: The identifier of the pass these requests belong to, minted by whoever
+    #: started it, and the join to `fares/passes/`. `None` for the same reason.
+    pass_id: str | None = field(default=None)
 
     def spent(self) -> int:
         """
@@ -630,7 +690,7 @@ class DailyBudget:
     def take(self, *, kind: str, what: str) -> None:
         """Spend one request, before it is sent."""
         self.witnessed = self.spent() + 1
-        self.ledger.spend(self.day, kind=kind, what=what)
+        self.ledger.spend(self.day, kind=kind, what=what, gap=self.gap, pass_id=self.pass_id)
         if self.lock is not None:
             self.lock.touch()
 
@@ -646,6 +706,8 @@ def daily_budget(
     ledger: RequestLedger | None = None,
     now: datetime | None = None,
     lock: PassLock | None = None,
+    gap: float | None = None,
+    pass_id: str | None = None,
 ) -> DailyBudget:
     """
     Today's allowance, read off disk rather than started at zero.
@@ -656,6 +718,11 @@ def daily_budget(
     to force an unbounded day while the environment asks for a bounded one, and
     inventing a second sentinel to express that would put a word in every
     signature to serve nobody. A caller with a ceiling in hand passes the number.
+
+    `gap` and `pass_id` are what the pass sending against this allowance will
+    write onto every line it records. Both default to `None`, which writes the
+    field away rather than as a null — a budget built with no pass around it
+    genuinely does not know either, and 952 lines already on disk say the same.
     """
     moment = now if now is not None else datetime.now(UTC)
     day = (moment.astimezone(UTC) if moment.tzinfo is not None else moment).date()
@@ -664,4 +731,6 @@ def daily_budget(
         ceiling=ceiling if ceiling is not None else daily_request_budget(),
         day=day,
         lock=lock,
+        gap=gap,
+        pass_id=pass_id,
     )

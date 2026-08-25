@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Granularity } from '@/features/airfare/lib/buckets';
 import { anchorFor, framePeriodKeys, RAIL_CHAR_WIDTH } from '@/features/airfare/lib/departureFrame';
-import { activeKey, departureDays, stepKey } from '@/features/airfare/lib/flightScatter';
+import {
+  activeKey,
+  departureDays,
+  stepKey,
+  type WatchedRange,
+} from '@/features/airfare/lib/flightScatter';
 import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import type { CalendarCurve, CalendarPoint, FareOffer, FareSnapshot } from '@/shared/api/fares';
@@ -106,7 +111,7 @@ const WEEK = [
 ];
 
 /** The whole of March 2027 is what these snapshots are a watch on. */
-const MARCH = { from: '2027-03-01', to: '2027-03-31' };
+const MARCH: WatchedRange[] = [{ from: '2027-03-01', to: '2027-03-31' }];
 
 const COLLECTED_AT = '2026-08-19T15:49:46+00:00';
 
@@ -1152,7 +1157,7 @@ describe('a route whose horizon has never been collected', () => {
           offer({ flightNumber: '8', departureAt: '2027-03-10T09:00', price: 250 }),
         ]),
       ],
-      watched: { from: '2027-03-10', to: '2027-03-10' },
+      watched: [{ from: '2027-03-10', to: '2027-03-10' }],
       granularity: 'week',
       curve: null,
     });
@@ -1166,7 +1171,7 @@ describe('a route whose horizon has never been collected', () => {
     chart({
       granularity: 'month',
       curve: null,
-      watched: { from: '2027-03-10', to: '2027-03-10' },
+      watched: [{ from: '2027-03-10', to: '2027-03-10' }],
       horizonError: new Error('500 Internal Server Error'),
     });
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
@@ -1398,7 +1403,11 @@ describe('a watched range narrower than the frame', () => {
       price: 62.94,
     })),
   );
-  const FOCUS = { from: '2027-03-06', to: '2027-03-06' };
+  // Kept as a range narrower than a month, which is the whole reason `watched`
+  // is a list of ranges rather than a list of months: no caller can send this
+  // any more, and it is the only frame that produces the three runs
+  // `railLabels`' collision guard exists for.
+  const FOCUS: WatchedRange[] = [{ from: '2027-03-06', to: '2027-03-06' }];
 
   function focused(granularity: Granularity = 'week') {
     return chart({ snapshots: ONE_DAY, curve: CURVE, watched: FOCUS, granularity });

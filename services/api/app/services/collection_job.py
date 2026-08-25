@@ -60,11 +60,13 @@ import httpx
 from app.adapters.fares.models import FareSnapshot
 from app.adapters.fares.registry import DEFAULT_PROVIDER
 from app.services.fare_collector import (
+    REQUEST_GAP_SECONDS,
     CollectionReport,
     FareWatch,
     RouteResult,
     collect_due,
 )
+from app.services.fare_passes import PassRecorder, new_pass_id
 from app.services.pass_stream import COLLECTION_STREAM
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,11 @@ class CollectionPass:
     #: is not in here was answered with somebody else's pass and the caller
     #: needs to be able to tell.
     watching: list[str]
+    #: This pass's name in `fares/passes/`, and on every spend line it writes.
+    #: Minted here rather than in the collector because a pass boundary is
+    #: something only the thing that started one can see — `fare_passes` says
+    #: why, and it is the same reason the command line mints its own.
+    pass_id: str = field(default_factory=new_pass_id)
     #: `running`, `finished` or `failed`.
     state: str = "running"
     finished_at: str | None = None
@@ -144,7 +151,24 @@ class CollectionPass:
 
 
 def _watching(watches: list[FareWatch]) -> list[str]:
-    return [f"{watch.route} {watch.month}" for watch in watches]
+    """
+    Every (pair, month) this pass covers, each named once, in the order given.
+
+    A watched route is a city pair and *several* months since
+    `a-watch-is-a-pair-and-its-months`, so one press puts several of these in
+    the list where it used to put one. The string did not have to change and
+    deliberately did not: the month in it is exactly what lets a client tell a
+    pass covering March and April from one covering March alone. Collapsing to
+    `"ARI-SCL"` would have been shorter and would have thrown away the fact
+    `skipped` and `polling` are counted in — `calendar_job._watching` collapses
+    to the pair because a curve genuinely has no month, while this pass has
+    thirty-one departures per month and reports each of them by name.
+
+    Deduplicated for the same reason it is there: a body may name a month
+    twice, `expand` collapses it to one set of departures, and a list that
+    named it twice would promise a reader work no result will ever arrive for.
+    """
+    return list(dict.fromkeys(f"{watch.route} {watch.month}" for watch in watches))
 
 
 class CollectionRunner:
@@ -239,9 +263,36 @@ class CollectionRunner:
         client: httpx.AsyncClient | None,
         force: bool = False,
     ) -> None:
+        # Started before the first request and finished in every branch below,
+        # cancellation included. This is the half of the pass ledger a press
+        # writes: the scheduled command writes the other, and `source` is what
+        # keeps a reader from averaging the two together — one runs unattended
+        # every fifteen minutes and the other arrives whenever somebody looks.
+        recorder = PassRecorder(
+            source="ui", kind="board", gap=REQUEST_GAP_SECONDS, pass_id=started.pass_id
+        )
+
+        def leave_a_line() -> None:
+            """
+            The pass's line, from whichever of the three endings happened.
+
+            `exit` is 0 only for a pass that finished. A cancelled one and a
+            fallen-over one are both 1, which is the command line's convention
+            arriving somewhere with no process to have a code: what the field
+            answers is "did this end badly", and it has to answer it the same
+            way from both origins or a day's lines cannot be read together.
+            """
+            recorder.tally.boards(started.as_report())
+            recorder.finish(exit_code=0 if started.state == "finished" else 1)
+
         try:
             await collect_due(
-                watches, provider=provider, client=client, observer=started, force=force
+                watches,
+                provider=provider,
+                client=client,
+                observer=started,
+                force=force,
+                pass_id=started.pass_id,
             )
         except asyncio.CancelledError:
             started.state = "failed"
@@ -251,6 +302,7 @@ class CollectionRunner:
             # order is load-bearing: cancellation is what shutdown does, and a
             # listener told nothing would be left holding a `running` document
             # that will never move again.
+            leave_a_line()
             COLLECTION_STREAM.publish()
             raise
         except Exception as error:  # a dead task is a silent one
@@ -275,6 +327,7 @@ class CollectionRunner:
         # left on a `running` document is a spinner that never ends, which is
         # the failure 8.8 and 8.41 name and the one this stream could most
         # easily introduce.
+        leave_a_line()
         COLLECTION_STREAM.publish()
 
     async def aclose(self) -> None:

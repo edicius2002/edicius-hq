@@ -32,39 +32,70 @@ export type RowReport = {
   text: string;
 };
 
-/** Whether a result in the report belongs to the month that was asked about. */
-function isSameRoute(result: CollectRouteResult, route: FareRoute): boolean {
+/**
+ * Whether a result belongs to one of the months the pass in hand is covering.
+ *
+ * The months are the **pass's**, never the route's whole set: a month this row
+ * watches that this pass was not asked about is not this pass's business, and
+ * counting its departures would let one row's sentence describe another's work.
+ * They are not the open tab either — a report says what the pass did, and
+ * narrowing it to whichever month the reader happens to be looking at would
+ * make one press produce different sentences depending on where they stood.
+ */
+function isOurResult(
+  result: CollectRouteResult,
+  route: FareRoute,
+  months: readonly string[],
+): boolean {
   return (
     result.origin === route.origin &&
     result.destination === route.destination &&
-    result.flightDate.startsWith(route.month)
+    months.some((month) => result.flightDate.startsWith(month))
   );
 }
 
 /**
- * How the collector names a departure it decided not to poll.
+ * How the collector names one month of this watch: `ARI-SCL 2027-03`.
  *
+ * `CollectionPass.watching` carries one of these per watched month, and
  * `CollectionReport.skipped` carries `f"{origin}-{destination} {flight_date}"`
- * — a sentence for a human, not a key — so matching it means rebuilding that
- * prefix here. Kept in one function so the coupling is in one place and
+ * — sentences for a human, not keys — so matching either means rebuilding the
+ * string here. Kept in one function so the coupling is in one place and
  * findable from either end.
  */
-function skipPrefix(route: FareRoute): string {
-  return `${route.origin}-${route.destination} ${route.month}`;
+function watchName(route: FareRoute, month: string): string {
+  return `${route.origin}-${route.destination} ${month}`;
 }
 
 /**
- * The reasons this month's departures were passed over, commonest first.
+ * The months of this watch the pass in hand is actually covering.
+ *
+ * Exported because every other reading takes it rather than asking again:
+ * `describeCollection`, `describeProgress`, `passProgress` and `collectNotice`
+ * all have to agree about whose pass this is and which of its months are ours,
+ * and four independent readings of `watching` are four chances to disagree.
+ */
+export function passMonths(route: FareRoute, response: CollectResponse): string[] {
+  return route.months.filter((month) => response.watching.includes(watchName(route, month)));
+}
+
+/**
+ * The reasons these months' departures were passed over, commonest first.
  *
  * Grouped rather than listed for the same reason the command-line pass groups
  * them: on a daily cadence a healthy press skips thirty of thirty-one, and a
- * line naming each one would bury the one that matters.
+ * line naming each one would bury the one that matters. With several months it
+ * would bury it under ninety.
  */
-function skipSummary(route: FareRoute, response: CollectResponse): string {
+function skipSummary(
+  route: FareRoute,
+  months: readonly string[],
+  response: CollectResponse,
+): string {
   const counts = new Map<string, number>();
-  const prefix = skipPrefix(route);
+  const prefixes = months.map((month) => watchName(route, month));
   for (const entry of response.skipped) {
-    if (!entry.what.startsWith(prefix)) continue;
+    if (!prefixes.some((prefix) => entry.what.startsWith(prefix))) continue;
     counts.set(entry.reason, (counts.get(entry.reason) ?? 0) + 1);
   }
   return [...counts.entries()]
@@ -86,9 +117,24 @@ function skipSummary(route: FareRoute, response: CollectResponse): string {
  * draws anything and must answer it the same way. Two readings of `watching`
  * would let the words and the bar on one row disagree about whose pass they are
  * describing, which is the same lie arriving twice.
+ *
+ * **Any of our months, not all of them** —
+ * `a-pass-is-ours-if-it-names-any-of-our-months`. A press sends every month
+ * that can still be collected, so the two rules agree on it — until the row
+ * holds a month that has departed and was never sent, or the reader edits the
+ * chips while the pass is in flight. All-of-mine would then answer *false*
+ * about the row's own press, and the row would report its own collection as a
+ * stranger's: the same quiet lie this function exists to prevent, arriving
+ * from the opposite direction. A scheduled pass names the whole watchlist, so
+ * both rules say yes; another row's press names another pair, so both say no.
+ * The only pass that can tell them apart is one naming *some* of our months,
+ * and every way to produce one is a pass this row started.
+ *
+ * What pair identity removed: two rows can no longer share a month name,
+ * because a pair is one row.
  */
 export function isOurPass(route: FareRoute, response: CollectResponse): boolean {
-  return response.watching.includes(skipPrefix(route));
+  return passMonths(route, response).length > 0;
 }
 
 /** What the row says about a pass that started somewhere else. */
@@ -135,19 +181,24 @@ export function describeCollection(
   response: CollectResponse,
   locale?: string,
 ): RowReport {
-  if (!isOurPass(route, response)) return notOurPass(response);
+  // Read once and threaded down, so nothing below re-asks whose pass this is.
+  const months = passMonths(route, response);
+  if (months.length === 0) return notOurPass(response);
   // The pass fell over as a whole, which is a different fact from every route
   // in it being refused and has to read as one — 12.210.
   if (response.state === 'failed') {
     return { ok: false, text: `The pass failed: ${response.error ?? 'no reason given'}` };
   }
 
-  const results = response.results.filter((candidate) => isSameRoute(candidate, route));
-  const skipped = skipSummary(route, response);
+  const results = response.results.filter((candidate) => isOurResult(candidate, route, months));
+  const skipped = skipSummary(route, months, response);
 
   if (results.length === 0) {
     if (skipped) return { ok: false, text: `Not collected: ${skipped}.` };
-    return { ok: false, text: 'The pass came back without a word about this month.' };
+    // "this watch" rather than "this month": a row is several months now, and
+    // a sentence that had to enumerate which is a sentence nobody reads — the
+    // call `skipSummary` already makes for reasons.
+    return { ok: false, text: 'The pass came back without a word about this watch.' };
   }
 
   const failures = results.filter((result) => !result.ok);

@@ -116,11 +116,27 @@ export type ScatterWindow = {
 };
 
 /**
- * The stretch of departure dates the route is a watch on: its own month.
+ * One stretch of departure dates the boards cover. A watch is a **list** of
+ * them — one per watched month.
  *
- * It was "or the one day inside it the reader focused" until 12.260, and this
- * stays a pair of dates rather than a month string because the frame it feeds
- * compares dates and because a range is the weaker assumption of the two.
+ * It was "the route's own month" and before that "or the one day inside it the
+ * reader focused" (until 12.260). What the callers send is now whole calendar
+ * months, several of them, and this deliberately did **not** become
+ * `readonly string[]` of `YYYY-MM` to match.
+ *
+ * The original argument survives the pluralisation word for word: this stays a
+ * pair of dates *because the frame it feeds compares dates, and because a range
+ * is the weaker assumption of the two*. A list of months would put a rule that
+ * lives in `data/fareRoutes` — that a watch is whole calendar months — inside a
+ * module whose whole style is to know only dates. That rule has already been
+ * reversed twice in a year (12.130 → 12.260 → `a-watch-is-a-pair-and-its-months`),
+ * and each reversal would have dragged `isWatched`, `frameDays`, a chart prop
+ * and three test files along with it.
+ *
+ * It also keeps the awkward frames reachable. `railLabels`' three-run collision
+ * case is built in two suites from a range narrower than a month; under a month
+ * set no caller at any layer could express it, and the only coverage of the
+ * hardest thing that side does would have gone with it.
  *
  * Both ends are `YYYY-MM-DD`, and both are inclusive.
  */
@@ -344,9 +360,28 @@ export function periodKeys(days: string[], granularity: Granularity): string[] {
  * crosshair already guards against. A day survives the flip — the week
  * containing it and the day itself are both derivable from it.
  *
- * An anchor whose period holds nothing falls back to the earliest period that
- * does, which is what happens when the reader switches to a route the anchor
- * has no meaning for.
+ * An anchor whose period holds nothing falls back to the **nearest period
+ * forward**, and only then to the earliest of all.
+ *
+ * It used to fall straight back to the earliest, and that was safe for exactly
+ * as long as `keys` held one month: the earliest period of the watched month is
+ * inside the watched month, so the reader landed a few days from where they
+ * asked. A watch spanning several months makes it a trap. Press the December
+ * tab, which anchors on the 1st, then press Day: if nothing was collected for
+ * 1 December the anchor resolves to no key, and the earliest of all is now the
+ * first board day of the *earliest watched month* — March, nine months behind
+ * the control the reader just pressed.
+ *
+ * Forward rather than nearest-either-way because an anchor is a request to be
+ * at or after a date, and a reader who asked for December and is given
+ * November has been sent backwards past dates they did not ask about. Falling
+ * through to `keys[0]` where the anchor is past everything keeps the original
+ * behaviour for the case the paragraph above describes — switching to a route
+ * the anchor has no meaning for.
+ *
+ * One string comparison covers all three granularities: `YYYY-MM-DD`,
+ * `YYYY-Www` and `YYYY-MM` all sort chronologically as text, which is the same
+ * property the rest of this feature leans on to avoid `Date`.
  */
 export function activeKey(
   keys: string[],
@@ -357,6 +392,8 @@ export function activeKey(
   if (anchor !== null) {
     const key = bucketKey(anchor, granularity);
     if (keys.includes(key)) return key;
+    const forward = keys.find((candidate) => candidate >= key);
+    if (forward !== undefined) return forward;
   }
   return keys[0];
 }

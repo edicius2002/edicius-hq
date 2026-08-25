@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import {
   formatFlightMonth,
+  formatFlightMonths,
   routeId,
   routeLabel,
   type FareRoute,
@@ -105,14 +106,63 @@ const DAYS_NAMES: Record<FrameSource, string> = {
 const WHAT: Record<string, string> = {
   moves: 'One point a day, at the price we observed.',
   'days/none': 'Nothing collected for these departure dates yet.',
-  'days/boards': 'The flight boards for the watched month.',
-  'days/curve': 'The booking horizon, beyond the watched month.',
-  'days/mixed': 'The boards to the end of the month, then the booking horizon.',
+  'days/boards': 'The flight boards, for the departure dates this watch covers.',
+  'days/curve': 'The booking horizon, for dates no watched month covers.',
+  // Order-free, and that fixes something older than this change: it read
+  // "boards to the end of the month, then the booking horizon", and a week
+  // straddling the *start* of a watched month has always been the other way
+  // round. Several watched months make that ordinary rather than rare.
+  'days/mixed': 'The boards where a watched month covers the date, the booking horizon elsewhere.',
 };
+
+/**
+ * The panel's id, so a control somewhere else can name what it moves.
+ *
+ * The month tabs in the watchlist row point `aria-controls` at this. Exported
+ * the way `ADD_ROUTE_FORM_ID` is: the association between a control and the
+ * thing it operates is stated rather than inferred from the tree, because in
+ * both cases the two are nowhere near each other.
+ *
+ * **The panel, and not one chart inside it**, because a tab press moves both:
+ * chart A's month, chart B's anchor, and the reading the detail strip prints.
+ * If the anchor link is ever cut — leaving a tab that moves chart A alone —
+ * this must narrow to chart A's own stage rather than go on claiming the panel.
+ */
+export const ANALYSIS_PANEL_ID = 'airfare-analysis';
 
 type AnalysisPanelProps = {
   route: FareRoute | null;
-  snapshots: FareSnapshot[];
+  /**
+   * Which of the route's months is being read.
+   *
+   * A prop rather than something taken off the route, because a watch holds
+   * several months and this panel draws one. Everything here that narrows —
+   * the watched range, the head, the figures — takes this same value, so the
+   * heading and the frame cannot name different months of one watch.
+   */
+  month: string | null;
+  /**
+   * Every month this route is watched on — what chart B draws.
+   *
+   * A prop rather than `route.months`, even though `route` is right here and
+   * carries them. The page is the one place that decides what this panel draws,
+   * and the page is where `watchedSnapshots` below was narrowed; a panel that
+   * read the months off the route while the page narrowed the archive from
+   * somewhere else could put a board dot on a date the frame calls curve. One
+   * value, one owner.
+   */
+  watchedMonths: readonly string[];
+  /**
+   * The archive for the reading month — chart A's, the flight table's and the
+   * detail strip's.
+   *
+   * Named for its scope rather than left as `snapshots`, because the pair below
+   * it differs by one word and confusing them is a silent wrong-scope bug: the
+   * prefix says which chart at every use site.
+   */
+  monthSnapshots: FareSnapshot[];
+  /** The archive for every watched month — chart B's. */
+  watchedSnapshots: FareSnapshot[];
   baseline: FarePricePoint[];
   /** The booking horizon as last collected, or null where there is none yet. */
   curve: CalendarCurve | null;
@@ -177,7 +227,10 @@ type AnalysisPanelProps = {
  */
 export function AnalysisPanel({
   route,
-  snapshots,
+  month,
+  watchedMonths,
+  monthSnapshots,
+  watchedSnapshots,
   baseline,
   curve,
   curveLoading,
@@ -237,14 +290,19 @@ export function AnalysisPanel({
    * is also the only period on which the two series mean the same thing.
    */
   const axis = useMemo(() => calendarAxis('day'), []);
-  const ours = useMemo(() => bucketSnapshots(snapshots, 'day'), [snapshots]);
+  // Chart A's three inputs, all of the reading month. It asks what one month's
+  // price has done over time, so a second month's observations bucketed onto
+  // the same dates would widen the band into "cheapest across both", which is
+  // not a thing anybody was ever quoted.
+  const ours = useMemo(() => bucketSnapshots(monthSnapshots, 'day'), [monthSnapshots]);
   const theirs = useMemo(() => bucketBaseline(baseline, 'day'), [baseline]);
-  const oursUnsold = useMemo(() => unsoldPeriods(snapshots, 'day'), [snapshots]);
+  const oursUnsold = useMemo(() => unsoldPeriods(monthSnapshots, 'day'), [monthSnapshots]);
 
   /*
-   * What the watch is on, as two departure dates — 12.235.
+   * What the watch is on, as one range of departure dates per watched month.
    *
-   * The watched month, which since 12.260 is the whole of what a watch is: this
+   * The watched months, which since `a-watch-is-a-pair-and-its-months` are the
+   * whole of what a watch is — 12.235 for the shape: this
    * was `readingPrefix` and a `'day'` period where a route named one departure
    * inside its month. `periodBounds` rather than arithmetic here, because it is
    * this feature's single answer to "what does a key cover".
@@ -255,11 +313,14 @@ export function AnalysisPanel({
    * changes nothing here beyond the width of the range: a month of board dates
    * is what the boards were always collected for.
    */
-  const watched: WatchedRange | null = useMemo(() => {
-    if (!route) return null;
-    const bounds = periodBounds(route.month, 'month');
-    return { from: bounds.from.slice(0, 10), to: bounds.to.slice(0, 10) };
-  }, [route]);
+  const watched: WatchedRange[] = useMemo(
+    () =>
+      watchedMonths.map((watchedMonth) => {
+        const bounds = periodBounds(watchedMonth, 'month');
+        return { from: bounds.from.slice(0, 10), to: bounds.to.slice(0, 10) };
+      }),
+    [watchedMonths],
+  );
 
   /*
    * Chart B's navigation — 12.244.
@@ -271,7 +332,12 @@ export function AnalysisPanel({
    * there is simply nowhere outside the month to walk to — which is this
    * route's truth rather than a page of empty frames.
    */
-  const boardDays = useMemo(() => departureDays(snapshots), [snapshots]);
+  // Over every watched month, not the reading one. This is what lets the arrows
+  // reach a second watched month at all: built from the narrowed archive, a
+  // month whose snapshots the page had already thrown away could never be
+  // offered as a period, so fixing `isWatched` alone would have left the frame
+  // unable to walk to the boards it had just learned to draw.
+  const boardDays = useMemo(() => departureDays(watchedSnapshots), [watchedSnapshots]);
   const keys = useMemo(
     () => framePeriodKeys(boardDays, curve, granularity),
     [boardDays, curve, granularity],
@@ -303,11 +369,14 @@ export function AnalysisPanel({
    *
    * It was `formatReading` and a preposition that moved with it, because a
    * watch could name one departure inside its month and the page narrowed onto
-   * it. The page narrows on `route.month` now, and the history request asks for
-   * the same string, so the head and the figures under it cannot name different
-   * things.
+   * it. A watch now holds several months and the page reads one of them; the
+   * history request asks for that same string, so the head and the figures
+   * under it cannot name different things.
    */
-  const where = route ? `${routeLabel(route)} departing in ${formatFlightMonth(route.month)}` : '';
+  // Chart A's, and only chart A's. It used to feed both labels, which was
+  // accidentally right while both charts drew the same month and is wrong now.
+  const whereMonth =
+    route && month ? `${routeLabel(route)} departing in ${formatFlightMonth(month)}` : '';
   const currency = route?.currency ?? 'USD';
   const what = view === 'moves' ? 'moves' : `days/${source}`;
   const daysName = DAYS_NAMES[source];
@@ -316,7 +385,25 @@ export function AnalysisPanel({
     <>
       <div className={styles.head}>
         <h2 className={styles.title}>
-          {route ? `${routeLabel(route)} · ${formatFlightMonth(route.month)}` : 'Price analysis'}
+          {/*
+            The watch, not the reading.
+
+            It named the reading month because both charts were of the reading
+            month. Only chart A still is, so a heading saying "March 2027" over
+            a frame showing December would be the panel's largest text telling
+            the reader the wrong thing.
+
+            `formatFlightMonths` already exists for a set, and on a one-month
+            watch it returns exactly what this printed before — the common case
+            is unchanged character for character. On several it states the count
+            as well as the two ends, because the ends alone would claim months a
+            gapped watch does not hold.
+
+            The reading month is not lost from the page: the detail strip above
+            prints it, the open tab carries `aria-current`, and the flight table
+            below heads with it. This was the third of four statements of it.
+          */}
+          {route ? `${routeLabel(route)} · ${formatFlightMonths(route.months)}` : 'Price analysis'}
         </h2>
         {/*
           One switch, and only one — `period-switch-follows-its-chart` superseded.
@@ -431,7 +518,7 @@ export function AnalysisPanel({
               unsold={oursUnsold}
               currency={currency}
               axis={axis}
-              label={route ? `Cheapest fare for ${where}, by day` : 'Price analysis'}
+              label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
             />
           ) : (
             /*
@@ -441,7 +528,7 @@ export function AnalysisPanel({
           */
             <DepartureChart
               key={routeKey ?? 'none'}
-              snapshots={snapshots}
+              snapshots={watchedSnapshots}
               curve={curve}
               watched={watched}
               granularity={granularity}
@@ -456,7 +543,18 @@ export function AnalysisPanel({
               leg={leg}
               reference={reference}
               label={
-                route ? `What each departure date costs for ${where}` : 'Fares by departure date'
+                /*
+                  The route, and no months at all.
+
+                  `accessibleTail` already appends the frame's own two dates —
+                  `departing 29/03/2027 to 04/04/2027` — which is the true and
+                  useful statement of what is on screen. Naming the watch here
+                  as well would have a screen reader hear the months and then
+                  immediately hear the dates that contradict them.
+                */
+                route
+                  ? `What each departure date costs for ${routeLabel(route)}`
+                  : 'Fares by departure date'
               }
             />
           )}

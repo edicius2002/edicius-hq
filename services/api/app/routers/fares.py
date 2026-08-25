@@ -11,6 +11,7 @@ types that mirror them.
 """
 
 import logging
+from collections import Counter
 from collections.abc import AsyncIterator
 
 import httpx
@@ -26,7 +27,12 @@ from app.adapters.fares.models import (
     FareSnapshot,
 )
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
-from app.config import BUSIEST_DAY_ON_RECORD, CALENDAR_POLL_MINUTES, UPSTREAM_TIMEOUT_SECONDS
+from app.config import (
+    BUSIEST_DAY_ON_RECORD,
+    CALENDAR_POLL_MINUTES,
+    MAX_DEPARTURE_HORIZON_DAYS,
+    UPSTREAM_TIMEOUT_SECONDS,
+)
 from app.services import airport_search
 from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
@@ -41,9 +47,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fares", tags=["fares"])
 
-# How many watched months one collect call may carry. A year of them is already
-# more than anyone plans, and the bound that actually matters is the one below.
-MAX_COLLECT_MONTHS = 12
+# How many departure months one city pair may name in one call.
+#
+# This was `MAX_COLLECT_MONTHS` and it counted **routes**, which is not what it
+# was named for. The two coincided exactly as long as the client sent one entry
+# per (pair, month): a body of twelve entries was twelve months because it could
+# not be anything else. A press now sends every month of one route in one call,
+# so twelve entries can be one month on twelve pairs or twelve months on one,
+# and a bound that cannot tell those apart bounds neither.
+#
+# **Twelve survives as the value and stops being a choice.** A departure past
+# MAX_DEPARTURE_HORIZON_DAYS can never be collected at all, and 330 days touches
+# at most twelve calendar months — so a thirteenth month on one pair is not an
+# expensive request, it is a request for departures that do not exist as far as
+# the provider is concerned. Refusing it here is the same class of refusal as
+# `beyond-horizon`, arriving one layer earlier where the client can show it.
+#
+# What it is emphatically **not** is a cost ceiling. Twelve forced months is
+# ~372 board requests and about nineteen minutes of pacing, which is more than
+# the busiest day this address has ever sent. What bounds that is the pace and
+# the pass lock, and — since the daily ceiling went — nothing else by default. A
+# smaller number here would be exactly the unmeasured count that removal threw
+# out, re-entered through a door marked "months".
+MAX_MONTHS_PER_PAIR = 12
 
 # There is deliberately no per-call request ceiling here any more — 12.210.
 #
@@ -402,12 +428,30 @@ def _pass_model(running: CollectionPass) -> CollectResponse:
     )
 
 
-def _watch_from(body: RouteBody) -> FareWatch:
-    return FareWatch(
-        origin=normalize_code(body.origin),
-        destination=normalize_code(body.destination),
-        month=body.month,
-        currency=body.currency.upper(),
+def _watches_from(routes: list[RouteBody]) -> list[FareWatch]:
+    """
+    The body's entries as watches, each (pair, month) once, in the order sent.
+
+    Deduplicated for the reason `calendar_job._watching` deduplicates pairs: a
+    body repeating a month would have the pass *name* it twice in `watching`
+    while `expand` silently collapses it to one set of departures, so the
+    document would promise a caller work the pass was never going to report.
+
+    `dict.fromkeys` rather than a set, so the watchlist order survives — it is
+    the order the day is spent down in, and 12.111's truncation depends on it.
+    `FareWatch` is a frozen slots dataclass, so it hashes on its fields and this
+    works with no model change.
+    """
+    return list(
+        dict.fromkeys(
+            FareWatch(
+                origin=normalize_code(route.origin),
+                destination=normalize_code(route.destination),
+                month=route.month,
+                currency=route.currency.upper(),
+            )
+            for route in routes
+        )
     )
 
 
@@ -751,20 +795,32 @@ async def collect_routes(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider {provider!r}")
     if not body.routes:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No routes to collect")
-    if len(body.routes) > MAX_COLLECT_MONTHS:
+    months_per_pair = Counter(
+        (normalize_code(route.origin), normalize_code(route.destination)) for route in body.routes
+    )
+    crowded = [pair for pair, count in months_per_pair.items() if count > MAX_MONTHS_PER_PAIR]
+    if crowded:
+        origin, destination = crowded[0]
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Too many months in one call; the limit is {MAX_COLLECT_MONTHS}",
+            f"{origin}-{destination} names {months_per_pair[(origin, destination)]} months; "
+            f"the limit is {MAX_MONTHS_PER_PAIR}, which is every month the "
+            f"{MAX_DEPARTURE_HORIZON_DAYS}-day booking horizon reaches",
         )
-    if body.force and len(body.routes) != 1:
+    # The flat cap on entries is gone with `MAX_COLLECT_MONTHS`: it bounded
+    # nothing coherent once one entry stopped meaning one month, and it would
+    # have refused over HTTP what `scripts/fares-collect.py` hands the collector
+    # by hand every fifteen minutes — the whole watchlist at once.
+    if body.force and len(months_per_pair) != 1:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "A forced collection covers one route and one month; send exactly one route",
+            f"A forced collection covers one city pair; {len(months_per_pair)} were sent. "
+            "Every month of one route may travel in one call — a second route may not.",
         )
 
     return _pass_model(
         RUNNER.start(
-            [_watch_from(route) for route in body.routes],
+            _watches_from(body.routes),
             provider=provider,
             client=get_client(),
             force=body.force,
@@ -902,6 +958,24 @@ class CalendarCollectBody(BaseModel):
     #: the schema because the caller adding a route may genuinely not have
     #: picked one yet, and `null` says that where `"USD"` would claim it did.
     currency: str | None = None
+    #: Collect this pair's curve whether or not the cadence says its turn has
+    #: come — `a-press-collects-the-month-it-is-on`, 12.212, reaching the one
+    #: cadence it had not.
+    #:
+    #: **Default `False`, so the endpoint's ordinary behaviour is the schedule**
+    #: and this is a second way in rather than a change to the first. The
+    #: scheduled script, the command line and every client written before this
+    #: field existed reach `collect_calendars` exactly as they did.
+    #:
+    #: **And it is one city pair by construction, which is why there is no check
+    #: beside it.** `CollectBody.force` is refused with anything but one route,
+    #: because that body carries a list and the bound 12.212 turns on has to be
+    #: the API's rather than one client's habit. This body carries one origin and
+    #: one destination, so the same bound is the schema's — a press here cannot
+    #: name a second pair to force. The refusal that would catch a caller
+    #: crossing it lives in `collect_calendars`, which is the function the
+    #: scheduled pass hands a whole watchlist to.
+    force: bool = False
 
 
 class CalendarResultModel(BaseModel):
@@ -1088,16 +1162,25 @@ async def collect_calendar(
     chart stayed empty until the next scheduled pass happened to run. This lets
     the press that adds the route ask for its curve.
 
-    **It still runs the schedule rather than bypassing it, with one exception.**
-    A pair whose curve was collected within `CALENDAR_POLL_MINUTES` comes back
-    in `skipped` as `not-due` and no request is spent, which is the correct
-    answer to "collect this again" ten minutes after collecting it — a fare
-    eleven months out moves by a median 1.7% a day, so the second look would
-    cost two requests to confirm the first. The row says so instead of the pass
-    quietly doing nothing, so a caller can tell a declined press from a broken
-    one.
+    **It still runs the schedule rather than bypassing it, with two
+    exceptions.** A pair whose curve was collected within
+    `CALENDAR_POLL_MINUTES` comes back in `skipped` as `not-due` and no request
+    is spent, which is the correct answer to "collect this again" ten minutes
+    after collecting it — a fare eleven months out moves by a median 1.7% a day,
+    so the second look would cost two requests to confirm the first. The row
+    says so instead of the pass quietly doing nothing, so a caller can tell a
+    declined press from a broken one.
 
-    The exception is a pair with **no curve on disk at all**, which is always
+    **The second exception is `force`**, and it is a caller saying it does not
+    believe the curve on disk — `a-press-collects-the-month-it-is-on`, 12.212,
+    which `POST /api/fares/collect` has had since it was settled and this one
+    had no version of. It is bounded to one city pair by the body itself, which
+    carries one origin and one destination; `collect_calendars` refuses it for
+    anything wider. What it does *not* get past is the request budget or the
+    pass lock, both of which come back as the ordinary skipped reasons a row
+    already renders — `over-budget`, `another-pass-is-running`.
+
+    The first exception is a pair with **no curve on disk at all**, which is always
     due. The cadence is measured from the last *look*, not from the last curve,
     and a look that failed counts — so the first collection of a brand-new route
     refusing once left that route with nothing to draw and no second attempt for
@@ -1139,6 +1222,14 @@ async def collect_calendar(
             provider=provider,
             client=get_client(),
             every_minutes=0 if nothing_yet else CALENDAR_POLL_MINUTES,
+            # Kept apart from the line above rather than folded into it, though
+            # a `force` would reach the same collection through a zero cadence.
+            # The two are different claims: an empty store is a fact about the
+            # cadence — there is nothing for it to protect — while `force` is a
+            # reader overruling a cadence that is working. Collapsing them would
+            # leave the collector unable to say which of the two brought it
+            # here, and that is the sentence a log of a busy day needs.
+            force=body.force,
         )
     )
 

@@ -108,20 +108,148 @@
 }
 
 /*
- * The month and the year, side by side across the three tracks the departure
- * label leaves.
+ * The year, on the label's own row so the control still starts at the x the
+ * origin input does — the subgrid alignment 12.265 bought stays paid for.
  *
- * The month track takes the room and the year takes what two digits need:
- * "September" is the longest of the twelve and is what the first column is
- * sized to hold, while a year grown to match it would be four fifths empty and
- * would read as the more important half of the two.
+ * The month dropdown that used to sit beside it is gone: a watch holds several
+ * months and a control naming one at a time could neither show which nor change
+ * one. What replaced it is `.months` below. The year stays because twelve chips
+ * cover one calendar year and the 330-day horizon reaches into two.
  */
-.departure {
+.year {
   grid-column: 2 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
   min-width: 0;
+}
+
+/* How many picked months are in the year the strip is not showing. */
+.elsewhere {
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+/*
+ * Twelve cells, six across and two down.
+ *
+ * **Six per row and not four**, so a row is half a year: three rows of four
+ * would cost one more row of height than two rows of six, and this form is
+ * already spending the panel's height budget — see `routesScroll.test`, which
+ * holds the arithmetic this strip feeds.
+ *
+ * Full width rather than the three tracks the label leaves, because twelve
+ * cells do not fit in them. Twelve children over six columns is two rows by
+ * construction: there is no wrapper to lose count of, and no explicit row
+ * template to fall out of step with the number of months in a year.
+ *
+ * **Measured at the panel's floor**, where the form has 398px of content. Six
+ * tracks and five 5px gaps leave (398 − 25) / 6 = 62.17px a cell, against
+ * 23.76px for `Jan` at 0.66rem and 12px of padding — 35.76px used, 26px
+ * standing. The height is the load-bearing figure: 13.2 × 1.35 line + 4 padding
+ * + 2 border = 23.82px a row, so two rows and a 5px gap are 52.64px.
+ */
+.months {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+/*
+ * One cell. Follows `IndicatorBar`'s toggle rather than inventing a look: the
+ * accent on the border and the text for what is on, dimmed and `not-allowed`
+ * for what cannot be picked, and the reason on `title` rather than hidden.
+ */
+.monthChip {
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.66rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.monthChip:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-muted);
+}
+
+.monthChip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.monthChip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.monthChipOn {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/*
+ * A month the watch holds that the calendar has passed. It keeps the accent
+ * border, because it is still selected and still removable — a pressed control
+ * that was also disabled would be a trap — and loses the accent colour, because
+ * nothing more will be collected for it.
+ */
+.monthChipStale {
+  color: var(--color-muted);
+}
+
+/* What the picked months cost a pass. The only feedback there is. */
+.cost,
+.costLoud {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+.cost {
+  color: var(--color-muted);
+}
+
+.costLoud {
+  color: var(--color-expense);
+}
+
+/*
+ * The warnings that are not refusals.
+ *
+ * The wrapper stays in the tree so the live region exists before it has
+ * anything to say, and collapses when it has nothing: an empty grid item still
+ * takes a row and a gap, which would leave ten pixels of nothing under the cost
+ * line whenever the reader is not being warned about anything.
+ *
+ * `:empty` rather than not rendering the wrapper at all, so the collapse is the
+ * stylesheet's and the markup keeps one shape. The trade-off is honest and
+ * small: a region hidden at the moment it gains content is not reliably
+ * announced, so these two sentences are read rather than heard. Both are
+ * restatements of a field the reader has just this second changed, and what
+ * actually stops a save is the `alert` node below, which is never hidden.
+ */
+.notes {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.notes:empty {
+  display: none;
+}
+
+.note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.7rem;
 }
 
 /* Across every column: a refusal is about the form, not about one field. */

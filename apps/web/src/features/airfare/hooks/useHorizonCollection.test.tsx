@@ -69,7 +69,7 @@ function streamed(): FakeEventSource {
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  month: '2027-03',
+  months: ['2027-03'],
   currency: 'USD',
 };
 

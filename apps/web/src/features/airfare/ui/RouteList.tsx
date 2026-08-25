@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 
 import {
   formatFlightMonth,
+  formatFlightMonths,
   hasDeparted,
+  monthHasDeparted,
   routeId,
   routeLabel,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
+import { shortMonth } from '@/features/airfare/lib/monthChips';
 import type { PassProgress } from '@/features/airfare/lib/passProgress';
 import type { RowReport } from '@/features/airfare/lib/rowReport';
+import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
@@ -28,7 +32,19 @@ type RouteListProps = {
   reports: ReadonlyMap<string, RowReport>;
   /** How far each running pass has got, by route id. Absent means no bar. */
   progress: ReadonlyMap<string, PassProgress>;
+  /** Which month of the selected route the chart is reading. */
+  activeMonth: string | null;
+  /** The watch loaded into the editor above, or null while it is adding. */
+  editing: FareRoute | null;
   onSelect: (id: string) => void;
+  /**
+   * Open one month of one route: select the row, and read that month.
+   *
+   * One callback rather than two, because a press on a tab means both and a
+   * page that had to be told twice could end up selected on one route while
+   * reading a month of another.
+   */
+  onOpenMonth: (id: string, month: string) => void;
   onRemove: (id: string) => void;
   /**
    * Collect this one route now.
@@ -40,6 +56,15 @@ type RouteListProps = {
    */
   onCollect: (route: FareRoute) => void;
   onAdd: (route: FareRoute) => void;
+  onSave: (id: string, route: FareRoute) => void;
+  /**
+   * Put the fields back to adding a route.
+   *
+   * What a press on the empty part of this panel means. It clears the editor
+   * and deliberately **not** the selection: the reader said they were done
+   * editing, not that they were done looking at a chart.
+   */
+  onClearEditing: () => void;
   onMove: (from: string, to: string) => void;
 };
 
@@ -97,15 +122,38 @@ export function RouteList({
   colours,
   selectedId,
   today,
+  activeMonth,
+  editing,
   collecting,
   reports,
   progress,
   onSelect,
+  onOpenMonth,
   onRemove,
   onCollect,
   onAdd,
+  onSave,
+  onClearEditing,
   onMove,
 }: RouteListProps) {
+  /*
+   * A press on the panel's own background puts the fields back to adding.
+   *
+   * Without it, choosing a row is a one-way door: the form is holding that
+   * watch and the only way back to a blank one is the Cancel button beside the
+   * heading, which is a long way from where the reader just pressed. Clicking
+   * the empty space below the rows is what everyone tries first.
+   *
+   * `target === currentTarget` is the whole guard, and it has to be exact
+   * rather than a `closest('li')` test: every press inside a row bubbles
+   * through here, so anything looser would clear the editor on the way to
+   * selecting a route. What passes it is a press that landed on the container
+   * itself — the gaps between rows, the space under the last one, the panel's
+   * own padding — and nothing else.
+   */
+  const clearOnBackdrop = (event: MouseEvent) => {
+    if (event.target === event.currentTarget) onClearEditing();
+  };
   // Order is not decoration here: the collector spends its daily request
   // budget down the list, so dragging a route to the top says "poll this one
   // first when there is not enough budget for everything".
@@ -147,21 +195,41 @@ export function RouteList({
   }, [routes, reports]);
 
   return (
-    <div className={styles.panel}>
-      <RouteEditor today={today} onAdd={onAdd} />
+    <div className={styles.panel} onClick={clearOnBackdrop}>
+      {/*
+        Keyed on the watch being edited, so choosing another row **remounts**
+        the form and the fields reload from it. That is `PositionForm`'s
+        behaviour by construction — the parent renders a different form per row
+        — and deliberately not an effect syncing props into state, which is the
+        stale-read this codebase has avoided everywhere else. The cost is a
+        discarded draft when the reader clicks a row mid-typing; the draft is
+        two codes and a chip set, and the alternative needs a dialog this app
+        does not have.
+      */}
+      <RouteEditor
+        key={editing ? routeId(editing) : 'new'}
+        today={today}
+        editing={editing}
+        watched={routes.map(routeId)}
+        onAdd={onAdd}
+        onSave={onSave}
+      />
 
       {routes.length === 0 ? (
-        <p className={styles.empty}>No routes watched yet.</p>
+        <p className={styles.empty} onClick={clearOnBackdrop}>
+          No routes watched yet.
+        </p>
       ) : (
         /*
           The box the marks are drawn on, which cannot be the scroller itself:
           a pseudo-element of a scroll container scrolls with its content, and
           a mark pinned to the bottom edge has to stay at the bottom edge.
         */
-        <div className={styles.listBox} data-edge={edge}>
+        <div className={styles.listBox} data-edge={edge} onClick={clearOnBackdrop}>
           <ul
             className={styles.list}
             ref={scroller}
+            onClick={clearOnBackdrop}
             onScroll={(event) => setEdge(listEdge(event.currentTarget))}
             /*
               Reachable by keyboard, and this is the reason for both
@@ -188,6 +256,21 @@ export function RouteList({
               const busy = collecting.includes(id);
               const report = reports.get(id) ?? null;
               const bar = progress.get(id) ?? null;
+              // Every month, explicitly. The row used to draw three and count
+              // the rest, which meant the shape of a watch was legible and its
+              // contents were not — the reader could see that a route had more
+              // months than fitted and had to open the editor to learn which.
+              // Four to a line is what the width allows; the lines are what a
+              // watch with nine months costs, and it costs them only on that row.
+              const drawn = route.months;
+              // Where Tab lands in this row's tabs: the month being read where
+              // this is the open row, and the first one otherwise. One stop per
+              // row, so the group walks with the arrows rather than the tab key.
+              const tabStop =
+                id === selectedId && activeMonth !== null && drawn.includes(activeMonth)
+                  ? activeMonth
+                  : drawn[0];
+              const monthsLabel = formatFlightMonths(route.months);
               return (
                 <li
                   key={id}
@@ -226,30 +309,88 @@ export function RouteList({
                         </span>
                         <span className={styles.sr}>to</span> {route.destination}
                       </span>
-                      <span className={styles.dates}>
-                        {/*
-                        One leg where there used to be two: 12.113 dropped the
-                        return, and 12.110 made the remaining one a month. The
-                        arrow stays hidden from the accessibility tree with the
-                        word carried beside it, because "up arrow March 2027"
-                        is not what a departure sounds like.
-                      */}
-                        <span className={styles.leg}>
-                          <span className={styles.arrow} aria-hidden="true">
-                            ↑
-                          </span>
-                          <span className={styles.sr}>departs in</span>
-                          {formatFlightMonth(route.month)}
-                        </span>
-                      </span>
-                      {/*
-                      A month that has been and gone keeps its history — that
-                      is the point of an archive — but nothing more will be
-                      collected for it, and saying so is cheaper than letting
-                      the reader wonder why its series stopped.
-                    */}
-                      {departed ? <span className={styles.departed}>Departed</span> : null}
                     </button>
+                    {/*
+                      The months, as tabs.
+
+                      They are siblings of the row button rather than children
+                      of it, because a `<button>` may not contain buttons — so
+                      the whole-row press shrinks to the swatch and the pair.
+                      What compensates is that pressing any tab also selects the
+                      row: `onOpenMonth` does both, so a press anywhere on the
+                      row still opens it and a press on a tab additionally says
+                      which month.
+
+                      **Not `role="tab"`.** That role obliges a `tablist` whose
+                      tabs own `tabpanel`s, and there would be one tablist per
+                      row — ten of them, nine inert, each still claiming a
+                      selected tab — pointing at a panel that already has its own
+                      chart switch inside it. `aria-current` is the honest,
+                      weaker thing and is this row's existing idiom; `aria-
+                      controls` names what the press actually moves.
+
+                      One tab stop per row rather than one per tab: forty extra
+                      stops between the reader and Remove is not a bargain.
+                      Arrow keys walk and open, and they cannot collide with the
+                      drag — `useReorder` claims `Alt+Arrow` and returns
+                      immediately without it, while this returns immediately
+                      *with* it.
+                    */}
+                    <span
+                      className={styles.months}
+                      role="group"
+                      aria-label={`Months watched for ${routeLabel(route)}`}
+                      // Where the year lives, since a three-letter tab cannot
+                      // carry one — see `shortMonth`.
+                      title={monthsLabel}
+                      onKeyDown={(event) => {
+                        if (event.altKey) return;
+                        const step =
+                          event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+                        if (step === 0) return;
+                        event.preventDefault();
+                        const from = route.months.indexOf(tabStop);
+                        const next = route.months[from + step];
+                        if (next === undefined) return;
+                        onOpenMonth(id, next);
+                      }}
+                    >
+                      {drawn.map((month) => {
+                        const open = id === selectedId && month === activeMonth;
+                        return (
+                          <button
+                            key={month}
+                            type="button"
+                            className={[
+                              styles.monthTab,
+                              open ? styles.monthTabOpen : '',
+                              monthHasDeparted(month, today) ? styles.monthTabGone : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            aria-label={
+                              monthHasDeparted(month, today)
+                                ? `${formatFlightMonth(month)} — departed`
+                                : formatFlightMonth(month)
+                            }
+                            aria-current={open ? 'true' : undefined}
+                            aria-controls={ANALYSIS_PANEL_ID}
+                            tabIndex={month === tabStop ? 0 : -1}
+                            onClick={() => onOpenMonth(id, month)}
+                          >
+                            {shortMonth(month)}
+                          </button>
+                        );
+                      })}
+                    </span>
+                    {/*
+                      Every month has been and gone. Its history stays — that is
+                      the point of an archive — but nothing more will be
+                      collected, and saying so is cheaper than letting the reader
+                      wonder why the series stopped. A watch with one stale month
+                      beside two live ones is not this, and keeps its press.
+                    */}
+                    {departed ? <span className={styles.departed}>Departed</span> : null}
                     {/*
                     Collect this one route, now, without waiting for a pass
                     over the whole list. Absent rather than disabled on a
@@ -266,10 +407,13 @@ export function RouteList({
                         onClick={() => onCollect(route)}
                         disabled={busy}
                         aria-busy={busy || undefined}
+                        // One press, every month the watch can still collect,
+                        // one pass — so the name says how many rather than
+                        // naming the one the reader happens to be reading.
                         aria-label={
                           busy
-                            ? `Collecting ${routeLabel(route)} in ${formatFlightMonth(route.month)}`
-                            : `Collect ${routeLabel(route)} in ${formatFlightMonth(route.month)} now`
+                            ? `Collecting ${routeLabel(route)}, ${monthsLabel}`
+                            : `Collect ${routeLabel(route)} now, ${monthsLabel}`
                         }
                       >
                         <CollectMark busy={busy} />
@@ -279,7 +423,11 @@ export function RouteList({
                       variant="ghost"
                       size="small"
                       onClick={() => onRemove(id)}
-                      aria-label={`Stop watching ${routeLabel(route)} in ${formatFlightMonth(route.month)}`}
+                      // The pair and every month of it. The month name is gone
+                      // from here on purpose: with tabs in the row, "Stop
+                      // watching LIM → CUZ in March 2027" would read as an offer
+                      // to drop one month. Dropping one is the editor's job.
+                      aria-label={`Stop watching ${routeLabel(route)}`}
                     >
                       Remove
                     </Button>

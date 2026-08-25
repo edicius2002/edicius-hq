@@ -1,0 +1,141 @@
+/*
+ * The corner a finished press reports itself in.
+ *
+ * Bottom right, and fixed: the press was made in the watchlist on the right of
+ * the page, so the answer arrives on the same side the question was asked, and
+ * the bottom is the one edge of this page that carries no controls — the header
+ * has the day's spend, the panels have their own chrome, and a card over either
+ * would cover something the reader might be using. Fixed rather than absolute
+ * because the whole point is a reader who has scrolled away from the row.
+ *
+ * `pointer-events: none` on the stack and everything in it. The card holds
+ * nothing to click and takes itself away on a clock, so the one thing it can do
+ * to a pointer is swallow a click meant for the page underneath — which on this
+ * page is a chart the reader is dragging a crosshair across.
+ *
+ * `z-index: 20` matches `AirportField`'s dropdown rather than the Investing
+ * focus mode's 50: this belongs above the page, and below anything that has
+ * taken the page over.
+ */
+.stack {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 20;
+  display: grid;
+  gap: var(--space-2);
+  /*
+   * Wide enough for the longest sentence `describeCollection` composes to sit
+   * on three lines — "Collected: 31 departures looked at, cheapest $412.00 on
+   * 17/10/2026 — 4 new snapshots, 2 refused (no-offers), 25 not-due." — and
+   * narrow enough to leave the page visible beside it. It gives way to the
+   * window on a phone, where a fixed 24rem card would hang off the edge.
+   */
+  width: min(24rem, calc(100vw - 2 * var(--space-4)));
+  pointer-events: none;
+}
+
+/*
+ * One press, one card.
+ *
+ * The accent stripe down the left is the row list's collect control answering
+ * from a distance: a card is only ever raised by a press, and the mark that
+ * press wears is drawn in `--color-accent`. Surface, border and shadow are the
+ * `Panel` recipe, because a card floating over the page has to read as
+ * something that arrived rather than as a hole in the layout.
+ *
+ * Two animations on one declaration and they do not overlap: the arrival is
+ * under a fifth of a second, the departure starts `--notice-life` minus its own
+ * length after the card appears. That property is set inline by the component
+ * from `NOTICE_LIFE_MS` — the same constant the hook's timer runs on — so the
+ * fade cannot finish before the card is removed, or start after it has gone.
+ * A fallback is written here anyway: a stylesheet whose animation depends on a
+ * property nobody set would never fade at all.
+ */
+.notice {
+  --notice-life: 10000ms;
+  --notice-leave: 600ms;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: 0 10px 24px var(--color-shadow);
+  animation:
+    arrive 180ms ease-out both,
+    leave var(--notice-leave) ease-in calc(var(--notice-life) - var(--notice-leave)) forwards;
+}
+
+/*
+ * A card that says something went wrong, and only such a card.
+ *
+ * `--color-expense` on the stripe and on the sentence, which is the token both
+ * report lists already use for a refusal — a reader who has learnt that colour
+ * under a row should not have to learn it again in the corner.
+ */
+.refused {
+  border-left-color: var(--color-expense);
+}
+
+.refused .text {
+  color: var(--color-expense);
+}
+
+/*
+ * Which watch this is about. Quieter than the sentence and above it: the reader
+ * is looking for the news, and the name is what tells them which of eight
+ * watched routes the news is about once they have found it.
+ */
+.title {
+  margin: 0 0 var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.text {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-3));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes leave {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/*
+ * The movement goes; the fade stays.
+ *
+ * A card sliding in at the edge of vision is exactly what this setting is
+ * about, and it costs nothing to arrive in place instead. The fade is not
+ * decoration in the same sense — it is the card telling the reader it is on its
+ * way out, and a card that vanished between two frames would read as a glitch.
+ * An opacity change over six tenths of a second triggers nothing this setting
+ * exists to protect against.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: leave var(--notice-leave) ease-in calc(var(--notice-life) - var(--notice-leave))
+      forwards;
+  }
+}

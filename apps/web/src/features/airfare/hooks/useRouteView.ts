@@ -156,6 +156,7 @@ export function useRouteView(
 ): {
   view: RouteView;
   setMonth: (month: string) => void;
+  openOn: (month: string) => void;
   setGranularity: (granularity: Granularity) => void;
   setAnchor: (anchor: string | null) => void;
   setViewport: (viewport: Viewport | null) => void;
@@ -233,6 +234,39 @@ export function useRouteView(
     [write],
   );
 
+  /*
+   * Put this route's reading back to a month, whatever it was on.
+   *
+   * `setMonth` above is a tab press and `openOn` is an edit landing, and the
+   * difference is the one line `setMonth` opens with: it returns the record
+   * untouched when the month it is handed is the month already held. That is
+   * right for a press — pressing the tab you are on is not a request to be
+   * moved — and it is exactly wrong here.
+   *
+   * The reader can be on the first month's *tab* while the departure chart's
+   * frame is walked months away from it: the tab and the frame are the same
+   * record but not the same value, and only the anchor says where the frame is.
+   * So an edit that landed on a route whose tab was already the first month
+   * would leave the frame wherever it had been walked to, which is the one case
+   * `a-month-edit-reopens-the-chart` exists to fix. This writes both without
+   * asking.
+   *
+   * The granularity survives, and that is deliberate. Editing the months of a
+   * watch says nothing about whether the reader wants to look at days, weeks or
+   * months, and throwing that away would be the same over-reach `openingView`
+   * refuses when it seeds a record rather than reapplying one.
+   */
+  const openOn = useCallback(
+    (month: string) =>
+      write((held) => ({
+        ...held,
+        month,
+        anchor: periodBounds(month, 'month').from.slice(0, 10),
+        viewport: null,
+      })),
+    [write],
+  );
+
   const setAnchor = useCallback(
     (anchor: string | null) =>
       write((held) => (held.anchor === anchor ? held : { ...held, anchor })),
@@ -244,5 +278,5 @@ export function useRouteView(
     [write],
   );
 
-  return { view, setMonth, setGranularity, setAnchor, setViewport };
+  return { view, setMonth, openOn, setGranularity, setAnchor, setViewport };
 }

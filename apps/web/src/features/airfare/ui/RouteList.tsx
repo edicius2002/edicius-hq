@@ -5,6 +5,7 @@ import {
   formatFlightMonths,
   hasDeparted,
   monthHasDeparted,
+  openingMonth,
   routeId,
   routeLabel,
   type FareRoute,
@@ -47,14 +48,18 @@ type RouteListProps = {
   onOpenMonth: (id: string, month: string) => void;
   onRemove: (id: string) => void;
   /**
-   * Collect this one route now.
+   * Collect one month of this route now.
    *
    * Takes the route rather than its id, unlike `onRemove`: removing is an edit
    * to the stored document and the id is the whole of it, while a collection
-   * needs both ends, the month and the currency. The row is holding all of
-   * that already, so passing the id would only make the page look it up again.
+   * needs both ends and the currency. The row is holding all of that already,
+   * so passing the id would only make the page look it up again.
+   *
+   * And it takes the **month**, because the row is the only thing that knows
+   * which one it is reading — `a-press-collects-the-month-on-screen`. The open
+   * tab where this is the open row; the month it would open on where it is not.
    */
-  onCollect: (route: FareRoute) => void;
+  onCollect: (route: FareRoute, month: string) => void;
   onAdd: (route: FareRoute) => void;
   onSave: (id: string, route: FareRoute) => void;
   /**
@@ -266,10 +271,23 @@ export function RouteList({
               // Where Tab lands in this row's tabs: the month being read where
               // this is the open row, and the first one otherwise. One stop per
               // row, so the group walks with the arrows rather than the tab key.
-              const tabStop =
-                id === selectedId && activeMonth !== null && drawn.includes(activeMonth)
+              /*
+               * The month this row is reading, which is one value serving two
+               * jobs: where Tab lands in its tab strip, and what its collect
+               * button collects.
+               *
+               * The open tab where this is the open row. Otherwise the month it
+               * would open on — `openingMonth`, the earliest that has not
+               * departed — rather than `months[0]`, which on a watch a few
+               * months old is a dead month whose series has stopped. One value
+               * so the control and the keyboard cannot point at different
+               * months of the same row.
+               */
+              const reading =
+                id === selectedId && activeMonth !== null && route.months.includes(activeMonth)
                   ? activeMonth
-                  : drawn[0];
+                  : openingMonth(route, today);
+              const tabStop = drawn.includes(reading) ? reading : drawn[0];
               const monthsLabel = formatFlightMonths(route.months);
               return (
                 <li
@@ -404,16 +422,17 @@ export function RouteList({
                         variant="ghost"
                         size="small"
                         className={styles.collect}
-                        onClick={() => onCollect(route)}
+                        onClick={() => onCollect(route, reading)}
                         disabled={busy}
                         aria-busy={busy || undefined}
-                        // One press, every month the watch can still collect,
-                        // one pass — so the name says how many rather than
-                        // naming the one the reader happens to be reading.
+                        // One press, one month — the one this row is reading, so
+                        // the name says which rather than how many. A control
+                        // that collected three months while naming none of them
+                        // was doing more than the reader could see it do.
                         aria-label={
                           busy
-                            ? `Collecting ${routeLabel(route)}, ${monthsLabel}`
-                            : `Collect ${routeLabel(route)} now, ${monthsLabel}`
+                            ? `Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`
+                            : `Collect ${routeLabel(route)} now, ${formatFlightMonth(reading)}`
                         }
                       >
                         <CollectMark busy={busy} />

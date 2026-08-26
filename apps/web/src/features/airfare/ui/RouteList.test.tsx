@@ -328,6 +328,49 @@ describe('RouteList', () => {
     expect(props.onMove).toHaveBeenCalledWith('LIM|SCL', 'LIM|CUZ');
   });
 
+  it('collects the month the open row is reading, and names it', () => {
+    /*
+     * `a-press-collects-the-month-on-screen`. The press sent every month of the
+     * watch, which is the button doing more than the reader can see it do — the
+     * row shows one month at a time and the control sits inside it.
+     */
+    const { props } = renderList({
+      routes: [{ ...ROUTES[0], months: ['2026-10', '2026-12'] }],
+      selectedId: 'LIM|CUZ',
+      activeMonth: '2026-12',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Collect LIM → CUZ now/ }));
+    expect(props.onCollect).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: 'LIM', destination: 'CUZ' }),
+      '2026-12',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Collect LIM → CUZ now, December 2026' }),
+    ).toBeInTheDocument();
+  });
+
+  it('collects the month a row would open on where that row is not the open one', () => {
+    /*
+     * The tab strip marks a current month only on the open row, so an unopened
+     * row has no "selected" month to collect. It collects the one it would open
+     * on — the earliest that has not departed — rather than `months[0]`, which
+     * on a watch a few months old is a dead month whose series has stopped.
+     *
+     * And it does not select the row on the way: a collect control that also
+     * moved the chart would be doing two things.
+     */
+    const { props } = renderList({
+      routes: [{ ...ROUTES[0], months: ['2020-01', '2026-10', '2026-12'] }],
+      selectedId: null,
+      activeMonth: null,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Collect LIM → CUZ now/ }));
+    expect(props.onCollect).toHaveBeenCalledWith(expect.anything(), '2026-10');
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
   it('offers each row its own collection, named for the route it would collect', () => {
     // "Collect" on its own would be nine identical buttons in the
     // accessibility tree, and the mark that carries it visually says nothing
@@ -345,7 +388,9 @@ describe('RouteList', () => {
     await user.click(screen.getByRole('button', { name: /^Collect LIM → CUZ/ }));
 
     expect(props.onCollect).toHaveBeenCalledTimes(1);
-    expect(props.onCollect).toHaveBeenCalledWith(ROUTES[0]);
+    // The route, and the month that row is reading — which for a row nobody has
+    // opened is the month it would open on.
+    expect(props.onCollect).toHaveBeenCalledWith(ROUTES[0], ROUTES[0].months[0]);
   });
 
   it('offers no collection for a month the calendar has left', () => {

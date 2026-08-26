@@ -62,15 +62,6 @@ function streamed(): FakeEventSource {
   return source;
 }
 
-/**
- * The clock the hook is handed.
- *
- * Fixed rather than real, so the fixtures below stay future months and the
- * payload the press builds does not start dropping them as departed the moment
- * the calendar moves past October 2026.
- */
-const TODAY = '2026-08-19';
-
 const LIM_CUZ: FareRoute = {
   origin: 'LIM',
   destination: 'CUZ',
@@ -258,9 +249,9 @@ describe('collecting one watched route from its own row', () => {
     // The bulk button sent the whole watchlist; a row press sends one city
     // pair, or pressing it would spend the day on eight other routes.
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_MAD));
+    act(() => result.current.collect(LIM_MAD, LIM_MAD.months[0]));
 
     await waitFor(() => expect(api.calls).toHaveLength(1));
     expect(api.calls[0]).toEqual({
@@ -288,9 +279,9 @@ describe('collecting one watched route from its own row', () => {
      * but one route, and the row is the only control that sends it.
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
 
     await waitFor(() => expect(api.calls).toHaveLength(1));
     const body = api.calls[0] as { routes: unknown[]; force: boolean };
@@ -301,36 +292,49 @@ describe('collecting one watched route from its own row', () => {
     expect(body.routes).toHaveLength(1);
   });
 
-  it('sends every month of the watch, in one call, ascending', async () => {
-    // The press is one pass over one pair, so the months travel together
-    // rather than as several presses the collector would answer with several
-    // locks and several ledger lines.
+  it('sends only the month it was handed, whatever else the watch holds', async () => {
+    /*
+     * The reversal — `a-press-collects-the-month-on-screen`.
+     *
+     * It sent every month of the watch in one pass, and the row is showing one
+     * month at a time: collecting the other two was the button doing more than
+     * the reader could see it do, and on a twelve-month watch that is ~372
+     * requests and nineteen minutes behind a control that answers instantly.
+     */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect({ ...LIM_MAD, months: ['2026-12', '2026-10', '2027-02'] }));
+    act(() =>
+      result.current.collect({ ...LIM_MAD, months: ['2026-10', '2026-12', '2027-02'] }, '2026-12'),
+    );
 
     await waitFor(() => expect(api.calls).toHaveLength(1));
     const body = api.calls[0] as { routes: { month: string }[]; force: boolean };
-    expect(body.routes.map((route) => route.month)).toEqual(['2026-10', '2026-12', '2027-02']);
+    expect(body.routes.map((route) => route.month)).toEqual(['2026-12']);
     expect(body.force).toBe(true);
   });
 
-  it('leaves out a month that has gone rather than sending it to be refused', async () => {
+  it('sends a month that has gone rather than swallowing the press', async () => {
     /*
-     * The server would answer `departed` per day and say so honestly. The
-     * reason not to send it is the row's own sentence: a wholly departed month
-     * buys thirty-one skip lines that push the reasons a reader needs out of a
-     * summary ordered commonest-first.
+     * The other half of the reversal, and the reasoning goes with it.
+     *
+     * Departed months were filtered out because a wholly departed month bought
+     * thirty-one skip lines that pushed the reasons that mattered out of the
+     * row's commonest-first summary. With one month there are no other reasons
+     * to crowd out, so `Not collected: 31 departed.` is the whole sentence —
+     * true, useful, and built from machinery that already exists.
+     *
+     * A press that quietly sent nothing would be the silent no-op the row's own
+     * report line exists to prevent (8.8, 8.41).
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect({ ...LIM_MAD, months: ['2026-01', '2026-12'] }));
+    act(() => result.current.collect({ ...LIM_MAD, months: ['2020-01', '2026-12'] }, '2020-01'));
 
     await waitFor(() => expect(api.calls).toHaveLength(1));
     const body = api.calls[0] as { routes: { month: string }[] };
-    expect(body.routes.map((route) => route.month)).toEqual(['2026-12']);
+    expect(body.routes.map((route) => route.month)).toEqual(['2020-01']);
   });
 
   it('sends a city pair, a month and a currency, and no reading preference', async () => {
@@ -347,9 +351,9 @@ describe('collecting one watched route from its own row', () => {
      * shape that reaches a stored document as a key.
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_MAD));
+    act(() => result.current.collect(LIM_MAD, LIM_MAD.months[0]));
     await waitFor(() => expect(api.calls).toHaveLength(1));
     expect(Object.keys((api.calls[0] as { routes: object[] }).routes[0])).toEqual([
       'origin',
@@ -361,9 +365,9 @@ describe('collecting one watched route from its own row', () => {
 
   it('marks only the pressed row as working', async () => {
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]));
     expect(result.current.collecting).not.toContain(routeId(LIM_MAD));
 
@@ -381,11 +385,11 @@ describe('collecting one watched route from its own row', () => {
      * doubled press would be two upstream requests for one fare.
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => {
-      result.current.collect(LIM_CUZ);
-      result.current.collect(LIM_CUZ);
+      result.current.collect(LIM_CUZ, LIM_CUZ.months[0]);
+      result.current.collect(LIM_CUZ, LIM_CUZ.months[0]);
     });
 
     await waitFor(() => expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]));
@@ -414,21 +418,21 @@ describe('collecting one watched route from its own row', () => {
      * where it lives, in `test_five_impatient_presses_start_one_pass`.
      */
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
 
     await act(async () => {
-      result.current.collect(LIM_CUZ);
+      result.current.collect(LIM_CUZ, LIM_CUZ.months[0]);
       streamed().emit('pass', passRunning(LIM_CUZ, { completed: 4 }));
     });
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await act(async () => {
       streamed().emit('pass', passRunning(LIM_CUZ, { completed: 9 }));
-      result.current.collect(LIM_CUZ);
+      result.current.collect(LIM_CUZ, LIM_CUZ.months[0]);
     });
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
 
     // One POST across all five, and the row never stopped saying it was busy.
     const posts = (
@@ -447,9 +451,9 @@ describe('collecting one watched route from its own row', () => {
 
   it('files the outcome under the row that asked for it', async () => {
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     // `mutate` dispatches the request a tick later, so the stub has nothing to
     // release until the call has actually been made.
     await waitFor(() => expect(api.calls).toHaveLength(1));
@@ -470,9 +474,9 @@ describe('collecting one watched route from its own row', () => {
       'fetch',
       vi.fn(async () => Response.json({ detail: 'Too many routes' }, { status: 400 })),
     );
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
 
     await waitFor(() => expect(result.current.reports.has(routeId(LIM_CUZ))).toBe(true));
     const report = result.current.reports.get(routeId(LIM_CUZ))!;
@@ -496,9 +500,9 @@ describe('collecting one watched route from its own row', () => {
      * because the frame is the same document the poll used to fetch.
      */
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
     // Still working, and the row says how far through rather than spinning.
     expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
@@ -532,9 +536,9 @@ describe('collecting one watched route from its own row', () => {
      * things at once, and the picture is the louder one.
      */
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
     expect(result.current.progress.get(routeId(LIM_CUZ))).toEqual({
       completed: 0,
@@ -561,9 +565,9 @@ describe('collecting one watched route from its own row', () => {
     // sentence would contradict it in the medium the reader looks at first.
     const elsewhere = { ...passRunning(LIM_CUZ), watching: ['LIM-MAD 2026-12'] };
     stubPassInProgress(elsewhere, [elsewhere]);
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
 
     // The row is still watching — the pass it was handed is running, and it
     // will be told when that ends. What it must not do meanwhile is draw the
@@ -583,9 +587,9 @@ describe('collecting one watched route from its own row', () => {
      */
     const elsewhere = { ...passRunning(LIM_CUZ), watching: ['LIM-MAD 2026-12'] };
     stubPassInProgress(elsewhere, [elsewhere]);
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
 
     await waitFor(() => expect(result.current.reports.has(routeId(LIM_CUZ))).toBe(true));
     const report = result.current.reports.get(routeId(LIM_CUZ))!;
@@ -599,9 +603,9 @@ describe('collecting one watched route from its own row', () => {
     // leaves behind is the only thing that can say what happened — and the
     // server announces both endings on the stream for exactly this reason.
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
     await act(async () => {
       streamed().emit('pass', {
@@ -640,13 +644,13 @@ describe('collecting one watched route from its own row', () => {
     client.setQueryData(key, historyOf(LIM_CUZ));
 
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(TODAY), {
+    const { result } = renderHook(() => useRouteCollection(), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
     });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
     const before = client.getQueryData<FareHistoryResponse>(key)!.snapshots.length;
     const requestsBefore = vi.mocked(fetch).mock.calls.length;
@@ -681,13 +685,13 @@ describe('collecting one watched route from its own row', () => {
     client.setQueryData(['fares', 'spend'], { spent: 12 });
 
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(TODAY), {
+    const { result } = renderHook(() => useRouteCollection(), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
     });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
     expect(client.getQueryState(['fares', 'spend'])?.isInvalidated).toBe(false);
 
@@ -711,9 +715,9 @@ describe('collecting one watched route from its own row', () => {
     vi.useFakeTimers();
     try {
       stubPassInProgress(passRunning(LIM_CUZ), [passOver(LIM_CUZ)]);
-      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-      act(() => result.current.collect(LIM_CUZ));
+      act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -753,9 +757,9 @@ describe('collecting one watched route from its own row', () => {
     vi.useFakeTimers();
     try {
       stubPassInProgress(passRunning(LIM_CUZ));
-      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-      act(() => result.current.collect(LIM_CUZ));
+      act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -784,11 +788,11 @@ describe('collecting one watched route from its own row', () => {
     // The server keeps one pass slot, so both rows are following the same pass
     // and a second connection would carry identical frames.
     stubPassInProgress(passRunning(LIM_CUZ, { watching: ['LIM-CUZ 2026-10', 'LIM-MAD 2026-12'] }));
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
-    act(() => result.current.collect(LIM_MAD));
+    act(() => result.current.collect(LIM_MAD, LIM_MAD.months[0]));
     await waitFor(() => expect(result.current.collecting).toHaveLength(2));
 
     expect(FakeEventSource.opened).toHaveLength(1);
@@ -799,9 +803,9 @@ describe('collecting one watched route from its own row', () => {
     // rebuilds the same id, so a stale line would reappear under a route that
     // had just been added back.
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(api.calls).toHaveLength(1));
     await act(async () => {
       api.answer(passOver(LIM_CUZ));
@@ -828,9 +832,9 @@ describe('the card a finished press leaves in the corner', () => {
     vi.useFakeTimers();
     try {
       const api = stubCollect();
-      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-      act(() => result.current.collect(LIM_CUZ));
+      act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -879,9 +883,9 @@ describe('the card a finished press leaves in the corner', () => {
      */
     const foreign = { ...passOver(LIM_CUZ), watching: ['ARI-SCL 2027-03'] };
     stubPassInProgress(passRunning(LIM_CUZ, { watching: ['ARI-SCL 2027-03'] }));
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
 
     await act(async () => {
@@ -907,10 +911,10 @@ describe('the card a finished press leaves in the corner', () => {
       stubPassInProgress(
         passRunning(LIM_CUZ, { watching: ['LIM-CUZ 2026-10', 'LIM-MAD 2026-12'] }),
       );
-      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+      const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-      act(() => result.current.collect(LIM_CUZ));
-      act(() => result.current.collect(LIM_MAD));
+      act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
+      act(() => result.current.collect(LIM_MAD, LIM_MAD.months[0]));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
@@ -929,7 +933,7 @@ describe('the card a finished press leaves in the corner', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(NOTICE_LIFE_MS - 1_000);
       });
-      act(() => result.current.collect(LIM_CUZ));
+      act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
       // The press has to have been answered before there is a stream to speak
       // through: the first pass ended, which closed the last one.
       await act(async () => {
@@ -957,9 +961,9 @@ describe('the card a finished press leaves in the corner', () => {
     // handles, so a card left behind would reappear over a route that had just
     // been added back.
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
-    act(() => result.current.collect(LIM_CUZ));
+    act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
     await waitFor(() => expect(api.calls).toHaveLength(1));
     await act(async () => {
       api.answer(passOver(LIM_CUZ));
@@ -984,11 +988,11 @@ describe('the card a finished press leaves in the corner', () => {
     vi.useFakeTimers();
     try {
       const api = stubCollect();
-      const { result, unmount } = renderHook(() => useRouteCollection(TODAY), {
+      const { result, unmount } = renderHook(() => useRouteCollection(), {
         wrapper: steadyWrapper,
       });
 
-      act(() => result.current.collect(LIM_CUZ));
+      act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });

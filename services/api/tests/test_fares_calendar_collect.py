@@ -555,11 +555,13 @@ def test_a_pair_with_nothing_on_disk_is_collected_even_after_a_look_that_failed(
 
 def test_the_exception_is_about_emptiness_and_not_about_pressing_harder(monkeypatch, tmp_path):
     """
-    A pair that already has a curve waits for the cadence however it is asked.
+    A pair that already has a curve waits for the cadence unless asked to force.
 
     Otherwise the exception would be a way to spend two requests per press on a
     route whose year of prices moves by under 2% a day, which is the thing the
-    cadence exists to refuse.
+    cadence exists to refuse. This posts no `force`, which is the ordinary
+    request and the one every existing caller sends — the second way in below is
+    a flag a caller has to name, not a change to what emptiness means here.
     """
     store = a_store_holding_one_curve(tmp_path, monkeypatch)
     # A curve on disk and a look that wrote it — the ordinary state of a pair
@@ -582,3 +584,100 @@ def test_the_exception_is_about_emptiness_and_not_about_pressing_harder(monkeypa
         finished = wait_for_the_pass(client)
 
     assert finished["skipped"] == [{"what": "LIM-CUZ", "reason": "not-due"}]
+
+
+def test_a_forced_press_collects_a_curve_the_cadence_had_already_declined(monkeypatch, tmp_path):
+    """
+    The second way in, and the one this endpoint had no version of at all.
+
+    `POST /api/fares/collect` has taken `force` since 12.212 —
+    `a-press-collects-the-month-it-is-on` — because a control that answers "not
+    due" to somebody who has just said they do not believe the last look reads
+    as broken. The curve had exactly the shape that decision was about, with one
+    escape hatch that only opens for a pair with *nothing* on disk: a pair
+    collected an hour ago was `not-due` however it was asked, so a reader
+    doubting a twenty-hour-old year of prices had no control at all.
+
+    Nothing else moves. This posts one city pair, which is all the body can
+    carry, and the cadence still governs every caller that does not name the
+    flag.
+    """
+    page = read_calendar_fixture(CAPTURE)
+    store = a_store_holding_one_curve(tmp_path, monkeypatch)
+    store.record_check(
+        "LIM",
+        "CUZ",
+        at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+        outcome="changed",
+        dates=331,
+    )
+
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, text=page)
+
+    mock_upstream(monkeypatch, answer)
+
+    with TestClient(app) as client:
+        pressed = client.post("/api/fares/calendar/collect", json={**PAIR, "force": True})
+        assert pressed.status_code == 202
+        finished = wait_for_the_pass(client)
+
+    assert asked, "a forced press must actually reach the provider"
+    assert finished["state"] == "finished"
+    assert finished["skipped"] == []
+    assert [result["ok"] for result in finished["results"]] == [True]
+
+
+def test_the_pass_a_forced_press_starts_is_the_one_it_is_answered_with(monkeypatch):
+    """
+    `force` travels to the collector rather than being read and dropped here.
+
+    Asserted on the collector's own keyword because the flag is worth nothing
+    until it reaches the line that compares `due` against `CALENDAR_POLL_MINUTES`
+    — a router that validated it and then started an ordinary pass would answer
+    202 and collect nothing, which is the failure that is hardest to see from
+    outside.
+    """
+    seen, fake = stub_pass()
+    forced: dict[str, object] = {}
+
+    async def remember_force(watched, **kwargs):
+        forced["force"] = kwargs.get("force")
+        return await fake(watched, **kwargs)
+
+    monkeypatch.setattr(calendar_job, "collect_calendars", remember_force)
+
+    with TestClient(app) as client:
+        client.post("/api/fares/calendar/collect", json={**PAIR, "force": True})
+        wait_for_the_pass(client)
+
+    assert seen["watched"][0].origin == "LIM"
+    assert forced["force"] is True
+
+
+def test_an_unforced_press_is_the_default_and_stays_on_the_schedule(monkeypatch):
+    """
+    A body with no `force` in it reaches the collector as `False`.
+
+    The load-bearing half of 12.212's shape: the scheduled script, the command
+    line and every client written before this flag existed all still run the
+    cadence, so what was added is a second way in rather than a weakening of the
+    first.
+    """
+    _, fake = stub_pass()
+    forced: dict[str, object] = {}
+
+    async def remember_force(watched, **kwargs):
+        forced["force"] = kwargs.get("force")
+        return await fake(watched, **kwargs)
+
+    monkeypatch.setattr(calendar_job, "collect_calendars", remember_force)
+
+    with TestClient(app) as client:
+        client.post("/api/fares/calendar/collect", json=PAIR)
+        wait_for_the_pass(client)
+
+    assert forced["force"] is False

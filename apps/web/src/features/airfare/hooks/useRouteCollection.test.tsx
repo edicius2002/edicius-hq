@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
+import { NOTICE_LIFE_MS } from '@/features/airfare/lib/collectNotice';
 import type { FareHistoryResponse, FareSnapshot } from '@/shared/api/fares';
 
 afterEach(() => {
@@ -61,23 +62,50 @@ function streamed(): FakeEventSource {
   return source;
 }
 
+/**
+ * The clock the hook is handed.
+ *
+ * Fixed rather than real, so the fixtures below stay future months and the
+ * payload the press builds does not start dropping them as departed the moment
+ * the calendar moves past October 2026.
+ */
+const TODAY = '2026-08-19';
+
 const LIM_CUZ: FareRoute = {
   origin: 'LIM',
   destination: 'CUZ',
-  month: '2026-10',
+  months: ['2026-10'],
   currency: 'USD',
 };
 
 const LIM_MAD: FareRoute = {
   origin: 'LIM',
   destination: 'MAD',
-  month: '2026-12',
+  months: ['2026-12'],
   currency: 'USD',
 };
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+/**
+ * The same client with its garbage collection switched off.
+ *
+ * React Query schedules a `setTimeout` per cache entry to sweep it, and an
+ * infinite `gcTime` is the documented way to say "never" — `isValidTimeout`
+ * rejects `Infinity` and no timer is created. Only the test that counts this
+ * hook's own timers needs it, and it needs it to be counting nothing else.
+ */
+function steadyWrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: Infinity },
+      mutations: { retry: false, gcTime: Infinity },
+    },
   });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
@@ -89,7 +117,7 @@ function passOver(route: FareRoute, overrides: Record<string, unknown> = {}) {
     startedAt: '2026-08-19T14:00:00+00:00',
     finishedAt: '2026-08-19T14:00:01+00:00',
     source: 'google',
-    watching: [`${route.origin}-${route.destination} ${route.month}`],
+    watching: route.months.map((month) => `${route.origin}-${route.destination} ${month}`),
     polling: 1,
     completed: 1,
     collected: 1,
@@ -103,7 +131,7 @@ function passOver(route: FareRoute, overrides: Record<string, unknown> = {}) {
         destination: route.destination,
         // One departure inside the watched month. A pass over a month reports
         // one of these per day it actually polled.
-        flightDate: `${route.month}-09`,
+        flightDate: `${route.months[0]}-09`,
         returnDate: null,
         ok: true,
         changed: true,
@@ -180,7 +208,7 @@ function snapshotOf(route: FareRoute, capturedAt: string, price = 380): FareSnap
     source: 'google-flights',
     origin: route.origin,
     destination: route.destination,
-    flightDate: `${route.month}-09`,
+    flightDate: `${route.months[0]}-09`,
     returnDate: null,
     currency: 'USD',
     insights: null,
@@ -189,8 +217,8 @@ function snapshotOf(route: FareRoute, capturedAt: string, price = 380): FareSnap
         airline: 'LA',
         airlineName: 'LATAM',
         flightNumber: 'LA600',
-        departureAt: `${route.month}-09T08:00`,
-        arrivalAt: `${route.month}-09T10:00`,
+        departureAt: `${route.months[0]}-09T08:00`,
+        arrivalAt: `${route.months[0]}-09T10:00`,
         transfers: 0,
         durationMinutes: 120,
         price,
@@ -206,7 +234,7 @@ function historyOf(route: FareRoute): FareHistoryResponse {
     origin: route.origin,
     destination: route.destination,
     snapshots: [snapshotOf(route, '2026-08-19T13:00:00+00:00', 400)],
-    baseline: [{ flightDate: `${route.month}-09`, date: '2026-08-01', price: 410 }],
+    baseline: [{ flightDate: `${route.months[0]}-09`, date: '2026-08-01', price: 410 }],
     health: { lastCheckedAt: '2026-08-19T13:00:00+00:00', checks: 1, changes: 1, errors: 0 },
     airports: [],
   };
@@ -227,10 +255,10 @@ function passRunning(route: FareRoute, overrides: Record<string, unknown> = {}) 
 
 describe('collecting one watched route from its own row', () => {
   it('asks for that route alone, month and currency included', async () => {
-    // The bulk button sends the whole collectable list; a row press must send
-    // one month, or pressing it would spend the request budget on eight others.
+    // The bulk button sent the whole watchlist; a row press sends one city
+    // pair, or pressing it would spend the day on eight other routes.
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_MAD));
 
@@ -260,16 +288,49 @@ describe('collecting one watched route from its own row', () => {
      * but one route, and the row is the only control that sends it.
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
 
     await waitFor(() => expect(api.calls).toHaveLength(1));
     const body = api.calls[0] as { routes: unknown[]; force: boolean };
     expect(body.force).toBe(true);
-    // One route and one month, which is the bound the whole decision rests on:
-    // a forced press can cost thirty-one board requests and never sixty-two.
+    // One *city pair*, which is the bound the whole decision now rests on. It
+    // was one route entry, and the two were the same thing only while a watch
+    // was one month — see the endpoint, which draws the line at the pair.
     expect(body.routes).toHaveLength(1);
+  });
+
+  it('sends every month of the watch, in one call, ascending', async () => {
+    // The press is one pass over one pair, so the months travel together
+    // rather than as several presses the collector would answer with several
+    // locks and several ledger lines.
+    const api = stubCollect();
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+
+    act(() => result.current.collect({ ...LIM_MAD, months: ['2026-12', '2026-10', '2027-02'] }));
+
+    await waitFor(() => expect(api.calls).toHaveLength(1));
+    const body = api.calls[0] as { routes: { month: string }[]; force: boolean };
+    expect(body.routes.map((route) => route.month)).toEqual(['2026-10', '2026-12', '2027-02']);
+    expect(body.force).toBe(true);
+  });
+
+  it('leaves out a month that has gone rather than sending it to be refused', async () => {
+    /*
+     * The server would answer `departed` per day and say so honestly. The
+     * reason not to send it is the row's own sentence: a wholly departed month
+     * buys thirty-one skip lines that push the reasons a reader needs out of a
+     * summary ordered commonest-first.
+     */
+    const api = stubCollect();
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+
+    act(() => result.current.collect({ ...LIM_MAD, months: ['2026-01', '2026-12'] }));
+
+    await waitFor(() => expect(api.calls).toHaveLength(1));
+    const body = api.calls[0] as { routes: { month: string }[] };
+    expect(body.routes.map((route) => route.month)).toEqual(['2026-12']);
   });
 
   it('sends a city pair, a month and a currency, and no reading preference', async () => {
@@ -286,7 +347,7 @@ describe('collecting one watched route from its own row', () => {
      * shape that reaches a stored document as a key.
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_MAD));
     await waitFor(() => expect(api.calls).toHaveLength(1));
@@ -300,7 +361,7 @@ describe('collecting one watched route from its own row', () => {
 
   it('marks only the pressed row as working', async () => {
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]));
@@ -320,7 +381,7 @@ describe('collecting one watched route from its own row', () => {
      * doubled press would be two upstream requests for one fare.
      */
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => {
       result.current.collect(LIM_CUZ);
@@ -353,7 +414,7 @@ describe('collecting one watched route from its own row', () => {
      * where it lives, in `test_five_impatient_presses_start_one_pass`.
      */
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
@@ -386,7 +447,7 @@ describe('collecting one watched route from its own row', () => {
 
   it('files the outcome under the row that asked for it', async () => {
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     // `mutate` dispatches the request a tick later, so the stub has nothing to
@@ -409,7 +470,7 @@ describe('collecting one watched route from its own row', () => {
       'fetch',
       vi.fn(async () => Response.json({ detail: 'Too many routes' }, { status: 400 })),
     );
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
 
@@ -435,7 +496,7 @@ describe('collecting one watched route from its own row', () => {
      * because the frame is the same document the poll used to fetch.
      */
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
@@ -471,7 +532,7 @@ describe('collecting one watched route from its own row', () => {
      * things at once, and the picture is the louder one.
      */
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
@@ -500,7 +561,7 @@ describe('collecting one watched route from its own row', () => {
     // sentence would contradict it in the medium the reader looks at first.
     const elsewhere = { ...passRunning(LIM_CUZ), watching: ['LIM-MAD 2026-12'] };
     stubPassInProgress(elsewhere, [elsewhere]);
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
 
@@ -522,7 +583,7 @@ describe('collecting one watched route from its own row', () => {
      */
     const elsewhere = { ...passRunning(LIM_CUZ), watching: ['LIM-MAD 2026-12'] };
     stubPassInProgress(elsewhere, [elsewhere]);
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
 
@@ -538,7 +599,7 @@ describe('collecting one watched route from its own row', () => {
     // leaves behind is the only thing that can say what happened — and the
     // server announces both endings on the stream for exactly this reason.
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
@@ -575,11 +636,11 @@ describe('collecting one watched route from its own row', () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    const key = ['fares', 'history', LIM_CUZ.origin, LIM_CUZ.destination, LIM_CUZ.month];
+    const key = ['fares', 'history', LIM_CUZ.origin, LIM_CUZ.destination, LIM_CUZ.months[0]];
     client.setQueryData(key, historyOf(LIM_CUZ));
 
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(), {
+    const { result } = renderHook(() => useRouteCollection(TODAY), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
@@ -620,7 +681,7 @@ describe('collecting one watched route from its own row', () => {
     client.setQueryData(['fares', 'spend'], { spent: 12 });
 
     stubPassInProgress(passRunning(LIM_CUZ));
-    const { result } = renderHook(() => useRouteCollection(), {
+    const { result } = renderHook(() => useRouteCollection(TODAY), {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={client}>{children}</QueryClientProvider>
       ),
@@ -650,7 +711,7 @@ describe('collecting one watched route from its own row', () => {
     vi.useFakeTimers();
     try {
       stubPassInProgress(passRunning(LIM_CUZ), [passOver(LIM_CUZ)]);
-      const { result } = renderHook(() => useRouteCollection(), { wrapper });
+      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
       act(() => result.current.collect(LIM_CUZ));
       await act(async () => {
@@ -692,7 +753,7 @@ describe('collecting one watched route from its own row', () => {
     vi.useFakeTimers();
     try {
       stubPassInProgress(passRunning(LIM_CUZ));
-      const { result } = renderHook(() => useRouteCollection(), { wrapper });
+      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
       act(() => result.current.collect(LIM_CUZ));
       await act(async () => {
@@ -723,7 +784,7 @@ describe('collecting one watched route from its own row', () => {
     // The server keeps one pass slot, so both rows are following the same pass
     // and a second connection would carry identical frames.
     stubPassInProgress(passRunning(LIM_CUZ, { watching: ['LIM-CUZ 2026-10', 'LIM-MAD 2026-12'] }));
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
@@ -738,7 +799,7 @@ describe('collecting one watched route from its own row', () => {
     // rebuilds the same id, so a stale line would reappear under a route that
     // had just been added back.
     const api = stubCollect();
-    const { result } = renderHook(() => useRouteCollection(), { wrapper });
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ));
     await waitFor(() => expect(api.calls).toHaveLength(1));
@@ -749,5 +810,199 @@ describe('collecting one watched route from its own row', () => {
 
     act(() => result.current.forget(routeId(LIM_CUZ)));
     expect(result.current.reports.has(routeId(LIM_CUZ))).toBe(false);
+  });
+});
+
+/**
+ * A press the reader made, announced where they are actually looking.
+ *
+ * The line under the row is unchanged and still the durable copy — it stays
+ * until the next press supersedes it. What this adds is a card that appears on
+ * its own and goes on its own, because a pass is minutes long and the reader
+ * has by then scrolled the watchlist, opened a chart, or moved to another
+ * window. A sentence that only exists two hundred pixels below where they are
+ * looking is a sentence they will not read.
+ */
+describe('the card a finished press leaves in the corner', () => {
+  it('raises the row’s own sentence and takes it away by itself', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = stubCollect();
+      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+
+      act(() => result.current.collect(LIM_CUZ));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Nothing while it is still running: a card raised on the first frame
+      // would have faded before the pass it announced had finished.
+      expect(result.current.notices).toEqual([]);
+
+      await act(async () => {
+        api.answer(passOver(LIM_CUZ));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.notices).toHaveLength(1);
+      expect(result.current.notices[0].report.text).toContain('1 departure looked at');
+      // Word for word what the row is saying, because both come from
+      // `describeCollection` rather than from two sentences about one pass.
+      expect(result.current.notices[0].report.text).toBe(
+        result.current.reports.get(routeId(LIM_CUZ))?.text,
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NOTICE_LIFE_MS - 500);
+      });
+      expect(result.current.notices).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(result.current.notices).toEqual([]);
+      // And the row keeps it. The card is the announcement; the line is the
+      // record, and a reader coming back to the row still finds out what
+      // happened.
+      expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('1 departure looked at');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says nothing about a pass the reader did not start', async () => {
+    /*
+     * The scheduled collector runs every fifteen minutes with nobody watching,
+     * and a press made while it is running is answered with *that* pass rather
+     * than served with its own — 12.210. Neither is an outcome the reader
+     * asked to be interrupted with, and `isOurPass` is the one question that
+     * tells them apart. The row still says what happened, in words, where
+     * somebody who cares can go and read it.
+     */
+    const foreign = { ...passOver(LIM_CUZ), watching: ['ARI-SCL 2027-03'] };
+    stubPassInProgress(passRunning(LIM_CUZ, { watching: ['ARI-SCL 2027-03'] }));
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+
+    act(() => result.current.collect(LIM_CUZ));
+    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+
+    await act(async () => {
+      streamed().emit('pass', foreign);
+    });
+
+    expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('already running');
+    expect(result.current.notices).toEqual([]);
+  });
+
+  it('gives each row its own card and lets a second press replace it', async () => {
+    // Two rows can be following one pass — the server keeps a single slot —
+    // so one row's outcome must not swallow the other's. A row's *own* second
+    // press is the opposite case: it has one latest outcome by definition, and
+    // two cards for it would be the older one arguing with the newer.
+    vi.useFakeTimers();
+    try {
+      const both = {
+        ...passOver(LIM_CUZ),
+        watching: ['LIM-CUZ 2026-10', 'LIM-MAD 2026-12'],
+        results: [...passOver(LIM_CUZ).results, ...passOver(LIM_MAD).results],
+      };
+      stubPassInProgress(
+        passRunning(LIM_CUZ, { watching: ['LIM-CUZ 2026-10', 'LIM-MAD 2026-12'] }),
+      );
+      const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+
+      act(() => result.current.collect(LIM_CUZ));
+      act(() => result.current.collect(LIM_MAD));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      await act(async () => {
+        streamed().emit('pass', both);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.notices.map((card) => card.id)).toEqual([
+        routeId(LIM_CUZ),
+        routeId(LIM_MAD),
+      ]);
+
+      // Late enough that the first pair are nearly out of time, so a card that
+      // did not restart its clock would be gone a moment after the new press.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NOTICE_LIFE_MS - 1_000);
+      });
+      act(() => result.current.collect(LIM_CUZ));
+      // The press has to have been answered before there is a stream to speak
+      // through: the first pass ended, which closed the last one.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        streamed().emit('pass', {
+          ...both,
+          results: [...passOver(LIM_CUZ, { changed: false }).results],
+        });
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      // LIM-MAD's ran out on its own clock; LIM-CUZ's is the second press's,
+      // in its own right rather than the first one's stretched.
+      expect(result.current.notices.map((card) => card.id)).toEqual([routeId(LIM_CUZ)]);
+      expect(result.current.notices[0].report.text).toContain('nothing new to record');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a row’s card when the row goes', async () => {
+    // The same argument as the report: route ids are content rather than
+    // handles, so a card left behind would reappear over a route that had just
+    // been added back.
+    const api = stubCollect();
+    const { result } = renderHook(() => useRouteCollection(TODAY), { wrapper });
+
+    act(() => result.current.collect(LIM_CUZ));
+    await waitFor(() => expect(api.calls).toHaveLength(1));
+    await act(async () => {
+      api.answer(passOver(LIM_CUZ));
+    });
+    await waitFor(() => expect(result.current.notices).toHaveLength(1));
+
+    act(() => result.current.forget(routeId(LIM_CUZ)));
+    expect(result.current.notices).toEqual([]);
+  });
+
+  it('takes its timers with it when the page goes', async () => {
+    /*
+     * A pass outlives the render that started it, and the reader can navigate
+     * away mid-card. The timer is cancellable and cancelled on unmount for the
+     * reason the stream is closed on unmount: a callback firing into a tree
+     * that is gone is at best wasted and at worst a leak that accumulates one
+     * per press for as long as the tab is open.
+     *
+     * The client is given an infinite `gcTime` so that React Query schedules
+     * no timers of its own and the count below is this hook's alone.
+     */
+    vi.useFakeTimers();
+    try {
+      const api = stubCollect();
+      const { result, unmount } = renderHook(() => useRouteCollection(TODAY), {
+        wrapper: steadyWrapper,
+      });
+
+      act(() => result.current.collect(LIM_CUZ));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        api.answer(passOver(LIM_CUZ));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.notices).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(1);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

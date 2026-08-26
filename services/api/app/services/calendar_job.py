@@ -58,11 +58,13 @@ import httpx
 from app.adapters.fares.registry import DEFAULT_PROVIDER
 from app.config import CALENDAR_POLL_MINUTES
 from app.services.fare_collector import (
+    REQUEST_GAP_SECONDS,
     CalendarReport,
     CalendarResult,
     FareWatch,
     collect_calendars,
 )
+from app.services.fare_passes import PassRecorder, new_pass_id
 from app.services.pass_stream import CALENDAR_STREAM
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,10 @@ class CalendarPass:
     #: here was answered with somebody else's pass and the caller needs to be
     #: able to tell.
     watching: list[str]
+    #: This pass's name in `fares/passes/`, and on every spend line it writes —
+    #: `CollectionPass` carries the same field for the same reason, and
+    #: `fare_passes` argues why a pass boundary is the starter's to name.
+    pass_id: str = field(default_factory=new_pass_id)
     #: `running`, `finished` or `failed`.
     state: str = "running"
     finished_at: str | None = None
@@ -222,6 +228,7 @@ class CalendarRunner:
         provider: str = DEFAULT_PROVIDER,
         client: httpx.AsyncClient | None = None,
         every_minutes: int = CALENDAR_POLL_MINUTES,
+        force: bool = False,
     ) -> CalendarPass:
         """
         Begin a pass, or hand back the one already going.
@@ -234,6 +241,14 @@ class CalendarRunner:
         it is a parameter rather than the constant because the caller can know
         something the store's clock cannot: whether there is anything on disk at
         all. See the endpoint for what it does with that.
+
+        `force` rides with the pass rather than being consulted here, exactly as
+        `CollectionRunner` carries the boards' — this slot is about *how many*
+        passes run and force is about what one of them polls. A press that meets
+        a running pass is still answered with that pass, forced or not, and it
+        does not turn a scheduled pass into a forced one: there is one loop and
+        it keeps the plan it started with rather than being handed whichever of
+        the two asked for force.
         """
         if self.running():
             assert self._pass is not None
@@ -242,7 +257,7 @@ class CalendarRunner:
         started = CalendarPass(started_at=_now(), source=provider, watching=_watching(watches))
         self._pass = started
         self._task = asyncio.get_running_loop().create_task(
-            self._run(started, watches, provider, client, every_minutes)
+            self._run(started, watches, provider, client, every_minutes, force)
         )
         CALENDAR_STREAM.publish()
         return started
@@ -254,7 +269,28 @@ class CalendarRunner:
         provider: str,
         client: httpx.AsyncClient | None,
         every_minutes: int = CALENDAR_POLL_MINUTES,
+        force: bool = False,
     ) -> None:
+        # The horizon's half of the pass ledger. A press on this endpoint is one
+        # pass on its own, where the scheduled command's boards and horizon are
+        # a single line — see `fare_passes`: what a duration has to measure is
+        # the thing the scheduler's interval has to contain.
+        recorder = PassRecorder(
+            source="ui", kind="calendar", gap=REQUEST_GAP_SECONDS, pass_id=started.pass_id
+        )
+
+        def leave_a_line() -> None:
+            """The pass's line, from whichever of the three endings happened."""
+            recorder.tally.calendars(started.as_report())
+            # The observer counted each request as it was sent, and a pass that
+            # fell over has no `CalendarResult` to carry them — a result is the
+            # summary of a whole city pair and does not exist until that pair is
+            # done. Taking the larger of the two keeps a crashed pass's spend on
+            # the line, which is exactly the pass whose spend somebody will want
+            # to account for.
+            recorder.tally.sent = max(recorder.tally.sent, started.requests)
+            recorder.finish(exit_code=0 if started.state == "finished" else 1)
+
         try:
             report = await collect_calendars(
                 watches,
@@ -262,6 +298,8 @@ class CalendarRunner:
                 client=client,
                 every_minutes=every_minutes,
                 observer=started,
+                force=force,
+                pass_id=started.pass_id,
             )
         except asyncio.CancelledError:
             started.state = "failed"
@@ -270,6 +308,7 @@ class CalendarRunner:
             # Before the re-raise: cancellation is what shutdown does, and a
             # listener told nothing would hold a `running` document for a pass
             # that will never move again.
+            leave_a_line()
             CALENDAR_STREAM.publish()
             raise
         except Exception as error:  # a dead task is a silent one
@@ -302,6 +341,7 @@ class CalendarRunner:
         # Both endings, in one place after the branch. The frames in between are
         # the observer's; this is the one that says the pass has stopped, which
         # is what the two-second poll it replaced was ever asking about.
+        leave_a_line()
         CALENDAR_STREAM.publish()
 
     async def aclose(self) -> None:

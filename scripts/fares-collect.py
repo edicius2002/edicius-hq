@@ -10,11 +10,16 @@ running would lose it for good.
     npm run fares:collect -- --dry-run
     npm run fares:collect -- --all          # ignore the cadence, poll everything
 
-**A watched route is a city pair and a month** — 12.110 — so a pass expands
-each month into its departures and schedules every one of them separately.
-Thirty-one days spread over thirty-one distances get thirty-one intervals: the
-near end of a month can be on the half-hourly rate while the far end is still
-daily.
+**A watched route is a city pair and one or more months** — 12.110, widened by
+`a-watch-is-a-pair-and-its-months` — so a pass expands each month into its
+departures and schedules every one of them separately. Thirty-one days spread
+over thirty-one distances get thirty-one intervals: the near end of a month can
+be on the half-hourly rate while the far end is still daily.
+
+The stored document is read in whichever of three shapes it was last written
+in, and `stored_months` holds all of that reading. This file has already broken
+silently once — for days — by assuming the shape it expected, so the shape it
+reads is covered end to end by a subprocess test rather than by inspection.
 
 **Every other month is collected too, and far more cheaply.** A watched month
 gets a full board per departure; every remaining month out to the 330-day
@@ -76,6 +81,17 @@ so a pass that starts fresh every fifteen minutes still knows what the fourteen
 before it sent, and `--dry-run` and the page in the browser both read it back.
 That is the record a future ceiling would have to be sized against, and the
 reason this half was not removed with the other.
+
+**And this invocation leaves a line of its own**, in
+`.local-data/fares/passes/<day>.jsonl` — one per pass, *including the passes that
+send nothing*, which is 99 firings out of every 105. Until it existed a no-op
+pass wrote nothing anywhere, so a day of ninety-six firings and a day of two
+looked identical on disk and neither the fifteen-minute interval nor the paced
+gap could be checked against what actually happened. The line carries the pace
+(`gap`), what the pass did and skipped, and **how long it took** (`wallMs`) —
+that last one because the scheduled task above is `MultipleInstances = IgnoreNew`,
+so a pass that runs past its own interval makes the next firing disappear without
+a word. `--dry-run` writes no line: it reaches nothing, so it records nothing.
 """
 
 import argparse
@@ -93,11 +109,13 @@ sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 from app.config import (  # noqa: E402
     CALENDAR_REQUESTS_PER_PAIR,
     MAX_DEPARTURE_HORIZON_DAYS,
+    SCHEDULER_INTERVAL_MINUTES,
     daily_request_budget,
     kv_dir,
 )
 from app.services.fare_budget import daily_budget  # noqa: E402
 from app.services.fare_collector import (  # noqa: E402
+    REQUEST_GAP_SECONDS,
     FareWatch,
     calendar_windows,
     collect,
@@ -106,6 +124,7 @@ from app.services.fare_collector import (  # noqa: E402
     expand,
 )
 from app.services.fare_history import HISTORY  # noqa: E402
+from app.services.fare_passes import PassRecorder  # noqa: E402
 from app.services.fare_schedule import days_until, month_dates, poll_minutes  # noqa: E402
 
 # Windows consoles default to cp1252, which cannot encode an arrow or an
@@ -141,6 +160,53 @@ def load_routes() -> list[dict[str, object]]:
     return [route for route in routes or [] if isinstance(route, dict)]
 
 
+def stored_months(route: dict[str, object], today: date) -> list[str]:
+    """
+    Every departure month one stored entry names, in the order it names them.
+
+    **Three shapes are read and all three will keep being read.** This file and
+    the browser read the same document, the browser is the only writer, and it
+    rewrites lazily — `normalizeFareRoutes` takes no clock and edits nothing on
+    load (12.133), so an entry keeps whatever shape it was last saved in until
+    the reader next adds, removes, reorders or edits a route. That may be months
+    away and there is no upgrade step that will end it, so what follows is the
+    reader, not a migration shim with a removal date.
+
+    - ``months: ["2027-03", "2027-04"]`` — what the browser writes now.
+    - ``month: "2027-03"`` — 12.110's shape, one entry per pair and month. The
+      owner's stored document held ``AEP-SCL`` twice in it.
+    - ``flightDate: "2027-03-09"`` — pre-12.110, repaired to the month that date
+      falls in, and only when the date is a real one. ``2026-02-31`` is a typo,
+      so it is not evidence of February either; two sides reading one document
+      must not disagree about which entries survive it.
+
+    Values that are not months come back unrepaired rather than dropped here, so
+    the caller can name them in its own report. A month that vanishes between a
+    watchlist and a summary is the silence 8.8 and 8.41 exist to stop.
+
+    This function is why the file broke silently once before and must not again.
+    A ``months`` array read by the old singular ``route.get("month")`` is a
+    truthy list whose ``str()`` is ``"['2027-03', '2027-04']"``, which
+    ``month_dates`` refuses — so every route would have been dropped as an
+    unreadable month and the whole watchlist would have stopped collecting with
+    a clean exit code, every fifteen minutes, saying nothing.
+    """
+    listed = route.get("months")
+    if isinstance(listed, list):
+        return [str(month) for month in listed]
+
+    stored = route.get("month")
+    if stored:
+        return [str(stored)]
+
+    legacy = str(route.get("flightDate", ""))
+    if not legacy:
+        return []
+    # Same rule as the web normalizer, deliberately: a month is repaired out of
+    # a departure date only when that date is a real one.
+    return [legacy[:7] if days_until(legacy, today) is not None else legacy]
+
+
 def to_watches(routes: list[dict[str, object]]) -> tuple[list[FareWatch], list[str]]:
     """
     Watched months worth asking about, and the ones that are not.
@@ -151,52 +217,62 @@ def to_watches(routes: list[dict[str, object]]) -> tuple[list[FareWatch], list[s
     departed and half collectable, and deciding one day at a time is
     `collect_due`'s job because it is the side that reports what it skipped.
 
-    The document may still carry the pre-12.110 `flightDate` shape if the
-    browser has not rewritten it yet, and the month that date falls in is
-    stated by the value rather than guessed — same repair the web normalizer
-    makes, for the same reason.
+    The document may carry any of three shapes — see `stored_months`, which is
+    where all the reading of them happens — and one entry may name several
+    months. **The unit of judgement here is the month, not the entry**: a route
+    naming twelve months with a typo in one keeps the other eleven, because
+    dropping the entry would cost a reader eleven watches for one bad chip.
     """
     today = datetime.now(UTC).date()
     this_month = today.strftime("%Y-%m")
     watches: list[FareWatch] = []
     dropped: list[str] = []
+    seen: set[FareWatch] = set()
     for route in routes:
         origin = str(route.get("origin", "")).upper()
         destination = str(route.get("destination", "")).upper()
-        stored = route.get("month")
-        legacy = str(route.get("flightDate", ""))
-        # Same rule as the web normalizer, deliberately: a month is repaired
-        # out of a departure date only when that date is a real one.
-        # `2026-02-31` is a typo, so it is not evidence of February either —
-        # two sides reading one document must not disagree about which entries
-        # survive it.
-        repaired = legacy[:7] if days_until(legacy, today) is not None else legacy
-        month = str(stored) if stored else repaired
-        label = f"{origin}-{destination} {month}"
+        currency = str(route.get("currency", "USD")).upper()
 
-        if not month_dates(month):
-            dropped.append(f"{label}: unreadable month")
-            continue
-        if month < this_month:
-            dropped.append(f"{label}: the month is over")
+        months = stored_months(route, today)
+        if not months:
+            dropped.append(f"{origin}-{destination}: no departure month")
             continue
 
-        # A `focusDate` was read off the document here and passed to
-        # `FareWatch(focus=...)`. Nothing names a departure any more — 12.260
-        # took the field out of the model and 12.266 took the parameter and the
-        # ordering it fed — so this script raised `TypeError` on its first watch
-        # and had done since, which nobody saw because the page collects over
-        # HTTP and this is the path a scheduler would use. A stale `focusDate`
-        # left in the stored document is now ignored the same way the web
-        # normalizer ignores it: read past, not repaired.
-        watches.append(
-            FareWatch(
+        for month in months:
+            label = f"{origin}-{destination} {month}"
+
+            if not month_dates(month):
+                dropped.append(f"{label}: unreadable month")
+                continue
+            if month < this_month:
+                dropped.append(f"{label}: the month is over")
+                continue
+
+            # A `focusDate` was read off the document here and passed to
+            # `FareWatch(focus=...)`. Nothing names a departure any more —
+            # 12.260 took the field out of the model and 12.266 took the
+            # parameter and the ordering it fed — so this script raised
+            # `TypeError` on its first watch and had done since, which nobody
+            # saw because the page collects over HTTP and this is the path a
+            # scheduler uses. A stale `focusDate` left in the stored document is
+            # now ignored the same way the web normalizer ignores it: read past,
+            # not repaired.
+            watch = FareWatch(
                 origin=origin,
                 destination=destination,
                 month=month,
-                currency=str(route.get("currency", "USD")).upper(),
+                currency=currency,
             )
-        )
+            # Deduplicated across the whole document rather than within one
+            # entry: the shapes can coexist while the browser has rewritten some
+            # entries and not others, so `AEP-SCL 2027-03` can arrive from a
+            # legacy entry and a plural one at once. `expand` would collapse the
+            # queries anyway; what this protects is the per-watch cost line
+            # printed below and the counts beside it.
+            if watch in seen:
+                continue
+            seen.add(watch)
+            watches.append(watch)
     return watches, dropped
 
 
@@ -251,6 +327,44 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # The pass's own record, opened before anything is read so that `wallMs`
+    # measures the whole invocation — which is the figure that matters, because
+    # the scheduled task is `MultipleInstances = IgnoreNew` every fifteen
+    # minutes and what has to fit inside that interval is *this process*, boards
+    # and horizon and start-up together, not either loop on its own. A pass that
+    # overruns makes the next firing disappear without a word; `fare_passes`
+    # carries the measurements.
+    recorder = PassRecorder(
+        source="cron",
+        # Known here rather than at the end: it is a property of what was
+        # invoked, not of what the pass found.
+        kind="board" if args.no_calendar else "board+calendar",
+        gap=args.gap if args.gap is not None else REQUEST_GAP_SECONDS,
+    )
+    try:
+        return _pass(args, recorder)
+    except BaseException:
+        # **A pass that fell over is still a pass, and it still leaves a line.**
+        # Before this the only trace was a non-zero exit code, and the comment
+        # that justified relying on that assumed the Task Scheduler keeps a
+        # history — its operational log is disabled on this machine, so the code
+        # was going nowhere. `BaseException` rather than `Exception` because a
+        # `KeyboardInterrupt` at 4m30s into a pass is exactly the ending a
+        # reader would want on the line, and the re-raise leaves the exit
+        # behaviour of the command untouched.
+        recorder.finish(exit_code=1)
+        raise
+
+
+def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
+    """
+    The pass itself: what is watched, what is due, and what came back.
+
+    Split from `main` so the recorder above can wrap every ending in one place
+    rather than in each `return`. Everything here is unchanged except the three
+    calls into the collector, which now carry `recorder.pass_id` so the day's
+    spend lines can be traced back to the pass that sent them.
+    """
     today = datetime.now(UTC).date()
     routes = load_routes()
     watches, dropped = to_watches(routes)
@@ -271,6 +385,10 @@ def main() -> int:
         )
     if not watches:
         print("nothing to do")
+        # A watchlist with nothing in it is a real pass with nothing to do, and
+        # it is the shape 99 of 105 firings had. A line here is what makes an
+        # empty watchlist distinguishable from a scheduler that stopped firing.
+        recorder.finish(exit_code=0)
         return 0
 
     # The calendar is per city pair, not per watch: one curve covers every month
@@ -310,6 +428,26 @@ def main() -> int:
         fit = "fits" if demand <= budget else "OVER"
         print(f"\ncadence demand: {demand} request(s)/day against a budget of {budget} -- {fit}")
 
+    # What one pass costs **in time**, which is a different question from what
+    # the watchlist costs in requests and is the one with a silent failure
+    # behind it.
+    #
+    # The scheduled task is `MultipleInstances = IgnoreNew` every
+    # SCHEDULER_INTERVAL_MINUTES, so a pass that overruns makes the next firing
+    # disappear without a word. The pass that overruns is also predictable: a
+    # month added today has no heartbeats, so nothing in it is `not-due` and the
+    # very next firing polls all thirty-one of its days. This is that worst
+    # case, which is also the first case after an edit — printed where somebody
+    # is deciding whether to add another month.
+    gap = args.gap if args.gap is not None else REQUEST_GAP_SECONDS
+    worst = sum(collectable for collectable, _ in (per_day(watch, today) for watch in watches))
+    worst_minutes = worst * gap / 60
+    print(
+        f"  worst pass: {worst} departure(s) x {gap}s = {worst_minutes:.1f} min of pacing "
+        f"against a {SCHEDULER_INTERVAL_MINUTES}-min scheduler interval -- "
+        f"{'fits' if worst_minutes < SCHEDULER_INTERVAL_MINUTES else 'OVERRUNS'}"
+    )
+
     # And what the day has actually spent, which is a different question from
     # what the watchlist costs and is the one that decides what this pass can
     # do. The demand above is a property of the watchlist; this is a property of
@@ -325,9 +463,24 @@ def main() -> int:
 
     if args.dry_run:
         print("dry run; nothing was fetched")
+        # **No line, on purpose.** A dry run returns before a client exists, is
+        # never what the scheduler invokes, and has a person watching it. Its
+        # duration would measure printing rather than collecting, and it would
+        # sit in the same file as the ninety-six real passes a day. The existing
+        # rule for `--dry-run` is that reaching nothing means writing nothing,
+        # and the ledger stays inside it.
         return 0
 
     kwargs = {} if args.gap is None else {"gap_seconds": args.gap}
+    # The boards get the scheduler's window minus what the horizon will want,
+    # because `wallMs` measures the whole invocation and the boards run first on
+    # purpose: a pass that runs out of goodwill should lose the cheap thing that
+    # repeats tomorrow. `--all` is a person at a terminal rather than a
+    # scheduler, so it carries no deadline — the same asymmetry `WINDOW_FULL`
+    # records for a browser press.
+    board_window = SCHEDULER_INTERVAL_MINUTES * 60 - (
+        0 if args.no_calendar else calendar_demand * gap
+    )
     if args.all:
         queries, unreadable = expand(watches)
         for what in unreadable:
@@ -339,9 +492,17 @@ def main() -> int:
         # (12.111). `expand` returns watchlist order, which is nobody's idea of
         # a spending priority.
         ordered = sorted(queries.values(), key=lambda query: query.flight_date)
-        report = asyncio.run(collect(ordered, **kwargs))
+        report = asyncio.run(collect(ordered, pass_id=recorder.pass_id, **kwargs))
     else:
-        report = asyncio.run(collect_due(watches, **kwargs))
+        report = asyncio.run(
+            collect_due(
+                watches,
+                pass_id=recorder.pass_id,
+                deadline_seconds=board_window,
+                **kwargs,
+            )
+        )
+    recorder.tally.boards(report)
 
     if not args.no_calendar:
         # After the boards, not before. A pass that runs out of goodwill with
@@ -354,7 +515,13 @@ def main() -> int:
             # a single interval rather than a table. Zero minutes is what
             # "however recently you last looked" reads as here.
             calendar_kwargs["every_minutes"] = 0
-        calendar = asyncio.run(collect_calendars(watches, **calendar_kwargs))
+        calendar = asyncio.run(
+            collect_calendars(watches, pass_id=recorder.pass_id, **calendar_kwargs)
+        )
+        # Folded in before it is printed, so a pass that fails while printing a
+        # summary still has the horizon's requests on its line. The boards and
+        # the horizon share one `pass_id` because one invocation is one pass.
+        recorder.tally.calendars(calendar)
         print()
         for route, reason in calendar.skipped:
             print(f"  --      {route}  calendar {reason}")
@@ -401,10 +568,16 @@ def main() -> int:
         f"\n{len(report.results)} looked at, {report.changed} changed, "
         f"{report.failed} failed, {len(report.skipped)} skipped -> {HISTORY.directory}"
     )
-    # A non-zero exit is what makes a silent scheduled task visible: Task
-    # Scheduler records the code, so a week of drift shows up in its history
-    # rather than only in a chart nobody opened.
-    return 1 if report.failed else 0
+    # A non-zero exit is what a wrapper or a shell would see, and it is now
+    # also written down. This comment used to say the Task Scheduler records the
+    # code "so a week of drift shows up in its history": that history is the
+    # operational log, and on this machine it is **disabled** — checked, not
+    # assumed — so the code was being reported to nothing at all. The line in
+    # `fares/passes/` is where it now lands, beside the duration and the gap and
+    # everything the pass skipped.
+    code = 1 if report.failed else 0
+    recorder.finish(exit_code=code)
+    return code
 
 
 if __name__ == "__main__":

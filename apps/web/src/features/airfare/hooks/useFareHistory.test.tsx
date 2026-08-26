@@ -25,7 +25,7 @@ afterEach(() => {
 const LIM_MAD: FareRoute = {
   origin: 'LIM',
   destination: 'MAD',
-  month: '2027-03',
+  months: ['2027-03'],
   currency: 'USD',
 };
 
@@ -61,7 +61,7 @@ function wrapper({ children }: { children: ReactNode }) {
 describe('useFareHistory', () => {
   it('asks about the whole month, which is the whole of what a watch is', async () => {
     const urls = stubHistory();
-    renderHook(() => useFareHistory(LIM_MAD), { wrapper });
+    renderHook(() => useFareHistory(LIM_MAD, LIM_MAD.months[0]), { wrapper });
 
     await waitFor(() => expect(urls).toHaveLength(1));
     expect(new URL(urls[0], 'http://x').searchParams.get('departure')).toBe('2027-03');
@@ -85,13 +85,15 @@ describe('useFareHistory', () => {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
 
-    const { rerender } = renderHook((route: FareRoute) => useFareHistory(route), {
-      wrapper: shared,
-      initialProps: LIM_MAD,
-    });
+    // One route read at two months, which is what this test now describes: it
+    // used to be two routes that happened to share a pair.
+    const { rerender } = renderHook(
+      ({ route, month }: { route: FareRoute; month: string }) => useFareHistory(route, month),
+      { wrapper: shared, initialProps: { route: LIM_MAD, month: '2027-03' } },
+    );
     await waitFor(() => expect(urls).toHaveLength(1));
 
-    rerender({ ...LIM_MAD, month: '2027-04' });
+    rerender({ route: { ...LIM_MAD, months: ['2027-03', '2027-04'] }, month: '2027-04' });
     await waitFor(() => expect(urls).toHaveLength(2));
     expect(new URL(urls[1], 'http://x').searchParams.get('departure')).toBe('2027-04');
   });

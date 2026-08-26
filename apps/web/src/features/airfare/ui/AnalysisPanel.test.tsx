@@ -31,7 +31,7 @@ import type {
 const ROUTE: FareRoute = {
   origin: 'ARI',
   destination: 'SCL',
-  month: '2027-03',
+  months: ['2027-03'],
   currency: 'USD',
 };
 
@@ -131,7 +131,7 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
   const [route, setRoute] = useState<FareRoute | null>(ROUTE);
   const { view, setGranularity, setAnchor, setViewport } = useRouteView(
     route ? routeId(route) : null,
-    route?.month ?? null,
+    route?.months[0] ?? null,
   );
   return (
     <>
@@ -143,7 +143,10 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
       </button>
       <AnalysisPanel
         route={route}
-        snapshots={MONTH}
+        month={view.month}
+        watchedMonths={route?.months ?? []}
+        monthSnapshots={MONTH}
+        watchedSnapshots={MONTH}
         baseline={BASELINE}
         curve={CURVE}
         curveLoading={false}
@@ -315,11 +318,21 @@ describe('what the panel says it is showing', () => {
     expect(head.textContent).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
-  it('says the chart is of fares departing *in* a month, never *on* a day', () => {
+  it('says the chart is of fares departing *in* a stretch of dates, never *on* a day', () => {
+    /*
+     * The rule is unchanged and what carries it has moved. Chart B's own label
+     * used to name the watched month; it names the route, and the frame's two
+     * dates come from `accessibleTail` below it. That is the better half of the
+     * pair — it is the dates actually on screen — and naming the watch as well
+     * would have a screen reader hear the months and then immediately hear the
+     * dates that narrow them.
+     */
     render(<Harness route={ROUTE} />);
-    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
-      'ARI → SCL departing in March 2027',
-    );
+    const label = screen.getByRole('img').getAttribute('aria-label') ?? '';
+    expect(label).toContain('What each departure date costs for ARI → SCL');
+    expect(label).toContain('departing between 01/03/2027 00:00 and 31/03/2027 23:59');
+    // Still never a single day presented as the thing the chart is of.
+    expect(label).not.toMatch(/departing on \d/);
   });
 });
 
@@ -587,7 +600,9 @@ describe('the name of the chart that follows what it draws', () => {
     // is the half of it a reader cannot get by looking; how the axis is built is
     // no longer restated above the axis, and neither is the hour — the source
     // rail on the plot says that, per stretch, and the two were near-identical.
-    expect(screen.getByText('The booking horizon, beyond the watched month.')).toBeTruthy();
+    expect(
+      screen.getByText('The booking horizon, for dates no watched month covers.'),
+    ).toBeTruthy();
   });
 
   it('holds every name it can wear at once, so the switch cannot change width', () => {
@@ -641,7 +656,7 @@ describe('where the reader may walk', () => {
     click('Month');
     expect(screen.queryByLabelText('Next month')).not.toBeInTheDocument();
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'Every date here is inside the watched month',
+      'Every date here is inside a watched month',
     );
   });
 });
@@ -684,5 +699,172 @@ describe('the pair median comes from above and is only passed on', () => {
     // chart without the rule is the one a press away.
     fireEvent.click(screen.getByRole('button', { name: MOVES }));
     expect(container.querySelector('[data-testid="pair-reference"]')).toBeNull();
+  });
+});
+
+describe('a watch on several months, drawn in one chart', () => {
+  /*
+   * The change, from the reader's side.
+   *
+   * March and May are watched and April is not, so the three frames say three
+   * different things about which archive is answering — and before this, all
+   * three said "the curve" for everything but the open tab's month.
+   *
+   * The archive holds both watched months; nothing here collects anything, and
+   * nothing needs to: the page already had every month of the pair in hand and
+   * was throwing all but one away.
+   */
+  const GAPPED: FareRoute = { ...ROUTE, months: ['2027-03', '2027-05'] };
+
+  const MAY: FareSnapshot[] = [];
+  for (let day = 1; day <= 31; day += 1) {
+    const date = `2027-05-${String(day).padStart(2, '0')}`;
+    MAY.push({
+      capturedAt: '2026-08-19T14:00',
+      source: 'google-flights',
+      origin: 'ARI',
+      destination: 'SCL',
+      flightDate: date,
+      returnDate: null,
+      currency: 'USD',
+      insights: null,
+      offers: [
+        offer(`${date}T07:15`, 81 + (day % 5), `${day}m`),
+        offer(`${date}T19:55`, 84 + (day % 5), `${day}n`),
+      ],
+    });
+  }
+
+  const BOTH = [...MONTH, ...MAY];
+
+  function gapped(props: Record<string, unknown> = {}) {
+    return render(
+      <Harness route={GAPPED} watchedMonths={GAPPED.months} watchedSnapshots={BOTH} {...props} />,
+    );
+  }
+
+  it('draws the boards of a second watched month, not the curve', () => {
+    /*
+     * The whole ask, in one assertion. Walking the frame from March to May used
+     * to arrive at "Cheapest per date" — the horizon's one price a day — with
+     * the boards for those exact dates sitting in the browser, discarded a
+     * layer up because the page had narrowed the archive to the open tab.
+     */
+    gapped();
+    openDeparture();
+    click('Month');
+    press('Next month', 2);
+
+    expect(chartName()).toBe('Flights seen');
+    expect(screen.getByTestId('source-board')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-curve')).not.toBeInTheDocument();
+  });
+
+  it('still hands an unwatched month between two watched ones to the curve', () => {
+    // The other half, and what makes this a watch rather than a span: April
+    // sits between March and May and belongs to neither.
+    gapped();
+    openDeparture();
+    click('Month');
+    press('Next month', 1);
+
+    expect(chartName()).toBe('Cheapest per date');
+    expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
+  });
+
+  it('lets the day view reach the days of every watched month', () => {
+    /*
+     * `framePeriodKeys` builds the day periods from the board days, and those
+     * come from the archive the page narrowed. Narrowed to one month it could
+     * offer thirty-one; narrowed to the watch it offers both months' worth, so
+     * the reader can walk from 1 March to 31 May without the frame refusing.
+     */
+    gapped();
+    openDeparture();
+    click('Day');
+
+    expect(screen.getByText('1 / 62')).toBeInTheDocument();
+    press('Next day', 31);
+    expect(frameLabel()).toContain('01/05/2027');
+  });
+
+  it('names the watch in the heading, not the month one of the charts is on', () => {
+    /*
+     * One heading over two charts of different scope. It named the reading
+     * month while both charts were of the reading month; with chart B showing
+     * three, the panel's largest text would have been telling the reader the
+     * wrong thing.
+     */
+    gapped();
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+      'ARI → SCL · 2 months, March 2027 to May 2027',
+    );
+  });
+
+  it('leaves chart A on the month the tab is on while chart B shows both', () => {
+    /*
+     * The division the owner asked for, asserted from both sides at once.
+     * Chart A is one month's price over time and takes the reading; chart B is
+     * every watched month's departures and ignores it.
+     */
+    gapped();
+    // Chart A, by its own accessible name. The panel opens on chart B, so it
+    // has to be asked for — `the-panel-opens-on-flights-seen`.
+    click(MOVES);
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+      'Cheapest fare for ARI → SCL departing in March 2027',
+    );
+
+    openDeparture();
+    click('Month');
+    press('Next month', 2);
+    expect(chartName()).toBe('Flights seen');
+  });
+
+  it('gives a watched month with nothing collected empty boards rather than the curve', () => {
+    /*
+     * The deliberate reading of "shows the data it has". A watched month is a
+     * board month whether or not a pass has reached it yet — the same answer
+     * `frameDays` has always given for an empty day inside the open month.
+     *
+     * The alternative, deriving the watched set from the months that happen to
+     * hold snapshots, would make a freshly added month flip from curve to
+     * boards mid-session on a collection nobody pressed.
+     *
+     * The curve is widened to reach May for this one case, because otherwise
+     * the month is not reachable at all — which is the *other* honest answer
+     * here and is pinned separately below.
+     */
+    gapped({
+      watchedSnapshots: MONTH,
+      curve: { ...CURVE, toDate: '2027-05-31' },
+    });
+    openDeparture();
+    click('Month');
+    press('Next month', 2);
+
+    expect(chartName()).toBe('Flights seen');
+    expect(screen.getAllByTestId('day-unanswered').length).toBeGreaterThan(0);
+  });
+
+  it('cannot walk to a watched month no archive knows any date of', () => {
+    /*
+     * The limit, stated rather than discovered. A period exists because some
+     * archive holds a date in it — the boards, or the curve's window. A month
+     * that has been watched but never collected, and that the horizon does not
+     * reach either, is a month nothing on this page can say anything about, and
+     * the frame offers no way to stand in front of it.
+     *
+     * That is the truthful answer for that route rather than a page of empty
+     * frames, which is the argument `framePeriodKeys` already makes about a
+     * route with no curve on disk.
+     */
+    gapped({ watchedSnapshots: MONTH });
+    openDeparture();
+    click('Month');
+    press('Next month', 2);
+
+    // April is as far as it goes: the curve stops on the 30th.
+    expect(frameLabel()).toContain('30/04/2027');
   });
 });

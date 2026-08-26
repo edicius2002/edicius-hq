@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { formatFlightMonth, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import {
+  formatFlightMonth,
+  openingMonth,
+  readingMonth,
+  routeId,
+  routeLabel,
+  type FareRoute,
+} from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
@@ -12,8 +19,9 @@ import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { pairReference } from '@/features/airfare/lib/pairReference';
-import { cheapestDeparture, snapshotsFor } from '@/features/airfare/lib/series';
-import { AnalysisPanel } from '@/features/airfare/ui/AnalysisPanel';
+import { cheapestDeparture, snapshotsFor, snapshotsForMonths } from '@/features/airfare/lib/series';
+import { AnalysisPanel, ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
+import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
@@ -33,6 +41,9 @@ import styles from './ui/AirfarePage.module.css';
 // elsewhere on the page.
 const EMPTY_AIRPORTS = new Map<string, Airport>();
 
+/** Same reason as `EMPTY_AIRPORTS`: one identity for "this route watches nothing". */
+const EMPTY_MONTHS: readonly string[] = [];
+
 /** Today as a calendar date, in the reader's own zone — which is when they fly. */
 function todayIso(): string {
   const now = new Date();
@@ -47,6 +58,19 @@ export function AirfarePage() {
   // looking at, and nothing here needs the clock to be live.
   const [today] = useState(todayIso);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /*
+   * Which watch is loaded into the editor, and it is deliberately **not**
+   * `selectedId`.
+   *
+   * `selected` below falls back to `routes[0]` when nothing has been chosen, so
+   * an editor reading it would open a fresh page with the first route already
+   * loaded and the header button saying "Save changes" — with no way to add a
+   * route at all. The read side keeps its fallback; the write side has none.
+   *
+   * Keeping them apart is also what lets Cancel leave the chart where it is: a
+   * press on a row sets both, and a cancel clears only this one.
+   */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
 
   const watchlist = useFareRoutes();
@@ -54,7 +78,7 @@ export function AirfarePage() {
   // Per-row collection is its own hook, not more state on this page: the
   // in-flight set, the reports and the mutation that keeps them in step are one
   // mechanism, and the page's job is to hand it to the list.
-  const rowCollection = useRouteCollection();
+  const rowCollection = useRouteCollection(today);
   /*
    * Adding a route collects its booking horizon — 12.247. Its own hook rather
    * than a branch of `useRouteCollection`, because it is a different pass over
@@ -150,6 +174,18 @@ export function AirfarePage() {
   const selectedKey = selected ? routeId(selected) : null;
 
   /*
+   * The watch loaded into the editor, looked up rather than held.
+   *
+   * Held as an id and resolved against the current document, so an edit made in
+   * another tab — or a route removed under it — leaves the form with nothing to
+   * edit rather than with a stale copy of something that has changed.
+   */
+  const editing: FareRoute | null =
+    editingId === null
+      ? null
+      : (watchlist.routes.find((route) => routeId(route) === editingId) ?? null);
+
+  /*
    * How this route was last read: its period, its place in the archive, and its
    * zoom.
    *
@@ -162,20 +198,33 @@ export function AirfarePage() {
    * do.
    *
    * The month goes down with the key because it is what a route that has never
-   * been opened is read as — the whole watched month, on the month it is watched
-   * for, `a-watch-opens-on-its-own-month`. It is the seed for a reading that does
-   * not exist yet and nothing else: a route the reader has already set a period
-   * on is handed back that period whatever month it is watching.
+   * been opened is read as — `a-watch-opens-on-its-own-month`. A watch holds
+   * several months now, so the opening one is the earliest that has not
+   * departed rather than simply the one it is watched for. It is the seed for a
+   * reading that does not exist yet and nothing else: a route the reader has
+   * already opened a month on is handed back that month.
    */
   const {
     view: routeView,
+    setMonth,
     setGranularity,
     setAnchor,
     setViewport,
-  } = useRouteView(selectedKey, selected?.month ?? null);
+  } = useRouteView(selectedKey, selected ? openingMonth(selected, today) : null);
   const granularity = routeView.granularity;
 
-  const history = useFareHistory(selected);
+  /*
+   * The month actually being read.
+   *
+   * Resolved here rather than corrected inside the record: the reader can drop
+   * the very month their tab is on, and `readingMonth` answers with the opening
+   * month the moment the held one stops being watched. Leaving the stale entry
+   * in place is what makes re-adding that month put them back on the tab they
+   * were on, and it costs nothing because it is only honoured while it is valid.
+   */
+  const activeMonth = selected ? readingMonth(selected, routeView.month, today) : null;
+
+  const history = useFareHistory(selected, activeMonth);
   // Beside the archive rather than inside the panel that draws it: the two are
   // the same kind of thing — one route's data, fetched where the route is
   // chosen — and the panel stays a component that is handed everything it
@@ -183,19 +232,52 @@ export function AirfarePage() {
   const calendar = useFareCalendar(selected);
 
   /*
-   * What this route is being read as: its month — 12.260.
+   * What this route is being read as: one of its months — 12.260.
    *
    * This was `readingPrefix`, which answered the month or the one day inside
    * it the reader had focused. A watch names no day now, so there is one
    * answer; `snapshotsFor` still narrows with `startsWith` because `YYYY-MM`
    * is a prefix of every departure key inside it — 12.112.
    */
-  const reading = selected ? selected.month : null;
+  const reading = activeMonth;
+
+  /*
+   * The months this watch is on, as a stable identity.
+   *
+   * A module constant for the empty case, for `EMPTY_AIRPORTS`' reason: a fresh
+   * `[]` every render is a new dependency for two memos below and for the
+   * ~900-circle memo inside chart B.
+   *
+   * **Every month, departed ones included.** `hasDeparted` gates collection and
+   * the word on the row; the archive of a month that has gone is still worth
+   * reading — `fareRoutes.hasDeparted` says so — and a frame walked back to it
+   * must show the boards it collected rather than a curve for dates nobody can
+   * book either.
+   */
+  const watchedMonths = useMemo(() => selected?.months ?? EMPTY_MONTHS, [selected]);
 
   const snapshots = useMemo(
     () =>
       selected && reading && history.data ? snapshotsFor(history.data.snapshots, reading) : [],
     [history.data, selected, reading],
+  );
+
+  /*
+   * The same archive narrowed to the whole watch, for chart B.
+   *
+   * Two widths where there was one, because the two charts stopped asking the
+   * same question: chart A is one month's price over time and keeps `snapshots`
+   * above, chart B is every watched month's departures and takes this.
+   *
+   * **Not `history.data.snapshots` unfiltered.** That is the pair's whole
+   * archive — months dropped from the watch, months never watched — and a board
+   * dot on one of those dates would sit on a date the frame has already decided
+   * the curve answers for. Two archives contradicting each other in one column
+   * is exactly what `frameDays` refuses.
+   */
+  const watchedSnapshots = useMemo(
+    () => (history.data ? snapshotsForMonths(history.data.snapshots, watchedMonths) : []),
+    [history.data, watchedMonths],
   );
   /*
    * What this city pair usually costs — the one figure on this page built from
@@ -428,19 +510,67 @@ export function AirfarePage() {
               under the fields.
             */}
             <Button type="submit" form={ADD_ROUTE_FORM_ID} variant="primary" size="small">
-              Add route
+              {editing ? 'Save changes' : 'Add route'}
             </Button>
+            {/*
+              Only while editing, and it clears the editor without touching the
+              selection: a reader who changed their mind about a chip has not
+              changed their mind about which route they are looking at.
+            */}
+            {editing ? (
+              <Button
+                variant="ghost"
+                size="small"
+                onClick={() => setEditingId(null)}
+                aria-label={`Cancel editing ${routeLabel(editing)}`}
+              >
+                Cancel
+              </Button>
+            ) : null}
           </header>
           <RouteList
             routes={watchlist.routes}
             colours={colours}
             selectedId={selectedKey}
             today={today}
+            activeMonth={activeMonth}
+            editing={editing}
             collecting={rowCollection.collecting}
             reports={rowCollection.reports}
             progress={rowCollection.progress}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setEditingId(id);
+            }}
+            onOpenMonth={(id, month) => {
+              setSelectedId(id);
+              setEditingId(id);
+              setMonth(month);
+            }}
+            /*
+              A press on the panel's empty space puts the fields back to
+              adding. Only `editingId` goes: the reader said they had finished
+              editing, not that they had finished looking at a chart, and
+              clearing the selection would send `selected` to its `routes[0]`
+              fallback and move the analysis panel under them.
+            */
+            onClearEditing={() => setEditingId(null)}
+            onSave={(id, next) => {
+              void watchlist.update(id, next);
+              // A changed pair is a changed id, so everything keyed by the old
+              // one is now keyed to a row that no longer exists — the same
+              // argument `onRemove` makes below, sharpened: a stale line would
+              // reappear under whichever route next takes that pair.
+              const nextId = routeId(next);
+              if (nextId !== id) {
+                rowCollection.forget(id);
+                horizon.forget(id);
+                if (selectedId === id) setSelectedId(nextId);
+                setEditingId(nextId);
+              }
+            }}
             onRemove={(id) => {
+              if (id === editingId) setEditingId(null);
               if (id === selectedId) setSelectedId(null);
               // The report goes with the row. Route ids are content rather
               // than handles — the same pair on the same dates rebuilds the
@@ -547,6 +677,7 @@ export function AirfarePage() {
       <Panel>
         <RouteDetail
           route={selected}
+          month={activeMonth}
           latest={latest}
           insights={insights}
           health={health}
@@ -568,10 +699,21 @@ export function AirfarePage() {
         reader is on are one mechanism, and the period has to outlive the view
         that shows it — which it cannot do if it is state inside one of them.
       */}
-      <Panel>
+      {/*
+        The id the watchlist's month tabs point `aria-controls` at.
+
+        It was exported, imported and referenced and sat on no element at all —
+        a dangling association, which is the failure the whole "state it rather
+        than infer it from the tree" argument exists to avoid. `Panel` spreads
+        `HTMLAttributes`, so this needs no change to the component.
+      */}
+      <Panel id={ANALYSIS_PANEL_ID}>
         <AnalysisPanel
           route={selected}
-          snapshots={snapshots}
+          month={activeMonth}
+          watchedMonths={watchedMonths}
+          monthSnapshots={snapshots}
+          watchedSnapshots={watchedSnapshots}
           baseline={history.data?.baseline ?? []}
           curve={calendar.data?.horizon ?? null}
           /*
@@ -636,10 +778,30 @@ export function AirfarePage() {
         <FlightTable
           snapshots={snapshots}
           granularity={granularity}
-          departure={selected ? formatFlightMonth(selected.month) : null}
+          departure={activeMonth ? formatFlightMonth(activeMonth) : null}
           leg={leg}
         />
       </Panel>
+
+      {/*
+        What a press of the reader's own came back with, in the corner, for as
+        long as it takes to read.
+
+        Last in the document and fixed over the page, which is the ordering that
+        matters least and the placement that matters most: a pass is minutes
+        long, and by the time it lands the reader is somewhere else on this page
+        — down at the flight table, or dragging a crosshair across a chart.
+        The row's own line still holds the same sentence and still waits to be
+        superseded, so nothing is lost when a card fades; what the card buys is
+        that the news arrives where the reader is rather than where the press
+        was made.
+
+        Only presses. The scheduled collector runs every fifteen minutes and
+        raises nothing — `collectNotice` asks `isOurPass` before it says a word,
+        and a page that interrupted its reader on somebody else's schedule would
+        be worth closing.
+      */}
+      <CollectNotices notices={rowCollection.notices} />
     </section>
   );
 }

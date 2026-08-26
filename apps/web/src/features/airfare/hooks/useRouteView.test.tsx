@@ -38,6 +38,7 @@ describe('useRouteView', () => {
     // month — this month — rather than the one being watched.
     const { result } = renderHook(() => useRouteView(LIM_SCL, MONTHS[LIM_SCL]));
     expect(result.current.view).toEqual({
+      month: '2026-10',
       granularity: 'month',
       anchor: '2026-10-01',
       viewport: null,
@@ -67,6 +68,7 @@ describe('useRouteView', () => {
 
     rerender({ route: LIM_MAD });
     expect(result.current.view).toEqual({
+      month: '2027-03',
       granularity: 'month',
       anchor: '2027-03-01',
       viewport: null,
@@ -74,6 +76,7 @@ describe('useRouteView', () => {
 
     rerender({ route: LIM_SCL });
     expect(result.current.view).toEqual({
+      month: '2026-10',
       granularity: 'week',
       anchor: '2026-10-09',
       viewport: { start: 2880, span: 1440 },
@@ -174,5 +177,53 @@ describe('useRouteView', () => {
 
     expect(result.current.view.granularity).toBe('month');
     expect(result.current.view.anchor).toBe('2026-10-01');
+  });
+});
+
+describe('the month a watch is being read at', () => {
+  it('re-anchors and drops the zoom, and keeps the period', () => {
+    /*
+     * `setGranularity`'s two halves, for the same two reasons. A different
+     * month is a different stretch of the departure axis, so "minutes 600 to
+     * 900" lands somewhere the reader never chose; a period means the same
+     * thing in every month, exactly as a day does at every period.
+     */
+    const { result } = renderHook(() => useRouteView(LIM_SCL, '2026-10'));
+
+    act(() => result.current.setGranularity('week'));
+    act(() => result.current.setViewport({ start: 2880, span: 1440 }));
+    act(() => result.current.setMonth('2026-12'));
+
+    expect(result.current.view).toEqual({
+      month: '2026-12',
+      granularity: 'week',
+      anchor: '2026-12-01',
+      viewport: null,
+    });
+  });
+
+  it('is a seed and not a setting, so a walk to another watch and back keeps it', () => {
+    // The month half of `a-watch-opens-on-its-own-month`: the opening month
+    // fills a record that does not exist yet and never overwrites one.
+    const { result, rerender } = renderHook(({ route }) => useRouteView(route, monthOf(route)), {
+      initialProps: { route: LIM_SCL },
+    });
+
+    act(() => result.current.setMonth('2026-12'));
+    rerender({ route: LIM_MAD });
+    expect(result.current.view.month).toBe('2027-03');
+
+    rerender({ route: LIM_SCL });
+    expect(result.current.view.month).toBe('2026-12');
+  });
+
+  it('keeps the month of one watch out of another', () => {
+    const { result, rerender } = renderHook(({ route }) => useRouteView(route, monthOf(route)), {
+      initialProps: { route: LIM_SCL },
+    });
+
+    act(() => result.current.setMonth('2026-12'));
+    rerender({ route: LIM_MAD });
+    expect(result.current.view.month).toBe('2027-03');
   });
 });

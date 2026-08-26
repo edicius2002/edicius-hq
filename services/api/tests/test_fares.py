@@ -1115,13 +1115,15 @@ def test_the_collect_endpoint_runs_the_schedule_unless_it_is_told_not_to(monkeyp
     assert finished["skipped"] == [{"what": "LIM-SCL 2027-03-01", "reason": "not-due"}]
 
 
-def test_a_forced_press_reaches_the_collector_as_one_route_and_one_month(monkeypatch):
+def test_a_forced_press_reaches_the_collector_as_every_month_of_one_route(monkeypatch):
     """
-    `a-press-collects-the-month-it-is-on`, settling 12.212.
+    `a-press-collects-the-month-it-is-on`, widened by
+    `a-watch-is-a-pair-and-its-months`.
 
-    The reader pressed a control on one row, and what arrives at the collector
-    is one watch with the flag set. The endpoint is what carries it, so this is
-    where the wire word and the collector's parameter are pinned to each other.
+    The reader pressed a control on one row, and a row is a city pair and every
+    month of it — so what arrives at the collector is one watch per month, with
+    the flag set. The endpoint is what carries it, so this is where the wire
+    word and the collector's parameter are pinned to each other.
     """
     seen, fake = stub_pass()
     monkeypatch.setattr(collection_job, "collect_due", fake)
@@ -1130,7 +1132,10 @@ def test_a_forced_press_reaches_the_collector_as_one_route_and_one_month(monkeyp
         answer = client.post(
             "/api/fares/collect",
             json={
-                "routes": [{"origin": "lim", "destination": "scl", "month": "2027-03"}],
+                "routes": [
+                    {"origin": "lim", "destination": "scl", "month": "2027-03"},
+                    {"origin": "lim", "destination": "scl", "month": "2027-04"},
+                ],
                 "force": True,
             },
         )
@@ -1138,38 +1143,155 @@ def test_a_forced_press_reaches_the_collector_as_one_route_and_one_month(monkeyp
         wait_for_the_pass(client)
 
     assert seen["force"] is True
-    assert seen["watched"] == [FareWatch(origin="LIM", destination="SCL", month="2027-03")]
+    assert seen["watched"] == [
+        FareWatch(origin="LIM", destination="SCL", month="2027-03"),
+        FareWatch(origin="LIM", destination="SCL", month="2027-04"),
+    ]
 
 
-def test_a_forced_press_covers_one_route_and_is_refused_anything_wider(monkeypatch):
+def test_a_forced_press_covers_one_city_pair_and_is_refused_anything_wider(monkeypatch):
     """
-    The narrowing 12.212's cost argument turns on, made structural.
+    The narrowing 12.212's cost argument turns on, restated for a wider watch.
 
-    12.212 costed a press at sixty-two requests and a fifth of the day because
-    it assumed a pass over the whole watchlist. The owner's decision is one
-    route and one month — thirty-one board requests at the very most — and that
-    bound is worth nothing if it lives only in the habits of the one client that
-    happens to call this today. So the endpoint refuses `force` with anything
-    but exactly one route, and the same body without the flag is still accepted
-    at up to `MAX_COLLECT_MONTHS`: what is bounded is the *forced* press.
+    This asserted "exactly one route entry" and meant "one city pair" — the two
+    were the same thing only while a watch was one month, and they stopped being
+    the same when a press started sending every month of a row. The line moves
+    to where `collect_calendars` has always drawn it (`if force and len(pairs) >
+    1`), so both layers now say *pair* rather than disagreeing about it.
+
+    What retires with the old wording is the price. 12.212 costed a press at
+    thirty-one board requests at the very most; twelve months of one pair is
+    ~372, which is more than the busiest day this address has ever sent. That
+    bound is not this endpoint's any more — what holds it is the pace and the
+    pass lock, plus the horizon, which is why the months-per-pair ceiling below
+    is derived from the horizon rather than chosen.
+
+    The same bodies without the flag are still accepted: what is bounded is the
+    *forced* press.
     """
     seen, fake = stub_pass()
     monkeypatch.setattr(collection_job, "collect_due", fake)
-    two = [
+    two_pairs = [
         {"origin": "LIM", "destination": "SCL", "month": "2027-03"},
         {"origin": "LIM", "destination": "CUZ", "month": "2027-04"},
     ]
+    two_months = [
+        {"origin": "LIM", "destination": "SCL", "month": "2027-03"},
+        {"origin": "LIM", "destination": "SCL", "month": "2027-04"},
+    ]
 
     with TestClient(app) as client:
-        refused = client.post("/api/fares/collect", json={"routes": two, "force": True})
+        refused = client.post("/api/fares/collect", json={"routes": two_pairs, "force": True})
         assert refused.status_code == 400
-        assert "one route" in refused.json()["detail"]
+        assert "one city pair" in refused.json()["detail"]
 
-        allowed = client.post("/api/fares/collect", json={"routes": two})
+        # Two months of one pair is the case that used to be refused and is now
+        # the whole point of the change.
+        allowed = client.post("/api/fares/collect", json={"routes": two_months, "force": True})
         assert allowed.status_code == 202
+        wait_for_the_pass(client)
+        assert seen["force"] is True
+        assert len(seen["watched"]) == 2
+
+        unforced = client.post("/api/fares/collect", json={"routes": two_pairs})
+        assert unforced.status_code == 202
         wait_for_the_pass(client)
         assert seen["force"] is False
         assert len(seen["watched"]) == 2
+
+
+def test_more_months_than_the_horizon_reaches_is_refused(monkeypatch):
+    """
+    The ceiling that replaced the flat cap on entries, and why it is twelve.
+
+    A departure past `MAX_DEPARTURE_HORIZON_DAYS` cannot be collected at all,
+    and 330 days touches at most twelve calendar months — so a thirteenth month
+    on one pair is not an expensive request, it is a request for departures the
+    provider does not have. The refusal names the pair and the reason, because a
+    client that cannot say which row was too wide cannot show the reader.
+    """
+    _, fake = stub_pass()
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+
+    def months(count: int) -> list[dict[str, str]]:
+        # Rolled into the next year rather than counted past twelve: `2027-13`
+        # is refused by `RouteBody`'s own pattern as a 422, which would test the
+        # model rather than the ceiling this test is about.
+        return [
+            {
+                "origin": "LIM",
+                "destination": "SCL",
+                "month": f"{2027 + index // 12}-{index % 12 + 1:02d}",
+            }
+            for index in range(count)
+        ]
+
+    with TestClient(app) as client:
+        refused = client.post("/api/fares/collect", json={"routes": months(13)})
+        assert refused.status_code == 400
+        detail = refused.json()["detail"]
+        assert "LIM-SCL" in detail and "13 months" in detail
+
+        allowed = client.post("/api/fares/collect", json={"routes": months(12)})
+        assert allowed.status_code == 202
+        wait_for_the_pass(client)
+
+
+def test_an_unforced_body_may_carry_more_entries_than_months_in_a_year(monkeypatch):
+    """
+    The flat cap on entries is gone, and its absence is pinned.
+
+    `MAX_COLLECT_MONTHS` counted routes while being named for months, and once
+    one entry stopped meaning one month it bounded neither. It also refused over
+    HTTP what `scripts/fares-collect.py` hands the collector by hand every
+    fifteen minutes — the whole watchlist at once — which is a bound on the wire
+    rather than on the work.
+    """
+    seen, fake = stub_pass()
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    wide = [
+        {"origin": origin, "destination": "SCL", "month": f"2027-{index:02d}"}
+        for origin in ("LIM", "CUZ", "AQP")
+        for index in range(1, 6)
+    ]
+
+    with TestClient(app) as client:
+        answer = client.post("/api/fares/collect", json={"routes": wide})
+        assert answer.status_code == 202
+        wait_for_the_pass(client)
+
+    assert len(seen["watched"]) == 15
+
+
+def test_a_pass_names_every_month_it_covers_and_names_each_one_once(monkeypatch):
+    """
+    What the client matches on, and the one way it can be lied to.
+
+    `watching` is how a row decides whether the pass in hand is its own, so a
+    body that repeats a month must not have the pass name it twice: `expand`
+    collapses the repeat into one set of departures, and a document naming it
+    twice would promise work no result will ever arrive for. Order is the order
+    sent, because that is the order the day is spent down in.
+    """
+    _, fake = stub_pass()
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+
+    with TestClient(app) as client:
+        answer = client.post(
+            "/api/fares/collect",
+            json={
+                "routes": [
+                    {"origin": "AEP", "destination": "SCL", "month": "2027-03"},
+                    {"origin": "AEP", "destination": "SCL", "month": "2027-04"},
+                    {"origin": "AEP", "destination": "SCL", "month": "2027-03"},
+                ],
+                "force": True,
+            },
+        )
+        assert answer.status_code == 202
+        finished = wait_for_the_pass(client)
+
+    assert finished["watching"] == ["AEP-SCL 2027-03", "AEP-SCL 2027-04"]
 
 
 def test_five_impatient_presses_start_one_pass(monkeypatch):

@@ -49,23 +49,42 @@ export type FrameDay = {
   source: DaySource;
 };
 
-/** Whether a departure date is one the boards cover. */
-export function isWatched(day: string, watched: WatchedRange | null): boolean {
+/**
+ * Whether a departure date is one the boards cover — in **any** watched month.
+ *
+ * A watch holds several months, so this takes a list and asks whether the date
+ * falls in one of them. Empty means nothing is watched and the whole frame
+ * belongs to the curve; that is the one spelling of nothing, replacing the
+ * `null` this took when a watch was a single range, for the reason
+ * `onViewportChange` already gives about having one spelling for it.
+ *
+ * The ranges are deliberately **not** coalesced when two watched months are
+ * adjacent. `sourceRuns` below already merges consecutive dates of one source,
+ * so joining them here would be a second answer to a question that has one.
+ */
+export function isWatched(day: string, watched: readonly WatchedRange[]): boolean {
   // String comparison on fixed-width dates, never `Date.parse` — the rule the
   // rest of this feature keeps, and for the same reason: a parsed date is
   // midnight UTC and is the previous day for a reader in Lima.
-  return watched !== null && day >= watched.from && day <= watched.to;
+  return watched.some((range) => day >= range.from && day <= range.to);
 }
 
 /**
  * Every date the frame covers, and which archive answers for it.
  *
- * The watched range rather than "the dates that happen to carry flights": a day
- * inside the month whose board came back empty is still a board day, and must
- * be drawn and marked as one rather than quietly handed to the curve, which has
- * its own separate answer for that date and would contradict it.
+ * The watched months rather than "the dates that happen to carry flights": a
+ * day inside a watched month whose board came back empty is still a board day,
+ * and must be drawn and marked as one rather than quietly handed to the curve,
+ * which has its own separate answer for that date and would contradict it.
+ *
+ * That rule is why a watched month with nothing collected yet draws as empty
+ * boards rather than as the curve. It is the same answer this has always given
+ * for an empty day inside the open month, and the alternative — deriving the
+ * watched set from the months that happen to hold snapshots — would make a
+ * freshly added month flip from curve to boards mid-session, on a collection
+ * the reader never pressed.
  */
-export function frameDays(window: ScatterWindow, watched: WatchedRange | null): FrameDay[] {
+export function frameDays(window: ScatterWindow, watched: readonly WatchedRange[]): FrameDay[] {
   return windowDays(window).map((day, index) => ({
     day,
     index,
@@ -355,13 +374,18 @@ export function curveMarks(days: FrameDay[], curve: CalendarCurve | null): Curve
 /**
  * Every period the reader can step to, at this granularity.
  *
- * **Day never leaves the watched month.** Its keys are the departure dates the
- * boards actually carry, which are inside the month by construction, so there
- * is no way to arrive at a day view of a date whose only price is a single
- * timeless number — the case a 24-hour axis cannot draw honestly. Week and
- * month may leave it, and are the two views that can: a week straddles the
- * boundary and draws both resolutions, while a calendar month is either the
- * watched one or it is not and therefore never mixes at all.
+ * **Day never leaves the watched months.** Its keys are the departure dates the
+ * boards actually carry, which are inside one watched month or another by
+ * construction — because the page narrows the archive to the watch before it
+ * counts them — so there is no way to arrive at a day view of a date whose only
+ * price is a single timeless number, the case a 24-hour axis cannot draw
+ * honestly. That guarantee now rests on `snapshotsForMonths` rather than on the
+ * caller only ever holding one month, and it is worth naming: hand this the
+ * pair's whole archive and the day view would reach months nobody watches.
+ *
+ * Week and month may leave them, and are the two views that can: a week
+ * straddles a boundary and draws both resolutions, while a calendar month is
+ * watched or it is not and therefore never mixes at all.
  *
  * The union is of what the boards hold and what the curve's window covers, so a
  * route with no curve on disk simply has nothing outside its month to step to —

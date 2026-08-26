@@ -163,15 +163,38 @@ function pixels(source: string, property: string): number {
 
 describe('how wide the watchlist may be, and what stops it being narrower', () => {
   /*
-   * The route button's own content, at the 7px gaps `.route` and `.dates`
-   * declare: a swatch, the pair, and one leg carrying the longest month this
-   * list can print — `September 2027`, since 12.110 made the leg a month and
-   * 12.113 took the second one away.
+   * The route button's own content, at the 7px gap `.route` declares: a swatch
+   * and the pair, and nothing else.
+   *
+   * The month used to be a third column here — one leg carrying
+   * `September 2027`, since 12.110 made it a month and 12.113 took the second
+   * leg away. The months are controls now
+   * (`a-watch-is-a-pair-and-its-months`), and a `<button>` may not contain
+   * buttons, so they left this grid for a group beside it.
    */
   const SWATCH = 8;
   const PAIR = 4 * advance(0.78) + advance(0.62) + 4 * advance(0.78);
-  const LEG = advance(0.7) + 2 + 'September 2027'.length * advance(0.66);
-  const GAPS_IN_ROUTE = 7 + 7;
+  const GAPS_IN_ROUTE = 7;
+
+  /*
+   * The month tabs, at the four the row puts on one line.
+   *
+   * A cell prints `Nov` — three advances at 0.66rem — inside 3px of padding
+   * either side and a 1px border it carries whether or not it is drawn, so a
+   * hover cannot move the row. Four of them at `.months`' own 3px gaps.
+   *
+   * **Four, and every watched month drawn.** The row used to draw three and a
+   * `+N` counter, which fitted a 22rem column and told the reader only how many
+   * months they could not see. Four cells are 136.04px against the 135.08 that
+   * column left between the pair and the collect control, which is why the floor
+   * below is 22.1rem: the fourth tab is the two pixels.
+   *
+   * A watch with more than four is a line taller per four, and that is the whole
+   * cost — a tab is 20.48px against the row's own 38.5, so the first line is
+   * free and only the rows that ask pay for the rest.
+   */
+  const MONTH_TAB = 3 * advance(0.66) + 2 * 3 + 2;
+  const MONTHS = 4 * MONTH_TAB + 3 * 3;
 
   /** The route button's own padding, `--space-2` either side, and its border. */
   const ROUTE_CHROME = 2 * (REM * 0.5) + 2;
@@ -182,26 +205,38 @@ describe('how wide the watchlist may be, and what stops it being narrower', () =
   /** `.row`'s own `--space-2` between its children. */
   const BESIDE = REM * 0.5;
 
-  /** A row still being watched: the route, the collect mark, Remove. */
+  /** A row still being watched: the route, its months, the collect mark, Remove. */
   const WATCHED =
-    SWATCH + GAPS_IN_ROUTE + PAIR + LEG + ROUTE_CHROME + COLLECT + REMOVE + 2 * BESIDE;
+    SWATCH + GAPS_IN_ROUTE + PAIR + ROUTE_CHROME + MONTHS + COLLECT + REMOVE + 3 * BESIDE;
 
   /*
-   * A departed row, which is the wider of the two and so the floor. It loses
-   * the collect control and a gap, but `Departed` is a fourth child of a
-   * three-track grid: it wraps under the swatch and widens that `auto` track
-   * from 8px to its own eight advances.
+   * A departed row, which is now the *narrower* of the two.
+   *
+   * It loses the collect control and a gap, and `Departed` no longer widens
+   * anything: it was a fourth child of the route button's three-track grid,
+   * where it wrapped under the swatch and pushed that `auto` track from 8px to
+   * its own eight advances. `flex-basis: 100%` puts it on a line of its own
+   * instead, so it costs height on the rows that have stopped collecting and
+   * width on none of them.
    */
-  const DEPARTED =
-    'Departed'.length * advance(0.65) + GAPS_IN_ROUTE + PAIR + LEG + ROUTE_CHROME + REMOVE + BESIDE;
+  const DEPARTED = SWATCH + GAPS_IN_ROUTE + PAIR + ROUTE_CHROME + MONTHS + REMOVE + 2 * BESIDE;
 
   const FLOOR = Math.max(WATCHED, DEPARTED) + PANEL_CHROME;
 
-  it('is the departed row that sets the floor, not the watched one', () => {
-    // Worth pinning, because the intuition runs the other way: dropping a
-    // control ought to give room back, and here it costs 10.4px more.
-    expect(DEPARTED).toBeGreaterThan(WATCHED);
-    expect(FLOOR).toBeCloseTo(433.6, 1);
+  it('is the watched row that sets the floor, now that Departed wraps', () => {
+    /*
+     * The inversion, and it is worth pinning in both directions. It used to be
+     * the departed row by 10.4px, because dropping a control widened the row —
+     * which is the opposite of the intuition and was the reason it was written
+     * down. Now `Departed` takes a line rather than a track, so the row with
+     * the most controls is the widest, which is the intuition after all.
+     */
+    expect(WATCHED).toBeGreaterThan(DEPARTED);
+    // 433.6 before this feature, 425.0 with three tabs and a counter, 441.0
+    // with four. The month that left the route button paid for two of them and
+    // `Departed` wrapping paid for a third; the fourth is what the column's
+    // floor moved 2px to cover.
+    expect(FLOOR).toBeCloseTo(441.0, 1);
   });
 
   it('never lets the column go below the widest row it can draw', () => {
@@ -213,6 +248,9 @@ describe('how wide the watchlist may be, and what stops it being narrower', () =
      */
     const { floor, ceiling } = column();
     expect(floor, 'the column floor must fit the widest row').toBeGreaterThanOrEqual(FLOOR);
+    // And it fits by 1.04px, which is the whole reason the floor is 22.1rem and
+    // not 22: four tabs are what a row draws now, and they only just go in.
+    expect(floor - FLOOR).toBeLessThan(2);
     expect(ceiling, 'the column ceiling must fit it too').toBeGreaterThanOrEqual(FLOOR);
   });
 
@@ -220,13 +258,16 @@ describe('how wide the watchlist may be, and what stops it being narrower', () =
     /*
      * The owner asked for the map to grow to the right and the watchlist to
      * come in, and the map's track is `1fr` — so this number is the map's
-     * width as much as it is the list's. 23rem leaves 26.4px on the binding
-     * row; a rem further in is 440px, which clears the floor by 6.4 and is not
-     * a margin at all once a face or a token moves.
+     * width as much as it is the list's.
+     *
+     * The slack went 26.4 → 35.0 when the month left the route button, and back
+     * to 19.0 when the fourth tab arrived. The ceiling has not moved through any
+     * of it: 23rem is what the owner asked the map to grow to, and this column
+     * has spent its own slack rather than the map's.
      */
     const { ceiling } = column();
     expect(ceiling).toBe(23 * REM);
-    expect(ceiling - FLOOR).toBeCloseTo(26.4, 1);
+    expect(ceiling - FLOOR).toBeCloseTo(19.0, 1);
     // It came in from 27rem, and every pixel of that went to the stage.
     expect(27 * REM - ceiling).toBe(80);
   });
@@ -246,10 +287,24 @@ describe('how tall the row is, and how many routes that holds', () => {
   /*
    * What the watchlist spends above its scroller that the map does not spend
    * above its stage: a head, its margin and the panel's gap (68.5), then the
-   * add form, its rule and another gap (139), against the map's toolbar and
-   * its 8px column gap (51.4).
+   * add form, its rule and another gap, against the map's toolbar and its 8px
+   * column gap (51.4).
+   *
+   * The form was 139 and is 232.6, and the 93.6 is the month strip's doing —
+   * every pixel of it declared in `RouteEditor.module.css`:
+   *
+   * - two rows of chips at `2px` padding, a `1px` border and 0.66rem over a
+   *   1.35 line-height, with `--space-1` between them: 2 × 23.82 + 5 = 52.64;
+   * - the line saying what those months cost a pass, 0.7rem over the 1.5 this
+   *   app's paragraphs carry: 21;
+   * - the form's own `--space-2` row gap, twice, because the strip and the cost
+   *   line are two rows the form did not have: 20.
+   *
+   * The warnings under them are `display: none` while there is nothing to warn
+   * about, so they take neither a row nor a gap on the ordinary path.
    */
-  const ABOVE_THE_SCROLLER = 68.5 + 139 - 51.4;
+  const ADD_FORM = 139 + 52.64 + 21 + 20;
+  const ABOVE_THE_SCROLLER = 68.5 + ADD_FORM - 51.4;
 
   const stage = (): number => pixels(rule('stage', MAP), 'min-height');
 
@@ -258,16 +313,26 @@ describe('how tall the row is, and how many routes that holds', () => {
   }
 
   it('holds ten watched routes without a scrollbar', () => {
-    // The owner's ask, in one number: "habilitar espacio para mas rutas y
-    // evitar por el momento el uso de barra de desplazamiento".
-    expect(stage()).toBe(640);
+    /*
+     * The owner's ask, in one number: "habilitar espacio para mas rutas y
+     * evitar por el momento el uso de barra de desplazamiento".
+     *
+     * The stage grew from 640 to 710 to keep it at ten. That 70px is what the
+     * month strip costs the map, and it is the visible price of picking twelve
+     * months in one place instead of one month at a time — `a-taller-row-is-
+     * four-more-routes` said ten rows is the number worth paying for, and this
+     * is that decision holding under a taller form rather than being quietly
+     * renegotiated down to eight.
+     */
+    expect(stage()).toBe(710);
     expect(rowsThatFit(stage())).toBe(10);
   });
 
-  it('held six before, which is exactly what the reader had watched', () => {
-    // Why there was a scrollbar to complain about: six routes, six rows of
-    // room, and a seventh 9.6px short of fitting.
-    expect(rowsThatFit(460)).toBe(6);
+  it('would have held eight at the old stage, which is what the strip cost', () => {
+    // Written down rather than left implicit: the same 640px the map had
+    // before this change now holds eight rows, and the 70px above is exactly
+    // what buys the other two back.
+    expect(rowsThatFit(640)).toBe(8);
   });
 
   it('brings the scrollbar back at eleven, and says where rather than pretending', () => {

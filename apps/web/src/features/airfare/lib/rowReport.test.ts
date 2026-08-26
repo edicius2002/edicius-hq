@@ -16,7 +16,7 @@ import type {
 const LIM_CUZ: FareRoute = {
   origin: 'LIM',
   destination: 'CUZ',
-  month: '2026-10',
+  months: ['2026-10'],
   currency: 'USD',
 };
 
@@ -163,24 +163,61 @@ describe('what a row says after its own collection', () => {
   });
 
   it('does not read another route’s outcome as its own', () => {
-    // A press carries one month, so this is belt and braces — but a row that
-    // confidently reported someone else's fare would be worse than a blank.
+    // A press carries one city pair, so this is belt and braces — but a row
+    // that confidently reported someone else's fare would be worse than a blank.
     const line = describeCollection(
       LIM_CUZ,
       report({ results: [result({ destination: 'MAD' })] }),
       LOCALE,
     );
     expect(line.ok).toBe(false);
-    expect(line.text).toBe('The pass came back without a word about this month.');
+    expect(line.text).toBe('The pass came back without a word about this watch.');
   });
 
-  it('does not read a neighbouring month on the same pair as its own', () => {
+  /*
+   * The inversion, split into three so it stays honest —
+   * `a-pass-is-ours-if-it-names-any-of-our-months`.
+   *
+   * This was one test asserting that a neighbouring month on the same pair is
+   * never ours. Half of that is now false, because a pair is one row and its
+   * months are that row's. The other half is what stops the inversion from
+   * becoming sloppy: membership is decided by `watching`, never by the
+   * document. A month this row watches that the pass in hand was not asked
+   * about is still not this pass's business.
+   */
+  it('does not read a month it does not watch, even on its own pair', () => {
     const line = describeCollection(
       LIM_CUZ,
       report({ results: [result({ flightDate: '2026-11-03' })] }),
       LOCALE,
     );
-    expect(line.text).toBe('The pass came back without a word about this month.');
+    expect(line.text).toBe('The pass came back without a word about this watch.');
+  });
+
+  it('does not read a month it watches that this pass is not covering', () => {
+    // The row watches both; `watching` names only October, so November's
+    // result belongs to whatever else asked for it.
+    const line = describeCollection(
+      { ...LIM_CUZ, months: ['2026-10', '2026-11'] },
+      report({ results: [result({ flightDate: '2026-11-03' })] }),
+      LOCALE,
+    );
+    expect(line.text).toBe('The pass came back without a word about this watch.');
+  });
+
+  it('reads a second month of its own pair when the pass names it too', () => {
+    const line = describeCollection(
+      { ...LIM_CUZ, months: ['2026-10', '2026-11'] },
+      report({
+        watching: ['LIM-CUZ 2026-10', 'LIM-CUZ 2026-11'],
+        results: [result({}), result({ flightDate: '2026-11-03', cheapest: 210 })],
+      }),
+      LOCALE,
+    );
+    // Both months in one sentence, and the cheapest is the cheapest across
+    // both — the full date is printed, so the winning month names itself.
+    expect(line.text).toContain('2 departures looked at');
+    expect(line.text).toContain('03/11/2026');
   });
 
   it('counts the skips by reason rather than naming thirty departures', () => {

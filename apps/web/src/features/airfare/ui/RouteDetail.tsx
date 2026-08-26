@@ -12,6 +12,8 @@ import styles from './RouteDetail.module.css';
 
 type RouteDetailProps = {
   route: FareRoute | null;
+  /** Which of the route's months is being read. The figures are all of it. */
+  month: string | null;
   latest: FareSnapshot | null;
   insights: FareInsights | null;
   health: WatchHealth | null;
@@ -61,6 +63,7 @@ type RouteDetailProps = {
  */
 export function RouteDetail({
   route,
+  month,
   latest,
   insights,
   health,
@@ -90,15 +93,19 @@ export function RouteDetail({
           than `03/2027` — 12.114 — so nothing on this page reads as a day that
           is not one.
 
-          Always the month, since 12.260 took the focus away. It briefly became
+          Always a month, since 12.260 took the focus away. It briefly became
           the focused day where there was one, and with it went the figures
           under it, the chart and the flight table.
+
+          *Which* month is the tab the reader has open, handed down rather than
+          taken off the route: a watch holds several and the figures under this
+          heading are one month's, so the two have to come from one value.
         */}
         <h3 className={styles.pair}>
           {route.origin} <span className={styles.to}>→</span> {route.destination}{' '}
           {/* The space is deliberate: the gap beside it is a margin, and a
               margin is not something a screen reader can hear. */}
-          <span className={styles.when}>{formatFlightMonth(route.month)}</span>
+          <span className={styles.when}>{month ? formatFlightMonth(month) : ''}</span>
         </h3>
         <p className={styles.cities}>
           {cities.from ?? route.origin} to {cities.to ?? route.destination}

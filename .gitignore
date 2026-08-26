@@ -70,3 +70,4 @@ apps/web/public/fonts/*
 
 # CCB runtime state: agent sessions, worktrees and workspace bindings.
 .ccb/
+.claude/settings.local.json

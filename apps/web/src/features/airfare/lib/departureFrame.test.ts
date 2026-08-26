@@ -11,7 +11,8 @@ import {
   sourceRuns,
   sourceSeams,
 } from '@/features/airfare/lib/departureFrame';
-import { scatterWindow } from '@/features/airfare/lib/flightScatter';
+import { periodBounds } from '@/features/airfare/lib/buckets';
+import { scatterWindow, type WatchedRange } from '@/features/airfare/lib/flightScatter';
 import type { CalendarCurve, CalendarPoint } from '@/shared/api/fares';
 
 /**
@@ -26,7 +27,18 @@ import type { CalendarCurve, CalendarPoint } from '@/shared/api/fares';
  * its own date rather than a point at an hour it does not have.
  */
 
-const MARCH: { from: string; to: string } = { from: '2027-03-01', to: '2027-03-31' };
+const MARCH: WatchedRange[] = [{ from: '2027-03-01', to: '2027-03-31' }];
+
+/**
+ * A gapped watch: March and May, with April watched by nobody.
+ *
+ * The shape the multi-month change is about, and April between them is what
+ * makes it a test rather than a wider March.
+ */
+const MARCH_AND_MAY: WatchedRange[] = [
+  { from: '2027-03-01', to: '2027-03-31' },
+  { from: '2027-05-01', to: '2027-05-31' },
+];
 
 const COLLECTED_AT = '2026-08-19T15:49:46+00:00';
 
@@ -55,7 +67,7 @@ function curve(
 }
 
 describe('which archive answers for a departure date', () => {
-  it('gives the boards every date inside the watched month', () => {
+  it('gives the boards every date inside a watched month', () => {
     const days = frameDays(scatterWindow('2027-W10', 'week'), MARCH);
     expect(days.map((day) => day.source)).toEqual(Array(7).fill('board'));
     expect(frameSource(days)).toBe('boards');
@@ -92,10 +104,67 @@ describe('which archive answers for a departure date', () => {
     }
   });
 
+  it('still never mixes inside a calendar month, however many months are watched', () => {
+    /*
+     * The same rule, re-pinned against a gapped watch, because the rewritten
+     * reasoning in `railLabels`' docstring now rests on it: what caps a frame at
+     * two runs is that a frame spans at most two calendar months and a month is
+     * watched or it is not. Several watched months do not touch either half.
+     */
+    for (const key of ['2027-03', '2027-04', '2027-05', '2027-06']) {
+      const days = frameDays(scatterWindow(key, 'month'), MARCH_AND_MAY);
+      const watched = key === '2027-03' || key === '2027-05';
+      expect(frameSource(days)).toBe(watched ? 'boards' : 'curve');
+    }
+  });
+
+  it('gives the boards every date of every watched month', () => {
+    // The change, at its smallest. May used to come back as curve because the
+    // page could only name one month at a time.
+    const days = frameDays(scatterWindow('2027-05', 'month'), MARCH_AND_MAY);
+    expect(days.map((day) => day.source)).toEqual(Array(31).fill('board'));
+    expect(frameSource(days)).toBe('boards');
+  });
+
+  it('hands an unwatched month between two watched ones to the curve', () => {
+    // The other half, and the one that says this is a watch rather than a span:
+    // April sits between March and May and belongs to neither.
+    const days = frameDays(scatterWindow('2027-04', 'month'), MARCH_AND_MAY);
+    expect(new Set(days.map((day) => day.source))).toEqual(new Set(['curve']));
+  });
+
+  it('caps a frame at two runs whatever the watch holds', () => {
+    /*
+     * The premise the rewritten prose rests on, swept rather than argued. A
+     * frame is one day, one ISO week or one calendar month, so it spans at most
+     * two calendar months — so however many months are watched, a frame cannot
+     * carry an interior stretch and `railLabels` can never be handed the three
+     * runs its collision guard exists for.
+     *
+     * Written as a sweep so that a granularity wider than a month could not be
+     * added without this going red.
+     */
+    const everyMonth: WatchedRange[] = Array.from({ length: 12 }, (_, index) => {
+      const month = `2027-${String(index + 1).padStart(2, '0')}`;
+      const bounds = periodBounds(month, 'month');
+      return { from: bounds.from.slice(0, 10), to: bounds.to.slice(0, 10) };
+    });
+    const alternating = everyMonth.filter((_, index) => index % 2 === 0);
+
+    for (const watch of [everyMonth, alternating, MARCH_AND_MAY]) {
+      for (let week = 1; week <= 52; week += 1) {
+        const key = `2027-W${String(week).padStart(2, '0')}`;
+        expect(sourceRuns(frameDays(scatterWindow(key, 'week'), watch)).length).toBeLessThanOrEqual(
+          2,
+        );
+      }
+    }
+  });
+
   it('hands nothing to the boards where there is no watch to speak for them', () => {
-    const days = frameDays(scatterWindow('2027-W10', 'week'), null);
+    const days = frameDays(scatterWindow('2027-W10', 'week'), []);
     expect(frameSource(days)).toBe('curve');
-    expect(isWatched('2027-03-09', null)).toBe(false);
+    expect(isWatched('2027-03-09', [])).toBe(false);
   });
 
   it('reads the watch as fixed-width strings rather than parsing a date', () => {
@@ -120,10 +189,13 @@ describe('where the axis stops being a clock', () => {
   it('draws both seams around a watched range narrower than the frame', () => {
     // Curve dates on each side of the boards, so reporting only the first
     // would draw half the boundary. The page cannot build this range any more
-    // — a watch is a whole month since 12.260 — and the rule is still the
-    // rule: `frameDays` takes two dates, not a route, and a caller that hands
-    // it a narrow pair gets an answer or a defect.
-    const focused = { from: '2027-03-10', to: '2027-03-10' };
+    // — a watch is whole calendar months, and a frame spans at most two of
+    // them, so two runs is the most it can produce — and the rule is still the
+    // rule: `frameDays` takes ranges of dates, not a route, and a caller that
+    // hands it a narrow one gets an answer or a defect. Keeping this range as
+    // the shape it takes rather than a list of months is what keeps this case
+    // reachable at all.
+    const focused: WatchedRange[] = [{ from: '2027-03-10', to: '2027-03-10' }];
     const days = frameDays(scatterWindow('2027-W10', 'week'), focused);
     expect(sourceSeams(days)).toEqual([2 * 1440, 3 * 1440]);
   });
@@ -308,10 +380,9 @@ describe('the rail that says which archive answered where', () => {
    * breaks the first time another caller sends something else, and this is the
    * one frame that has already caught it out.
    */
-  const focusedWeek = frameDays(scatterWindow('2027-W09', 'week'), {
-    from: '2027-03-06',
-    to: '2027-03-06',
-  });
+  const focusedWeek = frameDays(scatterWindow('2027-W09', 'week'), [
+    { from: '2027-03-06', to: '2027-03-06' },
+  ]);
 
   it('names each archive once, however many stretches it holds', () => {
     expect(sourceRuns(focusedWeek).map((run) => run.source)).toEqual(['curve', 'board', 'curve']);
@@ -347,10 +418,9 @@ describe('the rail that says which archive answered where', () => {
     // against 87 of glyphs. The label overhangs and still points at the
     // stretch, because dropping the name of the one stretch a reader cannot
     // identify from its marks is the rail failing at its job.
-    const month = frameDays(scatterWindow('2027-03', 'month'), {
-      from: '2027-03-16',
-      to: '2027-03-16',
-    });
+    const month = frameDays(scatterWindow('2027-03', 'month'), [
+      { from: '2027-03-16', to: '2027-03-16' },
+    ]);
     const labels = railLabels(month, TRACK);
     expect(labels.map((label) => label.source).sort()).toEqual(['board', 'curve']);
     expect(labels.find((label) => label.source === 'board')!.text).toBe('flights, by hour');
@@ -390,10 +460,10 @@ describe('the rail that says which archive answered where', () => {
      * produces since 12.260, and which is swept anyway because the narrow
      * range is where the runs multiply and the labels collide.
      */
-    const watches: { from: string; to: string }[] = [MARCH];
+    const watches: WatchedRange[][] = [MARCH, MARCH_AND_MAY];
     for (let day = 1; day <= 31; day += 1) {
       const date = `2027-03-${String(day).padStart(2, '0')}`;
-      watches.push({ from: date, to: date });
+      watches.push([{ from: date, to: date }]);
     }
 
     const keys: [string, 'week' | 'month'][] = [];

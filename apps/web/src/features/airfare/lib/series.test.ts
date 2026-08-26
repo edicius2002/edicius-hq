@@ -15,6 +15,7 @@ import {
   median,
   priceStats,
   snapshotsFor,
+  snapshotsForMonths,
 } from '@/features/airfare/lib/series';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
@@ -316,5 +317,42 @@ describe('formatStamp', () => {
 
   it('hands back anything it cannot read, untouched', () => {
     for (const odd of ['', 'yesterday', '18/08/2026']) expect(formatStamp(odd)).toBe(odd);
+  });
+});
+
+describe('snapshotsForMonths', () => {
+  const march = { flightDate: '2027-03-09' } as FareSnapshot;
+  const april = { flightDate: '2027-04-02' } as FareSnapshot;
+  const may = { flightDate: '2027-05-20' } as FareSnapshot;
+
+  it('keeps every month the watch names and nothing else', () => {
+    expect(snapshotsForMonths([march, april, may], ['2027-03', '2027-05'])).toEqual([march, may]);
+  });
+
+  it('drops a month the pair collected but the watch no longer holds', () => {
+    /*
+     * The trap this function exists for. `GET /api/fares/history` answers with
+     * the pair's whole archive — months dropped from the watch, months never
+     * watched — so passing the response straight through would put a board dot
+     * on a date `frameDays` has already decided the curve answers for. Two
+     * archives contradicting each other in one column.
+     */
+    expect(snapshotsForMonths([march, april], ['2027-03'])).toEqual([march]);
+  });
+
+  it('keeps nothing for a watch on no months', () => {
+    expect(snapshotsForMonths([march, april], [])).toEqual([]);
+  });
+
+  it('is untroubled by a watched month the archive has never seen', () => {
+    expect(snapshotsForMonths([march], ['2027-03', '2027-12'])).toEqual([march]);
+  });
+
+  it('answers a different question from the single-month filter beside it', () => {
+    // `snapshotsFor` is a *prefix* match and takes a day as well as a month;
+    // this is set membership on whole months. Collapsing them into one function
+    // would quietly change what the day-prefix caller gets.
+    expect(snapshotsFor([march], '2027-03-09')).toEqual([march]);
+    expect(snapshotsForMonths([march], ['2027-03-09'])).toEqual([]);
   });
 });

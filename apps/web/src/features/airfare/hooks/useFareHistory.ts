@@ -16,13 +16,16 @@ import { fetchFareHistory, type FareHistoryResponse } from '@/shared/api/fares';
  * be requests spent watching a file that is deliberately not moving. The page
  * invalidates this query after a manual collection instead.
  */
-export function useFareHistory(route: FareRoute | null) {
-  // The month, and only the month — 12.260. This was `readingPrefix`, which
-  // returned the focused day where a watch named one; a route names none now,
-  // so the two answers it chose between are one. It stays in the query key
-  // because two watches on the same pair in different months are two different
-  // archives.
-  const departure = route ? route.month : null;
+export function useFareHistory(route: FareRoute | null, month: string | null) {
+  // The month being read, passed in rather than taken off the route — a watch
+  // holds several and the chart draws one, so the route cannot answer this by
+  // itself. It stays in the query key because two months of one pair are two
+  // different archives to narrow, and it stays a single prefix rather than
+  // widening to the pair: `snapshots` already come back for the whole pair
+  // whatever this says, while `baseline` and `checks` are narrowed by it, and
+  // widening those would print every month's looks under one month's heading
+  // and fetch the provider's history for every departure ever collected.
+  const departure = route ? month : null;
 
   return useQuery<FareHistoryResponse>({
     queryKey: ['fares', 'history', route?.origin, route?.destination, departure],

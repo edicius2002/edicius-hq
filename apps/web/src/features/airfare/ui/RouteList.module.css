@@ -127,21 +127,26 @@
 .row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
 .route {
-  flex: 1;
   /*
-   * One line: swatch, pair, then the dates.
+   * The swatch and the pair, and nothing else.
    *
-   * `1fr` on the dates and `justify-content: center` inside them puts the
-   * departure in the middle of the row whether or not there is a return
-   * beside it, so a column of routes lines its dates up instead of having them
-   * drift with the length of each pair.
+   * It held the months too, until they became controls: a `<button>` may not
+   * contain buttons, so the month tabs are siblings of this one and the row's
+   * own press shrinks to what identifies the route. Pressing a tab selects the
+   * row as well, so a press anywhere on the row still opens it.
+   *
+   * `flex: none` rather than `flex: 1`, because the tabs beside it are what
+   * should take the room now — a route button stretched across the row would
+   * put its two codes a long way from the months they belong to.
    */
+  flex: none;
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto;
   align-items: center;
   gap: 7px;
   min-width: 0;
@@ -215,10 +220,97 @@
   line-height: 1;
 }
 
+/*
+ * Every month of this watch has gone.
+ *
+ * `flex-basis: 100%` so it wraps to a line of its own rather than widening the
+ * row. It used to be a fourth child of the route button's own grid, where it
+ * widened an `auto` track and made a departed row the widest thing in the
+ * panel — which is what set the column's floor. With the months beside it
+ * there is no room for that, and a word on its own line costs height only on
+ * the rows that have stopped collecting.
+ */
 .departed {
+  flex-basis: 100%;
   color: var(--color-expense);
   font-size: 0.65rem;
   white-space: nowrap;
+}
+
+/*
+ * The months of a watch, as tabs.
+ *
+ * `1fr` so they take the room `.route` gave up, and they take it from the left
+ * so a column of rows lines its months up rather than having them drift with
+ * the length of each pair — the argument `.dates` used to make from the middle.
+ */
+.months {
+  /*
+   * Every watched month, four to a line.
+   *
+   * `repeat(4, auto)` rather than `1fr` tracks: a tab is as wide as `Nov` and
+   * no wider, so a route watching two months does not draw two cells stretched
+   * across the room four would need. Four is measured — see `MONTHS_PER_ROW`:
+   * the row has 135.08px here at the panel's floor and four three-letter tabs
+   * are 136.04, which is why the floor moved 2px to take them.
+   *
+   * `flex: 0 1 auto` and not `flex: 1`, and that is what keeps the collect
+   * control reachable. A growing item would take the row's slack, and `.row`
+   * wraps — so on a narrow panel the collect mark and Remove would drop to a
+   * line of their own under the months instead of standing beside them. Sized
+   * by its own content, this block never pushes them anywhere.
+   *
+   * A watch with more than four months is taller by a line per four, and only
+   * that row is: a tab is 20.48px against the row's own 38.5, so one line of
+   * them costs nothing at all.
+   */
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  justify-content: start;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/*
+ * One tab. Quiet by default, because the row is a list entry before it is a
+ * control: eight of these drawn as buttons would be a wall of chrome down a
+ * panel whose job is to be read.
+ */
+.monthTab {
+  padding: 0 3px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: none;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.monthTab:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.monthTab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* The month the chart is drawing, on the row the page is reading. */
+.monthTabOpen {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* A month of this watch that the calendar has passed. */
+.monthTabGone {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 /*

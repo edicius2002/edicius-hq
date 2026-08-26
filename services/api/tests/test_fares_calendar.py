@@ -33,6 +33,7 @@ from app.adapters.fares import google_flights
 from app.adapters.fares.models import CalendarPrice, CalendarQuery, FareError
 from app.main import app
 from app.routers import fares as fares_router
+from app.services.fare_budget import RequestLedger
 from app.services.fare_calendar import CalendarCurve, FareCalendar
 from app.services.fare_collector import FareWatch, calendar_windows, collect_calendars
 from app.services.fare_history import FareHistory
@@ -510,6 +511,101 @@ def test_a_route_looked_at_today_is_skipped_with_a_reason_rather_than_dropped(tm
     report = asyncio.run(run())
     assert report.results == []
     assert report.skipped == [("LIM-CUZ", "not-due")]
+
+
+def test_a_forced_pass_collects_the_pair_the_cadence_would_have_declined(tmp_path):
+    """
+    `force` is the reader saying they do not believe the last curve.
+
+    The same second way in `due_now` already has for the boards
+    (`a-press-collects-the-month-it-is-on`, 12.212), applied to the one cadence
+    that had no way past it at all: a pair looked at inside
+    `CALENDAR_POLL_MINUTES` came back `not-due` however it was asked, and the
+    only exception was a pair with nothing on disk. Everything else about the
+    pass is untouched — the same windows, the same store, the same report.
+    """
+    page = read_fixture(CAPTURE)
+    store = FareCalendar(tmp_path)
+    store.record_check("LIM", "CUZ", at="2026-08-19T06:00:00+00:00", outcome="unchanged")
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+            return await collect_calendars(
+                [FareWatch("LIM", "CUZ", "2027-03")],
+                now=datetime(2026, 8, 19, 12, 0, tzinfo=UTC),
+                calendar=store,
+                client=client,
+                gap_seconds=0,
+                force=True,
+            )
+
+    report = asyncio.run(run())
+    assert report.skipped == []
+    assert [result.route for result in report.results] == ["LIM-CUZ"]
+    assert len(store.read("LIM", "CUZ")) == 1
+
+
+def test_force_is_refused_for_more_than_one_city_pair_at_a_time(tmp_path):
+    """
+    The bound 12.212 turns on, kept where it can actually be crossed.
+
+    The endpoint cannot cross it — `CalendarCollectBody` carries one origin and
+    one destination, so a press is one pair by the shape of the request. This
+    function is the one that can: the scheduled pass hands it the whole
+    watchlist, and a `force` that travelled with such a list would poll every
+    pair the cadence had declined at 2.43 requests each. Refusing it here makes
+    the bound the collector's rather than a habit of whoever calls it.
+    """
+    store = FareCalendar(tmp_path)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(500)) as client:
+            return await collect_calendars(
+                [FareWatch("LIM", "CUZ", "2027-03"), FareWatch("ARI", "SCL", "2027-03")],
+                now=datetime(2026, 8, 19, 12, 0, tzinfo=UTC),
+                calendar=store,
+                client=client,
+                gap_seconds=0,
+                force=True,
+            )
+
+    with pytest.raises(ValueError, match="one city pair"):
+        asyncio.run(run())
+
+
+def test_a_forced_pair_that_cannot_afford_its_windows_is_still_over_budget(tmp_path):
+    """
+    The cadence is a judgement a reader may overrule; the day's ledger is not.
+
+    Exactly the division `collect_fares` draws for the boards: `force` replaces
+    `not-due` and replaces nothing else, so the budget check still runs after it
+    and still answers by name. A press that could spend a day the ledger has
+    already spent would make the one bound on what this address sends a
+    suggestion.
+    """
+    store = FareCalendar(tmp_path / "calendar")
+    ledger = RequestLedger(tmp_path / "spend")
+    store.record_check("LIM", "CUZ", at="2026-08-19T06:00:00+00:00", outcome="unchanged")
+
+    def refuse_to_be_asked(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("a pair that cannot afford its windows must cost no requests")
+
+    async def run():
+        async with transport(refuse_to_be_asked) as client:
+            return await collect_calendars(
+                [FareWatch("LIM", "CUZ", "2027-03")],
+                now=datetime(2026, 8, 19, 12, 0, tzinfo=UTC),
+                calendar=store,
+                client=client,
+                gap_seconds=0,
+                budget=1,
+                ledger=ledger,
+                force=True,
+            )
+
+    report = asyncio.run(run())
+    assert report.results == []
+    assert report.skipped == [("LIM-CUZ", "over-budget")]
 
 
 def test_one_window_refusing_costs_the_whole_curve_rather_than_half_of_it(tmp_path):

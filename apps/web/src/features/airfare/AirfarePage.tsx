@@ -78,7 +78,7 @@ export function AirfarePage() {
   // Per-row collection is its own hook, not more state on this page: the
   // in-flight set, the reports and the mutation that keeps them in step are one
   // mechanism, and the page's job is to hand it to the list.
-  const rowCollection = useRouteCollection(today);
+  const rowCollection = useRouteCollection();
   /*
    * Adding a route collects its booking horizon — 12.247. Its own hook rather
    * than a branch of `useRouteCollection`, because it is a different pass over
@@ -207,6 +207,7 @@ export function AirfarePage() {
   const {
     view: routeView,
     setMonth,
+    openOn,
     setGranularity,
     setAnchor,
     setViewport,
@@ -556,6 +557,7 @@ export function AirfarePage() {
             */
             onClearEditing={() => setEditingId(null)}
             onSave={(id, next) => {
+              const before = watchlist.routes.find((route) => routeId(route) === id);
               void watchlist.update(id, next);
               // A changed pair is a changed id, so everything keyed by the old
               // one is now keyed to a row that no longer exists — the same
@@ -567,7 +569,38 @@ export function AirfarePage() {
                 horizon.forget(id);
                 if (selectedId === id) setSelectedId(nextId);
                 setEditingId(nextId);
+                // The new id has no record, so the departure chart is seeded by
+                // `openingView` and lands on the opening month by itself.
+                return;
               }
+
+              /*
+               * The months changed under a route that kept its id, so the
+               * departure chart goes back to the month it would open on —
+               * `a-month-edit-reopens-the-chart`.
+               *
+               * Nothing used to move it. The record is keyed by route id and the
+               * id did not change, so the tab stayed where it was and the frame
+               * stayed where it had been walked to — which after adding a month
+               * is a reader looking at December wondering where the month they
+               * just added went. `readingMonth` only rescued the case where the
+               * held month stopped being watched at all.
+               *
+               * `openOn` rather than `setMonth`, because the tab and the frame
+               * are the same record and not the same value: a reader on the
+               * first month's tab can have the frame months away, and
+               * `setMonth` would see the month it already holds and do nothing.
+               *
+               * Only when the months actually differ. A Save that changed
+               * nothing writes nothing — `editRoute` hands back the same
+               * document — and moving the chart for it would be the page
+               * reacting to a press that meant "leave this as it is".
+               */
+              const changed =
+                before === undefined ||
+                before.months.length !== next.months.length ||
+                before.months.some((month, at) => month !== next.months[at]);
+              if (changed) openOn(openingMonth(next, today));
             }}
             onRemove={(id) => {
               if (id === editingId) setEditingId(null);

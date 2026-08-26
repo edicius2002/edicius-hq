@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { openCollectionStream } from '@/features/airfare/data/collectionStream';
-import { collectableMonthsOf, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import {
   NOTICE_LIFE_MS,
   collectNotice,
@@ -152,19 +152,26 @@ export type RouteCollection = {
    * collector runs every fifteen minutes and must not interrupt anybody.
    */
   notices: readonly CollectNotice[];
-  collect: (route: FareRoute) => void;
+  /**
+   * Collect one month of one route, now.
+   *
+   * The month is passed in rather than derived, because the row knows which one
+   * it is reading and this hook does not — see `a-press-collects-the-month-on-screen`.
+   */
+  collect: (route: FareRoute, month: string) => void;
   /** Drop a row's report and its card, for when the row itself goes. */
   forget: (id: string) => void;
 };
 
-/**
- * `today` is taken rather than read, for `useFareRoutes`'s reason: a hook that
- * reaches for a clock of its own is a hook a test cannot pin. It comes from the
- * page's own `useState(todayIso)`, which is the same date the add form refuses
- * a departed month against, so the strip and the press cannot disagree about
- * which months have gone.
+/*
+ * It took a `today` and no longer does — the same shape of removal
+ * `useFareRoutes` records. The date was here for one thing: filtering departed
+ * months out of the payload while a press collected every month of its watch.
+ * A press now collects the one month the row is reading and sends it whether or
+ * not it has departed (see the payload for why), so the clock this hook asked
+ * for had nothing left to decide.
  */
-export function useRouteCollection(today: string): RouteCollection {
+export function useRouteCollection(): RouteCollection {
   const queryClient = useQueryClient();
   const [collecting, setCollecting] = useState<readonly string[]>([]);
   const [reports, setReports] = useState<ReadonlyMap<string, RowReport>>(() => new Map());
@@ -484,50 +491,61 @@ export function useRouteCollection(today: string): RouteCollection {
   // Only `mutate` is taken off the result: the object React Query returns is
   // new on every render, so closing over it would rebuild `collect` every
   // render and defeat the `useCallback` around it. `mutate` itself is stable.
-  const { mutate } = useMutation<CollectResponse, Error, FareRoute>({
-    mutationFn: (route) =>
+  const { mutate } = useMutation<CollectResponse, Error, { route: FareRoute; month: string }>({
+    mutationFn: ({ route, month }) =>
       collectFares(
-        // One entry per month the watch can still collect, ascending — the
-        // wire has always carried a list, so several months of one pair need
-        // no new shape. A press buys up to thirty-one departures *per month*,
-        // and a pass can still truncate — not at forty any more (12.210
-        // removed that), and no longer at a request budget either (that ceiling
-        // went), but at whatever bounds the pass. Which departures survive a
-        // truncation is nearest-first, 12.111, and nothing else since 12.266
-        // took the focus off this payload.
-        //
-        // Departed months are left out rather than sent and refused: a month
-        // wholly gone would buy thirty-one skip lines that push the reasons
-        // that matter out of the row's commonest-first summary.
-        //
-        // What is deliberately absent is the month the reader is looking at —
-        // `the-open-month-steers-nothing`. This payload is built from the
-        // document, so a press collects the same months whichever tab is open.
-        collectableMonthsOf(route, today).map((month) => ({
-          origin: route.origin,
-          destination: route.destination,
-          month,
-          currency: route.currency,
-        })),
-        // And it buys every one of them rather than the handful whose turn has
-        // come — `a-press-collects-the-month-it-is-on`. A press at 21:04 after
-        // a pass at 14:41 answered `31 not-due`, which is 12.111 working as
-        // designed and is nevertheless the wrong answer to give somebody who
+        /*
+         * One entry, for the one month the row is reading —
+         * `a-press-collects-the-month-on-screen`.
+         *
+         * It sent every month of the watch, in one pass, and that is reversed.
+         * A press is a control on a row and the row is showing one month at a
+         * time; collecting the other two was the button doing more than the
+         * reader could see it do, and on a twelve-month watch it was ~372
+         * requests and nineteen minutes behind a control that answers instantly.
+         *
+         * The month is passed in rather than derived here. The row knows which
+         * one it is reading — the open tab where it is the open row, the month
+         * it would open on otherwise — and this hook does not; deriving it from
+         * the document would put the answer in the one place that cannot see
+         * the tab.
+         *
+         * A departed month is **sent** rather than filtered out, which reverses
+         * the other half of the old payload's reasoning. That filter existed
+         * because a wholly departed month bought thirty-one skip lines that
+         * pushed the reasons that mattered out of the row's commonest-first
+         * summary — and with one month there are no other reasons to crowd out.
+         * `Not collected: 31 departed.` is the true and useful answer, and it
+         * needs no code that does not already exist.
+         */
+        [
+          {
+            origin: route.origin,
+            destination: route.destination,
+            month,
+            currency: route.currency,
+          },
+        ],
+        // And it buys the whole month rather than the handful of days whose turn
+        // has come — `a-press-collects-the-month-it-is-on`. A press at 21:04
+        // after a pass at 14:41 answered `31 not-due`, which is 12.111 working
+        // as designed and is nevertheless the wrong answer to give somebody who
         // has just said they do not believe the last look. The pass lock is
         // untouched by it, so a scheduled pass still comes back
         // `another-pass-is-running`, which this row already renders.
         //
-        // The endpoint bounds a forced press at **one city pair**, not one
-        // entry — it used to be one entry, which was the same thing only while
-        // a watch was one month. Every month of one route travels in one call;
-        // a second route does not.
+        // The endpoint still bounds a forced press at one city pair rather than
+        // one entry. Nothing here sends more than one now, and the wider bound
+        // stays because it is the honest one — it is where `collect_calendars`
+        // has always drawn the line, and narrowing it back would be the API
+        // describing one client's habit.
         { force: true },
       ),
     // The press only starts the pass — 12.210 — so this is where the following
     // begins rather than where the outcome is written. A pass that came back
     // already finished (nothing was due, or somebody else's pass was handed
     // over) is done here and never opens a stream at all.
-    onSuccess: (data, route) => {
+    onSuccess: (data, { route }) => {
       const id = routeId(route);
       if (data.state !== 'running') {
         write(id, describeCollection(route, data));
@@ -540,7 +558,7 @@ export function useRouteCollection(today: string): RouteCollection {
       mark(id, passProgress(route, data));
       follow(route);
     },
-    onError: (error, route) => {
+    onError: (error, { route }) => {
       const id = routeId(route);
       write(id, describeRefusal(error.message));
       release(id);
@@ -548,7 +566,7 @@ export function useRouteCollection(today: string): RouteCollection {
   });
 
   const collect = useCallback(
-    (route: FareRoute) => {
+    (route: FareRoute, month: string) => {
       const id = routeId(route);
       if (inFlight.current.has(id)) return;
       inFlight.current.add(id);
@@ -557,7 +575,7 @@ export function useRouteCollection(today: string): RouteCollection {
       // last week's "Refused" beside a spinner would have the row saying two
       // things at once, and the older one louder.
       write(id, null);
-      mutate(route);
+      mutate({ route, month });
     },
     [mutate, write],
   );

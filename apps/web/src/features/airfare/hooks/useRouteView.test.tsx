@@ -227,3 +227,57 @@ describe('the month a watch is being read at', () => {
     expect(result.current.view.month).toBe('2027-03');
   });
 });
+
+describe('reopening a route after its months were edited', () => {
+  it('moves the frame even when the month it is handed is the month already held', () => {
+    /*
+     * The hole `setMonth` cannot cover, and the whole reason `openOn` exists.
+     *
+     * The tab and the frame live in one record and are not one value: the tab is
+     * `month`, the frame is `anchor`. A reader can sit on the first month's tab
+     * with the departure chart walked weeks away from it — and `setMonth` opens
+     * by returning the record untouched when the month is the month it already
+     * holds, which is right for a tab press and silent here.
+     */
+    const { result } = renderHook(() => useRouteView(LIM_SCL, '2026-10'));
+
+    act(() => result.current.setAnchor('2026-10-25'));
+    act(() => result.current.setViewport({ start: 2880, span: 1440 }));
+
+    // The press that does nothing, which is correct of it.
+    act(() => result.current.setMonth('2026-10'));
+    expect(result.current.view.anchor).toBe('2026-10-25');
+
+    // The edit landing, which must not be silent.
+    act(() => result.current.openOn('2026-10'));
+    expect(result.current.view.anchor).toBe('2026-10-01');
+    expect(result.current.view.viewport).toBeNull();
+  });
+
+  it('keeps the period the reader chose', () => {
+    // Editing which months are watched says nothing about whether the reader
+    // wants days, weeks or months. Resetting that would be the same over-reach
+    // `openingView` refuses when it seeds a record rather than reapplying one.
+    const { result } = renderHook(() => useRouteView(LIM_SCL, '2026-10'));
+
+    act(() => result.current.setGranularity('week'));
+    act(() => result.current.openOn('2026-12'));
+
+    expect(result.current.view.granularity).toBe('week');
+    expect(result.current.view.month).toBe('2026-12');
+    expect(result.current.view.anchor).toBe('2026-12-01');
+  });
+
+  it('leaves every other watch alone', () => {
+    const { result, rerender } = renderHook(({ route }) => useRouteView(route, monthOf(route)), {
+      initialProps: { route: LIM_SCL },
+    });
+
+    act(() => result.current.setAnchor('2026-10-25'));
+    rerender({ route: LIM_MAD });
+    act(() => result.current.openOn('2027-03'));
+
+    rerender({ route: LIM_SCL });
+    expect(result.current.view.anchor).toBe('2026-10-25');
+  });
+});

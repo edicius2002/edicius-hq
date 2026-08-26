@@ -20,8 +20,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const MARCH: FareRoute = { origin: 'ARI', destination: 'SCL', month: '2027-03', currency: 'USD' };
-const APRIL: FareRoute = { origin: 'ARI', destination: 'SCL', month: '2027-04', currency: 'USD' };
+const MARCH: FareRoute = {
+  origin: 'ARI',
+  destination: 'SCL',
+  months: ['2027-03'],
+  currency: 'USD',
+};
+const APRIL: FareRoute = {
+  origin: 'ARI',
+  destination: 'SCL',
+  months: ['2027-04'],
+  currency: 'USD',
+};
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

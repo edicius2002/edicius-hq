@@ -19,7 +19,7 @@ import CSS_SOURCE from './RouteDetail.module.css?inline';
 const ROUTE = {
   origin: 'LIM',
   destination: 'AQP',
-  month: '2026-12',
+  months: ['2026-12'],
   currency: 'USD',
 };
 
@@ -71,6 +71,7 @@ function renderDetail(overrides: Partial<React.ComponentProps<typeof RouteDetail
   return render(
     <RouteDetail
       route={ROUTE}
+      month={ROUTE.months[0]}
       latest={SNAPSHOT}
       insights={INSIGHTS}
       health={HEALTH}

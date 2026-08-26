@@ -2,7 +2,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { openCollectionStream } from '@/features/airfare/data/collectionStream';
-import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { collectableMonthsOf, routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import {
+  NOTICE_LIFE_MS,
+  collectNotice,
+  withNotice,
+  withoutNotice,
+  type CollectNotice,
+} from '@/features/airfare/lib/collectNotice';
 import { withSnapshot } from '@/features/airfare/lib/liveSnapshot';
 import { passProgress, type PassProgress } from '@/features/airfare/lib/passProgress';
 import {
@@ -131,17 +138,49 @@ export type RouteCollection = {
    * report carrying a fraction that no longer means anything.
    */
   progress: ReadonlyMap<string, PassProgress>;
+  /**
+   * The finished presses that have not faded yet, oldest first.
+   *
+   * A third lifetime beside the other two, and the shortest of them: a report
+   * outlives its press and waits to be superseded, a bar exists only while the
+   * pass runs, and this exists for ten seconds after the pass ends and then
+   * goes on its own. It is the same sentence as the row's report — deliberately
+   * so, `collectNotice` argues it out — carried where a reader who has scrolled
+   * away, opened a chart or gone to another window will actually see it.
+   *
+   * Only a pass this browser pressed for ever appears here. The scheduled
+   * collector runs every fifteen minutes and must not interrupt anybody.
+   */
+  notices: readonly CollectNotice[];
   collect: (route: FareRoute) => void;
-  /** Drop a row's report, for when the row itself goes. */
+  /** Drop a row's report and its card, for when the row itself goes. */
   forget: (id: string) => void;
 };
 
-export function useRouteCollection(): RouteCollection {
+/**
+ * `today` is taken rather than read, for `useFareRoutes`'s reason: a hook that
+ * reaches for a clock of its own is a hook a test cannot pin. It comes from the
+ * page's own `useState(todayIso)`, which is the same date the add form refuses
+ * a departed month against, so the strip and the press cannot disagree about
+ * which months have gone.
+ */
+export function useRouteCollection(today: string): RouteCollection {
   const queryClient = useQueryClient();
   const [collecting, setCollecting] = useState<readonly string[]>([]);
   const [reports, setReports] = useState<ReadonlyMap<string, RowReport>>(() => new Map());
   const [progress, setProgress] = useState<ReadonlyMap<string, PassProgress>>(() => new Map());
+  const [notices, setNotices] = useState<readonly CollectNotice[]>([]);
   const inFlight = useRef<Set<string>>(new Set());
+  /**
+   * The clock each card is on, by route id.
+   *
+   * A ref because nothing draws it and because the callback that clears it has
+   * to be able to find the handle from outside the render that made it. Keyed
+   * by row so a second press on one row can cancel its own card's timer without
+   * touching another row's — which is what makes "a row replaces its own card"
+   * restart the clock rather than inherit the remains of the first one's.
+   */
+  const noticeTimers = useRef<Map<string, number>>(new Map());
   /**
    * The rows following the pass, by route id.
    *
@@ -166,6 +205,45 @@ export function useRouteCollection(): RouteCollection {
       else next.delete(id);
       return next;
     });
+  }, []);
+
+  /** Take a row's card out of the corner now, and stop the clock it was on. */
+  const dismiss = useCallback((id: string) => {
+    const timer = noticeTimers.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      noticeTimers.current.delete(id);
+    }
+    setNotices((current) => withoutNotice(current, id));
+  }, []);
+
+  /**
+   * A finished press put in front of the reader, and given ten seconds.
+   *
+   * `collectNotice` decides whether there is anything to raise at all — a
+   * running pass and somebody else's pass both come back null — so this only
+   * has the timer to keep. The old timer goes first: a second press on the same
+   * row replaces its card, and a card that kept the first press's clock would
+   * vanish moments after the second one landed.
+   *
+   * The card is not the record. Whatever it says, the row's own line says too
+   * and goes on saying until the next press supersedes it, which is what makes
+   * a card safe to take away on a timer nobody asked for.
+   */
+  const announce = useCallback((route: FareRoute, response: CollectResponse) => {
+    const notice = collectNotice(route, response);
+    if (!notice) return;
+    const running = noticeTimers.current.get(notice.id);
+    if (running !== undefined) window.clearTimeout(running);
+    setNotices((current) => withNotice(current, notice));
+    noticeTimers.current.set(
+      notice.id,
+      window.setTimeout(() => {
+        noticeTimers.current.delete(notice.id);
+        if (!mounted.current) return;
+        setNotices((current) => withoutNotice(current, notice.id));
+      }, NOTICE_LIFE_MS),
+    );
   }, []);
 
   /**
@@ -232,9 +310,21 @@ export function useRouteCollection(): RouteCollection {
 
   useEffect(() => {
     mounted.current = true;
+    // The map itself, taken here rather than read again in the cleanup. The
+    // ref holds one `Map` for the life of the hook and is never reassigned —
+    // only its entries move — so the two readings are the same object, and
+    // taking it now is what tells the linter that as well as the reader.
+    const timers = noticeTimers.current;
     return () => {
       mounted.current = false;
       stopStream();
+      // The cards' clocks go the way the stream does, and for the same reason:
+      // a callback that fires into a tree which is no longer there is at best
+      // wasted work, and one left per press accumulates for as long as the tab
+      // is open. Cleared here rather than trusted to the `mounted` guard inside
+      // them, because a guard that returns early is still a timer that ran.
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      timers.clear();
     };
   }, [stopStream]);
 
@@ -259,13 +349,14 @@ export function useRouteCollection(): RouteCollection {
         }
         following.current.delete(id);
         write(id, describeCollection(route, response));
+        announce(route, response);
         release(id);
         ended = true;
       }
       if (ended) refreshArchive();
       if (following.current.size === 0) stopStream();
     },
-    [mark, refreshArchive, release, stopStream, write],
+    [announce, mark, refreshArchive, release, stopStream, write],
   );
 
   /**
@@ -320,12 +411,13 @@ export function useRouteCollection(): RouteCollection {
           continue;
         }
         write(id, describeCollection(route, latest));
+        announce(route, latest);
         release(id);
         refreshArchive();
         return;
       }
     },
-    [mark, refreshArchive, release, write],
+    [announce, mark, refreshArchive, release, write],
   );
 
   /**
@@ -395,28 +487,40 @@ export function useRouteCollection(): RouteCollection {
   const { mutate } = useMutation<CollectResponse, Error, FareRoute>({
     mutationFn: (route) =>
       collectFares(
-        [
-          {
-            origin: route.origin,
-            destination: route.destination,
-            month: route.month,
-            // A press buys up to thirty-one departures, and a pass can still
-            // truncate — not at forty any more (12.210 removed that), but at
-            // the request budget. Which of them survives that is the nearest
-            // departure and nothing else since 12.266 took the focus off this
-            // payload: nearest-first is 12.111 and it was always the rule the
-            // focus was jumping ahead of.
-            currency: route.currency,
-          },
-        ],
-        // And it buys all thirty-one rather than the handful whose turn has
+        // One entry per month the watch can still collect, ascending — the
+        // wire has always carried a list, so several months of one pair need
+        // no new shape. A press buys up to thirty-one departures *per month*,
+        // and a pass can still truncate — not at forty any more (12.210
+        // removed that), and no longer at a request budget either (that ceiling
+        // went), but at whatever bounds the pass. Which departures survive a
+        // truncation is nearest-first, 12.111, and nothing else since 12.266
+        // took the focus off this payload.
+        //
+        // Departed months are left out rather than sent and refused: a month
+        // wholly gone would buy thirty-one skip lines that push the reasons
+        // that matter out of the row's commonest-first summary.
+        //
+        // What is deliberately absent is the month the reader is looking at —
+        // `the-open-month-steers-nothing`. This payload is built from the
+        // document, so a press collects the same months whichever tab is open.
+        collectableMonthsOf(route, today).map((month) => ({
+          origin: route.origin,
+          destination: route.destination,
+          month,
+          currency: route.currency,
+        })),
+        // And it buys every one of them rather than the handful whose turn has
         // come — `a-press-collects-the-month-it-is-on`. A press at 21:04 after
         // a pass at 14:41 answered `31 not-due`, which is 12.111 working as
         // designed and is nevertheless the wrong answer to give somebody who
-        // has just said they do not believe the last look. The budget and the
-        // pass lock are untouched by it, so a spent day still comes back
-        // `over-budget` and a scheduled pass still comes back
-        // `another-pass-is-running` — both of which this row already renders.
+        // has just said they do not believe the last look. The pass lock is
+        // untouched by it, so a scheduled pass still comes back
+        // `another-pass-is-running`, which this row already renders.
+        //
+        // The endpoint bounds a forced press at **one city pair**, not one
+        // entry — it used to be one entry, which was the same thing only while
+        // a watch was one month. Every month of one route travels in one call;
+        // a second route does not.
         { force: true },
       ),
     // The press only starts the pass — 12.210 — so this is where the following
@@ -427,6 +531,7 @@ export function useRouteCollection(): RouteCollection {
       const id = routeId(route);
       if (data.state !== 'running') {
         write(id, describeCollection(route, data));
+        announce(route, data);
         release(id);
         refreshArchive();
         return;
@@ -457,7 +562,19 @@ export function useRouteCollection(): RouteCollection {
     [mutate, write],
   );
 
-  const forget = useCallback((id: string) => write(id, null), [write]);
+  /*
+   * The card goes with the report it repeats. A route id is content rather
+   * than a handle — the same pair in the same month rebuilds the same id — so
+   * a card left floating would land over a route that had just been added
+   * back, saying something about a press nobody there had made.
+   */
+  const forget = useCallback(
+    (id: string) => {
+      write(id, null);
+      dismiss(id);
+    },
+    [dismiss, write],
+  );
 
-  return { collecting, reports, progress, collect, forget };
+  return { collecting, reports, progress, notices, collect, forget };
 }

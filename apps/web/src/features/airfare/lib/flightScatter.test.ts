@@ -788,3 +788,29 @@ describe('the same arithmetic under a zoom', () => {
     expect(placed.x).toBeCloseTo(xOf(2 * DAY + 600, week, PLOT, view), 6);
   });
 });
+
+describe('an anchor whose period holds nothing', () => {
+  const keys = ['2027-03-01', '2027-03-02', '2027-05-01', '2027-05-02'];
+
+  it('lands on the nearest period forward rather than the earliest of all', () => {
+    /*
+     * The gap several watched months opened. Press the May tab, which anchors
+     * on the 1st, then press Day: if nothing was ever collected for 1 May the
+     * anchor resolves to no key, and falling straight back to `keys[0]` would
+     * put the reader in March — two months behind the control they just
+     * pressed.
+     *
+     * Forward rather than nearest-either-way, because an anchor is a request to
+     * be at or after a date and a reader who asked for May and got April has
+     * been sent backwards past dates they did not ask about.
+     */
+    expect(activeKey(keys, 'day', '2027-04-15')).toBe('2027-05-01');
+    expect(activeKey(keys, 'day', '2027-03-02')).toBe('2027-03-02');
+  });
+
+  it('still falls back to the earliest where the anchor is past everything', () => {
+    // The case the original fallback was written for: a reader switching to a
+    // route the anchor has no meaning for.
+    expect(activeKey(keys, 'day', '2027-09-01')).toBe('2027-03-01');
+  });
+});

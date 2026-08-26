@@ -14,7 +14,7 @@ afterEach(() => {
 const LIM_SCL: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  month: '2026-10',
+  months: ['2026-10'],
   currency: 'USD',
 };
 
@@ -115,7 +115,7 @@ describe('useFareRoutes storage sync', () => {
 
     await waitFor(() => expect(result.current.isFetching).toBe(false));
     expect(result.current.routes).toEqual([
-      { origin: 'LIM', destination: 'SCL', month: '2027-03', currency: 'USD' },
+      { origin: 'LIM', destination: 'SCL', months: ['2027-03'], currency: 'USD' },
     ]);
     expect(Object.keys(result.current.routes[0])).not.toContain('focusDate');
 
@@ -130,10 +130,13 @@ describe('useFareRoutes storage sync', () => {
     expect(stored).toEqual({
       origin: 'LIM',
       destination: 'SCL',
-      month: '2027-03',
+      months: ['2027-03'],
       currency: 'USD',
     });
     expect(Object.keys(stored)).not.toContain('focusDate');
+    // The same argument, one migration later: a dead key written back is a
+    // dead key read forever, and `month` is now one.
+    expect(Object.keys(stored)).not.toContain('month');
   });
 
   it('treats a missing document as an empty watchlist', async () => {

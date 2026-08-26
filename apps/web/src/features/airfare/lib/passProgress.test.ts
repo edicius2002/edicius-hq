@@ -7,7 +7,7 @@ import type { CollectResponse } from '@/shared/api/fares';
 const ROUTE: FareRoute = {
   origin: 'LIM',
   destination: 'SCL',
-  month: '2027-03',
+  months: ['2027-03'],
   currency: 'USD',
 };
 

@@ -52,8 +52,10 @@ the collector was down.
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from time import perf_counter
 from typing import Protocol
 
 import httpx
@@ -111,7 +113,34 @@ logger = logging.getLogger(__name__)
 # The saving grace is that it does not have to: the pace changes how tightly the
 # day's requests are packed and not how many there are. A watchlist that spent
 # 66 requests a day at six seconds spends the same 66 at three.
-REQUEST_GAP_SECONDS = 3.0
+DEFAULT_REQUEST_GAP_SECONDS = 3.0
+
+
+def _request_gap_seconds() -> float:
+    """
+    The paced gap, with an override for deliberately probing below the floor.
+
+    The default stays at the measured 3.0 and is what every unset environment
+    gets. `FARES_REQUEST_GAP_SECONDS` exists so that an experiment below the
+    measured floor lives in the thing that launches the collector rather than
+    in this file: unset the variable and the pace is the one 12.211 argued for,
+    with nothing to revert and nothing to remember.
+
+    Floored at 0.25s. Not because 0.25 is safe — nothing under 2.0 has ever
+    been observed — but because a zero or a negative here would remove the
+    pacing altogether by typo, and the one failure this whole module is built
+    to avoid is the one nobody meant to cause.
+    """
+    raw = os.getenv("FARES_REQUEST_GAP_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_REQUEST_GAP_SECONDS
+    try:
+        return max(0.25, float(raw))
+    except ValueError:
+        return DEFAULT_REQUEST_GAP_SECONDS
+
+
+REQUEST_GAP_SECONDS = _request_gap_seconds()
 
 # What a pass reports for everything it did not do because another pass was
 # already doing it. A word in `skipped`, beside `over-budget` and `not-due`,
@@ -120,6 +149,27 @@ REQUEST_GAP_SECONDS = 3.0
 # A cron firing while somebody presses Collect is not a fault and must not read
 # like one — see `PassLock`.
 ANOTHER_PASS = "another-pass-is-running"
+
+# What a *scheduled* pass reports for the departures it ran out of **window**
+# for, as distinct from budget.
+#
+# A word in `skipped` beside `over-budget` and `not-due`, and for the same
+# reason those are words: a pass that quietly stopped half way through is
+# indistinguishable from one that found nothing to do (8.8, 8.41).
+#
+# The window is the scheduler's own interval, and the hazard is specific. The
+# task is `MultipleInstances = IgnoreNew`, so an invocation that runs past
+# `SCHEDULER_INTERVAL_MINUTES` makes the next firing disappear — no error, no
+# log, and no missing data that looks unlike a quiet market. Truncating is how
+# a pass declines to cost the following one, and it keeps the near departures
+# because `collect_due` hands its queries over nearest-first: 12.111 arriving
+# by a third route, exactly as the budget truncation above already argues.
+#
+# **Only a scheduled pass carries a deadline**, and the asymmetry is the
+# decision. A browser press is not on a scheduler; its overrun costs a lock the
+# reader chose to hold, and truncating it would be answering "I do not believe
+# the last look" with "I looked at some of it".
+WINDOW_FULL = "pass-window-full"
 
 
 class PassObserver(Protocol):
@@ -290,6 +340,8 @@ async def collect(
     observer: PassObserver | None = None,
     budget: DailyBudget | None = None,
     lock: PassLock | None = None,
+    pass_id: str | None = None,
+    deadline_seconds: float | None = None,
 ) -> CollectionReport:
     """
     Fetch every query once and append what came back.
@@ -318,11 +370,24 @@ async def collect(
     one and deadlock against itself. Called with no budget — `--all` from the
     command line, a list somebody assembled — this *is* the top of a pass, so it
     takes the lock itself and declines to a report if another pass has it.
+
+    **`pass_id` is carried, never minted.** It names the pass in `fares/passes/`
+    and goes onto every spend line this loop writes, and the thing that knows
+    where a pass begins and ends is whatever started it — the command line, or a
+    runner behind the page. A loop that invented one would be claiming a pass
+    boundary it cannot see: a scheduled invocation runs this *and* the horizon,
+    and those are one pass. It is also why nothing in this module imports the
+    pass ledger. When a budget arrives from above it already carries the id and
+    the pace, and this parameter is for the caller that hands over queries
+    without one.
     """
     store = history if history is not None else HISTORY
     started_at = _now()
     results: list[RouteResult] = []
-    unaffordable: list[tuple[str, str]] = []
+    # What this pass wanted and did not send, with the reason. One list for both
+    # ways a loop can stop early — a spent day and a full window — because only
+    # one of them can happen and they are reported identically.
+    declined: list[tuple[str, str]] = []
 
     # See the docstring: a budget arriving from above brings the lock with it.
     holds_the_pass = budget is None
@@ -334,20 +399,37 @@ async def collect(
             [(f"{query.route} {query.flight_date}", ANOTHER_PASS) for query in queries],
             observer=observer,
         )
-    allowance = budget if budget is not None else daily_budget(lock=pass_lock)
+    allowance = (
+        budget
+        if budget is not None
+        else daily_budget(lock=pass_lock, gap=gap_seconds, pass_id=pass_id)
+    )
 
     owned = client is None
     session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
+    began = perf_counter()
     try:
         for index, query in enumerate(queries):
+            # Beside the budget check and shaped like it, because they are the
+            # same kind of stop: wanted, and refused before it was sent.
+            if deadline_seconds is not None and perf_counter() - began >= deadline_seconds:
+                declined = [
+                    (f"{later.route} {later.flight_date}", WINDOW_FULL) for later in queries[index:]
+                ]
+                logger.warning(
+                    "fare collection stopped on the scheduler's window: %d of %d departure(s) left",
+                    len(declined),
+                    len(queries),
+                )
+                break
             if not allowance.affords():
-                unaffordable = [
+                declined = [
                     (f"{later.route} {later.flight_date}", "over-budget")
                     for later in queries[index:]
                 ]
                 logger.warning(
                     "fare collection stopped on the day's budget: %d of %d departure(s) left",
-                    len(unaffordable),
+                    len(declined),
                     len(queries),
                 )
                 break
@@ -372,7 +454,7 @@ async def collect(
         finished_at=_now(),
         source=provider,
         results=results,
-        skipped=unaffordable,
+        skipped=declined,
     )
     logger.info(
         "fare collection finished: %d looked at, %d changed, %d failed",
@@ -429,6 +511,8 @@ async def collect_due(
     ledger: RequestLedger | None = None,
     lock: PassLock | None = None,
     force: bool = False,
+    pass_id: str | None = None,
+    deadline_seconds: float | None = None,
 ) -> CollectionReport:
     """
     One pass over only the departures that are actually due.
@@ -535,6 +619,12 @@ async def collect_due(
             ledger=ledger,
             now=moment,
             lock=pass_lock,
+            # What the pass is about to spend at, and which pass is spending —
+            # both onto every line the day's ledger records below, so the pace
+            # of a request stops being something reconstructed from the gaps
+            # between timestamps.
+            gap=gap_seconds,
+            pass_id=pass_id,
         )
 
         plan = due_now(
@@ -565,6 +655,9 @@ async def collect_due(
             # Handing the allowance over is also what tells `collect` the lock is
             # already held, so it does not take a second one against itself.
             budget=allowance,
+            # `None` for everything except the scheduled command — see
+            # `WINDOW_FULL`. A press is not on a scheduler and is not truncated.
+            deadline_seconds=deadline_seconds,
         )
     finally:
         pass_lock.release()
@@ -747,6 +840,8 @@ async def collect_calendars(
     budget: int | None = None,
     ledger: RequestLedger | None = None,
     lock: PassLock | None = None,
+    force: bool = False,
+    pass_id: str | None = None,
 ) -> CalendarReport:
     """
     One cheapest fare per departure date, out to the horizon, per city pair.
@@ -794,6 +889,32 @@ async def collect_calendars(
 
     A pass declined here reports every pair as `another-pass-is-running`, the
     same word the boards use for every departure.
+
+    **`force` is the reader saying they do not believe the curve on disk**, and
+    it is the calendar's half of `a-press-collects-the-month-it-is-on` (12.212).
+    It moves exactly one branch below: the pair that would have been `not-due`
+    is collected instead. It moves nothing else, and the two things it
+    deliberately does not touch are the same two the boards' `force` leaves
+    alone. The lock is still taken first, so a forced press that meets a
+    scheduled pass reports `another-pass-is-running` — being second is not an
+    error and a press cannot make it one. And the day's allowance is still
+    allotted after this, so a forced pair that cannot afford its own windows
+    still comes back `over-budget` by name: the cadence is a judgement about
+    pace that a reader may overrule, while the ledger is a bound on what this
+    address sends that nobody may.
+
+    **It is refused for more than one city pair, and that is the bound the whole
+    decision turns on.** 12.212 costed a press generously because it assumed a
+    pass over the whole watchlist; what made forcing acceptable was that a press
+    can only ever name one row. The boards enforce that in the router because
+    their body carries a list; this endpoint's body carries one origin and one
+    destination, so a press is one pair by the shape of the request and there is
+    nothing there to check. The place the bound can actually be crossed is
+    *here* — the scheduled pass hands this function the whole watchlist, and a
+    `force` riding along with it would poll every pair the cadence had declined
+    at a measured 2.43 requests each. So the refusal lives where the crossing
+    would happen, which makes the bound the collector's rather than a habit of
+    whoever calls it.
     """
     store = calendar if calendar is not None else CALENDAR
     moment = now if now is not None else datetime.now(UTC)
@@ -805,6 +926,15 @@ async def collect_calendars(
     pairs: dict[tuple[str, str], str] = {}
     for watch in watched:
         pairs.setdefault((watch.origin, watch.destination), watch.currency)
+
+    # Before the lock rather than after it, so a call that was never allowed is
+    # refused without first closing the slot against a pass that is entitled to
+    # it. This is a programming error and not a caller's mistake — no HTTP body
+    # can reach it with more than one pair — so it raises rather than travelling
+    # back as a skipped reason: a `ValueError` names the line that did it, while
+    # a report of twelve `forced` pairs would look exactly like a pass working.
+    if force and len(pairs) > 1:
+        raise ValueError(f"A forced collection covers one city pair; {len(pairs)} were handed over")
 
     pass_lock = lock if lock is not None else PassLock(name=CALENDAR_LOCK_NAME)
     if not pass_lock.acquire():
@@ -827,6 +957,12 @@ async def collect_calendars(
         ledger=ledger,
         now=moment,
         lock=pass_lock,
+        # A scheduled invocation runs the boards and then this, and hands both
+        # the same `pass_id` — because what has to fit inside the scheduler's
+        # fifteen-minute interval is the invocation rather than either loop, so
+        # the two are one pass and the day's ledger has to say so.
+        gap=gap_seconds,
+        pass_id=pass_id,
     )
 
     windows = calendar_windows(moment)
@@ -853,7 +989,15 @@ async def collect_calendars(
         due: list[tuple[tuple[str, str], str]] = []
         allotted = 0
         for pair, currency in pairs.items():
-            if not store.due(pair[0], pair[1], moment, every_minutes=every_minutes):
+            # `force` short-circuits the store's answer and nothing else. Read
+            # here rather than by handing `every_minutes=0` down to `due`, which
+            # would reach the same collection by a different claim: zero is a
+            # cadence, and a pass that says its cadence is zero minutes is
+            # saying something about policy where the truth is that one reader
+            # overruled it once. The endpoint's other exception genuinely *is* a
+            # cadence — a pair with no curve has nothing to protect — and the
+            # two stay apart so a log can tell them apart.
+            if not force and not store.due(pair[0], pair[1], moment, every_minutes=every_minutes):
                 skipped.append((f"{pair[0]}-{pair[1]}", "not-due"))
             elif not allowance.affords(allotted + len(windows)):
                 skipped.append((f"{pair[0]}-{pair[1]}", "over-budget"))

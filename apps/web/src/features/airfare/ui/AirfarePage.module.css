@@ -32,13 +32,20 @@
    * month painted over the collect control is the same bug arriving in a
    * different panel.
    *
-   * The `22rem` floor is 21.68rem rounded up, so it too is a width every row
-   * survives. It does not bind in practice — the `1fr` beside it has a
-   * minimum of zero, so this track takes its maximum at every width down to
+   * The `22.1rem` floor is the measured row rounded up, so it too is a width
+   * every row survives. It does not bind in practice — the `1fr` beside it has
+   * a minimum of zero, so this track takes its maximum at every width down to
    * the 1080px where the page stacks — and it is set to the measured number
    * anyway, because a floor that would truncate is worse than no floor at all.
+   *
+   * **It moved from 22rem, and the 2px are the fourth month tab.** A row now
+   * draws every watched month rather than three and a counter, four to a line,
+   * and four three-letter tabs are 136.04px against the 135.08 a 22rem panel
+   * leaves between the city pair and the collect control. Everything else in
+   * this block still holds — see `routesScroll.test`, which does the arithmetic
+   * against the stylesheets rather than trusting this prose.
    */
-  grid-template-columns: minmax(0, 1fr) minmax(22rem, 23rem);
+  grid-template-columns: minmax(0, 1fr) minmax(22.1rem, 23rem);
   gap: var(--space-5);
   /*
    * Deliberately *not* `align-items: start`. The map and the watchlist are the

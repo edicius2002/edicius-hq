@@ -38,6 +38,7 @@ Nothing here touches the network. Every upstream answer is a fixture behind an
 `httpx.MockTransport`, and every store and ledger writes into `tmp_path`.
 """
 
+import argparse
 import asyncio
 import importlib.util
 import json
@@ -53,7 +54,8 @@ import httpx
 import pytest
 
 from app.adapters.fares.models import FareQuery
-from app.config import SPEND_RETENTION_DAYS
+from app.config import SCHEDULER_INTERVAL_MINUTES, SPEND_RETENTION_DAYS
+from app.services import fare_collector
 from app.services.fare_budget import (
     CALENDAR_LOCK_NAME,
     LOCK_STALE_SECONDS,
@@ -62,8 +64,16 @@ from app.services.fare_budget import (
     daily_budget,
 )
 from app.services.fare_calendar import FareCalendar
-from app.services.fare_collector import FareWatch, collect, collect_calendars, collect_due
+from app.services.fare_collector import (
+    WINDOW_FULL,
+    CollectionReport,
+    FareWatch,
+    collect,
+    collect_calendars,
+    collect_due,
+)
 from app.services.fare_history import FareHistory
+from app.services.fare_passes import PassRecorder
 from app.services.fare_schedule import month_dates
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -151,6 +161,103 @@ def test_a_request_is_recorded_with_what_it_was_spent_on(tmp_path):
     assert [row["kind"] for row in rows] == ["board", "calendar"]
     assert rows[0]["what"] == "LIM-SCL 2026-10-01"
     assert ledger.spent(day) == 2
+
+
+def test_a_request_records_the_pace_it_was_sent_at_and_the_pass_that_sent_it(tmp_path):
+    """
+    The gap was nowhere on disk, so it was reconstructed and called evidence.
+
+    Separating a 1.75-second population of requests from a 3.0-second one meant
+    taking the modal delta between consecutive `at` values, which is inference
+    about a number the process knew exactly at the time. Written on the line, it
+    is a read. `passId` is beside it because the other half of the question —
+    which pass sent this — was answered the same way, by grouping timestamps.
+
+    End to end through `collect` rather than by calling `spend` directly: the
+    point is that the pace reaching the line is the pace the loop actually slept
+    for, and a test that handed the number to the writer itself would prove
+    nothing about the wiring in between.
+    """
+    ledger = RequestLedger(tmp_path / "spend")
+    page = read_fixture(BOARD)
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+            return await collect(
+                board_queries()[:1],
+                history=FareHistory(tmp_path / "history"),
+                client=client,
+                gap_seconds=1.75,
+                budget=daily_budget(
+                    ceiling=None,
+                    ledger=ledger,
+                    now=NOW,
+                    gap=1.75,
+                    pass_id="0123456789ab",
+                ),
+            )
+
+    asyncio.run(run())
+
+    rows = [
+        json.loads(line)
+        for line in ledger.path_for(TODAY).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [(row["gap"], row["passId"]) for row in rows] == [(1.75, "0123456789ab")]
+
+
+def test_a_line_written_without_a_pass_says_so_by_leaving_the_fields_out(tmp_path):
+    """
+    An unknown gap is an absent field, not a null and not a zero.
+
+    952 lines were written before either field existed, and they are requests
+    whose pace is genuinely unrecoverable. `null` would be a claim about a gap
+    of nothing and `0` a claim about no pacing at all; leaving the key out is
+    what an old line already looks like, so a reader has exactly one shape to
+    handle rather than two.
+    """
+    ledger = RequestLedger(tmp_path)
+    day = date(2026, 8, 21)
+    ledger.spend(day, kind="board", what="LIM-SCL 2026-10-01")
+
+    [row] = [
+        json.loads(line)
+        for line in ledger.path_for(day).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert row == {"at": row["at"], "kind": "board", "what": "LIM-SCL 2026-10-01"}
+
+
+def test_a_day_file_written_before_the_pace_existed_still_counts(tmp_path):
+    """
+    **The 952 lines already on disk, and the two readers that must not break.**
+
+    `spent` counts lines and never parses them, which is why an old line costs
+    nothing here — but that is a property worth pinning rather than assuming,
+    because it is what `DailyBudget` builds the day's total from and what the
+    page in the browser is shown. A file with both shapes in it is the real
+    case: the day the field arrives has old lines above it and new ones below.
+    """
+    ledger = RequestLedger(tmp_path)
+    day = date(2026, 8, 21)
+    path = ledger.path_for(day)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"at": "2026-08-21T09:00:00+00:00", "kind": "board", "what": "LIM-SCL 2026-10-01"}
+        )
+        + "\n"
+        + json.dumps({"at": "2026-08-21T09:00:03+00:00", "kind": "calendar", "what": "LIM-CUZ"})
+        + "\n",
+        encoding="utf-8",
+    )
+    ledger.spend(day, kind="board", what="LIM-SCL 2026-10-02", gap=1.75, pass_id="0123456789ab")
+
+    assert ledger.spent(day) == 3
+    allowance = daily_budget(ceiling=600, ledger=ledger, now=datetime(2026, 8, 21, tzinfo=UTC))
+    assert allowance.spent() == 3
+    assert allowance.remaining() == 597
 
 
 def test_a_ledger_that_cannot_be_read_is_a_day_that_is_gone(tmp_path):
@@ -1248,6 +1355,188 @@ def test_a_stored_route_still_naming_a_focus_becomes_a_watch(tmp_path):
     assert not hasattr(watches[0], "focus")
 
 
+def coming_months(count: int) -> list[str]:
+    """
+    The next `count` months after this one, `YYYY-MM`.
+
+    Derived rather than written down. The fixtures around this one name a month
+    in 2026 and will start reading as departed once the calendar passes it — a
+    test that expires quietly is the same class of fault as a scheduled task
+    that stops quietly, which is what this group of tests exists to catch.
+    """
+    today = datetime.now(UTC).date()
+    months = []
+    year, month = today.year, today.month
+    for _ in range(count):
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+        months.append(f"{year}-{month:02d}")
+    return months
+
+
+def test_a_watchlist_written_either_way_becomes_the_same_watches():
+    """
+    The coexistence pin, and the reason this file may read three shapes forever.
+
+    The browser is the only writer of this document and it rewrites lazily —
+    the normalizer takes no clock and edits nothing on load (12.133) — so an
+    entry keeps the shape it was last saved in until the reader next touches
+    that route. There is no upgrade step that will end it and no deadline to
+    set, so the two shapes have to mean exactly the same thing rather than
+    nearly.
+
+    `FareWatch` is a frozen slots dataclass, so equality is structural and the
+    whole claim is one assertion.
+    """
+    script = load_collect_script()
+    first, second = coming_months(2)
+
+    legacy, legacy_dropped = script.to_watches(
+        [
+            {"origin": "AEP", "destination": "SCL", "month": first, "currency": "USD"},
+            {"origin": "AEP", "destination": "SCL", "month": second, "currency": "USD"},
+        ]
+    )
+    plural, plural_dropped = script.to_watches(
+        [{"origin": "AEP", "destination": "SCL", "months": [first, second], "currency": "USD"}]
+    )
+
+    assert legacy == plural
+    assert legacy_dropped == plural_dropped == []
+
+
+def test_one_unreadable_month_drops_that_month_and_keeps_the_others():
+    """
+    The regression that costs a watchlist if the granularity is got wrong.
+
+    The unit of judgement is the month, not the entry. A route naming twelve
+    months with a typo in one must keep the other eleven: dropping the entry
+    would take eleven watches away for one bad chip, and the reader would see a
+    route stop collecting with nothing on screen saying which month did it.
+    """
+    script = load_collect_script()
+    first, second = coming_months(2)
+
+    watches, dropped = script.to_watches(
+        [
+            {
+                "origin": "AEP",
+                "destination": "SCL",
+                "months": [first, "soon", second],
+                "currency": "USD",
+            }
+        ]
+    )
+
+    assert [watch.month for watch in watches] == [first, second]
+    assert dropped == ["AEP-SCL soon: unreadable month"]
+
+
+def test_a_departed_month_beside_a_future_one_drops_only_the_departed_one():
+    """
+    A stale chip in the strip does not take the live ones with it.
+
+    The route is still worth collecting and says so; the month that has gone is
+    named in `dropped` rather than passed over in silence.
+    """
+    script = load_collect_script()
+    (soon,) = coming_months(1)
+
+    watches, dropped = script.to_watches(
+        [{"origin": "AEP", "destination": "SCL", "months": ["2020-01", soon], "currency": "USD"}]
+    )
+
+    assert [watch.month for watch in watches] == [soon]
+    assert dropped == ["AEP-SCL 2020-01: the month is over"]
+
+
+def test_the_same_month_from_both_shapes_is_watched_once():
+    """
+    Both shapes can be in one document at once, because the browser rewrites one
+    entry at a time. A month arriving from a legacy entry and a plural one is
+    one watch, not two: `expand` would collapse the queries anyway, and what
+    this protects is the per-watch cost lines the report prints above them.
+    """
+    script = load_collect_script()
+    first, second = coming_months(2)
+
+    watches, dropped = script.to_watches(
+        [
+            {"origin": "AEP", "destination": "SCL", "month": first, "currency": "USD"},
+            {"origin": "AEP", "destination": "SCL", "months": [first, second], "currency": "USD"},
+        ]
+    )
+
+    assert [watch.month for watch in watches] == [first, second]
+    assert dropped == []
+
+
+def test_an_entry_naming_no_month_at_all_is_named_rather_than_ignored():
+    """A route nobody can read a month out of is reported, not silently gone."""
+    script = load_collect_script()
+
+    watches, dropped = script.to_watches([{"origin": "AEP", "destination": "SCL"}])
+
+    assert watches == []
+    assert dropped == ["AEP-SCL: no departure month"]
+
+
+@pytest.mark.skipif(
+    not (REPO_ROOT / "scripts" / "fares-collect.py").exists(),
+    reason="the collector script is not in this checkout",
+)
+def test_the_scheduled_command_runs_a_whole_dry_pass_over_a_route_with_two_months(tmp_path):
+    """
+    The gate that makes the plural shape impossible to break silently.
+
+    Sibling of the test below, and it exists because the failure it guards
+    against is invisible from every other direction. Read by the old singular
+    `route.get("month")`, a `months` array is a truthy list whose `str()` is
+    `"['2027-03', '2027-04']"` — `month_dates` refuses it, so every route would
+    be dropped as an unreadable month and the whole watchlist would stop
+    collecting with a clean exit code, every fifteen minutes, saying nothing.
+    That is exactly how this file broke on `focusDate`, for days.
+
+    So it runs the real file, in a subprocess, over the real shape, the way the
+    scheduled task runs it.
+    """
+    first, second = coming_months(2)
+    data = tmp_path / "local-data"
+    (data / "kv").mkdir(parents=True)
+    (data / "kv" / "airfare-routes.json").write_text(
+        json.dumps(
+            {
+                "routes": [
+                    {
+                        "origin": "AQP",
+                        "destination": "LIM",
+                        "months": [first, second],
+                        "currency": "USD",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    finished = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py"), "--dry-run"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "LOCAL_DATA_DIR": str(data)},
+        cwd=str(REPO_ROOT / "services" / "api"),
+        timeout=120,
+    )
+
+    assert finished.returncode == 0, finished.stderr
+    # One route, two watchable — the header counts pairs and months, and reading
+    # correctly for both is the whole point of the sentence.
+    assert "1 route(s), 2 watchable, 0 dropped" in finished.stdout
+    assert f"departs in {first}" in finished.stdout
+    assert f"departs in {second}" in finished.stdout
+    assert "dry run; nothing was fetched" in finished.stdout
+    assert not (data / "fares" / "spend").exists()
+
+
 @pytest.mark.skipif(
     not (REPO_ROOT / "scripts" / "fares-collect.py").exists(),
     reason="the collector script is not in this checkout",
@@ -1301,3 +1590,172 @@ def test_the_scheduled_command_runs_a_whole_dry_pass(tmp_path):
     assert "0 request(s) already spent" in finished.stdout
     # Reaching nothing means writing nothing, the ledger included.
     assert not (data / "fares" / "spend").exists()
+
+
+# --------------------------------------------- the scheduler's own window ----
+
+
+def test_a_pass_that_runs_out_of_window_keeps_the_near_departures_and_says_so(
+    tmp_path, monkeypatch
+):
+    """
+    The stop that protects the *next* firing, shaped like the one that protects
+    the day.
+
+    The scheduled task is `MultipleInstances = IgnoreNew`, so an invocation
+    running past `SCHEDULER_INTERVAL_MINUTES` makes the following one disappear
+    with no error and no log — the failure `fares/passes/` exists to make
+    visible. A pass that stops at the line and names the rest costs one firing
+    nothing; a pass that runs on costs the next one entirely.
+
+    Two things are asserted and the second is the one worth having. It keeps the
+    **near** departures, because `collect` is handed its queries nearest-first
+    and stopping part way is 12.111 arriving by a third route — the same
+    property the budget truncation above relies on. And what it did not send is
+    named rather than silently absent: `pass-window-full` beside `over-budget`
+    and `not-due`, because a pass that quietly stopped half way is
+    indistinguishable from one that found nothing to do (8.8, 8.41).
+
+    The clock is faked rather than slept through. `perf_counter` is called once
+    before the loop and once per departure, so a counter advancing a second a
+    call puts elapsed time at `index + 1` — a deadline of 2 lets the first
+    through and stops the second, deterministically and in no time at all.
+    """
+    history = FareHistory(tmp_path / "fares")
+    page = read_fixture(BOARD)
+    sent: list[str] = []
+
+    ticks = iter(range(1000))
+    monkeypatch.setattr(fare_collector, "perf_counter", lambda: float(next(ticks)))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, text=page)
+
+    async def run():
+        async with transport(handler) as client:
+            return await collect(
+                board_queries()[:5],
+                history=history,
+                client=client,
+                gap_seconds=0,
+                budget=daily_budget(ceiling=None, ledger=RequestLedger(tmp_path / "spend")),
+                deadline_seconds=2,
+            )
+
+    report = asyncio.run(run())
+
+    assert [result.flight_date for result in report.results] == ["2026-10-01"]
+    assert report.skipped == [
+        ("LIM-SCL 2026-10-02", WINDOW_FULL),
+        ("LIM-SCL 2026-10-03", WINDOW_FULL),
+        ("LIM-SCL 2026-10-04", WINDOW_FULL),
+        ("LIM-SCL 2026-10-05", WINDOW_FULL),
+    ]
+    # And the ones it declined never left the transport, which is the whole
+    # point: a window it reported running out of and then ran past anyway would
+    # be worse than no window at all.
+    assert len(sent) == 1
+
+
+def test_a_pass_with_no_deadline_runs_to_the_end_of_its_list(tmp_path, monkeypatch):
+    """
+    The asymmetry, asserted rather than assumed.
+
+    Only a scheduled pass carries a deadline. A browser press is not on a
+    scheduler — its overrun costs a lock the reader chose to hold — and
+    truncating it would be answering "I do not believe the last look" with "I
+    looked at some of it". Same faked clock, running far past the same line.
+    """
+    history = FareHistory(tmp_path / "fares")
+    page = read_fixture(BOARD)
+
+    ticks = iter(range(1000))
+    monkeypatch.setattr(fare_collector, "perf_counter", lambda: float(next(ticks)))
+
+    async def run():
+        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+            return await collect(
+                board_queries()[:5],
+                history=history,
+                client=client,
+                gap_seconds=0,
+                budget=daily_budget(ceiling=None, ledger=RequestLedger(tmp_path / "spend")),
+            )
+
+    report = asyncio.run(run())
+    assert len(report.results) == 5
+    assert report.skipped == []
+
+
+def test_a_window_full_departure_is_counted_as_due_rather_than_as_quiet(tmp_path):
+    """
+    `due` counts what a pass *wanted*, so the ledger cannot make an overrunning
+    pass look like a quiet one.
+
+    `over-budget` was the only skip of that kind; `pass-window-full` is the
+    second, and it is the same fact about a different ceiling. If it counted as
+    not-due, the one line that would have shown the overrun would report a pass
+    with nothing to do.
+    """
+    recorder = PassRecorder(source="cron", kind="board+calendar", gap=3.0)
+    recorder.tally.boards(
+        CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[],
+            skipped=[("LIM-SCL 2026-10-02", WINDOW_FULL), ("LIM-SCL 2026-10-03", "not-due")],
+        )
+    )
+
+    assert recorder.tally.due == 1
+    assert recorder.tally.sent == 0
+    assert recorder.tally.skipped[WINDOW_FULL] == 1
+
+
+def test_the_scheduled_command_is_given_the_window_it_has_to_fit_inside(tmp_path, monkeypatch):
+    """
+    The plumbing, at the one call site that carries a deadline.
+
+    Asserted through the loaded script rather than by reading it, because the
+    thing that goes wrong here is an argument that stops being passed — which is
+    exactly how this file broke on `focusDate`, and is invisible to every check
+    that does not run it.
+    """
+    script = load_collect_script()
+    seen: dict[str, object] = {}
+
+    async def fake_collect_due(watches, **kwargs):
+        seen.update(kwargs)
+        seen["watched"] = watches
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[],
+            skipped=[],
+        )
+
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(
+        script,
+        "collect_calendars",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("no calendar in this test")),
+    )
+    monkeypatch.setattr(script, "load_routes", lambda: [])
+
+    (soon,) = coming_months(1)
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=None, no_calendar=True)
+    recorder = PassRecorder(source="cron", kind="board", gap=3.0)
+    script._pass(args, recorder)
+
+    # It is the scheduler's own interval, and the boards get all of it here
+    # because `--no-calendar` means there is no horizon share to subtract.
+    assert seen["deadline_seconds"] == SCHEDULER_INTERVAL_MINUTES * 60

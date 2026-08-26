@@ -238,8 +238,12 @@ type DepartureChartProps = {
   snapshots: FareSnapshot[];
   /** The booking horizon as last collected, or null where there is none yet. */
   curve: CalendarCurve | null;
-  /** The departure dates the boards cover — the watched month, or one day of it. */
-  watched: WatchedRange | null;
+  /**
+   * The departure dates the boards cover: one range per watched month.
+   *
+   * Empty where nothing is watched, which hands the whole frame to the curve.
+   */
+  watched: readonly WatchedRange[];
   granularity: Granularity;
   currency: string;
   /** The period on screen, resolved by the panel that owns the anchor — 12.170. */
@@ -327,7 +331,7 @@ function searchFor(point: ScatterPoint, leg: Leg | null): FlightSearch | null {
 
 /**
  * What each departure date costs, drawn from whichever archive can answer for
- * it — one dot per itinerary inside the watched month, one span per date
+ * it — one dot per itinerary inside a watched month, one span per date
  * outside it.
  *
  * **The source is chosen by the date and not by a control.** This chart and the
@@ -335,7 +339,7 @@ function searchFor(point: ScatterPoint, leg: Leg | null): FlightSearch | null {
  * which meant the reader had to know which archive held which dates before they
  * could pick the right end. They do not: what they know is the departure date
  * they are looking at. So the zoom is gone and the frame asks the question per
- * day — inside the watched month the boards answer, outside it the calendar
+ * day — inside a watched month the boards answer, outside them all the calendar
  * curve does, and a week straddling the boundary is answered by both in one
  * frame.
  *
@@ -350,9 +354,10 @@ function searchFor(point: ScatterPoint, leg: Leg | null): FlightSearch | null {
  *
  * **Day never reaches the curve.** Its periods are the departure dates the
  * boards hold, so there is no way to arrive at a 24-hour clock carrying a
- * single timeless number. Month cannot mix either — a calendar month is the
- * watched one or it is not. Week is the only view where both resolutions are on
- * screen at once, which is why the seam is built for it.
+ * single timeless number. Month cannot mix either — a calendar month is watched
+ * or it is not, which stays true however many months a watch holds. Week is the
+ * only view where both resolutions are on screen at once, which is why the seam
+ * is built for it.
  *
  * SVG in the DOM rather than a canvas — 12.12. Every itinerary stays a node a
  * test can find and a screen reader can reach.
@@ -506,7 +511,7 @@ export function DepartureChart({
    * The boards, filtered to the dates the boards may speak for.
    *
    * `flightPoints` places every offer whose departure falls inside the window,
-   * and the window now runs past the end of the watched month. The archive is
+   * and the window now runs past the edge of a watched month. The archive is
    * narrowed to the watched reading before it reaches this component, so in
    * practice nothing outside it arrives — but a board dot on a date the curve
    * also answers for would be two archives contradicting each other in one
@@ -591,7 +596,7 @@ export function DepartureChart({
   }, [marks, shownDays]);
 
   /*
-   * A departure date inside the *watched month* with no flight on it — 12.232.
+   * A departure date inside a *watched month* with no flight on it — 12.232.
    * Outside it there is nothing for this mark to mean: the boards were never
    * asked about those dates and the curve's own two absences are on its marks.
    */
@@ -790,7 +795,7 @@ export function DepartureChart({
     return (
       <p className={styles.empty}>
         Nothing collected for this route yet. The first collection pass fills this frame — one dot
-        per itinerary in the watched month, and one price a date beyond it.
+        per itinerary in the months this route is watched on, and one price a date beyond them.
       </p>
     );
   }
@@ -1492,10 +1497,21 @@ export function DepartureChart({
           where the axis stops being a clock. It runs from the top of the plot
           past the date labels and stops above the source rail — a statement
           about the whole column either side of it, but not one that is allowed
-          to rule through the words naming the two sides. Where a watched range
-          is narrower than the frame the two seams stand a single date apart,
-          and taken to the rail they crossed `flights, by hour` twice — found
-          on a focused watch, before 12.260 stopped one being possible.
+          to rule through the words naming the two sides.
+
+          A frame is one day, one ISO week or one calendar month, so it spans at
+          most two calendar months and carries at most one seam — and the seam
+          now runs both ways. Stepping off the end of a watched month it is
+          boards then curve; stepping into the start of one, which several
+          watched months make ordinary rather than rare, it is curve then
+          boards.
+
+          Where a watched range is narrower than a calendar month the two seams
+          stand a single date apart, and taken to the rail they crossed
+          `flights, by hour` twice — found on a focused watch, before 12.260
+          stopped one being possible. No caller builds that range now and this
+          still stops above the rail, because the reason is about columns and
+          words rather than about who is calling.
         */}
           {seams.map((offset) => (
             <line
@@ -1556,7 +1572,7 @@ export function DepartureChart({
         */}
         <g clipPath={`url(#${clip})`}>
           {/*
-          A departure date inside the watched month with no flight on it, and
+          A departure date inside a watched month with no flight on it, and
           which kind of nothing it is — 12.232. Under the plot floor, because a
           mark inside the plot at any height reads as a fare.
         */}
@@ -2084,7 +2100,7 @@ export function DepartureChart({
         held open by `visibility`, exactly as the chart's own name is — 12.246.
         These sentences are different lengths and wrap to different numbers of
         lines, so a box sized to whichever is showing would push the flight
-        table down the page as the reader stepped out of the watched month. The
+        table down the page as the reader stepped out of a watched month. The
         stack makes the box as tall as the tallest of them by construction,
         which a `min-height` in ems could only approximate.
       */}
@@ -2299,7 +2315,7 @@ function accessibleTail(
   const range =
     prices.length === 0
       ? ''
-      : ` The dates beyond the watched month run ${formatMoney(Math.min(...prices), currency)} to ${formatMoney(Math.max(...prices), currency)}.`;
+      : ` The dates the booking horizon answers for run ${formatMoney(Math.min(...prices), currency)} to ${formatMoney(Math.max(...prices), currency)}.`;
   /*
    * The two figures the axis prints, in words — because the axis prints them at
    * two heights and a height is exactly what this reader does not have. Said
@@ -2321,7 +2337,7 @@ function accessibleTail(
  * them is the true one.
  *
  * **All of them rather than the live one**, because the box holding them must
- * not change height as the reader steps across the end of the watched month —
+ * not change height as the reader steps across the edge of a watched month —
  * they are rendered stacked, and only a set can size a box to its tallest
  * member. Which is live is an index into the same list, so the two cannot
  * disagree.
@@ -2367,13 +2383,13 @@ function horizonNote(
     carried.length === 0 || oldest === null
       ? ''
       : ` ${carried.length} of them ${carried.length === 1 ? 'was' : 'were'} carried over from earlier collections, the oldest from ${collectedAtLabel(oldest)}, and ${carried.length === 1 ? 'is' : 'are'} drawn faint.`;
-  const inside = 'Every date here is inside the watched month.';
+  const inside = 'Every date here is inside a watched month.';
   const failed = `The booking horizon could not be read: ${error?.message ?? 'no reason given'}. That is a fault at our end and says nothing about what these dates cost.`;
   const pending = 'Reading the booking horizon…';
   const uncollected =
-    'The booking horizon has not been collected for this route yet, so the dates outside the watched month are blank. Adding a route now collects its horizon; a route added before that does it needs one collection pass.';
+    'The booking horizon has not been collected for this route yet, so the dates outside every watched month are blank. Adding a route now collects its horizon; a route added before that does it needs one collection pass.';
   const empty = 'Nothing in this frame carried a price.';
-  const collected = `Dates outside the watched month come from the booking horizon, last collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.${inherited}`;
+  const collected = `Dates no watched month covers come from the booking horizon, last collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.${inherited}`;
 
   const said = [inside, failed, pending, uncollected, empty, collected];
   if (!needsCurve) return { said, live: 0 };

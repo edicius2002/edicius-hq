@@ -1,3 +1,4 @@
+import { monthOf } from '@/features/airfare/data/fareRoutes';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
 /**
@@ -52,6 +53,37 @@ export type AirlineSummary = {
  */
 export function snapshotsFor(snapshots: FareSnapshot[], month: string): FareSnapshot[] {
   return snapshots.filter((snapshot) => snapshot.flightDate.startsWith(month));
+}
+
+/**
+ * The snapshots that belong to a whole watch — every month of it.
+ *
+ * What chart B draws, where `snapshotsFor` above is what chart A draws. The two
+ * are deliberately separate functions rather than one that takes a list,
+ * because they answer different questions: this is set membership on whole
+ * months, while `snapshotsFor` is a *prefix* match that also accepts a single
+ * `YYYY-MM-DD` day. Collapsing them would make one function mean two things and
+ * would quietly change what the day-prefix caller gets.
+ *
+ * **It narrows to the watch, not to the archive**, and that distinction is the
+ * whole reason this exists rather than the caller simply passing the unfiltered
+ * response. `GET /api/fares/history` answers with every departure the city pair
+ * has ever collected — months dropped from the watch, months never watched —
+ * and handing those to the frame would put a board dot on a date `frameDays`
+ * has already decided the curve answers for. Two archives contradicting each
+ * other in one column is the thing that side refuses.
+ *
+ * A `Set` and `monthOf` rather than `months.some(m => flightDate.startsWith(m))`:
+ * the archive runs to hundreds of snapshots against at most twelve months, and
+ * `monthOf` is where "the month a date falls in, without a `Date`" already
+ * lives.
+ */
+export function snapshotsForMonths(
+  snapshots: FareSnapshot[],
+  months: readonly string[],
+): FareSnapshot[] {
+  const watched = new Set(months);
+  return snapshots.filter((snapshot) => watched.has(monthOf(snapshot.flightDate)));
 }
 
 export function cheapestOffer(snapshot: FareSnapshot): FareOffer | null {

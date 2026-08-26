@@ -1,5 +1,6 @@
 import {
   addRoute,
+  editRoute,
   EMPTY_FARE_ROUTES,
   FARE_ROUTES_KEY,
   normalizeFareRoutes,
@@ -44,9 +45,15 @@ export function useFareRoutes() {
     add: (route: FareRoute) => store.edit((current) => addRoute(current, route)),
     remove: (id: string) => store.edit((current) => removeRoute(current, id)),
     move: (from: string, to: string) => store.edit((current) => reorderRoutes(current, from, to)),
-    // `focus` was the fourth transition here and went with the focus itself —
-    // 12.260. Add, remove and reorder are the whole of what can happen to a
-    // watch again.
+    // The fourth transition is back, and it is not the focus returning —
+    // `a-watch-is-a-pair-and-its-months`. `focus` went in 12.260 because it
+    // wrote a *reading* into a stored document; this one writes what gets
+    // collected. The rule it supersedes ("add, remove and reorder are the whole
+    // of what can happen to a watch") was a consequence of the month being part
+    // of the identity, and stopped holding when the identity became the pair.
+    // Named `update` rather than `edit` because `useStoredDocument` owns `edit`
+    // and `replace`, and shadowing either would make four verbs read as three.
+    update: (id: string, next: FareRoute) => store.edit((current) => editRoute(current, id, next)),
     idOf: routeId,
   };
 }

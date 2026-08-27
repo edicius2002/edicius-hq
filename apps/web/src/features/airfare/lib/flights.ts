@@ -82,6 +82,7 @@ export function trackFlights(snapshots: FareSnapshot[]): FlightTrack[] {
   const tracks = new Map<string, FlightTrack>();
   for (const snapshot of ordered) {
     for (const offer of snapshot.offers) {
+      if (offer.price === null || !Number.isFinite(offer.price)) continue;
       const key = flightKey(offer);
       const existing = tracks.get(key);
       const observation = { capturedAt: snapshot.capturedAt, price: offer.price };
@@ -172,6 +173,7 @@ export function changesBetween(snapshots: FareSnapshot[]): BoardChange[] {
 
   const changes: BoardChange[] = [];
   for (const [key, offer] of after) {
+    if (offer.price === null || !Number.isFinite(offer.price)) continue;
     const was = before.get(key);
     const track = tracks.get(key);
     if (!track) continue;
@@ -182,6 +184,7 @@ export function changesBetween(snapshots: FareSnapshot[]): BoardChange[] {
     }
   }
   for (const [key, offer] of before) {
+    if (offer.price === null || !Number.isFinite(offer.price)) continue;
     if (after.has(key)) continue;
     const track = tracks.get(key);
     if (track) changes.push({ kind: 'left', track, from: offer.price, to: null });

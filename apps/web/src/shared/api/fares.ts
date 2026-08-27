@@ -36,7 +36,7 @@ export type FareOffer = {
   arrivalAt: string | null;
   transfers: number;
   durationMinutes: number | null;
-  price: number;
+  price: number | null;
   currency: string;
   /** Intermediate airports in itinerary order; absent from older snapshots. */
   viaPoints?: string[] | null;

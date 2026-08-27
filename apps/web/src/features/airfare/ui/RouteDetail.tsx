@@ -5,7 +5,7 @@ import {
 } from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
 import { departureClock, formatInstant } from '@/features/airfare/lib/series';
-import type { FareInsights, FareSnapshot, WatchHealth } from '@/shared/api/fares';
+import type { FareInsights, FareOffer, FareSnapshot, WatchHealth } from '@/shared/api/fares';
 import { formatMoney, NO_VALUE } from '@/shared/lib/money';
 
 import styles from './RouteDetail.module.css';
@@ -75,8 +75,16 @@ export function RouteDetail({
   }
 
   const offers = latest?.offers ?? [];
-  const cheapest = offers.length ? offers.reduce((a, b) => (a.price <= b.price ? a : b)) : null;
-  const dearest = offers.length ? offers.reduce((a, b) => (a.price >= b.price ? a : b)) : null;
+  const pricedOffers = offers.filter(
+    (offer): offer is FareOffer & { price: number } =>
+      offer.price !== null && Number.isFinite(offer.price),
+  );
+  const cheapest = pricedOffers.length
+    ? pricedOffers.reduce((a, b) => (a.price <= b.price ? a : b))
+    : null;
+  const dearest = pricedOffers.length
+    ? pricedOffers.reduce((a, b) => (a.price >= b.price ? a : b))
+    : null;
   const typical = insights?.typical ?? null;
   const vsUsual = cheapest && typical ? variation(typical, cheapest.price) : null;
   const airlines = new Set(offers.map((offer) => offer.airline)).size;

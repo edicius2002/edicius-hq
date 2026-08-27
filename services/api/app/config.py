@@ -29,6 +29,16 @@ CORS_ORIGINS = [
 ]
 
 
+def sky_official_lookup_enabled() -> bool:
+    """Whether the opt-in, fail-closed official SKY browser lookup may run."""
+    return os.getenv("SKY_OFFICIAL_LOOKUP_ENABLED", "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def local_data_dir() -> Path:
     return Path(os.getenv("LOCAL_DATA_DIR", ".local-data")).resolve()
 

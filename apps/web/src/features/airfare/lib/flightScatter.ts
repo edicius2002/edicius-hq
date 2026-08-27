@@ -254,6 +254,7 @@ export function flightPoints(snapshots: FareSnapshot[], window: ScatterWindow): 
 
   for (const snapshot of latestPerDeparture(snapshots)) {
     for (const offer of snapshot.offers) {
+      if (offer.price === null || !Number.isFinite(offer.price)) continue;
       const offset = minutesInto(window, offer.departureAt);
       if (offset === null) continue;
       const key = flightKey(offer);

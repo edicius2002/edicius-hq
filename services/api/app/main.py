@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.adapters.fares import sky_airline
 from app.adapters.streams import CompositeStream
-from app.config import CORS_ORIGINS, kv_dir
+from app.config import CORS_ORIGINS, kv_dir, sky_official_lookup_enabled
 from app.routers import fares, geography, health, kv, market
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
@@ -28,9 +29,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def start_official_sky_session() -> sky_airline.PlaywrightSkySession | None:
+    """Start the optional browser only after explicit configuration opt-in."""
+    if not sky_official_lookup_enabled():
+        sky_airline.set_session(None)
+        return None
+    browser_session = sky_airline.PlaywrightSkySession()
+    try:
+        await browser_session.start()
+    except Exception:
+        sky_airline.set_session(None)
+        logger.warning(
+            "official SKY lookup unavailable; retaining Google null prices", exc_info=True
+        )
+        return None
+    sky_airline.set_session(browser_session)
+    return browser_session
+
+
+async def close_official_sky_session(session: sky_airline.PlaywrightSkySession | None) -> None:
+    """Close an optional browser and always remove it from the container."""
+    try:
+        if session is not None:
+            await session.close()
+    finally:
+        sky_airline.set_session(None)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     ensure_kv_dir()
+    sky_session = await start_official_sky_session()
     # One upstream socket for the whole process, however many tabs listen. It
     # follows nothing until someone asks, so an idle API opens no connection.
     HUB.attach(CompositeStream())
@@ -57,6 +86,7 @@ async def lifespan(_app: FastAPI):
     # The shared upstream clients outlive a request but not the process.
     await close_client()
     await close_fares_client()
+    await close_official_sky_session(sky_session)
 
 
 app = FastAPI(title="Edicius HQ API", version="0.0.0", lifespan=lifespan)

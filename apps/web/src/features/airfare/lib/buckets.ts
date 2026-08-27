@@ -327,7 +327,7 @@ export function bucketSnapshots(snapshots: FareSnapshot[], granularity: Granular
   const groups = new Map<string, number[]>();
   for (const snapshot of snapshots) {
     const offer = cheapestOffer(snapshot);
-    if (!offer) continue;
+    if (!offer || offer.price === null || !Number.isFinite(offer.price)) continue;
     const key = bucketKey(snapshot.capturedAt, granularity);
     const prices = groups.get(key);
     if (prices) prices.push(offer.price);

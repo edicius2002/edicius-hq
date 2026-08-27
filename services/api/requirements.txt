@@ -1,6 +1,7 @@
 fastapi==0.116.1
 uvicorn[standard]==0.35.0
 httpx==0.28.1
+playwright==1.55.0
 # Arrives with uvicorn[standard], but the streaming adapters import it directly
 # — a transitive dependency you rely on by name is one an upgrade can remove.
 websockets==17.0.1

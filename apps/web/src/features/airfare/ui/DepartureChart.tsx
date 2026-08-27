@@ -2383,13 +2383,16 @@ function horizonNote(
     carried.length === 0 || oldest === null
       ? ''
       : ` ${carried.length} of them ${carried.length === 1 ? 'was' : 'were'} carried over from earlier collections, the oldest from ${collectedAtLabel(oldest)}, and ${carried.length === 1 ? 'is' : 'are'} drawn faint.`;
-  const inside = 'Every date here is inside a watched month.';
-  const failed = `The booking horizon could not be read: ${error?.message ?? 'no reason given'}. That is a fault at our end and says nothing about what these dates cost.`;
-  const pending = 'Reading the booking horizon…';
+  // The axis already shows a watched month; only operational state earns a
+  // note. `inside` remains an empty stack member so the live-index geometry
+  // does not change when chart states change.
+  const inside = '';
+  const failed = `Booking horizon unavailable: ${error?.message ?? 'no reason given'}.`;
+  const pending = 'Reading booking horizon…';
   const uncollected =
-    'The booking horizon has not been collected for this route yet, so the dates outside every watched month are blank. Adding a route now collects its horizon; a route added before that does it needs one collection pass.';
-  const empty = 'Nothing in this frame carried a price.';
-  const collected = `Dates no watched month covers come from the booking horizon, last collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)} — one price a date, with no carrier and no departure time.${inherited}`;
+    'Booking horizon has not been collected; dates outside watched months are blank.';
+  const empty = 'No prices in this frame.';
+  const collected = `Booking horizon last collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)}.${inherited}`;
 
   const said = [inside, failed, pending, uncollected, empty, collected];
   if (!needsCurve) return { said, live: 0 };

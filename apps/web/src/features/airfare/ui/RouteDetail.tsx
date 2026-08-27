@@ -117,18 +117,12 @@ export function RouteDetail({
           of and no control to let anyone out of it.
         */}
         {/*
-          Which of the month's departures the figures below belong to, written
-          `dd/mm/yyyy` like every other real date here — the month in the
-          heading is spelled out precisely so these two can never be read as
-          the same kind of thing. It is a line here rather than a fifth figure
-          because the box beside it holds money and a date is not money.
-
-          Unconditional again: it used to be hidden under a focus, where the
-          heading already named the only departure there was.
+          The board date belongs with the board figures below rather than this
+          header. `.wide` already reserves its second line for a value that
+          folds, so it can hold this short date without making the strip taller;
+          keeping it here would make this header reserve a fourth line all the
+          time for a fact that only exists with a board.
         */}
-        {latest ? (
-          <p className={styles.cities}>Cheapest on {formatFlightDate(latest.flightDate)}</p>
-        ) : null}
         {health?.lastCheckedAt ? (
           <p className={styles.cities}>Last look {formatInstant(health.lastCheckedAt)}</p>
         ) : null}
@@ -144,7 +138,7 @@ export function RouteDetail({
             takes the room it needs and a fifth would simply fit. What is left
             is the better reason: this box answers "what does it cost", and
             which day the price belongs to is not a price. It goes in the
-            header, with the other facts about the route.
+            board box below, with the other facts about that board.
           */}
           <dt>Cheapest now</dt>
           <dd className={styles.big}>
@@ -169,6 +163,10 @@ export function RouteDetail({
 
       {cheapest ? (
         <dl className={`${styles.figures} ${styles.wide}`}>
+          <div>
+            <dt>Board date</dt>
+            <dd>{formatFlightDate(latest.flightDate)}</dd>
+          </div>
           <div>
             <dt>Itineraries</dt>
             <dd>{offers.length}</dd>

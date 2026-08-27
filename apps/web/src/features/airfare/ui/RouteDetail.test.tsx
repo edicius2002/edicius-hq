@@ -105,15 +105,17 @@ describe('RouteDetail', () => {
     expect(screen.getByText(/Last look 18\/08\/2026 22:45/)).toBeInTheDocument();
   });
 
-  it('names which day of the month the figures belong to', () => {
+  it('names which day of the month the board figures belong to', () => {
     /*
      * The panel describes one board, and since 12.110 the month holds
      * thirty-one of them — so it has to say which. `dd/mm/yyyy` here against a
      * spelled-out month in the heading, precisely so the two can never be read
      * as the same kind of thing.
-     */
+    */
     renderDetail();
-    expect(screen.getByText('Cheapest on 06/12/2026')).toBeInTheDocument();
+    const [, board] = renderDetail().container.querySelectorAll('dl');
+    expect(within(board as HTMLElement).getByText('Board date')).toBeInTheDocument();
+    expect(within(board as HTMLElement).getByText('06/12/2026')).toBeInTheDocument();
   });
 
   it('offers no way out of the month, because there is nothing to be let out of', () => {
@@ -151,13 +153,14 @@ describe('RouteDetail', () => {
       'Itineraries',
       'Airlines',
       'Cheapest on',
+      'Board date',
       'Usual range',
       'Looks taken',
       'Changes',
     ]) {
       expect(within(board as HTMLElement).getByText(label)).toBeInTheDocument();
     }
-    // The last look lives in the header now, not among the figures.
+    // The last look stays in the compact header, even before a board exists.
     expect(within(board as HTMLElement).queryByText('Last look')).not.toBeInTheDocument();
   });
 
@@ -381,17 +384,21 @@ describe('the height the route strip holds', () => {
     expect(CSS.indexOf('._wide_')).toBeGreaterThan(CSS.indexOf('._figures_'));
   });
 
-  it('reserves the header all four of its lines, two of which come and go', () => {
+  it('reserves the header three lines, so route states never move the figures', () => {
     /*
-     * "Cheapest on …" is there only where a board has been read and "Last look
-     * …" only where the collector has been, and this header is the taller of
-     * the two things in the strip's top row — so without the reserve those two
-     * lines are the row's height and everything below moves by them.
+     * "Last look …" is there only where the collector has been, so its line
+     * remains reserved. The board date moves into `.wide`, whose two-line
+     * reserve already holds it, and the header loses one whole line without
+     * making the strip jump between route states.
      */
     const gap = Number(/gap:\s*(\d+)px/.exec(rule('head'))?.[1] ?? NaN);
-    const lines = fontSize('pair') * LINE_HEIGHT + 3 * fontSize('cities') * LINE_HEIGHT + 3 * gap;
+    const lines = fontSize('pair') * LINE_HEIGHT + 2 * fontSize('cities') * LINE_HEIGHT + 2 * gap;
 
     expect(reserved('head')).toBeCloseTo(lines, 5);
+  });
+
+  it('uses 6px vertical padding so both figure boxes are denser without clipping', () => {
+    expect(boxChrome()).toBe(14);
   });
 
   it('lets a fold spend the reserve rather than ask for more room', () => {

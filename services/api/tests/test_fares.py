@@ -272,17 +272,17 @@ def test_a_wide_board_keeps_every_itinerary_from_both_blocks():
     """
     LIM-CUZ on 2026-09-09: five best-departing and thirty-one others, with no
     itinerary in common. Seven of the 43 rows are Sky Airline flights carrying
-    no price at all, which is why 43 rows read as 36 offers — an offer with no
-    price is not an observation, and dropping those is behaviour that predates
-    this fix.
+    no price at all; they remain observations, with `price=None`, rather than
+    silently disappearing from the board.
     """
     payload = read_payload("google_flights_lim_cuz_payload.json")
     assert len(payload[google_flights._BEST_BLOCK][0]) == 6
     assert len(payload[google_flights._ALL_BLOCK][0]) == 37
 
     offers = google_flights.parse_payload(payload, "USD")
-    assert len(offers) == 36
-    assert len({(o.airline, o.flight_number, o.departure_at, o.arrival_at) for o in offers}) == 36
+    assert len(offers) == 43
+    assert sum(offer.price is None for offer in offers) == 7
+    assert len({(o.airline, o.flight_number, o.departure_at, o.arrival_at) for o in offers}) == 43
 
 
 def test_an_itinerary_listed_in_both_blocks_is_reported_once():
@@ -497,7 +497,7 @@ def test_a_duration_that_disagrees_with_its_own_legs_is_drift():
     with pytest.raises(FareError) as caught:
         google_flights.parse_payload(payload, "USD")
     assert caught.value.code == "parse-drift"
-    assert "minutes" in caught.value.message
+    assert "none could be read" in caught.value.message
 
 
 def test_a_board_that_prices_no_journey_at_all_is_drift_rather_than_a_blank_column():
@@ -517,7 +517,7 @@ def test_a_board_that_prices_no_journey_at_all_is_drift_rather_than_a_blank_colu
     assert "duration" in caught.value.message
 
 
-def test_legs_that_do_not_span_the_itinerary_are_drift_and_never_direct():
+def test_legs_that_do_not_span_the_itinerary_are_dropped_and_never_direct():
     """
     The second defect, measured rather than argued.
 
@@ -531,10 +531,8 @@ def test_legs_that_do_not_span_the_itinerary_are_drift_and_never_direct():
         if row[0][2][0][google_flights._LEG_FLIGHT][1] == "2127":
             row[0][2] = row[0][2][:1]
 
-    with pytest.raises(FareError) as caught:
-        google_flights.parse_payload(payload, "USD")
-    assert caught.value.code == "parse-drift"
-    assert "LIM-SCL" in caught.value.message
+    offers = google_flights.parse_payload(payload, "USD")
+    assert all(offer.flight_number != "2127" for offer in offers)
 
 
 def test_a_leg_missing_from_the_middle_of_a_chain_is_drift():
@@ -546,10 +544,60 @@ def test_a_leg_missing_from_the_middle_of_a_chain_is_drift():
     payload = read_payload("google_flights_lim_mad_payload.json")
     row = next(r for r in payload[google_flights._BEST_BLOCK][0] if len(r[0][2]) == 2)
     row[0][2][0][google_flights._LEG_DESTINATION] = "GRU"
+    payload[google_flights._BEST_BLOCK] = None
+    payload[google_flights._ALL_BLOCK] = [[row]]
 
     with pytest.raises(FareError) as caught:
         google_flights.parse_payload(payload, "USD")
     assert caught.value.code == "parse-drift"
+
+
+def test_an_airport_transfer_in_the_same_metropolitan_area_is_a_valid_connection():
+    """AEP to EZE is a ground transfer in Buenos Aires, not a missing leg."""
+    offers = google_flights.parse_payload(
+        read_payload("google_flights_airport_transfer_payload.json"), "USD"
+    )
+
+    assert [
+        (offer.airline, offer.flight_number, offer.transfers, offer.price) for offer in offers
+    ] == [("AR", "1365", 1, 824.0)]
+
+
+def test_a_bad_itinerary_does_not_refuse_the_other_readable_rows():
+    """A contradictory row is drift, but it is not proof that its neighbours are."""
+    payload = read_payload("google_flights_lim_mad_payload.json")
+    before = len(google_flights.parse_payload(payload, "USD"))
+    row = next(r for r in payload[google_flights._BEST_BLOCK][0] if len(r[0][2]) == 2)
+    row[0][2][0][google_flights._LEG_DESTINATION] = "GRU"
+
+    assert len(google_flights.parse_payload(payload, "USD")) == before - 1
+
+
+def test_an_all_block_of_unpriced_itineraries_is_archived_with_no_invented_fare(tmp_path):
+    """Google's explicit no-price rows are flights, not unreadable payload drift."""
+    offers = google_flights.parse_payload(
+        read_payload("google_flights_all_unpriced_payload.json"), "USD"
+    )
+
+    assert [(offer.airline, offer.flight_number, offer.price) for offer in offers] == [
+        ("H2", "1313", None)
+    ]
+    history = FareHistory(tmp_path)
+    history.append(
+        FareSnapshot(
+            captured_at="2026-09-04T12:00:00+00:00",
+            source="google-flights",
+            origin="ARI",
+            destination="SCL",
+            flight_date="2026-09-04",
+            return_date=None,
+            currency="USD",
+            offers=offers,
+        )
+    )
+    saved = history.read("ARI", "SCL")[0]
+    assert saved.offers[0].price is None
+    assert saved.cheapest is None
 
 
 def test_an_itinerary_whose_airports_cannot_be_read_is_dropped_not_counted():

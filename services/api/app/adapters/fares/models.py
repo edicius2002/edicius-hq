@@ -66,7 +66,9 @@ class FareOffer:
     #: deliberately not `arrival_at - departure_at`, which is two clocks in two
     #: places and overstates by whatever lies between them.
     duration_minutes: int | None
-    price: float
+    #: The fare when Google made one available. A flight with no saleable fare
+    #: is still an observed itinerary and must not disappear from the board.
+    price: float | None
     currency: str
     #: Intermediate airports, in itinerary order. `None` means this snapshot
     #: predates route-detail persistence; an empty tuple is a newly collected
@@ -223,4 +225,5 @@ class FareSnapshot:
 
     @property
     def cheapest(self) -> FareOffer | None:
-        return min(self.offers, key=lambda offer: offer.price, default=None)
+        priced = (offer for offer in self.offers if offer.price is not None)
+        return min(priced, key=lambda offer: offer.price or 0.0, default=None)

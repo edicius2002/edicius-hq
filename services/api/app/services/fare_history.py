@@ -744,7 +744,7 @@ def _offer_from(row: object) -> FareOffer:
         arrival_at=row.get("arrivalAt"),
         transfers=int(row["transfers"]),
         duration_minutes=row.get("durationMinutes"),
-        price=float(row["price"]),
+        price=float(row["price"]) if row.get("price") is not None else None,
         currency=str(row["currency"]),
         via_points=tuple(via_points) if via_points is not None else None,
     )

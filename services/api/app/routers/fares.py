@@ -122,7 +122,7 @@ class OfferModel(BaseModel):
     arrivalAt: str | None
     transfers: int
     durationMinutes: int | None
-    price: float
+    price: float | None
     currency: str
     viaPoints: list[str] | None
 

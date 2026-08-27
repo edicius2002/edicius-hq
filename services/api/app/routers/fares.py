@@ -13,6 +13,7 @@ types that mirror them.
 import logging
 from collections import Counter
 from collections.abc import AsyncIterator
+from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -20,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.adapters.fares.models import (
+    Airport,
     FareError,
     FareInsights,
     FareOffer,
@@ -33,7 +35,7 @@ from app.config import (
     MAX_DEPARTURE_HORIZON_DAYS,
     UPSTREAM_TIMEOUT_SECONDS,
 )
-from app.services import airport_search
+from app.services import airport_coordinates, airport_search
 from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
@@ -638,15 +640,33 @@ class AirportsResponse(BaseModel):
 
 
 @router.get("/airports", response_model=AirportsResponse)
-def get_airports() -> AirportsResponse:
+def get_airports(codes: Annotated[list[str] | None, Query()] = None) -> AirportsResponse:
     """
     Every airport the archive has ever seen, with coordinates.
 
     The map draws one arc per watched route, so it needs both ends of all of
     them at once — the per-route history call only knows about its own two.
-    This is a handful of entries collected free from the searches themselves,
-    which is why there is no atlas bundled anywhere in this repository.
+    The normal entries are collected free from searches themselves. Requested
+    intermediate stops that have never been searched directly fall back to the
+    bundled IATA coordinate reference; it never replaces provider coordinates
+    already in the archive.
     """
+    known = HISTORY.airports()
+    for code in codes or []:
+        normalized = normalize_code(code)
+        if normalized in known:
+            continue
+        point = airport_coordinates.coordinates().get(normalized)
+        if point is None:
+            continue
+        known[normalized] = Airport(
+            code=normalized,
+            name=None,
+            city=None,
+            country=None,
+            latitude=point[0],
+            longitude=point[1],
+        )
     return AirportsResponse(
         airports=[
             AirportModel(
@@ -657,7 +677,7 @@ def get_airports() -> AirportsResponse:
                 latitude=airport.latitude,
                 longitude=airport.longitude,
             )
-            for airport in sorted(HISTORY.airports().values(), key=lambda a: a.code)
+            for airport in sorted(known.values(), key=lambda a: a.code)
         ]
     )
 

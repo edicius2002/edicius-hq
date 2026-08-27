@@ -1453,6 +1453,30 @@ def test_five_impatient_presses_start_one_pass(monkeypatch):
     assert entered == [True]
 
 
+def test_airports_endpoint_resolves_requested_waypoints_from_the_reference_catalog(
+    monkeypatch, tmp_path
+):
+    """
+    A stop is not necessarily an airport we searched directly, so it is absent
+    from the archive's endpoint catalogue.  The optional codes parameter fills
+    only that gap from the bundled, worldwide IATA coordinate reference.
+    """
+    monkeypatch.setattr(fares_router, "HISTORY", FareHistory(tmp_path))
+
+    body = TestClient(app).get("/api/fares/airports?codes=BOG&codes=unknown").json()
+
+    assert body["airports"] == [
+        {
+            "code": "BOG",
+            "name": None,
+            "city": None,
+            "country": None,
+            "latitude": 4.70159,
+            "longitude": -74.1469,
+        }
+    ]
+
+
 def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_path):
     """
     `departure` is a prefix — 12.112. `2027-03` selects the month a route is

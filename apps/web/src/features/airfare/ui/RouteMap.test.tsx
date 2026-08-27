@@ -365,6 +365,40 @@ describe('RouteMap', () => {
     expect(container.querySelectorAll('[class*="dashed"]')).toHaveLength(0);
   });
 
+  it('draws every leg of a selected-month stop route, dashed in either projection', () => {
+    /*
+     * `a-month-dedupes-its-via-points` happens before this component: a stop
+     * route arrives once per unique ordered sequence. This component's promise
+     * is the other half — one separate geographical segment per leg, so a
+     * stop is a bend rather than a direct route painted a second colour.
+     */
+    const stopRoutes = [
+      {
+        id: 'LIM|MAD|2027-06:BOG',
+        points: [LIMA, [-74.1469, 4.70159] as LngLat, MADRID],
+        colour: '#ef6c00',
+      },
+    ];
+    const { container, rerender } = renderMap({ projection: 'mercator', stopRoutes });
+    expect(container.querySelectorAll('[class*="stop"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[class*="stop"][class*="dashed"]')).toHaveLength(2);
+
+    rerender(
+      <RouteMap
+        routes={[LIM_CUZ, LIM_MAD]}
+        stopRoutes={stopRoutes}
+        selectedId={null}
+        onSelect={vi.fn()}
+        colours={new Map()}
+        lastCollectedId={null}
+        projection="globe"
+        onProjectionChange={vi.fn()}
+      />,
+    );
+    expect(container.querySelectorAll('[class*="stop"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[class*="stop"][class*="dashed"]')).toHaveLength(2);
+  });
+
   it('draws each arc from its origin, which is the way the dashes then run', () => {
     /*
      * Forwards along the path only means "towards the destination" because the

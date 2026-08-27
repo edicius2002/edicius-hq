@@ -351,9 +351,15 @@ export function fetchFareCalendar(
  * ends, and the map needs both ends of all of them.
  */
 export function fetchAirports(
+  codes: readonly string[] = [],
   options: { signal?: AbortSignal } = {},
 ): Promise<{ airports: Airport[] }> {
-  return apiRequest<{ airports: Airport[] }>('/api/fares/airports', { signal: options.signal });
+  const query = new URLSearchParams();
+  for (const code of codes) query.append('codes', code);
+  const suffix = query.size ? `?${query}` : '';
+  return apiRequest<{ airports: Airport[] }>(`/api/fares/airports${suffix}`, {
+    signal: options.signal,
+  });
 }
 
 /** One airport a search box can offer. */

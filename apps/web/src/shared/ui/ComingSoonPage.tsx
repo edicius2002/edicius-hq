@@ -9,7 +9,7 @@ type ComingSoonPageProps = {
 export function ComingSoonPage({ title }: ComingSoonPageProps) {
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader title={title} subtitle="Coming soon." titleId="page-title" />
+      <PageHeader title={title} titleId="page-title" />
     </section>
   );
 }

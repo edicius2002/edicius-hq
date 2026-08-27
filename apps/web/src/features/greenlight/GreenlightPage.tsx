@@ -118,7 +118,6 @@ export function GreenlightPage() {
     <section className={styles.page} aria-labelledby="greenlight-title">
       <PageHeader
         title="Greenlight"
-        subtitle="Deliverable value by week and month."
         titleId="greenlight-title"
         actions={<SaveStatus state={saveState} onRetry={retrySave} />}
       />

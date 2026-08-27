@@ -10,7 +10,6 @@ export function DashboardPage() {
     <section className={styles.page} aria-labelledby="page-title">
       <PageHeader
         title="Dashboard"
-        subtitle="Coming soon."
         actions={
           <Button variant="primary" disabled>
             Open hub

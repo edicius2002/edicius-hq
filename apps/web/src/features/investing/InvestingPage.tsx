@@ -182,7 +182,6 @@ export function InvestingPage() {
     >
       <PageHeader
         title="Investing"
-        subtitle="Markets. Follow what matters and chart it."
         titleId="investing-title"
         className={styles.pageHeader}
       />

@@ -262,6 +262,14 @@ function FlightName({ track, leg }: { track: FlightRow['track']; leg: FlightTabl
 
 function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['leg'] }) {
   const { track } = row;
+  const airline = track.airlineName ?? track.airline;
+  const stops =
+    track.transfers === 0
+      ? stopsLabel(track.transfers)
+      : track.viaPoints?.length
+        ? track.viaPoints.join(', ')
+        : stopsLabel(track.transfers);
+  const duration = formatDuration(track.durationMinutes);
   return (
     <>
       {/*
@@ -280,13 +288,22 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
         airport and has no zone to convert from.
       */}
       <td>{formatStamp(track.departureAt)}</td>
-      <td>{track.airlineName ?? track.airline}</td>
+      <td className={styles.airline} title={airline}>
+        {shortAirline(airline)}
+      </td>
       <td>
         <FlightName track={track} leg={leg} />
       </td>
-      <td>{stopsLabel(track.transfers)}</td>
-      <td>{formatDuration(track.durationMinutes)}</td>
-      <td className={styles.numeric}>{formatMoney(track.price, track.currency)}</td>
+      <td>{stops}</td>
+      <td className={styles.duration} title={duration}>
+        {duration}
+      </td>
+      <td
+        className={`${styles.numeric} ${styles.price}`}
+        title={formatMoney(track.price, track.currency)}
+      >
+        {formatMoney(track.price, track.currency)}
+      </td>
       {/*
         A flight that has left the board says so in this column rather than
         showing a dash, because "it is not offered any more" is an answer to
@@ -534,6 +551,11 @@ export function FlightTable({ snapshots, granularity, departure, leg }: FlightTa
       </div>
 
       <table className={styles.table}>
+        <colgroup>
+          {COLUMNS.map((column) => (
+            <col key={column.column} className={styles[column.column]} />
+          ))}
+        </colgroup>
         {/*
           Under the rows rather than over them — 12.253. It is still the
           table's `<caption>`, so it is still the thing a screen reader reads

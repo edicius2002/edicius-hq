@@ -102,6 +102,13 @@ _LEG_DEPARTURE_DATE = 20
 _LEG_ARRIVAL_DATE = 21
 _LEG_FLIGHT = 22  # [airline_iata, flight_number, _, airline_name]
 
+# Google sells some connections with a ground transfer between airports. The
+# board records the airports, not a city identifier, so the metropolitan pairs
+# we can establish from the payload are explicit here rather than pretending
+# that airport codes should join exactly. Add a pair only when Google presents
+# it as one itinerary; an unknown break remains a drift signal.
+_METROPOLITAN_AIRPORTS = (frozenset(("AEP", "EZE")),)
+
 # Positions in the itinerary itself, beside its leg list — the whole journey as
 # Google states it, rather than as we would infer it from the legs.
 #
@@ -262,6 +269,10 @@ def _code(value: Any) -> str | None:
     return found if len(found) == 3 and found.isalpha() else None
 
 
+def _same_metropolitan_area(arrival: str, departure: str) -> bool:
+    return any({arrival, departure} <= airports for airports in _METROPOLITAN_AIRPORTS)
+
+
 def _stop_count(flight: Any, legs: list[Any]) -> int | None:
     """
     How many times the traveller changes plane, once the legs are shown to be
@@ -302,7 +313,10 @@ def _stop_count(flight: Any, legs: list[Any]) -> int | None:
             return None
         chain.append((takes_off, lands))
 
-    joins = all(before[1] == after[0] for before, after in pairwise(chain))
+    joins = all(
+        before[1] == after[0] or _same_metropolitan_area(before[1], after[0])
+        for before, after in pairwise(chain)
+    )
     if chain[0][0] != origin or chain[-1][1] != destination or not joins:
         raise FareError(
             "parse-drift",
@@ -374,16 +388,39 @@ def _journey_minutes(flight: Any, legs: list[Any]) -> int | None:
     return total
 
 
+def _is_explicitly_unpriced(itinerary: Any) -> bool:
+    """Whether Google explicitly says this flight has no total price."""
+    try:
+        return (
+            itinerary[1][0] == []
+            and itinerary[3] == 0
+            and itinerary[4] == []
+            and itinerary[5] == []
+            and itinerary[9] == [[1]]
+        )
+    except (IndexError, KeyError, TypeError):
+        return False
+
+
 def _offer(itinerary: Any, currency: str) -> FareOffer | None:
     """One itinerary, or `None` when it does not have the shape we depend on."""
     try:
         flight = itinerary[0]
-        price = _exact_price(itinerary[1][1]) or itinerary[1][0][1]
+        price_node = itinerary[1]
+        exact_price = _exact_price(price_node[1])
+        if exact_price is not None:
+            price: float | None = exact_price
+        elif _is_explicitly_unpriced(itinerary):
+            price = None
+        else:
+            price = price_node[0][1]
         legs = flight[2]
         first, last = legs[0], legs[-1]
 
         departure_at = _stamp(first[_LEG_DEPARTURE_DATE], first[_LEG_DEPARTURE_TIME])
-        if departure_at is None or not isinstance(price, (int, float)):
+        if departure_at is None or (
+            price is not None and (isinstance(price, bool) or not isinstance(price, (int, float)))
+        ):
             return None
 
         marker = first[_LEG_FLIGHT] if isinstance(first[_LEG_FLIGHT], list) else []
@@ -397,6 +434,12 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
         transfers = _stop_count(flight, legs)
         if transfers is None:
             return None
+        via_points: tuple[str, ...] = ()
+        for leg in legs[:-1]:
+            point = _code(leg[_LEG_DESTINATION])
+            if point is None:
+                return None
+            via_points += (point,)
 
         return FareOffer(
             airline=str(airline),
@@ -406,18 +449,14 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
             arrival_at=_stamp(last[_LEG_ARRIVAL_DATE], last[_LEG_ARRIVAL_TIME]),
             transfers=transfers,
             duration_minutes=_journey_minutes(flight, legs),
-            price=float(price),
+            price=float(price) if price is not None else None,
             currency=currency,
+            via_points=via_points,
         )
-    except (IndexError, KeyError, TypeError, ValueError):
+    except (IndexError, KeyError, TypeError, ValueError, FareError):
         # One malformed itinerary is dropped; a payload where *every* itinerary
         # is malformed is drift, and `parse_payload` raises for that.
         #
-        # `FareError` is deliberately outside this tuple. `_stop_count` and
-        # `_journey_minutes` raise it when the payload is readable and
-        # self-contradictory, which is not one bad row — it is the layout having
-        # moved under us, and it has to leave the parser rather than be counted
-        # as a dropped itinerary.
         return None
 
 
@@ -550,7 +589,7 @@ def _read_rows(rows: Any, currency: str) -> list[FareOffer]:
     return [offer for offer in (_offer(row, currency) for row in rows) if offer is not None]
 
 
-def _order(offer: FareOffer) -> tuple[float, str, str, str, str]:
+def _order(offer: FareOffer) -> tuple[bool, float, str, str, str, str]:
     """
     A total order over a board, so two identical boards read identically.
 
@@ -561,7 +600,8 @@ def _order(offer: FareOffer) -> tuple[float, str, str, str, str]:
     The remaining fields are tiebreakers, not preferences.
     """
     return (
-        offer.price,
+        offer.price is None,
+        offer.price or 0.0,
         offer.departure_at,
         offer.airline,
         offer.flight_number or "",

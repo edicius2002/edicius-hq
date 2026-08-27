@@ -451,10 +451,9 @@ export const AIRLINE_LABEL_MAX = 8;
  *
  * A prefix can collide where two carriers share an opening: `American
  * Airlines` and `American Eagle` would both read `America…`. That is why the
- * full name travels on the option's `title`, and why it is worth remembering
- * that every row of the table below prints its carrier in full in the Airline
- * column. This control narrows the board; the board is still where a name is
- * read.
+ * full name travels on the option's `title` and the Airline cell's title. The
+ * table now uses the same short spelling: the board is an index of flights,
+ * while the full carrier remains available without setting the column width.
  */
 export function shortAirline(label: string, max = AIRLINE_LABEL_MAX): string {
   if (label.length <= max) return label;

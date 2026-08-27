@@ -218,6 +218,8 @@ export type Projection = 'globe' | 'mercator';
 
 type RouteMapProps = {
   routes: RouteGeometry[];
+  /** Distinct stop sequences for the selected month, already coordinate-resolved. */
+  stopRoutes?: { id: string; points: LngLat[]; viaPoints: string[]; colour: string }[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   /** A colour per route id, so one arc can be told from the next. */
@@ -255,6 +257,7 @@ function readToken(element: HTMLElement, name: string): string {
 
 export function RouteMap({
   routes,
+  stopRoutes = [],
   selectedId,
   onSelect,
   colours,
@@ -481,6 +484,31 @@ export function RouteMap({
   const arcs = useMemo(
     () => routes.map((route) => ({ route, line: greatCircle(route.from, route.to) })),
     [routes],
+  );
+  const stops = useMemo(
+    () =>
+      stopRoutes.flatMap((stop) => {
+        const segments = [];
+        for (let index = 1; index < stop.points.length; index += 1) {
+          segments.push({
+            id: `${stop.id}:${index}`,
+            colour: stop.colour,
+            line: greatCircle(stop.points[index - 1], stop.points[index]),
+          });
+        }
+        return segments;
+      }),
+    [stopRoutes],
+  );
+  const stopNodes = useMemo(
+    () =>
+      stopRoutes.flatMap(({ id, points, viaPoints, colour }) =>
+        viaPoints.flatMap((code, index) => {
+          const point = points[index + 1];
+          return point ? [{ id: `${id}:${code}:${index}`, point, code, colour }] : [];
+        }),
+      ),
+    [stopRoutes],
   );
 
   const projections = useRef({
@@ -1461,6 +1489,12 @@ export function RouteMap({
       claimed.push({ x: xy[0] + 3 + width / 2, y: xy[1] + 3.5, width, height: 17 });
     }
   }
+  for (const { point, code } of stopNodes) {
+    const xy = place(point);
+    if (!xy) continue;
+    const width = 12 + code.length * 6.4;
+    claimed.push({ x: xy[0] + 3 + width / 2, y: xy[1] + 3.5, width, height: 17 });
+  }
 
   const continents = continentFade(zoom.current) * 0.55;
   for (const continent of CONTINENTS)
@@ -1764,6 +1798,51 @@ export function RouteMap({
                     </g>
                   );
                 })}
+              </g>
+            );
+          })}
+
+          {stops.map(({ id, colour, line }) =>
+            runsFor(line.coordinates).map((run, index) => {
+              const d = svgPath({ type: 'LineString', coordinates: run.points } as never);
+              return d ? (
+                <path
+                  key={`${id}:${index}`}
+                  d={d}
+                  style={{ stroke: colour, animationDelay: flowDelay(run.before) }}
+                  className={[
+                    styles.arc,
+                    styles.stop,
+                    // Stops are the exception to the flat-map rule: their
+                    // breaks name an itinerary, not depth, so they stay
+                    // dashed in either projection.
+                    styles.dashed,
+                    isGlobe ? styles.flow : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-hidden="true"
+                />
+              ) : null;
+            }),
+          )}
+
+          {stopNodes.map(({ id, point, code, colour }) => {
+            const xy = place(point);
+            if (!xy) return null;
+            const behind = isGlobe && !facesViewer(point, centre);
+            return (
+              <g key={id} className={behind ? styles.behind : undefined}>
+                <circle
+                  cx={xy[0]}
+                  cy={xy[1]}
+                  r={4}
+                  style={{ fill: colour }}
+                  className={styles.node}
+                />
+                <text x={xy[0] + 9} y={xy[1] + 3.5} className={styles.label}>
+                  {code}
+                </text>
               </g>
             );
           })}

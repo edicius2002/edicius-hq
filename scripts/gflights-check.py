@@ -72,7 +72,13 @@ async def check(routes: tuple[tuple[str, str], ...], days_ahead: int) -> int:
                 print(f"FAIL  {origin}->{destination}  {error.code}: {error.message}")
                 continue
 
-            cheapest = min(offers, key=lambda offer: offer.price)
+            priced = [offer for offer in offers if offer.price is not None]
+            if not priced:
+                failures += 1
+                print(f"FAIL  {origin}->{destination}  no priced offers on a readable board")
+                continue
+
+            cheapest = min(priced, key=lambda offer: offer.price or 0.0)
             print(
                 f"ok    {origin}->{destination}  {len(offers):>3} offers  "
                 f"cheapest {cheapest.currency} {cheapest.price:.2f} on "

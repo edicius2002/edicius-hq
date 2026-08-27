@@ -59,3 +59,39 @@ EXIT_CODE=0
 - Existing numeric-price behavior remains covered and passing.
 - `services/api/app/services/fare_history.py` was not modified.
 - Concern: the widened shared API type requires follow-up null handling in the other airfare consumers reported by the typecheck; those files were intentionally not changed under this task brief.
+
+## Review fix round 1
+
+The scope was expanded by review to enforce the nullable-price invariant across all affected airfare consumers.
+
+### Fixes
+
+- `buckets.ts` now only adds finite numeric cheapest offers to bucket arrays.
+- `flights.ts` drops unavailable/non-finite offers from tracks and board-change calculations.
+- `flightScatter.ts` drops unavailable/non-finite offers before point placement and minimum selection.
+- `pairReference.ts` drops unavailable/non-finite offers before per-date minima and median calculation.
+- `RouteDetail.tsx` derives typed finite `pricedOffers`, so empty/unavailable boards retain the `—` display and never reach min/max formatting.
+- `series.test.ts` now separately covers an actually empty board and a null-price board.
+
+### RED/GREEN and verification
+
+The initial nullable contract typecheck was RED with compiler errors in the affected consumers, including `buckets.ts`, `flights.ts`, `flightScatter.ts`, `pairReference.ts`, and `RouteDetail.tsx` (`number | null` not assignable to `number`, plus possibly-null comparisons). After adding the guards, the exact verification command was:
+
+```text
+npm run test -w web -- src/features/airfare/lib/series.test.ts src/features/airfare/lib/buckets.test.ts src/features/airfare/lib/flights.test.ts src/features/airfare/lib/flightScatter.test.ts src/features/airfare/lib/pairReference.test.ts
+Test Files  5 passed (5)
+Tests       172 passed (172)
+
+npm run typecheck -w web
+tsc -b --pretty false
+EXIT_CODE=0
+```
+
+The original series RED/GREEN evidence above remains applicable to the core null-price regressions; the affected consumer typecheck supplied the review RED and the clean typecheck above supplies GREEN.
+
+### Review self-check
+
+- No `FareOffer.price` value is inserted into a numeric aggregate unless it is non-null and finite.
+- No synthetic zero is introduced for empty or unavailable boards.
+- `services/api/app/services/fare_history.py` remains untouched.
+- The prior report's concern about out-of-scope typecheck failures is resolved; full web typecheck now passes.

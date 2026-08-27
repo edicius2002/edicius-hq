@@ -149,6 +149,14 @@ describe('cheapestSeries', () => {
     // Zero is a price, and a chart would draw it as the best deal ever found.
     const points = cheapestSeries([
       snapshot('2026-08-17T12:00:00+00:00', [125]),
+      snapshot('2026-08-18T12:00:00+00:00', []),
+    ]);
+    expect(points).toHaveLength(1);
+  });
+
+  it('skips an unavailable observation instead of charting a zero', () => {
+    const points = cheapestSeries([
+      snapshot('2026-08-17T12:00:00+00:00', [125]),
       snapshot('2026-08-18T12:00:00+00:00', [null]),
     ]);
     expect(points).toHaveLength(1);

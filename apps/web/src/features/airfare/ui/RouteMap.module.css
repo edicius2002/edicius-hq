@@ -236,6 +236,11 @@
   opacity: 0.85;
 }
 
+.stop {
+  stroke-width: 1.15;
+  opacity: 0.72;
+}
+
 /*
  * Dashed on the globe, where the surface is curved and busy and a dash reads
  * as depth. Solid on the flat map, where it would only fragment a line that

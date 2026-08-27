@@ -43,6 +43,8 @@ export type FlightTrack = {
   flightNumber: string | null;
   departureAt: string;
   transfers: number;
+  /** Ordered intermediate airports when this observation retained them. */
+  viaPoints?: string[] | null;
   durationMinutes: number | null;
   currency: string;
   /** Every price ever observed for this flight, oldest first. */
@@ -99,6 +101,7 @@ export function trackFlights(snapshots: FareSnapshot[]): FlightTrack[] {
         flightNumber: offer.flightNumber,
         departureAt: offer.departureAt,
         transfers: offer.transfers,
+        viaPoints: offer.viaPoints,
         durationMinutes: offer.durationMinutes,
         currency: offer.currency,
         observations: [observation],

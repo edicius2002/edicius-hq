@@ -16,7 +16,7 @@ import { useFareSpend } from '@/features/airfare/hooks/useFareSpend';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
-import { legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
+import { airportPoint, legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { pairReference } from '@/features/airfare/lib/pairReference';
 import { cheapestDeparture, snapshotsFor, snapshotsForMonths } from '@/features/airfare/lib/series';
@@ -74,7 +74,6 @@ export function AirfarePage() {
   const [projection, setProjection] = useState<Projection>('globe');
 
   const watchlist = useFareRoutes();
-  const airports = useAirports();
   // Per-row collection is its own hook, not more state on this page: the
   // in-flight set, the reports and the mutation that keeps them in step are one
   // mechanism, and the page's job is to hand it to the list.
@@ -262,6 +261,20 @@ export function AirfarePage() {
       selected && reading && history.data ? snapshotsFor(history.data.snapshots, reading) : [],
     [history.data, selected, reading],
   );
+  // A selected month is the only time its intermediate airports matter. The
+  // default map remains a city-pair map and requests no extra coordinates.
+  const viaCodes = useMemo(
+    () =>
+      [
+        ...new Set(
+          snapshots.flatMap((snapshot) =>
+            snapshot.offers.flatMap((offer) => offer.viaPoints ?? []),
+          ),
+        ),
+      ].sort(),
+    [snapshots],
+  );
+  const airports = useAirports(viaCodes);
 
   /*
    * The same archive narrowed to the whole watch, for chart B.
@@ -309,6 +322,38 @@ export function AirfarePage() {
   const latest = useMemo(() => cheapestDeparture(snapshots), [snapshots]);
   const insights = latest?.insights ?? null;
   const health = history.data?.health ?? null;
+  const stopRoutes = useMemo(() => {
+    /*
+     * `a-month-dedupes-its-via-points`: a board can collect the same
+     * itinerary on many days, but the map is an explanation of the month's
+     * possible shapes, not a stack of identical evidence. One ordered stop
+     * sequence therefore earns one coloured route.
+     */
+    if (!selected || !activeMonth || !airports.data) return [];
+    const data = airports.data;
+    const endpoints = [data.get(selected.origin), data.get(selected.destination)];
+    if (endpoints.some((airport) => !airport)) return [];
+    const found = new Set<string>();
+    return snapshots
+      .flatMap((snapshot) => snapshot.offers)
+      .flatMap((offer) => {
+        const via = offer.viaPoints ?? [];
+        if (via.length === 0 || found.has(via.join('>'))) return [];
+        const stops = via.map((code) => data.get(code));
+        if (stops.some((airport) => !airport)) return [];
+        found.add(via.join('>'));
+        return [
+          {
+            id: `${selectedKey}:${via.join('>')}`,
+            points: [endpoints[0], ...stops, endpoints[1]]
+              .filter((airport): airport is Airport => airport !== undefined)
+              .map(airportPoint),
+            viaPoints: via,
+            colour: routeColour(watchlist.routes.length + found.size),
+          },
+        ];
+      });
+  }, [activeMonth, airports.data, selected, selectedKey, snapshots, watchlist.routes.length]);
 
   /*
    * The arcs, pointed by the open route first and by the last collection after.
@@ -478,6 +523,7 @@ export function AirfarePage() {
         <Panel className={styles.tall}>
           <RouteMap
             routes={geometries}
+            stopRoutes={stopRoutes}
             selectedId={selectedKey}
             onSelect={setSelectedId}
             colours={colours}

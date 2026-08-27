@@ -36,6 +36,7 @@ const SNAPSHOT: FareSnapshot = {
       departureAt: '2026-10-16T17:35',
       arrivalAt: '2026-10-17T00:40',
       transfers: 1,
+      viaPoints: ['BOG'],
       durationMinutes: 425,
       price: 291,
       currency: 'USD',
@@ -100,7 +101,19 @@ describe('FlightTable', () => {
 
     const second = within(rows[1]);
     expect(second.getByText('16/10/2026 17:35')).toBeInTheDocument();
-    expect(second.getByText('1 stop')).toBeInTheDocument();
+    expect(second.getByText('BOG')).toBeInTheDocument();
+  });
+
+  it('declares a fixed column for every stable board field', () => {
+    const { container } = render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const columns = container.querySelectorAll('col');
+    expect(columns).toHaveLength(7);
+    expect(columns[0]).toHaveClass(/departs/);
+    expect(columns[3]).toHaveClass(/stops/);
+    expect(columns[5]).toHaveClass(/price/);
   });
 
   it('says so when the latest observation is empty', () => {
@@ -238,9 +251,11 @@ describe('FlightTable', () => {
     const cut = within(select).getByRole('option', { name: 'Aerolin…' });
     expect(cut).toHaveAttribute('title', 'Aerolineas Argentinas');
 
-    // The table beneath still writes it out in full.
+    // The narrow table cell keeps the same compact spelling and exposes the
+    // full carrier name on hover/focus rather than making a long name decide
+    // the entire column's width.
     const row = bodyRows().find((one) => within(one).queryByText('AR 1365'))!;
-    expect(within(row).getByText('Aerolineas Argentinas')).toBeInTheDocument();
+    expect(within(row).getByText('Aerolin…')).toHaveAttribute('title', 'Aerolineas Argentinas');
 
     // And the closed control names the carrier in full once one is chosen.
     await userEvent.selectOptions(select, 'AR');

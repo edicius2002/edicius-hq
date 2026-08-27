@@ -10,11 +10,12 @@ import { fetchAirports, type Airport } from '@/shared/api/fares';
  * that do not move. The page invalidates it after a collection, which is the
  * only moment a new airport can appear.
  */
-export function useAirports() {
+export function useAirports(codes: readonly string[] = []) {
+  const requested = [...new Set(codes)].sort();
   return useQuery<Map<string, Airport>>({
-    queryKey: ['fares', 'airports'],
+    queryKey: ['fares', 'airports', requested],
     queryFn: ({ signal }) =>
-      fetchAirports({ signal }).then(
+      fetchAirports(requested, { signal }).then(
         (response) => new Map(response.airports.map((airport) => [airport.code, airport])),
       ),
     staleTime: 5 * 60 * 1000,

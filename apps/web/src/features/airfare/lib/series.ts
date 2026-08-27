@@ -197,7 +197,8 @@ export function cheapestDeparture(snapshots: FareSnapshot[]): FareSnapshot | nul
   let bestPrice = Number.POSITIVE_INFINITY;
   for (const snapshot of latestPerDeparture(snapshots)) {
     const offer = cheapestOffer(snapshot);
-    if (!offer || offer.price === null || !Number.isFinite(offer.price) || offer.price >= bestPrice) continue;
+    if (!offer || offer.price === null || !Number.isFinite(offer.price) || offer.price >= bestPrice)
+      continue;
     best = snapshot;
     bestPrice = offer.price;
   }

@@ -52,6 +52,7 @@ class FakeResultRow:
         via_points: tuple[str, ...] = (),
         transfers: str = "0",
         duration: str = "120",
+        taxes_included: bool | None = True,
     ):
         self.values = {
             sky_airline.RESULT_TOTAL_SELECTOR: total,
@@ -65,6 +66,7 @@ class FakeResultRow:
         }
         self.flight_numbers = list(flight_numbers)
         self.via_points = list(via_points)
+        self.taxes_included = taxes_included
 
     async def text_content(self, selector: str) -> str | None:
         return self.values.get(selector)
@@ -75,6 +77,13 @@ class FakeResultRow:
         if selector == sky_airline.RESULT_VIA_POINT_SELECTOR:
             return self.via_points
         return []
+
+    async def is_checked(self, selector: str) -> bool:
+        if selector != sky_airline.RESULT_TAX_INCLUDED_SELECTOR:
+            raise RuntimeError("unexpected result-card control")
+        if self.taxes_included is None:
+            raise RuntimeError("missing result-card tax evidence")
+        return self.taxes_included
 
 
 class FakePage:
@@ -282,6 +291,19 @@ def test_tax_toggle_is_set_and_verified_before_accepting_a_result_card():
     )
 
     assert result == [replace(h2_offer(), price=123.45)]
+
+
+@pytest.mark.parametrize("taxes_included", [None, False])
+def test_missing_or_false_result_card_tax_evidence_keeps_the_primary_null_price(
+    taxes_included: bool | None,
+):
+    result = asyncio.run(
+        sky_airline.SkyAirlineAdapter(
+            FakeSession(FakePage(FakeResultRow(taxes_included=taxes_included)))
+        ).enrich(QUERY, [h2_offer()])
+    )
+
+    assert result == [h2_offer()]
 
 
 def test_two_matching_result_cards_are_ambiguous_and_keep_the_primary_null_price():

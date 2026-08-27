@@ -21,7 +21,9 @@ SKY_HOME_URL = "https://www.skyairline.com/flights/en/"
 
 # The two airport labels and Search were observed on the public landing page.
 # The remaining controls are deliberately isolated provisional selectors: a
-# live page that cannot satisfy any of them is a safe, unpriced result.
+# live page that cannot satisfy any of them is a safe, unpriced result. The
+# tax control appears both at page level and, scoped to a result card, beside
+# the total it proves tax-inclusive.
 ORIGIN_INPUT_SELECTOR = '[aria-label="fc-booking-origin-aria-label"]'
 DESTINATION_INPUT_SELECTOR = '[aria-label="fc-booking-destination-aria-label"]'
 DEPARTURE_DATE_INPUT_SELECTOR = '[aria-label="fc-booking-departure-date-aria-label"]'
@@ -31,6 +33,7 @@ USD_LOCALE_OPTION_SELECTOR = "text=USD"
 CURRENCY_VERIFICATION_SELECTOR = '[data-testid="currency"]'
 TAX_INCLUDED_TOGGLE_SELECTOR = '[data-testid="taxes-included"]'
 RESULT_ROW_SELECTOR = '[data-testid="flight-result"]'
+RESULT_TAX_INCLUDED_SELECTOR = '[data-testid="taxes-included"]'
 RESULT_TOTAL_SELECTOR = '[data-testid="total-price"]'
 RESULT_CURRENCY_SELECTOR = '[data-testid="price-currency"]'
 RESULT_ORIGIN_SELECTOR = '[data-testid="departure-airport"]'
@@ -47,6 +50,8 @@ class SkyResultRow(Protocol):
     async def text_content(self, selector: str) -> str | None: ...
 
     async def all_text_contents(self, selector: str) -> list[str]: ...
+
+    async def is_checked(self, selector: str) -> bool: ...
 
 
 class SkyPage(Protocol):
@@ -82,6 +87,9 @@ class PlaywrightSkyResultRow:
 
     async def all_text_contents(self, selector: str) -> list[str]:
         return await self._locator.locator(selector).all_text_contents()
+
+    async def is_checked(self, selector: str) -> bool:
+        return await self._locator.locator(selector).is_checked()
 
 
 class PlaywrightSkyPage:
@@ -161,6 +169,7 @@ class PlaywrightSkySession:
 class RenderedFare:
     currency: str
     total: float
+    taxes_included: bool
     origin: str
     destination: str
     flight_numbers: tuple[str, ...]
@@ -288,6 +297,11 @@ async def _parse_result_row(row: SkyResultRow) -> RenderedFare | None:
         or duration is None
     ):
         return None
+    # A page-level setting alone cannot say what this displayed total contains.
+    # The result card must prove its own total includes taxes before it can
+    # replace Google's unavailable price.
+    if not await row.is_checked(RESULT_TAX_INCLUDED_SELECTOR):
+        return None
     amount = _amount(total)
     flight_numbers = tuple(
         filter(
@@ -321,6 +335,7 @@ async def _parse_result_row(row: SkyResultRow) -> RenderedFare | None:
     return RenderedFare(
         currency="USD",
         total=amount,
+        taxes_included=True,
         origin=origin.strip().upper(),
         destination=destination.strip().upper(),
         flight_numbers=flight_numbers,
@@ -362,6 +377,7 @@ def _matches(query: FareQuery, offer: FareOffer, rendered: RenderedFare) -> bool
         return False
     return (
         rendered.currency == "USD"
+        and rendered.taxes_included
         and rendered.origin == query.origin.upper()
         and rendered.destination == query.destination.upper()
         and rendered.flight_numbers[0] == expected_flight

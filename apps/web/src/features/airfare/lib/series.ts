@@ -87,10 +87,10 @@ export function snapshotsForMonths(
 }
 
 export function cheapestOffer(snapshot: FareSnapshot): FareOffer | null {
-  return snapshot.offers.reduce<FareOffer | null>(
-    (best, offer) => (best === null || offer.price < best.price ? offer : best),
-    null,
-  );
+  return snapshot.offers.reduce<FareOffer | null>((best, offer) => {
+    if (offer.price === null || !Number.isFinite(offer.price)) return best;
+    return best === null || best.price === null || offer.price < best.price ? offer : best;
+  }, null);
 }
 
 /**
@@ -103,7 +103,7 @@ export function cheapestSeries(snapshots: FareSnapshot[]): PricePoint[] {
   const points: PricePoint[] = [];
   for (const snapshot of snapshots) {
     const offer = cheapestOffer(snapshot);
-    if (!offer) continue;
+    if (!offer || offer.price === null || !Number.isFinite(offer.price)) continue;
     points.push({
       capturedAt: snapshot.capturedAt,
       price: offer.price,
@@ -145,6 +145,7 @@ export function byAirline(snapshot: FareSnapshot | null): AirlineSummary[] {
 
   const grouped = new Map<string, AirlineSummary>();
   for (const offer of snapshot.offers) {
+    if (offer.price === null || !Number.isFinite(offer.price)) continue;
     const existing = grouped.get(offer.airline);
     if (!existing) {
       grouped.set(offer.airline, {
@@ -196,7 +197,7 @@ export function cheapestDeparture(snapshots: FareSnapshot[]): FareSnapshot | nul
   let bestPrice = Number.POSITIVE_INFINITY;
   for (const snapshot of latestPerDeparture(snapshots)) {
     const offer = cheapestOffer(snapshot);
-    if (!offer || offer.price >= bestPrice) continue;
+    if (!offer || offer.price === null || !Number.isFinite(offer.price) || offer.price >= bestPrice) continue;
     best = snapshot;
     bestPrice = offer.price;
   }

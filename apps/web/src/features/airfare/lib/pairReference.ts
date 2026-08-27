@@ -93,6 +93,7 @@ export function pairReference(snapshots: FareSnapshot[], asOf: string): PairRefe
   const cheapest = new Map<string, number>();
   for (const snapshot of snapshots) {
     for (const offer of snapshot.offers) {
+      if (offer.price === null || !Number.isFinite(offer.price)) continue;
       const held = cheapest.get(snapshot.flightDate);
       if (held === undefined || offer.price < held) cheapest.set(snapshot.flightDate, offer.price);
     }

@@ -19,7 +19,7 @@ import {
 } from '@/features/airfare/lib/series';
 import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
-function offer(price: number, over: Partial<FareOffer> = {}): FareOffer {
+function offer(price: number | null, over: Partial<FareOffer> = {}): FareOffer {
   return {
     airline: 'LA',
     airlineName: 'LATAM',
@@ -36,7 +36,7 @@ function offer(price: number, over: Partial<FareOffer> = {}): FareOffer {
 
 function snapshot(
   capturedAt: string,
-  prices: number[],
+  prices: Array<number | null>,
   over: Partial<FareSnapshot> = {},
 ): FareSnapshot {
   return {
@@ -153,6 +153,14 @@ describe('cheapestSeries', () => {
     ]);
     expect(points).toHaveLength(1);
   });
+
+  it('skips an unavailable observation instead of charting a zero', () => {
+    const points = cheapestSeries([
+      snapshot('2026-08-17T12:00:00+00:00', [125]),
+      snapshot('2026-08-18T12:00:00+00:00', [null]),
+    ]);
+    expect(points).toHaveLength(1);
+  });
 });
 
 describe('priceStats', () => {
@@ -214,12 +222,34 @@ describe('byAirline', () => {
   it('is empty for no snapshot', () => {
     expect(byAirline(null)).toEqual([]);
   });
+
+  it('ignores unavailable offers when grouping carriers', () => {
+    const grouped = byAirline(
+      snapshot('2026-08-17T12:00:00+00:00', [], {
+        offers: [
+          offer(null),
+          offer(Number.NaN, { airline: 'AV', airlineName: 'Avianca' }),
+          offer(125, { airline: 'AV', airlineName: 'Avianca' }),
+        ],
+      }),
+    );
+
+    expect(grouped).toEqual([{ airline: 'AV', airlineName: 'Avianca', cheapest: 125, offers: 1 }]);
+  });
 });
 
 describe('cheapestOffer', () => {
   it('picks the lowest price on a board and nothing at all off an empty one', () => {
     expect(cheapestOffer(snapshot('2026-08-17T12:00:00+00:00', [200, 125, 180]))?.price).toBe(125);
     expect(cheapestOffer(snapshot('2026-08-17T12:00:00+00:00', []))).toBeNull();
+  });
+
+  it('ignores unavailable and non-finite prices', () => {
+    const cheapest = cheapestOffer(
+      snapshot('2026-08-17T12:00:00+00:00', [null, Number.NaN, Number.POSITIVE_INFINITY, 125]),
+    );
+    expect(cheapest?.price).toBe(125);
+    expect(cheapestOffer(snapshot('2026-08-17T12:00:00+00:00', [null, Number.NaN]))).toBeNull();
   });
 });
 

@@ -434,9 +434,12 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
         transfers = _stop_count(flight, legs)
         if transfers is None:
             return None
-        via_points = tuple(_code(leg[_LEG_DESTINATION]) for leg in legs[:-1])
-        if any(point is None for point in via_points):
-            return None
+        via_points: tuple[str, ...] = ()
+        for leg in legs[:-1]:
+            point = _code(leg[_LEG_DESTINATION])
+            if point is None:
+                return None
+            via_points += (point,)
 
         return FareOffer(
             airline=str(airline),

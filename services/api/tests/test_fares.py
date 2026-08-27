@@ -559,8 +559,9 @@ def test_an_airport_transfer_in_the_same_metropolitan_area_is_a_valid_connection
     )
 
     assert [
-        (offer.airline, offer.flight_number, offer.transfers, offer.price) for offer in offers
-    ] == [("AR", "1365", 1, 824.0)]
+        (offer.airline, offer.flight_number, offer.transfers, offer.price, offer.via_points)
+        for offer in offers
+    ] == [("AR", "1365", 1, 824.0, ("AEP",))]
 
 
 def test_a_bad_itinerary_does_not_refuse_the_other_readable_rows():
@@ -579,9 +580,9 @@ def test_an_all_block_of_unpriced_itineraries_is_archived_with_no_invented_fare(
         read_payload("google_flights_all_unpriced_payload.json"), "USD"
     )
 
-    assert [(offer.airline, offer.flight_number, offer.price) for offer in offers] == [
-        ("H2", "1313", None)
-    ]
+    assert [
+        (offer.airline, offer.flight_number, offer.price, offer.via_points) for offer in offers
+    ] == [("H2", "1313", None, ())]
     history = FareHistory(tmp_path)
     history.append(
         FareSnapshot(
@@ -597,6 +598,7 @@ def test_an_all_block_of_unpriced_itineraries_is_archived_with_no_invented_fare(
     )
     saved = history.read("ARI", "SCL")[0]
     assert saved.offers[0].price is None
+    assert saved.offers[0].via_points == ()
     assert saved.cheapest is None
 
 

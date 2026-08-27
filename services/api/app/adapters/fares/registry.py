@@ -14,7 +14,7 @@ router, the collector or the page.
 
 import httpx
 
-from app.adapters.fares import google_flights
+from app.adapters.fares import google_flights, sky_airline
 from app.adapters.fares.models import (
     CalendarPrice,
     CalendarQuery,
@@ -23,6 +23,7 @@ from app.adapters.fares.models import (
     FareQuery,
     SearchResult,
 )
+from app.config import sky_official_lookup_enabled
 
 DEFAULT_PROVIDER = google_flights.PROVIDER
 
@@ -52,7 +53,10 @@ async def fetch_offers(
     provider: str = DEFAULT_PROVIDER,
 ) -> list[FareOffer]:
     if provider == google_flights.PROVIDER:
-        return await google_flights.fetch_offers(client, query)
+        offers = await google_flights.fetch_offers(client, query)
+        if sky_official_lookup_enabled():
+            return await sky_airline.enrich_missing_h2_prices(query, offers)
+        return offers
     raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
 
 

@@ -38,10 +38,22 @@ async def start_official_sky_session() -> sky_airline.PlaywrightSkySession | Non
     try:
         await browser_session.start()
     except Exception:
-        logger.warning("official SKY lookup unavailable; retaining Google null prices", exc_info=True)
+        sky_airline.set_session(None)
+        logger.warning(
+            "official SKY lookup unavailable; retaining Google null prices", exc_info=True
+        )
         return None
     sky_airline.set_session(browser_session)
     return browser_session
+
+
+async def close_official_sky_session(session: sky_airline.PlaywrightSkySession | None) -> None:
+    """Close an optional browser and always remove it from the container."""
+    try:
+        if session is not None:
+            await session.close()
+    finally:
+        sky_airline.set_session(None)
 
 
 @asynccontextmanager
@@ -74,9 +86,7 @@ async def lifespan(_app: FastAPI):
     # The shared upstream clients outlive a request but not the process.
     await close_client()
     await close_fares_client()
-    if sky_session is not None:
-        await sky_session.close()
-    sky_airline.set_session(None)
+    await close_official_sky_session(sky_session)
 
 
 app = FastAPI(title="Edicius HQ API", version="0.0.0", lifespan=lifespan)

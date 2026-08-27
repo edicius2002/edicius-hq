@@ -12,6 +12,8 @@ the kind of dependency you want to be able to replace without touching the
 router, the collector or the page.
 """
 
+from dataclasses import replace
+
 import httpx
 
 from app.adapters.fares import google_flights, sky_airline
@@ -42,7 +44,13 @@ async def fetch_search(
 ) -> SearchResult:
     """Everything one search answered with, from whichever provider is wired."""
     if provider == google_flights.PROVIDER:
-        return await google_flights.fetch_search(client, query)
+        result = await google_flights.fetch_search(client, query)
+        if sky_official_lookup_enabled():
+            return replace(
+                result,
+                offers=await sky_airline.enrich_missing_h2_prices(query, result.offers),
+            )
+        return result
     raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
 
 

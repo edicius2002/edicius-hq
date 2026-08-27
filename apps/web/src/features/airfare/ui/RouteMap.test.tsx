@@ -376,6 +376,7 @@ describe('RouteMap', () => {
       {
         id: 'LIM|MAD|2027-06:BOG',
         points: [LIMA, [-74.1469, 4.70159] as LngLat, MADRID],
+        viaPoints: ['BOG'],
         colour: '#ef6c00',
       },
     ];
@@ -397,6 +398,24 @@ describe('RouteMap', () => {
     );
     expect(container.querySelectorAll('[class*="stop"]')).toHaveLength(2);
     expect(container.querySelectorAll('[class*="stop"][class*="dashed"]')).toHaveLength(2);
+  });
+
+  it('marks and labels each intermediate airport in a stop route', () => {
+    const { container } = renderMap({
+      projection: 'mercator',
+      stopRoutes: [
+        {
+          id: 'LIM|MAD|2027-06:BOG',
+          points: [LIMA, [-74.1469, 4.70159] as LngLat, MADRID],
+          viaPoints: ['BOG'],
+          colour: '#ef6c00',
+        },
+      ],
+    });
+
+    expect(screen.getByText('BOG')).toHaveClass(/label/);
+    const stop = container.querySelector('circle[class*="node"]')!;
+    expect(stop).toHaveStyle({ fill: '#ef6c00' });
   });
 
   it('draws each arc from its origin, which is the way the dashes then run', () => {

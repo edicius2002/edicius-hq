@@ -348,6 +348,7 @@ export function AirfarePage() {
             points: [endpoints[0], ...stops, endpoints[1]]
               .filter((airport): airport is Airport => airport !== undefined)
               .map(airportPoint),
+            viaPoints: via,
             colour: routeColour(watchlist.routes.length + found.size),
           },
         ];

@@ -22,28 +22,28 @@
 }
 
 /*
- * The header reserves all four of its lines whether or not it has four —
+ * The header reserves all three of its lines whether or not it has three —
  * `a-strip-that-holds-its-height`.
  *
- * Two of them come and go with the data: "Cheapest on 06/12/2026" is there
- * only where a board has been read, and "Last look …" only where the collector
- * has been. So a route with no observations, and any route at all for the
- * moment between asking for its archive and being handed it, drew a header two
- * lines shorter — and this header is the taller of the two things in the top
- * row of `.detail`, so those two lines are the row's height and everything
- * below moved by them.
+ * "Last look …" comes and goes with the collector. A route with no
+ * observations, and any route at all for the moment between asking for its
+ * archive and being handed it, must still hold that line or the row below
+ * moves. The board date used to be the other conditional line here; it now
+ * lives in `.wide`, whose existing two-line reserve holds it without adding
+ * height to that box.
  *
  * Measured from the rules in this file at `--font-size-base: 125%`, so 1rem is
  * 20px, and `line-height: 1.5` from `reset.css`: `.pair` at 1.05rem is 1.575rem
- * of line, `.cities` at 0.8rem is 1.2rem and there are three of them, and the
- * three gaps between the four are 2px apiece. 109.5px, and it is that whether
- * one line is missing or three.
+ * of line, `.cities` at 0.8rem is 1.2rem and there are two of them, and the
+ * two gaps between the three are 2px apiece. 83.5px, whether the last look is
+ * present or not. The money box is 71.6px after the denser padding below, so
+ * the header remains the stable top-row measure.
  */
 .head {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-height: calc(1.575rem + 3.6rem + 6px);
+  min-height: calc(1.575rem + 2.4rem + 4px);
 }
 
 .pair {
@@ -165,7 +165,7 @@
   overflow-wrap: anywhere;
   gap: 8px var(--space-4);
   margin: 0;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: var(--color-surface);
@@ -174,7 +174,7 @@
    * One row of figures, one line of value — the money box's whole case.
    *
    * `box-sizing: border-box` from `reset.css`, so this is the outside of the
-   * box: 8px of padding at each end and a 1px border at each end is 18px, the
+   * box: 6px of padding at each end and a 1px border at each end is 14px, the
    * label is 0.62rem of type at 1.5 with 3px under it, and the tallest value
    * in here is `.big` at 1.2rem. 75.6px.
    *
@@ -184,7 +184,7 @@
    * for. The four figures are also unconditional: each renders `—` where there
    * is no number, so this box never changes how many things are in it.
    */
-  min-height: calc(0.93rem + 1.8rem + 21px);
+  min-height: calc(0.93rem + 1.8rem + 17px);
 }
 
 /*
@@ -200,7 +200,7 @@
 /*
  * The second box runs under both columns: money on the top row beside the
  * route, and everything about the board and the collector across the bottom.
- * Six figures rather than four and each of them longer, so the row gap is
+ * Seven figures rather than four and each of them longer, so the row gap is
  * tighter — it is the box that folds onto a second line first.
  */
 .wide {
@@ -209,7 +209,7 @@
   /*
    * Two lines of value, reserved — the fold this box can actually produce.
    *
-   * Same 18px of padding and border and the same 0.93rem label with 3px under
+   * Same 14px of padding and border and the same 0.93rem label with 3px under
    * it, and then twice `.wide dd`'s 0.82rem at 1.5. 88.8px, and it is 88.8px
    * whether `Aerolineas Argentinas · 14:35` sits on one line or folds between
    * its two words.
@@ -217,14 +217,14 @@
    * It is on `.wide` rather than on the figures inside it deliberately: the
    * reserve belongs to the box, so a figure that folds grows into room already
    * paid for and every other figure stays one line tall and top-aligned. Put
-   * on each `dd` instead it would be six reserves rather than one and the
+   * on each `dd` instead it would be seven reserves rather than one and the
    * short figures would carry a blank line each for nothing.
    *
    * `.note` carries this class too, which is the point — "Nothing observed
    * yet. Run a collection pass." stands exactly where the box would and is
    * exactly as tall, so a route with no archive is not a shorter page.
    */
-  min-height: calc(0.93rem + 2.46rem + 21px);
+  min-height: calc(0.93rem + 2.46rem + 17px);
 }
 
 .wide dd {

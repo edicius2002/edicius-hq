@@ -161,7 +161,7 @@ export function RouteDetail({
         </div>
       </dl>
 
-      {cheapest ? (
+      {cheapest && latest ? (
         <dl className={`${styles.figures} ${styles.wide}`}>
           <div>
             <dt>Board date</dt>

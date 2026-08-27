@@ -111,7 +111,7 @@ describe('RouteDetail', () => {
      * thirty-one of them — so it has to say which. `dd/mm/yyyy` here against a
      * spelled-out month in the heading, precisely so the two can never be read
      * as the same kind of thing.
-    */
+     */
     renderDetail();
     const [, board] = renderDetail().container.querySelectorAll('dl');
     expect(within(board as HTMLElement).getByText('Board date')).toBeInTheDocument();

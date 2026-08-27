@@ -68,6 +68,14 @@ describe('trackFlights', () => {
     expect(tracks[0].firstPrice).toBe(96);
   });
 
+  it('keeps the first observed stop sequence with its flight', () => {
+    const tracks = trackFlights([
+      snapshot('2026-08-18T04:00:00+00:00', [offer({ transfers: 2, viaPoints: ['BOG', 'GRU'] })]),
+    ]);
+
+    expect(tracks[0].viaPoints).toEqual(['BOG', 'GRU']);
+  });
+
   it('does not record a price that did not move as a new observation', () => {
     // Four of five real snapshots were identical to the one before. Counting
     // those would make "moved twice" and "looked at twice" the same number.

@@ -231,6 +231,25 @@
 }
 
 /*
+ * The compact airline spelling is eight characters including its ellipsis
+ * (`Aerolin…`), so 10ch leaves the cell's 1ch side bearings without letting a
+ * carrier name reclaim the table. Durations on this board are at most `23h
+ * 59m` (7ch); 9ch leaves the same breathing room. The title keeps the whole
+ * value available if either catalogue grows past those observed bounds.
+ */
+.airline {
+  max-width: 10ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.duration {
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
  * The whole heading is the control, not an icon beside it: a 12px arrow is a
  * target nobody can hit, and a `<th>` with a click handler is not in the tab
  * order at all.

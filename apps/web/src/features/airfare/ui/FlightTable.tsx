@@ -262,6 +262,14 @@ function FlightName({ track, leg }: { track: FlightRow['track']; leg: FlightTabl
 
 function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['leg'] }) {
   const { track } = row;
+  const airline = track.airlineName ?? track.airline;
+  const stops =
+    track.transfers === 0
+      ? stopsLabel(track.transfers)
+      : track.viaPoints?.length
+        ? track.viaPoints.join(', ')
+        : stopsLabel(track.transfers);
+  const duration = formatDuration(track.durationMinutes);
   return (
     <>
       {/*
@@ -280,12 +288,16 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
         airport and has no zone to convert from.
       */}
       <td>{formatStamp(track.departureAt)}</td>
-      <td>{track.airlineName ?? track.airline}</td>
+      <td className={styles.airline} title={airline}>
+        {shortAirline(airline)}
+      </td>
       <td>
         <FlightName track={track} leg={leg} />
       </td>
-      <td>{stopsLabel(track.transfers)}</td>
-      <td>{formatDuration(track.durationMinutes)}</td>
+      <td>{stops}</td>
+      <td className={styles.duration} title={duration}>
+        {duration}
+      </td>
       <td className={styles.numeric}>{formatMoney(track.price, track.currency)}</td>
       {/*
         A flight that has left the board says so in this column rather than

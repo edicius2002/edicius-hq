@@ -103,17 +103,6 @@ const DAYS_NAMES: Record<FrameSource, string> = {
  * name the archive in the words the panel uses for it elsewhere — the boards,
  * the booking horizon — and leave the hour to the rail that is drawn on it.
  */
-const WHAT: Record<string, string> = {
-  moves: 'One point a day, at the price we observed.',
-  'days/none': 'Nothing collected for these departure dates yet.',
-  'days/boards': 'The flight boards, for the departure dates this watch covers.',
-  'days/curve': 'The booking horizon, for dates no watched month covers.',
-  // Order-free, and that fixes something older than this change: it read
-  // "boards to the end of the month, then the booking horizon", and a week
-  // straddling the *start* of a watched month has always been the other way
-  // round. Several watched months make that ordinary rather than rare.
-  'days/mixed': 'The boards where a watched month covers the date, the booking horizon elsewhere.',
-};
 
 /**
  * The panel's id, so a control somewhere else can name what it moves.
@@ -378,7 +367,6 @@ export function AnalysisPanel({
   const whereMonth =
     route && month ? `${routeLabel(route)} departing in ${formatFlightMonth(month)}` : '';
   const currency = route?.currency ?? 'USD';
-  const what = view === 'moves' ? 'moves' : `days/${source}`;
   const daysName = DAYS_NAMES[source];
 
   return (
@@ -405,18 +393,6 @@ export function AnalysisPanel({
           */}
           {route ? `${routeLabel(route)} · ${formatFlightMonths(route.months)}` : 'Price analysis'}
         </h2>
-        {/*
-          One switch, and only one — `period-switch-follows-its-chart` superseded.
-
-          The period switch used to stand here too, unfolding from chart B's
-          button and holding its own space open by `visibility` so that folding
-          away could not slide these two buttons under a pressing hand. All of
-          that apparatus existed to keep a control next to a chart it governed
-          only half the time. It is inside chart B now, in the chart's own
-          corner, so this head asks exactly one question and its contents no
-          longer change with the answer — which is the no-reflow property the
-          held-open strip was built to fake, arrived at by construction instead.
-        */}
         <div className={styles.switches}>
           <div className={styles.switch} role="group" aria-label="Chart">
             <button type="button" aria-pressed={view === 'moves'} onClick={() => setView('moves')}>
@@ -451,35 +427,14 @@ export function AnalysisPanel({
               </span>
             </button>
           </div>
+          {/* `period-switch-follows-its-chart` is superseded: the owner chose
+              adjacency over holding space for a control that does not apply to
+              price history. The pill may shift when Flights seen opens; the
+              prose row and its reserved height are gone on both views. */}
+          {view === 'days' ? (
+            <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+          ) : null}
         </div>
-      </div>
-
-      {/*
-        The line naming the archive, and — on chart B only — the switch that
-        belongs to chart B's tab.
-
-        **The switch hangs off "Flights seen", and it reserves nothing.**
-        `period-switch-follows-its-chart` had the placement right and the
-        mechanism wrong: it stood inside `.switches`, to the right of the chart
-        pill, held open by `visibility` so that folding away could not slide the
-        two chart buttons under a pressing hand. That bought no-reflow by paying
-        for the space permanently, on both charts, including the one that must
-        never have the control at all.
-
-        This row is the better tool for the same job. The pill above is flush
-        with the panel's right edge and so is this row, so the switch lands
-        directly beneath the "Flights seen" button and reads as an extension of
-        it — but it is in a *different row*, so appearing and disappearing cannot
-        move the pill by a pixel. Nothing is reserved: on chart A the element is
-        simply not rendered, and the row is the one `.what` was already using, at
-        a `min-height` it already had. The height cannot change either, because
-        the switch is shorter than the two lines that floor is set to.
-      */}
-      <div className={styles.whatRow}>
-        <p className={styles.what}>{WHAT[what]}</p>
-        {view === 'days' ? (
-          <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-        ) : null}
       </div>
 
       {/*

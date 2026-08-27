@@ -128,28 +128,6 @@
  * `align-items: flex-start` so the switch sits on the first line of the text
  * rather than centring itself against a paragraph that may wrap to two.
  */
-.whatRow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-  /*
-   * The floor is on the row rather than on the paragraph now, and it is what
-   * makes the switch free: it is shorter than two lines of this text, so a row
-   * that is always two lines tall cannot change height when the switch comes
-   * and goes.
-   */
-  min-height: 2.6em;
-}
-
-.what {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.82rem;
-  /* It takes the width the switch leaves, and wraps rather than pushing it. */
-  min-width: 0;
-}
 
 /*
  * The stage, which exists only to be something `cqw` can measure.

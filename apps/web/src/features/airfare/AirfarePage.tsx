@@ -330,7 +330,8 @@ export function AirfarePage() {
      * sequence therefore earns one coloured route.
      */
     if (!selected || !activeMonth || !airports.data) return [];
-    const endpoints = [airports.data.get(selected.origin), airports.data.get(selected.destination)];
+    const data = airports.data;
+    const endpoints = [data.get(selected.origin), data.get(selected.destination)];
     if (endpoints.some((airport) => !airport)) return [];
     const found = new Set<string>();
     return snapshots
@@ -338,7 +339,7 @@ export function AirfarePage() {
       .flatMap((offer) => {
         const via = offer.viaPoints ?? [];
         if (via.length === 0 || found.has(via.join('>'))) return [];
-        const stops = via.map((code) => airports.data!.get(code));
+        const stops = via.map((code) => data.get(code));
         if (stops.some((airport) => !airport)) return [];
         found.add(via.join('>'));
         return [

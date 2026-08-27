@@ -298,7 +298,12 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
       <td className={styles.duration} title={duration}>
         {duration}
       </td>
-      <td className={styles.numeric}>{formatMoney(track.price, track.currency)}</td>
+      <td
+        className={`${styles.numeric} ${styles.price}`}
+        title={formatMoney(track.price, track.currency)}
+      >
+        {formatMoney(track.price, track.currency)}
+      </td>
       {/*
         A flight that has left the board says so in this column rather than
         showing a dash, because "it is not offered any more" is an answer to
@@ -546,6 +551,11 @@ export function FlightTable({ snapshots, granularity, departure, leg }: FlightTa
       </div>
 
       <table className={styles.table}>
+        <colgroup>
+          {COLUMNS.map((column) => (
+            <col key={column.column} className={styles[column.column]} />
+          ))}
+        </colgroup>
         {/*
           Under the rows rather than over them — 12.253. It is still the
           table's `<caption>`, so it is still the thing a screen reader reads

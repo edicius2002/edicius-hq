@@ -104,6 +104,18 @@ describe('FlightTable', () => {
     expect(second.getByText('BOG')).toBeInTheDocument();
   });
 
+  it('declares a fixed column for every stable board field', () => {
+    const { container } = render(
+      <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
+    );
+
+    const columns = container.querySelectorAll('col');
+    expect(columns).toHaveLength(7);
+    expect(columns[0]).toHaveClass(/departs/);
+    expect(columns[3]).toHaveClass(/stops/);
+    expect(columns[5]).toHaveClass(/price/);
+  });
+
   it('says so when the latest observation is empty', () => {
     render(<FlightTable snapshots={[]} granularity="day" departure="09/03/2027" leg={LEG} />);
     expect(screen.getByText(/No itineraries/i)).toBeInTheDocument();

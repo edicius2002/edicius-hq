@@ -188,8 +188,47 @@
 
 .table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.9rem;
+}
+
+/*
+ * A board is a stable comparison, not a different grid for every route.
+ * These fractions add to 100%, so content never chooses a column's width:
+ * the archive's longest duration is 36h 25m (7 characters), its highest fare
+ * is $938.84 (7), and a possible three-stop itinerary reads `BOG, GRU, PTY`
+ * (13). `Departs` is the fixed 16-character `dd/mm/yyyy HH:MM`; flight
+ * numbers on disk fit eight characters including their airline code. The
+ * remaining room belongs to the price change, which is where signed figures
+ * need their decimal point to line up.
+ */
+.departs {
+  width: 20%;
+}
+
+.airline {
+  width: 12%;
+}
+
+.flight {
+  width: 12%;
+}
+
+.stops {
+  width: 19%;
+}
+
+.duration {
+  width: 9%;
+}
+
+.price {
+  width: 12%;
+}
+
+.change {
+  width: 16%;
 }
 
 /*
@@ -233,9 +272,10 @@
 /*
  * The compact airline spelling is eight characters including its ellipsis
  * (`Aerolin…`), so 10ch leaves the cell's 1ch side bearings without letting a
- * carrier name reclaim the table. Durations on this board are at most `23h
- * 59m` (7ch); 9ch leaves the same breathing room. The title keeps the whole
- * value available if either catalogue grows past those observed bounds.
+ * carrier name reclaim the table. The duration and price caps are their seven
+ * visible characters, because the fixed column gives their padding separately.
+ * Their titles keep the whole value available if the archive grows past those
+ * observed bounds.
  */
 .airline {
   max-width: 10ch;
@@ -244,7 +284,13 @@
 }
 
 .duration {
-  max-width: 9ch;
+  max-width: 7ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.price {
+  max-width: 7ch;
   overflow: hidden;
   text-overflow: ellipsis;
 }

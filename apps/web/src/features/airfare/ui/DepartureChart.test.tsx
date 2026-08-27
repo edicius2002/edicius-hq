@@ -983,7 +983,7 @@ describe('a period that straddles the end of the watched month', () => {
   it('says where the dates beyond the month came from, and when', () => {
     straddling();
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'booking horizon, last collected 19/08/2026 15:49',
+      'Booking horizon last collected 19/08/2026 15:49',
     );
   });
 
@@ -1162,7 +1162,7 @@ describe('a route whose horizon has never been collected', () => {
       curve: null,
     });
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'booking horizon has not been collected for this route yet',
+      'Booking horizon has not been collected',
     );
     expect(screen.getAllByTestId('curve-unanswered')).toHaveLength(6);
   });
@@ -1175,7 +1175,7 @@ describe('a route whose horizon has never been collected', () => {
       horizonError: new Error('500 Internal Server Error'),
     });
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'could not be read: 500 Internal Server Error',
+      'Booking horizon unavailable: 500 Internal Server Error',
     );
     expect(screen.getByTestId('horizon-note')).toHaveAttribute('role', 'alert');
   });

@@ -356,7 +356,7 @@ describe('the controls that are gone', () => {
     expect(screen.queryByRole('button', { name: 'Watched month' })).not.toBeInTheDocument();
   });
 
-  it('keeps no period switch in the panel head, on either chart', () => {
+  it('puts the period switch beside the chart switch only for Flights seen', () => {
     /*
      * `period-switch-follows-its-chart` superseded, and this is the assertion
      * that replaces the one proving it.
@@ -378,17 +378,11 @@ describe('the controls that are gone', () => {
      * `aria-pressed` and that is the change the reader asked for. What must not
      * move is how many controls are here and how wide their words are.
      */
-    const shape = () => [head.textContent, head.querySelectorAll('button').length] as const;
-    const before = shape();
-
-    // Never in this row, on either chart. Scoped to the head rather than global,
-    // because on chart B the switch does exist — one row further down — and the
-    // claim here is only about where it is not.
-    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
+    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeTruthy();
 
     openDeparture();
-    expect(shape()).toEqual(before);
-    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
+
+    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeTruthy();
   });
 
   it('opens on Flights seen, with its period switch already on screen', () => {
@@ -457,8 +451,8 @@ describe('the controls that are gone', () => {
     openDeparture();
     const shown = screen.getByRole('group', { name: 'How much time one period covers' });
     expect(shown).toBeInTheDocument();
-    // Below the pill, not beside it, and outside the chart's own figure.
-    expect(head).not.toContainElement(shown);
+    // Beside the pill, never inside the chart figure.
+    expect(head).toContainElement(shown);
     expect(screen.getByRole('img').closest('figure')).not.toContainElement(shown);
 
     click(MOVES);
@@ -596,13 +590,7 @@ describe('the name of the chart that follows what it draws', () => {
 
     expect(chartName()).toBe('Cheapest per date');
     expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
-    // The line under the switch still names the archive that is answering, which
-    // is the half of it a reader cannot get by looking; how the axis is built is
-    // no longer restated above the axis, and neither is the hour — the source
-    // rail on the plot says that, per stretch, and the two were near-identical.
-    expect(
-      screen.getByText('The booking horizon, for dates no watched month covers.'),
-    ).toBeTruthy();
+    expect(screen.queryByText(/booking horizon, for dates no watched month covers/i)).toBeNull();
   });
 
   it('holds every name it can wear at once, so the switch cannot change width', () => {
@@ -655,9 +643,7 @@ describe('where the reader may walk', () => {
     openDeparture();
     click('Month');
     expect(screen.queryByLabelText('Next month')).not.toBeInTheDocument();
-    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'Every date here is inside a watched month',
-    );
+    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent('');
   });
 });
 

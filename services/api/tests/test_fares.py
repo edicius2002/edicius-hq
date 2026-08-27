@@ -50,7 +50,13 @@ def read_payload(name: str):
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
-def offer(price: float, *, airline: str = "LA", departure: str = "2026-10-16T08:00") -> FareOffer:
+def offer(
+    price: float,
+    *,
+    airline: str = "LA",
+    departure: str = "2026-10-16T08:00",
+    via_points: tuple[str, ...] | None = None,
+) -> FareOffer:
     return FareOffer(
         airline=airline,
         airline_name="LATAM",
@@ -61,6 +67,7 @@ def offer(price: float, *, airline: str = "LA", departure: str = "2026-10-16T08:
         duration_minutes=240,
         price=price,
         currency="USD",
+        via_points=via_points,
     )
 
 
@@ -370,6 +377,7 @@ def test_a_connection_is_timed_from_the_gate_it_leaves_to_the_gate_it_arrives_at
     offers = google_flights.parse_payload(read_payload(CONNECTING), "USD")
     connection = only(offers, "LA", "2127")
     assert connection.transfers == 1
+    assert connection.via_points == ("CUZ",)
     assert connection.duration_minutes == 455
     assert connection.duration_minutes == 280 + 175  # in the air, then on the ground
 
@@ -561,13 +569,59 @@ def test_an_itinerary_whose_airports_cannot_be_read_is_dropped_not_counted():
 
 def test_append_then_read_round_trips_a_snapshot(tmp_path):
     history = FareHistory(tmp_path)
-    history.append(snapshot("2026-08-17T12:00:00+00:00", prices=[125.0, 180.0]))
+    saved = FareSnapshot(
+        captured_at="2026-08-17T12:00:00+00:00",
+        source="google-flights",
+        origin="LIM",
+        destination="SCL",
+        flight_date="2026-10-16",
+        return_date=None,
+        currency="USD",
+        offers=[offer(125.0, via_points=("CUZ",)), offer(180.0)],
+    )
+    history.append(saved)
 
     read = history.read("LIM", "SCL")
     assert len(read) == 1
     assert read[0].captured_at == "2026-08-17T12:00:00+00:00"
     assert [o.price for o in read[0].offers] == [125.0, 180.0]
+    assert [o.via_points for o in read[0].offers] == [("CUZ",), None]
     assert read[0].cheapest.price == 125.0
+
+
+def test_a_pre_waypoints_snapshot_still_reads_without_route_details(tmp_path):
+    path = tmp_path / "LIM-SCL.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "capturedAt": "2026-08-17T12:00:00+00:00",
+                "source": "google-flights",
+                "origin": "LIM",
+                "destination": "SCL",
+                "flightDate": "2026-10-16",
+                "returnDate": None,
+                "currency": "USD",
+                "insights": None,
+                "offers": [
+                    {
+                        "airline": "LA",
+                        "airlineName": "LATAM",
+                        "flightNumber": "529",
+                        "departureAt": "2026-10-16T08:00",
+                        "arrivalAt": "2026-10-16T12:00",
+                        "transfers": 0,
+                        "durationMinutes": 240,
+                        "price": 125.0,
+                        "currency": "USD",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert FareHistory(tmp_path).read("LIM", "SCL")[0].offers[0].via_points is None
 
 
 def test_a_second_append_adds_a_line_rather_than_overwriting(tmp_path):

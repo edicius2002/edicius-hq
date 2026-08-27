@@ -68,6 +68,10 @@ class FareOffer:
     duration_minutes: int | None
     price: float
     currency: str
+    #: Intermediate airports, in itinerary order. `None` means this snapshot
+    #: predates route-detail persistence; an empty tuple is a newly collected
+    #: non-stop itinerary.
+    via_points: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -38,6 +38,8 @@ export type FareOffer = {
   durationMinutes: number | null;
   price: number;
   currency: string;
+  /** Intermediate airports in itinerary order; absent from older snapshots. */
+  viaPoints?: string[] | null;
 };
 
 /**

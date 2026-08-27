@@ -397,6 +397,9 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
         transfers = _stop_count(flight, legs)
         if transfers is None:
             return None
+        via_points = tuple(_code(leg[_LEG_DESTINATION]) for leg in legs[:-1])
+        if any(point is None for point in via_points):
+            return None
 
         return FareOffer(
             airline=str(airline),
@@ -408,6 +411,7 @@ def _offer(itinerary: Any, currency: str) -> FareOffer | None:
             duration_minutes=_journey_minutes(flight, legs),
             price=float(price),
             currency=currency,
+            via_points=via_points,
         )
     except (IndexError, KeyError, TypeError, ValueError):
         # One malformed itinerary is dropped; a payload where *every* itinerary

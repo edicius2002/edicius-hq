@@ -726,12 +726,16 @@ def _offer_row(offer: FareOffer) -> dict[str, object]:
         "durationMinutes": offer.duration_minutes,
         "price": offer.price,
         "currency": offer.currency,
+        "viaPoints": list(offer.via_points) if offer.via_points is not None else None,
     }
 
 
 def _offer_from(row: object) -> FareOffer:
     if not isinstance(row, dict):
         raise TypeError("offer row is not an object")
+    via_points = row.get("viaPoints")
+    if not isinstance(via_points, list) or not all(isinstance(point, str) for point in via_points):
+        via_points = None
     return FareOffer(
         airline=str(row["airline"]),
         airline_name=row.get("airlineName"),
@@ -742,6 +746,7 @@ def _offer_from(row: object) -> FareOffer:
         duration_minutes=row.get("durationMinutes"),
         price=float(row["price"]),
         currency=str(row["currency"]),
+        via_points=tuple(via_points) if via_points is not None else None,
     )
 
 

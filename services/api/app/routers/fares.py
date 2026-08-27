@@ -124,6 +124,7 @@ class OfferModel(BaseModel):
     durationMinutes: int | None
     price: float
     currency: str
+    viaPoints: list[str] | None
 
 
 class InsightsModel(BaseModel):
@@ -346,6 +347,7 @@ def _offer_model(offer: FareOffer) -> OfferModel:
         durationMinutes=offer.duration_minutes,
         price=offer.price,
         currency=offer.currency,
+        viaPoints=list(offer.via_points) if offer.via_points is not None else None,
     )
 
 

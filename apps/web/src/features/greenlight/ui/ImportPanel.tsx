@@ -129,7 +129,6 @@ export function ImportPanel({
         >
           Clear
         </Button>
-
       </div>
 
       {pending?.kind === 'import' && copy ? (

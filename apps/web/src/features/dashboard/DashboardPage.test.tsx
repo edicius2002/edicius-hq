@@ -54,7 +54,9 @@ function stubApi(refresh: Record<string, unknown>) {
 
 function renderPage() {
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
       <DashboardPage />
     </QueryClientProvider>,
   );

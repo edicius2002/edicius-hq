@@ -3,7 +3,16 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MODES = ['dev', 'serve', 'test', 'lint', 'format', 'typecheck', 'fares-collect', 'fares-check'];
+const MODES = [
+  'dev',
+  'serve',
+  'test',
+  'lint',
+  'format',
+  'typecheck',
+  'fares-collect',
+  'fares-check',
+];
 
 const mode = process.argv[2];
 if (!MODES.includes(mode)) {

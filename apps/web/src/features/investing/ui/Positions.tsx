@@ -3,10 +3,9 @@ import { useState } from 'react';
 import {
   isUsableCost,
   isUsableQuantity,
-  totalsByCurrency,
   valuePosition,
   type Portfolio,
-  type Valuation,
+  type Total,
 } from '@/features/investing/data/portfolio';
 import {
   formatPercent,
@@ -69,25 +68,8 @@ export function Positions({
     axis: 'both',
   });
 
-  const valued = portfolio.positions
-    .map((position) => valuePosition(position, quotes.get(position.symbol)))
-    .filter((valuation): valuation is Valuation => valuation !== null);
-
   return (
     <div>
-      {totalsByCurrency(valued).map((total) => (
-        <div key={total.currency} className={styles.total} aria-label={`Total ${total.currency}`}>
-          <span className={styles.totalLabel}>
-            Total <span className={styles.muted}>{total.currency}</span>
-          </span>
-          <span className={styles.totalValue}>{formatAmount(total.value)}</span>
-          <span className={total.profit >= 0 ? styles.up : styles.down}>
-            {formatSignedAmount(total.profit)}
-            {total.profitPercent === null ? '' : ' · ' + formatPercent(total.profitPercent)}
-          </span>
-        </div>
-      ))}
-
       <div className={styles.add}>
         {adding ? (
           <PositionForm
@@ -174,7 +156,7 @@ export function Positions({
                     type="button"
                     className={styles.action}
                     /* "position", because the watchlist beside it has a ✕ for
-                     the same symbol and the two must not share a name. */
+                       the same symbol and the two must not share a name. */
                     aria-label={'Remove ' + position.symbol + ' position'}
                     title={'Remove ' + position.symbol + ' position'}
                     onClick={() => onRemove(position.symbol)}
@@ -189,6 +171,29 @@ export function Positions({
       ) : (
         <p className={styles.empty}>Nothing held yet.</p>
       )}
+    </div>
+  );
+}
+
+type PositionTotalsProps = {
+  totals: Total[];
+};
+
+export function PositionTotals({ totals }: PositionTotalsProps) {
+  return (
+    <div className={styles.totals}>
+      {totals.map((total) => (
+        <div key={total.currency} className={styles.total} aria-label={`Total ${total.currency}`}>
+          <span className={styles.totalLabel}>
+            Total <span className={styles.muted}>{total.currency}</span>
+          </span>
+          <span className={styles.totalValue}>{formatAmount(total.value)}</span>
+          <span className={total.profit >= 0 ? styles.up : styles.down}>
+            {formatSignedAmount(total.profit)}
+            {total.profitPercent === null ? '' : ' · ' + formatPercent(total.profitPercent)}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -105,19 +105,6 @@ describe('RouteDetail', () => {
     expect(screen.getByText(/Last look 18\/08\/2026 22:45/)).toBeInTheDocument();
   });
 
-  it('names which day of the month the board figures belong to', () => {
-    /*
-     * The panel describes one board, and since 12.110 the month holds
-     * thirty-one of them — so it has to say which. `dd/mm/yyyy` here against a
-     * spelled-out month in the heading, precisely so the two can never be read
-     * as the same kind of thing.
-     */
-    renderDetail();
-    const [, board] = renderDetail().container.querySelectorAll('dl');
-    expect(within(board as HTMLElement).getByText('Board date')).toBeInTheDocument();
-    expect(within(board as HTMLElement).getByText('06/12/2026')).toBeInTheDocument();
-  });
-
   it('offers no way out of the month, because there is nothing to be let out of', () => {
     /*
      * "Read the whole month" stood in this header and existed for one reason:
@@ -140,25 +127,21 @@ describe('RouteDetail', () => {
     expect(screen.queryByText(/last look/i)).not.toBeInTheDocument();
   });
 
-  it('carries the board and the collector as figures, not as sentences', () => {
+  it('carries what the board holds as figures, not as sentences', () => {
     /*
-     * The heartbeat count especially: a stretch of archive with no new points
-     * means either no price movement or no collector, and only that number
-     * tells them apart. It was a footnote; it is a figure.
+     * Four figures, on one row. The board date, the looks taken, the changes
+     * and the failures were asked for and removed; whether the collector is
+     * running is still readable from the "Last look" line in the header above,
+     * which is where it now says so alone.
      */
     const { container } = renderDetail();
     const [money, board] = container.querySelectorAll('dl');
     expect(within(money as HTMLElement).getByText('Cheapest now')).toBeInTheDocument();
-    for (const label of [
-      'Itineraries',
-      'Airlines',
-      'Cheapest on',
-      'Board date',
-      'Usual range',
-      'Looks taken',
-      'Changes',
-    ]) {
+    for (const label of ['Itineraries', 'Airlines', 'Cheapest on', 'Usual range']) {
       expect(within(board as HTMLElement).getByText(label)).toBeInTheDocument();
+    }
+    for (const gone of ['Board date', 'Looks taken', 'Changes', 'Failed']) {
+      expect(within(board as HTMLElement).queryByText(gone)).not.toBeInTheDocument();
     }
     // The last look stays in the compact header, even before a board exists.
     expect(within(board as HTMLElement).queryByText('Last look')).not.toBeInTheDocument();
@@ -188,13 +171,6 @@ describe('RouteDetail', () => {
     // The separator and the clock are one unbreakable run, so a fold can never
     // leave the dot at the end of a line with its time on the next.
     expect(value.querySelector('span')?.textContent).toBe('· 08:55');
-  });
-
-  it('counts failures only when there have been some', () => {
-    renderDetail();
-    expect(screen.queryByText('Failed')).not.toBeInTheDocument();
-    renderDetail({ health: { ...HEALTH, errors: 2 } });
-    expect(screen.getAllByText('Failed').length).toBe(1);
   });
 
   it('asks for a collection rather than showing empty figures', () => {

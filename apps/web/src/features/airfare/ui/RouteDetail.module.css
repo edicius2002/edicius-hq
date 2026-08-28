@@ -199,20 +199,32 @@
 
 /*
  * The second box runs under both columns: money on the top row beside the
- * route, and everything about the board and the collector across the bottom.
- * Seven figures rather than four and each of them longer, so the row gap is
- * tighter — it is the box that folds onto a second line first.
+ * route, and what the board holds across the bottom.
+ *
+ * Four figures now rather than seven — the board date, the looks taken, the
+ * changes and the failures were asked for and removed. `nowrap` is what makes
+ * the four a row: with three fewer figures and smaller type there is room for
+ * one line of them at every width this box is drawn side by side at, and a
+ * value too long for its share folds inside its own cell instead, which is the
+ * fold the reserve below is for.
  */
 .wide {
   grid-column: 1 / -1;
+  flex-wrap: nowrap;
   gap: 6px var(--space-4);
   /*
    * Two lines of value, reserved — the fold this box can actually produce.
    *
    * Same 14px of padding and border and the same 0.93rem label with 3px under
-   * it, and then twice `.wide dd`'s 0.82rem at 1.5. 88.8px, and it is 88.8px
+   * it, and then twice `.wide dd`'s 0.72rem at 1.5. 82.8px, and it is 82.8px
    * whether `Aerolineas Argentinas · 14:35` sits on one line or folds between
    * its two words.
+   *
+   * Still two lines and not one, with the row now unwrapped: what folds here is
+   * a value inside its own cell, not the row onto a second line, and the
+   * carrier name can still do it. A one-line reserve would put the chart below
+   * back to moving whenever a long name arrived, which is the whole thing this
+   * box was given a reserve to stop.
    *
    * It is on `.wide` rather than on the figures inside it deliberately: the
    * reserve belongs to the box, so a figure that folds grows into room already
@@ -224,11 +236,11 @@
    * yet. Run a collection pass." stands exactly where the box would and is
    * exactly as tall, so a route with no archive is not a shorter page.
    */
-  min-height: calc(0.93rem + 2.46rem + 17px);
+  min-height: calc(0.93rem + 2.16rem + 17px);
 }
 
 .wide dd {
-  font-size: 0.82rem;
+  font-size: 0.72rem;
 }
 
 .figures dt {

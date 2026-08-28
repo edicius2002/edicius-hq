@@ -405,17 +405,25 @@ describe('the controls that are gone', () => {
     expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('shows no period switch on chart A, in any form', () => {
+  it('offers no period switch on chart A, and holds no room for one', () => {
     /*
-     * The owner's rule, stated as flatly as they stated it: "How the price
-     * moved" must never show Week or Month. Not live, not inert, not reserved.
+     * The owner's rule was "not live, not inert, not reserved", and two of
+     * those three still hold exactly. What changed is the third, and only
+     * because the owner asked for the fold to be seen: a control that unmounts
+     * has no width to animate from, so it stays in the tree and collapses to
+     * nothing instead.
      *
-     * Three ways it could come back and all three are checked. `queryByRole`
-     * catches a switch a reader can reach; `hidden: true` catches one held in
-     * the layout by `visibility` — the mechanism
-     * `period-switch-follows-its-chart` used, which cost the space permanently
-     * on the one chart that must never have the control; and the raw attribute
-     * query catches a node that is present with neither.
+     * The objection that rule was written against is untouched. It was aimed at
+     * `period-switch-follows-its-chart`, which held the strip with
+     * `visibility: hidden` and so **paid for the space permanently on the one
+     * chart that must never have the control**. A `0fr` track is not that: the
+     * column has no width at all when closed, so chart A is laid out as though
+     * the switch were absent.
+     *
+     * What must still never happen is a reader reaching it or hearing it, and
+     * that is what is checked here — `inert` takes it out of the tab order and
+     * off the accessibility tree, so `queryByRole` finds nothing with or
+     * without `hidden`.
      */
     render(<Harness />);
     // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
@@ -424,12 +432,11 @@ describe('the controls that are gone', () => {
     expect(
       screen.queryByRole('group', { name: 'How much time one period covers' }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('group', { name: 'How much time one period covers', hidden: true }),
-    ).not.toBeInTheDocument();
     for (const name of ['Day', 'Week', 'Month']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
+    const fold = document.querySelector('[inert]');
+    expect(fold, 'the folded switch must be inert, not merely invisible').not.toBeNull();
   });
 
   it('extends the period switch from the Flights seen tab and takes it away with it', () => {
@@ -457,8 +464,10 @@ describe('the controls that are gone', () => {
 
     click(MOVES);
     expect(
-      screen.queryByRole('group', { name: 'How much time one period covers', hidden: true }),
+      screen.queryByRole('group', { name: 'How much time one period covers' }),
     ).not.toBeInTheDocument();
+    // Folded rather than removed, which is what the sideways fold animates.
+    expect(document.querySelector('[inert]')).not.toBeNull();
   });
 
   it('draws both charts inside one box that the switch does not replace', () => {

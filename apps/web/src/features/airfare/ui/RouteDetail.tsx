@@ -1,5 +1,4 @@
 import {
-  formatFlightDate,
   formatFlightMonth,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
@@ -172,10 +171,6 @@ export function RouteDetail({
       {cheapest && latest ? (
         <dl className={`${styles.figures} ${styles.wide}`}>
           <div>
-            <dt>Board date</dt>
-            <dd>{formatFlightDate(latest.flightDate)}</dd>
-          </div>
-          <div>
             <dt>Itineraries</dt>
             <dd>{offers.length}</dd>
           </div>
@@ -205,26 +200,6 @@ export function RouteDetail({
                 : NO_VALUE}
             </dd>
           </div>
-          {/*
-            A stretch of archive with no new points means either no price
-            movement or no collector, and only the heartbeat count tells them
-            apart. A series whose gaps are ambiguous is a series nobody should
-            trust — so the looks taken are a figure here, not a footnote.
-          */}
-          <div>
-            <dt>Looks taken</dt>
-            <dd>{health ? health.checks : NO_VALUE}</dd>
-          </div>
-          <div>
-            <dt>Changes</dt>
-            <dd>{health ? health.changes : NO_VALUE}</dd>
-          </div>
-          {health && health.errors > 0 ? (
-            <div>
-              <dt>Failed</dt>
-              <dd className={styles.dear}>{health.errors}</dd>
-            </div>
-          ) : null}
         </dl>
       ) : loading ? (
         /*

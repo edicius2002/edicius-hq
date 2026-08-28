@@ -36,6 +36,14 @@
 
 .switch {
   display: inline-flex;
+  /*
+   * Never shrinks and never grows: the pair is the fixed thing in this row, and
+   * the period control folding open to its right is what moves. Without this
+   * the flex line hands the pair a share of the slack and the two chart names
+   * shift sideways every time the fold opens.
+   */
+  flex: 0 0 auto;
+  align-items: center;
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--color-border);
@@ -74,9 +82,19 @@
  * `min-width` in pixels would be the same intention as a guess, and would be
  * wrong the first time somebody changes the type scale.
  */
+/*
+ * The stack that holds chart B's button open at its widest name — and, with the
+ * rule below, at one line of it.
+ *
+ * The width was already reserved this way. The height was not: every name here
+ * is `nowrap`, so a single line is what they all draw today, but that is a
+ * property of the strings rather than a promise, and the day one of them wraps
+ * the button grows and the switch beside it moves. One line is stated.
+ */
 .names {
   display: grid;
   place-items: center;
+  grid-auto-rows: 1lh;
 }
 
 .nameLive,
@@ -219,4 +237,38 @@
   flex: 1 1 0;
   min-height: 0;
   height: auto;
+}
+
+/*
+ * The fold the period switch opens out of.
+ *
+ * `grid-template-columns: 0fr -> 1fr` rather than a width in pixels: the switch
+ * is three buttons whose labels are words, so its open width is whatever the
+ * font makes it and any number written here would be a guess that a font change
+ * breaks. The grid track measures the content itself and animates between none
+ * of it and all of it.
+ *
+ * `min-width: 0` on the child is what lets the track actually reach zero — a
+ * flex or grid item's floor is its content otherwise, and the strip would sit
+ * there at full width refusing to fold.
+ */
+.periodFold {
+  display: grid;
+  grid-template-columns: 0fr;
+  transition: grid-template-columns 220ms ease;
+}
+
+.periodFold > * {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.periodOpen {
+  grid-template-columns: 1fr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .periodFold {
+    transition: none;
+  }
 }

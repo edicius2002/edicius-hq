@@ -428,11 +428,31 @@ export function AnalysisPanel({
               </span>
             </button>
           </div>
-          {/* The period control unfolds beside its date-cost owner and folds
-              away with price history; it still preserves the table grouping. */}
-          {view === 'days' ? (
+          {/*
+            The period control unfolds sideways out of the date-cost button and
+            folds back into it on price history, rather than appearing and
+            vanishing where it stands.
+
+            It stays mounted through both states, which is the whole reason the
+            fold can be seen at all: a control that unmounts has no width to
+            animate from. `inert` and `aria-hidden` together keep a folded control out
+            of the tab order and off a screen reader while it is still in the
+            tree. Together and not either alone: `inert` is not carried
+            everywhere yet, and hiding a focusable control from a screen reader
+            while leaving it tabbable is the trap `aria-hidden` on its own sets — the
+            visual fold alone would leave three buttons reachable inside a strip
+            nobody can see.
+
+            It still preserves the table grouping across a fold; the reading is
+            kept, not the control's visibility.
+          */}
+          <div
+            className={`${styles.periodFold} ${view === 'days' ? styles.periodOpen : ''}`}
+            inert={view === 'days' ? undefined : true}
+            aria-hidden={view === 'days' ? undefined : true}
+          >
             <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-          ) : null}
+          </div>
         </div>
       </div>
 

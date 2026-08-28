@@ -24,11 +24,18 @@ from app.config import tweets_dir
 from app.services.pass_stream import PassBroadcast
 
 DEFAULT_INTERVAL_SECONDS = int(os.getenv("X_TWEET_WATCH_INTERVAL_SECONDS", "120"))
+MAX_SCROLLS = 80
+SCROLL_PATIENCE = 4
 
 # The two the capture raises itself, in `_capture`. Matched on the text because
 # they arrive as plain RuntimeError, and inventing an exception class for a
 # string two lines away would be ceremony rather than clarity.
 SESSION_MARKERS = ("no hay sesión en el perfil", "la sesión expiró")
+
+
+def should_stop_scrolling(*, reached_known: bool, idle_windows: int) -> bool:
+    """Keep the incremental pass bounded after it has reached its archive."""
+    return reached_known or idle_windows >= SCROLL_PATIENCE
 
 
 @dataclass(frozen=True)
@@ -257,6 +264,7 @@ class TweetWatcher:
             self.pass_ = Refresh(handle=handle)
         self.pass_.state = "running"
         self.pass_.new = 0
+        self.pass_.scroll = 0
         self.pass_.error = None
         self.pass_.finishedAt = None
         self.stream.publish()
@@ -327,7 +335,7 @@ class TweetWatcher:
         return await self._browser_loop.run(self._capture_on_browser_loop(handle))
 
     async def _capture_on_browser_loop(self, handle: str) -> list[dict[str, Any]]:
-        """Navigate once and wait only for the first timeline payload."""
+        """Capture pages until the timeline reaches an archived tweet."""
         tools = Path(__file__).resolve().parents[4] / "tools" / "x-scraper"
         if str(tools) not in sys.path:
             sys.path.insert(0, str(tools))
@@ -351,17 +359,29 @@ class TweetWatcher:
                 self._context.pages[0] if self._context.pages else await self._context.new_page()
             )
 
-        received: asyncio.Future[list[dict[str, Any]]] = asyncio.get_running_loop().create_future()
+        known = self.recent_ids(handle)
+        tweets: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        received = asyncio.Event()
+        reached_known = asyncio.Event()
 
         async def response(reply: Any) -> None:
-            if "UserRepliesTimeline" not in reply.url or received.done():
+            if "UserRepliesTimeline" not in reply.url:
                 return
             try:
-                received.set_result(extract_tweets(await reply.json(), handle))
+                for tweet in extract_tweets(await reply.json(), handle):
+                    tweet_id = str(tweet["id"])
+                    if tweet_id in seen:
+                        continue
+                    seen.add(tweet_id)
+                    tweets.append(tweet)
+                    if tweet_id in known:
+                        reached_known.set()
+                received.set()
             except Exception as error:  # noqa: BLE001 - a body X answered 200 with is
                 # not necessarily JSON, and whatever it is must reach the awaiting
                 # caller rather than escape inside Playwright's own event handler.
-                received.set_exception(error)
+                raise error
 
         # The page is only opened alongside a fresh context, so a context that
         # survived a failure without one is a state worth naming rather than an
@@ -376,7 +396,25 @@ class TweetWatcher:
         )
         if "/i/flow/login" in page.url:
             raise RuntimeError("la sesión expiró")
-        return await asyncio.wait_for(received, timeout=20)
+        await asyncio.wait_for(received.wait(), timeout=20)
+        idle_windows = 0
+        for scroll_number in range(1, MAX_SCROLLS + 1):
+            if should_stop_scrolling(reached_known=reached_known.is_set(), idle_windows=idle_windows):
+                break
+            before_seen = len(seen)
+            received.clear()
+            await page.mouse.wheel(0, random.randint(700, 1_300))
+            if self.pass_ is not None:
+                self.pass_.scroll = scroll_number
+                self.stream.publish()
+            try:
+                await asyncio.wait_for(received.wait(), timeout=4)
+            except TimeoutError:
+                pass
+            idle_windows = 0 if len(seen) > before_seen else idle_windows + 1
+            if should_stop_scrolling(reached_known=reached_known.is_set(), idle_windows=idle_windows):
+                break
+        return tweets
 
 
 RUNNER = TweetWatcher()

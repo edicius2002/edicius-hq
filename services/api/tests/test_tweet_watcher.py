@@ -2,7 +2,7 @@ import asyncio
 import threading
 
 from app.services import tweet_watcher
-from app.services.tweet_watcher import BrowserLoop, TweetWatcher, _loop_factory
+from app.services.tweet_watcher import BrowserLoop, TweetWatcher, _loop_factory, should_stop_scrolling
 
 
 def test_loop_factory_uses_a_proactor_loop_on_windows(monkeypatch):
@@ -36,6 +36,11 @@ def test_cycle_persists_only_unknown_ids_from_the_entire_archive(tmp_path):
         assert "old" in watcher.recent_ids("sample")
 
     asyncio.run(scenario())
+
+
+def test_pagination_stops_as_soon_as_it_reaches_a_known_id():
+    assert should_stop_scrolling(reached_known=True, idle_windows=0) is True
+    assert should_stop_scrolling(reached_known=False, idle_windows=0) is False
 
 
 def test_a_failed_cycle_increases_backoff(tmp_path):

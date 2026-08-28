@@ -101,7 +101,7 @@
   flex-wrap: wrap;
   /* Allowed to shrink under its own content so the heading beside it is not
      pushed onto a line of its own the moment the six controls stop fitting. */
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   /* 10px between controls rather than 15: the six gaps at 15 cost 90px, and
      the 30 saved are the difference between the row holding together down to
@@ -109,12 +109,20 @@
      does the separating. */
   gap: var(--space-2);
   align-items: end;
+  justify-content: space-between;
 }
 
 .filter {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.filter:has(.range) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .filter > span {

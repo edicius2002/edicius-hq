@@ -29,7 +29,7 @@ def test_tweets_maps_and_skips_corrupt_rows():
     )
     tweet = client.get("/api/tweets/sample").json()["tweets"][0]
     assert tweet["isReply"] is True
-    assert tweet["likeCount"] == 2
+    assert "likeCount" not in tweet
 
 
 def test_tweets_sort_descending_before_limit():

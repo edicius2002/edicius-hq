@@ -36,9 +36,6 @@ def _read(path: Path) -> list[dict]:
                     "isReply": row.get("is_reply", False),
                     "inReplyToId": row.get("in_reply_to_id"),
                     "inReplyToUsername": row.get("in_reply_to_username"),
-                    "likeCount": row.get("like_count", 0),
-                    "retweetCount": row.get("retweet_count", 0),
-                    "replyCount": row.get("reply_count", 0),
                     "url": row.get("url"),
                 }
             )

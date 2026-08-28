@@ -7,15 +7,28 @@
   border-radius: var(--radius);
 }
 
+.compact {
+  gap: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
 .label {
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+.compact .label {
+  font-size: 0.7rem;
 }
 
 .value {
   font-size: 1.35rem;
   font-weight: 700;
   color: var(--color-text);
+}
+
+.compact .value {
+  font-size: 1rem;
 }
 
 .income .value {

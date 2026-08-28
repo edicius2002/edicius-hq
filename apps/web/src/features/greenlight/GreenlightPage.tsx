@@ -115,6 +115,28 @@ export function GreenlightPage() {
   return (
     <section className={styles.page} aria-labelledby="page-title">
       <PageHeader
+        beside={
+          <div className={styles.totals}>
+            <Stat
+              label="Gross"
+              value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
+              tone="accent"
+              size="sm"
+            />
+            <Stat
+              label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
+              value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
+              tone="expense"
+              size="sm"
+            />
+            <Stat
+              label="Net"
+              value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
+              tone="income"
+              size="sm"
+            />
+          </div>
+        }
         actions={
           <>
             {(localError || isError) && (
@@ -137,24 +159,6 @@ export function GreenlightPage() {
           </>
         }
       />
-
-      <div className={styles.totals}>
-        <Stat
-          label="Gross"
-          value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
-          tone="accent"
-        />
-        <Stat
-          label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
-          value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
-          tone="expense"
-        />
-        <Stat
-          label="Net"
-          value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
-          tone="income"
-        />
-      </div>
 
       <div className={styles.overview} aria-label="Weekly and monthly overview">
         <Panel className={styles.overviewCard}>

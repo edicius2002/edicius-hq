@@ -33,9 +33,9 @@
  * height to that box.
  *
  * Measured from the rules in this file at `--font-size-base: 125%`, so 1rem is
- * 20px, and `line-height: 1.5` from `reset.css`: `.pair` at 1.05rem is 1.575rem
- * of line, `.cities` at 0.8rem is 1.2rem and there are two of them, and the
- * two gaps between the three are 2px apiece. 83.5px, whether the last look is
+ * 20px, and `line-height: 1.5` from `reset.css`: `.pair` at 0.95rem is 1.425rem
+ * of line, `.cities` at 0.72rem is 1.08rem and there are two of them, and the
+ * two gaps between the three are 2px apiece. 69.1px, whether the last look is
  * present or not. The money box is 71.6px after the denser padding below, so
  * the header remains the stable top-row measure.
  */
@@ -43,25 +43,25 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-height: calc(1.575rem + 2.4rem + 4px);
+  min-height: calc(1.425rem + 2.16rem + 4px);
 }
 
 .pair {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
 .to {
   color: var(--color-muted);
-  padding: 0 2px;
+  padding: 0 1px;
 }
 
 /* The departure, beside the pair and quieter than it. */
 .when {
   margin-left: var(--space-2);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 400;
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
@@ -69,7 +69,7 @@
 
 .cities {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   color: var(--color-muted);
 }
 

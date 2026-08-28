@@ -12,7 +12,9 @@ import json
 import os
 import random
 import sys
-from collections.abc import Awaitable, Callable
+import threading
+from collections.abc import Awaitable, Callable, Coroutine
+from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -53,6 +55,19 @@ def diagnose(error: BaseException) -> Failure:
             f"services/api/requirements.txt con el intérprete que corre uvicorn. ({text})",
             transient=False,
         )
+    # Nothing about a bare `NotImplementedError` points at the reloader, and the
+    # traceback names only asyncio's own internals, so the cause is spelled out
+    # here: on Windows uvicorn switches to a selector event loop whenever it
+    # runs a subprocess of its own, and that loop cannot spawn one — which is
+    # the first thing Playwright's driver asks for. Fatal rather than transient:
+    # the loop the API is running on will not change while it runs.
+    if isinstance(error, NotImplementedError):
+        return Failure(
+            "El event loop no puede lanzar subprocesos, así que Playwright no "
+            "arranca su driver. En Windows lo causa uvicorn con --reload: usa "
+            "`npm start`, o levanta la API sin el reloader.",
+            transient=False,
+        )
     if "playwright install" in text or "Executable doesn't exist" in text:
         return Failure(
             "Playwright está instalado pero le falta el navegador; ejecuta "
@@ -87,6 +102,50 @@ class Refresh:
 Cycle = Callable[[str], Awaitable[list[dict[str, Any]] | None]]
 
 
+def _loop_factory() -> asyncio.AbstractEventLoop:
+    """Create a loop that can launch Playwright's driver on this platform."""
+    if sys.platform == "win32":
+        return asyncio.ProactorEventLoop()  # type: ignore[attr-defined]
+    return asyncio.new_event_loop()
+
+
+class BrowserLoop:
+    """Keep browser-bound asyncio objects on one loop in one dedicated thread."""
+
+    def __init__(self) -> None:
+        self.loop = _loop_factory()
+        self._ready = threading.Event()
+        # Daemon so a browser that will not come apart cannot hold the process
+        # open: `lifespan` stops this loop on the ordinary path, and the only
+        # time the flag decides anything is when that has already gone wrong.
+        # An API that will not exit is answered with a forced kill, and a
+        # forced kill is what takes Chromium down mid-write and empties the
+        # profile — the session then has to be seeded again.
+        self.thread = threading.Thread(target=self._run, name="tweet-watcher-browser", daemon=True)
+        self.thread.start()
+        self._ready.wait()
+
+    def _run(self) -> None:
+        asyncio.set_event_loop(self.loop)
+        self._ready.set()
+        self.loop.run_forever()
+        pending = asyncio.all_tasks(self.loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            self.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        self.loop.close()
+
+    async def run(self, coroutine: Coroutine[Any, Any, Any]) -> Any:
+        """Await browser-loop work from the API loop without sharing its objects."""
+        future: Future[Any] = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
+        return await asyncio.wrap_future(future)
+
+    async def close(self) -> None:
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        await asyncio.to_thread(self.thread.join)
+
+
 class TweetWatcher:
     def __init__(
         self,
@@ -109,6 +168,7 @@ class TweetWatcher:
         self._context: Any | None = None
         self._playwright: Any | None = None
         self._page: Any | None = None
+        self._browser_loop: BrowserLoop | None = None
         self.stream: PassBroadcast[dict[str, Any]] = PassBroadcast()
 
     def current(self, handle: str | None = None) -> Refresh | None:
@@ -241,6 +301,16 @@ class TweetWatcher:
         self.stream.publish()
 
     async def _close_browser(self) -> None:
+        browser_loop = self._browser_loop
+        if browser_loop is None:
+            return
+        try:
+            await browser_loop.run(self._close_browser_on_browser_loop())
+        finally:
+            self._browser_loop = None
+            await browser_loop.close()
+
+    async def _close_browser_on_browser_loop(self) -> None:
         if self._context is not None:
             await self._context.close()
         self._context = self._page = None
@@ -249,6 +319,12 @@ class TweetWatcher:
         self._playwright = None
 
     async def _capture(self, handle: str) -> list[dict[str, Any]]:
+        """Run browser-bound work on its persistent subprocess-capable loop."""
+        if self._browser_loop is None:
+            self._browser_loop = BrowserLoop()
+        return await self._browser_loop.run(self._capture_on_browser_loop(handle))
+
+    async def _capture_on_browser_loop(self, handle: str) -> list[dict[str, Any]]:
         """Navigate once and wait only for the first timeline payload."""
         tools = Path(__file__).resolve().parents[4] / "tools" / "x-scraper"
         if str(tools) not in sys.path:

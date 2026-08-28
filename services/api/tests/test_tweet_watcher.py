@@ -1,6 +1,30 @@
 import asyncio
+import threading
 
-from app.services.tweet_watcher import TweetWatcher
+from app.services import tweet_watcher
+from app.services.tweet_watcher import BrowserLoop, TweetWatcher, _loop_factory
+
+
+def test_loop_factory_uses_a_proactor_loop_on_windows(monkeypatch):
+    expected = object()
+    monkeypatch.setattr(tweet_watcher.sys, "platform", "win32")
+    monkeypatch.setattr(asyncio, "ProactorEventLoop", lambda: expected, raising=False)
+
+    assert _loop_factory() is expected
+
+
+def test_browser_loop_runs_work_on_its_own_thread():
+    async def scenario():
+        browser_loop = BrowserLoop()
+
+        async def thread_id():
+            return threading.get_ident()
+
+        assert await browser_loop.run(thread_id()) != threading.get_ident()
+        await browser_loop.close()
+        assert not browser_loop.thread.is_alive()
+
+    asyncio.run(scenario())
 
 
 def test_cycle_persists_only_unknown_ids_and_keeps_a_recent_id_window(tmp_path):
@@ -56,6 +80,7 @@ def test_a_failure_is_reported_as_its_own_cause(tmp_path):
             (ModuleNotFoundError("No module named 'playwright'", name="playwright"), "playwright"),
             (RuntimeError("no hay sesión en el perfil"), "import_session.py"),
             (RuntimeError("Executable doesn't exist at chrome.exe"), "playwright install"),
+            (NotImplementedError(), "--reload"),
         ):
 
             async def broken(_handle, error=error):
@@ -78,6 +103,9 @@ def test_a_missing_dependency_stops_the_cadence_and_a_timeout_does_not(tmp_path)
     async def scenario():
         for error, retries in (
             (ModuleNotFoundError("gone", name="gone"), False),
+            # The loop the API runs on will not change while it runs, so coming
+            # back on a timer only repeats the same failure.
+            (NotImplementedError(), False),
             (TimeoutError(), True),
         ):
 

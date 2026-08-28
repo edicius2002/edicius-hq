@@ -163,6 +163,14 @@
    * strip can be read where ink on ink cannot.
    */
   overflow-wrap: anywhere;
+  /*
+   * One row, all eight figures. `nowrap` is what makes it one: with the type
+   * below and the board date, the looks taken, the changes and the failures
+   * gone, there is room for eight on a line at every width this strip is drawn
+   * side by side at, and a value too long for its share folds inside its own
+   * cell — which is the fold the reserve below is for.
+   */
+  flex-wrap: nowrap;
   gap: 8px var(--space-4);
   margin: 0;
   padding: 6px 12px;
@@ -171,20 +179,24 @@
   background: var(--color-surface);
   min-width: 0;
   /*
-   * One row of figures, one line of value — the money box's whole case.
+   * A label and two lines of value, reserved.
    *
    * `box-sizing: border-box` from `reset.css`, so this is the outside of the
    * box: 6px of padding at each end and a 1px border at each end is 14px, the
-   * label is 0.62rem of type at 1.5 with 3px under it, and the tallest value
-   * in here is `.big` at 1.2rem. 75.6px.
+   * label is 0.62rem of type at 1.5 with 3px under it, and then twice `dd`'s
+   * 0.72rem at 1.5. 82.8px.
    *
-   * One line and not two, unlike `.wide` below, because every value in this
-   * box is a money string of a dozen characters at most and it is given the
-   * `1fr` column of a strip that runs the page — it has no fold to reserve
-   * for. The four figures are also unconditional: each renders `—` where there
-   * is no number, so this box never changes how many things are in it.
+   * Two lines and not one, now that the board's figures share this box: a
+   * carrier written out in full folds between its two words rather than being
+   * cut short, and the box is the same height whether it does or not. Reserved
+   * on the box rather than on each `dd`, so the figure that folds grows into
+   * room already paid for while the other seven stay one line tall.
+   *
+   * `.big` is larger than the rest and still fits: one line of 0.9rem is
+   * 1.35rem against the 2.16rem reserved here, so the emphasis on the cheapest
+   * fare costs no height at all.
    */
-  min-height: calc(0.93rem + 1.8rem + 17px);
+  min-height: calc(0.93rem + 2.16rem + 17px);
 }
 
 /*
@@ -239,7 +251,7 @@
   min-height: calc(0.93rem + 2.16rem + 17px);
 }
 
-.wide dd {
+.figures dd {
   font-size: 0.72rem;
 }
 
@@ -289,9 +301,17 @@
   }
 }
 
+/*
+ * The cheapest fare, still the loudest figure in the row but no longer a
+ * different scale from it. At 1.2rem it set the height of a box of four; the
+ * box now holds eight and has to fit them on one line, so the emphasis is
+ * carried by weight and a little size rather than by half again the type.
+ * One line of it is 1.35rem against the 2.16rem the box reserves, so it costs
+ * no height.
+ */
 .big {
-  font-size: 1.2rem;
-  font-weight: 500;
+  font-size: 0.9rem;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 

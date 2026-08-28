@@ -1,7 +1,4 @@
-import {
-  formatFlightMonth,
-  type FareRoute,
-} from '@/features/airfare/data/fareRoutes';
+import { formatFlightMonth, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
 import { departureClock, formatInstant } from '@/features/airfare/lib/series';
 import type { FareInsights, FareOffer, FareSnapshot, WatchHealth } from '@/shared/api/fares';
@@ -166,42 +163,50 @@ export function RouteDetail({
             {vsUsual === null ? NO_VALUE : `${vsUsual > 0 ? '+' : ''}${vsUsual.toFixed(1)}%`}
           </dd>
         </div>
-      </dl>
-
-      {cheapest && latest ? (
-        <dl className={`${styles.figures} ${styles.wide}`}>
-          <div>
-            <dt>Itineraries</dt>
-            <dd>{offers.length}</dd>
-          </div>
-          <div>
-            <dt>Airlines</dt>
-            <dd>{airlines}</dd>
-          </div>
-          <div>
-            <dt>Cheapest on</dt>
-            {/*
+        {/*
+          The board's four figures join the money's four in one row, rather
+          than standing in a box of their own under it. Conditional inside the
+          list rather than around it: the money is known from the moment there
+          is a route and the board is not, so the row exists either way and
+          simply carries fewer figures until an archive answers.
+        */}
+        {cheapest && latest ? (
+          <>
+            <div>
+              <dt>Itineraries</dt>
+              <dd>{offers.length}</dd>
+            </div>
+            <div>
+              <dt>Airlines</dt>
+              <dd>{airlines}</dd>
+            </div>
+            <div>
+              <dt>Cheapest on</dt>
+              {/*
               The whole name, never an abbreviation of it: `Aerolineas
               Argentinas · 14:35` is what this figure says, and if the box is
               too narrow to hold it on one line it folds between the two words
               rather than losing either. The separator and the clock are one
               span so they cannot be parted at a line end.
             */}
-            <dd>
-              {cheapest.airlineName ?? cheapest.airline}{' '}
-              <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Usual range</dt>
-            <dd>
-              {insights?.usualLow && insights.usualHigh
-                ? `${formatMoney(insights.usualLow, route.currency)}–${formatMoney(insights.usualHigh, route.currency)}`
-                : NO_VALUE}
-            </dd>
-          </div>
-        </dl>
-      ) : loading ? (
+              <dd>
+                {cheapest.airlineName ?? cheapest.airline}{' '}
+                <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Usual range</dt>
+              <dd>
+                {insights?.usualLow && insights.usualHigh
+                  ? `${formatMoney(insights.usualLow, route.currency)}–${formatMoney(insights.usualHigh, route.currency)}`
+                  : NO_VALUE}
+              </dd>
+            </div>
+          </>
+        ) : null}
+      </dl>
+
+      {cheapest && latest ? null : loading ? (
         /*
           Not "nothing observed yet" — `a-fetch-is-not-an-empty-archive`.
           Every figure above is derived from one query's `data`, and react-query

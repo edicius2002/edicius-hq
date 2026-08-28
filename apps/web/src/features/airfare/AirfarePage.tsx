@@ -508,7 +508,6 @@ export function AirfarePage() {
         route. `SpendToday` argues the placement out in full.
       */}
       <PageHeader
-        title="Airfare"
         actions={<SpendToday spend={spend.data} loading={spend.isPending} />}
       />
 

@@ -17,6 +17,7 @@ export function TopNav() {
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const location = useLocation();
+  const activeItem = navItems.find((item) => item.to === location.pathname);
   const topbarRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -51,6 +52,11 @@ export function TopNav() {
         <div className={styles.brand}>Edicius HQ</div>
         <ApiStatus />
       </div>
+      {activeItem ? (
+        <h1 id="page-title" className={styles.pageTitle}>
+          {activeItem.label}
+        </h1>
+      ) : null}
       <button
         ref={triggerRef}
         className={styles.menuButton}

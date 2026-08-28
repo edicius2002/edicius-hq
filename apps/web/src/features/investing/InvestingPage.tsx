@@ -177,12 +177,10 @@ export function InvestingPage() {
   return (
     <section
       className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
-      aria-labelledby={chartFocused ? undefined : 'investing-title'}
+      aria-labelledby={chartFocused ? undefined : 'page-title'}
       aria-label={chartFocused ? 'Focused investing chart' : undefined}
     >
       <PageHeader
-        title="Investing"
-        titleId="investing-title"
         className={styles.pageHeader}
       />
 

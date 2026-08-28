@@ -115,10 +115,8 @@ export function GreenlightPage() {
   }
 
   return (
-    <section className={styles.page} aria-labelledby="greenlight-title">
+    <section className={styles.page} aria-labelledby="page-title">
       <PageHeader
-        title="Greenlight"
-        titleId="greenlight-title"
         actions={<SaveStatus state={saveState} onRetry={retrySave} />}
       />
 

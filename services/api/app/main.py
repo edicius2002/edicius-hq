@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.adapters.fares import sky_airline
 from app.adapters.streams import CompositeStream
 from app.config import CORS_ORIGINS, kv_dir, sky_official_lookup_enabled
-from app.routers import fares, geography, health, kv, market
+from app.routers import fares, geography, health, kv, market, tweets
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.services.calendar_job import CALENDAR_RUNNER
@@ -102,6 +102,7 @@ app.include_router(kv.router)
 app.include_router(market.router)
 app.include_router(fares.router)
 app.include_router(geography.router)
+app.include_router(tweets.router)
 
 
 @app.get("/")

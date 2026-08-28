@@ -71,3 +71,7 @@ apps/web/public/fonts/*
 # CCB runtime state: agent sessions, worktrees and workspace bindings.
 .ccb/
 .claude/settings.local.json
+
+# X scraper: persistent browser profiles contain session cookies; captures are local data.
+tools/x-scraper/.profile/
+tools/x-scraper/*.jsonl

@@ -43,6 +43,11 @@ def local_data_dir() -> Path:
     return Path(os.getenv("LOCAL_DATA_DIR", ".local-data")).resolve()
 
 
+def tweets_dir() -> Path:
+    """Captured X timelines; an archive distinct from disposable market caches."""
+    return local_data_dir() / "tweets"
+
+
 def kv_dir() -> Path:
     return local_data_dir() / "kv"
 

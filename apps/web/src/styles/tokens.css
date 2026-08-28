@@ -66,7 +66,6 @@
   --color-link-mark: #dcefff;
   --color-shadow: rgba(0, 0, 0, 0.28);
 
-  --sidebar-width: 15rem;
   --font-sans: 'Berkeley Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
   /* Percentage keeps the browser's own font-size preference as the baseline. */
   --font-size-base: 125%;

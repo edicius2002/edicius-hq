@@ -14,17 +14,19 @@
 }
 
 /*
- * The switch, at the right of the head, wrapping under the title at the narrow
- * end of the panel rather than squeezing beside it.
+ * The switch, in the middle column of the head.
  *
- * There is exactly one of them now and there always is. The middle one — how to
+ * It sat at the right edge until the period fold was anchored to it. The fold
+ * opens out of the button's right side, so at the right edge it opened into the
+ * panel's border and could not be seen at all — the centre column is what gives
+ * it somewhere to open into, and the two `1fr` columns either side are what keep
+ * the pill in the same place whether it is open or shut.
+ *
+ * There is exactly one switch now and there always is. The middle one — how to
  * read chart A's axis, how far out chart B stood — went with the modes it
  * switched between, and the period switch has gone into the chart it moves, so
  * what is left is the one control that is a question about the panel: which of
- * the two charts is open. A wrapper for a single child, kept because `.head` is
- * `space-between` and this is the half that has to stay at the right edge —
- * and because it is what makes the head's contents fixed, which is the property
- * the vanished period switch needed a held-open strip to imitate.
+ * the two charts is open.
  */
 .switches {
   display: flex;
@@ -252,23 +254,31 @@
  * flex or grid item's floor is its content otherwise, and the strip would sit
  * there at full width refusing to fold.
  */
+/*
+ * The fold the period switch opens out of, clipped rather than sized.
+ *
+ * It was a `0fr -> 1fr` grid track, which is the usual way to animate to a
+ * width nobody has to name — and it did not fold at all here. That technique
+ * needs a container with a definite width to resolve the fraction against, and
+ * this box is `position: absolute` with no `right`, so its width is
+ * shrink-to-fit and the `fr` had no free space to take a share of.
+ *
+ * `clip-path` needs no width at all. The inset runs from the right edge, so the
+ * switch is revealed left to right out of the button it is pinned to and folds
+ * back into it the same way — and unlike a `max-width` ceiling, there is no
+ * number here that can be guessed too small and clip the control.
+ */
 .periodFold {
-  display: grid;
   position: absolute;
   left: 100%;
   top: 0;
   z-index: 1;
-  grid-template-columns: 0fr;
-  transition: grid-template-columns 220ms ease;
-}
-
-.periodFold > * {
-  min-width: 0;
-  overflow: hidden;
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 220ms ease;
 }
 
 .periodOpen {
-  grid-template-columns: 1fr;
+  clip-path: inset(0 0 0 0);
 }
 
 @media (prefers-reduced-motion: reduce) {

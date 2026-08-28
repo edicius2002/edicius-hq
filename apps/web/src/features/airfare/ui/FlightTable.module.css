@@ -119,10 +119,14 @@
   flex: 1 1 auto;
 }
 
-.filter:has(.range) {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+/*
+ * Price is two fields and a dash where every other filter is one control, and
+ * its label belongs to the pair rather than to the first of them: it stays on
+ * the labels' own line like all the others, centred over both fields instead of
+ * starting above the minimum.
+ */
+.filter:has(.range) > span {
+  text-align: center;
 }
 
 .filter > span {

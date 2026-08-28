@@ -1,3 +1,8 @@
+/*
+ * Centred rather than full-bleed: two columns of prose across a wide monitor
+ * give lines nobody can track back from. 84rem is where the reply column stops
+ * growing usefully and starts being a paragraph the eye has to scan sideways.
+ */
 .page {
   display: grid;
   gap: var(--space-5);
@@ -5,16 +10,56 @@
   max-width: 84rem;
   margin-inline: auto;
 }
+
 .columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
 }
-.column { min-height: 0; }
-.rows { display: grid; gap: var(--space-3); max-height: 38rem; overflow: auto; }
-.tweet { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
-.tweet p { margin: 0; white-space: pre-wrap; }
-.tweet small { color: var(--color-muted); }
-.tweet a { color: var(--color-link); }
-.tweet a:hover { color: var(--color-link-strong); }
-@media (max-width: 44rem) { .columns { grid-template-columns: 1fr; } }
+
+.column {
+  min-height: 0;
+}
+
+/*
+ * The two columns hold very different counts — 39 posts against 444 replies on
+ * the capture this was built from — so the taller one scrolls inside its own
+ * box instead of setting the height of the page.
+ */
+.rows {
+  display: grid;
+  gap: var(--space-3);
+  max-height: 38rem;
+  overflow: auto;
+}
+
+.tweet {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tweet p {
+  margin: 0;
+  /* X keeps the author's line breaks; collapsing them rewrites the post. */
+  white-space: pre-wrap;
+}
+
+.tweet small {
+  color: var(--color-muted);
+}
+
+.tweet a {
+  color: var(--color-link);
+}
+
+.tweet a:hover {
+  color: var(--color-link-strong);
+}
+
+@media (max-width: 44rem) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}

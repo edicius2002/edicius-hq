@@ -1,11 +1,5 @@
-.page {
-  display: grid;
-  gap: var(--space-5);
-  width: 100%;
-}
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: var(--space-3);
-}
+.page { display:grid; gap:var(--space-5); width:100%; }
+.columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); }
+.column { min-height:0; } .rows { max-height:38rem; overflow:auto; display:grid; gap:var(--space-3); }
+.tweet { display:grid; gap:var(--space-2); padding-bottom:var(--space-3); border-bottom:1px solid var(--color-border); } .tweet p { margin:0; white-space:pre-wrap; } .tweet small { color:var(--color-muted); } .tweet a { color:var(--color-accent); }
+@media (max-width: 44rem) { .columns { grid-template-columns:1fr; } }

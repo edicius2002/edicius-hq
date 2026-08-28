@@ -1,0 +1,34 @@
+"""Read-only local archive of captured X posts. Wire fields are camelCase."""
+import json
+from pathlib import Path
+
+from fastapi import APIRouter, Query
+
+from app.config import tweets_dir
+
+router = APIRouter(prefix="/api/tweets", tags=["tweets"])
+DEFAULT_HANDLE = "thsottiaux"
+
+def _read(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append({
+                "id": row.get("id"), "date": row.get("date"), "text": row.get("text", ""),
+                "isReply": row.get("is_reply", False), "inReplyToId": row.get("in_reply_to_id"),
+                "inReplyToUsername": row.get("in_reply_to_username"), "likeCount": row.get("like_count", 0),
+                "retweetCount": row.get("retweet_count", 0), "replyCount": row.get("reply_count", 0), "url": row.get("url"),
+            })
+    return rows
+
+@router.get("/{handle}")
+def get_tweets(handle: str, limit: int = Query(default=500, ge=1, le=5000)) -> dict:
+    # Empty is normal before the first scrape, so it is a stable empty collection rather than 404.
+    rows = _read(tweets_dir() / f"{handle.lstrip('@')}.jsonl")
+    return {"handle": handle.lstrip("@"), "tweets": rows[:limit]}

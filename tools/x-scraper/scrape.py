@@ -26,10 +26,11 @@ def default_profile_dir() -> Path:
 def output_path(username: str, requested: str | None) -> Path:
     if requested:
         return Path(requested).expanduser()
-    base = Path(
-        os.environ.get("X_SCRAPER_OUTPUT", "~/.local/share/x-scraper/output")
-    ).expanduser()
-    return base / f"{username.lstrip('@')}.jsonl"
+    override = os.environ.get("X_SCRAPER_OUTPUT")
+    if override:
+        return Path(override).expanduser() / f"{username.lstrip('@')}.jsonl"
+    # Config resolves relative LOCAL_DATA_DIR from services/api; this script does not.
+    return Path(__file__).resolve().parents[2] / "services" / "api" / ".local-data" / "tweets" / f"{username.lstrip('@')}.jsonl"
 
 
 def existing_ids(path: Path) -> set[str]:

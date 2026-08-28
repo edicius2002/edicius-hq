@@ -36,6 +36,7 @@
 
 .switch {
   display: inline-flex;
+  position: relative;
   /*
    * Never shrinks and never grows: the pair is the fixed thing in this row, and
    * the period control folding open to its right is what moves. Without this
@@ -254,6 +255,10 @@
  */
 .periodFold {
   display: grid;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  z-index: 1;
   grid-template-columns: 0fr;
   transition: grid-template-columns 220ms ease;
 }

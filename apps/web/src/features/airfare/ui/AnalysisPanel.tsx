@@ -427,7 +427,6 @@ export function AnalysisPanel({
                 ))}
               </span>
             </button>
-          </div>
           {/*
             The period control unfolds sideways out of the date-cost button and
             folds back into it on price history, rather than appearing and
@@ -452,6 +451,7 @@ export function AnalysisPanel({
             aria-hidden={view === 'days' ? undefined : true}
           >
             <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+          </div>
           </div>
         </div>
       </div>

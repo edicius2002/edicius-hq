@@ -28,7 +28,6 @@ import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
 import type { Airport } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
-import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 import { SaveStatus } from '@/shared/ui/SaveStatus';
 
@@ -465,7 +464,7 @@ export function AirfarePage() {
   );
 
   return (
-    <section className={styles.page} aria-labelledby="page-title">
+    <section className={styles.page} aria-label="Airfare">
       {/*
         A title and nothing beside it.
 
@@ -484,7 +483,6 @@ export function AirfarePage() {
         the reader could not see which part of "everything" was moving. The row
         watches its own pass to the end and draws it.
       */}
-      <PageHeader />
 
       {/*
         Four cells, laid out in order: map and watchlist across the top row,

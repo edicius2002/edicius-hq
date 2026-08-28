@@ -24,6 +24,55 @@ from app.services.pass_stream import PassBroadcast
 DEFAULT_INTERVAL_SECONDS = int(os.getenv("X_TWEET_WATCH_INTERVAL_SECONDS", "120"))
 RECENT_WINDOW = 200
 
+# The two the capture raises itself, in `_capture`. Matched on the text because
+# they arrive as plain RuntimeError, and inventing an exception class for a
+# string two lines away would be ceremony rather than clarity.
+SESSION_MARKERS = ("no hay sesión en el perfil", "la sesión expiró")
+
+
+@dataclass(frozen=True)
+class Failure:
+    """Why a pass failed, and whether waiting is a plausible cure.
+
+    Every failure used to be reported as a dead X session, which sent the
+    reader to `import_session.py` for a missing Python package, a browser that
+    was never downloaded, and a timeout alike — three problems that share no
+    fix with the one the message named.
+    """
+
+    message: str
+    transient: bool
+
+
+def diagnose(error: BaseException) -> Failure:
+    text = str(error)
+    if isinstance(error, ImportError):
+        missing = getattr(error, "name", None) or text
+        return Failure(
+            f"Falta la dependencia '{missing}' en el entorno de la API; instala "
+            f"services/api/requirements.txt con el intérprete que corre uvicorn. ({text})",
+            transient=False,
+        )
+    if "playwright install" in text or "Executable doesn't exist" in text:
+        return Failure(
+            "Playwright está instalado pero le falta el navegador; ejecuta "
+            f"`python -m playwright install chromium`. ({text})",
+            transient=False,
+        )
+    if any(marker in text for marker in SESSION_MARKERS):
+        return Failure(
+            f"Sesión X inválida o challenge; ejecuta import_session.py. ({text})",
+            transient=False,
+        )
+    # Playwright raises its own `TimeoutError`, which does not inherit the
+    # builtin, so the name is checked as well as the type.
+    if isinstance(error, TimeoutError) or type(error).__name__ == "TimeoutError":
+        return Failure(
+            f"X no devolvió la timeline a tiempo. ({text or type(error).__name__})",
+            transient=True,
+        )
+    return Failure(f"La captura falló: {text or type(error).__name__}", transient=True)
+
 
 @dataclass
 class Refresh:
@@ -56,6 +105,7 @@ class TweetWatcher:
         self.task: asyncio.Task[None] | None = None
         self._loop_task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
+        self._retry_after_failure = False
         self._context: Any | None = None
         self._playwright: Any | None = None
         self._page: Any | None = None
@@ -121,9 +171,12 @@ class TweetWatcher:
                 if self.task is None or self.task.done():
                     self.task = asyncio.create_task(self.run_once(handle))
                 await self.task
-                # A dead session/challenge is not a transient scheduling miss:
-                # do not reopen the profile every two minutes until it is fixed.
-                if self.pass_ and self.pass_.state == "failed":
+                # A dead session, a missing dependency or a browser that was
+                # never downloaded is not a transient scheduling miss: do not
+                # reopen the profile until someone has fixed it. A timeout is,
+                # and dying on one left the page with a watcher that had
+                # silently stopped watching.
+                if self.pass_ and self.pass_.state == "failed" and not self._retry_after_failure:
                     return
                 try:
                     await asyncio.wait_for(
@@ -152,15 +205,26 @@ class TweetWatcher:
             self.pass_.finishedAt = datetime.now(UTC).isoformat()
             self.delay_seconds = self.interval_seconds
         except Exception as error:  # noqa: BLE001 - anything the browser or the
-            # session can raise has to stop the cadence rather than escape into a
-            # loop that would then retry it every two minutes.
+            # session can raise has to be named for the reader rather than escape
+            # into a loop that would then retry it every two minutes.
+            failure = diagnose(error)
             self.pass_.state = "failed"
-            self.pass_.error = (
-                f"Sesión X inválida o challenge; ejecuta import_session.py. ({error})"
-            )
+            self.pass_.error = failure.message
             self.pass_.finishedAt = datetime.now(UTC).isoformat()
-            self.delay_seconds = min(max(self.interval_seconds * 2, 240), 1800)
-            await self.stop(close_browser=True, mark_stopped=False)
+            # Doubling rather than a constant: a transient fault now comes back,
+            # so what bounds the retries is the gap growing, not the loop dying.
+            self.delay_seconds = min(max(self.delay_seconds * 2, 240), 1800)
+            self._retry_after_failure = failure.transient
+            # The browser is closed here; the loop never is. `stop` cancels
+            # `_loop_task`, and `_loop_task` is precisely what is awaiting this
+            # call — the two ended up awaiting each other, and cancelling that
+            # cycle recursed until the stack gave out, surfacing as a
+            # `RecursionError` inside uvloop's callback with no frame of this
+            # file in it to say where it came from. Ending the loop is the
+            # loop's own business, and `_retry_after_failure` is what it reads
+            # to decide. Whatever the next pass needs, it is not the context
+            # that just failed, so that much goes either way.
+            await self._close_browser()
         finally:
             self.stream.publish()
 

@@ -53,7 +53,7 @@ function stubApi(refresh: Record<string, unknown>) {
 }
 
 function renderPage() {
-  render(
+  return render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
@@ -100,4 +100,13 @@ it('shows why a capture failed', async () => {
   renderPage();
 
   expect(await screen.findByRole('alert')).toHaveTextContent('import_session.py');
+});
+
+it('keeps the API watcher running when the Dashboard unmounts', () => {
+  const calls = stubApi(IDLE);
+  const { unmount } = renderPage();
+
+  unmount();
+
+  expect(calls.some((call) => call.startsWith('DELETE') && call.endsWith('/watch'))).toBe(false);
 });

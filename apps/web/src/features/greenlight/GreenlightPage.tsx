@@ -164,10 +164,7 @@ export function GreenlightPage() {
       <div className={styles.overview} aria-label="Weekly and monthly overview">
         <Panel className={styles.overviewCard}>
           <div className={styles.panelHeading}>
-            <div>
-              <h2 className={styles.panelTitle}>By week</h2>
-              <p className={styles.panelSubtitle}>Deliverable value across all weeks</p>
-            </div>
+            <h2 className={styles.panelTitle}>By week</h2>
           </div>
           {hasData ? (
             <WeeklyChart points={weekly} />
@@ -177,10 +174,7 @@ export function GreenlightPage() {
         </Panel>
         <Panel className={styles.overviewCard}>
           <div className={styles.panelHeading}>
-            <div>
-              <h2 className={styles.panelTitle}>By month</h2>
-              <p className={styles.panelSubtitle}>Monthly deliverable totals</p>
-            </div>
+            <h2 className={styles.panelTitle}>By month</h2>
           </div>
           {hasData ? (
             <MonthlyChart points={monthly} />

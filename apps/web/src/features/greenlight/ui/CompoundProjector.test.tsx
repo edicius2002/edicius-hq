@@ -58,6 +58,13 @@ function renderProjector(ui: ReactElement, view: ProjectorView = NO_PROJECTOR_VI
 }
 
 describe('the rate it is told about', () => {
+  it('keeps the functional empty-state guidance without the redundant introduction', () => {
+    renderProjector(<CompoundProjector capital={null} />);
+
+    expect(screen.queryByText(/Interest paid every month and left where it lands/i)).toBeNull();
+    expect(screen.getByText(/Type a capital above/i)).toBeInTheDocument();
+  });
+
   it('says what 6% a year paid monthly is a month, and what it is really worth a year', () => {
     renderProjector(<CompoundProjector capital={NET} />);
     expect(rateField()).toHaveValue('6');

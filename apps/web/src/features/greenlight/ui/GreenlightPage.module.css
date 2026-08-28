@@ -35,20 +35,14 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: var(--space-3);
-  align-items: flex-start;
+  gap: var(--space-2);
+  align-items: center;
 }
 
 .panelTitle {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
-}
-
-.panelSubtitle {
-  margin: var(--space-1) 0 0;
-  color: var(--color-muted);
-  font-size: 0.85rem;
 }
 
 /*

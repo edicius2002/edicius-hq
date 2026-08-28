@@ -3,21 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { type ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { DayStats, GreenlightMeta } from '@/features/greenlight/model/types';
+import type { DayStats } from '@/features/greenlight/model/types';
 import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
 
 afterEach(cleanup);
-
-const META: GreenlightMeta = {
-  fileName: 'TimeRecords.csv',
-  rowsRead: 23,
-  daysGenerated: 17,
-  replaceMode: 'weeks',
-  updatedAt: '2026-08-14T12:00:00.000Z',
-  statusTitle: 'Updated from CSV',
-  statusDetail:
-    'Rebuilt 12 week(s) from the CSV (17 day(s)). Other weeks were kept. Markers were kept.',
-};
 
 function day(amount: number): DayStats {
   return { Deliverable: { amount, details: [] }, currency: 'USD' };
@@ -50,7 +39,6 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ImportPanel>> = {}
   render(
     <ImportPanel
       stats={{}}
-      meta={META}
       isImporting={false}
       isClearing={false}
       hasData
@@ -64,26 +52,11 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ImportPanel>> = {}
 }
 
 describe('ImportPanel', () => {
-  it('shows the stored import status detail, not only the file name', () => {
+  it('keeps import controls free of the removed CSV status copy', () => {
     renderPanel();
-    expect(screen.getByText('TimeRecords.csv')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'Rebuilt 12 week(s) from the CSV (17 day(s)). Other weeks were kept. Markers were kept.',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('offers Replace all only when there is nothing stored yet', () => {
-    renderPanel({ hasData: false, stats: {}, meta: null });
-    expect(screen.getByText('Replace all')).toBeInTheDocument();
-    expect(screen.getByText(/this CSV becomes the whole document/i)).toBeInTheDocument();
-  });
-
-  it('does not offer Replace all once there are stored days', () => {
-    renderPanel({ hasData: true, stats: JULY_STATS });
-    expect(screen.queryByText('Replace all')).toBeNull();
-    expect(screen.getByText(/Rebuilds every week the CSV mentions/)).toBeInTheDocument();
+    expect(screen.queryByText('Update from CSV')).toBeNull();
+    expect(screen.queryByText(/Rebuilds every week the CSV mentions/)).toBeNull();
+    expect(screen.queryByText(/this CSV becomes the whole document/i)).toBeNull();
   });
 
   it('exposes Select CSV as a labelled file input (keyboard-reachable)', () => {

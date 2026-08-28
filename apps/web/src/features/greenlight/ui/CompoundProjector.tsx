@@ -87,14 +87,9 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
   return (
     <Panel aria-labelledby="compound-title">
       <div className={styles.heading}>
-        <div>
-          <h2 id="compound-title" className={styles.title}>
-            If the net compounds
-          </h2>
-          <p className={styles.subtitle}>
-            Interest paid every month and left where it lands, over {PROJECTION_YEARS} years.
-          </p>
-        </div>
+        <h2 id="compound-title" className={styles.title}>
+          If the net compounds
+        </h2>
 
         <div className={styles.fields}>
           <label className={styles.field} htmlFor="compound-capital">

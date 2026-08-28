@@ -1,6 +1,7 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchRefresh, fetchTweets, startRefresh } from '@/shared/api/tweets';
+import { fetchRefresh, fetchTweets, openTweetStream, startRefresh, startWatch, stopWatch } from '@/shared/api/tweets';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
@@ -58,7 +59,18 @@ export function DashboardPage() {
   const query = useQuery({
     queryKey: ['tweets', HANDLE],
     queryFn: ({ signal }) => fetchTweets(HANDLE, signal),
+    // SSE makes a new row immediate; this remains the cheap recovery path if
+    // a proxy drops that long-lived connection.
+    refetchInterval: 60_000,
   });
+  useEffect(() => {
+    void startWatch(HANDLE);
+    const close = openTweetStream(HANDLE, () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }));
+    return () => {
+      close();
+      void stopWatch(HANDLE);
+    };
+  }, [client]);
   const tweets = query.data?.tweets ?? [];
   const running = refresh.data?.state === 'running';
 

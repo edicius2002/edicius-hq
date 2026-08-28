@@ -16,6 +16,7 @@ from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
 from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
 from app.services.stream_hub import HUB
+from app.services.tweet_watcher import RUNNER as TWEET_WATCHER
 
 # Two lines against the day this runs somewhere nobody can attach a debugger.
 # Today a Yahoo rate-limit block, a read-only data volume, a stream reconnecting
@@ -77,6 +78,7 @@ async def lifespan(_app: FastAPI):
     # reintroduce the confusing failure for the half that was left running.
     await RUNNER.aclose()
     await CALENDAR_RUNNER.aclose()
+    await TWEET_WATCHER.stop()
     # After the runners, because cancelling a pass is itself something the
     # watchers are owed — a row holding a `running` document for a pass that
     # will never move again is the spinner-forever failure 8.8 names. Closing

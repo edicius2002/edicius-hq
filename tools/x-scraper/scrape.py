@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Response, sync_playwright
-from x_scraper import extract_tweets
+
+from x_scraper import CursorTracker, bottom_cursors, extract_tweets
 
 
 def default_profile_dir() -> Path:
@@ -45,6 +46,18 @@ def existing_ids(path: Path) -> set[str]:
     return ids
 
 
+def append_tweets(path: Path, tweets: list[dict[str, Any]]) -> None:
+    """Persist each received GraphQL batch before the next human-paced scroll."""
+    if not tweets:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as stream:
+        for tweet in tweets:
+            stream.write(json.dumps(tweet, ensure_ascii=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def has_x_session(context: Any) -> bool:
     return any(cookie["name"] == "auth_token" for cookie in context.cookies())
 
@@ -72,22 +85,38 @@ def main() -> int:
     parser.add_argument("username", help="Usuario X, con o sin @")
     parser.add_argument("--output", help="Archivo JSONL (por defecto, fuera del repo)")
     parser.add_argument("--max-scrolls", type=int, default=80)
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Ignora IDs ya guardados y baja hasta el cursor terminal o --max-scrolls.",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=4,
+        help="Ventanas inactivas consecutivas antes de cerrar una corrida incremental.",
+    )
     args = parser.parse_args()
+    if args.max_scrolls < 1 or args.patience < 1:
+        parser.error("--max-scrolls y --patience deben ser positivos")
+
     username = args.username.lstrip("@")
     profile = default_profile_dir()
     destination = output_path(username, args.output)
     known_ids = existing_ids(destination)
-    captured: dict[str, dict[str, Any]] = {}
+    seen_ids: set[str] = set()
+    cursor_tracker = CursorTracker()
+    new_count = 0
+    known_count = 0
+    response_count = 0
+    timeline_exhausted = False
+    stop_reason = "límite de scrolls alcanzado"
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
             str(profile),
             headless=True,
             viewport={"width": 1365, "height": 900},
-            # Drops `navigator.webdriver`, the cheapest automation tell there
-            # is. It does not make the session undetectable; it keeps an
-            # already-issued session from being flagged on a signal that costs
-            # one flag to remove.
             args=["--disable-blink-features=AutomationControlled"],
         )
         if not has_x_session(context):
@@ -100,6 +129,7 @@ def main() -> int:
             return 2
 
         def on_response(response: Response) -> None:
+            nonlocal known_count, new_count, response_count, timeline_exhausted
             if not is_timeline_response(response):
                 return
             try:
@@ -110,9 +140,22 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return
-            for tweet in extract_tweets(payload, username):
-                if tweet["id"] not in known_ids:
-                    captured[tweet["id"]] = tweet
+
+            response_count += 1
+            tweets = extract_tweets(payload, username)
+            new_tweets: list[dict[str, Any]] = []
+            for tweet in tweets:
+                tweet_id = tweet["id"]
+                seen_ids.add(tweet_id)
+                if tweet_id in known_ids:
+                    known_count += 1
+                else:
+                    new_tweets.append(tweet)
+                    known_ids.add(tweet_id)
+            append_tweets(destination, new_tweets)
+            new_count += len(new_tweets)
+            if cursor_tracker.observe(bottom_cursors(payload)):
+                timeline_exhausted = True
 
         page = context.pages[0] if context.pages else context.new_page()
         page.on("response", on_response)
@@ -130,31 +173,61 @@ def main() -> int:
             return 2
         page.wait_for_timeout(3_000)
 
-        for _ in range(args.max_scrolls):
+        idle_windows = 0
+        for scroll_number in range(1, args.max_scrolls + 1):
+            before_seen = len(seen_ids)
+            before_responses = response_count
+            before_height = page.evaluate("document.documentElement.scrollHeight")
             page.mouse.wheel(0, random.randint(700, 1_300))
             page.wait_for_timeout(random.randint(1_700, 3_900))
-            if known_ids and captured:
-                # The first page is newest-first: once it yields no more unseen ids, resume is done.
-                current_count = len(captured)
-                page.mouse.wheel(0, random.randint(500, 900))
-                page.wait_for_timeout(random.randint(1_200, 2_000))
-                if len(captured) == current_count:
-                    break
+            after_height = page.evaluate("document.documentElement.scrollHeight")
+
+            if timeline_exhausted:
+                stop_reason = "cursor inferior repetido o vacío: timeline agotado"
+                break
+
+            made_progress = (
+                len(seen_ids) > before_seen
+                or response_count > before_responses
+                or after_height > before_height
+            )
+            idle_windows = 0 if made_progress else idle_windows + 1
+            if not args.full and idle_windows >= args.patience:
+                stop_reason = (
+                    f"incremental inactivo durante {idle_windows} ventanas "
+                    f"después de encontrar {known_count} IDs ya guardados"
+                )
+                break
+            if args.full and idle_windows >= args.patience:
+                print(
+                    f"Carga lenta: {idle_windows} ventanas sin respuesta; "
+                    "--full continúa esperando el cursor.",
+                    flush=True,
+                )
+                idle_windows = 0
+            if scroll_number == 1 or scroll_number % 5 == 0:
+                print(
+                    f"Progreso: scroll {scroll_number}/{args.max_scrolls}; "
+                    f"nuevos {new_count}; vistos {len(seen_ids)}; "
+                    f"guardados {known_count}.",
+                    flush=True,
+                )
             time.sleep(random.uniform(0.2, 0.7))
         context.close()
 
-    if not captured:
+    if not seen_ids:
         print(
-            "No se capturó ningún tweet. No se guardó salida: el endpoint cambió, hubo challenge o la sesión no es válida.",
+            "No se capturó ningún tweet. No se guardó salida: el endpoint cambió, "
+            "hubo challenge o la sesión no es válida.",
             file=sys.stderr,
         )
         return 3
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("a", encoding="utf-8") as stream:
-        for tweet in captured.values():
-            stream.write(json.dumps(tweet, ensure_ascii=False) + "\n")
-    print(f"Guardados {len(captured)} tweets nuevos en {destination}")
+    print(
+        f"Finalizado: {stop_reason}. Nuevos {new_count}; vistos {len(seen_ids)}; "
+        f"ya guardados {known_count}; salida {destination}",
+        flush=True,
+    )
     return 0
 
 

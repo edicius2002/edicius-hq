@@ -45,6 +45,4 @@ URL. El script carga los IDs ya escritos y sólo añade nuevos. Si no recibe twe
 termina con código 3 para evitar resultados silenciosamente vacíos. Si falta o
 expiró la sesión, termina con código 2 e indica ejecutar `login.py`.
 
-El endpoint observado se filtra por los nombres GraphQL `UserTweetsAndReplies` y
-`UserTweets`; X puede cambiarlo sin aviso. El límite de scroll se ajusta con
-`--max-scrolls` (80 por defecto) y usa pausas aleatorias humanas.
+El endpoint observado para esta pestaña es `UserRepliesTimeline` (con fallbacks para otras pestañas); X puede cambiarlo sin aviso. Por defecto la corrida incremental se detiene tras `--patience` (4) ventanas inactivas, pero `--full` ignora IDs ya guardados y sólo termina por cursor inferior agotado o `--max-scrolls`. Cada lote GraphQL se guarda inmediatamente y el progreso muestra scroll, nuevos y vistos.

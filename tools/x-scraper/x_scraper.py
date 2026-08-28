@@ -71,3 +71,33 @@ def extract_tweets(payload: dict[str, Any], username: str) -> list[dict[str, Any
         )
         seen.add(tweet_id)
     return tweets
+
+
+def bottom_cursors(payload: dict[str, Any]) -> list[str]:
+    """Return bottom cursors exactly as X supplied them, including an empty one."""
+    cursors: list[str] = []
+    for candidate in _walk(payload):
+        entry_id = candidate.get("entryId")
+        content = candidate.get("content")
+        if not isinstance(entry_id, str) or not entry_id.startswith("cursor-bottom-"):
+            continue
+        if isinstance(content, dict):
+            value = content.get("value", "")
+            cursors.append(value if isinstance(value, str) else "")
+    return cursors
+
+
+class CursorTracker:
+    """Recognise a terminal timeline cursor without confusing a slow fetch for EOF."""
+
+    def __init__(self, repeat_limit: int = 2) -> None:
+        self.repeat_limit = repeat_limit
+        self.last: str | None = None
+        self.repeats = 0
+
+    def observe(self, cursors: list[str]) -> bool:
+        if not cursors:
+            return False
+        current = cursors[-1]
+        if not current:
+            return True

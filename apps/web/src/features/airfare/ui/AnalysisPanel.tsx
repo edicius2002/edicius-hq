@@ -409,6 +409,7 @@ export function AnalysisPanel({
             <button
               type="button"
               aria-pressed={view === 'days'}
+              aria-expanded={view === 'days'}
               aria-label={daysName}
               onClick={() => setView('days')}
               data-testid="days-chart-button"
@@ -427,10 +428,8 @@ export function AnalysisPanel({
               </span>
             </button>
           </div>
-          {/* `period-switch-follows-its-chart` is superseded: the owner chose
-              adjacency over holding space for a control that does not apply to
-              price history. The pill may shift when Flights seen opens; the
-              prose row and its reserved height are gone on both views. */}
+          {/* The period control unfolds beside its date-cost owner and folds
+              away with price history; it still preserves the table grouping. */}
           {view === 'days' ? (
             <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
           ) : null}

@@ -170,8 +170,16 @@
  * spare. A field wide enough for eight would say the range expects numbers it
  * will never see, and it would cost the row 60px it does not have.
  */
+/*
+ * The two fields and the dash between them, centred under their label.
+ *
+ * Price is the one filter that is two controls, so left-aligning it put the
+ * minimum under the label's first letter and the maximum out past its last.
+ * Centred, the pair reads as the one control it is grouped as.
+ */
 .range {
   display: flex;
+  justify-content: center;
   align-items: center;
   gap: var(--space-1);
 }

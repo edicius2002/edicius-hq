@@ -1,6 +1,18 @@
 .head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /*
+   * Title, pill, chart head — the pill sits against the title rather than in
+   * the middle of the row.
+   *
+   * It was centred to give the period fold somewhere to open into, and the
+   * third column still is that somewhere: everything to the pill's right is
+   * free space until the chart's own head, which justifies itself to the end.
+   * What the two `auto` columns cost is that the pill now starts where the
+   * title finishes, so a longer route name moves it. That is a smaller
+   * movement than the fold used to cause and it happens when the reader
+   * changes route rather than when they press a control they are looking at.
+   */
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-3);

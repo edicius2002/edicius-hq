@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchTweets } from '@/shared/api/tweets';
+import { fetchRefresh, fetchTweets, startRefresh } from '@/shared/api/tweets';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
@@ -33,6 +33,9 @@ function Column({ title, tweets }: { title: string; tweets: Tweets }) {
 }
 
 export function DashboardPage() {
+  const client = useQueryClient();
+  const refresh = useQuery({ queryKey: ["tweets-refresh", HANDLE], queryFn: () => fetchRefresh(HANDLE), refetchInterval: (q) => q.state.data?.state === "running" ? 1000 : false });
+  const start = useMutation({ mutationFn: () => startRefresh(HANDLE), onSuccess: () => void refresh.refetch(), onSettled: () => void client.invalidateQueries({ queryKey: ["tweets", HANDLE] }) });
   const query = useQuery({
     queryKey: ['tweets', HANDLE],
     queryFn: ({ signal }) => fetchTweets(HANDLE, signal),
@@ -41,7 +44,9 @@ export function DashboardPage() {
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader title={`@${HANDLE}`} className={styles.header} />
+      <PageHeader title={`@${HANDLE}`} className={styles.header} actions={<button type="button" onClick={() => start.mutate()} disabled={start.isPending || refresh.data?.state === "running"}>Refresh</button>} />
+      {refresh.data?.state === "running" ? <p>Refreshing: scroll {refresh.data.scroll}, new {refresh.data.new}</p> : null}
+      {refresh.data?.state === "failed" ? <Panel role="alert">{refresh.data.error}</Panel> : null}
       {query.isLoading ? (
         <Panel>Loading tweets…</Panel>
       ) : query.isError ? (

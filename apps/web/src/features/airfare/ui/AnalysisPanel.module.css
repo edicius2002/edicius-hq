@@ -1,8 +1,7 @@
 .head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
@@ -29,9 +28,9 @@
  */
 .switches {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
+  grid-column: 2;
 }
 
 .switch {
@@ -56,12 +55,12 @@
   appearance: none;
   border: 0;
   cursor: pointer;
-  padding: 5px 13px;
+  padding: 4px 9px;
   border-radius: 999px;
   background: transparent;
   color: var(--color-muted);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
 }
 
 .switch button[aria-pressed='true'] {

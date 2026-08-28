@@ -40,8 +40,8 @@ El script no solicita ni lee credenciales de la terminal.
 python3 tools/x-scraper/scrape.py thsottiaux
 ```
 
-Cada línea del JSONL contiene `id`, fecha, texto, relación de reply, contadores y
-URL. El script carga los IDs ya escritos y sólo añade nuevos. Si no recibe tweets,
+Cada línea del JSONL contiene `id`, fecha, texto, relación de reply y URL. El
+script carga los IDs ya escritos y sólo añade nuevos. Si no recibe tweets,
 termina con código 3 para evitar resultados silenciosamente vacíos. Si falta o
 expiró la sesión, termina con código 2 e indica ejecutar `login.py`.
 

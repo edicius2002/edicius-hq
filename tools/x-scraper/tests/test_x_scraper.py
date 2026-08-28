@@ -87,9 +87,6 @@ def test_extract_tweets_keeps_only_target_authors_and_reply_metadata():
             "is_reply": True,
             "in_reply_to_id": "99",
             "in_reply_to_username": "other",
-            "like_count": 3,
-            "retweet_count": 2,
-            "reply_count": 1,
             "url": "https://x.com/thsottiaux/status/101",
         }
     ]

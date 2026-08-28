@@ -6,9 +6,6 @@ export type Tweet = {
   date: string;
   text: string;
   isReply: boolean;
-  likeCount: number;
-  retweetCount: number;
-  replyCount: number;
   url: string;
 };
 

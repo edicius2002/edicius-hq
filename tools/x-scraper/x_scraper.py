@@ -63,9 +63,6 @@ def extract_tweets(payload: dict[str, Any], username: str) -> list[dict[str, Any
                 "is_reply": bool(reply_to_id),
                 "in_reply_to_id": reply_to_id,
                 "in_reply_to_username": legacy.get("in_reply_to_screen_name"),
-                "like_count": legacy.get("favorite_count", 0),
-                "retweet_count": legacy.get("retweet_count", 0),
-                "reply_count": legacy.get("reply_count", 0),
                 "url": f"https://x.com/{author}/status/{tweet_id}",
             }
         )

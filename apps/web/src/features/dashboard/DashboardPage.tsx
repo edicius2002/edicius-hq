@@ -28,9 +28,6 @@ function Column({ title, tweets }: { title: string; tweets: Tweets }) {
               {new Date(tweet.date).toLocaleString()}
             </time>
             <p>{tweet.text}</p>
-            <small>
-              ♥ {tweet.likeCount} · ↻ {tweet.retweetCount} · ↩ {tweet.replyCount}
-            </small>
             <a href={tweet.url} target="_blank" rel="noreferrer">
               Open on X
             </a>

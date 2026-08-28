@@ -23,7 +23,6 @@ import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
 import type { Bar, Quote } from '@/shared/api/market';
-import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import { formatPercent, formatAmount } from '@/shared/lib/money';
@@ -191,11 +190,8 @@ export function InvestingPage() {
   return (
     <section
       className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
-      aria-labelledby={chartFocused ? undefined : 'page-title'}
-      aria-label={chartFocused ? 'Focused investing chart' : undefined}
+      aria-label={chartFocused ? 'Focused investing chart' : 'Investing'}
     >
-      <PageHeader className={styles.pageHeader} />
-
       <div className={styles.tickerWrap}>
         <TickerTape quotes={tapeQuotes} onSelect={setSymbol} />
       </div>

@@ -8,6 +8,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
 import {
@@ -252,6 +253,16 @@ type DepartureChartProps = {
   keys: string[];
   onStep: (direction: -1 | 1) => void;
   /**
+   * Where the chart's own head should be drawn, when it is not to be drawn here.
+   *
+   * The count and the frame controls belong to this chart — they are derived
+   * from the points it placed and the zoom it holds — but the owner wanted them
+   * on the panel's one head row rather than on a second row inside the figure.
+   * A portal moves the nodes and nothing else: the state stays where it is
+   * computed, so there is no second copy of it to fall out of step.
+   */
+  metaSlot?: HTMLElement | null;
+  /**
    * How much of the frame is on screen, or null for the whole of it.
    *
    * A prop rather than state here, and for 12.170's reason carried to a second
@@ -371,6 +382,7 @@ export function DepartureChart({
   periodKey,
   keys,
   onStep,
+  metaSlot = null,
   viewport,
   onViewportChange,
   label,
@@ -1185,10 +1197,14 @@ export function DepartureChart({
     );
   };
 
-  return (
-    <figure className={styles.figure}>
-      <div className={styles.head}>
-        {/*
+  /*
+   * The head is the same nodes wherever it lands: rendered here when the figure
+   * owns its own row, and portalled into the panel's head row when the panel
+   * offers one. Nothing about what it says is decided twice.
+   */
+  const head = (
+    <div className={styles.head}>
+      {/*
           The count, printed as the figure it is.
 
           It used to read `16 flights departing on 30/11/2026, 00:00 to 23:59`,
@@ -1199,11 +1215,11 @@ export function DepartureChart({
           the dates under it already, and what they cannot count for themselves
           is how many dots there are.
         */}
-        <p className={styles.window} data-testid="frame-summary">
-          {summary(source, placed.length, marks)}
-        </p>
+      <p className={styles.window} data-testid="frame-summary">
+        {summary(source, placed.length, marks)}
+      </p>
 
-        {/*
+      {/*
           The chart's own top-right corner: which period is open, and the way
           back out of a zoom.
 
@@ -1213,32 +1229,32 @@ export function DepartureChart({
           rather than to the chart, and it stands under that tab, where a reader
           who has just pressed "Flights seen" is already looking.
         */}
-        <div className={styles.corner}>
-          {keys.length > 1 ? (
-            <div className={styles.steps}>
-              <button
-                type="button"
-                onClick={() => onStep(-1)}
-                disabled={!previous}
-                aria-label={`Previous ${UNIT[granularity]}`}
-              >
-                &lsaquo;
-              </button>
-              <span>
-                {keys.indexOf(period.key) + 1} / {keys.length}
-              </span>
-              <button
-                type="button"
-                onClick={() => onStep(1)}
-                disabled={!next}
-                aria-label={`Next ${UNIT[granularity]}`}
-              >
-                &rsaquo;
-              </button>
-            </div>
-          ) : null}
+      <div className={styles.corner}>
+        {keys.length > 1 ? (
+          <div className={styles.steps}>
+            <button
+              type="button"
+              onClick={() => onStep(-1)}
+              disabled={!previous}
+              aria-label={`Previous ${UNIT[granularity]}`}
+            >
+              &lsaquo;
+            </button>
+            <span>
+              {keys.indexOf(period.key) + 1} / {keys.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => onStep(1)}
+              disabled={!next}
+              aria-label={`Next ${UNIT[granularity]}`}
+            >
+              &rsaquo;
+            </button>
+          </div>
+        ) : null}
 
-          {/*
+        {/*
             The way back out of a zoom, beside the arrows that move the frame
             because both are the same kind of control.
 
@@ -1255,7 +1271,7 @@ export function DepartureChart({
             control's words have to: the accessible name, and the tooltip a
             pointer finds.
           */}
-          {/*
+        {/*
             The pin, beside the way out of a zoom, because both are things done
             to the frame rather than to the archive — and because this corner is
             where this chart already keeps its own controls.
@@ -1279,35 +1295,40 @@ export function DepartureChart({
             not change when the state does; what changes is whether it is on,
             which is a thing the platform already has a word for.
           */}
-          <button
-            type="button"
-            className={`${styles.reset} ${styles.pin}`}
-            onClick={() => {
-              if (pinned) setPinned(false);
-              else if (reading !== null) setPinned(true);
-            }}
-            disabled={!pinned && reading === null}
-            aria-pressed={pinned}
-            aria-label="Pin the reading"
-            title={pinned ? 'Unpin the reading' : 'Pin the reading'}
-            data-testid="pin-reading"
-          >
-            <span aria-hidden="true">&#9679;</span>
-          </button>
+        <button
+          type="button"
+          className={`${styles.reset} ${styles.pin}`}
+          onClick={() => {
+            if (pinned) setPinned(false);
+            else if (reading !== null) setPinned(true);
+          }}
+          disabled={!pinned && reading === null}
+          aria-pressed={pinned}
+          aria-label="Pin the reading"
+          title={pinned ? 'Unpin the reading' : 'Pin the reading'}
+          data-testid="pin-reading"
+        >
+          <span aria-hidden="true">&#9679;</span>
+        </button>
 
-          <button
-            type="button"
-            className={styles.reset}
-            onClick={() => onViewportChange(null)}
-            disabled={!zoomed}
-            aria-label="Reset zoom"
-            title="Reset zoom"
-            data-testid="reset-zoom"
-          >
-            <span aria-hidden="true">&#8634;</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          className={styles.reset}
+          onClick={() => onViewportChange(null)}
+          disabled={!zoomed}
+          aria-label="Reset zoom"
+          title="Reset zoom"
+          data-testid="reset-zoom"
+        >
+          <span aria-hidden="true">&#8634;</span>
+        </button>
       </div>
+    </div>
+  );
+
+  return (
+    <figure className={styles.figure}>
+      {metaSlot === null ? head : createPortal(head, metaSlot)}
 
       <svg
         ref={svg}

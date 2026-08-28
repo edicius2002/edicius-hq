@@ -105,19 +105,6 @@ describe('RouteDetail', () => {
     expect(screen.getByText(/Last look 18\/08\/2026 22:45/)).toBeInTheDocument();
   });
 
-  it('names which day of the month the board figures belong to', () => {
-    /*
-     * The panel describes one board, and since 12.110 the month holds
-     * thirty-one of them — so it has to say which. `dd/mm/yyyy` here against a
-     * spelled-out month in the heading, precisely so the two can never be read
-     * as the same kind of thing.
-     */
-    renderDetail();
-    const [, board] = renderDetail().container.querySelectorAll('dl');
-    expect(within(board as HTMLElement).getByText('Board date')).toBeInTheDocument();
-    expect(within(board as HTMLElement).getByText('06/12/2026')).toBeInTheDocument();
-  });
-
   it('offers no way out of the month, because there is nothing to be let out of', () => {
     /*
      * "Read the whole month" stood in this header and existed for one reason:
@@ -140,28 +127,35 @@ describe('RouteDetail', () => {
     expect(screen.queryByText(/last look/i)).not.toBeInTheDocument();
   });
 
-  it('carries the board and the collector as figures, not as sentences', () => {
+  it('carries what the board holds as figures, not as sentences', () => {
     /*
-     * The heartbeat count especially: a stretch of archive with no new points
-     * means either no price movement or no collector, and only that number
-     * tells them apart. It was a footnote; it is a figure.
+     * Four figures, on one row. The board date, the looks taken, the changes
+     * and the failures were asked for and removed; whether the collector is
+     * running is still readable from the "Last look" line in the header above,
+     * which is where it now says so alone.
      */
     const { container } = renderDetail();
-    const [money, board] = container.querySelectorAll('dl');
-    expect(within(money as HTMLElement).getByText('Cheapest now')).toBeInTheDocument();
+    const boxes = container.querySelectorAll('dl');
+    // One list, not two: the money and the board share a row.
+    expect(boxes).toHaveLength(1);
+    const figures = boxes[0] as HTMLElement;
     for (const label of [
+      'Cheapest now',
+      'Dearest on board',
+      'Usually',
+      'Vs usual',
       'Itineraries',
       'Airlines',
       'Cheapest on',
-      'Board date',
       'Usual range',
-      'Looks taken',
-      'Changes',
     ]) {
-      expect(within(board as HTMLElement).getByText(label)).toBeInTheDocument();
+      expect(within(figures).getByText(label)).toBeInTheDocument();
+    }
+    for (const gone of ['Board date', 'Looks taken', 'Changes', 'Failed']) {
+      expect(within(figures).queryByText(gone)).not.toBeInTheDocument();
     }
     // The last look stays in the compact header, even before a board exists.
-    expect(within(board as HTMLElement).queryByText('Last look')).not.toBeInTheDocument();
+    expect(within(figures).queryByText('Last look')).not.toBeInTheDocument();
   });
 
   it('writes the carrier and its departure out in full, however long the name', () => {
@@ -188,13 +182,6 @@ describe('RouteDetail', () => {
     // The separator and the clock are one unbreakable run, so a fold can never
     // leave the dot at the end of a line with its time on the next.
     expect(value.querySelector('span')?.textContent).toBe('· 08:55');
-  });
-
-  it('counts failures only when there have been some', () => {
-    renderDetail();
-    expect(screen.queryByText('Failed')).not.toBeInTheDocument();
-    renderDetail({ health: { ...HEALTH, errors: 2 } });
-    expect(screen.getAllByText('Failed').length).toBe(1);
   });
 
   it('asks for a collection rather than showing empty figures', () => {
@@ -350,38 +337,40 @@ function boxChrome(): number {
 }
 
 describe('the height the route strip holds', () => {
-  it('reserves the money box a label and its tallest value', () => {
+  it('reserves the one figure box a label and two lines of value, which is the fold', () => {
     /*
-     * One line and not two: every value in this box is a money string of a
-     * dozen characters at most in the `1fr` column of a strip that runs the
-     * page, so it has no fold to reserve for. `.big` is the tallest of the
-     * four and therefore the one the row is measured on.
+     * One box now, holding the money and the board together on a single row.
+     * Two lines and not one, because `Aerolineas Argentinas · 14:35` folds
+     * between its two words rather than being cut short —
+     * `a-figure-takes-what-it-holds`, which is not withdrawn — and this is the
+     * room that fold spends. The box is the same height whether it is taken or
+     * not.
      */
     expect(REM_PX).toBe(20);
-    expect(reserved('figures')).toBeCloseTo(
-      labelBlock() + fontSize('big') * LINE_HEIGHT + boxChrome(),
-      5,
-    );
-  });
-
-  it('reserves the board box a label and two lines of value, which is the fold', () => {
-    /*
-     * `Aerolineas Argentinas · 14:35` folds between its two words rather than
-     * being cut short — `a-figure-takes-what-it-holds`, which is not withdrawn
-     * — and this is the room that fold spends. The box is the same height
-     * whether it is taken or not.
-     */
     const value = /font-size:\s*([\d.]+)rem/.exec(
-      new RegExp(`\\._wide_[0-9a-z]+ dd\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
+      new RegExp(`\\._figures_[0-9a-z]+ dd\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
     );
-    expect(value, '.wide dd must declare a rem font size').not.toBeNull();
+    expect(value, '.figures dd must declare a rem font size').not.toBeNull();
     const twoLines = 2 * Number(value?.[1]) * REM_PX * LINE_HEIGHT;
 
-    expect(reserved('wide')).toBeCloseTo(labelBlock() + twoLines + boxChrome(), 5);
-    // Taller than the money box, so the later rule has to win on the elements
-    // carrying both classes — which is the order they are declared in.
-    expect(reserved('wide')).toBeGreaterThan(reserved('figures'));
-    expect(CSS.indexOf('._wide_')).toBeGreaterThan(CSS.indexOf('._figures_'));
+    expect(reserved('figures')).toBeCloseTo(labelBlock() + twoLines + boxChrome(), 5);
+  });
+
+  it('keeps the cheapest fare loud enough to cost no height', () => {
+    /*
+     * `.big` was 1.2rem when it set the height of a box of four. The box holds
+     * eight now and has to fit them on one line, so the emphasis is carried by
+     * weight and a little size instead — and this is the check that "a little"
+     * stays inside what the box already reserves. The day it does not, the
+     * strip starts growing under a long carrier name again.
+     */
+    const value = /font-size:\s*([\d.]+)rem/.exec(
+      new RegExp(`\\._figures_[0-9a-z]+ dd\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
+    );
+    const twoLines = 2 * Number(value?.[1]) * REM_PX * LINE_HEIGHT;
+
+    expect(fontSize('big')).toBeGreaterThan(Number(value?.[1]) * REM_PX);
+    expect(fontSize('big') * LINE_HEIGHT).toBeLessThanOrEqual(twoLines);
   });
 
   it('reserves the header three lines, so route states never move the figures', () => {

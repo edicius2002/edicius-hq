@@ -6,6 +6,11 @@ import { useCandles } from '@/features/investing/chart/useCandles';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
 import { activePanes } from '@/features/investing/data/indicators';
+import {
+  totalsByCurrency,
+  valuePosition,
+  type Valuation,
+} from '@/features/investing/data/portfolio';
 import { useIndicatorSeries } from '@/features/investing/hooks/useIndicatorSeries';
 import { useIndicators } from '@/features/investing/hooks/useIndicators';
 import { usePortfolio } from '@/features/investing/hooks/usePortfolio';
@@ -13,12 +18,11 @@ import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
-import { Positions } from '@/features/investing/ui/Positions';
+import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
 import type { Bar, Quote } from '@/shared/api/market';
-import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import { formatPercent, formatAmount } from '@/shared/lib/money';
@@ -173,15 +177,21 @@ export function InvestingPage() {
   const statusLabel =
     (marketState ? MARKET_STATE_LABEL[marketState] : undefined) ?? REGIME_LABEL[candles.regime];
   const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
+  const positionTotals = useMemo(
+    () =>
+      totalsByCurrency(
+        holdings.portfolio.positions
+          .map((position) => valuePosition(position, bySymbol.get(position.symbol)))
+          .filter((valuation): valuation is Valuation => valuation !== null),
+      ),
+    [holdings.portfolio.positions, bySymbol],
+  );
 
   return (
     <section
       className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
-      aria-labelledby={chartFocused ? undefined : 'page-title'}
-      aria-label={chartFocused ? 'Focused investing chart' : undefined}
+      aria-label={chartFocused ? 'Focused investing chart' : 'Investing'}
     >
-      <PageHeader className={styles.pageHeader} />
-
       <div className={styles.tickerWrap}>
         <TickerTape quotes={tapeQuotes} onSelect={setSymbol} />
       </div>
@@ -351,9 +361,12 @@ export function InvestingPage() {
         aria-labelledby="investing-positions-title"
         hidden={!marketPanelOpen || chartFocused}
       >
-        <h2 id="investing-positions-title" className={styles.panelTitle}>
-          Positions
-        </h2>
+        <div className={styles.positionsHeader}>
+          <h2 id="investing-positions-title" className={styles.panelTitle}>
+            Positions
+          </h2>
+          <PositionTotals totals={positionTotals} />
+        </div>
 
         {holdings.isError ? (
           <p className={styles.error} role="alert">

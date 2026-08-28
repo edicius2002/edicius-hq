@@ -39,6 +39,15 @@ def sky_official_lookup_enabled() -> bool:
     }
 
 
+def tweet_watch_on_start_enabled() -> bool:
+    """Whether API startup owns the default X watcher; absent and empty mean enabled."""
+    return os.getenv("X_TWEET_WATCH_ON_START", "").strip().casefold() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
 def local_data_dir() -> Path:
     return Path(os.getenv("LOCAL_DATA_DIR", ".local-data")).resolve()
 

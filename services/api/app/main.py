@@ -7,10 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.fares import sky_airline
 from app.adapters.streams import CompositeStream
-from app.config import CORS_ORIGINS, kv_dir, sky_official_lookup_enabled
+from app.config import (
+    CORS_ORIGINS,
+    kv_dir,
+    sky_official_lookup_enabled,
+    tweet_watch_on_start_enabled,
+)
 from app.routers import fares, geography, health, kv, market, tweets
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
+from app.routers.tweets import DEFAULT_HANDLE
 from app.services.calendar_job import CALENDAR_RUNNER
 from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
@@ -65,6 +71,9 @@ async def lifespan(_app: FastAPI):
     # follows nothing until someone asks, so an idle API opens no connection.
     HUB.attach(CompositeStream())
     HUB.start()
+    if tweet_watch_on_start_enabled():
+        # `watch` only schedules its first capture, so startup never waits for X.
+        TWEET_WATCHER.watch(DEFAULT_HANDLE)
     logger.info("api started; kv=%s", kv_dir())
     yield
     logger.info("api stopping")

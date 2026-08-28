@@ -14,7 +14,7 @@ from typing import Any
 
 from playwright.sync_api import Response, sync_playwright
 
-from x_scraper import CursorTracker, bottom_cursors, extract_tweets
+from x_scraper import CursorTracker, bottom_cursors, extract_tweets, is_timeline_url
 
 
 def default_profile_dir() -> Path:
@@ -63,22 +63,11 @@ def has_x_session(context: Any) -> bool:
     return any(cookie["name"] == "auth_token" for cookie in context.cookies())
 
 
-# The operation that serves each profile tab. `UserRepliesTimeline` is what
-# /with_replies actually calls — measured against the live site, where the
-# guessed `UserTweetsAndReplies` never fired once. Kept as a tuple because the
-# name is X's to change and this is the one line that has to move when it does.
-TIMELINE_OPERATIONS = (
-    "UserRepliesTimeline",
-    "UserTweetsAndReplies",
-    "UserTweets",
-    "UserMedia",
-)
-
-
 def is_timeline_response(response: Response) -> bool:
-    return response.request.resource_type in {"xhr", "fetch"} and any(
-        operation in response.url for operation in TIMELINE_OPERATIONS
-    )
+    # The operation names live in `x_scraper` because the watcher matches on
+    # them too, and two copies of a list only X can change is how the watcher
+    # came to listen for one tab and miss the other for months.
+    return response.request.resource_type in {"xhr", "fetch"} and is_timeline_url(response.url)
 
 
 def main() -> int:

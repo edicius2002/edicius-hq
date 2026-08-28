@@ -1,5 +1,11 @@
 import asyncio
+import sys
 import threading
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools" / "x-scraper"))
+
+from x_scraper import is_timeline_url
 
 from app.services import tweet_watcher
 from app.services.tweet_watcher import (
@@ -162,5 +168,105 @@ def test_a_fatal_failure_ends_the_loop_without_the_two_tasks_awaiting_each_other
         await asyncio.wait_for(watcher._loop_task, timeout=5)
         assert watcher.current("sample").state == "failed"
         assert watcher._retry_after_failure is False
+
+    asyncio.run(scenario())
+
+
+def _tweet(tweet_id, date, text, reply_to=None):
+    return {
+        "rest_id": tweet_id,
+        "legacy": {
+            "created_at": date,
+            "full_text": text,
+            "in_reply_to_status_id_str": reply_to,
+        },
+        "core": {"user_results": {"result": {"core": {"screen_name": "sample"}}}},
+    }
+
+
+class _FakeMouse:
+    async def wheel(self, _x, _y):
+        return None
+
+
+class _FakeReply:
+    def __init__(self, url, payload):
+        self.url = url
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+
+class _FakePage:
+    """A page that answers each tab with the operation X serves it from."""
+
+    def __init__(self, answers):
+        self.answers = answers
+        self.visited = []
+        self.url = ""
+        self.mouse = _FakeMouse()
+        self.handlers = []
+
+    def on(self, _event, handler):
+        self.handlers.append(handler)
+
+    def remove_listener(self, _event, handler):
+        self.handlers.remove(handler)
+
+    async def goto(self, url, **_kwargs):
+        self.url = url
+        self.visited.append(url)
+        operation, payload = self.answers[url]
+        for handler in list(self.handlers):
+            await handler(_FakeReply(f"https://x.com/i/api/graphql/abc/{operation}", payload))
+
+
+def test_is_timeline_url_knows_both_tabs_operations():
+    assert is_timeline_url("https://x.com/i/api/graphql/a/UserRepliesTimeline")
+    assert is_timeline_url("https://x.com/i/api/graphql/a/UserOriginalsTimeline")
+    assert not is_timeline_url("https://x.com/i/api/graphql/a/UserByScreenName")
+
+
+def test_a_capture_reads_the_posts_tab_as_well_as_the_replies_tab(tmp_path):
+    """
+    The replies tab leaves out posts the profile tab lists, so watching only
+    `/with_replies` collected replies for hours while every original post the
+    account wrote went unrecorded.
+    """
+
+    async def scenario():
+        watcher = TweetWatcher(data_dir=tmp_path, jitter=lambda _a, _b: 0)
+        watcher._write("sample", [{"id": "archived"}])
+        archived = _tweet("archived", "Fri Aug 28 05:21:12 +0000 2026", "already held")
+        page = _FakePage(
+            {
+                "https://x.com/sample": (
+                    "UserOriginalsTimeline",
+                    {
+                        "data": [
+                            _tweet("post", "Fri Aug 28 15:04:29 +0000 2026", "an original post"),
+                            archived,
+                        ]
+                    },
+                ),
+                "https://x.com/sample/with_replies": (
+                    "UserRepliesTimeline",
+                    {
+                        "data": [
+                            _tweet("reply", "Fri Aug 28 18:03:10 +0000 2026", "@someone hi", "1"),
+                            archived,
+                        ]
+                    },
+                ),
+            }
+        )
+        watcher._context = object()
+        watcher._page = page
+        captured = await watcher._capture_on_browser_loop("sample")
+
+        assert page.visited == ["https://x.com/sample", "https://x.com/sample/with_replies"]
+        assert {row["id"] for row in captured} == {"post", "reply", "archived"}
+        assert page.handlers == []  # every listener the pass added is taken back off
 
     asyncio.run(scenario())

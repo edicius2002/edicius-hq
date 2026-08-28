@@ -28,6 +28,14 @@ DEFAULT_INTERVAL_SECONDS = int(os.getenv("X_TWEET_WATCH_INTERVAL_SECONDS", "120"
 MAX_SCROLLS = 80
 SCROLL_PATIENCE = 4
 
+# Both halves of a profile, because neither is the whole of it: `/HANDLE`
+# serves original posts through `UserOriginalsTimeline` and
+# `/HANDLE/with_replies` serves replies through `UserRepliesTimeline`, and the
+# replies tab leaves out posts the profile tab lists — measured against the
+# live site, not assumed. Reading only the second is why the dashboard
+# collected replies for hours while original posts went unrecorded.
+PROFILE_TABS = ("", "/with_replies")
+
 # The two the capture raises itself, in `_capture`. Matched on the text because
 # they arrive as plain RuntimeError, and inventing an exception class for a
 # string two lines away would be ceremony rather than clarity.
@@ -336,12 +344,11 @@ class TweetWatcher:
         return await self._browser_loop.run(self._capture_on_browser_loop(handle))
 
     async def _capture_on_browser_loop(self, handle: str) -> list[dict[str, Any]]:
-        """Capture pages until the timeline reaches an archived tweet."""
+        """Capture both profile tabs until each reaches an archived tweet."""
         tools = Path(__file__).resolve().parents[4] / "tools" / "x-scraper"
         if str(tools) not in sys.path:
             sys.path.insert(0, str(tools))
         from playwright.async_api import async_playwright
-        from x_scraper import extract_tweets
 
         if self._context is None:
             self._playwright = await async_playwright().start()
@@ -360,9 +367,34 @@ class TweetWatcher:
                 self._context.pages[0] if self._context.pages else await self._context.new_page()
             )
 
+        # The page is only opened alongside a fresh context, so a context that
+        # survived a failure without one is a state worth naming rather than an
+        # attribute error three lines down.
+        page = self._page
+        if page is None:
+            raise RuntimeError("el navegador no tiene página")
+
         known = self.recent_ids(handle)
         tweets: list[dict[str, Any]] = []
         seen: set[str] = set()
+        for tab in PROFILE_TABS:
+            # Each tab is stopped on its own: a post already archived, met on
+            # the first, is no reason to stop before the second is read at all.
+            await self._capture_tab(page, handle, tab, known, tweets, seen)
+        return tweets
+
+    async def _capture_tab(
+        self,
+        page: Any,
+        handle: str,
+        tab: str,
+        known: set[str],
+        tweets: list[dict[str, Any]],
+        seen: set[str],
+    ) -> None:
+        """Read one profile tab, scrolling until it reaches something archived."""
+        from x_scraper import extract_tweets, is_timeline_url
+
         received = asyncio.Event()
         reached_known = asyncio.Event()
         # Playwright calls the handler below from its own task, so an exception
@@ -372,7 +404,7 @@ class TweetWatcher:
         failure: list[BaseException] = []
 
         async def response(reply: Any) -> None:
-            if "UserRepliesTimeline" not in reply.url:
+            if not is_timeline_url(reply.url):
                 return
             try:
                 for tweet in extract_tweets(await reply.json(), handle):
@@ -394,44 +426,43 @@ class TweetWatcher:
                 # for what is a parse error.
                 received.set()
 
-        # The page is only opened alongside a fresh context, so a context that
-        # survived a failure without one is a state worth naming rather than an
-        # attribute error three lines down.
-        page = self._page
-        if page is None:
-            raise RuntimeError("el navegador no tiene página")
-
         page.on("response", response)
-        await page.goto(
-            f"https://x.com/{handle}/with_replies", wait_until="domcontentloaded", timeout=60_000
-        )
-        if "/i/flow/login" in page.url:
-            raise RuntimeError("la sesión expiró")
-        await asyncio.wait_for(received.wait(), timeout=20)
-        if failure:
-            raise failure[0]
-        idle_windows = 0
-        for scroll_number in range(1, MAX_SCROLLS + 1):
-            if should_stop_scrolling(
-                reached_known=reached_known.is_set(), idle_windows=idle_windows
-            ):
-                break
-            before_seen = len(seen)
-            received.clear()
-            await page.mouse.wheel(0, random.randint(700, 1_300))
-            if self.pass_ is not None:
-                self.pass_.scroll = scroll_number
-                self.stream.publish()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(received.wait(), timeout=4)
+        try:
+            await page.goto(
+                f"https://x.com/{handle}{tab}",
+                wait_until="domcontentloaded",
+                timeout=60_000,
+            )
+            if "/i/flow/login" in page.url:
+                raise RuntimeError("la sesión expiró")
+            await asyncio.wait_for(received.wait(), timeout=20)
             if failure:
                 raise failure[0]
-            idle_windows = 0 if len(seen) > before_seen else idle_windows + 1
-            if should_stop_scrolling(
-                reached_known=reached_known.is_set(), idle_windows=idle_windows
-            ):
-                break
-        return tweets
+            idle_windows = 0
+            for _ in range(MAX_SCROLLS):
+                if should_stop_scrolling(
+                    reached_known=reached_known.is_set(), idle_windows=idle_windows
+                ):
+                    break
+                before_seen = len(seen)
+                received.clear()
+                await page.mouse.wheel(0, random.randint(700, 1_300))
+                if self.pass_ is not None:
+                    self.pass_.scroll += 1
+                    self.stream.publish()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(received.wait(), timeout=4)
+                if failure:
+                    raise failure[0]
+                idle_windows = 0 if len(seen) > before_seen else idle_windows + 1
+                if should_stop_scrolling(
+                    reached_known=reached_known.is_set(), idle_windows=idle_windows
+                ):
+                    break
+        finally:
+            # The page outlives the pass, so a handler left attached would run
+            # again on the next one, holding this pass's lists.
+            page.remove_listener("response", response)
 
 
 RUNNER = TweetWatcher()

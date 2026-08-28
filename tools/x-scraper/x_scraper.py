@@ -6,6 +6,22 @@ from collections.abc import Iterator
 from typing import Any
 
 
+# The operations each profile tab actually calls, measured against the live
+# site rather than guessed: `/HANDLE` serves `UserOriginalsTimeline` and
+# `/HANDLE/with_replies` serves `UserRepliesTimeline`. The earlier guesses
+# `UserTweets`, `UserTweetsAndReplies` and `UserMedia` never fired once, and
+# the names are X's to change, so this is the one line that has to move.
+TIMELINE_OPERATIONS = (
+    "UserRepliesTimeline",
+    "UserOriginalsTimeline",
+)
+
+
+def is_timeline_url(url: str) -> bool:
+    """Whether a response URL belongs to a profile timeline operation."""
+    return any(operation in url for operation in TIMELINE_OPERATIONS)
+
+
 def _walk(value: Any) -> Iterator[dict[str, Any]]:
     if isinstance(value, dict):
         yield value

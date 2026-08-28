@@ -1,6 +1,7 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchRefresh, fetchTweets, startRefresh } from '@/shared/api/tweets';
+import { fetchRefresh, fetchTweets, openTweetStream, startRefresh, startWatch, stopWatch } from '@/shared/api/tweets';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
@@ -58,7 +59,36 @@ export function DashboardPage() {
   const query = useQuery({
     queryKey: ['tweets', HANDLE],
     queryFn: ({ signal }) => fetchTweets(HANDLE, signal),
+    // SSE makes a new row immediate; this remains the cheap recovery path if
+    // a proxy drops that long-lived connection.
+    refetchInterval: 60_000,
   });
+  /*
+   * The watcher runs while this page is open, and is asked to stop when it is
+   * not.
+   *
+   * Both calls swallow their own failure, and `void` alone did not: it discards
+   * the value and leaves the rejection unhandled, which is a console error in
+   * the browser and four unhandled rejections in the test run — the kind vitest
+   * warns can turn a passing test into a false positive.
+   *
+   * Swallowed rather than surfaced because neither is news the reader can act
+   * on. Whether the watcher is actually running is reported by its own status,
+   * which this page already polls, so a start that failed shows up there as
+   * plainly as an exception would; and a stop that failed happens as the page
+   * is going away, where there is nobody left to tell.
+   */
+  useEffect(() => {
+    startWatch(HANDLE).catch(() => {});
+    const close = openTweetStream(
+      HANDLE,
+      () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }),
+    );
+    return () => {
+      close();
+      stopWatch(HANDLE).catch(() => {});
+    };
+  }, [client]);
   const tweets = query.data?.tweets ?? [];
   const running = refresh.data?.state === 'running';
 

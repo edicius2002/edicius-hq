@@ -46,3 +46,83 @@ def test_manual_refresh_uses_the_watchers_single_running_cycle(tmp_path):
         await watcher.task
 
     asyncio.run(scenario())
+
+
+def test_a_failure_is_reported_as_its_own_cause(tmp_path):
+    """The message has to send the reader at the thing that actually broke."""
+
+    async def scenario():
+        for error, expected in (
+            (ModuleNotFoundError("No module named 'playwright'", name="playwright"), "playwright"),
+            (RuntimeError("no hay sesión en el perfil"), "import_session.py"),
+            (RuntimeError("Executable doesn't exist at chrome.exe"), "playwright install"),
+        ):
+
+            async def broken(_handle, error=error):
+                raise error
+
+            watcher = TweetWatcher(data_dir=tmp_path, cycle=broken, jitter=lambda _a, _b: 0)
+            await watcher.run_once("sample")
+            assert expected in watcher.current("sample").error
+
+    asyncio.run(scenario())
+
+
+def test_a_missing_dependency_stops_the_cadence_and_a_timeout_does_not(tmp_path):
+    """
+    Dying on a timeout is how the page ended up holding a watcher that had
+    silently stopped watching; dying on a missing package is correct, because
+    nothing the loop can do will install it.
+    """
+
+    async def scenario():
+        for error, retries in (
+            (ModuleNotFoundError("gone", name="gone"), False),
+            (TimeoutError(), True),
+        ):
+
+            async def broken(_handle, error=error):
+                raise error
+
+            watcher = TweetWatcher(data_dir=tmp_path, cycle=broken, jitter=lambda _a, _b: 0)
+            await watcher.run_once("sample")
+            assert watcher._retry_after_failure is retries
+
+    asyncio.run(scenario())
+
+
+def test_repeated_failures_widen_the_gap(tmp_path):
+    async def scenario():
+        async def broken(_handle):
+            raise TimeoutError()
+
+        watcher = TweetWatcher(data_dir=tmp_path, cycle=broken, jitter=lambda _a, _b: 0)
+        seen = []
+        for _ in range(5):
+            await watcher.run_once("sample")
+            seen.append(watcher.delay_seconds)
+        assert seen == [240, 480, 960, 1800, 1800]
+
+    asyncio.run(scenario())
+
+
+def test_a_fatal_failure_ends_the_loop_without_the_two_tasks_awaiting_each_other(tmp_path):
+    """
+    `run_once` used to call `stop`, which cancels the very loop task that is
+    awaiting `run_once`. The pair deadlocked, and cancelling the cycle recursed
+    until the stack gave out — a `RecursionError` from inside uvloop naming no
+    frame of this file. Reachable from the API's own startup, so the loop has
+    to come apart on its own here.
+    """
+
+    async def scenario():
+        async def broken(_handle):
+            raise RuntimeError("no hay sesión en el perfil")
+
+        watcher = TweetWatcher(data_dir=tmp_path, cycle=broken, jitter=lambda _a, _b: 0)
+        watcher.watch("sample")
+        await asyncio.wait_for(watcher._loop_task, timeout=5)
+        assert watcher.current("sample").state == "failed"
+        assert watcher._retry_after_failure is False
+
+    asyncio.run(scenario())

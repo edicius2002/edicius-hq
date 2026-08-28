@@ -256,11 +256,28 @@
   gap: var(--space-2);
 }
 
-/* The movement cards make the two sides of this comparison distinct at a
-   glance without changing the shared chain styling used by fee breakdowns. */
+/*
+ * The movement cards make the two sides of this comparison distinct at a
+ * glance without changing the shared chain styling used by fee breakdowns.
+ *
+ * One line each, unlike `.chain`, which stacks: "In" is the name of the figure
+ * beside it, not a heading over it, and stacking cost the panel two rows to
+ * say four words.
+ */
 .movementCard {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
   background: linear-gradient(180deg, var(--color-bg-2), var(--color-surface));
   border-color: var(--color-border);
+}
+
+/* The totals are the half that has to give when the panel narrows; the label
+   is two letters and shrinking it would only wrap it. */
+.movementCard > span:last-child {
+  min-width: 0;
+  text-align: right;
 }
 
 .movementLabel {

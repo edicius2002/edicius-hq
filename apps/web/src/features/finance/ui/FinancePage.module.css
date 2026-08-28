@@ -1,6 +1,14 @@
 .page {
   display: grid;
-  gap: var(--space-5);
+  /*
+   * The header is one line of controls, not a section of the page. At
+   * --space-5 the gap under it read as empty screen rather than as separation
+   * from the canvas, and the shell's own --space-6 above it did the same: 40px
+   * of padding over a 26px row. Both are spent on the canvas instead, which is
+   * the only thing here that benefits from height.
+   */
+  gap: var(--space-2);
+  margin-block-start: calc(var(--space-4) * -1);
   width: 100%;
 }
 

@@ -11,6 +11,11 @@
   margin-inline: auto;
 }
 
+.header {
+  justify-content: center;
+  text-align: center;
+}
+
 .columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -19,6 +24,12 @@
 
 .column {
   min-height: 0;
+  text-align: center;
+}
+
+.columnTitle {
+  margin: 0;
+  font-size: 1rem;
 }
 
 /*
@@ -35,22 +46,26 @@
 
 .tweet {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
 .tweet p {
   margin: 0;
+  font-size: 0.85rem;
+  text-align: left;
   /* X keeps the author's line breaks; collapsing them rewrites the post. */
   white-space: pre-wrap;
 }
 
 .tweet small {
+  font-size: 0.7rem;
   color: var(--color-muted);
 }
 
 .tweet a {
+  font-size: 0.75rem;
   color: var(--color-link);
 }
 
@@ -59,7 +74,12 @@
 }
 
 @media (max-width: 44rem) {
-  .columns {
+  .header {
+  justify-content: center;
+  text-align: center;
+}
+
+.columns {
     grid-template-columns: 1fr;
   }
 }

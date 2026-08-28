@@ -62,11 +62,15 @@ export function startWatch(handle: string) {
 }
 
 export function stopWatch(handle: string) {
-  return apiRequest<Refresh>(`/api/tweets/${encodeURIComponent(handle)}/watch`, { method: 'DELETE' });
+  return apiRequest<Refresh>(`/api/tweets/${encodeURIComponent(handle)}/watch`, {
+    method: 'DELETE',
+  });
 }
 
 export function openTweetStream(handle: string, onTweets: () => void): () => void {
-  const source = new EventSource(`${getApiBaseUrl()}/api/tweets/${encodeURIComponent(handle)}/stream`);
+  const source = new EventSource(
+    `${getApiBaseUrl()}/api/tweets/${encodeURIComponent(handle)}/stream`,
+  );
   source.addEventListener('tweets', onTweets);
   return () => source.close();
 }

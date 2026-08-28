@@ -1,6 +1,14 @@
 .page {
   display: grid;
-  gap: var(--space-5);
+  /*
+   * The header is one line of controls, not a section of the page. At
+   * --space-5 the gap under it read as empty screen rather than as separation
+   * from the canvas, and the shell's own --space-6 above it did the same: 40px
+   * of padding over a 26px row. Both are spent on the canvas instead, which is
+   * the only thing here that benefits from height.
+   */
+  gap: var(--space-2);
+  margin-block-start: calc(var(--space-4) * -1);
   width: 100%;
 }
 
@@ -63,6 +71,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+  /* The header controls need less breathing room than the page sections around
+     them; this only pulls the row vertically, leaving its horizontal rhythm. */
+  margin-block: calc(var(--space-1) * -1);
 }
 
 .toolGroup {
@@ -173,30 +184,32 @@
 }
 
 /*
- * Two to a row. One asset per line turned nine holdings into nine lines and a
- * panel taller than the diagram beside it; paired, the same nine read in five
- * and the totals stay in view with the canvas.
+ * Three to a row keeps the compact available and in-transit summaries from
+ * taking over the panel beside the diagram.
  */
 .summaryItems {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.3rem var(--space-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.25rem var(--space-2);
 }
 
 .summaryItem {
   display: flex;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-1);
+  font-size: 0.58rem;
   font-variant-numeric: tabular-nums;
 }
 
 .summaryAsset {
   color: var(--color-muted);
+  font-size: 0.56rem;
   font-weight: 700;
 }
 
 .summaryValue {
   color: var(--color-income);
+  font-size: 0.58rem;
   font-weight: 700;
 }
 

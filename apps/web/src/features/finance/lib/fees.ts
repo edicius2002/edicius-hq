@@ -1,4 +1,5 @@
 import type { Fee, FinanceNode } from '@/features/finance/model/types';
+import { roundAmount } from '@/shared/lib/money';
 
 /** One deduction and what the transfer is worth after it. */
 export type FeeStep = {
@@ -18,9 +19,17 @@ function isCharged(fee: Fee | null): fee is Fee {
   return fee !== null && Number.isFinite(fee.value) && fee.value !== 0;
 }
 
-/** Take a single fee off an amount. Percent is of the amount it is applied to. */
+/**
+ * Take a single fee off an amount. Percent is of the amount it is applied to.
+ *
+ * Rounded, because the result is money that gets stored and shown, and a
+ * percentage in binary floating point does not land on a cent: 8 at 12% is
+ * 7.040000000000001, and two steps of that is what put 7,039999999999964 in a
+ * field. Rounding each step rather than the total is deliberate — a fee is
+ * charged to the cent when it is charged, not once the chain is over.
+ */
 export function applyFee(amount: number, fee: Fee): number {
-  return fee.type === 'fixed' ? amount - fee.value : amount * (1 - fee.value / 100);
+  return roundAmount(fee.type === 'fixed' ? amount - fee.value : amount * (1 - fee.value / 100));
 }
 
 /**

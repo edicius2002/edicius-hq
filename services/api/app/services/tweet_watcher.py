@@ -8,6 +8,7 @@ profile lock and can quietly return no timeline entries.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import random
@@ -301,7 +302,7 @@ class TweetWatcher:
     async def stop(self, *, close_browser: bool = True, mark_stopped: bool = True) -> None:
         if self._loop_task and self._loop_task is not asyncio.current_task():
             self._loop_task.cancel()
-            with __import__("contextlib").suppress(asyncio.CancelledError):
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._loop_task
         self._loop_task = None
         if self.pass_ and mark_stopped:
@@ -364,6 +365,11 @@ class TweetWatcher:
         seen: set[str] = set()
         received = asyncio.Event()
         reached_known = asyncio.Event()
+        # Playwright calls the handler below from its own task, so an exception
+        # raised there reaches nobody: it is collected and re-raised on the side
+        # that is actually awaiting, which is what `set_exception` on a future
+        # did before this became an event.
+        failure: list[BaseException] = []
 
         async def response(reply: Any) -> None:
             if "UserRepliesTimeline" not in reply.url:
@@ -377,11 +383,16 @@ class TweetWatcher:
                     tweets.append(tweet)
                     if tweet_id in known:
                         reached_known.set()
-                received.set()
             except Exception as error:  # noqa: BLE001 - a body X answered 200 with is
-                # not necessarily JSON, and whatever it is must reach the awaiting
-                # caller rather than escape inside Playwright's own event handler.
-                raise error
+                # not necessarily JSON, and whatever it is has to reach the
+                # awaiting caller rather than escape inside Playwright's own
+                # event handler, where nothing would ever look at it.
+                failure.append(error)
+            finally:
+                # Released either way: a batch that failed to parse is news, and
+                # leaving it to time out after twenty seconds reports a timeout
+                # for what is a parse error.
+                received.set()
 
         # The page is only opened alongside a fresh context, so a context that
         # survived a failure without one is a state worth naming rather than an
@@ -397,9 +408,13 @@ class TweetWatcher:
         if "/i/flow/login" in page.url:
             raise RuntimeError("la sesión expiró")
         await asyncio.wait_for(received.wait(), timeout=20)
+        if failure:
+            raise failure[0]
         idle_windows = 0
         for scroll_number in range(1, MAX_SCROLLS + 1):
-            if should_stop_scrolling(reached_known=reached_known.is_set(), idle_windows=idle_windows):
+            if should_stop_scrolling(
+                reached_known=reached_known.is_set(), idle_windows=idle_windows
+            ):
                 break
             before_seen = len(seen)
             received.clear()
@@ -407,12 +422,14 @@ class TweetWatcher:
             if self.pass_ is not None:
                 self.pass_.scroll = scroll_number
                 self.stream.publish()
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(received.wait(), timeout=4)
-            except TimeoutError:
-                pass
+            if failure:
+                raise failure[0]
             idle_windows = 0 if len(seen) > before_seen else idle_windows + 1
-            if should_stop_scrolling(reached_known=reached_known.is_set(), idle_windows=idle_windows):
+            if should_stop_scrolling(
+                reached_known=reached_known.is_set(), idle_windows=idle_windows
+            ):
                 break
         return tweets
 

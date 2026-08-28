@@ -2,7 +2,12 @@ import asyncio
 import threading
 
 from app.services import tweet_watcher
-from app.services.tweet_watcher import BrowserLoop, TweetWatcher, _loop_factory, should_stop_scrolling
+from app.services.tweet_watcher import (
+    BrowserLoop,
+    TweetWatcher,
+    _loop_factory,
+    should_stop_scrolling,
+)
 
 
 def test_loop_factory_uses_a_proactor_loop_on_windows(monkeypatch):

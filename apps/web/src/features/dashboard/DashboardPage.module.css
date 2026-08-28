@@ -1,11 +1,122 @@
+/*
+ * Centred rather than full-bleed: two columns of prose across a wide monitor
+ * give lines nobody can track back from. 84rem is where the reply column stops
+ * growing usefully and starts being a paragraph the eye has to scan sideways.
+ */
 .page {
   display: grid;
   gap: var(--space-5);
   width: 100%;
+  max-width: 84rem;
+  margin-inline: auto;
 }
 
-.stats {
+/*
+ * The handle and its Refresh button read as one label, so they are centred
+ * together as a pair. `space-between` — what a header does by default — is
+ * right for a title with page-level actions at the far edge, and wrong here:
+ * it would strand the button against the margin, half a screen from the name
+ * it belongs to. `align-items: center` puts it on the handle's own line rather
+ * than at the top of the row.
+ */
+.header {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.columns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.column {
+  min-height: 0;
+  text-align: center;
+}
+
+.columnTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/*
+ * The two columns hold very different counts — 39 posts against 444 replies on
+ * the capture this was built from — so the taller one scrolls inside its own
+ * box instead of setting the height of the page.
+ */
+.rows {
+  display: grid;
+  gap: var(--space-3);
+  max-height: 38rem;
+  overflow: auto;
+}
+
+.tweet {
+  display: grid;
+  gap: var(--space-1);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tweet p {
+  margin: 0;
+  font-size: 0.72rem;
+  text-align: left;
+  /* X keeps the author's line breaks; collapsing them rewrites the post. */
+  white-space: pre-wrap;
+}
+
+.tweet time {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  text-align: left;
+}
+
+.tweet small {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+}
+
+.tweet a {
+  font-size: 0.75rem;
+  color: var(--color-link);
+}
+
+.tweet a:hover {
+  color: var(--color-link-strong);
+}
+
+@media (max-width: 44rem) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.refresh {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.progress {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  text-align: center;
 }

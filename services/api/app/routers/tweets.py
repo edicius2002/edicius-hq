@@ -1,5 +1,7 @@
 """Read-only local archive of captured X posts. Wire fields are camelCase."""
 import json
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Query
@@ -31,4 +33,12 @@ def _read(path: Path) -> list[dict]:
 def get_tweets(handle: str, limit: int = Query(default=500, ge=1, le=5000)) -> dict:
     # Empty is normal before the first scrape, so it is a stable empty collection rather than 404.
     rows = _read(tweets_dir() / f"{handle.lstrip('@')}.jsonl")
+    # X stores RFC 2822-style dates; parse before slicing so limit means newest.
+    def timestamp(row: dict):
+        try:
+            return parsedate_to_datetime(row["date"])
+        except ValueError:
+            return datetime.fromisoformat(row["date"]).astimezone()
+
+    rows.sort(key=timestamp, reverse=True)
     return {"handle": handle.lstrip("@"), "tweets": rows[:limit]}

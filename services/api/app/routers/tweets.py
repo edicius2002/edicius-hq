@@ -5,10 +5,14 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
 
 from app.config import tweets_dir
 from app.services.tweet_refresh import RUNNER
+from app.services.sse import KEEP_ALIVE, sse
 
 router = APIRouter(prefix="/api/tweets", tags=["tweets"])
 DEFAULT_HANDLE = "thsottiaux"
@@ -57,7 +61,7 @@ async def refresh(handle: str) -> dict:
     with `RuntimeError: no running event loop`, which is to say the button
     never worked once.
     """
-    return asdict(RUNNER.start(handle.lstrip("@")))
+    return asdict(RUNNER.refresh(handle.lstrip("@")))
 
 
 @router.get("/{handle}/refresh")
@@ -80,3 +84,44 @@ async def refresh_status(handle: str) -> dict:
         "error": None,
         "finishedAt": None,
     }
+
+
+@router.post("/{handle}/watch", status_code=202)
+async def start_watch(handle: str) -> dict:
+    """Start the local two-minute watcher; it owns the Chromium profile."""
+    return asdict(RUNNER.watch(handle.lstrip("@")))
+
+
+@router.delete("/{handle}/watch", status_code=202)
+async def stop_watch(handle: str) -> dict:
+    await RUNNER.stop()
+    current = RUNNER.current(handle.lstrip("@"))
+    if current:
+        return asdict(current)
+    return {
+        "handle": handle.lstrip("@"), "state": "idle", "scroll": 0,
+        "new": 0, "error": None, "finishedAt": None,
+    }
+
+
+@router.get("/{handle}/stream")
+async def stream_tweets(handle: str, request: Request) -> StreamingResponse:
+    async def events() -> AsyncIterator[str]:
+        with RUNNER.stream.subscribe() as updates:
+            current = RUNNER.current(handle.lstrip("@"))
+            if current:
+                yield sse("watch", asdict(current))
+            async for update in updates:
+                if await request.is_disconnected():
+                    return
+                if not update:
+                    yield KEEP_ALIVE
+                    continue
+                if update.moved:
+                    current = RUNNER.current(handle.lstrip("@"))
+                    if current:
+                        yield sse("watch", asdict(current))
+                if update.items:
+                    yield sse("tweets", {"handle": handle.lstrip("@"), "new": len(update.items)})
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

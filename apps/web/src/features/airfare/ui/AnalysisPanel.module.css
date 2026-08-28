@@ -286,3 +286,20 @@
     transition: none;
   }
 }
+
+/*
+ * The slot the departure chart portals its head into: the flight count, the
+ * frame arrows and the zoom reset.
+ *
+ * The third column of the head grid, so what lands here is laid out to the
+ * right of the pill without being able to push it. Justified to the end so the
+ * cluster sits against the panel's right edge, which is where it was when it
+ * lived inside the figure.
+ */
+.chartMeta {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  grid-column: 3;
+  min-width: 0;
+}

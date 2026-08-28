@@ -16,7 +16,7 @@
                           "result": {
                             "rest_id": "9001",
                             "legacy": {
-                              "full_text": "anon"
+                              "full_text": "truncated https://t.co/anon"
                             },
                             "core": {
                               "user_results": {
@@ -24,6 +24,13 @@
                                   "core": {
                                     "screen_name": "thsottiaux"
                                   }
+                                }
+                              }
+                            },
+                            "note_tweet": {
+                              "note_tweet_results": {
+                                "result": {
+                                  "text": "complete anonymized long text"
                                 }
                               }
                             }

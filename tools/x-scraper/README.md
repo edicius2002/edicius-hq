@@ -46,3 +46,7 @@ termina con código 3 para evitar resultados silenciosamente vacíos. Si falta o
 expiró la sesión, termina con código 2 e indica ejecutar `login.py`.
 
 El endpoint observado para esta pestaña es `UserRepliesTimeline` (con fallbacks para otras pestañas); X puede cambiarlo sin aviso. Por defecto la corrida incremental se detiene tras `--patience` (4) ventanas inactivas, pero `--full` ignora IDs ya guardados y sólo termina por cursor inferior agotado o `--max-scrolls`. Cada lote GraphQL se guarda inmediatamente y el progreso muestra scroll, nuevos y vistos.
+
+## Refrescar textos largos
+
+La deduplicación conserva filas existentes. Para volver a capturar el texto completo de posts largos, elimina el JSONL local y ejecuta `scrape.py HANDLE --full`; el scraper leerá `note_tweet.note_tweet_results.result.text` cuando X lo incluya.

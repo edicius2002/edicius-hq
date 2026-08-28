@@ -17,10 +17,10 @@ function Column({ title, tweets }: { title: string; tweets: Tweets }) {
       <div className={styles.rows}>
         {tweets.map((tweet) => (
           <article key={tweet.id} className={styles.tweet}>
+            <time dateTime={new Date(tweet.date).toISOString()}>{new Date(tweet.date).toLocaleString()}</time>
             <p>{tweet.text}</p>
             <small>
-              {new Date(tweet.date).toLocaleString()} · ♥ {tweet.likeCount} · ↻ {tweet.retweetCount} · ↩{' '}
-              {tweet.replyCount}
+              ♥ {tweet.likeCount} · ↻ {tweet.retweetCount} · ↩ {tweet.replyCount}
             </small>
             <a href={tweet.url} target="_blank" rel="noreferrer">
               Open on X

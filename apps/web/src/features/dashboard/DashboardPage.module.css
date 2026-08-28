@@ -53,10 +53,16 @@
 
 .tweet p {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   text-align: left;
   /* X keeps the author's line breaks; collapsing them rewrites the post. */
   white-space: pre-wrap;
+}
+
+.tweet time {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  text-align: left;
 }
 
 .tweet small {

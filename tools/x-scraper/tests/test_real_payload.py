@@ -26,3 +26,9 @@ def test_cursor_tracker_only_exhausts_after_a_repeated_bottom_cursor():
 
     assert not tracker.observe(["first"])
     assert not tracker.observe(["second"])
+
+
+def test_note_tweet_text_beats_legacy_excerpt():
+    fixture = Path(__file__).parent / 'fixtures' / 'user_replies_timeline.json'
+    payload = json.loads(fixture.read_text(encoding='utf-8'))
+    assert x_scraper.extract_tweets(payload, 'thsottiaux')[0]['text'] == 'complete anonymized long text'

@@ -59,7 +59,7 @@ def extract_tweets(payload: dict[str, Any], username: str) -> list[dict[str, Any
             {
                 "id": tweet_id,
                 "date": legacy.get("created_at"),
-                "text": legacy.get("full_text", ""),
+                "text": tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {}).get("text") or legacy.get("full_text", ""),
                 "is_reply": bool(reply_to_id),
                 "in_reply_to_id": reply_to_id,
                 "in_reply_to_username": legacy.get("in_reply_to_screen_name"),

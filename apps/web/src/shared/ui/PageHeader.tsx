@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import styles from './PageHeader.module.css';
 
 type PageHeaderProps = {
-  title: string;
+  title?: string;
   subtitle?: string;
   actions?: ReactNode;
   /**
@@ -28,12 +28,16 @@ export function PageHeader({
   return (
     <header className={[styles.header, className].filter(Boolean).join(' ')}>
       <div className={styles.text}>
-        <div className={styles.titleRow}>
-          <h1 id={titleId} className={styles.title}>
-            {title}
-          </h1>
-          {beside}
-        </div>
+        {title || beside ? (
+          <div className={styles.titleRow}>
+            {title ? (
+              <h1 id={titleId} className={styles.title}>
+                {title}
+              </h1>
+            ) : null}
+            {beside}
+          </div>
+        ) : null}
         {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
       </div>
       {actions ? <div className={styles.actions}>{actions}</div> : null}

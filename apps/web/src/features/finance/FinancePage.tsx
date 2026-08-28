@@ -242,7 +242,7 @@ export function FinancePage() {
   );
 
   return (
-    <section className={styles.page} aria-labelledby="finance-title">
+    <section className={styles.page} aria-labelledby="page-title">
       {/* The editing actions ride beside the title rather than in a panel of
           their own. Measured at 1139x802 before this: the page furniture above
           the canvas took 529px of a 791px viewport, so only 273px of diagram
@@ -250,8 +250,6 @@ export function FinancePage() {
           what the page is to someone already looking at it. */}
       <PageHeader
         className={styles.header}
-        title="Finance"
-        titleId="finance-title"
         beside={
           <div className={styles.tabsScroll}>
             <DiagramTabs

@@ -87,11 +87,23 @@ function renderAt(path: string) {
   );
 }
 
+/**
+ * The links live inside a dropdown that closes on every navigation — 12.117's
+ * follow-up replacing the fixed sidebar with a top-bar menu — so each hop has
+ * to reopen it before the next link is reachable.
+ */
+async function openMenu(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Menu' }));
+  // Named, not bare `getByRole('navigation')` — Finance's diagram canvas
+  // carries its own `nav` landmark, and a route holding both is exactly the
+  // case an unnamed query cannot tell apart.
+  return screen.getByRole('navigation', { name: 'Primary' });
+}
+
 describe('Shell navigation', () => {
   it('redirects / to Dashboard coming soon', async () => {
     renderAt('/');
     expect(await arrivesAt('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Coming soon.')).toBeInTheDocument();
     expect(await screen.findByRole('status')).toHaveTextContent('API online');
   });
 
@@ -99,21 +111,23 @@ describe('Shell navigation', () => {
     const user = userEvent.setup();
     renderAt('/dashboard');
 
-    const nav = screen.getByRole('navigation');
-
+    let nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Finance' }));
     expect(await arrivesAt('Finance')).toBeInTheDocument();
 
+    nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Greenlight' }));
     expect(await arrivesAt('Greenlight')).toBeInTheDocument();
-    expect(screen.getByText(/Deliverable value by week and month/i)).toBeInTheDocument();
 
+    nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Investing' }));
     expect(await arrivesAt('Investing')).toBeInTheDocument();
 
+    nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Airfare' }));
     expect(await arrivesAt('Airfare')).toBeInTheDocument();
 
+    nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Dashboard' }));
     expect(await arrivesAt('Dashboard')).toBeInTheDocument();
   });

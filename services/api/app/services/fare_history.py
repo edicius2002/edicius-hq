@@ -94,7 +94,10 @@ class BaselinePoint:
 # parser or to `fingerprint` moves the hash on boards that did not move — the
 # first such change was reading Google's best-departing block, which added
 # offers to nine watched routes at once and would otherwise have written
-# "changed" against all nine on the same minute.
+# "changed" against all nine on the same minute. The second was 12.117, which
+# stopped discarding metropolitan-transfer and unpriced itineraries and started
+# recording `via_points`: a board whose shape did not change still needed one
+# more write to pick up the stops the old reader had thrown away.
 #
 # Carried as a `recipe:digest` prefix on the stored value rather than as a new
 # field in the state file, because the state file is a flat
@@ -102,7 +105,7 @@ class BaselinePoint:
 # `dict[str, str]`, and nesting it to hold one integer would touch all of them
 # for no gain. A fingerprint written before this existed has no prefix, which
 # reads as an older recipe, which is exactly right.
-FINGERPRINT_RECIPE = 2
+FINGERPRINT_RECIPE = 3
 
 
 def route_stem(origin: str, destination: str) -> str:

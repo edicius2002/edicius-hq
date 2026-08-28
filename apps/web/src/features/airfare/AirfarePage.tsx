@@ -507,10 +507,7 @@ export function AirfarePage() {
         is the only part of this page that is about the page rather than about a
         route. `SpendToday` argues the placement out in full.
       */}
-      <PageHeader
-        title="Airfare"
-        actions={<SpendToday spend={spend.data} loading={spend.isPending} />}
-      />
+      <PageHeader actions={<SpendToday spend={spend.data} loading={spend.isPending} />} />
 
       {/*
         Four cells, laid out in order: map and watchlist across the top row,

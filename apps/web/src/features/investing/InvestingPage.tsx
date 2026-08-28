@@ -177,15 +177,10 @@ export function InvestingPage() {
   return (
     <section
       className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
-      aria-labelledby={chartFocused ? undefined : 'investing-title'}
+      aria-labelledby={chartFocused ? undefined : 'page-title'}
       aria-label={chartFocused ? 'Focused investing chart' : undefined}
     >
-      <PageHeader
-        title="Investing"
-        subtitle="Markets. Follow what matters and chart it."
-        titleId="investing-title"
-        className={styles.pageHeader}
-      />
+      <PageHeader className={styles.pageHeader} />
 
       <div className={styles.tickerWrap}>
         <TickerTape quotes={tapeQuotes} onSelect={setSymbol} />

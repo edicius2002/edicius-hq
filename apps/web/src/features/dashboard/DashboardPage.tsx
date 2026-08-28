@@ -1,7 +1,14 @@
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchRefresh, fetchTweets, openTweetStream, startRefresh, startWatch, stopWatch } from '@/shared/api/tweets';
+import {
+  fetchRefresh,
+  fetchTweets,
+  openTweetStream,
+  startRefresh,
+  startWatch,
+  stopWatch,
+} from '@/shared/api/tweets';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 

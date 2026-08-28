@@ -1,21 +1,22 @@
 """Read-only local archive of captured X posts. Wire fields are camelCase."""
+
 import json
+from collections.abc import AsyncIterator
 from dataclasses import asdict
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from collections.abc import AsyncIterator
-
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.config import tweets_dir
-from app.services.tweet_refresh import RUNNER
 from app.services.sse import KEEP_ALIVE, sse
+from app.services.tweet_refresh import RUNNER
 
 router = APIRouter(prefix="/api/tweets", tags=["tweets"])
 DEFAULT_HANDLE = "thsottiaux"
+
 
 def _read(path: Path) -> list[dict]:
     if not path.exists():
@@ -27,18 +28,28 @@ def _read(path: Path) -> list[dict]:
         except json.JSONDecodeError:
             continue
         if isinstance(row, dict):
-            rows.append({
-                "id": row.get("id"), "date": row.get("date"), "text": row.get("text", ""),
-                "isReply": row.get("is_reply", False), "inReplyToId": row.get("in_reply_to_id"),
-                "inReplyToUsername": row.get("in_reply_to_username"), "likeCount": row.get("like_count", 0),
-                "retweetCount": row.get("retweet_count", 0), "replyCount": row.get("reply_count", 0), "url": row.get("url"),
-            })
+            rows.append(
+                {
+                    "id": row.get("id"),
+                    "date": row.get("date"),
+                    "text": row.get("text", ""),
+                    "isReply": row.get("is_reply", False),
+                    "inReplyToId": row.get("in_reply_to_id"),
+                    "inReplyToUsername": row.get("in_reply_to_username"),
+                    "likeCount": row.get("like_count", 0),
+                    "retweetCount": row.get("retweet_count", 0),
+                    "replyCount": row.get("reply_count", 0),
+                    "url": row.get("url"),
+                }
+            )
     return rows
+
 
 @router.get("/{handle}")
 def get_tweets(handle: str, limit: int = Query(default=500, ge=1, le=5000)) -> dict:
     # Empty is normal before the first scrape, so it is a stable empty collection rather than 404.
     rows = _read(tweets_dir() / f"{handle.lstrip('@')}.jsonl")
+
     # X stores RFC 2822-style dates; parse before slicing so limit means newest.
     def timestamp(row: dict):
         try:
@@ -99,8 +110,12 @@ async def stop_watch(handle: str) -> dict:
     if current:
         return asdict(current)
     return {
-        "handle": handle.lstrip("@"), "state": "idle", "scroll": 0,
-        "new": 0, "error": None, "finishedAt": None,
+        "handle": handle.lstrip("@"),
+        "state": "idle",
+        "scroll": 0,
+        "new": 0,
+        "error": None,
+        "finishedAt": None,
     }
 
 
@@ -124,4 +139,8 @@ async def stream_tweets(handle: str, request: Request) -> StreamingResponse:
                 if update.items:
                     yield sse("tweets", {"handle": handle.lstrip("@"), "new": len(update.items)})
 
-    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

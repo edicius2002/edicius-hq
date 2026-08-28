@@ -12,10 +12,11 @@ import json
 import os
 import random
 import sys
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from app.config import tweets_dir
 from app.services.pass_stream import PassBroadcast
@@ -97,10 +98,13 @@ class TweetWatcher:
         return len(fresh)
 
     def watch(self, handle: str) -> Refresh:
-        if self._loop_task is None or self._loop_task.done():
-            self.pass_ = Refresh(handle=handle, state="watching")
+        # Bound to a local so what is returned is the pass this call guaranteed,
+        # rather than a field that is only set down one of the two branches.
+        current = self.pass_
+        if self._loop_task is None or self._loop_task.done() or current is None:
+            current = self.pass_ = Refresh(handle=handle, state="watching")
             self._loop_task = asyncio.create_task(self._watch(handle))
-        return self.pass_
+        return current
 
     def refresh(self, handle: str) -> Refresh:
         self.watch(handle)
@@ -122,7 +126,9 @@ class TweetWatcher:
                 if self.pass_ and self.pass_.state == "failed":
                     return
                 try:
-                    await asyncio.wait_for(self._wake.wait(), self.delay_seconds + self.jitter(0, 15))
+                    await asyncio.wait_for(
+                        self._wake.wait(), self.delay_seconds + self.jitter(0, 15)
+                    )
                     self._wake.clear()
                 except TimeoutError:
                     pass
@@ -145,9 +151,13 @@ class TweetWatcher:
             self.pass_.state = "finished"
             self.pass_.finishedAt = datetime.now(UTC).isoformat()
             self.delay_seconds = self.interval_seconds
-        except Exception as error:  # browser/session errors must stop the cadence.
+        except Exception as error:  # noqa: BLE001 - anything the browser or the
+            # session can raise has to stop the cadence rather than escape into a
+            # loop that would then retry it every two minutes.
             self.pass_.state = "failed"
-            self.pass_.error = f"Sesión X inválida o challenge; ejecuta import_session.py. ({error})"
+            self.pass_.error = (
+                f"Sesión X inválida o challenge; ejecuta import_session.py. ({error})"
+            )
             self.pass_.finishedAt = datetime.now(UTC).isoformat()
             self.delay_seconds = min(max(self.interval_seconds * 2, 240), 1800)
             await self.stop(close_browser=True, mark_stopped=False)
@@ -179,19 +189,25 @@ class TweetWatcher:
         tools = Path(__file__).resolve().parents[4] / "tools" / "x-scraper"
         if str(tools) not in sys.path:
             sys.path.insert(0, str(tools))
-        from x_scraper import extract_tweets  # noqa: PLC0415
-        from playwright.async_api import async_playwright  # noqa: PLC0415
+        from playwright.async_api import async_playwright
+        from x_scraper import extract_tweets
 
         if self._context is None:
             self._playwright = await async_playwright().start()
-            profile = Path(os.getenv("X_SCRAPER_PROFILE", "~/.local/share/x-scraper/profile")).expanduser()
+            profile = Path(
+                os.getenv("X_SCRAPER_PROFILE", "~/.local/share/x-scraper/profile")
+            ).expanduser()
             self._context = await self._playwright.chromium.launch_persistent_context(
-                str(profile), headless=True, viewport={"width": 1365, "height": 900},
+                str(profile),
+                headless=True,
+                viewport={"width": 1365, "height": 900},
                 args=["--disable-blink-features=AutomationControlled"],
             )
             if not any(cookie["name"] == "auth_token" for cookie in await self._context.cookies()):
                 raise RuntimeError("no hay sesión en el perfil")
-            self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
+            self._page = (
+                self._context.pages[0] if self._context.pages else await self._context.new_page()
+            )
 
         received: asyncio.Future[list[dict[str, Any]]] = asyncio.get_running_loop().create_future()
 
@@ -200,12 +216,23 @@ class TweetWatcher:
                 return
             try:
                 received.set_result(extract_tweets(await reply.json(), handle))
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - a body X answered 200 with is
+                # not necessarily JSON, and whatever it is must reach the awaiting
+                # caller rather than escape inside Playwright's own event handler.
                 received.set_exception(error)
 
-        self._page.on("response", response)
-        await self._page.goto(f"https://x.com/{handle}/with_replies", wait_until="domcontentloaded", timeout=60_000)
-        if "/i/flow/login" in self._page.url:
+        # The page is only opened alongside a fresh context, so a context that
+        # survived a failure without one is a state worth naming rather than an
+        # attribute error three lines down.
+        page = self._page
+        if page is None:
+            raise RuntimeError("el navegador no tiene página")
+
+        page.on("response", response)
+        await page.goto(
+            f"https://x.com/{handle}/with_replies", wait_until="domcontentloaded", timeout=60_000
+        )
+        if "/i/flow/login" in page.url:
             raise RuntimeError("la sesión expiró")
         return await asyncio.wait_for(received, timeout=20)
 

@@ -11,8 +11,17 @@
   margin-inline: auto;
 }
 
+/*
+ * The handle and its Refresh button read as one label, so they are centred
+ * together as a pair. `space-between` — what a header does by default — is
+ * right for a title with page-level actions at the far edge, and wrong here:
+ * it would strand the button against the margin, half a screen from the name
+ * it belongs to. `align-items: center` puts it on the handle's own line rather
+ * than at the top of the row.
+ */
 .header {
   justify-content: center;
+  align-items: center;
   text-align: center;
 }
 
@@ -80,12 +89,34 @@
 }
 
 @media (max-width: 44rem) {
-  .header {
-  justify-content: center;
-  text-align: center;
-}
-
-.columns {
+  .columns {
     grid-template-columns: 1fr;
   }
+}
+
+.refresh {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.progress {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  text-align: center;
 }

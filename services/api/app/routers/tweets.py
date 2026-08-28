@@ -46,11 +46,37 @@ def get_tweets(handle: str, limit: int = Query(default=500, ge=1, le=5000)) -> d
     return {"handle": handle.lstrip("@"), "tweets": rows[:limit]}
 
 
-@router.post('/{handle}/refresh', status_code=202)
-def refresh(handle: str) -> dict:
-    return asdict(RUNNER.start(handle.lstrip('@')))
+@router.post("/{handle}/refresh", status_code=202)
+async def refresh(handle: str) -> dict:
+    """
+    Start one incremental capture, or answer with the one already running.
 
-@router.get('/{handle}/refresh')
-def refresh_status(handle: str) -> dict:
+    `async` is not decoration. The runner hands its subprocess to
+    `asyncio.create_task`, and a sync path operation is run in a threadpool
+    where there is no loop to hand it to — the endpoint answered every request
+    with `RuntimeError: no running event loop`, which is to say the button
+    never worked once.
+    """
+    return asdict(RUNNER.start(handle.lstrip("@")))
+
+
+@router.get("/{handle}/refresh")
+async def refresh_status(handle: str) -> dict:
+    """
+    How the capture is going, or `idle`.
+
+    Idle rather than 404 for a handle nothing has been started for: the caller
+    is a page asking "is anything happening", and "no" is an answer rather than
+    an error.
+    """
     current = RUNNER.current()
-    return asdict(current) if current and current.handle == handle.lstrip('@') else {"handle": handle.lstrip('@'), "state":"idle", "scroll":0, "new":0, "error":None, "finishedAt":None}
+    if current and current.handle == handle.lstrip("@"):
+        return asdict(current)
+    return {
+        "handle": handle.lstrip("@"),
+        "state": "idle",
+        "scroll": 0,
+        "new": 0,
+        "error": None,
+        "finishedAt": None,
+    }

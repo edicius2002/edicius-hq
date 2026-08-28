@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.config import tweets_dir
+
 TIMEOUT_SECONDS = 300
 
 @dataclass
@@ -55,8 +57,27 @@ class TweetRefreshRunner:
         if not script.is_file():
             self._fail("No se encontró tools/x-scraper/scrape.py; configura REPO_ROOT.")
             return
-        env = {**os.environ, "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE": os.getenv("PLAYWRIGHT_HOST_PLATFORM_OVERRIDE", "ubuntu24.04-x64")}
-        proc = await asyncio.create_subprocess_exec(python, str(script), self.pass_.handle, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env)
+        # The caller states the destination rather than letting the script work
+        # it out. `scrape.py` resolves its own default from the repository
+        # layout and does not read `LOCAL_DATA_DIR`, while `tweets_dir()` does —
+        # so with that variable set the two disagreed, and a refresh wrote 6
+        # tweets into a file this API never reads. Measured: the run reported
+        # `finished, new 6` and the page did not change by one row.
+        env = {
+            **os.environ,
+            "X_SCRAPER_OUTPUT": str(tweets_dir()),
+            "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE": os.getenv(
+                "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE", "ubuntu24.04-x64"
+            ),
+        }
+        proc = await asyncio.create_subprocess_exec(
+            python,
+            str(script),
+            self.pass_.handle,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
         assert proc.stdout
         async for raw in proc.stdout:
             match = re.search(r"scroll (\d+).*nuevos (\d+)", raw.decode(errors="replace"))

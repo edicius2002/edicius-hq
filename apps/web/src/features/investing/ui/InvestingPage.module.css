@@ -4,7 +4,7 @@
      its widest child's max-content, and the tape's track is deliberately twice
      the frame wide, so the page itself would grow to fit it. */
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-5);
+  gap: var(--space-4);
   width: 100%;
   container-type: inline-size;
 }
@@ -269,6 +269,14 @@
 
 .positionsPanel {
   min-width: 0;
+}
+
+.positionsHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .side[hidden],

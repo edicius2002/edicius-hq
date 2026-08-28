@@ -3,46 +3,31 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_PORTFOLIO } from '@/features/investing/data/portfolio';
-import { Positions } from '@/features/investing/ui/Positions';
+import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('Positions', () => {
-  it('puts the portfolio total and its return above the position controls', () => {
+  it('keeps the portfolio total separate from the position controls', () => {
     render(
-      <Positions
-        portfolio={{
-          version: 1,
-          positions: [{ symbol: 'AAPL', quantity: 2, averageCost: 100 }],
-        }}
-        quotes={
-          new Map([
-            [
-              'AAPL',
-              {
-                symbol: 'AAPL',
-                price: 125,
-                currency: 'USD',
-                previousClose: 120,
-                change: 5,
-                changePercent: 4.17,
-                provider: 'test',
-                time: 100,
-                marketState: 'REGULAR',
-                name: 'Apple Inc.',
-                extended: false,
-              },
-            ],
-          ])
-        }
-        selected="AAPL"
-        onSelect={vi.fn()}
-        onEdit={vi.fn()}
-        onRemove={vi.fn()}
-        onMove={vi.fn()}
-      />,
+      <>
+        <PositionTotals
+          totals={[
+            { currency: 'USD', cost: 200, value: 250, profit: 50, profitPercent: 25, positions: 1 },
+          ]}
+        />
+        <Positions
+          portfolio={EMPTY_PORTFOLIO}
+          quotes={new Map()}
+          selected="AAPL"
+          onSelect={vi.fn()}
+          onEdit={vi.fn()}
+          onRemove={vi.fn()}
+          onMove={vi.fn()}
+        />
+      </>,
     );
 
     const total = screen.getByLabelText('Total USD');

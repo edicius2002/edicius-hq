@@ -32,7 +32,6 @@ export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const {
     state,
-    isFetching,
     isError,
     saveState,
     retrySave,
@@ -60,7 +59,6 @@ export function GreenlightPage() {
   );
   const hasData = Object.keys(state.stats).length > 0;
   const range = useMemo(() => dateRangeLabel(state.stats), [state.stats]);
-  const showSyncing = isFetching && !isError;
 
   async function handleImport(file: File) {
     setLocalError(null);
@@ -116,20 +114,23 @@ export function GreenlightPage() {
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader actions={<SaveStatus state={saveState} onRetry={retrySave} />} />
-
-      <ImportPanel
-        stats={state.stats}
-        meta={state.meta}
-        isSyncing={showSyncing}
-        isImporting={isImporting}
-        isClearing={isClearing}
-        hasData={hasData}
-        onImport={(file) => void handleImport(file)}
-        onParseError={(message) => {
-          setLocalError(message);
-        }}
-        onClear={() => void handleClear()}
+      <PageHeader
+        actions={
+          <>
+            <SaveStatus state={saveState} onRetry={retrySave} />
+            <ImportPanel
+              stats={state.stats}
+              isImporting={isImporting}
+              isClearing={isClearing}
+              hasData={hasData}
+              onImport={(file) => void handleImport(file)}
+              onParseError={(message) => {
+                setLocalError(message);
+              }}
+              onClear={() => void handleClear()}
+            />
+          </>
+        }
       />
 
       {(localError || isError) && (

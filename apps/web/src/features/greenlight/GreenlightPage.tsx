@@ -115,6 +115,7 @@ export function GreenlightPage() {
   return (
     <section className={styles.page} aria-labelledby="page-title">
       <PageHeader
+        className={styles.header}
         beside={
           <div className={styles.totals}>
             <Stat

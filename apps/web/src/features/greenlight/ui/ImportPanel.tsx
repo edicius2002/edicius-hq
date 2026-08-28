@@ -7,10 +7,9 @@ import {
   type ImportPlan,
 } from '@/features/greenlight/lib/importPlan';
 import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
-import type { DayStats, GreenlightMeta } from '@/features/greenlight/model/types';
+import type { DayStats } from '@/features/greenlight/model/types';
 import { Button } from '@/shared/ui/Button';
 import buttonStyles from '@/shared/ui/Button.module.css';
-import { Panel } from '@/shared/ui/Panel';
 
 import styles from './ImportPanel.module.css';
 
@@ -23,8 +22,6 @@ type Pending = PendingClear | PendingImport | null;
 
 type ImportPanelProps = {
   stats: Record<string, DayStats>;
-  meta: GreenlightMeta | null;
-  isSyncing?: boolean;
   isImporting: boolean;
   isClearing: boolean;
   hasData: boolean;
@@ -35,8 +32,6 @@ type ImportPanelProps = {
 
 export function ImportPanel({
   stats,
-  meta,
-  isSyncing = false,
   isImporting,
   isClearing,
   hasData,
@@ -55,14 +50,6 @@ export function ImportPanel({
     });
   }, [pending, stats]);
 
-  const status = isSyncing
-    ? 'Syncing…'
-    : isImporting
-      ? 'Importing…'
-      : meta?.fileName
-        ? meta.fileName
-        : null;
-  const showDetail = Boolean(meta?.statusDetail) && !isSyncing && !isImporting && pending === null;
   const previewOpen = pending?.kind === 'import';
   const busy = isImporting || isClearing || pending?.kind === 'clear';
 
@@ -118,14 +105,8 @@ export function ImportPanel({
   const canApplyImport = Boolean(importPlan && importPlanHasChanges(importPlan));
 
   return (
-    <Panel aria-labelledby="import-title" className={styles.panel}>
+    <div className={styles.importPanel}>
       <div className={styles.row}>
-        <h2 id="import-title" className={styles.title}>
-          Update from CSV
-        </h2>
-
-        {!hasData ? <span className={styles.seedLabel}>Replace all</span> : null}
-
         <label
           className={`${buttonStyles.button} ${buttonStyles.primary} ${styles.fileButton} ${
             isImporting ? styles.fileDisabled : ''
@@ -149,21 +130,7 @@ export function ImportPanel({
           Clear
         </Button>
 
-        {status ? <span className={styles.status}>{status}</span> : null}
       </div>
-
-      {hasData ? (
-        <p className={styles.modeHint}>
-          Rebuilds every week the CSV mentions (Monday–Sunday). Weeks not in the file are left as
-          they are.
-        </p>
-      ) : (
-        <p className={styles.modeHint}>
-          No stored days yet — this CSV becomes the whole document. After that, imports only rebuild
-          the weeks the file mentions, so history the CSV omits cannot be deleted by a partial
-          export.
-        </p>
-      )}
 
       {pending?.kind === 'import' && copy ? (
         <div
@@ -194,8 +161,6 @@ export function ImportPanel({
           </Button>
         </div>
       ) : null}
-
-      {showDetail ? <p className={styles.statusDetail}>{meta?.statusDetail}</p> : null}
-    </Panel>
+    </div>
   );
 }

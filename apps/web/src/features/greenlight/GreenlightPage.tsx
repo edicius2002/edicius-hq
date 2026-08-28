@@ -32,7 +32,6 @@ export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const {
     state,
-    isFetching,
     isError,
     saveState,
     retrySave,
@@ -60,7 +59,6 @@ export function GreenlightPage() {
   );
   const hasData = Object.keys(state.stats).length > 0;
   const range = useMemo(() => dateRangeLabel(state.stats), [state.stats]);
-  const showSyncing = isFetching && !isError;
 
   async function handleImport(file: File) {
     setLocalError(null);
@@ -116,53 +114,57 @@ export function GreenlightPage() {
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader actions={<SaveStatus state={saveState} onRetry={retrySave} />} />
-
-      <ImportPanel
-        stats={state.stats}
-        meta={state.meta}
-        isSyncing={showSyncing}
-        isImporting={isImporting}
-        isClearing={isClearing}
-        hasData={hasData}
-        onImport={(file) => void handleImport(file)}
-        onParseError={(message) => {
-          setLocalError(message);
-        }}
-        onClear={() => void handleClear()}
+      <PageHeader
+        className={styles.header}
+        beside={
+          <div className={styles.totals}>
+            <Stat
+              label="Gross"
+              value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
+              tone="accent"
+              size="sm"
+            />
+            <Stat
+              label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
+              value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
+              tone="expense"
+              size="sm"
+            />
+            <Stat
+              label="Net"
+              value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
+              tone="income"
+              size="sm"
+            />
+          </div>
+        }
+        actions={
+          <>
+            {(localError || isError) && (
+              <p className={styles.error} role="alert">
+                {localError || 'Could not load Greenlight data from storage.'}
+              </p>
+            )}
+            <SaveStatus state={saveState} onRetry={retrySave} />
+            <ImportPanel
+              stats={state.stats}
+              isImporting={isImporting}
+              isClearing={isClearing}
+              hasData={hasData}
+              onImport={(file) => void handleImport(file)}
+              onParseError={(message) => {
+                setLocalError(message);
+              }}
+              onClear={() => void handleClear()}
+            />
+          </>
+        }
       />
 
-      {(localError || isError) && (
-        <p className={styles.error} role="alert">
-          {localError || 'Could not load Greenlight data from storage.'}
-        </p>
-      )}
-
-      <div className={styles.totals}>
-        <Stat
-          label="Gross"
-          value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
-          tone="accent"
-        />
-        <Stat
-          label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
-          value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
-          tone="expense"
-        />
-        <Stat
-          label="Net"
-          value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
-          tone="income"
-        />
-      </div>
-
       <div className={styles.overview} aria-label="Weekly and monthly overview">
-        <Panel className={styles.overviewCard}>
+        <Panel className={styles.overviewCard} density="compact">
           <div className={styles.panelHeading}>
-            <div>
-              <h2 className={styles.panelTitle}>By week</h2>
-              <p className={styles.panelSubtitle}>Deliverable value across all weeks</p>
-            </div>
+            <h2 className={styles.panelTitle}>By week</h2>
           </div>
           {hasData ? (
             <WeeklyChart points={weekly} />
@@ -170,12 +172,9 @@ export function GreenlightPage() {
             <p className={styles.muted}>No weeks to chart yet.</p>
           )}
         </Panel>
-        <Panel className={styles.overviewCard}>
+        <Panel className={styles.overviewCard} density="compact">
           <div className={styles.panelHeading}>
-            <div>
-              <h2 className={styles.panelTitle}>By month</h2>
-              <p className={styles.panelSubtitle}>Monthly deliverable totals</p>
-            </div>
+            <h2 className={styles.panelTitle}>By month</h2>
           </div>
           {hasData ? (
             <MonthlyChart points={monthly} />

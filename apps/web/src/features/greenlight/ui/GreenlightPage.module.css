@@ -1,13 +1,24 @@
 .page {
   display: grid;
-  gap: var(--space-5);
+  /*
+   * The header is one responsive row of totals and controls, not a page
+   * section. Keep its separation at the control scale and return part of the
+   * shell padding to the content above and below it.
+   */
+  gap: var(--space-2);
+  margin-block: calc(var(--space-4) * -1);
   width: 100%;
 }
 
+.header {
+  /* There is no subtitle, so centering aligns the compact stats with actions. */
+  align-items: center;
+}
+
 .totals {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .overview {
@@ -24,20 +35,14 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: var(--space-3);
-  align-items: flex-start;
+  gap: var(--space-2);
+  align-items: center;
 }
 
 .panelTitle {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 600;
-}
-
-.panelSubtitle {
-  margin: var(--space-1) 0 0;
-  color: var(--color-muted);
-  font-size: 0.85rem;
 }
 
 /*
@@ -77,15 +82,24 @@
   text-transform: uppercase;
 }
 
-.muted,
-.error {
+.muted {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.95rem;
 }
 
+/*
+ * Sits in the header's action row beside Select CSV and Clear, so it has to
+ * behave as one flex item among several: it shrinks rather than pushing the
+ * buttons off the line, and stays on the buttons' baseline.
+ */
 .error {
+  margin: 0;
   color: var(--color-danger);
+  font-size: 0.85rem;
+  align-self: center;
+  max-width: 24rem;
+  min-width: 0;
 }
 
 @media (max-width: 1100px) {

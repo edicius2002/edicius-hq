@@ -16,7 +16,7 @@ def test_real_user_replies_timeline_fixture_uses_core_handle_and_bottom_cursor()
 
     assert [
         tweet["id"] for tweet in x_scraper.extract_tweets(payload, "thsottiaux")
-    ] == ["9001"]
+    ] == ["9001", "9002"]
     assert x_scraper.bottom_cursors(payload) == ["CURSOR_ANONIMIZADO"]
 
 

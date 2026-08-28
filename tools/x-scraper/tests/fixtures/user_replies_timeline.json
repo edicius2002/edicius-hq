@@ -1,1 +1,78 @@
-{"data":{"user":{"result":{"timeline_response":{"timeline":{"instructions":[{"type":"TimelineAddEntries","entries":[{"entryId":"tweet-9001","content":{"itemContent":{"tweet_results":{"result":{"rest_id":"9001","legacy":{"full_text":"anon"},"core":{"user_results":{"result":{"core":{"screen_name":"thsottiaux"}}}}}}}}},{"entryId":"cursor-bottom-0","content":{"cursorType":"Bottom","value":"CURSOR_ANONIMIZADO"}}]}]}}}}}}
+{
+  "data": {
+    "user": {
+      "result": {
+        "timeline_response": {
+          "timeline": {
+            "instructions": [
+              {
+                "type": "TimelineAddEntries",
+                "entries": [
+                  {
+                    "entryId": "tweet-9001",
+                    "content": {
+                      "itemContent": {
+                        "tweet_results": {
+                          "result": {
+                            "rest_id": "9001",
+                            "legacy": {
+                              "full_text": "anon"
+                            },
+                            "core": {
+                              "user_results": {
+                                "result": {
+                                  "core": {
+                                    "screen_name": "thsottiaux"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "entryId": "tweet-9002",
+                    "content": {
+                      "itemContent": {
+                        "tweet_results": {
+                          "result": {
+                            "rest_id": "9002",
+                            "legacy": {
+                              "created_at": "Mon Jan 01 03:04:05 +0000 2024",
+                              "full_text": "otro texto anonimizado",
+                              "favorite_count": 0,
+                              "retweet_count": 0,
+                              "reply_count": 0
+                            },
+                            "core": {
+                              "user_results": {
+                                "result": {
+                                  "core": {
+                                    "screen_name": "thsottiaux"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "entryId": "cursor-bottom-0",
+                    "content": {
+                      "cursorType": "Bottom",
+                      "value": "CURSOR_ANONIMIZADO"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

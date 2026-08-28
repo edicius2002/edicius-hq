@@ -116,9 +116,7 @@ export function GreenlightPage() {
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader
-        actions={<SaveStatus state={saveState} onRetry={retrySave} />}
-      />
+      <PageHeader actions={<SaveStatus state={saveState} onRetry={retrySave} />} />
 
       <ImportPanel
         stats={state.stats}

@@ -180,9 +180,7 @@ export function InvestingPage() {
       aria-labelledby={chartFocused ? undefined : 'page-title'}
       aria-label={chartFocused ? 'Focused investing chart' : undefined}
     >
-      <PageHeader
-        className={styles.pageHeader}
-      />
+      <PageHeader className={styles.pageHeader} />
 
       <div className={styles.tickerWrap}>
         <TickerTape quotes={tapeQuotes} onSelect={setSymbol} />

@@ -250,6 +250,15 @@ export function AnalysisPanel({
    * cannot see the control cannot tell the month was chosen for them.
    */
   const [view, setView] = useState<ChartView>('days');
+  /*
+   * Where the departure chart draws its own head — the flight count, the frame
+   * arrows and the zoom reset.
+   *
+   * State rather than a ref, because a portal needs its target to exist on the
+   * render that reads it and a ref is still null on the first one. A callback
+   * ref writing to state costs one extra render, once, on mount.
+   */
+  const [chartMeta, setChartMeta] = useState<HTMLDivElement | null>(null);
   const routeKey = route ? routeId(route) : null;
 
   /*
@@ -409,6 +418,7 @@ export function AnalysisPanel({
             <button
               type="button"
               aria-pressed={view === 'days'}
+              aria-expanded={view === 'days'}
               aria-label={daysName}
               onClick={() => setView('days')}
               data-testid="days-chart-button"
@@ -426,15 +436,45 @@ export function AnalysisPanel({
                 ))}
               </span>
             </button>
+            {/*
+            The period control unfolds sideways out of the date-cost button and
+            folds back into it on price history, rather than appearing and
+            vanishing where it stands.
+
+            It stays mounted through both states, which is the whole reason the
+            fold can be seen at all: a control that unmounts has no width to
+            animate from. `inert` and `aria-hidden` together keep a folded control out
+            of the tab order and off a screen reader while it is still in the
+            tree. Together and not either alone: `inert` is not carried
+            everywhere yet, and hiding a focusable control from a screen reader
+            while leaving it tabbable is the trap `aria-hidden` on its own sets — the
+            visual fold alone would leave three buttons reachable inside a strip
+            nobody can see.
+
+            It still preserves the table grouping across a fold; the reading is
+            kept, not the control's visibility.
+          */}
+            <div
+              className={`${styles.periodFold} ${view === 'days' ? styles.periodOpen : ''}`}
+              inert={view === 'days' ? undefined : true}
+              aria-hidden={view === 'days' ? undefined : true}
+            >
+              <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+            </div>
           </div>
-          {/* `period-switch-follows-its-chart` is superseded: the owner chose
-              adjacency over holding space for a control that does not apply to
-              price history. The pill may shift when Flights seen opens; the
-              prose row and its reserved height are gone on both views. */}
-          {view === 'days' ? (
-            <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-          ) : null}
         </div>
+        {/*
+          The departure chart's own head, moved onto this row.
+
+          A slot rather than markup: the count is derived from the points that
+          chart placed and the reset from the zoom it holds, so the nodes are
+          portalled out of it and nothing about them is computed twice. The
+          third grid column, so filling it cannot move the pill in the second.
+
+          Empty on chart A, which has no frame to step through and no zoom to
+          undo — the same reason the period switch folds away there.
+        */}
+        <div ref={setChartMeta} className={styles.chartMeta} />
       </div>
 
       {/*
@@ -491,6 +531,7 @@ export function AnalysisPanel({
               periodKey={periodKey}
               keys={keys}
               onStep={step}
+              metaSlot={chartMeta}
               viewport={viewport}
               onViewportChange={onViewportChange}
               horizonLoading={curveLoading}

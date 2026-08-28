@@ -1,6 +1,14 @@
+/*
+ * The page opens straight onto the map now that the spend strip is gone, so it
+ * reclaims the shell's top padding the way Investing's does. There is no header
+ * row left to separate: `PageHeader` was being rendered with no title, subtitle
+ * or actions, which drew nothing and still cost a row of this grid and the gap
+ * either side of it.
+ */
 .page {
   display: grid;
   gap: var(--space-5);
+  margin-block-start: calc(var(--space-4) * -1);
 }
 
 /*

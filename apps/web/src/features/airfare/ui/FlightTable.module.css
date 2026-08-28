@@ -101,7 +101,7 @@
   flex-wrap: wrap;
   /* Allowed to shrink under its own content so the heading beside it is not
      pushed onto a line of its own the moment the six controls stop fitting. */
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   /* 10px between controls rather than 15: the six gaps at 15 cost 90px, and
      the 30 saved are the difference between the row holding together down to
@@ -109,12 +109,24 @@
      does the separating. */
   gap: var(--space-2);
   align-items: end;
+  justify-content: space-between;
 }
 
 .filter {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+/*
+ * Price is two fields and a dash where every other filter is one control, and
+ * its label belongs to the pair rather than to the first of them: it stays on
+ * the labels' own line like all the others, centred over both fields instead of
+ * starting above the minimum.
+ */
+.filter:has(.range) > span {
+  text-align: center;
 }
 
 .filter > span {
@@ -158,8 +170,16 @@
  * spare. A field wide enough for eight would say the range expects numbers it
  * will never see, and it would cost the row 60px it does not have.
  */
+/*
+ * The two fields and the dash between them, centred under their label.
+ *
+ * Price is the one filter that is two controls, so left-aligning it put the
+ * minimum under the label's first letter and the maximum out past its last.
+ * Centred, the pair reads as the one control it is grouped as.
+ */
 .range {
   display: flex;
+  justify-content: center;
   align-items: center;
   gap: var(--space-1);
 }

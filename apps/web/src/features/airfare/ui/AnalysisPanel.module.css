@@ -1,8 +1,19 @@
 .head {
-  display: flex;
+  display: grid;
+  /*
+   * Title, pill, chart head — the pill sits against the title rather than in
+   * the middle of the row.
+   *
+   * It was centred to give the period fold somewhere to open into, and the
+   * third column still is that somewhere: everything to the pill's right is
+   * free space until the chart's own head, which justifies itself to the end.
+   * What the two `auto` columns cost is that the pill now starts where the
+   * title finishes, so a longer route name moves it. That is a smaller
+   * movement than the fold used to cause and it happens when the reader
+   * changes route rather than when they press a control they are looking at.
+   */
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
@@ -15,27 +26,38 @@
 }
 
 /*
- * The switch, at the right of the head, wrapping under the title at the narrow
- * end of the panel rather than squeezing beside it.
+ * The switch, in the middle column of the head.
  *
- * There is exactly one of them now and there always is. The middle one — how to
+ * It sat at the right edge until the period fold was anchored to it. The fold
+ * opens out of the button's right side, so at the right edge it opened into the
+ * panel's border and could not be seen at all — the centre column is what gives
+ * it somewhere to open into, and the two `1fr` columns either side are what keep
+ * the pill in the same place whether it is open or shut.
+ *
+ * There is exactly one switch now and there always is. The middle one — how to
  * read chart A's axis, how far out chart B stood — went with the modes it
  * switched between, and the period switch has gone into the chart it moves, so
  * what is left is the one control that is a question about the panel: which of
- * the two charts is open. A wrapper for a single child, kept because `.head` is
- * `space-between` and this is the half that has to stay at the right edge —
- * and because it is what makes the head's contents fixed, which is the property
- * the vanished period switch needed a held-open strip to imitate.
+ * the two charts is open.
  */
 .switches {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
+  grid-column: 2;
 }
 
 .switch {
   display: inline-flex;
+  position: relative;
+  /*
+   * Never shrinks and never grows: the pair is the fixed thing in this row, and
+   * the period control folding open to its right is what moves. Without this
+   * the flex line hands the pair a share of the slack and the two chart names
+   * shift sideways every time the fold opens.
+   */
+  flex: 0 0 auto;
+  align-items: center;
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--color-border);
@@ -47,12 +69,12 @@
   appearance: none;
   border: 0;
   cursor: pointer;
-  padding: 5px 13px;
+  padding: 4px 9px;
   border-radius: 999px;
   background: transparent;
   color: var(--color-muted);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
 }
 
 .switch button[aria-pressed='true'] {
@@ -74,9 +96,19 @@
  * `min-width` in pixels would be the same intention as a guess, and would be
  * wrong the first time somebody changes the type scale.
  */
+/*
+ * The stack that holds chart B's button open at its widest name — and, with the
+ * rule below, at one line of it.
+ *
+ * The width was already reserved this way. The height was not: every name here
+ * is `nowrap`, so a single line is what they all draw today, but that is a
+ * property of the strings rather than a promise, and the day one of them wraps
+ * the button grows and the switch beside it moves. One line is stated.
+ */
 .names {
   display: grid;
   place-items: center;
+  grid-auto-rows: 1lh;
 }
 
 .nameLive,
@@ -219,4 +251,67 @@
   flex: 1 1 0;
   min-height: 0;
   height: auto;
+}
+
+/*
+ * The fold the period switch opens out of.
+ *
+ * `grid-template-columns: 0fr -> 1fr` rather than a width in pixels: the switch
+ * is three buttons whose labels are words, so its open width is whatever the
+ * font makes it and any number written here would be a guess that a font change
+ * breaks. The grid track measures the content itself and animates between none
+ * of it and all of it.
+ *
+ * `min-width: 0` on the child is what lets the track actually reach zero — a
+ * flex or grid item's floor is its content otherwise, and the strip would sit
+ * there at full width refusing to fold.
+ */
+/*
+ * The fold the period switch opens out of, clipped rather than sized.
+ *
+ * It was a `0fr -> 1fr` grid track, which is the usual way to animate to a
+ * width nobody has to name — and it did not fold at all here. That technique
+ * needs a container with a definite width to resolve the fraction against, and
+ * this box is `position: absolute` with no `right`, so its width is
+ * shrink-to-fit and the `fr` had no free space to take a share of.
+ *
+ * `clip-path` needs no width at all. The inset runs from the right edge, so the
+ * switch is revealed left to right out of the button it is pinned to and folds
+ * back into it the same way — and unlike a `max-width` ceiling, there is no
+ * number here that can be guessed too small and clip the control.
+ */
+.periodFold {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  z-index: 1;
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 220ms ease;
+}
+
+.periodOpen {
+  clip-path: inset(0 0 0 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .periodFold {
+    transition: none;
+  }
+}
+
+/*
+ * The slot the departure chart portals its head into: the flight count, the
+ * frame arrows and the zoom reset.
+ *
+ * The third column of the head grid, so what lands here is laid out to the
+ * right of the pill without being able to push it. Justified to the end so the
+ * cluster sits against the panel's right edge, which is where it was when it
+ * lived inside the figure.
+ */
+.chartMeta {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  grid-column: 3;
+  min-width: 0;
 }

@@ -117,6 +117,11 @@ export function GreenlightPage() {
       <PageHeader
         actions={
           <>
+            {(localError || isError) && (
+              <p className={styles.error} role="alert">
+                {localError || 'Could not load Greenlight data from storage.'}
+              </p>
+            )}
             <SaveStatus state={saveState} onRetry={retrySave} />
             <ImportPanel
               stats={state.stats}
@@ -132,12 +137,6 @@ export function GreenlightPage() {
           </>
         }
       />
-
-      {(localError || isError) && (
-        <p className={styles.error} role="alert">
-          {localError || 'Could not load Greenlight data from storage.'}
-        </p>
-      )}
 
       <div className={styles.totals}>
         <Stat

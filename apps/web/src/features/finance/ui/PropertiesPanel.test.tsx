@@ -82,3 +82,17 @@ describe('notes', () => {
     expect(notes).toHaveValue('paid late\nchased twice');
   });
 });
+
+describe('asset editors', () => {
+  it.each([
+    ['job', { type: 'node' as const, id: 'j1' }],
+    ['account', { type: 'node' as const, id: 'a1' }],
+  ])('places Add asset before the %s asset grid', (_, selection) => {
+    render(<StatefulPanel selection={selection} />);
+
+    const addAsset = screen.getByText('Add asset');
+    const asset = screen.getByRole('button', { name: 'USD' });
+
+    expect(addAsset.compareDocumentPosition(asset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

@@ -273,6 +273,22 @@ function JobFields({
   return (
     <>
       <h3 className={styles.sectionTitle}>Paid in</h3>
+      <div className={styles.row}>
+        <span className={`${styles.field} ${styles.rowGrow}`}>
+          Add asset
+          <input
+            className={styles.input}
+            value={draft}
+            placeholder="USD"
+            maxLength={8}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') addAsset();
+            }}
+          />
+        </span>
+        <Button onClick={addAsset}>Add</Button>
+      </div>
       {node.balances.length ? (
         <div className={styles.assets}>
           {node.balances.map((balance) => (
@@ -303,22 +319,6 @@ function JobFields({
         <p className={styles.hint}>No assets yet.</p>
       )}
 
-      <div className={styles.row}>
-        <span className={`${styles.field} ${styles.rowGrow}`}>
-          Add asset
-          <input
-            className={styles.input}
-            value={draft}
-            placeholder="USD"
-            maxLength={8}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') addAsset();
-            }}
-          />
-        </span>
-        <Button onClick={addAsset}>Add</Button>
-      </div>
       <p className={styles.hint}>
         Switching an asset off keeps its amount, so switching it back on restores it.
       </p>
@@ -348,6 +348,22 @@ function AccountFields({
   return (
     <>
       <h3 className={styles.sectionTitle}>Assets held</h3>
+      <div className={styles.row}>
+        <span className={`${styles.field} ${styles.rowGrow}`}>
+          Add asset
+          <input
+            className={styles.input}
+            value={draft}
+            placeholder="USD"
+            maxLength={8}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') addAsset();
+            }}
+          />
+        </span>
+        <Button onClick={addAsset}>Add</Button>
+      </div>
       {holdings.length ? (
         <div className={styles.assets}>
           {holdings.map((holding) => (
@@ -380,29 +396,12 @@ function AccountFields({
         </p>
       )}
 
-      <div className={styles.row}>
-        <span className={`${styles.field} ${styles.rowGrow}`}>
-          Add asset
-          <input
-            className={styles.input}
-            value={draft}
-            placeholder="USD"
-            maxLength={8}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') addAsset();
-            }}
-          />
-        </span>
-        <Button onClick={addAsset}>Add</Button>
-      </div>
-
       <h3 className={styles.sectionTitle}>Movement</h3>
       {/* In and out are one comparison, not two facts, and side by side is how a
           comparison reads. Stacked they also cost a row the fixed panel does not
           have to spare. */}
       <div className={styles.movement}>
-        <div className={styles.chain}>
+        <div className={`${styles.chain} ${styles.movementCard}`}>
           <span className={styles.movementLabel}>In</span>
           <span>
             {summary.incoming.count} ·{' '}
@@ -410,7 +409,7 @@ function AccountFields({
               '—'}
           </span>
         </div>
-        <div className={styles.chain}>
+        <div className={`${styles.chain} ${styles.movementCard}`}>
           <span className={styles.movementLabel}>Out</span>
           <span>
             {summary.outgoing.count} ·{' '}

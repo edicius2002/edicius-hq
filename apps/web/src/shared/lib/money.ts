@@ -81,6 +81,25 @@ export function parseAmount(raw: string): number | null {
 }
 
 /**
+ * The same amount, without the noise binary floating point leaves behind.
+ *
+ * `8 * 0.88` is 7.040000000000001, and a couple of fee steps on top of that
+ * produced 7.039999999999964 — a number no one entered, no one can read, and
+ * `formatAmount` hid everywhere except the field you edit it in, which prints
+ * the value raw. Rounding to the precision this app is willing to *show* is
+ * what makes the stored number and the printed one the same number again.
+ *
+ * The precision is `formatAmount`'s own rule and not a second one: two
+ * decimals, except below a cent, where two would report zero and the eight
+ * that distinguish satoshi-scale amounts are kept instead.
+ */
+export function roundAmount(value: number): number {
+  if (!Number.isFinite(value)) return value;
+  const digits = value !== 0 && Math.abs(value) < SUB_CENT ? SUB_CENT_DIGITS : 2;
+  return Number(value.toFixed(digits));
+}
+
+/**
  * A number in an input, written the way the rest of the app writes numbers.
  *
  * No grouping: the string round-trips through `parseAmount` unchanged, and a
@@ -89,7 +108,7 @@ export function parseAmount(raw: string): number | null {
  */
 export function amountToInput(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '';
-  return String(value).replace('.', ',');
+  return String(roundAmount(value)).replace('.', ',');
 }
 
 /**

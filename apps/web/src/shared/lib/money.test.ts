@@ -9,6 +9,7 @@ import {
   formatQuantity,
   formatSignedAmount,
   parseAmount,
+  roundAmount,
 } from '@/shared/lib/money';
 
 describe('formatAmount', () => {
@@ -200,5 +201,33 @@ describe('amountToInput', () => {
   it('shows an empty field for no amount, not a zero', () => {
     expect(amountToInput(null)).toBe('');
     expect(amountToInput(Number.NaN)).toBe('');
+  });
+});
+
+describe('roundAmount', () => {
+  it('drops the noise floating point leaves on a fee chain', () => {
+    expect(roundAmount(7.039999999999964)).toBe(7.04);
+    expect(roundAmount(8 * 0.88)).toBe(7.04);
+  });
+
+  it('keeps what is below a cent, where two decimals would report zero', () => {
+    expect(roundAmount(0.00000123)).toBe(0.00000123);
+    expect(roundAmount(0.005)).toBe(0.005);
+  });
+
+  it('leaves an amount that is already exact alone', () => {
+    for (const value of [0, 1, -450.5, 999999.99]) {
+      expect(roundAmount(value)).toBe(value);
+    }
+  });
+
+  it('passes a non-number through rather than inventing one', () => {
+    expect(roundAmount(Number.NaN)).toBeNaN();
+  });
+});
+
+describe('amountToInput after rounding', () => {
+  it('writes the amount a person would read, not every binary digit of it', () => {
+    expect(amountToInput(7.039999999999964)).toBe('7,04');
   });
 });

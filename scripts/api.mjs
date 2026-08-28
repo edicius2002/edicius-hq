@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MODES = ['dev', 'test', 'lint', 'format', 'typecheck', 'fares-collect', 'fares-check'];
+const MODES = ['dev', 'serve', 'test', 'lint', 'format', 'typecheck', 'fares-collect', 'fares-check'];
 
 const mode = process.argv[2];
 if (!MODES.includes(mode)) {
@@ -62,6 +62,18 @@ const PY_TARGETS = ['.', '../../scripts'];
 const ARGS = {
   test: [['-m', 'pytest']],
   dev: [['-m', 'uvicorn', 'app.main:app', '--reload', '--host', '127.0.0.1', '--port', '8000']],
+  /*
+   * The same server without the reloader, for `npm start` — which serves the
+   * built bundle and has no source to watch.
+   *
+   * It is not only tidiness. On Windows uvicorn switches to a selector event
+   * loop whenever it runs a subprocess, reloader included, and that loop
+   * cannot spawn one: `asyncio.create_subprocess_exec` raises
+   * `NotImplementedError`, which is the first thing Playwright's driver needs
+   * and therefore the tweet watcher never captured anything there. `dev` still
+   * carries the reloader and still has that limitation.
+   */
+  serve: [['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000']],
   lint: [
     ['-m', 'ruff', 'check', ...PY_TARGETS],
     ['-m', 'ruff', 'format', '--check', ...PY_TARGETS],

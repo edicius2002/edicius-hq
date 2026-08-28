@@ -53,6 +53,19 @@ def diagnose(error: BaseException) -> Failure:
             f"services/api/requirements.txt con el intérprete que corre uvicorn. ({text})",
             transient=False,
         )
+    # Nothing about a bare `NotImplementedError` points at the reloader, and the
+    # traceback names only asyncio's own internals, so the cause is spelled out
+    # here: on Windows uvicorn switches to a selector event loop whenever it
+    # runs a subprocess of its own, and that loop cannot spawn one — which is
+    # the first thing Playwright's driver asks for. Fatal rather than transient:
+    # the loop the API is running on will not change while it runs.
+    if isinstance(error, NotImplementedError):
+        return Failure(
+            "El event loop no puede lanzar subprocesos, así que Playwright no "
+            "arranca su driver. En Windows lo causa uvicorn con --reload: usa "
+            "`npm start`, o levanta la API sin el reloader.",
+            transient=False,
+        )
     if "playwright install" in text or "Executable doesn't exist" in text:
         return Failure(
             "Playwright está instalado pero le falta el navegador; ejecuta "

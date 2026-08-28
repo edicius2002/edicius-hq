@@ -9,7 +9,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
  * stays on 5173 because that is one of the API's default CORS origins.
  */
 const processes = [
-  spawn(process.execPath, [path.join(repoRoot, 'scripts', 'api.mjs'), 'dev'], { stdio: 'inherit' }),
+  spawn(process.execPath, [path.join(repoRoot, 'scripts', 'api.mjs'), 'serve'], { stdio: 'inherit' }),
   spawn(
     process.execPath,
     [

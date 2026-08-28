@@ -1,5 +1,6 @@
 """Read-only local archive of captured X posts. Wire fields are camelCase."""
 import json
+from dataclasses import asdict
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 
 from app.config import tweets_dir
+from app.services.tweet_refresh import RUNNER
 
 router = APIRouter(prefix="/api/tweets", tags=["tweets"])
 DEFAULT_HANDLE = "thsottiaux"
@@ -42,3 +44,13 @@ def get_tweets(handle: str, limit: int = Query(default=500, ge=1, le=5000)) -> d
 
     rows.sort(key=timestamp, reverse=True)
     return {"handle": handle.lstrip("@"), "tweets": rows[:limit]}
+
+
+@router.post('/{handle}/refresh', status_code=202)
+def refresh(handle: str) -> dict:
+    return asdict(RUNNER.start(handle.lstrip('@')))
+
+@router.get('/{handle}/refresh')
+def refresh_status(handle: str) -> dict:
+    current = RUNNER.current()
+    return asdict(current) if current and current.handle == handle.lstrip('@') else {"handle": handle.lstrip('@'), "state":"idle", "scroll":0, "new":0, "error":None, "finishedAt":None}

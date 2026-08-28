@@ -27,13 +27,13 @@ def test_browser_loop_runs_work_on_its_own_thread():
     asyncio.run(scenario())
 
 
-def test_cycle_persists_only_unknown_ids_and_keeps_a_recent_id_window(tmp_path):
+def test_cycle_persists_only_unknown_ids_from_the_entire_archive(tmp_path):
     async def scenario():
         watcher = TweetWatcher(data_dir=tmp_path, cycle=lambda _handle: None)
-        watcher._write("sample", [{"id": "old"}, {"id": "new"}])
+        watcher._write("sample", [{"id": "old"}] + [{"id": str(index)} for index in range(201)])
         captured = await watcher.record("sample", [{"id": "old"}, {"id": "reply-to-old"}])
         assert captured == 1
-        assert watcher.recent_ids("sample") == {"old", "new", "reply-to-old"}
+        assert "old" in watcher.recent_ids("sample")
 
     asyncio.run(scenario())
 

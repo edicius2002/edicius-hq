@@ -24,7 +24,6 @@ from app.config import tweets_dir
 from app.services.pass_stream import PassBroadcast
 
 DEFAULT_INTERVAL_SECONDS = int(os.getenv("X_TWEET_WATCH_INTERVAL_SECONDS", "120"))
-RECENT_WINDOW = 200
 
 # The two the capture raises itself, in `_capture`. Matched on the text because
 # they arrive as plain RuntimeError, and inventing an exception class for a
@@ -180,15 +179,18 @@ class TweetWatcher:
         path = self.data_dir / f"{handle}.jsonl"
         if not path.exists():
             return set()
-        ids: list[str] = []
+        ids: set[str] = set()
         for line in path.read_text(encoding="utf-8").splitlines():
             try:
                 value = json.loads(line)
             except json.JSONDecodeError:
                 continue
             if isinstance(value, dict) and value.get("id"):
-                ids.append(str(value["id"]))
-        return set(ids[-RECENT_WINDOW:])
+                ids.add(str(value["id"]))
+        # JSONL is small enough to read as a whole, and an old ID is still an
+        # ID we must never write again. A bounded tail silently duplicates a
+        # burst once it has been pushed past the window.
+        return ids
 
     def _write(self, handle: str, rows: list[dict[str, Any]]) -> None:
         if not rows:

@@ -123,6 +123,24 @@
   flex: 0 1 8rem;
 }
 
+/* Account asset entry is one action, so its label, short symbol and compact
+   button share the row instead of making the label spend a row of the panel. */
+.accountAddRow {
+  align-items: center;
+}
+
+.accountAddLabel {
+  color: var(--color-muted);
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+}
+
+.accountAssetInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
 .sectionTitle {
   color: var(--color-muted);
   font-size: 0.66rem;
@@ -152,13 +170,15 @@
  * box against the amount field a pair leaves room for:
  *
  * The 18rem panel has a 15.875rem content box after its padding and border, so
- * two columns leave 121px per asset after the 0.75rem gap. Reserving 1.7rem
- * for the ticker, two 0.2rem gaps and up to 1rem for allocation leaves the
- * amount's 4.25rem (68px) minimum intact.
+ * two columns leave 121px per asset after the 0.75rem gap. The real fallback
+ * font here is Noto Sans Bold: ImageMagick measures `100%` at 29px with the
+ * old 0.52rem size, and 22.3px at 0.4rem. With a 1.7rem ticker, two 0.1rem
+ * gaps, the 4.25rem (68px) amount and that 22.3px chip, the row spends 120.7px.
  *
- * That field has 58px inside its border and padding, enough for `12.345,67` at
- * 0.68rem without clipping or an inner scroll. Below 15.5rem the list stays one
- * column so its fixed readable width cannot push the panel sideways.
+ * That field has 60px inside its border and horizontal padding. Noto Sans
+ * measures `12.345,67` at 56px with the 0.6rem input text, leaving 4px clear
+ * rather than clipping or scrolling internally. Below 15.5rem the list stays
+ * one column so its fixed readable width cannot push the panel sideways.
  *
  * Two columns trade some height for a usable amount field; an eight-asset
  * account therefore remains four readable rows rather than three cramped ones.
@@ -182,14 +202,14 @@
   display: grid;
   grid-template-columns: 1.7rem minmax(4.25rem, 1fr) auto;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.1rem;
   font-size: 0.62rem;
   min-width: 0;
 }
 
 .asset .input {
-  font-size: 0.68rem;
-  padding: 0.25rem;
+  font-size: 0.6rem;
+  padding: 0.25rem 0.15rem;
 }
 
 /*
@@ -198,7 +218,7 @@
  */
 .allocated {
   color: var(--color-muted);
-  font-size: 0.52rem;
+  font-size: 0.4rem;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   white-space: nowrap;
@@ -311,21 +331,21 @@
   text-transform: uppercase;
 }
 
-/* The button and why it is or is not available, on one line each. */
+/* The compact Execute button and why it is or is not available, one line each. */
 .settle {
   display: grid;
-  gap: var(--space-2);
+  gap: 0.35rem;
   justify-items: start;
 }
 
 .settleNote {
   color: var(--color-muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
 
 .settleBlocked {
   color: var(--color-danger);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
 
 .chain {

@@ -320,10 +320,6 @@ function JobFields({
       ) : (
         <p className={styles.hint}>No assets yet.</p>
       )}
-
-      <p className={styles.hint}>
-        Switching an asset off keeps its amount, so switching it back on restores it.
-      </p>
     </>
   );
 }
@@ -350,21 +346,24 @@ function AccountFields({
   return (
     <>
       <h3 className={styles.sectionTitle}>Assets held</h3>
-      <div className={styles.row}>
-        <span className={`${styles.field} ${styles.rowGrow}`}>
+      <div className={`${styles.row} ${styles.accountAddRow}`}>
+        <label className={styles.accountAddLabel} htmlFor={`account-${node.id}-asset`}>
           Add asset
-          <input
-            className={styles.input}
-            value={draft}
-            placeholder="USD"
-            maxLength={8}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') addAsset();
-            }}
-          />
-        </span>
-        <Button onClick={addAsset}>Add</Button>
+        </label>
+        <input
+          id={`account-${node.id}-asset`}
+          className={`${styles.input} ${styles.accountAssetInput}`}
+          value={draft}
+          placeholder="USD"
+          maxLength={8}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') addAsset();
+          }}
+        />
+        <Button size="small" onClick={addAsset}>
+          Add
+        </Button>
       </div>
       {holdings.length ? (
         <div className={styles.assets}>
@@ -437,17 +436,16 @@ function HoldingFields({ node, actions }: { node: HoldingNode; actions: Properti
       </Field>
 
       <h3 className={styles.sectionTitle}>Fees</h3>
-      {/* Side by side: they are the two halves of one question — what a transfer
-          costs leaving and what it costs arriving — and stacked they read as two
-          unrelated settings that happen to be near each other. */}
+      {/* Out and In are the two halves of one question, so the compact labels
+          keep them beside each other rather than spending a row on each. */}
       <div className={styles.feePair}>
         <FeeField
-          label="Charged on the way out"
+          label="Out"
           fee={node.fees.out}
           onChange={(fee) => actions.updateHolding(node.id, { fees: { ...node.fees, out: fee } })}
         />
         <FeeField
-          label="Charged on the way in"
+          label="In"
           fee={node.fees.in}
           onChange={(fee) => actions.updateHolding(node.id, { fees: { ...node.fees, in: fee } })}
         />
@@ -581,6 +579,7 @@ function FlowFields({
       <div className={styles.settle}>
         <Button
           variant="primary"
+          size="small"
           disabled={!settle.ok}
           onClick={() => actions.executeFlow(flow.id)}
         >

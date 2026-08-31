@@ -95,4 +95,10 @@ describe('asset editors', () => {
 
     expect(addAsset.compareDocumentPosition(asset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it('keeps the account asset draft labelled after its controls share one row', () => {
+    render(<StatefulPanel selection={{ type: 'node', id: 'a1' }} />);
+
+    expect(screen.getByRole('textbox', { name: 'Add asset' })).toBeInTheDocument();
+  });
 });

@@ -581,13 +581,9 @@ function FlowFields({
         >
           Execute
         </Button>
-        {settle.ok ? (
-          <span className={styles.settleNote}>
-            Moves {formatAmount(breakdown.net)} {flow.asset} and leaves the flow empty.
-          </span>
-        ) : (
+        {!settle.ok ? (
           <span className={styles.settleBlocked}>{describeExecuteError(settle.error)}</span>
-        )}
+        ) : null}
       </div>
 
       <Field label="Label">

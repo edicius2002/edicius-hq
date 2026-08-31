@@ -112,11 +112,6 @@
   align-items: end;
 }
 
-.rowGrow {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 /* Job and account use the same one-line action: its label, half-width 4.5rem
    symbol field and compact button avoid spending a second row in either panel. */
 .addAssetRow {
@@ -222,6 +217,11 @@
   min-width: 0;
   overflow: hidden;
   padding: 2px 0;
+  /* The input takes eight characters and this track holds about four, so a long
+     ticker gets clipped. The ellipsis is what says so: without it the symbol
+     ends mid-glyph and reads as a rendering fault rather than as a name that
+     did not fit. The full symbol stays in the button's title either way. */
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -240,6 +240,32 @@
 .assetOverAllocated {
   border-color: var(--color-danger);
   color: var(--color-danger);
+}
+
+/*
+ * The third track exists only on a row that is over-allocated.
+ *
+ * The percentage chip left this row so the amount could keep a readable column,
+ * and the danger colour was left carrying the warning alone — which anybody who
+ * cannot separate red from grey does not receive at all. The word comes back,
+ * but only for the balances that are actually over: a chip that appeared on
+ * every row was the width problem, and one that appears on the rare broken row
+ * is not.
+ *
+ * It fits: 121px per column less the 1.7rem ticker, two 0.2rem gaps and the
+ * amount's 3.75rem floor leaves about 27px, and `over` at 0.52rem bold needs
+ * roughly 20.
+ */
+.assetBroken {
+  grid-template-columns: 1.7rem minmax(3.75rem, 1fr) auto;
+}
+
+.assetOverFlag {
+  color: var(--color-danger);
+  font-size: 0.52rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /*

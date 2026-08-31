@@ -313,9 +313,7 @@ function JobFields({
                   disabled={!balance.active}
                   onChange={(amount) => actions.setJobBalance(node.id, balance.asset, amount)}
                 />
-                {allocation?.exceeded ? (
-                  <span className={styles.assetOverFlag}>over</span>
-                ) : null}
+                {allocation?.exceeded ? <span className={styles.assetOverFlag}>over</span> : null}
               </div>
             );
           })}
@@ -399,9 +397,7 @@ function AccountFields({
                   disabled={!holding.active}
                   onChange={(amount) => actions.updateHolding(holding.id, { amount })}
                 />
-                {allocation?.exceeded ? (
-                  <span className={styles.assetOverFlag}>over</span>
-                ) : null}
+                {allocation?.exceeded ? <span className={styles.assetOverFlag}>over</span> : null}
               </div>
             );
           })}

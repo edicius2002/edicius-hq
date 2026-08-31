@@ -290,7 +290,7 @@
 
 .axis {
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: 9px;
   fill: var(--color-muted);
 }
 
@@ -314,7 +314,7 @@
 
 .endText {
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: 9px;
   fill: var(--color-text);
 }
 
@@ -503,7 +503,7 @@
  */
 .tagText {
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: 9px;
   fill: var(--color-surface);
 }
 
@@ -531,7 +531,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 14px;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   color: var(--color-text);
 }
 

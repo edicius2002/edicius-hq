@@ -252,6 +252,7 @@ type DepartureChartProps = {
   /** Every period the reader can step to, for the counter beside the arrows. */
   keys: string[];
   onStep: (direction: -1 | 1) => void;
+  onFrameMonthChange?: (month: string | null) => void;
   /**
    * Where the chart's own head should be drawn, when it is not to be drawn here.
    *
@@ -382,6 +383,7 @@ export function DepartureChart({
   periodKey,
   keys,
   onStep,
+  onFrameMonthChange,
   metaSlot = null,
   viewport,
   onViewportChange,
@@ -428,6 +430,9 @@ export function DepartureChart({
     () => (periodKey === null ? null : scatterWindow(periodKey, granularity)),
     [periodKey, granularity],
   );
+  useEffect(() => {
+    onFrameMonthChange?.(period?.from.slice(0, 7) ?? null);
+  }, [onFrameMonthChange, period]);
   const days = useMemo(
     () => (period === null ? [] : frameDays(period, watched)),
     [period, watched],
@@ -2317,7 +2322,7 @@ function summary(source: FrameSource, flights: number, marks: CurveMark[]): stri
   const flightWords = `${flights} flight${flights === 1 ? '' : 's'}`;
   const dateWords = `${dates} priced date${dates === 1 ? '' : 's'}`;
   if (source === 'boards') return flightWords;
-  if (source === 'curve') return dateWords;
+  if (source === 'curve') return '';
   return `${flightWords} and ${dateWords}`;
 }
 
@@ -2332,7 +2337,11 @@ function accessibleTail(
   fall: ReferenceFall | null,
 ): string {
   const prices = marks.flatMap((mark) => (mark.price === null ? [] : [mark.price]));
-  const said = summary(source, flights, marks);
+  const dates = marks.filter((mark) => mark.price !== null).length;
+  const said =
+    source === 'curve'
+      ? `${dates} priced date${dates === 1 ? '' : 's'}`
+      : summary(source, flights, marks);
   const range =
     prices.length === 0
       ? ''

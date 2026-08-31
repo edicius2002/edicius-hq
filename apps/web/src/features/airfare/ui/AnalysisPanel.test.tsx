@@ -303,7 +303,7 @@ describe('the period the reader is on', () => {
 });
 
 describe('what the panel says it is showing', () => {
-  it('names the watched month, which is the whole of what a watch is', () => {
+  it('names the reading month while price history is visible', () => {
     /*
      * It briefly named a focused departure date instead, where a watch carried
      * one, because the figures under the head were that one day's — 12.131.
@@ -312,10 +312,35 @@ describe('what the panel says it is showing', () => {
      * the head and the figures under it cannot disagree.
      */
     render(<Harness route={ROUTE} />);
+    click(MOVES);
 
     const head = screen.getByRole('heading', { level: 2 });
     expect(head).toHaveTextContent('ARI → SCL · March 2027');
     expect(head.textContent).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
+  });
+
+  it('follows the departure frame month as its arrows move between watched months', () => {
+    const april = MONTH.map((snapshot) => ({
+      ...snapshot,
+      flightDate: snapshot.flightDate.replace('2027-03', '2027-04'),
+      offers: snapshot.offers.map((entry) => ({
+        ...entry,
+        departureAt: entry.departureAt.replace('2027-03', '2027-04'),
+      })),
+    }));
+    const route = { ...ROUTE, months: ['2027-03', '2027-04'] };
+    render(
+      <Harness
+        route={route}
+        watchedMonths={route.months}
+        watchedSnapshots={[...MONTH, ...april]}
+      />,
+    );
+
+    click('Month');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('ARI → SCL · March 2027');
+    click('Next month');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('ARI → SCL · April 2027');
   });
 
   it('says the chart is of fares departing *in* a stretch of dates, never *on* a day', () => {
@@ -783,17 +808,13 @@ describe('a watch on several months, drawn in one chart', () => {
     expect(frameLabel()).toContain('01/05/2027');
   });
 
-  it('names the watch in the heading, not the month one of the charts is on', () => {
+  it('names the visible frame month in the heading', () => {
     /*
-     * One heading over two charts of different scope. It named the reading
-     * month while both charts were of the reading month; with chart B showing
-     * three, the panel's largest text would have been telling the reader the
-     * wrong thing.
+     * Chart B is allowed to walk through this gapped watch, so the heading is
+     * its visible frame rather than a range that is not one thing on screen.
      */
     gapped();
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
-      'ARI → SCL · 2 months, March 2027 to May 2027',
-    );
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('ARI → SCL · March 2027');
   });
 
   it('leaves chart A on the month the tab is on while chart B shows both', () => {

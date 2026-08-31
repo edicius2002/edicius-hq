@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 
 import {
   formatFlightMonth,
-  formatFlightMonths,
   routeId,
   routeLabel,
   type FareRoute,
@@ -259,6 +258,7 @@ export function AnalysisPanel({
    * ref writing to state costs one extra render, once, on mount.
    */
   const [chartMeta, setChartMeta] = useState<HTMLDivElement | null>(null);
+  const [frameMonth, setFrameMonth] = useState<string | null>(null);
   const routeKey = route ? routeId(route) : null;
 
   /*
@@ -377,30 +377,21 @@ export function AnalysisPanel({
     route && month ? `${routeLabel(route)} departing in ${formatFlightMonth(month)}` : '';
   const currency = route?.currency ?? 'USD';
   const daysName = DAYS_NAMES[source];
+  const titleMonth = view === 'moves' ? month : (frameMonth ?? month);
 
   return (
     <>
       <div className={styles.head}>
         <h2 className={styles.title}>
           {/*
-            The watch, not the reading.
-
-            It named the reading month because both charts were of the reading
-            month. Only chart A still is, so a heading saying "March 2027" over
-            a frame showing December would be the panel's largest text telling
-            the reader the wrong thing.
-
-            `formatFlightMonths` already exists for a set, and on a one-month
-            watch it returns exactly what this printed before — the common case
-            is unchanged character for character. On several it states the count
-            as well as the two ends, because the ends alone would claim months a
-            gapped watch does not hold.
-
-            The reading month is not lost from the page: the detail strip above
-            prints it, the open tab carries `aria-current`, and the flight table
-            below heads with it. This was the third of four statements of it.
+            The visible chart, not the watch that contains it. Price history is
+            always the reading month, while departure costs reports its visible
+            frame month here; the largest label must never name March over an
+            April frame. One singular month says what is actually on screen.
           */}
-          {route ? `${routeLabel(route)} · ${formatFlightMonths(route.months)}` : 'Price analysis'}
+          {route && titleMonth
+            ? `${routeLabel(route)} · ${formatFlightMonth(titleMonth)}`
+            : 'Price analysis'}
         </h2>
         <div className={styles.switches}>
           <div className={styles.switch} role="group" aria-label="Chart">
@@ -531,6 +522,7 @@ export function AnalysisPanel({
               periodKey={periodKey}
               keys={keys}
               onStep={step}
+              onFrameMonthChange={setFrameMonth}
               metaSlot={chartMeta}
               viewport={viewport}
               onViewportChange={onViewportChange}

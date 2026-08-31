@@ -8,6 +8,7 @@ import * as ops from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
 
 import { PropertiesPanel, type PropertiesPanelActions } from './PropertiesPanel';
+import styles from './PropertiesPanel.module.css';
 
 afterEach(cleanup);
 
@@ -100,5 +101,13 @@ describe('asset editors', () => {
     render(<StatefulPanel selection={{ type: 'node', id: 'a1' }} />);
 
     expect(screen.getByRole('textbox', { name: 'Add asset' })).toBeInTheDocument();
+  });
+
+  it('marks an over-allocated balance at its ticker and retains the allocation detail', () => {
+    render(<StatefulPanel selection={{ type: 'node', id: 'j1' }} />);
+
+    const ticker = screen.getByRole('button', { name: 'USD' });
+    expect(ticker).toHaveClass(styles.assetOverAllocated);
+    expect(ticker).toHaveAttribute('title', expect.stringContaining('promise'));
   });
 });

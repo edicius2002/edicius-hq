@@ -170,15 +170,17 @@
  * box against the amount field a pair leaves room for:
  *
  * The 18rem panel has a 15.875rem content box after its padding and border, so
- * two columns leave 121px per asset after the 0.75rem gap. The real fallback
- * font here is Noto Sans Bold: ImageMagick measures `100%` at 29px with the
- * old 0.52rem size, and 22.3px at 0.4rem. With a 1.7rem ticker, two 0.1rem
- * gaps, the 4.25rem (68px) amount and that 22.3px chip, the row spends 120.7px.
+ * two columns leave 121px per asset after the 0.75rem gap. The allocation chip
+ * deliberately is not a third track: its percentage only made the amount pay
+ * for a separate fact, so the ticker now carries allocation detail in its title
+ * and takes on the danger color when it is exceeded.
  *
- * That field has 60px inside its border and horizontal padding. Noto Sans
- * measures `12.345,67` at 56px with the 0.6rem input text, leaving 4px clear
- * rather than clipping or scrolling internally. Below 15.5rem the list stays
- * one column so its fixed readable width cannot push the panel sideways.
+ * With only the 1.7rem ticker and one 0.2rem gap left, the amount gets 90.6px
+ * outside and 80.6px inside its border and padding. ImageMagick measures
+ * `12.345,67` in the real Noto Sans fallback at 49px for the restored 0.68rem,
+ * leaving 31.6px clear rather than clipping or scrolling internally. Below
+ * 15.5rem the list stays one column so its readable width cannot push the panel
+ * sideways.
  *
  * Two columns trade some height for a usable amount field; an eight-asset
  * account therefore remains four readable rows rather than three cramped ones.
@@ -200,35 +202,16 @@
  */
 .asset {
   display: grid;
-  grid-template-columns: 1.7rem minmax(4.25rem, 1fr) auto;
+  grid-template-columns: 1.7rem minmax(0, 1fr);
   align-items: center;
-  gap: 0.1rem;
+  gap: 0.2rem;
   font-size: 0.62rem;
   min-width: 0;
 }
 
 .asset .input {
-  font-size: 0.6rem;
-  padding: 0.25rem 0.15rem;
-}
-
-/*
- * The share of a balance still free. It sits in the `auto` track the asset row
- * already had, so showing it costs no width and its absence costs no gap.
- */
-.allocated {
-  color: var(--color-muted);
-  font-size: 0.4rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-/* A diagram that does not add up. The word rather than a number, because there
-   is no percentage that honestly describes owing more than you have. */
-.allocatedOver {
-  color: var(--color-danger);
-  text-transform: uppercase;
+  font-size: 0.68rem;
+  padding: 0.25rem;
 }
 
 .assetToggle {
@@ -252,6 +235,13 @@
 .assetActive {
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+/* A balance promised beyond what it holds must stay visible even though the
+   allocation detail moved into the ticker's title to protect amount width. */
+.assetOverAllocated {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 /*

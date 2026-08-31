@@ -183,16 +183,10 @@ function Header({ kind, children }: { kind: FinanceNode['kind']; children?: Reac
   );
 }
 
-/**
- * What share of a balance is still free.
- *
- * Silent until something is actually promised: with no outgoing flows the answer
- * is always "all of it", and a chip that always says 100% is noise rather than
- * information. The pair behind it — what is left over what there was — is on the
- * chip's title, because the panel has a fixed height and this is the second
- * question, not the first.
- */
-function Allocated({
+/* Allocation belongs to the ticker's explanation now: the amount must keep a
+ * readable column in the 18rem panel, while an over-allocation is a property of
+ * the asset the ticker names. */
+function allocationStatus({
   diagram,
   nodeId,
   asset,
@@ -204,18 +198,12 @@ function Allocated({
   const allocation = selectAllocation(diagram, nodeId, asset);
   if (!allocation || allocation.committed <= 0) return null;
 
-  return (
-    <span
-      className={`${styles.allocated} ${allocation.exceeded ? styles.allocatedOver : ''}`}
-      title={
-        allocation.exceeded
-          ? `Flows out of this balance promise ${formatAmount(allocation.committed)} of ${formatAmount(allocation.total)} — ${formatAmount(-allocation.remaining)} more than it holds.`
-          : `${formatAmount(allocation.remaining)} free of ${formatAmount(allocation.total)}`
-      }
-    >
-      {allocation.exceeded ? 'over' : `${Math.round(allocation.pct)}%`}
-    </span>
-  );
+  return {
+    exceeded: allocation.exceeded,
+    detail: allocation.exceeded
+      ? `Flows out of this balance promise ${formatAmount(allocation.committed)} of ${formatAmount(allocation.total)} — ${formatAmount(-allocation.remaining)} more than it holds.`
+      : `${formatAmount(allocation.remaining)} free of ${formatAmount(allocation.total)}`,
+  };
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -293,29 +281,31 @@ function JobFields({
       </div>
       {node.balances.length ? (
         <div className={styles.assets}>
-          {node.balances.map((balance) => (
-            <div key={balance.asset} className={styles.asset}>
-              <button
-                type="button"
-                className={`${styles.assetToggle} ${balance.active ? styles.assetActive : ''}`}
-                aria-pressed={balance.active}
-                title={
-                  balance.active ? `Switch ${balance.asset} off` : `Switch ${balance.asset} on`
-                }
-                onClick={() => actions.setJobAssetActive(node.id, balance.asset, !balance.active)}
-              >
-                {balance.asset}
-              </button>
-              <AmountInput
-                className={styles.input}
-                value={balance.amount}
-                placeholder="0,00"
-                disabled={!balance.active}
-                onChange={(amount) => actions.setJobBalance(node.id, balance.asset, amount)}
-              />
-              <Allocated diagram={diagram} nodeId={node.id} asset={balance.asset} />
-            </div>
-          ))}
+          {node.balances.map((balance) => {
+            const allocation = allocationStatus({ diagram, nodeId: node.id, asset: balance.asset });
+            const title = `${balance.active ? `Switch ${balance.asset} off` : `Switch ${balance.asset} on`}${allocation ? `. ${allocation.detail}` : ''}`;
+
+            return (
+              <div key={balance.asset} className={styles.asset}>
+                <button
+                  type="button"
+                  className={`${styles.assetToggle} ${balance.active ? styles.assetActive : ''} ${allocation?.exceeded ? styles.assetOverAllocated : ''}`}
+                  aria-pressed={balance.active}
+                  title={title}
+                  onClick={() => actions.setJobAssetActive(node.id, balance.asset, !balance.active)}
+                >
+                  {balance.asset}
+                </button>
+                <AmountInput
+                  className={styles.input}
+                  value={balance.amount}
+                  placeholder="0,00"
+                  disabled={!balance.active}
+                  onChange={(amount) => actions.setJobBalance(node.id, balance.asset, amount)}
+                />
+              </div>
+            );
+          })}
         </div>
       ) : (
         <p className={styles.hint}>No assets yet.</p>
@@ -367,29 +357,35 @@ function AccountFields({
       </div>
       {holdings.length ? (
         <div className={styles.assets}>
-          {holdings.map((holding) => (
-            <div key={holding.id} className={styles.asset}>
-              <button
-                type="button"
-                className={`${styles.assetToggle} ${holding.active ? styles.assetActive : ''}`}
-                aria-pressed={holding.active}
-                title={
-                  holding.active ? `Switch ${holding.asset} off` : `Switch ${holding.asset} on`
-                }
-                onClick={() => actions.updateHolding(holding.id, { active: !holding.active })}
-              >
-                {holding.asset}
-              </button>
-              <AmountInput
-                className={styles.input}
-                value={holding.amount}
-                placeholder="0,00"
-                disabled={!holding.active}
-                onChange={(amount) => actions.updateHolding(holding.id, { amount })}
-              />
-              <Allocated diagram={diagram} nodeId={holding.id} asset={holding.asset} />
-            </div>
-          ))}
+          {holdings.map((holding) => {
+            const allocation = allocationStatus({
+              diagram,
+              nodeId: holding.id,
+              asset: holding.asset,
+            });
+            const title = `${holding.active ? `Switch ${holding.asset} off` : `Switch ${holding.asset} on`}${allocation ? `. ${allocation.detail}` : ''}`;
+
+            return (
+              <div key={holding.id} className={styles.asset}>
+                <button
+                  type="button"
+                  className={`${styles.assetToggle} ${holding.active ? styles.assetActive : ''} ${allocation?.exceeded ? styles.assetOverAllocated : ''}`}
+                  aria-pressed={holding.active}
+                  title={title}
+                  onClick={() => actions.updateHolding(holding.id, { active: !holding.active })}
+                >
+                  {holding.asset}
+                </button>
+                <AmountInput
+                  className={styles.input}
+                  value={holding.amount}
+                  placeholder="0,00"
+                  disabled={!holding.active}
+                  onChange={(amount) => actions.updateHolding(holding.id, { amount })}
+                />
+              </div>
+            );
+          })}
         </div>
       ) : (
         <p className={styles.hint}>

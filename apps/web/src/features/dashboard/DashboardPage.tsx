@@ -9,6 +9,7 @@ import { Panel } from '@/shared/ui/Panel';
 import styles from './DashboardPage.module.css';
 
 const HANDLE = 'thsottiaux';
+const exactTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 
 type Tweets = Awaited<ReturnType<typeof fetchTweets>>['tweets'];
 
@@ -82,6 +83,7 @@ export function DashboardPage() {
   const tweets = query.data?.tweets ?? [];
   const running = refresh.data?.state === 'running';
   const finishedAt = refresh.data?.finishedAt ?? null;
+  const relativeFinishedAt = finishedAt ? formatRelativeTime(finishedAt) : null;
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
@@ -91,9 +93,11 @@ export function DashboardPage() {
         actions={
           <span
             className={styles.updated}
-            title={finishedAt ? new Intl.DateTimeFormat().format(new Date(finishedAt)) : undefined}
+            title={
+              relativeFinishedAt && finishedAt ? exactTime.format(new Date(finishedAt)) : undefined
+            }
           >
-            {finishedAt ? `Updated ${formatRelativeTime(finishedAt)}` : 'Never updated'}
+            {relativeFinishedAt ? `Updated ${relativeFinishedAt}` : 'Never updated'}
           </span>
         }
       />

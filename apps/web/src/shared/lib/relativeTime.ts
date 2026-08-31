@@ -13,8 +13,10 @@ const UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
  * keep the exact date in a title without spending the page's scarce attention
  * on it all the time.
  */
-export function formatRelativeTime(value: string | Date, now = new Date()): string {
+export function formatRelativeTime(value: string | Date, now = new Date()): string | null {
   const elapsed = new Date(value).getTime() - now.getTime();
+  if (!Number.isFinite(elapsed)) return null;
+
   const [unit, milliseconds] = UNITS.find(([, size]) => Math.abs(elapsed) >= size) ?? UNITS.at(-1)!;
   const amount = Math.trunc(elapsed / milliseconds);
 

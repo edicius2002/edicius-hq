@@ -80,7 +80,11 @@ it('shows the last completed refresh relatively, with its exact time on hover', 
 
   const updated = await screen.findByText('Updated 3 minutes ago');
 
-  expect(updated).toHaveAttribute('title', new Intl.DateTimeFormat().format(new Date(finishedAt)));
+  const title = updated.getAttribute('title') ?? '';
+  expect(title).toContain(
+    new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(finishedAt)),
+  );
+  expect(title).toMatch(/\d{1,2}:\d{2}/);
   expect(screen.queryByRole('button', { name: /Refresh/ })).not.toBeInTheDocument();
 });
 

@@ -120,8 +120,11 @@ describe('asset editors', () => {
     expect(addAsset.compareDocumentPosition(asset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps the account asset draft labelled after its controls share one row', () => {
-    render(<StatefulPanel selection={{ type: 'node', id: 'a1' }} />);
+  it.each([
+    ['job', { type: 'node' as const, id: 'j1' }],
+    ['account', { type: 'node' as const, id: 'a1' }],
+  ])('keeps the %s asset draft labelled after its controls share one row', (_, selection) => {
+    render(<StatefulPanel selection={selection} />);
 
     expect(screen.getByRole('textbox', { name: 'Add asset' })).toBeInTheDocument();
   });

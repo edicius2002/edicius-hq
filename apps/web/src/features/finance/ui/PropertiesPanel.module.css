@@ -117,25 +117,19 @@
   min-width: 0;
 }
 
-/* The job-only asset draft does not need the full row: asset symbols are at
-   most eight characters, and an 8rem cap makes room for the smaller Add button. */
-.jobAssetField {
-  flex: 0 1 8rem;
-}
-
-/* Account asset entry is one action, so its label, half-width 4.5rem symbol
-   field and compact button share the row instead of spending a second row. */
-.accountAddRow {
+/* Job and account use the same one-line action: its label, half-width 4.5rem
+   symbol field and compact button avoid spending a second row in either panel. */
+.addAssetRow {
   align-items: center;
 }
 
-.accountAddLabel {
+.addAssetLabel {
   color: var(--color-muted);
   flex: 0 0 auto;
   font-size: 0.72rem;
 }
 
-.accountAssetInput {
+.addAssetInput {
   flex: 0 1 4.5rem;
   min-width: 0;
   width: auto;

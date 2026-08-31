@@ -261,20 +261,21 @@ function JobFields({
   return (
     <>
       <h3 className={styles.sectionTitle}>Paid in</h3>
-      <div className={styles.row}>
-        <span className={`${styles.field} ${styles.rowGrow} ${styles.jobAssetField}`}>
+      <div className={`${styles.row} ${styles.addAssetRow}`}>
+        <label className={styles.addAssetLabel} htmlFor={`job-${node.id}-asset`}>
           Add asset
-          <input
-            className={styles.input}
-            value={draft}
-            placeholder="USD"
-            maxLength={8}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') addAsset();
-            }}
-          />
-        </span>
+        </label>
+        <input
+          id={`job-${node.id}-asset`}
+          className={`${styles.input} ${styles.addAssetInput}`}
+          value={draft}
+          placeholder="USD"
+          maxLength={8}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') addAsset();
+          }}
+        />
         <Button size="small" onClick={addAsset}>
           Add
         </Button>
@@ -336,13 +337,13 @@ function AccountFields({
   return (
     <>
       <h3 className={styles.sectionTitle}>Assets held</h3>
-      <div className={`${styles.row} ${styles.accountAddRow}`}>
-        <label className={styles.accountAddLabel} htmlFor={`account-${node.id}-asset`}>
+      <div className={`${styles.row} ${styles.addAssetRow}`}>
+        <label className={styles.addAssetLabel} htmlFor={`account-${node.id}-asset`}>
           Add asset
         </label>
         <input
           id={`account-${node.id}-asset`}
-          className={`${styles.input} ${styles.accountAssetInput}`}
+          className={`${styles.input} ${styles.addAssetInput}`}
           value={draft}
           placeholder="USD"
           maxLength={8}

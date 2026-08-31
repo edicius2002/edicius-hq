@@ -26,6 +26,7 @@
     "api:test": "node scripts/api.mjs test",
     "fares:collect": "node scripts/api.mjs fares-collect",
     "fares:check": "node scripts/api.mjs fares-check",
+    "fares:backfill": "node scripts/api.mjs fares-backfill",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

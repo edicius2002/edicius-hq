@@ -12,6 +12,7 @@ const MODES = [
   'typecheck',
   'fares-collect',
   'fares-check',
+  'fares-backfill',
 ];
 
 const mode = process.argv[2];
@@ -93,13 +94,14 @@ const ARGS = {
     ['-m', 'ruff', 'format', ...PY_TARGETS],
   ],
   /*
-   * The two airfare scripts live at the repo root but import `app.*`, so they
+   * The airfare scripts live at the repo root but import `app.*`, so they
    * need this interpreter and not whatever is on PATH — the same reason every
    * mode above goes through it. Extra argv is forwarded so `-- --dry-run`
    * reaches the script rather than npm.
    */
   'fares-collect': [['../../scripts/fares-collect.py', ...process.argv.slice(3)]],
   'fares-check': [['../../scripts/gflights-check.py', ...process.argv.slice(3)]],
+  'fares-backfill': [['../../scripts/fares-viapoints-backfill.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

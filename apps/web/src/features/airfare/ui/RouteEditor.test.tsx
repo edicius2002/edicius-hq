@@ -527,7 +527,7 @@ describe('RouteEditor', () => {
     expect(pressedMonths()).toEqual(['September 2026']);
   });
 
-  it('says what the picked months will cost a pass', async () => {
+  it('keeps the ordinary pass estimate out of the editor', async () => {
     /*
      * The only feedback there is. The daily request ceiling was removed, so
      * nothing between a reader ticking a twelfth month and a pass that runs
@@ -537,11 +537,11 @@ describe('RouteEditor', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderEditor();
 
-    // September 2026 alone: thirty days, at three seconds each.
-    expect(screen.getByText(/1 month · up to 30 departures to price/)).toBeInTheDocument();
+    // September 2026 alone: thirty days, at three seconds each, but no risk.
+    expect(screen.queryByText(/departures to price/)).not.toBeInTheDocument();
 
     await user.click(chip('October 2026'));
-    expect(screen.getByText(/2 months · up to 61 departures to price/)).toBeInTheDocument();
+    expect(screen.queryByText(/departures to price/)).not.toBeInTheDocument();
   });
 
   it('warns when the picked months would outrun the window a pass has', async () => {

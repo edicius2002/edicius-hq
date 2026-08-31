@@ -111,6 +111,7 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
   const chips = monthChips(year, months, today);
   const elsewhere = monthsElsewhere(months, year);
   const cost = passCost(months, today);
+  const costMessage = describeCost(cost);
 
   const pair = { origin: normalizeCode(origin), destination: normalizeCode(destination) };
   const nextId = routeId(pair);
@@ -330,13 +331,14 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
       </div>
 
       {/*
-        What this costs, because nothing else says it. There is no daily
-        ceiling any more, so this line is the only feedback between a reader
-        ticking a twelfth month and a pass that runs for twenty minutes.
+        A routine estimate does not alter the choice, but the collector cannot
+        surface a pass it had to drop. Keep that consequence visible here.
       */}
-      <p className={cost.overrun ? styles.costLoud : styles.cost} aria-live="polite">
-        {describeCost(cost)}
-      </p>
+      {costMessage ? (
+        <p className={cost.overrun ? styles.costLoud : styles.cost} aria-live="polite">
+          {costMessage}
+        </p>
+      ) : null}
 
       {/*
         Warnings rather than refusals, and in a `status` region of their own so

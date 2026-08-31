@@ -127,8 +127,9 @@
 .row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .route {
@@ -140,13 +141,12 @@
    * own press shrinks to what identifies the route. Pressing a tab selects the
    * row as well, so a press anywhere on the row still opens it.
    *
-   * `flex: none` rather than `flex: 1`, because the tabs beside it are what
-   * should take the room now — a route button stretched across the row would
-   * put its two codes a long way from the months they belong to.
+   * It yields before the controls: a long pair may shorten, but Refresh and
+   * Remove remain where every row puts them, at the far edge of the panel.
    */
-  flex: none;
+  flex: 1 1 0;
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   min-width: 0;
@@ -172,6 +172,8 @@
 
 .pair {
   font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -223,15 +225,13 @@
 /*
  * Every month of this watch has gone.
  *
- * `flex-basis: 100%` so it wraps to a line of its own rather than widening the
- * row. It used to be a fourth child of the route button's own grid, where it
- * widened an `auto` track and made a departed row the widest thing in the
- * panel — which is what set the column's floor. With the months beside it
- * there is no room for that, and a word on its own line costs height only on
- * the rows that have stopped collecting.
+ * It sits below the compact control row rather than widening it. It used to be
+ * a fourth child of the route button's own grid, where it widened an `auto`
+ * track and made a departed row the widest thing in the panel — which is what
+ * set the column's floor. A word on its own line costs height only on rows
+ * that have stopped collecting.
  */
 .departed {
-  flex-basis: 100%;
   color: var(--color-expense);
   font-size: 0.65rem;
   white-space: nowrap;
@@ -255,10 +255,9 @@
    * are 136.04, which is why the floor moved 2px to take them.
    *
    * `flex: 0 1 auto` and not `flex: 1`, and that is what keeps the collect
-   * control reachable. A growing item would take the row's slack, and `.row`
-   * wraps — so on a narrow panel the collect mark and Remove would drop to a
-   * line of their own under the months instead of standing beside them. Sized
-   * by its own content, this block never pushes them anywhere.
+   * control reachable. A growing item would take the row's slack and crowd the
+   * controls off its far edge. Sized by its own content, this block never
+   * pushes them anywhere.
    *
    * A watch with more than four months is taller by a line per four, and only
    * that row is: a tab is 20.48px against the row's own 38.5, so one line of
@@ -271,6 +270,15 @@
   gap: 3px;
   flex: 0 1 auto;
   min-width: 0;
+}
+
+/* One fixed destination for both row actions keeps a long route from moving them. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  margin-left: auto;
 }
 
 /*

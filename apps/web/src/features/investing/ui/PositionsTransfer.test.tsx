@@ -36,10 +36,15 @@ describe('PositionsTransfer', () => {
       ),
     );
 
-    expect(await screen.findByRole('button', { name: /^MSFT/ })).toBeInTheDocument();
     expect(
-      within(screen.getByRole('list', { name: 'Watchlist' })).getByText('MSFT'),
+      within(await screen.findByRole('list', { name: 'Positions' })).getByRole('button', {
+        name: /^MSFT/,
+      }),
     ).toBeInTheDocument();
+    expect(
+      within(await screen.findByRole('list', { name: 'Watchlist' })).getByText('MSFT'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('1 positions imported, 0 updated.')).toBeInTheDocument();
   });
 });
 

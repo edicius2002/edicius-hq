@@ -188,9 +188,15 @@ describe('Investing chart-first workspace', () => {
       ),
     );
 
-    expect(await screen.findByRole('button', { name: /^MSFT/ })).toBeInTheDocument();
-    const watchlist = screen.getByRole('list', { name: 'Watchlist' });
-    expect(within(watchlist).getByText('MSFT')).toBeInTheDocument();
+    expect(
+      within(await screen.findByRole('list', { name: 'Positions' })).getByRole('button', {
+        name: /^MSFT/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(await screen.findByRole('list', { name: 'Watchlist' })).getByText('MSFT'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('1 positions imported, 0 updated.')).toBeInTheDocument();
   });
 
   it('sits the watchlist beside the chart and the positions under both of them', async () => {

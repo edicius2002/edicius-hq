@@ -136,4 +136,23 @@ describe('asset editors', () => {
     expect(ticker).toHaveClass(styles.assetOverAllocated);
     expect(ticker).toHaveAttribute('title', expect.stringContaining('promise'));
   });
+
+  /*
+   * The colour is not the warning on its own. Anybody who cannot separate red
+   * from grey reads the row as ordinary, and a balance promising more than it
+   * holds is the one thing on this panel that must not go quietly.
+   */
+  it('says over in words on the balance that does not add up, and only on that one', () => {
+    render(<StatefulPanel selection={{ type: 'node', id: 'j1' }} />);
+
+    const flags = screen.getAllByText('over');
+    expect(flags).toHaveLength(1);
+    expect(flags[0].closest('div')).toContainElement(screen.getByRole('button', { name: 'USD' }));
+  });
+
+  it('leaves a balance that adds up without the flag', () => {
+    render(<StatefulPanel selection={{ type: 'node', id: 'a1' }} />);
+
+    expect(screen.queryByText('over')).not.toBeInTheDocument();
+  });
 });

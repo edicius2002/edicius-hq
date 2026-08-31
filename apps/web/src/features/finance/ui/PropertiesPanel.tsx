@@ -183,9 +183,15 @@ function Header({ kind, children }: { kind: FinanceNode['kind']; children?: Reac
   );
 }
 
-/* Allocation belongs to the ticker's explanation now: the amount must keep a
- * readable column in the 18rem panel, while an over-allocation is a property of
- * the asset the ticker names. */
+/*
+ * How much of a balance is already promised, for the ticker rather than for a
+ * chip of its own: the amount must keep a readable column in the 18rem panel,
+ * and an over-allocation is a property of the asset the ticker names.
+ *
+ * The share is carried by the ticker's title alone. Only `exceeded` reaches the
+ * row as something visible, because only a balance that does not add up is
+ * worth spending width on.
+ */
 function allocationStatus({
   diagram,
   nodeId,
@@ -287,7 +293,10 @@ function JobFields({
             const title = `${balance.active ? `Switch ${balance.asset} off` : `Switch ${balance.asset} on`}${allocation ? `. ${allocation.detail}` : ''}`;
 
             return (
-              <div key={balance.asset} className={styles.asset}>
+              <div
+                key={balance.asset}
+                className={`${styles.asset} ${allocation?.exceeded ? styles.assetBroken : ''}`}
+              >
                 <button
                   type="button"
                   className={`${styles.assetToggle} ${balance.active ? styles.assetActive : ''} ${allocation?.exceeded ? styles.assetOverAllocated : ''}`}
@@ -304,6 +313,9 @@ function JobFields({
                   disabled={!balance.active}
                   onChange={(amount) => actions.setJobBalance(node.id, balance.asset, amount)}
                 />
+                {allocation?.exceeded ? (
+                  <span className={styles.assetOverFlag}>over</span>
+                ) : null}
               </div>
             );
           })}
@@ -367,7 +379,10 @@ function AccountFields({
             const title = `${holding.active ? `Switch ${holding.asset} off` : `Switch ${holding.asset} on`}${allocation ? `. ${allocation.detail}` : ''}`;
 
             return (
-              <div key={holding.id} className={styles.asset}>
+              <div
+                key={holding.id}
+                className={`${styles.asset} ${allocation?.exceeded ? styles.assetBroken : ''}`}
+              >
                 <button
                   type="button"
                   className={`${styles.assetToggle} ${holding.active ? styles.assetActive : ''} ${allocation?.exceeded ? styles.assetOverAllocated : ''}`}
@@ -384,6 +399,9 @@ function AccountFields({
                   disabled={!holding.active}
                   onChange={(amount) => actions.updateHolding(holding.id, { amount })}
                 />
+                {allocation?.exceeded ? (
+                  <span className={styles.assetOverFlag}>over</span>
+                ) : null}
               </div>
             );
           })}

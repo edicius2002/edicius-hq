@@ -8,6 +8,7 @@ import * as ops from '@/features/finance/lib/operations';
 import type { Diagram } from '@/features/finance/model/types';
 
 import { PropertiesPanel, type PropertiesPanelActions } from './PropertiesPanel';
+import styles from './PropertiesPanel.module.css';
 
 afterEach(cleanup);
 
@@ -30,13 +31,23 @@ function diagramWithFlow(): Diagram {
   return flow.value;
 }
 
+function diagramWithSettleableFlow(): Diagram {
+  return ops.setJobBalance(diagramWithFlow(), 'j1', 'USD', 100);
+}
+
 /**
  * The panel over a live document, so an edit comes back through the value it is
  * given. A field whose `onChange` goes nowhere accepts one keystroke and forgets
  * it, which is not the thing being tested here.
  */
-function StatefulPanel({ selection }: { selection: { type: 'node' | 'flow'; id: string } }) {
-  const [diagram, setDiagram] = useState(diagramWithFlow);
+function StatefulPanel({
+  selection,
+  initialDiagram = diagramWithFlow,
+}: {
+  selection: { type: 'node' | 'flow'; id: string };
+  initialDiagram?: () => Diagram;
+}) {
+  const [diagram, setDiagram] = useState(initialDiagram);
 
   const actions: PropertiesPanelActions = {
     renameNode: vi.fn(),
@@ -83,6 +94,19 @@ describe('notes', () => {
   });
 });
 
+describe('flow settlement', () => {
+  it('does not repeat the successful settlement outcome below Execute', () => {
+    render(
+      <StatefulPanel
+        selection={{ type: 'flow', id: 'f1' }}
+        initialDiagram={diagramWithSettleableFlow}
+      />,
+    );
+
+    expect(screen.queryByText(/Moves .* and leaves the flow empty\./)).not.toBeInTheDocument();
+  });
+});
+
 describe('asset editors', () => {
   it.each([
     ['job', { type: 'node' as const, id: 'j1' }],
@@ -94,5 +118,22 @@ describe('asset editors', () => {
     const asset = screen.getByRole('button', { name: 'USD' });
 
     expect(addAsset.compareDocumentPosition(asset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ['job', { type: 'node' as const, id: 'j1' }],
+    ['account', { type: 'node' as const, id: 'a1' }],
+  ])('keeps the %s asset draft labelled after its controls share one row', (_, selection) => {
+    render(<StatefulPanel selection={selection} />);
+
+    expect(screen.getByRole('textbox', { name: 'Add asset' })).toBeInTheDocument();
+  });
+
+  it('marks an over-allocated balance at its ticker and retains the allocation detail', () => {
+    render(<StatefulPanel selection={{ type: 'node', id: 'j1' }} />);
+
+    const ticker = screen.getByRole('button', { name: 'USD' });
+    expect(ticker).toHaveClass(styles.assetOverAllocated);
+    expect(ticker).toHaveAttribute('title', expect.stringContaining('promise'));
   });
 });

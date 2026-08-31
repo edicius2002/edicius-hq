@@ -1129,6 +1129,15 @@ describe('a frame with no boards in it at all', () => {
     expect(screen.getAllByTestId('curve-day')).toHaveLength(2);
   });
 
+  it('removes the visible count but keeps the curve count in the chart name', () => {
+    const { container } = chart({ granularity: 'month', curve: CURVE });
+    fireEvent.click(screen.getByLabelText('Next month'));
+    fireEvent.click(screen.getByLabelText('Next month'));
+
+    expect(screen.queryByTestId('frame-summary')).toBeNull();
+    expect(frameLabel(container)).toContain('2 priced dates');
+  });
+
   it('never mixes at month granularity, which is worth being able to check', () => {
     // A calendar month is the watched one or it is not, so the mixed case a
     // reader goes looking for here does not exist.

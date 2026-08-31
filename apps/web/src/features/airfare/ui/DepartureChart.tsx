@@ -1220,9 +1220,14 @@ export function DepartureChart({
           the dates under it already, and what they cannot count for themselves
           is how many dots there are.
         */}
-      <p className={styles.window} data-testid="frame-summary">
-        {summary(source, placed.length, marks)}
-      </p>
+      {(() => {
+        const frameSummary = summary(source, placed.length, marks);
+        return frameSummary === '' ? null : (
+          <p className={styles.window} data-testid="frame-summary">
+            {frameSummary}
+          </p>
+        );
+      })()}
 
       {/*
           The chart's own top-right corner: which period is open, and the way
@@ -2318,12 +2323,16 @@ function curveSentence(mark: CurveMark, currency: string): string {
 
 /** What the frame holds, in the head above it. */
 function summary(source: FrameSource, flights: number, marks: CurveMark[]): string {
-  const dates = marks.filter((mark) => mark.price !== null).length;
   const flightWords = `${flights} flight${flights === 1 ? '' : 's'}`;
-  const dateWords = `${dates} priced date${dates === 1 ? '' : 's'}`;
+  const dateWords = pricedDates(marks);
   if (source === 'boards') return flightWords;
   if (source === 'curve') return '';
   return `${flightWords} and ${dateWords}`;
+}
+
+function pricedDates(marks: CurveMark[]): string {
+  const dates = marks.filter((mark) => mark.price !== null).length;
+  return `${dates} priced date${dates === 1 ? '' : 's'}`;
 }
 
 function accessibleTail(
@@ -2337,11 +2346,7 @@ function accessibleTail(
   fall: ReferenceFall | null,
 ): string {
   const prices = marks.flatMap((mark) => (mark.price === null ? [] : [mark.price]));
-  const dates = marks.filter((mark) => mark.price !== null).length;
-  const said =
-    source === 'curve'
-      ? `${dates} priced date${dates === 1 ? '' : 's'}`
-      : summary(source, flights, marks);
+  const said = source === 'curve' ? pricedDates(marks) : summary(source, flights, marks);
   const range =
     prices.length === 0
       ? ''

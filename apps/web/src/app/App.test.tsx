@@ -194,7 +194,9 @@ describe('Investing chart-first workspace', () => {
       }),
     ).toBeInTheDocument();
     expect(
-      within(await screen.findByRole('list', { name: 'Watchlist' })).getByText('MSFT'),
+      within(await screen.findByRole('list', { name: 'Watchlist' })).getByRole('button', {
+        name: 'Stop following MSFT',
+      }),
     ).toBeInTheDocument();
     expect(screen.getByText('1 positions imported, 0 updated.')).toBeInTheDocument();
   });

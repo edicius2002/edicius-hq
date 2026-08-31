@@ -1,0 +1,20 @@
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+/* The visible buttons explain the action; the native picker only supplies the file. */
+.picker {
+  display: none;
+}
+
+.message {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  text-align: right;
+}

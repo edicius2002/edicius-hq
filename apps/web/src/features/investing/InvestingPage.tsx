@@ -19,6 +19,7 @@ import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
 import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
+import { PositionsTransfer } from '@/features/investing/ui/PositionsTransfer';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
@@ -366,6 +367,17 @@ export function InvestingPage() {
             Positions
           </h2>
           <PositionTotals totals={positionTotals} />
+          {/* This belongs with the panel summary: import affects the whole portfolio,
+              while Add position is the primary action inside its editing surface. */}
+          <PositionsTransfer
+            portfolio={holdings.portfolio}
+            disabled={holdings.isError}
+            onImport={async (positions) => {
+              const summary = await holdings.merge(positions);
+              await Promise.all(positions.map((position) => watchlist.add(position.symbol)));
+              return summary;
+            }}
+          />
         </div>
 
         {holdings.isError ? (

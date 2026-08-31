@@ -9,7 +9,12 @@ import {
   setPosition,
   symbolsOf,
   type Portfolio,
+  type Position,
 } from '@/features/investing/data/portfolio';
+import {
+  mergeImportedPositions,
+  type PositionsMerge,
+} from '@/features/investing/lib/positionsFile';
 import { useStoredDocument } from '@/shared/storage/useStoredDocument';
 
 /**
@@ -45,6 +50,19 @@ export function usePortfolio() {
     [store],
   );
 
+  const merge = useCallback(
+    async (positions: Position[]): Promise<Pick<PositionsMerge, 'added' | 'updated'>> => {
+      let summary: Pick<PositionsMerge, 'added' | 'updated'> = { added: 0, updated: 0 };
+      await store.edit((current) => {
+        const merged = mergeImportedPositions(current, positions);
+        summary = { added: merged.added, updated: merged.updated };
+        return merged.portfolio;
+      });
+      return summary;
+    },
+    [store],
+  );
+
   return {
     portfolio,
     symbols,
@@ -53,5 +71,6 @@ export function usePortfolio() {
     set,
     remove,
     move,
+    merge,
   };
 }

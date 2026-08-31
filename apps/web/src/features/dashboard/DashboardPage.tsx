@@ -1,13 +1,8 @@
 import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import {
-  fetchRefresh,
-  fetchTweets,
-  openTweetStream,
-  startRefresh,
-  startWatch,
-} from '@/shared/api/tweets';
+import { fetchRefresh, fetchTweets, openTweetStream, startWatch } from '@/shared/api/tweets';
+import { formatRelativeTime } from '@/shared/lib/relativeTime';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
@@ -51,14 +46,6 @@ export function DashboardPage() {
     queryFn: ({ signal }) => fetchRefresh(HANDLE, signal),
     refetchInterval: (query) => (query.state.data?.state === 'running' ? 1000 : false),
   });
-  const start = useMutation({
-    mutationFn: () => startRefresh(HANDLE),
-    onSuccess: () => void refresh.refetch(),
-    // The capture appends to the file the tweet query reads, so the list is
-    // stale the moment a run ends — settled rather than success, because a
-    // failed run can still have written the rows it got before it stopped.
-    onSettled: () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }),
-  });
   const query = useQuery({
     queryKey: ['tweets', HANDLE],
     queryFn: ({ signal }) => fetchTweets(HANDLE, signal),
@@ -94,6 +81,7 @@ export function DashboardPage() {
   }, [client]);
   const tweets = query.data?.tweets ?? [];
   const running = refresh.data?.state === 'running';
+  const finishedAt = refresh.data?.finishedAt ?? null;
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
@@ -101,14 +89,12 @@ export function DashboardPage() {
         title={`@${HANDLE}`}
         className={styles.header}
         actions={
-          <button
-            type="button"
-            className={styles.refresh}
-            onClick={() => start.mutate()}
-            disabled={running || start.isPending}
+          <span
+            className={styles.updated}
+            title={finishedAt ? new Intl.DateTimeFormat().format(new Date(finishedAt)) : undefined}
           >
-            {running ? 'Refreshing…' : 'Refresh'}
-          </button>
+            {finishedAt ? `Updated ${formatRelativeTime(finishedAt)}` : 'Never updated'}
+          </span>
         }
       />
       {running ? (

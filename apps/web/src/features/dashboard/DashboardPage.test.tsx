@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { DashboardPage } from './DashboardPage';
@@ -25,7 +24,14 @@ const TWEETS = {
   ],
 };
 
-const IDLE = { handle: 'thsottiaux', state: 'idle', scroll: 0, new: 0, error: null };
+const IDLE = {
+  handle: 'thsottiaux',
+  state: 'idle',
+  scroll: 0,
+  new: 0,
+  error: null,
+  finishedAt: null,
+};
 
 /**
  * One stub for both endpoints the page talks to.
@@ -67,20 +73,30 @@ it('separates captured posts and replies with links', async () => {
   expect(screen.getAllByRole('link', { name: 'Open on X' })).toHaveLength(2);
 });
 
-it('asks for a capture when Refresh is pressed', async () => {
-  const calls = stubApi(IDLE);
+it('shows the last completed refresh relatively, with its exact time on hover', async () => {
+  const finishedAt = new Date(Date.now() - 3 * 60_000).toISOString();
+  stubApi({ ...IDLE, finishedAt });
   renderPage();
 
-  await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+  const updated = await screen.findByText('Updated 3 minutes ago');
 
-  expect(calls.some((call) => call.startsWith('POST') && call.endsWith('/refresh'))).toBe(true);
+  expect(updated).toHaveAttribute('title', new Intl.DateTimeFormat().format(new Date(finishedAt)));
+  expect(screen.queryByRole('button', { name: /Refresh/ })).not.toBeInTheDocument();
 });
 
-it('disables the button and shows progress while a capture runs', async () => {
-  stubApi({ ...IDLE, state: 'running', scroll: 7, new: 12 });
+it('says when no refresh has completed yet', async () => {
+  stubApi(IDLE);
   renderPage();
 
-  expect(await screen.findByRole('button', { name: 'Refreshing…' })).toBeDisabled();
+  expect(await screen.findByText('Never updated')).toBeInTheDocument();
+});
+
+it('keeps the last completed refresh visible while a capture reports progress', async () => {
+  const finishedAt = new Date(Date.now() - 3 * 60_000).toISOString();
+  stubApi({ ...IDLE, state: 'running', scroll: 7, new: 12, finishedAt });
+  renderPage();
+
+  expect(await screen.findByText('Updated 3 minutes ago')).toBeInTheDocument();
   expect(screen.getByText(/Scrolled 7 · 12 new/)).toBeInTheDocument();
 });
 

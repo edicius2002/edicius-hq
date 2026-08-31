@@ -274,7 +274,7 @@ function JobFields({
     <>
       <h3 className={styles.sectionTitle}>Paid in</h3>
       <div className={styles.row}>
-        <span className={`${styles.field} ${styles.rowGrow}`}>
+        <span className={`${styles.field} ${styles.rowGrow} ${styles.jobAssetField}`}>
           Add asset
           <input
             className={styles.input}
@@ -287,7 +287,9 @@ function JobFields({
             }}
           />
         </span>
-        <Button onClick={addAsset}>Add</Button>
+        <Button size="small" onClick={addAsset}>
+          Add
+        </Button>
       </div>
       {node.balances.length ? (
         <div className={styles.assets}>

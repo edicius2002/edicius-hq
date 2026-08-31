@@ -105,7 +105,7 @@
 .workspace {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1fr) 22rem;
+  grid-template-columns: minmax(0, 1fr) 18rem;
   /* `stretch`, not `start`: the canvas has no natural height worth respecting —
      it is a window onto a diagram — so the side column decides how tall the row
      is and the canvas fills it. With `start` the two ended at different places
@@ -184,12 +184,12 @@
 }
 
 /*
- * Three to a row keeps the compact available and in-transit summaries from
- * taking over the panel beside the diagram.
+ * Two to a row leaves each amount readable in the 18rem side panel; three made
+ * the Available and In transit figures compete for a third of its content box.
  */
 .summaryItems {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.25rem var(--space-2);
 }
 

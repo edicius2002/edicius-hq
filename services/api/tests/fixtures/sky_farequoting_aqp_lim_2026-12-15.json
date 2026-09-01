@@ -1,0 +1,1142 @@
+{
+  "code": 0,
+  "message": "Success",
+  "itineraryParts": [
+    [
+      {
+        "segments": [
+          {
+            "@type": "Segment",
+            "segmentOfferInformation": {
+              "flightsMiles": 476,
+              "awardFare": false
+            },
+            "duration": 105,
+            "cabinClass": "Economy",
+            "equipment": "32N",
+            "aircraftLeaseText": "/H8 SKY AIRLINE PERU SAC",
+            "flight": {
+              "flightNumber": 5102,
+              "operatingFlightNumber": 5102,
+              "airlineCode": "H2",
+              "operatingAirlineCode": "H2",
+              "stopAirports": [],
+              "advisories": [],
+              "airlineCodeText": "H8"
+            },
+            "origin": "AQP",
+            "destination": "LIM",
+            "departure": "2026-12-15T06:50:00",
+            "arrival": "2026-12-15T08:35:00",
+            "departureGMTOffset": "-05:00",
+            "arrivalGMTOffset": "-05:00",
+            "bookingClass": "A",
+            "layoverDuration": 0,
+            "fareBasis": "AZO00000",
+            "subjectToGovernmentApproval": false,
+            "fareComponentBeginAirport": "AQP",
+            "fareComponentEndAirport": "LIM",
+            "fareComponentDirectionality": "FROM",
+            "segmentRef": "2128487950645364553"
+          }
+        ],
+        "stops": 0,
+        "totalDuration": 105,
+        "connectionInformations": [],
+        "fares": [
+          {
+            "fareBasis": "AZO00000",
+            "shoppingBasketHashCode": -766712272,
+            "brandId": "ZO",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 43.96,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 31,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 12.96,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 5.6,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 43.96,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "ALT00000",
+            "shoppingBasketHashCode": -381587697,
+            "brandId": "LT",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 65.16,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 49,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.16,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 8.8,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 65.16,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AED00000",
+            "shoppingBasketHashCode": 1025817795,
+            "brandId": "ED",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 69.86,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 53,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.86,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 9.5,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 69.86,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "APL00000",
+            "shoppingBasketHashCode": 1970954481,
+            "brandId": "PL",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 87.56,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 68,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 19.56,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 12.2,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 87.56,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AMF00000",
+            "shoppingBasketHashCode": 1009835143,
+            "brandId": "MF",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 93.46,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 73,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 20.46,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 13.1,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 93.46,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          }
+        ],
+        "offerInformation": {
+          "discounted": false,
+          "negotiated": false,
+          "negotiatedType": "NONE"
+        },
+        "seatsRemaining": {
+          "count": 9,
+          "lowAvailability": false
+        }
+      },
+      {
+        "segments": [
+          {
+            "@type": "Segment",
+            "segmentOfferInformation": {
+              "flightsMiles": 476,
+              "awardFare": false
+            },
+            "duration": 105,
+            "cabinClass": "Economy",
+            "equipment": "32N",
+            "aircraftLeaseText": "/H8 SKY AIRLINE PERU SAC",
+            "flight": {
+              "flightNumber": 5104,
+              "operatingFlightNumber": 5104,
+              "airlineCode": "H2",
+              "operatingAirlineCode": "H2",
+              "stopAirports": [],
+              "advisories": [],
+              "airlineCodeText": "H8"
+            },
+            "origin": "AQP",
+            "destination": "LIM",
+            "departure": "2026-12-15T12:45:00",
+            "arrival": "2026-12-15T14:30:00",
+            "departureGMTOffset": "-05:00",
+            "arrivalGMTOffset": "-05:00",
+            "bookingClass": "A",
+            "layoverDuration": 0,
+            "fareBasis": "AZO00000",
+            "subjectToGovernmentApproval": false,
+            "fareComponentBeginAirport": "AQP",
+            "fareComponentEndAirport": "LIM",
+            "fareComponentDirectionality": "FROM",
+            "segmentRef": "1031127872565489167"
+          }
+        ],
+        "stops": 0,
+        "totalDuration": 105,
+        "connectionInformations": [],
+        "fares": [
+          {
+            "fareBasis": "AZO00000",
+            "shoppingBasketHashCode": 43324428,
+            "brandId": "ZO",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 43.96,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 31,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 12.96,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 5.6,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 43.96,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "ALT00000",
+            "shoppingBasketHashCode": 428449003,
+            "brandId": "LT",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 65.16,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 49,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.16,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 8.8,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 65.16,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AED00000",
+            "shoppingBasketHashCode": 1835854495,
+            "brandId": "ED",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 69.86,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 53,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.86,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 9.5,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 69.86,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "APL00000",
+            "shoppingBasketHashCode": -1513976115,
+            "brandId": "PL",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 87.56,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 68,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 19.56,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 12.2,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 87.56,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AMF00000",
+            "shoppingBasketHashCode": 1819871843,
+            "brandId": "MF",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 93.46,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 73,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 20.46,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 13.1,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 93.46,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          }
+        ],
+        "offerInformation": {
+          "discounted": false,
+          "negotiated": false,
+          "negotiatedType": "NONE"
+        },
+        "seatsRemaining": {
+          "count": 9,
+          "lowAvailability": false
+        }
+      },
+      {
+        "segments": [
+          {
+            "@type": "Segment",
+            "segmentOfferInformation": {
+              "flightsMiles": 476,
+              "awardFare": false
+            },
+            "duration": 105,
+            "cabinClass": "Economy",
+            "equipment": "32N",
+            "aircraftLeaseText": "/H8 SKY AIRLINE PERU SAC",
+            "flight": {
+              "flightNumber": 5118,
+              "operatingFlightNumber": 5118,
+              "airlineCode": "H2",
+              "operatingAirlineCode": "H2",
+              "stopAirports": [],
+              "advisories": [],
+              "airlineCodeText": "H8"
+            },
+            "origin": "AQP",
+            "destination": "LIM",
+            "departure": "2026-12-15T17:10:00",
+            "arrival": "2026-12-15T18:55:00",
+            "departureGMTOffset": "-05:00",
+            "arrivalGMTOffset": "-05:00",
+            "bookingClass": "A",
+            "layoverDuration": 0,
+            "fareBasis": "AZO00000",
+            "subjectToGovernmentApproval": false,
+            "fareComponentBeginAirport": "AQP",
+            "fareComponentEndAirport": "LIM",
+            "fareComponentDirectionality": "FROM",
+            "segmentRef": "3069019930266450711"
+          }
+        ],
+        "stops": 0,
+        "totalDuration": 105,
+        "connectionInformations": [],
+        "fares": [
+          {
+            "fareBasis": "AZO00000",
+            "shoppingBasketHashCode": 1816195766,
+            "brandId": "ZO",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 43.96,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 31,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 12.96,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 5.6,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 43.96,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "ALT00000",
+            "shoppingBasketHashCode": -2093646955,
+            "brandId": "LT",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 65.16,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 49,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.16,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 8.8,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 65.16,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AED00000",
+            "shoppingBasketHashCode": -686241463,
+            "brandId": "ED",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 69.86,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 53,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.86,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 9.5,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 69.86,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "APL00000",
+            "shoppingBasketHashCode": 258895223,
+            "brandId": "PL",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 87.56,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 68,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 19.56,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 12.2,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 87.56,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AMF00000",
+            "shoppingBasketHashCode": -702224115,
+            "brandId": "MF",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 93.46,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 73,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 20.46,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 13.1,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 93.46,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          }
+        ],
+        "offerInformation": {
+          "discounted": false,
+          "negotiated": false,
+          "negotiatedType": "NONE"
+        },
+        "seatsRemaining": {
+          "count": 9,
+          "lowAvailability": false
+        }
+      },
+      {
+        "segments": [
+          {
+            "@type": "Segment",
+            "segmentOfferInformation": {
+              "flightsMiles": 476,
+              "awardFare": false
+            },
+            "duration": 105,
+            "cabinClass": "Economy",
+            "equipment": "32N",
+            "aircraftLeaseText": "/H8 SKY AIRLINE PERU SAC",
+            "flight": {
+              "flightNumber": 5116,
+              "operatingFlightNumber": 5116,
+              "airlineCode": "H2",
+              "operatingAirlineCode": "H2",
+              "stopAirports": [],
+              "advisories": [],
+              "airlineCodeText": "H8"
+            },
+            "origin": "AQP",
+            "destination": "LIM",
+            "departure": "2026-12-15T21:35:00",
+            "arrival": "2026-12-15T23:20:00",
+            "departureGMTOffset": "-05:00",
+            "arrivalGMTOffset": "-05:00",
+            "bookingClass": "A",
+            "layoverDuration": 0,
+            "fareBasis": "AZO00000",
+            "subjectToGovernmentApproval": false,
+            "fareComponentBeginAirport": "AQP",
+            "fareComponentEndAirport": "LIM",
+            "fareComponentDirectionality": "FROM",
+            "segmentRef": "166461632745196124"
+          }
+        ],
+        "stops": 0,
+        "totalDuration": 105,
+        "connectionInformations": [],
+        "fares": [
+          {
+            "fareBasis": "AZO00000",
+            "shoppingBasketHashCode": 1949818842,
+            "brandId": "ZO",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 43.96,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 31,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 12.96,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 5.6,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 43.96,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "ALT00000",
+            "shoppingBasketHashCode": -1960023879,
+            "brandId": "LT",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 65.16,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 49,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.16,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 8.8,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 65.16,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AED00000",
+            "shoppingBasketHashCode": -552618387,
+            "brandId": "ED",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 69.86,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 53,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 16.86,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 9.5,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 69.86,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "APL00000",
+            "shoppingBasketHashCode": 392518299,
+            "brandId": "PL",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 87.56,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 68,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 19.56,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 12.2,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 87.56,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          },
+          {
+            "fareBasis": "AMF00000",
+            "shoppingBasketHashCode": -568601039,
+            "brandId": "MF",
+            "priceByPassengerTypes": [
+              {
+                "requestedPassengerType": "ADT",
+                "actualPassengerType": "ADT",
+                "passengerQuantity": 1,
+                "total": {
+                  "amount": 93.46,
+                  "currency": "USD"
+                },
+                "fare": {
+                  "amount": 73,
+                  "currency": "USD"
+                },
+                "taxes": {
+                  "amount": 20.46,
+                  "currency": "USD"
+                },
+                "taxesBreakdown": [
+                  {
+                    "label": "HW",
+                    "price": {
+                      "amount": 7.36,
+                      "currency": "USD"
+                    }
+                  },
+                  {
+                    "label": "PE",
+                    "price": {
+                      "amount": 13.1,
+                      "currency": "USD"
+                    }
+                  }
+                ]
+              }
+            ],
+            "total": {
+              "amount": 93.46,
+              "currency": "USD"
+            },
+            "totalWithoutDiscount": {},
+            "status": true
+          }
+        ],
+        "offerInformation": {
+          "discounted": false,
+          "negotiated": false,
+          "negotiatedType": "NONE"
+        },
+        "seatsRemaining": {
+          "count": 9,
+          "lowAvailability": false
+        }
+      }
+    ]
+  ],
+  "noneScheduledDatesOutbound": [],
+  "noneScheduledDatesInbound": [],
+  "unbundledAlternateDateOffers": {},
+  "hash": "",
+  "punctualityRate": [],
+  "unnFilter": false
+}

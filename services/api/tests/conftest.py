@@ -24,3 +24,21 @@ def _own_data_directory(tmp_path, monkeypatch):
     # Lifespan tests must never reach the real X profile or launch Chromium.
     # Individual lifecycle tests opt in and replace the watcher at its boundary.
     monkeypatch.setenv("X_TWEET_WATCH_ON_START", "false")
+
+
+@pytest.fixture(autouse=True)
+def _unpaced_between_tests():
+    """
+    Each test starts with no Google request behind it.
+
+    `GOOGLE_PACER` holds the last upstream start for the life of the process,
+    which is what keeps two passes from addressing Google faster than the gap.
+    Across tests that same memory is a leak: a pass that ran microseconds ago
+    makes the next test really sleep three seconds before its first request,
+    and `wait_for_the_pass` gives a pass five.
+    """
+    from app.services.fare_collector import GOOGLE_PACER
+
+    GOOGLE_PACER.reset()
+    yield
+    GOOGLE_PACER.reset()

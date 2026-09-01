@@ -30,7 +30,7 @@ CORS_ORIGINS = [
 
 
 def sky_official_lookup_enabled() -> bool:
-    """Whether the opt-in, fail-closed official SKY browser lookup may run."""
+    """Whether the opt-in, fail-closed official SKY booking lookup may run."""
     return os.getenv("SKY_OFFICIAL_LOOKUP_ENABLED", "").strip().casefold() in {
         "1",
         "true",

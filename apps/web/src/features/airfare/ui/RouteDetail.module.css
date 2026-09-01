@@ -11,7 +11,7 @@
   /* Wide enough for the pair and its date on one line. */
   grid-template-columns: minmax(13rem, auto) 1fr;
   align-items: center;
-  gap: 10px var(--space-4);
+  gap: 6px var(--space-4);
   min-width: 0;
 }
 
@@ -36,7 +36,7 @@
  * 20px, and `line-height: 1.5` from `reset.css`: `.pair` at 0.95rem is 1.425rem
  * of line, `.cities` at 0.72rem is 1.08rem and there are two of them, and the
  * two gaps between the three are 2px apiece. 69.1px, whether the last look is
- * present or not. The money box is 71.6px after the denser padding below, so
+ * present or not. The money box is 74.8px after the denser padding below, so
  * the header remains the stable top-row measure.
  */
 .head {
@@ -173,7 +173,7 @@
   flex-wrap: nowrap;
   gap: 8px var(--space-4);
   margin: 0;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: var(--color-surface);
@@ -182,9 +182,9 @@
    * A label and two lines of value, reserved.
    *
    * `box-sizing: border-box` from `reset.css`, so this is the outside of the
-   * box: 6px of padding at each end and a 1px border at each end is 14px, the
+   * box: 4px of padding at each end and a 1px border at each end is 10px, the
    * label is 0.62rem of type at 1.5 with 3px under it, and then twice `dd`'s
-   * 0.72rem at 1.5. 82.8px.
+   * 0.72rem at 1.5. 74.8px.
    *
    * Two lines and not one, now that the board's figures share this box: a
    * carrier written out in full folds between its two words rather than being
@@ -196,7 +196,7 @@
    * 1.35rem against the 2.16rem reserved here, so the emphasis on the cheapest
    * fare costs no height at all.
    */
-  min-height: calc(0.93rem + 2.16rem + 17px);
+  min-height: calc(0.93rem + 2.16rem + 13px);
 }
 
 /*
@@ -227,8 +227,8 @@
   /*
    * Two lines of value, reserved — the fold this box can actually produce.
    *
-   * Same 14px of padding and border and the same 0.93rem label with 3px under
-   * it, and then twice `.wide dd`'s 0.72rem at 1.5. 82.8px, and it is 82.8px
+   * Same 10px of padding and border and the same 0.93rem label with 3px under
+   * it, and then twice `.wide dd`'s 0.72rem at 1.5. 74.8px, and it is 74.8px
    * whether `Aerolineas Argentinas · 14:35` sits on one line or folds between
    * its two words.
    *
@@ -248,7 +248,7 @@
    * yet. Run a collection pass." stands exactly where the box would and is
    * exactly as tall, so a route with no archive is not a shorter page.
    */
-  min-height: calc(0.93rem + 2.16rem + 17px);
+  min-height: calc(0.93rem + 2.16rem + 13px);
 }
 
 .figures dd {

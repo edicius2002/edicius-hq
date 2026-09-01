@@ -204,10 +204,9 @@
   color: var(--color-muted);
 }
 
-/* What the picked months cost a pass. The only feedback there is. */
+/* The schedule-risk warning for the picked months, inside the shared status region. */
 .cost,
 .costLoud {
-  grid-column: 1 / -1;
   margin: 0;
   font-size: 0.7rem;
 }
@@ -224,16 +223,14 @@
  * The warnings that are not refusals.
  *
  * The wrapper stays in the tree so the live region exists before it has
- * anything to say, and collapses when it has nothing: an empty grid item still
- * takes a row and a gap, which would leave ten pixels of nothing under the cost
- * line whenever the reader is not being warned about anything.
+ * anything to say. An empty grid item would still take a row and a gap, which
+ * would leave ten pixels of nothing under the month strip whenever the reader
+ * is not being warned about anything.
  *
- * `:empty` rather than not rendering the wrapper at all, so the collapse is the
- * stylesheet's and the markup keeps one shape. The trade-off is honest and
- * small: a region hidden at the moment it gains content is not reliably
- * announced, so these two sentences are read rather than heard. Both are
- * restatements of a field the reader has just this second changed, and what
- * actually stops a save is the `alert` node below, which is never hidden.
+ * `position: absolute` rather than `display: none` while it is empty keeps the
+ * status region available before an inserted warning needs announcing, without
+ * asking the grid for a blank row. The region returns to normal flow as soon as
+ * it has a child.
  */
 .notes {
   grid-column: 1 / -1;
@@ -242,7 +239,7 @@
 }
 
 .notes:empty {
-  display: none;
+  position: absolute;
 }
 
 .note {

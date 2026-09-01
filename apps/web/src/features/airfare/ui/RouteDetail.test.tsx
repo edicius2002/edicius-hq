@@ -386,8 +386,12 @@ describe('the height the route strip holds', () => {
     expect(reserved('head')).toBeCloseTo(lines, 5);
   });
 
-  it('uses 6px vertical padding so both figure boxes are denser without clipping', () => {
-    expect(boxChrome()).toBe(14);
+  it('uses 4px vertical padding so both figure boxes stay compact without clipping', () => {
+    expect(boxChrome()).toBe(10);
+  });
+
+  it('keeps only 6px between the detail boxes instead of a loose outer gap', () => {
+    expect(rule('detail')).toMatch(/gap:\s*6px\s+var\(--space-4\)/);
   });
 
   it('lets a fold spend the reserve rather than ask for more room', () => {

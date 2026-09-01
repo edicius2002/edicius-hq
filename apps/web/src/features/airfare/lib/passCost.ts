@@ -73,7 +73,7 @@ export function passCost(months: readonly string[], today: string): PassCost {
 }
 
 /**
- * The line under the strip.
+ * The warning under the strip, when the selection risks the next pass.
  *
  * It states the consequence rather than only the number, because the number
  * alone means nothing to anybody: "272 departures" is not obviously a problem,
@@ -84,7 +84,7 @@ export function passCost(months: readonly string[], today: string): PassCost {
  * cadence will actually send — on a settled watch most of them come back
  * `not-due`, which is the schedule working and not a shortfall.
  */
-export function describeCost(cost: PassCost): string {
+export function describeCost(cost: PassCost): string | null {
   if (cost.months === 0) return 'No months picked yet.';
 
   const months = `${cost.months} month${cost.months === 1 ? '' : 's'}`;
@@ -98,5 +98,7 @@ export function describeCost(cost: PassCost): string {
   if (cost.approaching) {
     return `${head} — close to the ${PASS_OVERRUN_MINUTES} a pass has before the collector's next scheduled run is dropped.`;
   }
-  return `${head}.`;
+  // A routine estimate does not change the decision, so it should not take a
+  // line from the form. The two schedule-risk cases above still need one.
+  return null;
 }

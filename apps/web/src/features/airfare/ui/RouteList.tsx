@@ -408,7 +408,6 @@ export function RouteList({
                       wonder why the series stopped. A watch with one stale month
                       beside two live ones is not this, and keeps its press.
                     */}
-                    {departed ? <span className={styles.departed}>Departed</span> : null}
                     {/*
                     Collect this one route, now, without waiting for a pass
                     over the whole list. Absent rather than disabled on a
@@ -417,40 +416,43 @@ export function RouteList({
                     already says "Departed", and a greyed control beside it
                     would only make the reader wonder what would happen.
                   */}
-                    {departed ? null : (
+                    <div className={styles.actions}>
+                      {departed ? null : (
+                        <Button
+                          variant="ghost"
+                          size="small"
+                          className={styles.collect}
+                          onClick={() => onCollect(route, reading)}
+                          disabled={busy}
+                          aria-busy={busy || undefined}
+                          // One press, one month — the one this row is reading, so
+                          // the name says which rather than how many. A control
+                          // that collected three months while naming none of them
+                          // was doing more than the reader could see it do.
+                          aria-label={
+                            busy
+                              ? `Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`
+                              : `Collect ${routeLabel(route)} now, ${formatFlightMonth(reading)}`
+                          }
+                        >
+                          <CollectMark busy={busy} />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="small"
-                        className={styles.collect}
-                        onClick={() => onCollect(route, reading)}
-                        disabled={busy}
-                        aria-busy={busy || undefined}
-                        // One press, one month — the one this row is reading, so
-                        // the name says which rather than how many. A control
-                        // that collected three months while naming none of them
-                        // was doing more than the reader could see it do.
-                        aria-label={
-                          busy
-                            ? `Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`
-                            : `Collect ${routeLabel(route)} now, ${formatFlightMonth(reading)}`
-                        }
+                        onClick={() => onRemove(id)}
+                        // The pair and every month of it. The month name is gone
+                        // from here on purpose: with tabs in the row, "Stop
+                        // watching LIM → CUZ in March 2027" would read as an offer
+                        // to drop one month. Dropping one is the editor's job.
+                        aria-label={`Stop watching ${routeLabel(route)}`}
                       >
-                        <CollectMark busy={busy} />
+                        Remove
                       </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="small"
-                      onClick={() => onRemove(id)}
-                      // The pair and every month of it. The month name is gone
-                      // from here on purpose: with tabs in the row, "Stop
-                      // watching LIM → CUZ in March 2027" would read as an offer
-                      // to drop one month. Dropping one is the editor's job.
-                      aria-label={`Stop watching ${routeLabel(route)}`}
-                    >
-                      Remove
-                    </Button>
+                    </div>
                   </div>
+                  {departed ? <span className={styles.departed}>Departed</span> : null}
                   {/*
                   Always rendered, empty until there is something to say. An
                   empty paragraph with no margin lays out no line box and so

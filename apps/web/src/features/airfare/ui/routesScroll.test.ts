@@ -162,6 +162,16 @@ function pixels(source: string, property: string): number {
 }
 
 describe('how wide the watchlist may be, and what stops it being narrower', () => {
+  it('pins row actions to the right while letting the route label yield first', () => {
+    const row = rule('row', LIST);
+    const route = rule('route', LIST);
+    const actions = rule('actions', LIST);
+
+    expect(row).toMatch(/flex-wrap:\s*nowrap/);
+    expect(route).toMatch(/flex:\s*1 1 0/);
+    expect(actions).toMatch(/margin-left:\s*auto/);
+  });
+
   /*
    * The route button's own content, at the 7px gap `.route` declares: a swatch
    * and the pair, and nothing else.

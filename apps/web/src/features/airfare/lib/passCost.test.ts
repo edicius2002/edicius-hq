@@ -44,11 +44,10 @@ describe('what a pass over these months costs', () => {
     expect(describeCost(passCost([], TODAY))).toBe('No months picked yet.');
   });
 
-  it('says "up to", because the cadence declines most of them', () => {
-    // The figure is what the horizon allows rather than what will be sent: on
-    // a settled watch most days come back `not-due`, which is the schedule
-    // working and not a shortfall.
-    expect(describeCost(passCost(['2026-10'], TODAY))).toContain('up to 31 departures to price');
+  it('keeps an ordinary pass quiet', () => {
+    // A normal selection needs no explanation; the warning remains reserved
+    // for the pass lengths that can silently cost a scheduled collection.
+    expect(describeCost(passCost(['2026-10'], TODAY))).toBeNull();
   });
 
   it('warns before the window rather than only after it', () => {

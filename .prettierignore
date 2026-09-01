@@ -21,3 +21,13 @@ services/api/tests/fixtures
 # nobody — they are read by a projection, not by a person, and the only
 # meaningful diff on one is that it was rebuilt.
 services/api/app/data/subdivisions
+
+# Python virtualenvs, wherever they are made. `venv` writes a `.gitignore`
+# holding `*` inside the directory it creates, so git never sees these —
+# prettier reads this file and nothing else, and without the line
+# `npm run format:check` fails on nine LICENSE, SBOM and CSS files belonging to
+# installed packages. CI checks out a clean tree and never saw them, so the
+# check passed there and failed here. A check that only ever fails on noise is
+# one people stop reading, which is how the format break in #143 reached main.
+**/.venv*/
+**/venv/

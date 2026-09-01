@@ -1,18 +1,16 @@
 .head {
   display: grid;
   /*
-   * Title, pill, chart head — the pill sits against the title rather than in
-   * the middle of the row.
+   * Title, pill, chart head — two equal flexible columns hold the pill on the
+   * row's true centre, whatever route name occupies the left side. A long name
+   * spends only its own column and cannot drag the control beneath it.
    *
-   * It was centred to give the period fold somewhere to open into, and the
-   * third column still is that somewhere: everything to the pill's right is
-   * free space until the chart's own head, which justifies itself to the end.
-   * What the two `auto` columns cost is that the pill now starts where the
-   * title finishes, so a longer route name moves it. That is a smaller
-   * movement than the fold used to cause and it happens when the reader
-   * changes route rather than when they press a control they are looking at.
+   * The right column is also the space the period fold needs to reveal itself:
+   * opening rightward from a centred pill stays inside the panel instead of
+   * disappearing into its edge. The chart head justifies itself at that free
+   * column's end, without changing the centre the pill is measured against.
    */
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
@@ -31,8 +29,9 @@
  * It sat at the right edge until the period fold was anchored to it. The fold
  * opens out of the button's right side, so at the right edge it opened into the
  * panel's border and could not be seen at all — the centre column is what gives
- * it somewhere to open into, and the two `1fr` columns either side are what keep
- * the pill in the same place whether it is open or shut.
+ * it somewhere to open into. The two `1fr` columns either side keep the pill
+ * centred whether it is open or shut, and leave its right-hand fold inside the
+ * panel instead of against its border.
  *
  * There is exactly one switch now and there always is. The middle one — how to
  * read chart A's axis, how far out chart B stood — went with the modes it

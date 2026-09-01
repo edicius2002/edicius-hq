@@ -33,11 +33,11 @@ import type { CalendarCurve, CalendarPoint, FareOffer, FareSnapshot } from '@/sh
 /**
  * The chart's own viewBox, mirrored so a client coordinate is a view unit.
  *
- * 338 rather than 324: the plot floor is where it always was and every dot with
- * it, but there is one more row of chrome below — the source rail, which says
- * which archive answered for which stretch of the frame.
+ * 308 rather than 338: the plot floor is where it always was and every dot with
+ * it, but the chrome below it lost a row when the crosshair's plate stopped
+ * taking one of its own and moved onto the date labels instead.
  */
-const VIEW = { width: 760, height: 338 };
+const VIEW = { width: 760, height: 308 };
 
 beforeEach(() => {
   // jsdom measures every element as 0x0, and the chart converts a client
@@ -490,10 +490,16 @@ describe('a box the drawing does not fill', () => {
   }
 
   it('puts the hairline on the dot the pointer is on, in a box wider than the drawing', () => {
-    const place = boxOf(1099, 465);
+    // 420 rather than 465: the drawing lost a row of chrome and got wider than
+    // it was tall, so the box that used to pillarbox it now letterboxes it.
+    // What this test is for is the pillarboxed half, so the box changed shape
+    // to keep being one.
+    const place = boxOf(1099, 420);
     // Pillarboxed: the drawing is as tall as the box and narrower than it.
-    expect(place.padX).toBeCloseTo(26.72, 2);
-    expect(place.padY).toBe(0);
+    expect(place.padX).toBeCloseTo(31.32, 2);
+    // Close to, not equal: this box divides exactly in theory and lands on
+    // 2.8e-14 in binary floating point.
+    expect(place.padY).toBeCloseTo(0, 6);
 
     const { container } = chart({ snapshots: DENSE, granularity: 'month' });
     const svg = container.querySelector('svg')!;
@@ -507,7 +513,7 @@ describe('a box the drawing does not fill', () => {
     // and then it is `y` that is wrong, which is the half a one-dimensional
     // chart would never notice. This chart picks in two dimensions.
     expect(place.padX).toBe(0);
-    expect(place.padY).toBeCloseTo(54.34, 2);
+    expect(place.padY).toBeCloseTo(68.16, 2);
 
     const { container } = chart({ snapshots: DENSE, granularity: 'month' });
     const svg = container.querySelector('svg')!;
@@ -1479,13 +1485,12 @@ describe('a watched range narrower than the frame', () => {
  * The chrome around the plot, which is where the ink was rather than where the
  * data is.
  *
- * The owner read this panel and quoted back a keyboard-help paragraph, five
- * legend sentences, a crosshair readout and a caption naming the axis, all of it
- * printed around a chart that draws its own axis. What this block pins is the
- * half of that cleanup a reader cannot see: that the words which came off the
- * page are still reachable by everyone who was relying on them, and that the two
- * facts this panel exists to keep apart did not collapse into one when their
- * sentences became labels.
+ * The owner read this panel and quoted back a keyboard-help paragraph, a legend,
+ * a crosshair readout and a caption naming the axis, all of it printed around a
+ * chart that draws its own axis. The legend has since gone off the page
+ * entirely — each mark carries its own `title` and the dates carry theirs — so
+ * what this block still pins is the half a reader cannot see: that the words
+ * which came off the page are reachable by everyone who was relying on them.
  */
 describe('the chrome around the plot', () => {
   it('keeps the keyboard help on the chart for a screen reader', () => {
@@ -1546,40 +1551,6 @@ describe('the chrome around the plot', () => {
       'Left and right arrow keys move one departure date',
     );
     expect(frameLabel(container)).toContain('What each departure date costs');
-  });
-
-  it('tells nothing on sale from never collected in two words each', () => {
-    /*
-     * The distinction the whole panel is built on, carried through the cut from
-     * clauses to labels. An answer that came back empty is a fact about the
-     * route; an answer that never came is a fact about us, and a legend that let
-     * the two read as one mark would undo what the two marks are for.
-     */
-    chart();
-    const unsold = screen.getByTitle('Nothing on sale — we asked and there was none');
-    const never = screen.getByTitle('Never collected — we have no reading either way');
-
-    expect(unsold).toHaveTextContent('None on sale');
-    expect(never).toHaveTextContent('Never collected');
-    expect(unsold.textContent).not.toBe(never.textContent);
-  });
-
-  it('says each legend mark in three words or fewer', () => {
-    // The cut itself, asserted rather than described: entries that were
-    // forty-eight words of explanation are names. The sentences are not lost —
-    // each is the entry's `title` — and the test above reads two of them.
-    // Eight since the pair median joined them — seven when a mark gained a
-    // coloured centre for "this flight's airline can be reached" — and the rule
-    // each is held to is the same one. The median's entry is the only one that
-    // can grow a fourth token, the date it was worked out on, and `Pair median,
-    // 22/08` is three.
-    const { container } = chart();
-    const entries = [...container.querySelectorAll('figcaption span')];
-    expect(entries).toHaveLength(8);
-    for (const entry of entries) {
-      expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
-      expect(entry.getAttribute('title')).toBeTruthy();
-    }
   });
 
   it('keeps the words on the reset button after taking them off it', () => {
@@ -1929,16 +1900,5 @@ describe('the pair median across the plot', () => {
   it('says the frame’s own two ends in words as well as in ink', () => {
     const { container } = chart({ reference: AT_250 });
     expect(frameLabel(container)).toContain('This frame runs $195.00 to $310.00');
-  });
-
-  it('names the line in the legend, with the date it was worked out on', () => {
-    // The one legend entry that carries a date, and it has to: the figure is
-    // recomputed every time the page is read, so two screenshots weeks apart
-    // are not comparable and the date is the only thing that admits it.
-    const { container } = chart({ reference: AT_250 });
-    const entry = [...container.querySelectorAll('figcaption span')].find((span) =>
-      (span.textContent ?? '').includes('Pair median'),
-    );
-    expect(entry).toHaveTextContent('Pair median, 22/08');
   });
 });

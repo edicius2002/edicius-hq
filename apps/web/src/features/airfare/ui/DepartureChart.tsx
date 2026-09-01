@@ -69,7 +69,6 @@ import {
 import { stopsLabel } from '@/features/airfare/lib/flightTable';
 import {
   referenceFall,
-  referenceLegend,
   referenceSentence,
   referenceY,
   type PairReference,
@@ -109,8 +108,15 @@ const MINUTES_PER_DAY = 1440;
  */
 const VIEW: Plot = {
   width: 760,
-  height: 338,
-  pad: { top: 14, right: 16, bottom: 72, left: marginForPrices(PRICE_GAP) },
+  height: 308,
+  /*
+   * `bottom` fell from 72 to 42 when the date labels moved up under the plot
+   * floor. It used to carry four stacked rows — the rail, the crosshair's
+   * plate, the dates and the source rail — each on its own line so none could
+   * overprint. The plate now shares the dates' line rather than sitting above
+   * it, which is one row's worth of nothing the frame no longer buys.
+   */
+  pad: { top: 14, right: 16, bottom: 42, left: marginForPrices(PRICE_GAP) },
 };
 
 const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
@@ -120,11 +126,25 @@ const RIGHT = VIEW.width - VIEW.pad.right;
 const TRACK = RIGHT - LEFT;
 /** Where a departure date with no answer of any kind is marked, under the plot floor. */
 const RAIL_Y = PLOT_BOTTOM + 7;
-const TAG = { height: 16, top: PLOT_BOTTOM + 16, baseline: 11.5 };
-/** The date labels sit below the tag, on their own row. */
-const AXIS_BASELINE = 311;
+/*
+ * The date labels, as close under the plot floor as the unanswered rail allows.
+ *
+ * They sat at 311 against a floor at 266 — forty-five pixels of nothing between
+ * a chart and the dates it is drawn against, because the crosshair's plate held
+ * a row of its own in between.
+ */
+const AXIS_BASELINE = PLOT_BOTTOM + 19;
 /** And the source rail below them, so the two never overprint. */
-const SOURCE_BASELINE = 327;
+const SOURCE_BASELINE = AXIS_BASELINE + 16;
+/*
+ * The crosshair's plate, on the dates rather than above them.
+ *
+ * `top` is derived from the axis baseline so the plate's own text lands exactly
+ * on it: while the reader is pointing at a date, the date they are pointing at
+ * is worth more than the rest of the scale, and the filled plate is what keeps
+ * the two from being read through each other.
+ */
+const TAG = { height: 16, top: AXIS_BASELINE - 11.5, baseline: 11.5 };
 
 /*
  * The two marks the cloud draws, as one pair of numbers rather than two.
@@ -2037,105 +2057,6 @@ export function DepartureChart({
       <p id={range} className={styles.srOnly} role="status">
         {zoomed ? `Showing ${rangeWords(period, view)} of ${caption}.` : ''}
       </p>
-
-      {/*
-        The vocabulary of the frame, stated in full every time rather than only
-        for the marks currently on screen. A legend that grew and shrank as the
-        reader stepped across the boundary would move the whole panel under
-        them, which is the one thing this arrangement must not do — and the
-        marks it names are the ones they are about to meet.
-
-        **Names, not sentences.** Every entry was a clause explaining its own
-        swatch — five of them, forty-eight words, wrapping to three lines under
-        a plot they were describing. A legend is read by looking from a mark on
-        the chart to the same mark in the row, and the word beside it only has
-        to be the one that says which mark it is; the explanation belongs to
-        whatever the reader does next, which is point at it. So each keeps a
-        `title` carrying the sentence it used to print, and the two absences
-        keep the distinction the whole panel is built on — an answer that came
-        back empty is not the same fact as an answer that never came — in the
-        two words that are actually different between them.
-      */}
-      <figcaption className={styles.legend}>
-        <span className={styles.keyDot} title="One dot is one itinerary, at the hour it departs">
-          <i /> One itinerary
-        </span>
-        {/*
-          The small bright mark, named — because on this route it is on almost
-          every dot and a reader has to be able to find out what it means from
-          the chart rather than by pressing one. Its swatch is drawn narrower
-          than the plain dot's above it, because the width is half of the
-          distinction and a legend that showed only the colour would teach the
-          half a colourblind reader cannot use.
-
-          Permanent like every entry beside it, and worded as what the *mark*
-          says rather than as what the reader can do: the dot is not the link,
-          the flight number under the plot is, and a legend reading "click to
-          book" would make the promise this whole feature is built around not
-          making.
-        */}
-        <span
-          className={styles.keyLinked}
-          title="This flight's airline can be searched for its route and date — the flight number in the line above the legend is the link"
-        >
-          <i /> Reaches its airline
-        </span>
-        <span
-          className={styles.keyLine}
-          title="The cheapest flight of each date — broken where a date has none"
-        >
-          <i /> Cheapest of date
-        </span>
-        {/*
-          The one entry here that carries a date, and it has to.
-
-          Every other name in this row is a permanent fact about the vocabulary;
-          this one names a figure that is worked out afresh every time the page
-          is read, so the row says *when*. It is why two screenshots of this
-          chart taken weeks apart are not comparable — the rule in them is not
-          the same rule — and the date is the only thing on screen that admits
-          it. Freezing the figure is a one-line change once there are months of
-          archive behind it; until then a fixed line would be a fixed piece of
-          this week's noise.
-
-          Rendered whether or not the frame's own scale reaches it, like every
-          entry beside it: a legend that came and went as the reader stepped
-          across months would move the whole panel under them.
-        */}
-        <span
-          className={styles.keyReference}
-          title="What this city pair usually costs — the median cheapest fare of every departure date in its archive, worked out afresh each time this page is read"
-        >
-          <i /> {reference === null ? 'Pair median' : referenceLegend(reference)}
-        </span>
-        <span
-          className={styles.keySpan}
-          title="One price for a whole date — no departure time, so it spans the date"
-        >
-          <i /> Whole-date price
-        </span>
-        {/*
-          Permanent, like every entry beside it. The legend is stated in full
-          whatever the frame holds, so the box never changes height — a row
-          appearing only when a carried-over price happens to be on screen
-          would move the chart under the reader.
-        */}
-        <span
-          className={styles.keyCarried}
-          title="A whole-date price from an earlier collection — the last pass did not reach this date"
-        >
-          <i /> Carried over
-        </span>
-        <span className={styles.keyUnsold} title="Nothing on sale — we asked and there was none">
-          <i /> None on sale
-        </span>
-        <span
-          className={styles.keyUnanswered}
-          title="Never collected — we have no reading either way"
-        >
-          <i /> Never collected
-        </span>
-      </figcaption>
 
       {/*
         Why a stretch of this frame is blank, where the reason is us rather than

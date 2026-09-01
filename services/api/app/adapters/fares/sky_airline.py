@@ -58,7 +58,9 @@ def clear_subscription_key() -> None:
     _last_request_at = 0.0
 
 
-async def _request(client: httpx.AsyncClient, method: str, url: str, **kwargs: Any) -> httpx.Response:
+async def _request(
+    client: httpx.AsyncClient, method: str, url: str, **kwargs: Any
+) -> httpx.Response:
     """Keep unauthenticated SKY traffic deliberately slow, including key refreshes."""
     global _last_request_at
     async with _request_lock:
@@ -232,8 +234,9 @@ def _official_fare(itinerary: Any) -> OfficialFare | None:
     if not isinstance(airline, str) or not isinstance(flight_number, (int, str)):
         return None
     origin, destination = _segment_value(first, "origin"), _segment_value(last, "destination")
-    departure, arrival = _stamp(first.get("departure") if isinstance(first, dict) else None), _stamp(
-        last.get("arrival") if isinstance(last, dict) else None
+    departure, arrival = (
+        _stamp(first.get("departure") if isinstance(first, dict) else None),
+        _stamp(last.get("arrival") if isinstance(last, dict) else None),
     )
     via_points = tuple(_segment_value(segment, "destination") for segment in segments[:-1])
     total = _selected_total(itinerary.get("fares"))

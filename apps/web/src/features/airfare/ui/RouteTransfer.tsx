@@ -29,7 +29,12 @@ function importMessage(summary: ImportSummary): string {
 async function readError(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
-    if (typeof body === 'object' && body !== null && 'detail' in body && typeof body.detail === 'string') {
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'detail' in body &&
+      typeof body.detail === 'string'
+    ) {
       return body.detail;
     }
   } catch {
@@ -66,7 +71,9 @@ export function RouteTransfer({ disabled, onImported }: RouteTransferProps) {
       await onImported();
       setMessage(importMessage(summary));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not import the watched routes. Retry.');
+      setMessage(
+        error instanceof Error ? error.message : 'Could not import the watched routes. Retry.',
+      );
     } finally {
       setImporting(false);
     }

@@ -135,8 +135,7 @@ def main() -> int:
     print(f"first_currency={price.get('currencyCode', '-') if isinstance(price, dict) else '-'}")
     print(f"first_total_price={price.get('totalPrice', '-') if isinstance(price, dict) else '-'}")
     print(
-        "first_itinerary_fields="
-        + ",".join(sorted(flight))
+        "first_itinerary_fields=" + ",".join(sorted(flight))
         if isinstance(flight, dict)
         else "first_itinerary_fields=-"
     )

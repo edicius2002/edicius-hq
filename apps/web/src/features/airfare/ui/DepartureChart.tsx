@@ -1340,14 +1340,19 @@ export function DepartureChart({
     <figure className={styles.figure}>
       {metaSlot === null ? head : createPortal(head, metaSlot)}
 
-      <svg
-        ref={svg}
-        className={styles.chart}
-        viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
-        role="img"
-        tabIndex={0}
-        aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption, ends, reference, referenceAt?.fall ?? null)}`}
-        /*
+      {/*
+        The plot and the crosshair's row share one positioned box, because the
+        row is drawn over the plot's bottom edge rather than under it.
+      */}
+      <div className={styles.plotArea}>
+        <svg
+          ref={svg}
+          className={styles.chart}
+          viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
+          role="img"
+          tabIndex={0}
+          aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption, ends, reference, referenceAt?.fall ?? null)}`}
+          /*
           The description is the affordances, and the two live regions are not
           part of it.
 
@@ -1360,27 +1365,27 @@ export function DepartureChart({
           range speak, and they still do. What is left here is the thing a
           description is for: what this chart can be asked to do.
         */
-        aria-describedby={help}
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0 P Escape"
-        data-zoomed={zoomed ? 'true' : undefined}
-        data-pinned={pinned ? 'true' : undefined}
-        onContextMenu={pinAt}
-        onPointerMove={trackPointer}
-        onPointerDown={startDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onLostPointerCapture={endDrag}
-        /*
+          aria-describedby={help}
+          aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Plus Minus 0 P Escape"
+          data-zoomed={zoomed ? 'true' : undefined}
+          data-pinned={pinned ? 'true' : undefined}
+          onContextMenu={pinAt}
+          onPointerMove={trackPointer}
+          onPointerDown={startDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          /*
           A drag that leaves the chart is still a drag — the pointer is
           captured, and panning to the last date means dragging past the edge of
           the plot. Clearing the crosshair on the way out would be right for a
           hand that has left and wrong for a hand that is still working.
         */
-        onPointerLeave={() => {
-          if (drag.current === null && !pinned) setCursor(null);
-        }}
-        onKeyDown={walk}
-        /*
+          onPointerLeave={() => {
+            if (drag.current === null && !pinned) setCursor(null);
+          }}
+          onKeyDown={walk}
+          /*
           A pinned reading survives the pointer leaving and survives the chart
           losing focus, and those two are not a detail — they are the feature.
           The reader pins a fare in order to go and look at something else: the
@@ -1388,18 +1393,18 @@ export function DepartureChart({
           that let go the moment their attention did would hold the reading for
           exactly as long as the crosshair already did.
         */
-        onBlur={(event) => {
-          if (pinned) return;
-          // Unless the focus is going *into* the reading. The flight number in
-          // the line below is now a link, and `Tab` from the plot is how a
-          // keyboard reader reaches it; clearing here would delete the link on
-          // the way to it.
-          const to = event.relatedTarget as Node | null;
-          if (to !== null && readout.current?.contains(to) === true) return;
-          setCursor(null);
-        }}
-      >
-        {/*
+          onBlur={(event) => {
+            if (pinned) return;
+            // Unless the focus is going *into* the reading. The flight number in
+            // the line below is now a link, and `Tab` from the plot is how a
+            // keyboard reader reaches it; clearing here would delete the link on
+            // the way to it.
+            const to = event.relatedTarget as Node | null;
+            if (to !== null && readout.current?.contains(to) === true) return;
+            setCursor(null);
+          }}
+        >
+          {/*
           No `<title>` child here, and that is the whole of the change.
 
           An SVG has no `title` *attribute* — a tooltip comes from a `<title>`
@@ -1416,7 +1421,7 @@ export function DepartureChart({
           hover copy is gone.
         */}
 
-        {/*
+          {/*
           What the zoom is allowed to hide.
 
           Everything placed by a minute of the frame is drawn whole and clipped
@@ -1427,40 +1432,40 @@ export function DepartureChart({
           date like everything else and would otherwise paint over the axis
           words either side of the track.
         */}
-        <clipPath id={clip}>
-          <rect x={LEFT} y={VIEW.pad.top} width={TRACK} height={RAIL_Y + 5 - VIEW.pad.top} />
-        </clipPath>
-        {span === null
-          ? null
-          : gridTicks.map((value) => (
-              <g key={value}>
-                <line
-                  x1={VIEW.pad.left}
-                  x2={VIEW.width - VIEW.pad.right}
-                  y1={yOf(value, span, VIEW)}
-                  y2={yOf(value, span, VIEW)}
-                  className={styles.grid}
-                  data-testid="price-grid"
-                />
-                {/*
+          <clipPath id={clip}>
+            <rect x={LEFT} y={VIEW.pad.top} width={TRACK} height={RAIL_Y + 5 - VIEW.pad.top} />
+          </clipPath>
+          {span === null
+            ? null
+            : gridTicks.map((value) => (
+                <g key={value}>
+                  <line
+                    x1={VIEW.pad.left}
+                    x2={VIEW.width - VIEW.pad.right}
+                    y1={yOf(value, span, VIEW)}
+                    y2={yOf(value, span, VIEW)}
+                    className={styles.grid}
+                    data-testid="price-grid"
+                  />
+                  {/*
                   The gridline is always drawn and the word is not. A tick whose
                   label would sit on top of one of the frame's own two figures
                   gives the word up and keeps the rule, so the scale's spacing is
                   never what a collision changes.
                 */}
-                {labelled.has(value) ? (
-                  <text
-                    x={VIEW.pad.left - PRICE_GAP}
-                    y={yOf(value, span, VIEW) + 4}
-                    className={`${styles.axis} ${styles.tagEnd}`}
-                  >
-                    {formatMoney(value, currency)}
-                  </text>
-                ) : null}
-              </g>
-            ))}
+                  {labelled.has(value) ? (
+                    <text
+                      x={VIEW.pad.left - PRICE_GAP}
+                      y={yOf(value, span, VIEW) + 4}
+                      className={`${styles.axis} ${styles.tagEnd}`}
+                    >
+                      {formatMoney(value, currency)}
+                    </text>
+                  ) : null}
+                </g>
+              ))}
 
-        {/*
+          {/*
           The two ends of this frame's own price axis, stated as figures.
 
           **Outlined plates, where the crosshair's plate is filled.** Both are
@@ -1478,52 +1483,55 @@ export function DepartureChart({
           with the dot that costs $119.76, and the figure nobody was ever quoted
           — the $97.84 the domain actually starts at — is printed nowhere.
         */}
-        {span === null
-          ? null
-          : endPlates.map((end) => {
-              const y = clampToTrack(
-                yOf(end.value, span, VIEW),
-                TAG.height,
-                VIEW.pad.top,
-                PLOT_BOTTOM,
-              );
-              const tag = priceAxisTag(VIEW.pad.left - PRICE_GAP, formatMoney(end.value, currency));
-              return (
-                <g key={end.key} data-testid={`axis-end-${end.key}`}>
-                  <rect
-                    x={tag.x}
-                    y={y}
-                    width={tag.width}
-                    height={TAG.height}
-                    rx={3}
-                    className={styles.endPlate}
-                  />
-                  <text
-                    x={tag.textX}
-                    y={y + TAG.baseline}
-                    className={`${styles.endText} ${ANCHOR[tag.anchor]}`}
-                  >
-                    {formatMoney(end.value, currency)}
-                  </text>
-                </g>
-              );
-            })}
+          {span === null
+            ? null
+            : endPlates.map((end) => {
+                const y = clampToTrack(
+                  yOf(end.value, span, VIEW),
+                  TAG.height,
+                  VIEW.pad.top,
+                  PLOT_BOTTOM,
+                );
+                const tag = priceAxisTag(
+                  VIEW.pad.left - PRICE_GAP,
+                  formatMoney(end.value, currency),
+                );
+                return (
+                  <g key={end.key} data-testid={`axis-end-${end.key}`}>
+                    <rect
+                      x={tag.x}
+                      y={y}
+                      width={tag.width}
+                      height={TAG.height}
+                      rx={3}
+                      className={styles.endPlate}
+                    />
+                    <text
+                      x={tag.textX}
+                      y={y + TAG.baseline}
+                      className={`${styles.endText} ${ANCHOR[tag.anchor]}`}
+                    >
+                      {formatMoney(end.value, currency)}
+                    </text>
+                  </g>
+                );
+              })}
 
-        {/* A midnight between two dates, so the frame reads as dates and not as a smear. */}
-        <g clipPath={`url(#${clip})`}>
-          {separators.map((offset) => (
-            <line
-              key={offset}
-              x1={xOf(offset, period, VIEW, view)}
-              x2={xOf(offset, period, VIEW, view)}
-              y1={VIEW.pad.top}
-              y2={PLOT_BOTTOM}
-              className={styles.separator}
-              aria-hidden="true"
-            />
-          ))}
+          {/* A midnight between two dates, so the frame reads as dates and not as a smear. */}
+          <g clipPath={`url(#${clip})`}>
+            {separators.map((offset) => (
+              <line
+                key={offset}
+                x1={xOf(offset, period, VIEW, view)}
+                x2={xOf(offset, period, VIEW, view)}
+                y1={VIEW.pad.top}
+                y2={PLOT_BOTTOM}
+                className={styles.separator}
+                aria-hidden="true"
+              />
+            ))}
 
-          {/*
+            {/*
           The seam: where the boards stop and the curve starts, and with it
           where the axis stops being a clock. It runs from the top of the plot
           past the date labels and stops above the source rail — a statement
@@ -1544,99 +1552,99 @@ export function DepartureChart({
           still stops above the rail, because the reason is about columns and
           words rather than about who is calling.
         */}
-          {seams.map((offset) => (
-            <line
-              key={offset}
-              x1={xOf(offset, period, VIEW, view)}
-              x2={xOf(offset, period, VIEW, view)}
-              y1={VIEW.pad.top}
-              y2={AXIS_BASELINE + 4}
-              className={styles.seam}
-              data-testid="source-seam"
-              aria-hidden="true"
-            />
+            {seams.map((offset) => (
+              <line
+                key={offset}
+                x1={xOf(offset, period, VIEW, view)}
+                x2={xOf(offset, period, VIEW, view)}
+                y1={VIEW.pad.top}
+                y2={AXIS_BASELINE + 4}
+                className={styles.seam}
+                data-testid="source-seam"
+                aria-hidden="true"
+              />
+            ))}
+          </g>
+
+          {/* The floor the absence marks hang under, so the rail is a place. */}
+          <line
+            x1={VIEW.pad.left}
+            x2={VIEW.width - VIEW.pad.right}
+            y1={PLOT_BOTTOM}
+            y2={PLOT_BOTTOM}
+            className={styles.floor}
+          />
+
+          {ticks.map((tick) => (
+            <text
+              key={tick.offset}
+              x={xOf(tick.offset, period, VIEW, view)}
+              y={AXIS_BASELINE}
+              className={`${styles.axis} ${styles.tagMiddle}`}
+            >
+              {tick.label}
+            </text>
           ))}
-        </g>
 
-        {/* The floor the absence marks hang under, so the rail is a place. */}
-        <line
-          x1={VIEW.pad.left}
-          x2={VIEW.width - VIEW.pad.right}
-          y1={PLOT_BOTTOM}
-          y2={PLOT_BOTTOM}
-          className={styles.floor}
-        />
-
-        {ticks.map((tick) => (
-          <text
-            key={tick.offset}
-            x={xOf(tick.offset, period, VIEW, view)}
-            y={AXIS_BASELINE}
-            className={`${styles.axis} ${styles.tagMiddle}`}
-          >
-            {tick.label}
-          </text>
-        ))}
-
-        {/*
+          {/*
           The source rail — which archive answered for which stretch of the
           frame, under the dates it covers. This is the indicator the whole
           arrangement needs: twenty points in a day becoming one point a day is
           a change of kind, and a reader who is not told will read it as the
           flights having vanished.
         */}
-        {rail.map((label) => (
-          <text
-            key={label.source}
-            x={VIEW.pad.left + label.centre}
-            y={SOURCE_BASELINE}
-            className={`${styles.sourceLabel} ${styles.tagMiddle}`}
-            data-testid={`source-${label.source}`}
-          >
-            {label.text}
-          </text>
-        ))}
+          {rail.map((label) => (
+            <text
+              key={label.source}
+              x={VIEW.pad.left + label.centre}
+              y={SOURCE_BASELINE}
+              className={`${styles.sourceLabel} ${styles.tagMiddle}`}
+              data-testid={`source-${label.source}`}
+            >
+              {label.text}
+            </text>
+          ))}
 
-        {/*
+          {/*
           Everything placed by a minute of the frame, clipped to what the zoom
           has left on screen.
         */}
-        <g clipPath={`url(#${clip})`}>
-          {/*
+          <g clipPath={`url(#${clip})`}>
+            {/*
           A departure date inside a watched month with no flight on it, and
           which kind of nothing it is — 12.232. Under the plot floor, because a
           mark inside the plot at any height reads as a fare.
         */}
-          {absent.map((day) => (
-            <g
-              key={day.day}
-              className={styles.hole}
-              data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
-            >
-              <title>
-                {axisDayLabel(day.day)}:{' '}
-                {day.answered ? 'nothing on sale — the board came back empty' : 'never collected'}
-              </title>
-              {day.answered ? (
-                <rect
-                  x={xOf(day.offset, period, VIEW, view) - 1.6}
-                  y={RAIL_Y - 1.6}
-                  width={3.2}
-                  height={3.2}
-                  className={styles.unsold}
-                />
-              ) : (
-                <circle
-                  cx={xOf(day.offset, period, VIEW, view)}
-                  cy={RAIL_Y}
-                  r={2}
-                  className={styles.unanswered}
-                />
-              )}
-            </g>
-          ))}
+            {absent.map((day) => (
+              <g
+                key={day.day}
+                className={styles.hole}
+                data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
+              >
+                <title>
+                  {axisDayLabel(day.day)}:{' '}
+                  {day.answered ? 'nothing on sale — the board came back empty' : 'never collected'}
+                </title>
+                {day.answered ? (
+                  <rect
+                    x={xOf(day.offset, period, VIEW, view) - 1.6}
+                    y={RAIL_Y - 1.6}
+                    width={3.2}
+                    height={3.2}
+                    className={styles.unsold}
+                  />
+                ) : (
+                  <circle
+                    cx={xOf(day.offset, period, VIEW, view)}
+                    cy={RAIL_Y}
+                    r={2}
+                    className={styles.unanswered}
+                  />
+                )}
+              </g>
+            ))}
 
-          {/*
+            {/*
           A curve date: one price for the whole date, drawn across the whole
           date. Not a dot — a dot sits at an hour, and this number has none.
 
@@ -1651,75 +1659,75 @@ export function DepartureChart({
           matter of degree and so is ink, which is the argument for this
           channel rather than merely the room on it.
         */}
-          {span === null
-            ? null
-            : marks.map((mark) =>
-                mark.price === null ? null : (
-                  <g
-                    key={mark.day}
-                    className={
-                      mark.inherited ? `${styles.curveDay} ${styles.carried}` : styles.curveDay
-                    }
-                    data-testid={mark.inherited ? 'curve-day-carried' : 'curve-day'}
-                  >
-                    <title>
-                      {formatFlightDate(mark.day)}: {formatMoney(mark.price, currency)} — the
-                      cheapest fare for the whole date, with no departure time
-                      {mark.inherited && mark.observedAt !== null
-                        ? `, carried over from the collection of ${collectedAtLabel(mark.observedAt)}`
-                        : ''}
-                    </title>
-                    <line
-                      x1={xOf(mark.from, period, VIEW, view)}
-                      x2={xOf(mark.to, period, VIEW, view)}
-                      y1={yOf(mark.price, span, VIEW)}
-                      y2={yOf(mark.price, span, VIEW)}
-                    />
-                  </g>
-                ),
-              )}
-
-          {/* A curve date with no price, on the rail, keeping the two absences apart. */}
-          {marks.map((mark) =>
-            mark.price !== null ? null : (
-              <g
-                key={mark.day}
-                className={styles.hole}
-                data-testid={mark.answered ? 'curve-unsold' : 'curve-unanswered'}
-              >
-                <title>
-                  {formatFlightDate(mark.day)}:{' '}
-                  {mark.answered
-                    ? 'nothing on sale — the provider answered and had none'
-                    : 'never answered for — the booking horizon does not reach this date'}
-                </title>
-                {mark.answered ? (
-                  <rect
-                    x={xOf(mark.centre, period, VIEW, view) - 1.6}
-                    y={RAIL_Y - 1.6}
-                    width={3.2}
-                    height={3.2}
-                    className={styles.unsold}
-                  />
-                ) : (
-                  <circle
-                    cx={xOf(mark.centre, period, VIEW, view)}
-                    cy={RAIL_Y}
-                    r={2}
-                    className={styles.unanswered}
-                  />
+            {span === null
+              ? null
+              : marks.map((mark) =>
+                  mark.price === null ? null : (
+                    <g
+                      key={mark.day}
+                      className={
+                        mark.inherited ? `${styles.curveDay} ${styles.carried}` : styles.curveDay
+                      }
+                      data-testid={mark.inherited ? 'curve-day-carried' : 'curve-day'}
+                    >
+                      <title>
+                        {formatFlightDate(mark.day)}: {formatMoney(mark.price, currency)} — the
+                        cheapest fare for the whole date, with no departure time
+                        {mark.inherited && mark.observedAt !== null
+                          ? `, carried over from the collection of ${collectedAtLabel(mark.observedAt)}`
+                          : ''}
+                      </title>
+                      <line
+                        x1={xOf(mark.from, period, VIEW, view)}
+                        x2={xOf(mark.to, period, VIEW, view)}
+                        y1={yOf(mark.price, span, VIEW)}
+                        y2={yOf(mark.price, span, VIEW)}
+                      />
+                    </g>
+                  ),
                 )}
-              </g>
-            ),
-          )}
 
-          {path ? <path d={path} className={styles.cheapest} aria-hidden="true" /> : null}
+            {/* A curve date with no price, on the rail, keeping the two absences apart. */}
+            {marks.map((mark) =>
+              mark.price !== null ? null : (
+                <g
+                  key={mark.day}
+                  className={styles.hole}
+                  data-testid={mark.answered ? 'curve-unsold' : 'curve-unanswered'}
+                >
+                  <title>
+                    {formatFlightDate(mark.day)}:{' '}
+                    {mark.answered
+                      ? 'nothing on sale — the provider answered and had none'
+                      : 'never answered for — the booking horizon does not reach this date'}
+                  </title>
+                  {mark.answered ? (
+                    <rect
+                      x={xOf(mark.centre, period, VIEW, view) - 1.6}
+                      y={RAIL_Y - 1.6}
+                      width={3.2}
+                      height={3.2}
+                      className={styles.unsold}
+                    />
+                  ) : (
+                    <circle
+                      cx={xOf(mark.centre, period, VIEW, view)}
+                      cy={RAIL_Y}
+                      r={2}
+                      className={styles.unanswered}
+                    />
+                  )}
+                </g>
+              ),
+            )}
 
-          {cloud}
-          {rings}
-        </g>
+            {path ? <path d={path} className={styles.cheapest} aria-hidden="true" /> : null}
 
-        {/*
+            {cloud}
+            {rings}
+          </g>
+
+          {/*
           What this pair usually costs, across the frame that is drawn to its own
           scale — the one fixed thing on a chart where everything else is
           relative.
@@ -1753,64 +1761,64 @@ export function DepartureChart({
           still paints last, so a reading under the reader's hand is never behind
           anything.
         */}
-        {referenceAt === null ? null : (
-          <g
-            className={styles.reference}
-            data-testid="pair-reference"
-            data-fall={referenceAt.fall}
-            aria-hidden="true"
-          >
-            <line
-              x1={LEFT}
-              x2={RIGHT}
-              y1={referenceAt.y}
-              y2={referenceAt.y}
-              className={styles.referenceLine}
-              data-testid="pair-reference-line"
-            />
-            <line x1={LEFT} x2={LEFT} y1={referenceAt.y - 3} y2={referenceAt.y + 3} />
-            <line x1={RIGHT} x2={RIGHT} y1={referenceAt.y - 3} y2={referenceAt.y + 3} />
-            {/*
+          {referenceAt === null ? null : (
+            <g
+              className={styles.reference}
+              data-testid="pair-reference"
+              data-fall={referenceAt.fall}
+              aria-hidden="true"
+            >
+              <line
+                x1={LEFT}
+                x2={RIGHT}
+                y1={referenceAt.y}
+                y2={referenceAt.y}
+                className={styles.referenceLine}
+                data-testid="pair-reference-line"
+              />
+              <line x1={LEFT} x2={LEFT} y1={referenceAt.y - 3} y2={referenceAt.y + 3} />
+              <line x1={RIGHT} x2={RIGHT} y1={referenceAt.y - 3} y2={referenceAt.y + 3} />
+              {/*
               The figure, on a plate at the right end of the rule rather than in
               the margin. The margin now holds three price plates already and a
               fourth would be a column of money nobody could tell apart; here it
               is unambiguously *this line's* number, and the right end is the one
               the cheapest-of-date line is least often near.
             */}
-            <rect
-              x={RIGHT - referenceTag.width}
-              y={referenceAt.y - TAG.height / 2}
-              width={referenceTag.width}
-              height={TAG.height}
-              rx={3}
-              className={styles.tag}
-            />
-            <text
-              x={RIGHT - 5}
-              y={referenceAt.y - TAG.height / 2 + TAG.baseline}
-              className={`${styles.tagText} ${styles.tagEnd}`}
-              data-testid="pair-reference-price"
-            >
-              {formatMoney(referenceAt.value, currency)}
-            </text>
-            {/*
+              <rect
+                x={RIGHT - referenceTag.width}
+                y={referenceAt.y - TAG.height / 2}
+                width={referenceTag.width}
+                height={TAG.height}
+                rx={3}
+                className={styles.tag}
+              />
+              <text
+                x={RIGHT - 5}
+                y={referenceAt.y - TAG.height / 2 + TAG.baseline}
+                className={`${styles.tagText} ${styles.tagEnd}`}
+                data-testid="pair-reference-price"
+              >
+                {formatMoney(referenceAt.value, currency)}
+              </text>
+              {/*
               A frame that is entirely on one side of the line: the rule is on a
               rail and the triangle says which way it kept going. Without it a
               line flush against the floor is indistinguishable from a pair
               median that happens to equal the cheapest fare on screen.
             */}
-            {referenceAt.fall === 'inside' ? null : (
-              <polygon
-                data-testid="pair-reference-off"
-                className={styles.offFrame}
-                points={offFramePoints(referenceAt.fall, referenceAt.y)}
-              />
-            )}
-          </g>
-        )}
+              {referenceAt.fall === 'inside' ? null : (
+                <polygon
+                  data-testid="pair-reference-off"
+                  className={styles.offFrame}
+                  points={offFramePoints(referenceAt.fall, referenceAt.y)}
+                />
+              )}
+            </g>
+          )}
 
-        {hair ? (
-          /*
+          {hair ? (
+            /*
             A reading that looked the same pinned and unpinned would be the
             trap this whole feature is for: a reader who has forgotten they
             pinned it would read a fare that is no longer under their pointer as
@@ -1820,91 +1828,95 @@ export function DepartureChart({
             it, because one of the three is a colour, one is a word, and one is
             a control.
           */
-          <g
-            className={pinned ? `${styles.crosshair} ${styles.held}` : styles.crosshair}
-            aria-hidden="true"
-            data-testid="departure-crosshair"
-            data-pinned={pinned ? 'true' : undefined}
-          >
-            <line
-              x1={hair.x}
-              x2={hair.x}
-              y1={VIEW.pad.top}
-              y2={RAIL_Y + 5}
-              className={styles.hair}
-            />
-            {hair.y === undefined || hair.price === undefined ? null : (
-              <>
+            <g
+              className={pinned ? `${styles.crosshair} ${styles.held}` : styles.crosshair}
+              aria-hidden="true"
+              data-testid="departure-crosshair"
+              data-pinned={pinned ? 'true' : undefined}
+            >
+              <line
+                x1={hair.x}
+                x2={hair.x}
+                y1={VIEW.pad.top}
+                y2={RAIL_Y + 5}
+                className={styles.hair}
+              />
+              {hair.y === undefined || hair.price === undefined ? null : (
+                <>
+                  <line
+                    x1={VIEW.pad.left}
+                    x2={VIEW.width - VIEW.pad.right}
+                    y1={hair.y}
+                    y2={hair.y}
+                    className={styles.hair}
+                  />
+                  <rect
+                    x={priceTag.x}
+                    y={priceTagY}
+                    width={priceTag.width}
+                    height={TAG.height}
+                    rx={3}
+                    className={styles.tag}
+                  />
+                  <text
+                    x={priceTag.textX}
+                    y={priceTagY + TAG.baseline}
+                    className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}`}
+                    data-testid="departure-price-tag"
+                  >
+                    {formatMoney(hair.price, currency)}
+                  </text>
+                </>
+              )}
+              {hair.y === undefined ? null : hair.span === undefined ? (
+                <circle cx={hair.x} cy={hair.y} r={5} className={styles.marker} />
+              ) : (
                 <line
-                  x1={VIEW.pad.left}
-                  x2={VIEW.width - VIEW.pad.right}
+                  x1={hair.span.from}
+                  x2={hair.span.to}
                   y1={hair.y}
                   y2={hair.y}
-                  className={styles.hair}
+                  className={styles.spanMarker}
                 />
-                <rect
-                  x={priceTag.x}
-                  y={priceTagY}
-                  width={priceTag.width}
-                  height={TAG.height}
-                  rx={3}
-                  className={styles.tag}
-                />
-                <text
-                  x={priceTag.textX}
-                  y={priceTagY + TAG.baseline}
-                  className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}`}
-                  data-testid="departure-price-tag"
-                >
-                  {formatMoney(hair.price, currency)}
-                </text>
-              </>
-            )}
-            {hair.y === undefined ? null : hair.span === undefined ? (
-              <circle cx={hair.x} cy={hair.y} r={5} className={styles.marker} />
-            ) : (
-              <line
-                x1={hair.span.from}
-                x2={hair.span.to}
-                y1={hair.y}
-                y2={hair.y}
-                className={styles.spanMarker}
+              )}
+
+              <rect
+                x={timeTag.x}
+                y={TAG.top}
+                width={timeTag.width}
+                height={TAG.height}
+                rx={3}
+                className={styles.tag}
+                data-testid="departure-time-plate"
               />
-            )}
+              <text
+                x={timeTag.textX}
+                y={TAG.top + TAG.baseline}
+                className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
+                data-testid="departure-time-tag"
+              >
+                {hair.label}
+              </text>
+            </g>
+          ) : null}
+        </svg>
 
-            <rect
-              x={timeTag.x}
-              y={TAG.top}
-              width={timeTag.width}
-              height={TAG.height}
-              rx={3}
-              className={styles.tag}
-              data-testid="departure-time-plate"
-            />
-            <text
-              x={timeTag.textX}
-              y={TAG.top + TAG.baseline}
-              className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
-              data-testid="departure-time-tag"
-            >
-              {hair.label}
-            </text>
-          </g>
-        ) : null}
-      </svg>
+        {/*
+        Drawn over the plot's bottom edge, not under it.
 
-      {/*
-        Fixed height whether or not anything is under the pointer, so the table
-        below never jumps.
+        It used to sit in the column's flow with a reserved height, and a
+        placeholder sentence held that height open so the flight table below
+        never jumped as the pointer crossed the chart. Out of flow there is no
+        height to hold: the row costs the figure nothing whether it is showing
+        or not, so the placeholder went with the reserve it existed for. What it
+        said is still said at length by the plot's own `<title>` and
+        description.
 
-        The line it shows while nothing is under the crosshair is a placeholder
-        holding that height open, not a paragraph. It used to name the arrow
-        keys and say what they did — directly beneath a plot whose own `<title>`
-        and whose description both say the same thing at length — and seven
-        words are enough to tell a reader this row is waiting for them rather
-        than broken.
+        Hidden rather than unmounted while there is nothing to read, so the ref
+        the pointer and blur handlers test against is never null, and so the
+        axis dates underneath are legible until the reader asks for a reading.
       */}
-      {/*
+        {/*
         The row itself is no longer `aria-hidden`, and each of its words is.
 
         It carried the attribute on the paragraph, which was right while every
@@ -1921,8 +1933,12 @@ export function DepartureChart({
         anchor — which carries its own name and says something the status
         sentence does not.
       */}
-      <p className={styles.readout} ref={readout} data-testid="departure-readout">
-        {/*
+        <p
+          className={`${styles.readout} ${reading === null ? styles.readoutIdle : ''}`}
+          ref={readout}
+          data-testid="departure-readout"
+        >
+          {/*
           The word, in the row the reader is actually reading. It goes first
           because it changes how everything after it should be read: what
           follows is not what is under the pointer, it is what was under it when
@@ -1930,51 +1946,50 @@ export function DepartureChart({
           more item on it, so it costs no height — the same way `cheapest of the
           day` already appears and disappears at the other end of the line.
         */}
-        {pinned ? (
-          <span className={styles.flag} aria-hidden="true">
-            pinned
-          </span>
-        ) : null}
-        {reading === null ? (
-          <span className={styles.hint} aria-hidden="true">
-            Point at the chart, or press an arrow key
-          </span>
-        ) : reading.kind === 'flight' ? (
-          <>
-            {flightNameNode(reading.placed.point)}
-            <span className={styles.muted} aria-hidden="true">
-              {reading.placed.point.airlineName ?? reading.placed.point.airline}
+          {pinned ? (
+            <span className={styles.flag} aria-hidden="true">
+              pinned
             </span>
-            <span aria-hidden="true">{pointTimeLabel(reading.placed.point, period)}</span>
-            <span className={styles.muted} aria-hidden="true">
-              {stopsLabel(reading.placed.point.transfers)}
-            </span>
-            <span className={styles.muted} aria-hidden="true">
-              {formatDuration(reading.placed.point.durationMinutes)}
-            </span>
-            <strong aria-hidden="true">{formatMoney(reading.placed.point.price, currency)}</strong>
-            {reading.placed.point.cheapestOfDay ? (
-              <span className={styles.flag} aria-hidden="true">
-                cheapest of the day
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <strong aria-hidden="true">{formatFlightDate(reading.mark.day)}</strong>
-            <span className={styles.muted} aria-hidden="true">
-              whole date, no departure time
-            </span>
-            {reading.mark.price === null ? (
+          ) : null}
+          {reading === null ? null : reading.kind === 'flight' ? (
+            <>
+              {flightNameNode(reading.placed.point)}
               <span className={styles.muted} aria-hidden="true">
-                {absenceWords(reading.mark)}
+                {reading.placed.point.airlineName ?? reading.placed.point.airline}
               </span>
-            ) : (
-              <strong aria-hidden="true">{formatMoney(reading.mark.price, currency)}</strong>
-            )}
-          </>
-        )}
-      </p>
+              <span aria-hidden="true">{pointTimeLabel(reading.placed.point, period)}</span>
+              <span className={styles.muted} aria-hidden="true">
+                {stopsLabel(reading.placed.point.transfers)}
+              </span>
+              <span className={styles.muted} aria-hidden="true">
+                {formatDuration(reading.placed.point.durationMinutes)}
+              </span>
+              <strong aria-hidden="true">
+                {formatMoney(reading.placed.point.price, currency)}
+              </strong>
+              {reading.placed.point.cheapestOfDay ? (
+                <span className={styles.flag} aria-hidden="true">
+                  cheapest of the day
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <strong aria-hidden="true">{formatFlightDate(reading.mark.day)}</strong>
+              <span className={styles.muted} aria-hidden="true">
+                whole date, no departure time
+              </span>
+              {reading.mark.price === null ? (
+                <span className={styles.muted} aria-hidden="true">
+                  {absenceWords(reading.mark)}
+                </span>
+              ) : (
+                <strong aria-hidden="true">{formatMoney(reading.mark.price, currency)}</strong>
+              )}
+            </>
+          )}
+        </p>
+      </div>
 
       {/*
         The affordances, for a reader who cannot see the corner they are in.
@@ -2414,10 +2429,17 @@ function horizonNote(
         : found,
     null,
   );
-  const inherited =
+  /*
+   * This used to hang off the capture stamp as a qualification of it — the
+   * stamp named the freshest thing on screen, and this said not everything on
+   * screen was that fresh. The stamp is gone, so the sentence has to stand up
+   * on its own: the fact it carries is not about the stamp, it is that some of
+   * these prices are older than the collection the reader is looking at.
+   */
+  const stale =
     carried.length === 0 || oldest === null
       ? ''
-      : ` ${carried.length} of them ${carried.length === 1 ? 'was' : 'were'} carried over from earlier collections, the oldest from ${collectedAtLabel(oldest)}, and ${carried.length === 1 ? 'is' : 'are'} drawn faint.`;
+      : `${carried.length} price${carried.length === 1 ? ' was' : 's were'} carried over from earlier collections, the oldest from ${collectedAtLabel(oldest)}, and ${carried.length === 1 ? 'is' : 'are'} drawn faint.`;
   // The axis already shows a watched month; only operational state earns a
   // note. `inside` remains an empty stack member so the live-index geometry
   // does not change when chart states change.
@@ -2427,12 +2449,30 @@ function horizonNote(
   const uncollected =
     'Booking horizon has not been collected; dates outside watched months are blank.';
   const empty = 'No prices in this frame.';
-  const collected = `Booking horizon last collected ${curve === null ? 'earlier' : collectedAtLabel(curve.capturedAt)}.${inherited}`;
 
-  const said = [inside, failed, pending, uncollected, empty, collected];
+  /*
+   * A horizon that collected normally now says nothing.
+   *
+   * It used to name the capture time, and that sentence was the tallest in the
+   * stack — which, since the box is as tall as the tallest member by
+   * construction, was the one paying for the height in every other state too.
+   * When it is the *usual* state that has nothing worth reporting, the note is
+   * chrome. Only the four operational states earn a line, and the reader who
+   * wants the capture time still has the detail strip above.
+   *
+   * The normal case points at `inside`, the empty member that already exists to
+   * keep this stack's index geometry stable. It cannot be given a second empty
+   * string of its own: these are keyed by their text, and two would collide.
+   */
+  const said = [inside, failed, pending, uncollected, empty];
+  // Appended rather than always present, because an empty member here would
+  // collide with `inside`: the stack is keyed by its own text.
+  if (stale !== '') said.push(stale);
+
   if (!needsCurve) return { said, live: 0 };
   if (error !== null) return { said, live: 1 };
   if (loading) return { said, live: 2 };
   if (curve === null) return { said, live: 3 };
-  return { said, live: priced === 0 ? 4 : 5 };
+  if (priced === 0) return { said, live: 4 };
+  return { said, live: stale === '' ? 0 : 5 };
 }

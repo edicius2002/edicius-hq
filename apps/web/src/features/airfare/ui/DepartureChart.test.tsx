@@ -980,19 +980,22 @@ describe('a period that straddles the end of the watched month', () => {
     expect(screen.getAllByTestId('curve-unanswered')).toHaveLength(1);
   });
 
-  it('says where the dates beyond the month came from, and when', () => {
+  it('says nothing about a horizon that simply collected', () => {
     straddling();
-    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      'Booking horizon last collected 19/08/2026 15:49',
-    );
+    // The note says nothing while the horizon is simply collected: the capture
+    // stamp was chrome under a chart whose axis already names the month, and
+    // the detail strip above still carries the time for anyone who wants it.
+    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent('');
   });
 
   it('does not claim the newest collection for a price an older one answered', () => {
     /*
      * The horizon is assembled from every stored curve, so the far end can be
-     * older than the near end. The stamp above names the freshest thing on
-     * screen; without this the reader would take it for the age of all of them,
-     * which is the quiet lie the merge would otherwise introduce.
+     * older than the near end. Nothing else on the chart says so at a glance —
+     * the faint marks say which, not how old — and a reader who takes every
+     * price for as fresh as the collection they just ran is believing the quiet
+     * lie the merge would otherwise introduce. This is the one horizon note
+     * that outlived the capture stamp, because it is the one that warns.
      */
     chart({
       snapshots: LAST_WEEK,
@@ -1005,7 +1008,7 @@ describe('a period that straddles the end of the watched month', () => {
     });
 
     expect(screen.getByTestId('horizon-note-live')).toHaveTextContent(
-      '1 of them was carried over from earlier collections, the oldest from 16/08/2026 09:00',
+      '1 price was carried over from earlier collections, the oldest from 16/08/2026 09:00',
     );
     // And it is drawn as its own kind of mark, so the sentence has something to
     // point at.

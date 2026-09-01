@@ -520,19 +520,54 @@
 }
 
 /*
- * The readout keeps its height whether or not a flight is under the pointer. A
- * strip that appeared on hover would push the flight table down the page every
- * time the pointer crossed the chart.
+ * The plot and the crosshair's row, in one box the row can be positioned
+ * against. The row is drawn over the plot rather than beneath it, so this is
+ * what `absolute` resolves to.
+ */
+.plotArea {
+  position: relative;
+  min-width: 0;
+}
+
+/*
+ * The readout, over the axis dates rather than under them.
+ *
+ * It used to be a flow item with `min-height: 1.4rem` reserved, because a strip
+ * that appeared on hover would push the flight table down the page every time
+ * the pointer crossed the chart. Out of flow that reserve is unnecessary, and
+ * the band it cost — between the plot and its own dates — goes with it.
+ *
+ * `bottom: 0` puts it on the axis labels on purpose: while the reader is
+ * pointing at a date, the date they are pointing at is worth more than the
+ * whole scale, and the plate behind it keeps both from being read at once.
  */
 .readout {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   margin: 0;
-  min-height: 1.4rem;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
   gap: 4px 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  background: var(--color-surface);
   font-size: 0.7rem;
   color: var(--color-text);
+  pointer-events: none;
+}
+
+/*
+ * Hidden, not unmounted: the pointer and blur handlers ask whether focus moved
+ * into this element, and a null ref would make that question unanswerable. It
+ * also leaves the axis dates underneath readable until there is a reading to
+ * put over them.
+ */
+.readoutIdle {
+  visibility: hidden;
 }
 
 .readout strong {
@@ -552,6 +587,12 @@
  * that says "link" without depending on the reader separating two hues.
  */
 .readout .link {
+  /*
+   * The row itself is transparent to the pointer so that lying over the plot
+   * does not steal the crosshair from the dates beneath it. The link is the one
+   * thing in the row that has to be clickable, so it takes its events back.
+   */
+  pointer-events: auto;
   color: var(--color-link);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -571,10 +612,6 @@
 }
 
 .muted,
-.hint {
-  color: var(--color-muted);
-}
-
 .flag {
   color: var(--color-accent);
 }

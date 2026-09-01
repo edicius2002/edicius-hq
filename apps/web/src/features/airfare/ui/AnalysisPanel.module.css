@@ -196,14 +196,20 @@
  * single rem can be right at two panel widths. A 34.5rem box was measured at
  * both: correct at 1160px of chart, and at 1278px it left chart B's plot 1181px
  * wide inside a 1278px box, letterboxed by 48px a side for want of 43px of
- * height. `calc(40.5cqw + 150px)` keeps that relationship while spending less
+ * height. `calc(40.5cqw + 118px)` keeps that relationship while spending less
  * gets its whole plot at every width and a narrow panel stops reserving a tall
  * panel's worth of height.
  *
+ * The constant term dropped 32px when the crosshair readout stopped being a
+ * flow item. It held `min-height: 1.4rem` open under the plot plus the figure's
+ * own 10px gap, and it is drawn over the axis now, so that band is chrome the
+ * box no longer has to buy. The proportional term is untouched: the plot's
+ * share of the width did not change, only what sits beneath it.
+ *
  * **Clamped at both ends, and both bounds were measured rather than guessed.**
- * The 25rem floor is for the stacked layout, where the width is small enough
+ * The 23rem floor is for the stacked layout, where the width is small enough
  * that the chrome — a legend and a note both wrapping to several lines —
- * outgrows the proportional term. The 31.5rem ceiling is the compact height this
+ * outgrows the proportional term. The 29.5rem ceiling is the compact height this
  * box already had, kept deliberately so that the panel is **never taller than it
  * was at any width** and only ever shorter. Uncapped, a 1278px chart asks for
  * 739px of panel: chart B's plot is what that buys, but the panel is also the
@@ -226,7 +232,7 @@
  * round: it is the sparser drawing and the one with room to spare.
  */
 .body {
-  height: clamp(25rem, calc(40.5cqw + 150px), 31.5rem);
+  height: clamp(23rem, calc(40.5cqw + 118px), 29.5rem);
   display: flex;
   flex-direction: column;
   /* Or a flex item refuses to shrink below its content and the box grows anyway. */

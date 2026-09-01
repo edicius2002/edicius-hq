@@ -8,7 +8,7 @@ services:
     environment:
       LOCAL_DATA_DIR: /app/.local-data
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
-      # Opt-in only; the provisional browser integration needs real selectors.
+      # Opt-in only; supplements Google H2 nulls with the SKY booking API.
       SKY_OFFICIAL_LOOKUP_ENABLED: ${SKY_OFFICIAL_LOOKUP_ENABLED:-false}
     volumes:
       - ./services/api/app:/app/app

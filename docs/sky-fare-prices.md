@@ -1,6 +1,6 @@
 # Why SKY Airline fares arrive unpriced, and what would fix it
 
-- **Status:** experiment complete; no Google Flights RPC change
+- **Status:** implemented official SKY booking-API fallback; Google parser unchanged
 - **Date:** 2026-09-01
 - **Code:** `services/api/app/adapters/fares/google_flights.py`, `services/api/app/adapters/fares/sky_airline.py`
 - **Evidence:** `services/api/.local-data/fares/*.jsonl`, 2,340 captured boards containing H2 itineraries
@@ -8,8 +8,8 @@
 SKY Airline (`H2`) itineraries are archived with `price: null` almost every
 time, while the same flights show a fare on the Google Flights page a person
 opens in a browser. This note records what was measured, what it rules out, and
-why the direct Google Flights RPC is not worth adding. Nothing here has been
-implemented.
+why the direct Google Flights RPC is not worth adding. The official SKY booking
+API fallback that supersedes the abandoned browser path is documented below.
 
 ## The parser is not the problem
 
@@ -159,112 +159,72 @@ board. Adding a second request would spend traffic, preserve the existing
 `null`, and increase failure surface without increasing price coverage. The
 parser remains unchanged: its `null` is the faithful answer for this payload.
 
-## If skyairline.com becomes the route
+## Official SKY booking API fallback (implemented)
 
-`sky_airline.py` exists for this and has never run. It is opt-in behind
-`SKY_OFFICIAL_LOOKUP_ENABLED`, which is set nowhere — not in `.env.example`, not
-in `docker-compose.yml` — and its selectors are declared provisional in the
-module's own header. Fail-closed means a live page that satisfies none of them
-returns a safe unpriced result, which is what it would do today.
+The fallback is opt-in behind `SKY_OFFICIAL_LOOKUP_ENABLED`. It makes no browser,
+Playwright, Xvfb or selector request. It is intentionally a supplement to the
+Google board, never a replacement: it runs only after Google returned at least
+one H2 itinerary with `price: null`, and it changes that price only when the
+booking API corroborates the same itinerary.
 
-What would have to change:
+### Public key and request
 
-| What               | Where                                | Work                                                                                                                                             |
-| ------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ~15 selectors      | `sky_airline.py:27-48`               | All placeholders. Capture the real ones.                                                                                                         |
-| Per-card tax proof | `_parse_result_row`                  | Requires `is_checked` on each card. If SKY only states tax inclusion page-wide, this rejects everything and the rule needs an explicit decision. |
-| Itinerary matching | `_matches`                           | Exact equality on flight number, departure, arrival, via points, transfers and duration. SKY's formats are not Google's ISO `2026-11-11T06:50`.  |
-| USD switch         | `LOCALE_MENU_SELECTOR`               | Same placeholder problem.                                                                                                                        |
-| Activation         | `.env.example`, `docker-compose.yml` | The flag has no home yet.                                                                                                                        |
+The booking API uses a public APIM subscription key, not a user session. The
+adapter reads the current key from:
 
-The standing cost is one browser session per query, against a collector that
-sweeps many routes and dates.
+1. `GET https://storage.googleapis.com/importmap-initial-sale/PROD/importmap.json`
+2. The module named by `imports["@skyairline/is-flight-selector"]`, where the 32-hex
+   `ocp-apim-subscription-key` is embedded.
+
+It caches that key per process. A `401` from the fare search invalidates the
+cache, refreshes it once, and retries exactly once. Any second 401, timeout,
+network error or unexpected response remains the Google `null`.
+
+The one-way search is:
+
+```
+POST https://api.skyairline.com/farequoting/v1/search/flight?stage=IS
+```
+
+with `currency: "USD"`, `channel: WEB`, `homemarket: OTHERS`, one
+adult and one itinerary part. USD is explicit because the same Chilean route
+otherwise answers in CLP. Requests are serialized with a 2.5-second minimum
+gap and do not use the Google daily-request ledger.
+
+### Price and itinerary evidence
+
+The captured AQP-LIM / 2026-12-15 response is pinned in
+`services/api/tests/fixtures/sky_farequoting_aqp_lim_2026-12-15.json`. For
+H2 5102 it reports:
+
+```text
+fare  = USD 31.00
+taxes = USD 12.96
+total = USD 43.96
+```
+
+The adapter selects the minimum branded `total.amount` only when its single
+adult price explicitly supplies USD fare, taxes and total, and
+`fare + taxes == total`. The earlier marketing-feed `totalPrice: 31` was
+therefore the base fare, not a tax-inclusive total, and must not be used.
+
+The booking response supplies carrier and flight number, first departure and
+last arrival timestamps, origins/destinations, stops, total duration and the
+intermediate airport sequence. The fallback requires all of those to agree
+with the Google offer (including H2 and the first flight number); an absent,
+ambiguous or mismatching field leaves the Google `null` intact.
+
+### Request ordering
+
+The booking call is deliberately not emitted concurrently with Google in the
+current architecture. The strict trigger — an H2 offer whose Google price is
+null — only exists after the Google response has been parsed, and the app has
+no persisted route-level H2 capability map. Starting it beforehand for every
+route would violate the one-call-only-for-an-eligible-board rule. This keeps
+the failure surface and traffic bounded; it is the remaining latency trade-off.
 
 ## What must not change
 
-`google_flights.py`. The `null` it produces is faithful to the payload, and
+`google_flights.py`. Its `null` is faithful to the payload, and
 `_is_explicitly_unpriced` matches a real, verified signature — see the captured
 board in `services/api/tests/fixtures/google_flights_all_unpriced_payload.json`.
-
-## Reconocimiento de la disponibilidad pública de SKY (2026-09-01)
-
-### Decisión
-
-No implementar todavía un adapter `httpx` de producción. La página pública expone
-un endpoint JSON que se puede consultar con HTTP plano, pero su payload es una
-tarifa de ruta/fecha sin número de vuelo, horas, duración, escalas ni declaración
-de impuestos. Por eso no permite satisfacer `_matches` ni la prueba de impuestos
-incluidos de `sky_airline.py`. El siguiente experimento, si se justifica, debe ser
-Playwright contra el flujo de búsqueda público con selectores reales; no login,
-reserva, pago ni CAPTCHA.
-
-### Request reproducido
-
-La configuración pública de `https://www.skyairline.com/flights/en/` publica,
-para el tenant `h2`, este contrato:
-
-- `POST https://openair-california.airtrfx.com/airfare-sputnik-service/v3/h2/fares/search`
-- Headers: `Content-Type: application/json` y el `em-api-key` público leído de
-  esa misma página. La clave rota y no se documenta ni se guarda.
-- Body mínimo observado:
-
-```json
-{
-  "routesLimit": 20,
-  "faresLimit": 50,
-  "faresPerRoute": 2,
-  "autoSettings": {"language": "en", "market": ""},
-  "origins": ["AQP"],
-  "destinations": ["LIM"],
-  "journeyType": "ONE_WAY",
-  "departureDaysInterval": {"start": 65, "end": 65}
-}
-```
-
-`departureDaysInterval` es relativo a la fecha de consulta; 65 correspondía a
-2026-11-05 en esta medición. El spike reproducible es
-`scripts/sky-availability-spike.py`; impone una espera mínima de 2,5 s entre la
-landing y el POST y no imprime la clave ni cookies.
-
-### Sesión y resultado AQP–LIM
-
-Con un cliente HTTP nuevo para el POST (sin cookies de la landing, token ni
-sesión), el request devolvió `200 application/json` desde Cloudflare. Hubo
-respuestas iniciales `403` durante el reconocimiento, por lo que el spike siempre
-lee la clave pública vigente de la página antes de consultar y reporta el estado.
-La corrida exitosa confirma que no hace falta reutilizar cookies de la landing;
-la clave publicada por la página sí es el header derivado necesario.
-
-Para AQP–LIM, 2026-11-05 —un board archivado de Google con H2 5102/5104/5118/5116
-y `price: null`— el JSON tuvo un resultado H2 con:
-
-```json
-{
-  "departureDate": "2026-11-05",
-  "airline": {"iataCode": "H2"},
-  "priceSpecification": {
-    "totalPrice": 31,
-    "usdTotalPrice": 31,
-    "currencyCode": "USD",
-    "formattedTotalPrice": "USD 31"
-  }
-}
-```
-
-Esto prueba que HTTP plano puede recuperar una tarifa H2 para la misma ruta y
-fecha donde Google la dejó sin precio. No prueba que sea la tarifa de uno de los
-cuatro vuelos Google: el endpoint devuelve una tarifa de descubrimiento, no
-inventario detallado.
-
-### Moneda, impuestos y match
-
-El payload declara `currencyCode: USD` y llama al valor `totalPrice`, pero no
-contiene campo, texto ni desglose que declare impuestos incluidos. No hay base
-para relajar la regla por tarjeta de `_parse_result_row`.
-
-`outboundFlight` sólo tiene `departureAirportIataCode`,
-`arrivalAirportIataCode`, `fareClass`, `fareClassInput`, `origin` y
-`destination`. La fecha es `YYYY-MM-DD`; no trae timestamps ISO, número de
-vuelo, via points, transbordos ni duración. Es imposible casar este resultado
-con Google bajo `_matches` sin cambiar esa invariancia, así que no debe usarse
-para completar precios de observaciones concretas.

@@ -48,7 +48,7 @@ async def fetch_search(
         if sky_official_lookup_enabled():
             return replace(
                 result,
-                offers=await sky_airline.enrich_missing_h2_prices(query, result.offers),
+                offers=await sky_airline.enrich_missing_h2_prices(client, query, result.offers),
             )
         return result
     raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
@@ -63,7 +63,7 @@ async def fetch_offers(
     if provider == google_flights.PROVIDER:
         offers = await google_flights.fetch_offers(client, query)
         if sky_official_lookup_enabled():
-            return await sky_airline.enrich_missing_h2_prices(query, offers)
+            return await sky_airline.enrich_missing_h2_prices(client, query, offers)
         return offers
     raise FareError("unknown-provider", f"No fare provider named {provider!r}", route=query.route)
 

@@ -331,23 +331,17 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
       </div>
 
       {/*
-        A routine estimate does not alter the choice, but the collector cannot
-        surface a pass it had to drop. Keep that consequence visible here.
-      */}
-      {costMessage ? (
-        <p className={cost.overrun ? styles.costLoud : styles.cost} aria-live="polite">
-          {costMessage}
-        </p>
-      ) : null}
-
-      {/*
         Warnings rather than refusals, and in a `status` region of their own so
         a screen reader is not interrupted by something the reader can act on at
         leisure — the `alert` node below stays reserved for what stops a save.
-        Both are stated the moment the field differs, not after Save: afterwards
-        the chart is already blank and the reader is working out what they broke.
+        The cost warning shares it because both are consequences to hear while
+        choosing, and one permanent region avoids a second grid row when there
+        is nothing to say.
       */}
       <div className={styles.notes} role="status">
+        {costMessage ? (
+          <p className={cost.overrun ? styles.costLoud : styles.cost}>{costMessage}</p>
+        ) : null}
         {pairChanged ? (
           <p className={styles.note}>
             Saving this changes the pair to {routeLabel(pair)}. Everything collected for{' '}

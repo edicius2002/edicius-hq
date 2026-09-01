@@ -547,6 +547,11 @@ describe('RouteEditor', () => {
   it('warns when the picked months would outrun the window a pass has', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderEditor();
+    const status = screen.getByRole('status');
+
+    // The region has to precede the warning it will announce; adding the
+    // region with its text would leave some readers with nothing to hear.
+    expect(status).toBeEmptyDOMElement();
 
     for (const name of ['October 2026', 'November 2026', 'December 2026']) {
       await user.click(chip(name));
@@ -565,7 +570,7 @@ describe('RouteEditor', () => {
 
     // "without a word" is the point, and it is what the scheduler actually
     // does: no error, no log, nothing that looks unlike a quiet market.
-    expect(screen.getByText(/discarded without a word/)).toBeInTheDocument();
+    expect(within(status).getByText(/discarded without a word/)).toBeInTheDocument();
   });
 
   it('has no return field at all, rather than one that is ignored', () => {

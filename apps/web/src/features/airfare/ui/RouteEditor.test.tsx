@@ -527,7 +527,7 @@ describe('RouteEditor', () => {
     expect(pressedMonths()).toEqual(['September 2026']);
   });
 
-  it('says what the picked months will cost a pass', async () => {
+  it('keeps the ordinary pass estimate out of the editor', async () => {
     /*
      * The only feedback there is. The daily request ceiling was removed, so
      * nothing between a reader ticking a twelfth month and a pass that runs
@@ -537,16 +537,21 @@ describe('RouteEditor', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderEditor();
 
-    // September 2026 alone: thirty days, at three seconds each.
-    expect(screen.getByText(/1 month · up to 30 departures to price/)).toBeInTheDocument();
+    // September 2026 alone: thirty days, at three seconds each, but no risk.
+    expect(screen.queryByText(/departures to price/)).not.toBeInTheDocument();
 
     await user.click(chip('October 2026'));
-    expect(screen.getByText(/2 months · up to 61 departures to price/)).toBeInTheDocument();
+    expect(screen.queryByText(/departures to price/)).not.toBeInTheDocument();
   });
 
   it('warns when the picked months would outrun the window a pass has', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderEditor();
+    const status = screen.getByRole('status');
+
+    // The region has to precede the warning it will announce; adding the
+    // region with its text would leave some readers with nothing to hear.
+    expect(status).toBeEmptyDOMElement();
 
     for (const name of ['October 2026', 'November 2026', 'December 2026']) {
       await user.click(chip(name));
@@ -565,7 +570,7 @@ describe('RouteEditor', () => {
 
     // "without a word" is the point, and it is what the scheduler actually
     // does: no error, no log, nothing that looks unlike a quiet market.
-    expect(screen.getByText(/discarded without a word/)).toBeInTheDocument();
+    expect(within(status).getByText(/discarded without a word/)).toBeInTheDocument();
   });
 
   it('has no return field at all, rather than one that is ignored', () => {

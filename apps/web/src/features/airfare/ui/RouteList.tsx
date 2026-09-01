@@ -16,6 +16,7 @@ import type { PassProgress } from '@/features/airfare/lib/passProgress';
 import type { RowReport } from '@/features/airfare/lib/rowReport';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
+import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
 
@@ -71,6 +72,8 @@ type RouteListProps = {
    */
   onClearEditing: () => void;
   onMove: (from: string, to: string) => void;
+  transferDisabled?: boolean;
+  onImported?: () => void | Promise<void>;
 };
 
 /**
@@ -140,6 +143,8 @@ export function RouteList({
   onSave,
   onClearEditing,
   onMove,
+  transferDisabled = false,
+  onImported = () => undefined,
 }: RouteListProps) {
   /*
    * A press on the panel's own background puts the fields back to adding.
@@ -514,6 +519,7 @@ export function RouteList({
           </ul>
         </div>
       )}
+      <RouteTransfer disabled={transferDisabled} onImported={onImported} />
     </div>
   );
 }

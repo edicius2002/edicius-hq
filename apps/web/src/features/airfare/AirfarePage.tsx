@@ -574,6 +574,8 @@ export function AirfarePage() {
               fallback and move the analysis panel under them.
             */
             onClearEditing={() => setEditingId(null)}
+            transferDisabled={watchlist.isFetching || watchlist.isError}
+            onImported={watchlist.refresh}
             onSave={(id, next) => {
               const before = watchlist.routes.find((route) => routeId(route) === id);
               void watchlist.update(id, next);

@@ -10,13 +10,16 @@ Wire shapes are camelCase, matching `app.routers.market` and the TypeScript
 types that mirror them.
 """
 
+import gzip
+import json
 import logging
-from collections import Counter
-from collections.abc import AsyncIterator
+from collections import Counter, deque
+from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -35,12 +38,12 @@ from app.config import (
     MAX_DEPARTURE_HORIZON_DAYS,
     UPSTREAM_TIMEOUT_SECONDS,
 )
-from app.services import airport_coordinates, airport_search
+from app.services import airport_coordinates, airport_search, kv_store
 from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import FareWatch
-from app.services.fare_history import HISTORY
+from app.services.fare_history import HISTORY, _offer_row, _snapshot_from, route_stem
 from app.services.fare_spend import read_spend
 from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
 from app.services.sse import KEEP_ALIVE, sse
@@ -456,6 +459,321 @@ def _watches_from(routes: list[RouteBody]) -> list[FareWatch]:
             )
             for route in routes
         )
+    )
+
+
+FARE_ROUTES_KEY = "airfare-routes"
+WATCH_TRANSFER_APP = "edicius-hq"
+WATCH_TRANSFER_KIND = "airfare-watch"
+WATCH_TRANSFER_VERSION = 1
+
+
+class WatchRouteModel(BaseModel):
+    origin: str
+    destination: str
+    months: list[str]
+    currency: str
+
+
+class WatchImportResponse(BaseModel):
+    routesAdded: int
+    routesUpdated: int
+    observationsImported: int
+    observationsSkipped: int
+    invalidRows: int
+
+
+def _month_is_valid(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 7
+        and value[4] == "-"
+        and value[:4].isdigit()
+        and value[5:] in {f"{month:02d}" for month in range(1, 13)}
+    )
+
+
+def _watch_route_from(value: object) -> WatchRouteModel:
+    if not isinstance(value, dict):
+        raise ValueError("Every route must be an object")
+    origin = value.get("origin")
+    destination = value.get("destination")
+    currency = value.get("currency")
+    months = value.get("months")
+    if (
+        not isinstance(origin, str)
+        or not isinstance(destination, str)
+        or not isinstance(currency, str)
+    ):
+        raise ValueError("Every route needs origin, destination, and currency strings")
+    origin, destination, currency = (
+        origin.strip().upper(),
+        destination.strip().upper(),
+        currency.strip().upper(),
+    )
+    if not all(len(code) == 3 and code.isalnum() for code in (origin, destination, currency)):
+        raise ValueError("Route codes and currency must be three alphanumeric characters")
+    if (
+        not isinstance(months, list)
+        or not months
+        or not all(_month_is_valid(month) for month in months)
+    ):
+        raise ValueError("Every route needs one or more YYYY-MM months")
+    return WatchRouteModel(
+        origin=origin,
+        destination=destination,
+        months=sorted(set(months)),
+        currency=currency,
+    )
+
+
+def _routes_document(value: object) -> list[WatchRouteModel]:
+    if (
+        not isinstance(value, dict)
+        or value.get("version") != 1
+        or not isinstance(value.get("routes"), list)
+    ):
+        raise ValueError("The watched-routes document is invalid")
+    return [_watch_route_from(route) for route in value["routes"]]
+
+
+def _route_row(route: WatchRouteModel) -> dict[str, object]:
+    return {
+        "origin": route.origin,
+        "destination": route.destination,
+        "months": route.months,
+        "currency": route.currency,
+    }
+
+
+def _snapshot_row(snapshot: FareSnapshot) -> dict[str, object]:
+    return {
+        "capturedAt": snapshot.captured_at,
+        "source": snapshot.source,
+        "origin": snapshot.origin,
+        "destination": snapshot.destination,
+        "flightDate": snapshot.flight_date,
+        "returnDate": snapshot.return_date,
+        "currency": snapshot.currency,
+        "insights": (
+            {
+                "typical": snapshot.insights.typical,
+                "usualLow": snapshot.insights.usual_low,
+                "usualHigh": snapshot.insights.usual_high,
+            }
+            if snapshot.insights is not None
+            else None
+        ),
+        "offers": [_offer_row(offer) for offer in snapshot.offers],
+    }
+
+
+def _current_routes() -> list[WatchRouteModel]:
+    try:
+        document = kv_store.get_value(FARE_ROUTES_KEY)
+    except HTTPException as error:
+        if error.status_code == status.HTTP_404_NOT_FOUND:
+            return []
+        raise
+    try:
+        return _routes_document(document)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+
+class _GzipSink:
+    """A tiny file object whose writes are handed to the response iterator."""
+
+    def __init__(self) -> None:
+        self.chunks: deque[bytes] = deque()
+
+    def write(self, data: bytes) -> int:
+        if data:
+            self.chunks.append(data)
+        return len(data)
+
+    def flush(self) -> None:
+        return None
+
+
+def _gzip_watch_export(routes: list[WatchRouteModel], exported_at: str) -> Iterator[bytes]:
+    sink = _GzipSink()
+
+    def write(value: str) -> Iterator[bytes]:
+        archive.write(value.encode("utf-8"))
+        while sink.chunks:
+            yield sink.chunks.popleft()
+
+    with gzip.GzipFile(fileobj=sink, mode="wb") as archive:
+        header = {
+            "app": WATCH_TRANSFER_APP,
+            "kind": WATCH_TRANSFER_KIND,
+            "version": WATCH_TRANSFER_VERSION,
+            "exportedAt": exported_at,
+            "routes": [_route_row(route) for route in routes],
+        }
+        yield from write(json.dumps(header, ensure_ascii=False, separators=(",", ":"))[:-1])
+        yield from write(',"history":{')
+        first_route = True
+        for route in routes:
+            if not first_route:
+                yield from write(",")
+            first_route = False
+            stem = route_stem(route.origin, route.destination)
+            yield from write(json.dumps(stem) + ":[")
+            first_snapshot = True
+            path = HISTORY.directory / f"{stem}.jsonl"
+            if path.exists():
+                try:
+                    with path.open("r", encoding="utf-8") as handle:
+                        for line in handle:
+                            snapshot = _snapshot_from(line)
+                            if snapshot is None:
+                                continue
+                            if not first_snapshot:
+                                yield from write(",")
+                            first_snapshot = False
+                            yield from write(
+                                json.dumps(
+                                    _snapshot_row(snapshot),
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                )
+                            )
+                except OSError as error:
+                    logger.warning("fare watch export could not read %s: %s", path.name, error)
+            yield from write("]")
+        yield from write("}}")
+    while sink.chunks:
+        yield sink.chunks.popleft()
+
+
+@router.get("/watch/export")
+def export_watch() -> StreamingResponse:
+    routes = _current_routes()
+    exported_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    filename = f"airfare-watch-{exported_at[:10]}.json.gz"
+    return StreamingResponse(
+        _gzip_watch_export(routes, exported_at),
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _decode_watch_upload(raw: bytes) -> object:
+    try:
+        content = gzip.decompress(raw) if raw.startswith(b"\x1f\x8b") else raw
+        return json.loads(content.decode("utf-8"))
+    except (OSError, EOFError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid watch transfer file"
+        ) from error
+
+
+def _import_payload(
+    value: object,
+) -> tuple[list[WatchRouteModel], dict[str, list[FareSnapshot]], int]:
+    if not isinstance(value, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid watch transfer envelope"
+        )
+    if (
+        value.get("app") != WATCH_TRANSFER_APP
+        or value.get("kind") != WATCH_TRANSFER_KIND
+        or value.get("version") != WATCH_TRANSFER_VERSION
+        or not isinstance(value.get("exportedAt"), str)
+        or not isinstance(value.get("routes"), list)
+        or not isinstance(value.get("history"), dict)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported watch transfer envelope"
+        )
+    try:
+        routes = [_watch_route_from(route) for route in value["routes"]]
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+    allowed_stems = {route_stem(route.origin, route.destination) for route in routes}
+    history: dict[str, list[FareSnapshot]] = {}
+    invalid_rows = 0
+    for stem, rows in value["history"].items():
+        if not isinstance(stem, str) or stem not in allowed_stems or not isinstance(rows, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid watch transfer history"
+            )
+        snapshots: list[FareSnapshot] = []
+        for row in rows:
+            snapshot = _snapshot_from(json.dumps(row))
+            if snapshot is None or route_stem(snapshot.origin, snapshot.destination) != stem:
+                invalid_rows += 1
+                continue
+            snapshots.append(snapshot)
+        history[stem] = snapshots
+    return routes, history, invalid_rows
+
+
+@router.post("/watch/import", response_model=WatchImportResponse)
+async def import_watch(file: Annotated[UploadFile, File(...)]) -> WatchImportResponse:
+    raw = await file.read()
+    imported_routes, imported_history, invalid_rows = _import_payload(_decode_watch_upload(raw))
+    current_routes = _current_routes()
+    by_pair = {(route.origin, route.destination): route for route in current_routes}
+    routes_added = 0
+    routes_updated = 0
+    merged_routes = list(current_routes)
+    for route in imported_routes:
+        existing = by_pair.get((route.origin, route.destination))
+        if existing is None:
+            merged_routes.append(route)
+            by_pair[(route.origin, route.destination)] = route
+            routes_added += 1
+            continue
+        months = sorted(set(existing.months) | set(route.months))
+        if months != existing.months:
+            updated = existing.model_copy(update={"months": months})
+            merged_routes[merged_routes.index(existing)] = updated
+            by_pair[(route.origin, route.destination)] = updated
+            routes_updated += 1
+
+    observations_imported = 0
+    observations_skipped = 0
+    for stem, snapshots in imported_history.items():
+        if not snapshots:
+            continue
+        origin, destination = snapshots[0].origin, snapshots[0].destination
+        known_observations = {
+            (
+                route_stem(snapshot.origin, snapshot.destination),
+                snapshot.flight_date,
+                snapshot.captured_at,
+                HISTORY.fingerprint(snapshot),
+            )
+            for snapshot in HISTORY.read(origin, destination)
+        }
+        for snapshot in snapshots:
+            identity = (
+                stem,
+                snapshot.flight_date,
+                snapshot.captured_at,
+                HISTORY.fingerprint(snapshot),
+            )
+            if identity in known_observations:
+                observations_skipped += 1
+                continue
+            HISTORY.append(snapshot)
+            known_observations.add(identity)
+            observations_imported += 1
+
+    kv_store.put_value(
+        FARE_ROUTES_KEY,
+        {"version": 1, "routes": [_route_row(route) for route in merged_routes]},
+    )
+    return WatchImportResponse(
+        routesAdded=routes_added,
+        routesUpdated=routes_updated,
+        observationsImported=observations_imported,
+        observationsSkipped=observations_skipped,
+        invalidRows=invalid_rows,
     )
 
 

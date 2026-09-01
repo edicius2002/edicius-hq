@@ -1,16 +1,24 @@
 .head {
   display: grid;
   /*
-   * Title, pill, chart head — two equal flexible columns hold the pill on the
-   * row's true centre, whatever route name occupies the left side. A long name
-   * spends only its own column and cannot drag the control beneath it.
+   * Title, pill, chart head — two flexible columns either side of the pill,
+   * split 0.8 to 1.2 rather than evenly. What matters is that they are `fr`
+   * at all: the pill's place is a share of the free space, so a long route
+   * name spends only its own column and cannot drag the control beneath it,
+   * which is what an `auto` left column used to do.
    *
-   * The right column is also the space the period fold needs to reveal itself:
-   * opening rightward from a centred pill stays inside the panel instead of
-   * disappearing into its edge. The chart head justifies itself at that free
-   * column's end, without changing the centre the pill is measured against.
+   * The ratio then sits it a little left of the row's true centre — a tenth of
+   * the free space — because dead centre put it further from the title it
+   * qualifies than it needed to be. Retune by moving the two numbers; keep
+   * them summing to 2 so the ratio is the only thing that changes.
+   *
+   * The larger share goes right on purpose. That column is the space the
+   * period fold needs to reveal itself: the fold opens rightward, and against
+   * the panel's edge it opened into the border and could not be seen at all.
+   * The chart head justifies itself at that column's end, without changing the
+   * share the pill is placed by.
    */
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.8fr) auto minmax(0, 1.2fr);
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-3);

@@ -10,6 +10,8 @@ import {
   type FareRoute,
   type FareRoutes,
 } from '@/features/airfare/data/fareRoutes';
+import { useQueryClient } from '@tanstack/react-query';
+
 import { useStoredDocument } from '@/shared/storage/useStoredDocument';
 
 /**
@@ -27,6 +29,7 @@ import { useStoredDocument } from '@/shared/storage/useStoredDocument';
  * also the only place that ever needed today's date to say it.
  */
 export function useFareRoutes() {
+  const queryClient = useQueryClient();
   const store = useStoredDocument<FareRoutes>({
     key: FARE_ROUTES_KEY,
     normalize: normalizeFareRoutes,
@@ -54,6 +57,7 @@ export function useFareRoutes() {
     // Named `update` rather than `edit` because `useStoredDocument` owns `edit`
     // and `replace`, and shadowing either would make four verbs read as three.
     update: (id: string, next: FareRoute) => store.edit((current) => editRoute(current, id, next)),
+    refresh: () => queryClient.invalidateQueries({ queryKey: ['storage', FARE_ROUTES_KEY] }),
     idOf: routeId,
   };
 }

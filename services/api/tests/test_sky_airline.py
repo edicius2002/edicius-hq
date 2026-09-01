@@ -67,7 +67,9 @@ def test_missing_taxes_on_the_cheapest_brand_rejects_that_itinerary():
     assert all(fare.flight_number != "5102" for fare in sky_airline.parse_search_response(payload))
 
 
-def test_matching_number_with_a_different_timestamp_keeps_google_null(monkeypatch: pytest.MonkeyPatch):
+def test_matching_number_with_a_different_timestamp_keeps_google_null(
+    monkeypatch: pytest.MonkeyPatch,
+):
     async def official(_client: httpx.AsyncClient, _query: FareQuery):
         return sky_airline.parse_search_response(captured_response())
 
@@ -88,7 +90,9 @@ def test_matching_h2_itinerary_uses_the_tax_inclusive_total(monkeypatch: pytest.
     ]
 
 
-def test_priced_or_non_h2_offers_do_not_trigger_an_official_request(monkeypatch: pytest.MonkeyPatch):
+def test_priced_or_non_h2_offers_do_not_trigger_an_official_request(
+    monkeypatch: pytest.MonkeyPatch,
+):
     called = False
 
     async def official(_client: httpx.AsyncClient, _query: FareQuery):
@@ -99,7 +103,9 @@ def test_priced_or_non_h2_offers_do_not_trigger_an_official_request(monkeypatch:
     monkeypatch.setattr(sky_airline, "fetch_official_fares", official)
     non_h2 = replace(h2_offer(), airline="LA", price=None)
 
-    assert asyncio.run(sky_airline.enrich_missing_h2_prices(None, QUERY, [h2_offer(price=43.96), non_h2])) == [
+    assert asyncio.run(
+        sky_airline.enrich_missing_h2_prices(None, QUERY, [h2_offer(price=43.96), non_h2])
+    ) == [
         h2_offer(price=43.96),
         non_h2,
     ]
@@ -114,7 +120,11 @@ def test_401_refreshes_the_process_cached_key_once_and_retries_the_search():
         if request.url == sky_airline.IMPORTMAP_URL:
             return httpx.Response(
                 200,
-                json={"imports": {"@skyairline/is-flight-selector": "https://example.test/selector.js"}},
+                json={
+                    "imports": {
+                        "@skyairline/is-flight-selector": "https://example.test/selector.js"
+                    }
+                },
             )
         if request.url == "https://example.test/selector.js":
             key = "1" * 32 if calls.count(str(request.url)) == 1 else "2" * 32
@@ -142,7 +152,11 @@ def test_key_discovery_ignores_an_unrelated_32_hex_bundle_value():
         if request.url == sky_airline.IMPORTMAP_URL:
             return httpx.Response(
                 200,
-                json={"imports": {"@skyairline/is-flight-selector": "https://example.test/selector.js"}},
+                json={
+                    "imports": {
+                        "@skyairline/is-flight-selector": "https://example.test/selector.js"
+                    }
+                },
             )
         return httpx.Response(
             200,
@@ -176,7 +190,9 @@ def test_explicit_zero_usd_taxes_are_included_in_a_valid_total():
     adult["total"]["amount"] = 31
     cheapest["total"]["amount"] = 31
 
-    fare = next(fare for fare in sky_airline.parse_search_response(payload) if fare.flight_number == "5102")
+    fare = next(
+        fare for fare in sky_airline.parse_search_response(payload) if fare.flight_number == "5102"
+    )
 
     assert fare.total == 31
 
@@ -190,7 +206,11 @@ def test_concurrent_key_lookups_share_one_import_map_and_bundle_fetch():
             await asyncio.sleep(0)
             return httpx.Response(
                 200,
-                json={"imports": {"@skyairline/is-flight-selector": "https://example.test/selector.js"}},
+                json={
+                    "imports": {
+                        "@skyairline/is-flight-selector": "https://example.test/selector.js"
+                    }
+                },
             )
         return httpx.Response(
             200, text='"ocp-apim-subscription-key":"11111111111111111111111111111111"'
@@ -198,7 +218,9 @@ def test_concurrent_key_lookups_share_one_import_map_and_bundle_fetch():
 
     async def discover():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            return await asyncio.gather(sky_airline.subscription_key(client), sky_airline.subscription_key(client))
+            return await asyncio.gather(
+                sky_airline.subscription_key(client), sky_airline.subscription_key(client)
+            )
 
     assert asyncio.run(discover()) == ["1" * 32, "1" * 32]
     assert calls == [sky_airline.IMPORTMAP_URL, "https://example.test/selector.js"]
@@ -212,7 +234,11 @@ def test_search_request_is_one_way_usd_with_the_public_booking_contract():
         if request.url == sky_airline.IMPORTMAP_URL:
             return httpx.Response(
                 200,
-                json={"imports": {"@skyairline/is-flight-selector": "https://example.test/selector.js"}},
+                json={
+                    "imports": {
+                        "@skyairline/is-flight-selector": "https://example.test/selector.js"
+                    }
+                },
             )
         if request.url == "https://example.test/selector.js":
             return httpx.Response(
@@ -251,7 +277,9 @@ def test_search_request_is_one_way_usd_with_the_public_booking_contract():
     }
 
 
-def test_registry_passes_the_google_client_to_the_enabled_official_lookup(monkeypatch: pytest.MonkeyPatch):
+def test_registry_passes_the_google_client_to_the_enabled_official_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+):
     query = FareQuery("AQP", "LIM", "2026-12-15")
     offer = FareOffer(
         airline="H2",

@@ -53,9 +53,10 @@ the collector was down.
 import asyncio
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Protocol
 
 import httpx
@@ -97,9 +98,12 @@ logger = logging.getLogger(__name__)
 # fast enough that a twenty-route watchlist finishes in a couple of minutes.
 #
 # **Six until 12.211, and the six was never measured.** Timing a real pass put
-# 86.5% of its wall clock inside this sleep: ten paced requests took 62.5s, of
-# which 54.1s was here, 6.3s was the upstream and 0.03s was parsing. Sleeping
-# *is* the cost of a manual retrieval; everything else is rounding.
+# 86.5% of its wall clock inside the old flat sleep: ten paced requests took
+# 62.5s, of which 54.1s was sleep, 6.3s was the upstream and 0.03s was parsing.
+# That made each board 3.63s (3.00s sleep plus 0.63s request). The pacer below
+# counts from the prior request start instead, so the same board cadence is
+# 3.00s. The 1.07s optional SKY lookup fits inside that already-existing gap;
+# it adds no board-to-board pacing cost and sends no extra Google request.
 #
 # Three is what was measured rather than what was hoped for. Twelve requests at
 # three seconds and twelve more at two came back clean — no 429, no consent
@@ -114,6 +118,51 @@ logger = logging.getLogger(__name__)
 # day's requests are packed and not how many there are. A watchlist that spent
 # 66 requests a day at six seconds spends the same 66 at three.
 DEFAULT_REQUEST_GAP_SECONDS = 3.0
+
+
+class DeadlinePacer:
+    """Serialize Google starts while counting an upstream request's own time."""
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self._clock = clock
+        self._sleep = sleep
+        self._last_request_at: float | None = None
+        self._lock = asyncio.Lock()
+
+    async def wait(self, *, gap_seconds: float) -> None:
+        """Reserve the next Google request start at least `gap_seconds` apart."""
+        async with self._lock:
+            if self._last_request_at is not None:
+                wait = self._last_request_at + gap_seconds - self._clock()
+                if wait > 0:
+                    await self._sleep(wait)
+            self._last_request_at = self._clock()
+
+    def reset(self) -> None:
+        """
+        Forget the last start, and the lock that was waiting on it.
+
+        Only tests call this. The deadline is deliberately process-wide — one
+        address is one address, and a forced press waiting behind a scheduled
+        pass is the point rather than a cost — but a test process is many
+        passes in a row with no real seconds between them, so a leaked deadline
+        makes the next test sleep for the gap before its first request. The
+        lock goes with it because each `asyncio.run` is its own event loop, and
+        a lock first awaited in one is not usable from the next.
+        """
+        self._last_request_at = None
+        self._lock = asyncio.Lock()
+
+
+# Boards and calendars have separate pass locks, but address Google through the
+# same process-wide pacer. A waiter reserves one finite deadline; it never
+# queues behind an entire pass, only the preceding upstream start.
+GOOGLE_PACER = DeadlinePacer()
 
 
 def _request_gap_seconds() -> float:
@@ -337,6 +386,7 @@ async def collect(
     history: FareHistory | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
+    pacer: DeadlinePacer | None = None,
     observer: PassObserver | None = None,
     budget: DailyBudget | None = None,
     lock: PassLock | None = None,
@@ -407,6 +457,7 @@ async def collect(
 
     owned = client is None
     session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
+    request_pacer = pacer if pacer is not None else GOOGLE_PACER
     began = perf_counter()
     try:
         for index, query in enumerate(queries):
@@ -433,8 +484,7 @@ async def collect(
                     len(queries),
                 )
                 break
-            if index:
-                await asyncio.sleep(gap_seconds)
+            await request_pacer.wait(gap_seconds=gap_seconds)
             # Before the request rather than after it. The budget protects how
             # much this address has been seen to send, so a request recorded and
             # then failing to leave is the error to make, not the reverse.
@@ -507,6 +557,7 @@ async def collect_due(
     history: FareHistory | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
+    pacer: DeadlinePacer | None = None,
     observer: PassObserver | None = None,
     ledger: RequestLedger | None = None,
     lock: PassLock | None = None,
@@ -651,6 +702,7 @@ async def collect_due(
             history=store,
             client=client,
             gap_seconds=gap_seconds,
+            pacer=pacer,
             observer=observer,
             # Handing the allowance over is also what tells `collect` the lock is
             # already held, so it does not take a second one against itself.
@@ -836,6 +888,7 @@ async def collect_calendars(
     calendar: FareCalendar | None = None,
     client: httpx.AsyncClient | None = None,
     gap_seconds: float = REQUEST_GAP_SECONDS,
+    pacer: DeadlinePacer | None = None,
     observer: CalendarObserver | None = None,
     budget: int | None = None,
     ledger: RequestLedger | None = None,
@@ -1009,11 +1062,10 @@ async def collect_calendars(
 
         owned = client is None
         session = client or httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT_SECONDS)
+        request_pacer = pacer if pacer is not None else GOOGLE_PACER
         spent = 0
         try:
             for (origin, destination), currency in due:
-                if spent:
-                    await asyncio.sleep(gap_seconds)
                 result = await _collect_calendar(
                     session,
                     origin,
@@ -1023,6 +1075,7 @@ async def collect_calendars(
                     provider,
                     store,
                     gap_seconds,
+                    request_pacer,
                     observer,
                     allowance,
                 )
@@ -1076,6 +1129,7 @@ async def _price_window(
     end: str,
     provider: str,
     gap_seconds: float,
+    pacer: DeadlinePacer,
     observer: CalendarObserver | None = None,
     budget: DailyBudget | None = None,
 ) -> tuple[list[CalendarPrice], int, FareError | None]:
@@ -1106,7 +1160,6 @@ async def _price_window(
             attempt_end = _days_before(end, sum(_NARROW_STEPS[: _NARROW_STEPS.index(step) + 1]))
             if attempt_end <= start:
                 break
-            await asyncio.sleep(gap_seconds)
         if budget is not None and not budget.affords():
             return (
                 [],
@@ -1117,6 +1170,7 @@ async def _price_window(
                     route=f"{origin}-{destination}",
                 ),
             )
+        await pacer.wait(gap_seconds=gap_seconds)
         requests += 1
         # Announced before the wait for the answer rather than after it, which
         # is the only placement that helps: a request takes seconds and it is
@@ -1170,6 +1224,7 @@ async def _collect_calendar(
     provider: str,
     store: FareCalendar,
     gap_seconds: float,
+    pacer: DeadlinePacer,
     observer: CalendarObserver | None = None,
     budget: DailyBudget | None = None,
 ) -> CalendarResult:
@@ -1177,9 +1232,7 @@ async def _collect_calendar(
     points = []
     requests = 0
 
-    for index, (start, end) in enumerate(windows):
-        if index:
-            await asyncio.sleep(gap_seconds)
+    for start, end in windows:
         window_points, spent, error = await _price_window(
             client,
             origin,
@@ -1189,6 +1242,7 @@ async def _collect_calendar(
             end,
             provider,
             gap_seconds,
+            pacer,
             observer,
             budget,
         )

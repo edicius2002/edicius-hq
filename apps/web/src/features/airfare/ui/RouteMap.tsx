@@ -1,4 +1,4 @@
-import { geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
+import { geoCircle, geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { feature, mesh } from 'topojson-client';
@@ -7,6 +7,7 @@ import worldAtlas from 'world-atlas/countries-110m.json';
 
 import { flowDelay, polylineLength } from '@/features/airfare/lib/arcFlow';
 import {
+  antisolarPoint,
   facesViewer,
   greatCircle,
   nextWatch,
@@ -401,7 +402,9 @@ export function RouteMap({
    * affine map cannot fix, and the reason a piece coming into view still forces
    * a rebuild instead of reusing what is here.
    */
-  const served = useRef(new Map<string, CachedGeometry<Subdivisions> & { land: Path2D; borders: Path2D }>());
+  const served = useRef(
+    new Map<string, CachedGeometry<Subdivisions> & { land: Path2D; borders: Path2D }>(),
+  );
   /** Whether any country is still fading in, which is the only thing that keeps the loop awake. */
   const [arriving, setArriving] = useState(false);
 
@@ -788,9 +791,9 @@ export function RouteMap({
      * holds, it cannot add the ones culling had left out.
      */
     const snapshot: ProjectionSnapshot = {
-      rotation: shown.rotate() as [number, number, number],
+      rotation: shown.rotate(),
       scale: shown.scale(),
-      translate: shown.translate() as [number, number],
+      translate: shown.translate(),
     };
     const now = performance.now();
     const held = served.current;
@@ -802,7 +805,15 @@ export function RouteMap({
       const had = held.get(each.country);
       const includedLand = each.landParts.map((part) => onScreen(part.cap));
       const includedBorders = each.borderRuns.map((run) => onScreen(run.cap));
-      const decision = decideReuse(had, each, snapshot, now, ROTATE_REBUILD_MS, includedLand, includedBorders);
+      const decision = decideReuse(
+        had,
+        each,
+        snapshot,
+        now,
+        ROTATE_REBUILD_MS,
+        includedLand,
+        includedBorders,
+      );
 
       if (decision.kind === 'reuse') {
         matrices.set(each.country, decision.matrix);
@@ -818,10 +829,12 @@ export function RouteMap({
 
       const landPath = new Path2D();
       const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
-      for (const [index, part] of each.landParts.entries()) if (includedLand[index]) intoLand(part.shape);
+      for (const [index, part] of each.landParts.entries())
+        if (includedLand[index]) intoLand(part.shape);
       const bordersPath = new Path2D();
       const intoBorders = geoPath(shown, bordersPath as unknown as CanvasRenderingContext2D);
-      for (const [index, run] of each.borderRuns.entries()) if (includedBorders[index]) intoBorders(run.shape);
+      for (const [index, run] of each.borderRuns.entries())
+        if (includedBorders[index]) intoBorders(run.shape);
       held.set(each.country, {
         of: each,
         land: landPath,
@@ -987,6 +1000,26 @@ export function RouteMap({
     for (const run of boundaries) if (onScreen(run.cap)) into(run.shape);
     if (fineLand) ink.addPath(fineLand);
     context.stroke(ink);
+
+    /*
+     * Night, over everything the frame just painted. Only the globe has a
+     * night side to show — a flat map has no "away from the sun", it has
+     * every longitude in the same picture at once.
+     *
+     * The circle itself is cheap: `geoCircle` samples a great-circle boundary
+     * into a few dozen points, nothing next to the thousands a coastline
+     * carries, so recomputing and reprojecting it fresh every frame costs
+     * nothing worth caching — unlike the subdivisions above, there is no
+     * reprojectionCache entry for it.
+     */
+    if (projection === 'globe') {
+      const night = geoCircle().center(antisolarPoint(new Date())).radius(90)();
+      const shadow = new Path2D();
+      const intoShadow = geoPath(shown, shadow as unknown as CanvasRenderingContext2D);
+      intoShadow(night);
+      context.fillStyle = readToken(stage, '--map-night');
+      context.fill(shadow);
+    }
   }, [fit, projection, subdivisions, coarse, boundaries, arrivalFade]);
 
   useEffect(() => {
@@ -1835,8 +1868,14 @@ export function RouteMap({
                         // rather than as two clocks. Inline because it is
                         // geometry, recomputed with the geometry: a stylesheet
                         // cannot know how far along its own arc a run begins.
+                        // `color` rides along with `stroke` only so `.flow`'s
+                        // glow can pick it up as `currentColor` — it paints
+                        // nothing of its own, the arc has no text or border to
+                        // inherit it.
                         style={
-                          flowing ? { stroke, animationDelay: flowDelay(run.before) } : { stroke }
+                          flowing
+                            ? { stroke, color: stroke, animationDelay: flowDelay(run.before) }
+                            : { stroke }
                         }
                         className={[
                           styles.arc,
@@ -1901,7 +1940,7 @@ export function RouteMap({
                 <path
                   key={`${id}:${index}`}
                   d={d}
-                  style={{ stroke: colour, animationDelay: flowDelay(run.before) }}
+                  style={{ stroke: colour, color: colour, animationDelay: flowDelay(run.before) }}
                   className={[
                     styles.arc,
                     styles.stop,

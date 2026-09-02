@@ -442,6 +442,15 @@ describe('RouteMap', () => {
     expect(arc.style.animationDelay).toBe(flowDelay(0));
   });
 
+  it('glows the flowing arc in its own colour, not a colour of its own', () => {
+    // `.flow`'s glow reads `currentColor` from the stylesheet — this is the
+    // one thing that has to be true from here for that to land on the arc's
+    // own colour instead of on whatever `color` this page inherited.
+    const { container } = renderMap({ routes: [LIM_CUZ], selectedId: LIM_CUZ.leading });
+    const arc = container.querySelector('[class*="flow"]') as SVGElement;
+    expect(arc.style.color).toBe(arc.style.stroke);
+  });
+
   it('flows the route the reader has open and leaves every other one still', () => {
     /*
      * Nine arcs leaving one city, all of them moving, is a page of activity

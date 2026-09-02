@@ -40,6 +40,12 @@
   --map-border-inner: color-mix(in srgb, var(--map-border) 50%, var(--map-land));
   --map-halo: color-mix(in srgb, var(--color-accent) 12%, transparent);
   /*
+   * The globe's own night side, painted over land and water alike once
+   * everything else on them is down. Low on purpose — this is meant to read
+   * as which half of the world is dark right now, not as an eclipse.
+   */
+  --map-night: color-mix(in srgb, #04070f 24%, transparent);
+  /*
    * The fallback only. Each arc is stroked with its own colour from
    * `lib/palette`, because eight lines leaving Lima in the same accent are
    * eight lines nobody can tell apart.
@@ -316,6 +322,14 @@
  */
 .flow {
   animation: flow 0.85s linear infinite;
+  /*
+   * A soft light around the line that is actually moving, in its own colour —
+   * `color` is set inline beside `stroke` for exactly this, so the shadow
+   * never has to duplicate a colour the arc already carries. Small on
+   * purpose: this is the one line the reader's eye is meant to follow, not a
+   * beacon, and a wider blur started to compete with the dashes themselves.
+   */
+  filter: drop-shadow(0 0 2px currentColor);
 }
 
 /*

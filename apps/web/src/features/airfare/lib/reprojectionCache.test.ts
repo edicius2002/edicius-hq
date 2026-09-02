@@ -14,9 +14,9 @@ import {
 
 function snapshotOf(projection: GeoProjection): ProjectionSnapshot {
   return {
-    rotation: projection.rotate() as [number, number, number],
+    rotation: projection.rotate(),
     scale: projection.scale(),
-    translate: projection.translate() as [number, number],
+    translate: projection.translate(),
   };
 }
 
@@ -48,7 +48,9 @@ describe('affineMatrix', () => {
   });
 
   it('is the identity when nothing about the projection changed', () => {
-    const snapshot = snapshotOf(geoOrthographic().rotate([5, 5, 0]).scale(250).translate([100, 100]));
+    const snapshot = snapshotOf(
+      geoOrthographic().rotate([5, 5, 0]).scale(250).translate([100, 100]),
+    );
     expect(affineMatrix(snapshot, snapshot)).toEqual(IDENTITY_MATRIX);
   });
 
@@ -90,20 +92,32 @@ describe('decideReuse', () => {
   const mainlandOnly = [true, false]; // e.g. Chile's mainland in view, Easter Island not.
 
   it('rebuilds when nothing is cached yet', () => {
-    expect(
-      decideReuse(undefined, 'usa', snapshot, 0, ROTATE_REBUILD_MS, mainlandOnly, []),
-    ).toEqual({ kind: 'rebuild' });
+    expect(decideReuse(undefined, 'usa', snapshot, 0, ROTATE_REBUILD_MS, mainlandOnly, [])).toEqual(
+      { kind: 'rebuild' },
+    );
   });
 
   it('rebuilds when the underlying data changed, even under the same projection', () => {
-    const cached = { of: 'usa-v1', snapshot, builtAt: 0, includedLand: mainlandOnly, includedBorders: [] };
-    expect(
-      decideReuse(cached, 'usa-v2', snapshot, 0, ROTATE_REBUILD_MS, mainlandOnly, []),
-    ).toEqual({ kind: 'rebuild' });
+    const cached = {
+      of: 'usa-v1',
+      snapshot,
+      builtAt: 0,
+      includedLand: mainlandOnly,
+      includedBorders: [],
+    };
+    expect(decideReuse(cached, 'usa-v2', snapshot, 0, ROTATE_REBUILD_MS, mainlandOnly, [])).toEqual(
+      { kind: 'rebuild' },
+    );
   });
 
   it('reuses through an affine map when the rotation is unchanged, however different scale or pan are', () => {
-    const cached = { of: 'usa', snapshot, builtAt: 0, includedLand: mainlandOnly, includedBorders: [] };
+    const cached = {
+      of: 'usa',
+      snapshot,
+      builtAt: 0,
+      includedLand: mainlandOnly,
+      includedBorders: [],
+    };
     const moved: ProjectionSnapshot = { rotation: [0, 0, 0], scale: 500, translate: [10, 10] };
 
     const decision = decideReuse(cached, 'usa', moved, 1000, ROTATE_REBUILD_MS, mainlandOnly, []);
@@ -116,7 +130,13 @@ describe('decideReuse', () => {
   it('rebuilds instead of reusing when a piece crossed into or out of view, even with the rotation unchanged', () => {
     // Easter Island just came into view: the cached Path2D never drew it, and
     // no affine map can add vertices that were never in the path.
-    const cached = { of: 'chile', snapshot, builtAt: 0, includedLand: [true, false], includedBorders: [] };
+    const cached = {
+      of: 'chile',
+      snapshot,
+      builtAt: 0,
+      includedLand: [true, false],
+      includedBorders: [],
+    };
     const bothVisible = [true, true];
 
     expect(
@@ -125,20 +145,48 @@ describe('decideReuse', () => {
   });
 
   it('draws the stale shape unmoved when rotation just changed, inside the throttle window', () => {
-    const cached = { of: 'usa', snapshot, builtAt: 1000, includedLand: mainlandOnly, includedBorders: [] };
+    const cached = {
+      of: 'usa',
+      snapshot,
+      builtAt: 1000,
+      includedLand: mainlandOnly,
+      includedBorders: [],
+    };
     const rotated: ProjectionSnapshot = { rotation: [5, 0, 0], scale: 200, translate: [100, 100] };
 
     expect(
-      decideReuse(cached, 'usa', rotated, 1000 + ROTATE_REBUILD_MS - 1, ROTATE_REBUILD_MS, mainlandOnly, []),
+      decideReuse(
+        cached,
+        'usa',
+        rotated,
+        1000 + ROTATE_REBUILD_MS - 1,
+        ROTATE_REBUILD_MS,
+        mainlandOnly,
+        [],
+      ),
     ).toEqual({ kind: 'stale' });
   });
 
   it('rebuilds once the throttle window has passed since the last build', () => {
-    const cached = { of: 'usa', snapshot, builtAt: 1000, includedLand: mainlandOnly, includedBorders: [] };
+    const cached = {
+      of: 'usa',
+      snapshot,
+      builtAt: 1000,
+      includedLand: mainlandOnly,
+      includedBorders: [],
+    };
     const rotated: ProjectionSnapshot = { rotation: [5, 0, 0], scale: 200, translate: [100, 100] };
 
     expect(
-      decideReuse(cached, 'usa', rotated, 1000 + ROTATE_REBUILD_MS, ROTATE_REBUILD_MS, mainlandOnly, []),
+      decideReuse(
+        cached,
+        'usa',
+        rotated,
+        1000 + ROTATE_REBUILD_MS,
+        ROTATE_REBUILD_MS,
+        mainlandOnly,
+        [],
+      ),
     ).toEqual({ kind: 'rebuild' });
   });
 });

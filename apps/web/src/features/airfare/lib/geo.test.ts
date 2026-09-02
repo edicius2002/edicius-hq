@@ -1,13 +1,16 @@
+import { geoDistance } from 'd3-geo';
 import { describe, expect, it } from 'vitest';
 
 import {
   airportPoint,
+  antisolarPoint,
   facesViewer,
   greatCircle,
   legKey,
   nextWatch,
   pairKey,
   routeGeometries,
+  subsolarPoint,
 } from '@/features/airfare/lib/geo';
 import type { Airport } from '@/shared/api/fares';
 
@@ -458,5 +461,44 @@ describe('facesViewer', () => {
   it('shows Madrid once the globe has been turned to it', () => {
     const lookingAtMadrid: [number, number, number] = [3.57, -40.5, 0];
     expect(facesViewer(airportPoint(MADRID), lookingAtMadrid)).toBe(true);
+  });
+});
+
+describe('subsolarPoint', () => {
+  it('puts the sun over the northern tropic at the June solstice', () => {
+    const [, declination] = subsolarPoint(new Date(Date.UTC(2026, 5, 21, 12)));
+    expect(declination).toBeGreaterThan(23);
+  });
+
+  it('puts the sun over the southern tropic at the December solstice', () => {
+    const [, declination] = subsolarPoint(new Date(Date.UTC(2026, 11, 21, 12)));
+    expect(declination).toBeLessThan(-23);
+  });
+
+  it('puts the sun near the equator at an equinox', () => {
+    const [, declination] = subsolarPoint(new Date(Date.UTC(2026, 2, 20, 12)));
+    expect(Math.abs(declination)).toBeLessThan(2);
+  });
+
+  it('puts the sun under whichever meridian has solar noon', () => {
+    const [noon] = subsolarPoint(new Date(Date.UTC(2026, 5, 21, 12)));
+    expect(noon).toBeCloseTo(0, 0);
+
+    const [sixAM] = subsolarPoint(new Date(Date.UTC(2026, 5, 21, 6)));
+    expect(sixAM).toBeCloseTo(90, 0);
+
+    const [sixPM] = subsolarPoint(new Date(Date.UTC(2026, 5, 21, 18)));
+    expect(sixPM).toBeCloseTo(-90, 0);
+  });
+});
+
+describe('antisolarPoint', () => {
+  it('is the point with no daylight at all: the far side and the opposite latitude', () => {
+    const at = new Date(Date.UTC(2026, 5, 21, 12));
+    const [sunLng, sunLat] = subsolarPoint(at);
+    const [nightLng, nightLat] = antisolarPoint(at);
+
+    expect(geoDistance([sunLng, sunLat], [nightLng, nightLat])).toBeCloseTo(Math.PI, 5);
+    expect(nightLat).toBeCloseTo(-sunLat, 6);
   });
 });

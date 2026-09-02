@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { CandleChart } from '@/features/investing/chart/CandleChart';
 import { useCandles } from '@/features/investing/chart/useCandles';
+import { alertsFor } from '@/features/investing/data/priceAlerts';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
 import { activePanes } from '@/features/investing/data/indicators';
@@ -15,12 +16,15 @@ import {
 import { useIndicatorSeries } from '@/features/investing/hooks/useIndicatorSeries';
 import { useIndicators } from '@/features/investing/hooks/useIndicators';
 import { usePortfolio } from '@/features/investing/hooks/usePortfolio';
+import { usePriceAlerts } from '@/features/investing/hooks/usePriceAlerts';
 import { useQuoteStream } from '@/features/investing/hooks/useQuoteStream';
 import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
+import { alertSoundPlayer } from '@/features/investing/lib/alertSound';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
 import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
 import { PositionsTransfer } from '@/features/investing/ui/PositionsTransfer';
+import { PriceAlerts } from '@/features/investing/ui/PriceAlerts';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
@@ -68,10 +72,14 @@ function timeFormatter(timeframe: string) {
 export function InvestingPage() {
   const watchlist = useWatchlist();
   const holdings = usePortfolio();
+  const alerts = usePriceAlerts();
   const [symbol, setSymbol] = useState('AAPL');
   const [timeframe, setTimeframe] = useState<string>('1d');
   const [marketPanelOpen, setMarketPanelOpen] = useState(true);
   const [chartFocused, setChartFocused] = useState(false);
+  // Mirrors the sound player's own flag in state, since a module singleton
+  // gives no render of its own to react to being toggled.
+  const [soundMuted, setSoundMuted] = useState(() => alertSoundPlayer.muted);
 
   // Focus mode is a chart workspace, not a browser fullscreen request. Escape
   // always returns to the page and the body cannot scroll behind the fixed
@@ -101,6 +109,12 @@ export function InvestingPage() {
   const position = useMemo(
     () => positionFor(holdings.portfolio, symbol),
     [holdings.portfolio, symbol],
+  );
+  // Only the active ones — a turned-off or already-fired alert has nothing
+  // left to warn about, so drawing its line would be a stale claim.
+  const chartedAlerts = useMemo(
+    () => alertsFor(alerts.rules, symbol).filter((alert) => alert.active),
+    [alerts.rules, symbol],
   );
 
   // The charted symbol rides along with the watchlist, so the whole screen is
@@ -250,10 +264,11 @@ export function InvestingPage() {
                   type="button"
                   className={styles.viewControl}
                   aria-expanded={marketPanelOpen}
-                  /* Both lists, not just the one beside the chart: the button
-                     has always meant "leave me the chart", and naming only the
-                     rail would have left the positions box behind. */
-                  aria-controls="market-panel positions-panel"
+                  /* Every panel it hides, not just the one beside the chart:
+                     the button has always meant "leave me the chart", and
+                     naming only the rail would have left the positions and
+                     alerts boxes behind. */
+                  aria-controls="market-panel positions-panel alerts-panel"
                   aria-label={marketPanelOpen ? 'Hide markets' : 'Show markets'}
                   title={marketPanelOpen ? 'Hide market panel' : 'Show market panel'}
                   onClick={() => setMarketPanelOpen((open) => !open)}
@@ -287,6 +302,7 @@ export function InvestingPage() {
               indicators={series}
               panes={panes}
               position={position}
+              alerts={chartedAlerts}
               isGhost={candles.isGhost}
               formatTime={formatTime}
               loading={candles.isPending}
@@ -401,6 +417,52 @@ export function InvestingPage() {
             }
             onRemove={(picked) => void holdings.remove(picked)}
             onMove={(from, to) => void holdings.move(from, to)}
+          />
+        )}
+      </Panel>
+
+      {/* A third full-width panel below Positions, the same reasoning
+          `InvestingPage`'s own layout note already gives that one: a row of
+          alerts is read across, not down a narrow rail column. */}
+      <Panel
+        id="alerts-panel"
+        className={styles.positionsPanel}
+        aria-labelledby="investing-alerts-title"
+        hidden={!marketPanelOpen || chartFocused}
+      >
+        <div className={styles.positionsHeader}>
+          <h2 id="investing-alerts-title" className={styles.panelTitle}>
+            Price Alerts
+          </h2>
+          <button
+            type="button"
+            className={styles.viewControl}
+            aria-pressed={soundMuted}
+            aria-label={soundMuted ? 'Unmute alert sound' : 'Mute alert sound'}
+            title={soundMuted ? 'Unmute alert sound' : 'Mute alert sound'}
+            onClick={() => {
+              const next = !soundMuted;
+              alertSoundPlayer.setMuted(next);
+              setSoundMuted(next);
+            }}
+          >
+            {soundMuted ? 'Sound off' : 'Sound on'}
+          </button>
+        </div>
+
+        {alerts.isError ? (
+          <p className={styles.error} role="alert">
+            Could not load your price alerts.
+          </p>
+        ) : (
+          <PriceAlerts
+            alerts={alerts.alerts}
+            quotes={bySymbol}
+            defaultSymbol={symbol}
+            onAdd={(input) => void alerts.add(input)}
+            onUpdate={(id, patch) => void alerts.update(id, patch)}
+            onRemove={(id) => void alerts.remove(id)}
+            onToggle={(id, active) => void alerts.toggle(id, active)}
           />
         )}
       </Panel>

@@ -1,19 +1,27 @@
+import type { PriceAlert } from '@/features/investing/data/priceAlerts';
 import type { Position } from '@/features/investing/data/portfolio';
 import type { Band } from '@/features/investing/lib/panes';
 import type { Plot } from '@/features/investing/lib/scales';
 import type { Bar } from '@/shared/api/market';
 
 /**
- * A flat reference level drawn across the price band — a position's entry
- * today, a price alert tomorrow. Deliberately dumb: this layer only knows how
- * to put a dashed line and a label at a price, not what the price means or
- * why it is coloured the way it is. That judgement stays with the caller.
+ * A flat reference level drawn across the price band — a position's entry, a
+ * price alert. Deliberately dumb: this layer only knows how to put a dashed
+ * line and a label at a price, not what the price means or why it is
+ * coloured the way it is. That judgement stays with the caller.
  */
 export type PriceLine = {
   price: number;
   /** Drawn in the right-hand gutter, beside the axis ticks. */
   label: string;
   color: string;
+  /**
+   * Overrides the default dash pattern. A position's entry and a price alert
+   * share the same green/red vocabulary for two different meanings — see
+   * `alertPriceLine` — so when both are on screen at once, colour alone
+   * cannot tell them apart. A distinct dash does.
+   */
+  dash?: [number, number];
 };
 
 export type PriceLinesArgs = {
@@ -48,7 +56,7 @@ export function drawPriceLines(ctx: CanvasRenderingContext2D, args: PriceLinesAr
     if (y < band.top || y > band.top + band.height) continue;
 
     ctx.strokeStyle = priceLine.color;
-    ctx.setLineDash(DASH);
+    ctx.setLineDash(priceLine.dash ?? DASH);
     ctx.beginPath();
     ctx.moveTo(0, Math.round(y) + 0.5);
     ctx.lineTo(plot.width, Math.round(y) + 0.5);
@@ -85,5 +93,29 @@ export function positionPriceLine(bars: Bar[], position: Position): PriceLine {
     price: position.averageCost,
     label: `Entry ${position.averageCost.toFixed(2)}`,
     color,
+  };
+}
+
+/**
+ * A shorter, denser dash than a position's entry line, so the two read as
+ * two different kinds of line even where they land at the same colour.
+ */
+const ALERT_DASH: [number, number] = [2, 2];
+
+/**
+ * The line for a price alert: green for a buy target, red for a sell one.
+ *
+ * This reuses the same green and red the position entry line already draws
+ * with, for a different meaning — there, up or down against what was paid;
+ * here, buy or sell. That collision is intentional, not overlooked: the dash
+ * pattern and the label are what keep the two legible together on one chart,
+ * not the colour alone.
+ */
+export function alertPriceLine(alert: Pick<PriceAlert, 'kind' | 'price'>): PriceLine {
+  return {
+    price: alert.price,
+    label: `${alert.kind === 'buy' ? 'Buy' : 'Sell'} ${alert.price.toFixed(2)}`,
+    color: alert.kind === 'buy' ? UP : DOWN,
+    dash: ALERT_DASH,
   };
 }

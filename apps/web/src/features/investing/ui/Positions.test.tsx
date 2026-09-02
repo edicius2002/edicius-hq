@@ -70,6 +70,7 @@ describe('Positions', () => {
     await user.type(screen.getByRole('textbox', { name: 'Search a symbol' }), 'ms');
     await user.click(await screen.findByRole('button', { name: /MSFT Microsoft Corporation/i }));
     expect(screen.getByText('Selected: MSFT')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Search a symbol' })).toHaveValue('MSFT');
     await user.type(screen.getByRole('spinbutton', { name: 'Position quantity' }), '1.5');
     await user.type(screen.getByRole('spinbutton', { name: 'Position average cost' }), '412.25');
     await user.click(screen.getByRole('button', { name: 'Save position' }));

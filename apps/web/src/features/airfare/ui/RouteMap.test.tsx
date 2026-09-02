@@ -871,6 +871,36 @@ describe('RouteMap', () => {
     );
   });
 
+  it('shows a country it has already loaded again without asking the network twice', async () => {
+    /*
+     * `needsSettleWait` (`lib/fanOut.test.ts`) is where the wait itself is
+     * proved skipped — a pure decision, timed exactly. What a real gesture
+     * proves is the thing that decision cannot: that the country coming back
+     * is still the one request `servingPeru` answered the first time, not a
+     * second one hiding behind the shorter wait.
+     */
+    servingPeru();
+    const { container } = renderMap();
+    const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+
+    await closeInOnPeru(stage);
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    expect(subdivisionRequests.filter((url) => url.includes('/604'))).toHaveLength(1);
+
+    // Leave: below the zoom gate, Peru's detail is dropped with no wait at all.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reset the view' }));
+    });
+    await waitFor(() => expect(screen.queryByText('Loreto')).not.toBeInTheDocument());
+
+    // Come back, the same gesture `closeInOnPeru` opens with.
+    await closeInOnPeru(stage);
+
+    await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
+    // One request total: the revisit was answered from the cache, not the network.
+    expect(subdivisionRequests.filter((url) => url.includes('/604'))).toHaveLength(1);
+  });
+
   it('holds the view still while the detail arrives, instead of resuming the glide', async () => {
     /*
      * The fade wakes the frame loop, and the frame loop used to pick up an

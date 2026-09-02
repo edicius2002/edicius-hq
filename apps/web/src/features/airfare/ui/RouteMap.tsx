@@ -19,7 +19,7 @@ import {
   countryAt,
   outlinesOf,
 } from '@/features/airfare/lib/countries';
-import { planFanOut } from '@/features/airfare/lib/fanOut';
+import { needsSettleWait, planFanOut } from '@/features/airfare/lib/fanOut';
 import {
   type Boxed,
   CONTINENTS,
@@ -331,6 +331,7 @@ export function RouteMap({
   const indexed = useRef(false);
   const { data: catalogue } = useSubdivisionCatalogue(reached);
   const subdivisions = useSubdivisions(wanted);
+  const settled = useSettledSubdivisionCountries(wanted);
 
   /**
    * Which countries are actually being redrawn, which is not the same as which
@@ -355,6 +356,18 @@ export function RouteMap({
    */
   const drawn = useRef<readonly string[]>([]);
   drawn.current = subdivisions.map((each) => each.country);
+
+  /**
+   * Every country this map has ever had an answer for, drawable or not, kept
+   * for the life of the component rather than only while it is in `wanted`.
+   *
+   * Built from `settled` rather than from `subdivisions`: a country with
+   * nothing to draw is still a country the settle wait below has nothing left
+   * to protect, since `useSettledSubdivisionCountries` shares its cache with
+   * `useSubdivisions` and answering it again costs no request either way.
+   */
+  const resolvedEver = useRef(new Set<string>());
+  for (const country of settled) resolvedEver.current.add(country);
 
   /* ------------------------------------------------------------ arrival -- */
 
@@ -1012,6 +1025,52 @@ export function RouteMap({
       return;
     }
     setReached(true);
+
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect || !rect.width || !rect.height) return;
+    const shown = projection === 'globe' ? projections.current.globe : projections.current.mercator;
+    const invert = (at: [number, number]) => shown.invert?.(at) ?? null;
+    const middle = invert([rect.width / 2, rect.height / 2]);
+    // Open water, or a shape the atlas carries without a numeric code, both
+    // mean the middle has nothing to ask for — the rest of the view still
+    // does.
+    const centre =
+      middle && Number.isFinite(middle[0]) && Number.isFinite(middle[1])
+        ? (countryAt([middle[0], middle[1]])?.id ?? null)
+        : null;
+    const plan = planFanOut(countriesInView(invert, rect), centre, catalogue, drawn.current);
+
+    const apply = () => {
+      // Same set, same array: `useQueries` builds one query per entry and the
+      // map keys its canvas work off what comes back, so handing back a new
+      // array of the same ids would restart both for nothing.
+      setWanted((was) =>
+        was.length === plan.countries.length && was.every((id, at) => id === plan.countries[at])
+          ? was
+          : plan.countries,
+      );
+    };
+
+    /*
+     * The wait below exists to keep a reader spinning past a dozen countries
+     * a second from sending a dozen requests a second — see `SETTLE_MS`. A
+     * plan whose every country has already answered once this session asks
+     * the network for nothing at all, so there is nothing left for the wait
+     * to protect, and it becomes a reader looking at a country they have
+     * already looked at, made to wait to see it again. Applied straight away
+     * instead.
+     *
+     * The borders still fade in — `ARRIVAL_MS` is not this wait and is not
+     * skipped here. It stops a country's geometry snapping to full strength
+     * in one frame, which is exactly as true of a country already in memory
+     * as of one just fetched, and a reader panning back onto the United
+     * States is not asking for the "pop" `arrivedAt`'s own comment removed.
+     */
+    if (!needsSettleWait(plan.countries, resolvedEver.current)) {
+      apply();
+      return;
+    }
+
     /*
      * The index landing is not the view moving, so it does not cost a settle.
      *
@@ -1025,33 +1084,7 @@ export function RouteMap({
      */
     const first = catalogue !== undefined && !indexed.current;
     indexed.current = catalogue !== undefined;
-    const handle = setTimeout(
-      () => {
-        const rect = stageRef.current?.getBoundingClientRect();
-        if (!rect || !rect.width || !rect.height) return;
-        const shown =
-          projection === 'globe' ? projections.current.globe : projections.current.mercator;
-        const invert = (at: [number, number]) => shown.invert?.(at) ?? null;
-        const middle = invert([rect.width / 2, rect.height / 2]);
-        // Open water, or a shape the atlas carries without a numeric code, both
-        // mean the middle has nothing to ask for — the rest of the view still
-        // does.
-        const centre =
-          middle && Number.isFinite(middle[0]) && Number.isFinite(middle[1])
-            ? (countryAt([middle[0], middle[1]])?.id ?? null)
-            : null;
-        const plan = planFanOut(countriesInView(invert, rect), centre, catalogue, drawn.current);
-        // Same set, same array: `useQueries` builds one query per entry and the
-        // map keys its canvas work off what comes back, so handing back a new
-        // array of the same ids would restart both for nothing.
-        setWanted((was) =>
-          was.length === plan.countries.length && was.every((id, at) => id === plan.countries[at])
-            ? was
-            : plan.countries,
-        );
-      },
-      first ? 0 : SETTLE_MS,
-    );
+    const handle = setTimeout(apply, first ? 0 : SETTLE_MS);
     return () => clearTimeout(handle);
   }, [moving, tick, projection, catalogue]);
 

@@ -198,3 +198,18 @@ export function planFanOut(
   }
   return { countries, bytes, refused };
 }
+
+/**
+ * Whether a plan is worth making a reader wait for.
+ *
+ * `RouteMap.tsx`'s settle effect holds a plan for `SETTLE_MS` before asking
+ * for it, so that spinning past a dozen countries a second sends nothing —
+ * see `SETTLE_MS` there. That is a wait against the *network*, and a plan
+ * whose every country has already answered once this session — successfully
+ * or with nothing to give, either one settles the same query forever, see
+ * `useSettledSubdivisionCountries` — is not going to touch the network at
+ * all. Waiting on it anyway is waiting on nothing.
+ */
+export function needsSettleWait(countries: readonly string[], resolvedEver: ReadonlySet<string>): boolean {
+  return !countries.every((country) => resolvedEver.has(country));
+}

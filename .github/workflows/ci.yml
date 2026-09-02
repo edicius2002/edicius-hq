@@ -20,7 +20,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Read from .nvmrc rather than repeated here. Two places to write the
+          # same version is one place for them to disagree, silently, until a
+          # local build passes something CI does not.
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -72,3 +75,30 @@ jobs:
 
       - name: Test
         run: python -m pytest
+
+  image:
+    name: API image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The API ships as a container — docker-compose.yml builds this exact
+      # Dockerfile — and until now nothing built it outside a developer's
+      # machine. A base image that stops resolving, a dependency that no longer
+      # installs, or the playwright chromium step failing would all have shown
+      # up as a broken `docker compose up` rather than as a red check.
+      # Decision 10.7: anything not in CI rots.
+      #
+      # Build only. Publishing waits for step 7 to pick a deploy target; this
+      # job answers the narrower question of whether the image still assembles.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/api
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

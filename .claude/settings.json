@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr merge*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/prune-merged.sh\"",
+            "timeout": 60,
+            "statusMessage": "Pruning merged branches"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr merge*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/prune-merged.sh\"",
+            "timeout": 60,
+            "statusMessage": "Pruning merged branches"
+          }
+        ]
+      }
+    ]
+  }
+}

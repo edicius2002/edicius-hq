@@ -41,6 +41,15 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   // Joined so the effect keys on what the symbols are rather than on the array
   // that held them, which is new on every render of the page above.
   const key = symbols.join(',');
+  // A tick for a symbol no longer followed is not worth carrying, and every
+  // followed one arrives again within a beat. Reset during render, as soon as
+  // the new key is known, rather than from the effect below.
+  const [shownKey, setShownKey] = useState(key);
+  if (shownKey !== key) {
+    setShownKey(key);
+    setTicks(new Map());
+    if (!key) setConnection((current) => current.lower(performance.now()));
+  }
   const frame = useRef(0);
   const discardTicksBefore = useCallback(
     (sweepTimes: Map<string, number | null>, fallbackAt: number) => {
@@ -70,17 +79,10 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   );
 
   useEffect(() => {
-    if (!key) {
-      setTicks(new Map());
-      setConnection((current) => current.lower(performance.now()));
-      return;
-    }
+    if (!key) return;
 
-    // Starting empty on a change of symbols: a tick for a symbol no longer
-    // followed is not worth carrying, and every followed one arrives again
-    // within a beat. The latch is deliberately not reset — reopening for a new
-    // symbol set is not an outage.
-    setTicks(new Map());
+    // The latch is deliberately not reset here — reopening for a new symbol
+    // set is not an outage.
 
     /*
      * Keyed by symbol rather than a list. A background tab never runs an

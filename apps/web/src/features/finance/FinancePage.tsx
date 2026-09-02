@@ -152,7 +152,9 @@ export function FinancePage() {
 
   // Held in a ref so the listener is bound once instead of on every render.
   const shortcuts = useRef({ undo: handleUndo, redo: handleRedo });
-  shortcuts.current = { undo: handleUndo, redo: handleRedo };
+  useEffect(() => {
+    shortcuts.current = { undo: handleUndo, redo: handleRedo };
+  });
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

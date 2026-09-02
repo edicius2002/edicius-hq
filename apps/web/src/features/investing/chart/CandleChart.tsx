@@ -136,16 +136,19 @@ export function CandleChart({
     [size.width, size.height],
   );
 
-  useEffect(() => {
-    if (!following || !bars.length) return;
-    setWindow(
-      clampWindow(
-        { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
-        bars.length,
-        minVisibleBars(plot),
-      ),
+  // Following stays pinned to the live edge as new bars arrive. Derived here
+  // during render, from `bars` and `plot`, rather than from an effect; the
+  // comparison against the current window keeps this from looping.
+  if (following && bars.length) {
+    const liveWindow = clampWindow(
+      { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
+      bars.length,
+      minVisibleBars(plot),
     );
-  }, [bars, following, plot]);
+    if (liveWindow.first !== window.first || liveWindow.last !== window.last) {
+      setWindow(liveWindow);
+    }
+  }
 
   // The bands are pure geometry over the plot height, so this is cheap and
   // stable — the draw effect below depends on it and must not see a new object

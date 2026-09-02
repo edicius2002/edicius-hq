@@ -21,9 +21,14 @@ export function TopNav() {
   const topbarRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
+  // Closes the menu on navigation. Adjusted during render, like the React docs'
+  // "adjusting state when a prop changes" recipe, rather than in an effect, so
+  // there is no extra render with the menu still open at the new route.
+  const [shownPathname, setShownPathname] = useState(location.pathname);
+  if (shownPathname !== location.pathname) {
+    setShownPathname(location.pathname);
     setOpen(false);
-  }, [location.pathname]);
+  }
 
   useEffect(() => {
     if (!open) return;

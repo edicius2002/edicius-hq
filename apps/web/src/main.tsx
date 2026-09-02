@@ -22,7 +22,7 @@ import '@/styles/index.css';
  */
 window.addEventListener('vite:preloadError', (event) => {
   event.preventDefault();
-  let spent = true;
+  let spent: boolean;
   try {
     spent = sessionStorage.getItem('vite-preload-reloaded') !== null;
     sessionStorage.setItem('vite-preload-reloaded', '1');

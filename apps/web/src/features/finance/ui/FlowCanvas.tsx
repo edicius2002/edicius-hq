@@ -185,10 +185,15 @@ export function FlowCanvas({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const wasConnecting = useRef(connectMode);
 
-  useEffect(() => {
+  // A switched diagram leaves no keyboard-drag override behind. Adjusted
+  // during render, as soon as the new diagram is known, rather than from an
+  // effect.
+  const [shownDiagram, setShownDiagram] = useState(diagram);
+  if (shownDiagram !== diagram) {
+    setShownDiagram(diagram);
     setKeyboardNodePosition(null);
     setKeyboardFrameRect(null);
-  }, [diagram]);
+  }
 
   useEffect(() => {
     // A completed or externally cancelled connection releases the keyboard
@@ -476,22 +481,35 @@ export function FlowCanvas({
     viewportRef.current?.focus({ preventScroll: true });
   }, [viewportRef]);
 
-  useEffect(() => {
-    if (!selection) return;
-    const present =
-      (selection.type === 'node' && nodes.some((node) => node.id === selection.id)) ||
+  const selectionPresent = selection
+    ? (selection.type === 'node' && nodes.some((node) => node.id === selection.id)) ||
       (selection.type === 'frame' && frames.some((frame) => frame.id === selection.id)) ||
-      (selection.type === 'flow' && flows.some((flow) => flow.id === selection.id));
-    if (present) return;
-    onSelect(null);
+      (selection.type === 'flow' && flows.some((flow) => flow.id === selection.id))
+    : false;
+
+  // Both the "selected" and "removed" announcements are pure functions of
+  // `selection` (and, for the description, `diagram`) already known this
+  // render, so they are set here rather than from an effect. `describedFor`
+  // remembers what was last announced so each transition speaks exactly once.
+  const [describedFor, setDescribedFor] = useState<{
+    selection: Selection;
+    diagram: Diagram;
+  } | null>(null);
+  if (selection && selectionPresent) {
+    if (describedFor?.selection !== selection || describedFor.diagram !== diagram) {
+      setDescribedFor({ selection, diagram });
+      setAnnouncement(`${selectionDescription(selection, diagram)} selected.`);
+    }
+  } else if (selection && !selectionPresent && describedFor !== null) {
+    setDescribedFor(null);
     setAnnouncement('The selected item was removed. Canvas selection cleared.');
-    focusCanvas();
-  }, [focusCanvas, frames, nodes, flows, onSelect, selection]);
+  }
 
   useEffect(() => {
-    if (!selection) return;
-    setAnnouncement(`${selectionDescription(selection, diagram)} selected.`);
-  }, [diagram, selection]);
+    if (!selection || selectionPresent) return;
+    onSelect(null);
+    focusCanvas();
+  }, [focusCanvas, onSelect, selection, selectionPresent]);
 
   function selectNode(node: FinanceNode) {
     onSelect({ type: 'node', id: node.id });

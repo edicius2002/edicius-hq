@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { WatchlistEntry } from '@/features/investing/data/watchlist';
 import { formatPercent, formatAmount } from '@/shared/lib/money';
@@ -152,28 +152,36 @@ export function Watchlist({
 /**
  * Which rows moved since the last tick, and which way.
  *
- * Held in a ref rather than state so comparing prices does not itself cause the
- * render that would compare them again.
+ * The last-seen price per symbol is kept as state rather than a ref: comparing
+ * against it is a pure function of `quotes`, so the comparison happens during
+ * render — via the same "adjust state while rendering" recipe already used
+ * elsewhere — rather than a render behind in an effect.
  */
 function useFlashes(quotes: Map<string, Quote>): Map<string, Flash> {
-  const previous = useRef(new Map<string, number>());
+  const [previous, setPrevious] = useState(new Map<string, number>());
   const [flashes, setFlashes] = useState<Map<string, Flash>>(new Map());
 
-  useEffect(() => {
-    const next = new Map<string, Flash>();
-    for (const [symbol, quote] of quotes) {
-      const before = previous.current.get(symbol);
-      if (before !== undefined && before !== quote.price) {
-        next.set(symbol, quote.price > before ? 'up' : 'down');
-      }
-      previous.current.set(symbol, quote.price);
-    }
+  let pricesChanged = false;
+  const moved = new Map<string, Flash>();
+  const nextPrevious = new Map(previous);
+  for (const [symbol, quote] of quotes) {
+    const before = previous.get(symbol);
+    if (before === quote.price) continue;
+    pricesChanged = true;
+    nextPrevious.set(symbol, quote.price);
+    if (before !== undefined) moved.set(symbol, quote.price > before ? 'up' : 'down');
+  }
 
-    if (!next.size) return;
-    setFlashes(next);
+  if (pricesChanged) {
+    setPrevious(nextPrevious);
+    if (moved.size) setFlashes(moved);
+  }
+
+  useEffect(() => {
+    if (!flashes.size) return;
     const id = setTimeout(() => setFlashes(new Map()), FLASH_MS);
     return () => clearTimeout(id);
-  }, [quotes]);
+  }, [flashes]);
 
   return flashes;
 }

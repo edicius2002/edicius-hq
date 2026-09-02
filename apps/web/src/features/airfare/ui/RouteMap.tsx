@@ -41,9 +41,21 @@ import {
   subdivisionFade,
   withoutOverlaps,
 } from '@/features/airfare/lib/globe';
+import {
+  IDENTITY_MATRIX,
+  ROTATE_REBUILD_MS,
+  decideReuse,
+  type CachedGeometry,
+  type Matrix2D,
+  type ProjectionSnapshot,
+} from '@/features/airfare/lib/reprojectionCache';
 import type { Subdivisions } from '@/features/airfare/lib/subdivisions';
 import { type Cap, capped, cappedRuns, capsMeet, viewCap } from '@/features/airfare/lib/visible';
-import { useSubdivisionCatalogue, useSubdivisions } from '@/features/airfare/hooks/useSubdivisions';
+import {
+  useSettledSubdivisionCountries,
+  useSubdivisionCatalogue,
+  useSubdivisions,
+} from '@/features/airfare/hooks/useSubdivisions';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteMap.module.css';
@@ -367,17 +379,16 @@ export function RouteMap({
    */
   const arrivedAt = useRef(new Map<string, number>());
   /**
-   * The served geometry as this view projects it, kept until the view moves.
+   * The served geometry as it was last projected, kept across a scale or pan
+   * change and, briefly, across a rotation.
    *
-   * See the block in `draw` that fills it. The short form: the fine layer is
-   * the one thing on this map that cannot be culled, because it *is* what the
-   * reader is looking at — and it is also the one thing that arrives while the
-   * camera is standing still, which is what makes projecting it once per view
-   * both possible and the difference between a fade and a lurch.
+   * See `reprojectionCache.ts` for what makes that safe, and the block in
+   * `draw` that reads and writes this for how. Each entry also remembers which
+   * of its `landParts`/`borderRuns` culling kept — the one thing a later
+   * affine map cannot fix, and the reason a piece coming into view still forces
+   * a rebuild instead of reusing what is here.
    */
-  const served = useRef(
-    new Map<string, { view: string; of: Subdivisions; land: Path2D; borders: Path2D }>(),
-  );
+  const served = useRef(new Map<string, CachedGeometry<Subdivisions> & { land: Path2D; borders: Path2D }>());
   /** Whether any country is still fading in, which is the only thing that keeps the loop awake. */
   const [arriving, setArriving] = useState(false);
 
@@ -709,7 +720,10 @@ export function RouteMap({
     );
 
     /*
-     * The served geometry projected once per *view* rather than once per frame.
+     * The served geometry, projected once and reused for as long as the
+     * reprojection would land in the same place — which, for a fixed rotation,
+     * is any scale or pan at all. See `reprojectionCache.ts` for the maths and
+     * the proof.
      *
      * This is the layer the cull cannot help with, and the reason is worth
      * stating: culling drops shapes that are somewhere else, and the shapes
@@ -717,18 +731,24 @@ export function RouteMap({
      * 1:10m outline is a single ring eighteen degrees across; at 32x the frame
      * holds three degrees of it and the other fifteen are in the same ring, so
      * there is nothing to skip. Measured, projecting the fine land and the fine
-     * internal borders of Peru, Bolivia and Chile was 16 to 20 ms a frame with
-     * everything else in the frame down to three.
+     * internal borders of Peru, Bolivia and Chile from scratch is 16 to 20 ms a
+     * frame with everything else in the frame down to three — the United
+     * States alone, at 326 KB, is 18 to 21 ms; see
+     * `docs/airfare-map-rendering.md` for the method.
      *
-     * **But the moment that cost is paid is a moment the view is standing
-     * still.** A country's geometry is asked for a quarter of a second after
-     * the map stops moving, and it arrives to a fade of another quarter second
-     * — a dozen frames in which nothing changes except an opacity. Every one of
-     * those frames was reprojecting identical geometry to identical screen
-     * coordinates. So the projection is keyed on the view: the same scale, the
-     * same rotation, the same pan and the same frame gets the `Path2D` it got
-     * last frame, and a frame that moves the camera misses the key and pays in
-     * full, which is exactly the frame that has to.
+     * **That cost used to be paid on every frame the camera moved at all**,
+     * because the old cache was keyed on the whole camera state — scale,
+     * rotation and pan together — so a zoom or a drag missed it exactly as
+     * often as it hit, which is most frames of the gesture a reader described
+     * as stuttering. It is real work only when the rotation itself changes:
+     * `reprojectionCache.decideReuse` reuses the existing `Path2D` through an
+     * exact affine map whenever it has not, which on the flat map — whose
+     * rotation never changes — is always. A spin still moves every point on
+     * the sphere by a different amount, which no single map can stand in for;
+     * there, a country's borders are allowed to lag the turn by up to
+     * `ROTATE_REBUILD_MS` before they are worth reprojecting again, the same
+     * kind of bounded trade `SETTLE_MS` and `ARRIVAL_MS` already make between
+     * showing the latest thing and showing anything smoothly at all.
      *
      * **Per country, not per view's worth of countries**, and that is the half
      * that makes the fade a fade. A fan-out lands one country at a time, a few
@@ -743,31 +763,62 @@ export function RouteMap({
      * inside the clip below *and* stroked with the national borders further
      * down from one projection instead of two; and `addPath` puts the several
      * countries back into the one path a single fill and a single stroke need,
-     * without going near the sphere again.
+     * carrying each one's own affine map along with it, without going near the
+     * sphere again.
      *
      * Polygon by polygon and run by run, so an outlying piece is skipped on the
      * same terms a whole country is: Chile's file carries Easter Island
      * 3,500 km off its coast, and a reader looking at Santiago should not be
-     * paying to project it.
+     * paying to project it. `decideReuse` is told which pieces this frame's
+     * culling kept, and rebuilds rather than reusing the moment that set
+     * changes — an affine map repositions the vertices a `Path2D` already
+     * holds, it cannot add the ones culling had left out.
      */
-    const view = `${projection}|${zoom.current}|${rotation.current.join(',')}|${pan.current.x},${pan.current.y}|${rect.width}x${rect.height}`;
+    const snapshot: ProjectionSnapshot = {
+      rotation: shown.rotate() as [number, number, number],
+      scale: shown.scale(),
+      translate: shown.translate() as [number, number],
+    };
+    const now = performance.now();
     const held = served.current;
+    const matrices = new Map<string, Matrix2D>();
     for (const country of held.keys()) {
       if (!subdivisions.some((each) => each.country === country)) held.delete(country);
     }
     for (const each of subdivisions) {
       const had = held.get(each.country);
-      // The geometry itself, not only the country's id: `useSubdivisions`
-      // caches forever so a country's shape does not change under a session
-      // today, but a cache keyed on an id would quietly draw the old shape if it
-      // ever did, and that is a bug nobody would look for here.
-      if (had && had.view === view && had.of === each) continue;
-      const built = { view, of: each, land: new Path2D(), borders: new Path2D() };
-      const intoLand = geoPath(shown, built.land as unknown as CanvasRenderingContext2D);
-      for (const part of each.landParts) if (onScreen(part.cap)) intoLand(part.shape);
-      const intoBorders = geoPath(shown, built.borders as unknown as CanvasRenderingContext2D);
-      for (const run of each.borderRuns) if (onScreen(run.cap)) intoBorders(run.shape);
-      held.set(each.country, built);
+      const includedLand = each.landParts.map((part) => onScreen(part.cap));
+      const includedBorders = each.borderRuns.map((run) => onScreen(run.cap));
+      const decision = decideReuse(had, each, snapshot, now, ROTATE_REBUILD_MS, includedLand, includedBorders);
+
+      if (decision.kind === 'reuse') {
+        matrices.set(each.country, decision.matrix);
+        continue;
+      }
+      if (decision.kind === 'stale') {
+        // Kept exactly as it was built — see the comment above for why a
+        // rotation change cannot be answered with a matrix — so it is drawn
+        // unmoved rather than reprojected again this frame.
+        matrices.set(each.country, IDENTITY_MATRIX);
+        continue;
+      }
+
+      const landPath = new Path2D();
+      const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
+      for (const [index, part] of each.landParts.entries()) if (includedLand[index]) intoLand(part.shape);
+      const bordersPath = new Path2D();
+      const intoBorders = geoPath(shown, bordersPath as unknown as CanvasRenderingContext2D);
+      for (const [index, run] of each.borderRuns.entries()) if (includedBorders[index]) intoBorders(run.shape);
+      held.set(each.country, {
+        of: each,
+        land: landPath,
+        borders: bordersPath,
+        snapshot,
+        builtAt: now,
+        includedLand,
+        includedBorders,
+      });
+      matrices.set(each.country, IDENTITY_MATRIX);
     }
 
     /*
@@ -776,14 +827,16 @@ export function RouteMap({
      * One path rather than one per country, because two shapes stroked
      * separately are not the picture one shape stroked once is: wherever two of
      * them share a frontier the edge is antialiased twice and comes out darker
-     * than the same line anywhere else.
+     * than the same line anywhere else. `addPath`'s own transform argument is
+     * what lets a country cached under an older scale or pan join this one
+     * path without first being redrawn into it.
      */
     let fineLand: Path2D | null = null;
     if (fine.length > 0) {
       fineLand = new Path2D();
       for (const each of fine) {
         const ready = held.get(each.country);
-        if (ready) fineLand.addPath(ready.land);
+        if (ready) fineLand.addPath(ready.land, matrices.get(each.country) ?? IDENTITY_MATRIX);
       }
     }
 
@@ -839,7 +892,7 @@ export function RouteMap({
           )
         : [];
     if (inside.length > 0) {
-      const at = performance.now();
+      const at = now;
       const settled = inside.filter((each) => arrivalFade(each.country, at) >= 1);
       const landing = inside.filter((each) => arrivalFade(each.country, at) < 1);
       context.save();
@@ -855,11 +908,13 @@ export function RouteMap({
         // Gathered into one path and stroked once, from what this view already
         // projected: at rest the opacity is a property of the layer and not of
         // a country, and stroking country by country under a `globalAlpha`
-        // would darken every place two of them overlapped on screen.
+        // would darken every place two of them overlapped on screen. Each
+        // country's own affine map — identity for one just built or drawn
+        // stale — travels with it into the merge.
         const all = new Path2D();
         for (const each of settled) {
           const runs = held.get(each.country);
-          if (runs) all.addPath(runs.borders);
+          if (runs) all.addPath(runs.borders, matrices.get(each.country) ?? IDENTITY_MATRIX);
         }
         context.stroke(all);
       }
@@ -868,7 +923,11 @@ export function RouteMap({
         if (coming <= 0) continue;
         context.globalAlpha = inner * coming;
         const runs = held.get(each.country);
-        if (runs) context.stroke(runs.borders);
+        if (runs) {
+          const path = new Path2D();
+          path.addPath(runs.borders, matrices.get(each.country) ?? IDENTITY_MATRIX);
+          context.stroke(path);
+        }
       }
       context.restore();
     }

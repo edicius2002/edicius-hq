@@ -57,32 +57,41 @@ import type { CountryInView } from '@/features/airfare/lib/countries';
  * What one view may spend on geometry, in bytes.
  *
  * **The wire is not what makes this number, the frame is.** Measured in Chrome
- * on the reader's own 529x460 stage, a fan-out costs 0.0995 ms of `geoPath`
- * per kilobyte of geometry per frame — twelve countries from 20 kB to 604 kB
+ * on the reader's own 529x460 stage, a fan-out costs about 0.0995 ms of
+ * `geoPath` per kilobyte of geometry — twelve countries from 20 kB to 604 kB
  * land within a factor of two of that line, because a file's size and its
  * vertex count are the same fact told twice. So a byte budget is a frame
- * budget wearing different units, and the units the reader actually feels are
- * the frame's: the whole map draws in 26.3 ms today with a pointer down, and
- * the first thing tried here — a megabyte, argued from the size of the
- * JavaScript this page already downloads — measured 340 ms a frame over
- * Europe. Five frames a second is not a map being dragged, it is a map being
- * shown to you one picture at a time, and no argument about download size was
- * ever going to notice.
+ * budget wearing different units. The first thing tried here — a megabyte,
+ * argued from the size of the JavaScript this page already downloads —
+ * measured 340 ms a frame over Europe. Five frames a second is not a map being
+ * dragged, it is a map being shown to you one picture at a time, and no
+ * argument about download size was ever going to notice.
  *
- * 256 kB is 25 ms, so the fine layer at its very limit costs about what the
- * whole map already costs and a drag at its worst is half the frame rate it
- * was. It is also, and not by coincidence, what the view this change exists
- * for weighs: Peru, Bolivia, Chile and Argentina across their shared corner
- * are 248 kB together.
+ * **This used to bound a cost paid every frame of a drag, which is why it was
+ * a quarter of what it is now.** `reprojectionCache.ts` reprojects a country's
+ * `Path2D` once and reuses it — exactly, through an affine map, whenever the
+ * camera's rotation has not changed since, and at most every
+ * `ROTATE_REBUILD_MS` when it has — so the frame this budget has to answer to
+ * is no longer *every* frame of a gesture, only the occasional one that
+ * actually rebuilds. Measured cold, once, is what the budget still has to
+ * bound: 512 kB (Canada alone, 496 kB of it) rebuilds in 24 to 30 ms, with a
+ * tail to 57 ms; 823 kB (Canada beside the United States, past what this
+ * budget allows) rebuilds in 42 to 44 ms, with a tail past 100 ms — which is
+ * the line this number is chosen to stay under. Paid at most eight times a
+ * second during an actual spin, and never again once the camera stops or on a
+ * Mercator pan or zoom, either one is a real but occasional hitch rather than
+ * the sustained quarter-of-the-frame-rate drag the old 256 kB was sized
+ * against — that comparison, and the method, are in
+ * `docs/airfare-map-rendering.md`.
  *
  * Spent once per country per session, not once per view: `useSubdivisions`
  * caches forever, so panning back over ground already covered costs nothing on
- * the wire. The budget still counts those countries, because it is the frame
- * it is protecting and a cached country is drawn exactly as often as a fetched
- * one — a cache that made the map heavier the longer you looked at it would
- * only have moved the cost from the connection to the hand.
+ * the wire. The budget still counts those countries, because a first build is
+ * still a first build regardless of how a later frame reuses it — a cache
+ * that made the map heavier the longer you looked at it would only have moved
+ * the cost from the connection to the hand.
  */
-export const VIEW_BUDGET_BYTES = 256_000;
+export const VIEW_BUDGET_BYTES = 512_000;
 
 export type FanOut = {
   /** The countries to fetch and draw, in the order they earned their place. */

@@ -25,7 +25,22 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
   const [searching, setSearching] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * The symbol a pick last set `query` to, so the search effect below can
+   * tell "the field holds what was just chosen" apart from "the field holds
+   * something the user is still typing" — both are non-empty strings, but
+   * only the second should re-open the results list and search again. Any
+   * further edit clears it in `onChange`, which is what lets typing over a
+   * picked symbol search again rather than staying stuck closed.
+   */
+  const pickedRef = useRef<string | null>(null);
+
   useEffect(() => {
+    if (query === pickedRef.current) {
+      setHits([]);
+      return;
+    }
+
     const wanted = query.trim();
     if (wanted.length < 2) {
       setHits([]);
@@ -49,9 +64,16 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
     };
   }, [query]);
 
+  /**
+   * Picking sets the field to the symbol chosen rather than clearing it —
+   * the ticker just picked is exactly what someone glancing at the field
+   * next needs to see there, not a blank box with the confirmation living
+   * only in a caller's own "Selected: X" line beside it.
+   */
   function pick(hit: SymbolHit) {
+    pickedRef.current = hit.symbol;
     onPick(hit.symbol, hit.name);
-    setQuery('');
+    setQuery(hit.symbol);
     setHits([]);
   }
 
@@ -62,17 +84,25 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
         value={query}
         placeholder="Search a symbol"
         aria-label="Search a symbol"
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          pickedRef.current = null;
+          setQuery(event.target.value);
+        }}
         onKeyDown={(event) => {
           // Enter with nothing chosen follows what was typed: a symbol you know
           // should not need the list to confirm it exists.
-          if (event.key === 'Enter' && query.trim())
+          if (event.key === 'Enter' && query.trim()) {
+            // Both callers nest this inside their own <form>: left alone,
+            // Enter's default action submits that form the instant a symbol
+            // is picked, well before the rest of it has been filled in.
+            event.preventDefault();
             pick(hits[0] ?? { symbol: query, name: query, kind: '', exchange: null });
+          }
           if (event.key === 'Escape') setHits([]);
         }}
       />
 
-      {query.trim().length >= 2 ? (
+      {query.trim().length >= 2 && query !== pickedRef.current ? (
         <ul className={styles.results} aria-label="Search results">
           {searching && !hits.length ? <li className={styles.hint}>Searching…</li> : null}
           {!searching && !hits.length ? <li className={styles.hint}>Nothing found.</li> : null}

@@ -14,7 +14,12 @@ import {
   drawPane,
   type IndicatorSeries,
 } from '@/features/investing/chart/indicatorLayers';
-import { drawPriceLines, positionPriceLine } from '@/features/investing/chart/priceLines';
+import {
+  alertPriceLine,
+  drawPriceLines,
+  positionPriceLine,
+} from '@/features/investing/chart/priceLines';
+import type { PriceAlert } from '@/features/investing/data/priceAlerts';
 import type { Position } from '@/features/investing/data/portfolio';
 import { layoutPanes, type PaneId, type PaneLayout } from '@/features/investing/lib/panes';
 
@@ -69,6 +74,8 @@ type CandleChartProps = {
   panes?: PaneId[];
   /** The open position on `symbol`, if any — draws its entry as a dashed reference line. */
   position?: Position;
+  /** The active price alerts on `symbol`, if any — each draws as a dotted reference line. */
+  alerts?: PriceAlert[];
   /** Whether a bar falls outside the regular session, and so draws translucent. */
   isGhost: (bar: Bar, index: number) => boolean;
   /** How to label a bar on the time axis; the chart does not own the calendar. */
@@ -86,6 +93,7 @@ export function CandleChart({
   indicators,
   panes,
   position,
+  alerts,
   isGhost,
   formatTime,
   loading,
@@ -164,6 +172,11 @@ export function CandleChart({
   // A screen reader user cannot see the dashed line drawn on the canvas below,
   // so the entry price it stands for is spoken here instead.
   const positionSummary = position ? `Position entry at ${position.averageCost.toFixed(2)}.` : '';
+  // Same reasoning, one sentence per alert: the dotted line is invisible to a
+  // screen reader, so what it marks has to be said instead of drawn.
+  const alertsSummary = (alerts ?? [])
+    .map((alert) => `${alert.kind === 'buy' ? 'Buy' : 'Sell'} alert at ${alert.price.toFixed(2)}.`)
+    .join(' ');
   const instructionsId = useId();
   const statusId = useId();
   const tableId = useId();
@@ -180,8 +193,19 @@ export function CandleChart({
 
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, size.width, size.height);
-    drawChart(ctx, { bars, window, plot, size, isGhost, formatTime, layout, indicators, position });
-  }, [bars, window, plot, size, isGhost, formatTime, layout, indicators, position]);
+    drawChart(ctx, {
+      bars,
+      window,
+      plot,
+      size,
+      isGhost,
+      formatTime,
+      layout,
+      indicators,
+      position,
+      alerts,
+    });
+  }, [bars, window, plot, size, isGhost, formatTime, layout, indicators, position, alerts]);
 
   useEffect(() => {
     const canvas = overlayRef.current;
@@ -376,7 +400,9 @@ export function CandleChart({
           aria-roledescription="candlestick chart"
           aria-label={`${symbol} ${timeframe} chart. ${visibleRange} ${
             following ? 'Following latest candles.' : 'Viewing historical candles.'
-          } ${positionSummary}`.trim()}
+          } ${positionSummary} ${alertsSummary}`
+            .replace(/\s+/g, ' ')
+            .trim()}
           aria-describedby={`${instructionsId} ${statusId}`}
           tabIndex={0}
           onPointerDown={(event) => {
@@ -493,6 +519,7 @@ type DrawArgs = {
   layout: PaneLayout;
   indicators?: IndicatorSeries;
   position?: Position;
+  alerts?: PriceAlert[];
 };
 
 const COLOURS = {
@@ -503,7 +530,8 @@ const COLOURS = {
 };
 
 function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
-  const { bars, window, plot, size, isGhost, formatTime, layout, indicators, position } = args;
+  const { bars, window, plot, size, isGhost, formatTime, layout, indicators, position, alerts } =
+    args;
   const shown = visibleBars(bars, window);
   if (!shown.length) return;
 
@@ -555,13 +583,14 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
     drawOverlays(ctx, { series: indicators, window, plot, band: layout.price, scale });
   }
 
-  if (position) {
-    drawPriceLines(ctx, {
-      lines: [positionPriceLine(bars, position)],
-      band: layout.price,
-      plot,
-      scale,
-    });
+  // One shared layer for both kinds of reference line: see `priceLines.ts` on
+  // why they can share it despite the colour collision between them.
+  const priceLines = [
+    ...(position ? [positionPriceLine(bars, position)] : []),
+    ...(alerts ?? []).map(alertPriceLine),
+  ];
+  if (priceLines.length) {
+    drawPriceLines(ctx, { lines: priceLines, band: layout.price, plot, scale });
   }
 
   ctx.save();

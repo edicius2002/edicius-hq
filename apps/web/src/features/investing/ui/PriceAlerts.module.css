@@ -1,0 +1,231 @@
+.list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.add {
+  position: relative;
+  min-height: 1.85rem;
+  margin-bottom: var(--space-2);
+}
+
+.addButton {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.addButton:hover {
+  background: var(--color-surface-soft);
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.35rem var(--space-2);
+  border-radius: var(--radius);
+}
+
+.row:hover {
+  background: var(--color-surface-soft);
+}
+
+/* A turned-off alert is still in the list — reactivating it is the point —
+   but should not read as loudly as one still watching. */
+.inactive {
+  opacity: 0.6;
+}
+
+.info {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.symbol {
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.buy,
+.sell {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.buy {
+  color: var(--color-income);
+}
+
+.sell {
+  color: var(--color-expense);
+}
+
+.status {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+}
+
+.action {
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.action:hover {
+  color: var(--color-text);
+}
+
+.action[aria-pressed='true'] {
+  color: var(--color-accent);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+}
+
+.addForm {
+  position: relative;
+  z-index: 3;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px var(--color-shadow);
+}
+
+.editForm {
+  padding: var(--space-2) 0;
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.fieldLabel {
+  color: var(--color-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.selectedSymbol {
+  color: var(--color-text);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.kindGroup {
+  display: flex;
+  gap: 2px;
+}
+
+.kindButton {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.kindOn {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.input {
+  width: 100%;
+  padding: 0.1rem var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.formError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.7rem;
+}
+
+/* Informational, not a refusal: what "already met, will sound on the next
+   crossing" looks like, so it does not read with the same alarm as formError. */
+.formHint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.cancel,
+.save {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

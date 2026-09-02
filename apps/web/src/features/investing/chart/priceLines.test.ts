@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Position } from '@/features/investing/data/portfolio';
+import type { PriceAlert } from '@/features/investing/data/priceAlerts';
 import type { Bar } from '@/shared/api/market';
 
-import { drawPriceLines, positionPriceLine } from './priceLines';
+import { alertPriceLine, drawPriceLines, positionPriceLine } from './priceLines';
 
 type Spies = {
   setLineDash: ReturnType<typeof vi.fn>;
@@ -118,6 +119,20 @@ describe('drawPriceLines', () => {
 
     expect(spies.beginPath).not.toHaveBeenCalled();
   });
+
+  it("uses a line's own dash pattern when it carries one, instead of the default", () => {
+    const { ctx, spies } = fakeCtx();
+
+    drawPriceLines(ctx, {
+      lines: [{ price: 50, label: 'x', color: '#fff', dash: [2, 2] }],
+      band: BAND,
+      plot: PLOT,
+      scale,
+    });
+
+    expect(spies.setLineDash).toHaveBeenCalledWith([2, 2]);
+    expect(spies.setLineDash).toHaveBeenLastCalledWith([]);
+  });
 });
 
 function bar(over: Partial<Bar> = {}): Bar {
@@ -144,5 +159,28 @@ describe('positionPriceLine', () => {
     const line = positionPriceLine([bar({ close: 95 })], position);
 
     expect(line.color).toBe('#f08d78');
+  });
+});
+
+describe('alertPriceLine', () => {
+  const buy: Pick<PriceAlert, 'kind' | 'price'> = { kind: 'buy', price: 200 };
+  const sell: Pick<PriceAlert, 'kind' | 'price'> = { kind: 'sell', price: 260 };
+
+  it('labels a buy alert with its verb and price', () => {
+    expect(alertPriceLine(buy).label).toBe('Buy 200.00');
+    expect(alertPriceLine(buy).price).toBe(200);
+  });
+
+  it('labels a sell alert with its verb and price', () => {
+    expect(alertPriceLine(sell).label).toBe('Sell 260.00');
+  });
+
+  it('colours a buy green and a sell red, the same pair `positionPriceLine` uses', () => {
+    expect(alertPriceLine(buy).color).toBe('#8dd36f');
+    expect(alertPriceLine(sell).color).toBe('#f08d78');
+  });
+
+  it("carries a dash pattern different from a position entry line's default", () => {
+    expect(alertPriceLine(buy).dash).toEqual([2, 2]);
   });
 });

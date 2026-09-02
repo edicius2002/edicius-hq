@@ -7,6 +7,7 @@ import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
 import { activePanes } from '@/features/investing/data/indicators';
 import {
+  positionFor,
   totalsByCurrency,
   valuePosition,
   type Valuation,
@@ -97,6 +98,10 @@ export function InvestingPage() {
   const series = useIndicatorSeries(candles.bars, indicators, timeframe);
   const panes = useMemo(() => activePanes(indicators), [indicators]);
   const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
+  const position = useMemo(
+    () => positionFor(holdings.portfolio, symbol),
+    [holdings.portfolio, symbol],
+  );
 
   // The charted symbol rides along with the watchlist, so the whole screen is
   // one request rather than one for the list and another for what it points at.
@@ -281,6 +286,7 @@ export function InvestingPage() {
               timeframe={timeframe}
               indicators={series}
               panes={panes}
+              position={position}
               isGhost={candles.isGhost}
               formatTime={formatTime}
               loading={candles.isPending}

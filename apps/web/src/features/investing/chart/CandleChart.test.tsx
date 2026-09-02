@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Position } from '@/features/investing/data/portfolio';
 import type { Bar } from '@/shared/api/market';
 
 import { CandleChart } from './CandleChart';
@@ -130,5 +131,27 @@ describe('CandleChart live-edge follow', () => {
     fireEvent.keyDown(target, { key: '+' });
     fireEvent.keyDown(target, { key: 'End' });
     expect(screen.getByText('bar 199')).toBeInTheDocument();
+  });
+});
+
+describe('CandleChart position entry line', () => {
+  const position: Position = { symbol: 'AAPL', quantity: 3, averageCost: 100 };
+
+  it('names the entry price for a symbol with an open position', () => {
+    const { container } = render(<CandleChart {...chartProps({ position })} />);
+
+    expect(surface(container)).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Position entry at 100.00.'),
+    );
+  });
+
+  it('says nothing about an entry when the symbol has no position', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+
+    expect(surface(container)).not.toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Position entry'),
+    );
   });
 });

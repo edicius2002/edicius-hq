@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CountryInView } from '@/features/airfare/lib/countries';
-import { VIEW_BUDGET_BYTES, planFanOut } from '@/features/airfare/lib/fanOut';
+import { VIEW_BUDGET_BYTES, needsSettleWait, planFanOut } from '@/features/airfare/lib/fanOut';
 
 /**
  * What one view is allowed to spend, and what it does when it cannot afford
@@ -150,20 +150,51 @@ describe('planFanOut', () => {
     expect(after.refused).toEqual(['076']);
   });
 
-  it('buys the view this change exists for', () => {
+  it('buys the view this change exists for, and now fits its actual edge too', () => {
     /*
-     * The budget is not a round number chosen for looking like one. This is the
-     * view the complaint was made about — Peru zoomed into with Bolivia beside
-     * it and Chile below the border — and the four countries across that corner
-     * are 248 kB together against 256, which is 25 ms of `geoPath` a frame
-     * against the 26.3 ms the whole map already costs.
+     * The budget is not a round number chosen for looking like one. This is
+     * the view the complaint was made about — Peru zoomed into with Bolivia
+     * beside it and Chile below the border, Brazil and Argentina at the
+     * edges — and the whole corner is 405 kB together.
+     *
+     * It used to refuse Brazil at a 256 kB budget, back when a rebuild was
+     * paid every frame of a drag and the budget had to bound that repeated
+     * cost — see `VIEW_BUDGET_BYTES`. `reprojectionCache.ts` reuses a built
+     * `Path2D` instead of repeating that cost, so the budget now only has to
+     * bound an occasional rebuild rather than every frame of one, and can
+     * afford the corner whole.
      */
-    const tripoint = planFanOut(view('604', '068', '152', '032', '076'), '604', BYTES);
-    expect(tripoint.bytes).toBeLessThanOrEqual(VIEW_BUDGET_BYTES);
-    expect(tripoint.countries).toEqual(['604', '068', '152', '032']);
-    expect(tripoint.bytes).toBe(248_256);
-    // Brazil is in the frame at its edge and is the one that will not fit, so
-    // it keeps its coarse outline and its own name.
-    expect(tripoint.refused).toEqual(['076']);
+    const corner = planFanOut(view('604', '068', '152', '032', '076'), '604', BYTES);
+    expect(corner.bytes).toBeLessThanOrEqual(VIEW_BUDGET_BYTES);
+    expect(corner.countries).toEqual(['604', '068', '152', '032', '076']);
+    expect(corner.bytes).toBe(405_334);
+    expect(corner.refused).toEqual([]);
+
+    // The ceiling is still real: add Russia, the heaviest file on file, and
+    // something is refused again.
+    const withRussia = planFanOut(view('604', '068', '152', '032', '076', '643'), '604', BYTES);
+    expect(withRussia.bytes).toBeLessThanOrEqual(VIEW_BUDGET_BYTES);
+    expect(withRussia.refused).toEqual(['643']);
+  });
+});
+
+describe('needsSettleWait', () => {
+  it('needs the wait the first time, with nothing resolved yet', () => {
+    expect(needsSettleWait(['604'], new Set())).toBe(true);
+  });
+
+  it('skips the wait once every country in the plan has answered before', () => {
+    expect(needsSettleWait(['604'], new Set(['604']))).toBe(false);
+    expect(needsSettleWait(['604', '068'], new Set(['604', '068']))).toBe(false);
+  });
+
+  it('still waits if even one country in the plan is new', () => {
+    // Bolivia has never answered, even though Peru has — a fan-out that would
+    // ask about Bolivia for the first time still gets the protection.
+    expect(needsSettleWait(['604', '068'], new Set(['604']))).toBe(true);
+  });
+
+  it('needs no wait at all for an empty plan', () => {
+    expect(needsSettleWait([], new Set())).toBe(false);
   });
 });

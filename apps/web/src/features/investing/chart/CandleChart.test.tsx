@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Position } from '@/features/investing/data/portfolio';
+import type { PriceAlert } from '@/features/investing/data/priceAlerts';
 import type { Bar } from '@/shared/api/market';
 
 import { CandleChart } from './CandleChart';
@@ -153,5 +154,47 @@ describe('CandleChart position entry line', () => {
       'aria-label',
       expect.stringContaining('Position entry'),
     );
+  });
+});
+
+describe('CandleChart price alert lines', () => {
+  const buyAlert: PriceAlert = {
+    id: 'a1',
+    symbol: 'AAPL',
+    kind: 'buy',
+    price: 200,
+    active: true,
+    createdAt: 0,
+    triggeredAt: null,
+  };
+  const sellAlert: PriceAlert = { ...buyAlert, id: 'a2', kind: 'sell', price: 260 };
+
+  it('names each active alert for a screen reader, since the dotted line itself is invisible to one', () => {
+    const { container } = render(
+      <CandleChart {...chartProps({ alerts: [buyAlert, sellAlert] })} />,
+    );
+
+    expect(surface(container)).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Buy alert at 200.00. Sell alert at 260.00.'),
+    );
+  });
+
+  it('says nothing about an alert when there are none', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+
+    expect(surface(container)).not.toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('alert at'),
+    );
+  });
+
+  it('names both a position entry and an alert together without one crowding out the other', () => {
+    const position: Position = { symbol: 'AAPL', quantity: 3, averageCost: 100 };
+    const { container } = render(<CandleChart {...chartProps({ position, alerts: [buyAlert] })} />);
+
+    const label = surface(container).getAttribute('aria-label') ?? '';
+    expect(label).toContain('Position entry at 100.00.');
+    expect(label).toContain('Buy alert at 200.00.');
   });
 });

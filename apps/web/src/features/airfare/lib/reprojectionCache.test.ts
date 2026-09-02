@@ -6,6 +6,7 @@ import {
   REFERENCE_GEOMETRY_WEIGHT,
   ROTATE_REBUILD_MS,
   affineMatrix,
+  anyStale,
   applyMatrix,
   decideReuse,
   geometryWeight,
@@ -337,5 +338,32 @@ describe('strokesInnerBorders', () => {
     // borders if and only if its coastline is the one they were built against.
     const both = [standInFor(true), standInFor(false)].map(strokesInnerBorders);
     expect(both.filter(Boolean)).toHaveLength(1);
+  });
+});
+
+describe('anyStale', () => {
+  it('is false when nothing is held back', () => {
+    expect(anyStale([{ kind: 'reuse', matrix: IDENTITY_MATRIX }, { kind: 'rebuild' }])).toBe(false);
+  });
+
+  it('is false with nothing on screen to redraw at all', () => {
+    expect(anyStale([])).toBe(false);
+  });
+
+  it('is true the moment any one country is held back, even among others that are not', () => {
+    // The whole point: one neighbour answering `stale` outvotes the rest, so
+    // the caller degrades every one of them together rather than mixing
+    // resolutions across a shared frontier.
+    expect(
+      anyStale([
+        { kind: 'reuse', matrix: IDENTITY_MATRIX },
+        { kind: 'stale' },
+        { kind: 'rebuild' },
+      ]),
+    ).toBe(true);
+  });
+
+  it('is true when it is the only country on screen', () => {
+    expect(anyStale([{ kind: 'stale' }])).toBe(true);
   });
 });

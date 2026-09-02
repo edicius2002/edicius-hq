@@ -265,6 +265,45 @@ En el orden en que atacan las cuatro quejas:
    `RouteMap.test.tsx` no ejerce (`getContext` se mockea a `null` en ese archivo), de ahí que la
    verificación real para este cambio sea de navegador y no de test unitario.
 
+   **Recalibrado una tercera vez (esta sesión): un reporte de "bordes negros de los países,
+   aún hay bugs visuales" durante el giro.** (c) resuelve la posición de un país degradado
+   mientras gira — su contorno 1:110m se reproyecta en vivo, no se queda congelado — pero
+   `decideReuse` sigue decidiendo `stale` país por país, de forma independiente. Durante un
+   giro continuo, dos países vecinos pueden estar en ramas distintas en el mismo frame: uno ya
+   reproyectado en 1:10m, el otro todavía dibujando su contorno 1:110m porque su propio
+   `rotateThrottleMs` no ha vencido. Verificado en el navegador forzando ese desacople
+   (`decideReuse` de un país fijado a `stale` mientras sus vecinos seguían en `rebuild`/`reuse`,
+   ambos capturados con `window.__mapDebug` frame por frame durante un giro real): la frontera
+   compartida entre Chile (forzado `stale`) y Bolivia (sin forzar) se abre en una costura
+   dentada de fondo oscuro, no un doble trazo — la línea 1:110m de Chile y la línea 1:10m de
+   Bolivia no comparten vértices en absoluto, y difieren en 1,5-5,2 km de mediana (hasta 31 km
+   en el peor vértice, la misma medición de más arriba en este documento), así que ninguno de
+   los dos rellenos cubre la franja entre ambos. Eso es exactamente lo que un lector describe
+   como "bordes negros" — y solo durante el giro, porque en reposo todos los países vecinos
+   comparten la misma resolución (todos en 1:10m o, tras un `reset`, todos recién construidos a
+   la vez).
+
+   El arreglo no puede ser país por país, porque el desacople es entre las respuestas de dos
+   países, no un error en ninguna de las dos por separado. `reprojectionCache.anyStale`
+   decide, **antes de que ninguno dibuje nada**, si algún país redibujado en este frame
+   respondió `stale`; si es así, `RouteMap.tsx` hace que **todos** los países redibujados de
+   este frame dibujen su contorno 1:110m juntos — la misma rama de (c), aplicada al grupo en
+   vez de a cada país por su cuenta — en lugar de dejar que cada uno responda por separado. El
+   costo es que un país que ya le tocaba ponerse al día se queda en baja resolución tanto como
+   el vecino más lento; el beneficio es que las dos resoluciones nunca coexisten en la misma
+   frontera compartida, porque el atlas 1:110m ya tesela consigo mismo por construcción. Un
+   país cuyo `decideReuse` respondió `rebuild` pero cuyo frame terminó degradado por el grupo
+   **no reproyecta su geometría 1:10m ese frame** — el trabajo se habría descartado sin
+   dibujarse — así que su caché queda tan desactualizada como estaba, y la próxima vez que
+   `decideReuse` lo pida se reproyecta desde la rotación que esté vigente entonces, no desde
+   una ya vieja cuando se pidió. Repetido el mismo experimento de forzado tras el cambio: la
+   costura desaparece porque ambos países — el forzado y su vecino — degradan juntos al mismo
+   contorno 1:110m, verificado con capturas antes/después a la misma región y el mismo zoom.
+   `anyStale` vive en `reprojectionCache.ts` junto a `standInFor`/`strokesInnerBorders`, con
+   tests que cubren: ningún país `stale` (falso), un solo país en pantalla que sí lo es
+   (verdadero), y un `stale` entre otros que no lo son (verdadero) — la regla que la corrección
+   necesitaba probar, porque un país vecino "vota" por todos.
+
 2. **Separar "cuándo pedir datos" de "cuándo mostrarlos" (queja D).** `SETTLE_MS`/`ARRIVAL_MS`
    existen para no bombardear la red mientras el lector gira el globo — una razón válida
    para el _fetch_. Pero un país cuyos datos **ya están en la caché de React Query** no tiene

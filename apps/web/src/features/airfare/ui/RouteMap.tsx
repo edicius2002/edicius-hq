@@ -43,6 +43,7 @@ import {
 } from '@/features/airfare/lib/globe';
 import {
   IDENTITY_MATRIX,
+  anyStale,
   standInFor,
   strokesInnerBorders,
   decideReuse,
@@ -51,6 +52,7 @@ import {
   type CachedGeometry,
   type Matrix2D,
   type ProjectionSnapshot,
+  type ReuseDecision,
 } from '@/features/airfare/lib/reprojectionCache';
 import type { Subdivisions } from '@/features/airfare/lib/subdivisions';
 import { type Cap, capped, cappedRuns, capsMeet, viewCap } from '@/features/airfare/lib/visible';
@@ -841,6 +843,21 @@ export function RouteMap({
     for (const country of held.keys()) {
       if (!subdivisions.some((each) => each.country === country)) held.delete(country);
     }
+    /**
+     * Every country's own answer, decided before any of them draws anything.
+     *
+     * `decideReuse` only compares one country's cache against the current
+     * frame — it has no way to know what its neighbours just decided, and it
+     * is not supposed to: the throttle it applies is genuinely per-country,
+     * scaled by that one country's own `geometryWeight`. Collecting every
+     * answer first, and only then choosing what to draw, is what lets
+     * `anyStale` see all of them at once before the expensive half of this
+     * loop — the actual reprojection below — commits to doing anything.
+     */
+    const decisions = new Map<
+      string,
+      { decision: ReuseDecision; includedLand: boolean[]; includedBorders: boolean[] }
+    >();
     for (const each of subdivisions) {
       const had = held.get(each.country);
       const includedLand = each.landParts.map((part) => onScreen(part.cap));
@@ -854,18 +871,35 @@ export function RouteMap({
         includedLand,
         includedBorders,
       );
+      decisions.set(each.country, { decision, includedLand, includedBorders });
+    }
 
-      if (decision.kind === 'reuse') {
-        matrices.set(each.country, decision.matrix);
-        continue;
-      }
-      if (decision.kind === 'stale') {
+    /**
+     * Whether this frame draws every redrawn country's coarse stand-in
+     * together — see `anyStale` for why a mismatch between two countries'
+     * own answers, not either answer alone, is the thing that opens a seam.
+     */
+    const degradeGroup = anyStale([...decisions.values()].map((each) => each.decision));
+
+    for (const each of subdivisions) {
+      const found = decisions.get(each.country);
+      if (!found) continue;
+      const { decision, includedLand, includedBorders } = found;
+
+      if (degradeGroup) {
         // The 1:10m shape is held back — see the comment above for why a
         // rotation change cannot be answered with a matrix. Its 1:110m
         // outline stands in instead, projected fresh from the current
         // rotation rather than reused from any earlier frame; the shape
         // itself is only present while `swapped` names this country, which is
-        // exactly while it is on screen with subdivisions to hold back.
+        // exactly while it is on screen with subdivisions to hold back. Every
+        // redrawn country takes this branch together, not only the one whose
+        // own throttle asked for it, which is what keeps a shared frontier at
+        // one resolution on both sides of it. A country's own `rebuild` work
+        // is skipped for the same reason: reprojecting it now would only be
+        // thrown away undrawn, so its cache is left exactly as stale as it
+        // was, and it rebuilds once degrading ends, from whatever rotation is
+        // live then rather than one already behind it.
         const outline = coarse.byId.get(each.country);
         if (standInFor(outline !== undefined) === 'coarse-outline') {
           const outlinePath = new Path2D();
@@ -878,6 +912,13 @@ export function RouteMap({
         continue;
       }
 
+      if (decision.kind === 'reuse') {
+        matrices.set(each.country, decision.matrix);
+        continue;
+      }
+
+      // `decision.kind` is `rebuild` here, never `stale`: `degradeGroup` is
+      // false only when no country's own answer was `stale` to begin with.
       const landPath = new Path2D();
       const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
       for (const [index, part] of each.landParts.entries())

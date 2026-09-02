@@ -275,3 +275,38 @@ export function standInFor(hasCoarseOutline: boolean): StandIn {
 export function strokesInnerBorders(standIn: StandIn): boolean {
   return standIn === 'frozen-fine';
 }
+
+/**
+ * Whether every redrawn country on screen must fall back to its coarse
+ * stand-in together this frame, rather than let each answer `decideReuse` for
+ * itself.
+ *
+ * A shared frontier tessellates when both sides are surveyed at the same
+ * resolution — two neighbouring 1:10m outlines agree to a median of 67-133 m
+ * (`docs/airfare-map-rendering.md`), close enough that filling each from its
+ * own file still meets its neighbour's edge. A 1:10m outline and its own
+ * bundled 1:110m generalisation were never reconciled against each other at
+ * all: they part by a median of 1.5 to 5.2 km and up to 31 km at the worst
+ * vertex — worse where the coast turns, which is exactly where a country's
+ * own land border with the next one tends to sit. `decideReuse` decides
+ * `stale` per country, independently of its neighbours, so a spin can hold
+ * one country's fine shape back while a country beside it has already
+ * rebuilt or reused its own. The two shapes are then filled from different
+ * resolutions inside the same clipped region, and the km-scale gap between
+ * them is not double-painted, it is unpainted: a strip of whatever sits
+ * under the map showing through along the frontier, on the leading edge of
+ * the spin — measured live and confirmed by forcing one country `stale`
+ * while its neighbours were not.
+ *
+ * The fix cannot be per-country, because the mismatch is between two
+ * countries' answers, not wrong in either one alone. The moment any one of
+ * this frame's redrawn countries is held back, every one of them draws its
+ * own coarse stand-in for that frame — matching resolution with matching
+ * resolution, the same way two fine outlines already agree with each other.
+ * The cost is a country that was itself due to catch up sooner sitting
+ * coarse for as long as its slowest neighbour does; cheaper than the seam it
+ * would otherwise open.
+ */
+export function anyStale(decisions: readonly ReuseDecision[]): boolean {
+  return decisions.some((decision) => decision.kind === 'stale');
+}

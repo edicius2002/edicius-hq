@@ -304,6 +304,50 @@ En el orden en que atacan las cuatro quejas:
    (verdadero), y un `stale` entre otros que no lo son (verdadero) — la regla que la corrección
    necesitaba probar, porque un país vecino "vota" por todos.
 
+   **Recalibrado una cuarta vez (esta sesión): la costura ya no aparece, pero un lector
+   reporta parpadeo — las fronteras internas entran y salen varias veces durante UN solo
+   arrastre.** El fix de arriba resuelve el desacople _espacial_ entre países vecinos; deja
+   intacto un desacople _temporal_ dentro de un mismo país. Un arrastre continuo cambia la
+   rotación en cada frame, así que el `rotateThrottleMs` de un país liviano vence y se renueva
+   cada pocos frames — barato de reproyectar, pero cada una de esas reproyecciones es un
+   instante en que `anyStale` vuelve a leer `false`. El intercambio fino/basto que este
+   documento ya acepta una vez por ventana de throttle pasa a repetirse varias veces por
+   segundo durante el mismo gesto, y el lector ve las fronteras administrativas parpadear en
+   vez de una frontera que se queda quieta. Medido inyectando un contador de transiciones
+   (`degradedLand.size > 0`) y accionando `draw()` con el reloj controlado, sobre el mismo
+   arrastre continuo de 120 frames (~2 s a 60 Hz) que este documento ya usa como referencia:
+   **59 transiciones** con la lógica de antes (una decisión de `decideReuse` por frame, por
+   país). `decideReuse` no se equivoca en ninguno de esos frames — contesta sobre la geometría
+   de un país, y ningún país por sí solo era lo que necesitaba quedarse quieto.
+
+   El arreglo no es por frame ni por país: es por gesto. `RouteMap.tsx` ya guarda en
+   `gesture.current` si el lector está girando el globo con el puntero (`kind: 'rotate'`, para
+   distinguirlo de arrastrar el mapa plano o de la rueda, que nunca giran así). Mientras ese
+   gesto está activo, `reprojectionCache.forcesDegrade` contesta que el frame degrada sin
+   preguntarle nada a `decideReuse`: todos los países redibujados caen juntos al contorno
+   1:110m, y ninguno paga por reproyectar su 1:10m — esa reproyección se habría descartado sin
+   dibujarse en el frame siguiente de todos modos, porque la rotación ya se movió. Al soltar el
+   puntero, el basto se mantiene un `SETTLE_MS` más (el mismo cuarto de segundo que el mapa ya
+   espera antes de pedir qué subdivisiones dibujar) antes de que un único redibujo — programado,
+   no el que detiene el gesto — reconstruya cada país desde la rotación vigente en ese momento y
+   lo muestre a resolución fina. Repetido el mismo experimento tras el cambio, sobre el mismo
+   gesto de 120 frames más el soltar: **2 transiciones** — una al entrar, una al salir — el
+   mismo número tanto llamando a `draw()` con el reloj controlado como disparando el gesto real
+   por el pipeline de punteros del navegador.
+
+   La rueda queda fuera a propósito: sube el zoom sin poner `gesture.current` en `'rotate'`
+   (el reencuadre que hace para mantener el punto anclado bajo el cursor sí cambia la
+   rotación un poco, pero no es el gesto que causaba el parpadeo, y forzar el degradado ahí
+   habría sido degradar de más algo que ya funcionaba). `forcesDegrade` vive en
+   `reprojectionCache.ts` junto a `anyStale`, con tests que cubren: verdadero durante todo el
+   gesto sin importar la ventana de gracia, verdadero durante esa ventana tras soltar, falso
+   una vez que la ventana pasó sin gesto activo, y falso para un gesto `'pan'` (el mapa plano
+   nunca cambia de rotación, así que nunca tuvo este problema). La regla en sí —"mientras hay
+   gesto, degradado"— es pura y vive ahí; lo que no es testeable desde `RouteMap.test.tsx` es,
+   otra vez, si el canvas realmente deja de pintar las fronteras internas frame a frame:
+   `getContext` se mockea a `null` en ese archivo, así que la verificación de esta sesión fue
+   de navegador, inyectando el contador de transiciones directamente en `draw()`.
+
 2. **Separar "cuándo pedir datos" de "cuándo mostrarlos" (queja D).** `SETTLE_MS`/`ARRIVAL_MS`
    existen para no bombardear la red mientras el lector gira el globo — una razón válida
    para el _fetch_. Pero un país cuyos datos **ya están en la caché de React Query** no tiene

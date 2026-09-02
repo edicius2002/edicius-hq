@@ -310,3 +310,43 @@ export function strokesInnerBorders(standIn: StandIn): boolean {
 export function anyStale(decisions: readonly ReuseDecision[]): boolean {
   return decisions.some((decision) => decision.kind === 'stale');
 }
+
+/**
+ * Whether every redrawn country must fall back to its coarse stand-in
+ * because the reader is turning the globe by hand, rather than because
+ * `decideReuse` ran the throttle and answered `stale`.
+ *
+ * `anyStale` fixed a *spatial* mismatch — two neighbours filled from two
+ * resolutions in the same frame. This fixes a *temporal* one, reported
+ * separately once that seam was gone: during one continuous drag, rotation
+ * changes on every frame, so a light country's own `rotateThrottleMs` keeps
+ * expiring and being renewed every few frames — cheap enough to rebuild
+ * almost every time, but each rebuild is a moment where *that* country
+ * answers `rebuild` while a heavier neighbour still answers `stale`. Whether
+ * `anyStale` reads `true` or `false` at any given instant now depends on
+ * which countries happen to have rebuilt in the last few milliseconds, which
+ * flips several times over one drag — the fine/coarse swap this document
+ * already accepts once per throttle window turns into the admin borders
+ * blinking in and out throughout the gesture, not a border seam but a border
+ * that will not hold still.
+ *
+ * A held pointer answers a question `decideReuse` was never asked: not
+ * "is this country's own geometry due for a refresh", but "is the reader
+ * mid-gesture at all". While they are, the honest answer is coarse for
+ * everyone, for the gesture's whole duration — one transition down when it
+ * starts, one transition back up when it ends, and nothing in between,
+ * because nothing about *why* the map is degraded changes from one frame of
+ * the drag to the next. `now < until` extends that same answer for a short
+ * grace period after the pointer lifts, so the rebuild `decideReuse` would
+ * otherwise ask for on the very next frame — every held-back country at
+ * once, since a continuous drag leaves all of their caches equally stale —
+ * lands a beat after the drag stops instead of inside the frame that stops
+ * it, which is one settle rather than one more flip.
+ */
+export function forcesDegrade(
+  gestureKind: 'rotate' | 'pan' | undefined,
+  now: number,
+  until: number,
+): boolean {
+  return gestureKind === 'rotate' || now < until;
+}

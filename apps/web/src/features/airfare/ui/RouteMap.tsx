@@ -44,6 +44,7 @@ import {
 import {
   IDENTITY_MATRIX,
   anyStale,
+  forcesDegrade,
   standInFor,
   strokesInnerBorders,
   decideReuse,
@@ -843,100 +844,130 @@ export function RouteMap({
     for (const country of held.keys()) {
       if (!subdivisions.some((each) => each.country === country)) held.delete(country);
     }
+
     /**
-     * Every country's own answer, decided before any of them draws anything.
+     * Draws `country`'s coarse stand-in for this frame, whichever of the two
+     * reasons below asked for it — the coarse atlas does not know which one
+     * drew it, and neither should the reader.
+     */
+    const degradeCountry = (country: string) => {
+      const outline = coarse.byId.get(country);
+      if (standInFor(outline !== undefined) === 'coarse-outline') {
+        const outlinePath = new Path2D();
+        const intoOutline = geoPath(shown, outlinePath as unknown as CanvasRenderingContext2D);
+        intoOutline(outline as never);
+        degradedLand.set(country, outlinePath);
+      } else {
+        matrices.set(country, IDENTITY_MATRIX);
+      }
+    };
+
+    /**
+     * Whether the reader's pointer is turning the globe right now, or let go
+     * of it within the last `SETTLE_MS` — see `forcesDegrade` for why a held
+     * gesture decides this on its own, without asking `decideReuse` anything.
      *
-     * `decideReuse` only compares one country's cache against the current
-     * frame — it has no way to know what its neighbours just decided, and it
-     * is not supposed to: the throttle it applies is genuinely per-country,
-     * scaled by that one country's own `geometryWeight`. Collecting every
-     * answer first, and only then choosing what to draw, is what lets
-     * `anyStale` see all of them at once before the expensive half of this
-     * loop — the actual reprojection below — commits to doing anything.
+     * Rotation changes on every frame of a drag, so a light country's own
+     * `rotateThrottleMs` keeps expiring and being renewed a few frames apart
+     * — cheap enough to rebuild almost every time, which is exactly the
+     * problem: each of those rebuilds is a moment where `anyStale` reads
+     * `false` again, so the fine/coarse swap this file already accepts once
+     * per throttle window instead flips several times over one continuous
+     * drag, and a reader watching one gesture sees the admin borders blink
+     * rather than a border that held still. `decideReuse` is not wrong on
+     * any of those frames — it is answering a question about one country's
+     * own geometry, and no single country's answer was ever the thing that
+     * needed to hold still. This is a coarser question, asked once for the
+     * whole gesture instead of once per country per frame: while the pointer
+     * is down, and for one settle beat after, the map shows one thing.
      */
-    const decisions = new Map<
-      string,
-      { decision: ReuseDecision; includedLand: boolean[]; includedBorders: boolean[] }
-    >();
-    for (const each of subdivisions) {
-      const had = held.get(each.country);
-      const includedLand = each.landParts.map((part) => onScreen(part.cap));
-      const includedBorders = each.borderRuns.map((run) => onScreen(run.cap));
-      const decision = decideReuse(
-        had,
-        each,
-        snapshot,
-        now,
-        rotateThrottleMs(geometryWeight(each.landParts, each.borderRuns)),
-        includedLand,
-        includedBorders,
-      );
-      decisions.set(each.country, { decision, includedLand, includedBorders });
-    }
+    const dragging = forcesDegrade(gesture.current?.kind, now, draggedUntil.current);
 
-    /**
-     * Whether this frame draws every redrawn country's coarse stand-in
-     * together — see `anyStale` for why a mismatch between two countries'
-     * own answers, not either answer alone, is the thing that opens a seam.
-     */
-    const degradeGroup = anyStale([...decisions.values()].map((each) => each.decision));
+    if (dragging) {
+      // Every redrawn country takes the coarse branch together, and none of
+      // them pays to rebuild: a rebuild mid-drag would answer for a rotation
+      // that has already moved on by the time the next frame asks again, so
+      // it is thrown away undrawn either way. `held` is left exactly as
+      // stale as it was; the first frame once dragging ends rebuilds it from
+      // whatever rotation is live then, not one already behind it.
+      for (const each of subdivisions) degradeCountry(each.country);
+    } else {
+      /**
+       * Every country's own answer, decided before any of them draws
+       * anything.
+       *
+       * `decideReuse` only compares one country's cache against the current
+       * frame — it has no way to know what its neighbours just decided, and
+       * it is not supposed to: the throttle it applies is genuinely
+       * per-country, scaled by that one country's own `geometryWeight`.
+       * Collecting every answer first, and only then choosing what to draw,
+       * is what lets `anyStale` see all of them at once before the expensive
+       * half of this loop — the actual reprojection below — commits to doing
+       * anything.
+       */
+      const decisions = new Map<
+        string,
+        { decision: ReuseDecision; includedLand: boolean[]; includedBorders: boolean[] }
+      >();
+      for (const each of subdivisions) {
+        const had = held.get(each.country);
+        const includedLand = each.landParts.map((part) => onScreen(part.cap));
+        const includedBorders = each.borderRuns.map((run) => onScreen(run.cap));
+        const decision = decideReuse(
+          had,
+          each,
+          snapshot,
+          now,
+          rotateThrottleMs(geometryWeight(each.landParts, each.borderRuns)),
+          includedLand,
+          includedBorders,
+        );
+        decisions.set(each.country, { decision, includedLand, includedBorders });
+      }
 
-    for (const each of subdivisions) {
-      const found = decisions.get(each.country);
-      if (!found) continue;
-      const { decision, includedLand, includedBorders } = found;
+      /**
+       * Whether this frame draws every redrawn country's coarse stand-in
+       * together — see `anyStale` for why a mismatch between two countries'
+       * own answers, not either answer alone, is the thing that opens a seam.
+       */
+      const degradeGroup = anyStale([...decisions.values()].map((each) => each.decision));
 
-      if (degradeGroup) {
-        // The 1:10m shape is held back — see the comment above for why a
-        // rotation change cannot be answered with a matrix. Its 1:110m
-        // outline stands in instead, projected fresh from the current
-        // rotation rather than reused from any earlier frame; the shape
-        // itself is only present while `swapped` names this country, which is
-        // exactly while it is on screen with subdivisions to hold back. Every
-        // redrawn country takes this branch together, not only the one whose
-        // own throttle asked for it, which is what keeps a shared frontier at
-        // one resolution on both sides of it. A country's own `rebuild` work
-        // is skipped for the same reason: reprojecting it now would only be
-        // thrown away undrawn, so its cache is left exactly as stale as it
-        // was, and it rebuilds once degrading ends, from whatever rotation is
-        // live then rather than one already behind it.
-        const outline = coarse.byId.get(each.country);
-        if (standInFor(outline !== undefined) === 'coarse-outline') {
-          const outlinePath = new Path2D();
-          const intoOutline = geoPath(shown, outlinePath as unknown as CanvasRenderingContext2D);
-          intoOutline(outline as never);
-          degradedLand.set(each.country, outlinePath);
-        } else {
-          matrices.set(each.country, IDENTITY_MATRIX);
+      for (const each of subdivisions) {
+        const found = decisions.get(each.country);
+        if (!found) continue;
+        const { decision, includedLand, includedBorders } = found;
+
+        if (degradeGroup) {
+          degradeCountry(each.country);
+          continue;
         }
-        continue;
-      }
 
-      if (decision.kind === 'reuse') {
-        matrices.set(each.country, decision.matrix);
-        continue;
-      }
+        if (decision.kind === 'reuse') {
+          matrices.set(each.country, decision.matrix);
+          continue;
+        }
 
-      // `decision.kind` is `rebuild` here, never `stale`: `degradeGroup` is
-      // false only when no country's own answer was `stale` to begin with.
-      const landPath = new Path2D();
-      const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
-      for (const [index, part] of each.landParts.entries())
-        if (includedLand[index]) intoLand(part.shape);
-      const bordersPath = new Path2D();
-      const intoBorders = geoPath(shown, bordersPath as unknown as CanvasRenderingContext2D);
-      for (const [index, run] of each.borderRuns.entries())
-        if (includedBorders[index]) intoBorders(run.shape);
-      held.set(each.country, {
-        of: each,
-        land: landPath,
-        borders: bordersPath,
-        snapshot,
-        builtAt: now,
-        includedLand,
-        includedBorders,
-      });
-      matrices.set(each.country, IDENTITY_MATRIX);
+        // `decision.kind` is `rebuild` here, never `stale`: `degradeGroup` is
+        // false only when no country's own answer was `stale` to begin with.
+        const landPath = new Path2D();
+        const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
+        for (const [index, part] of each.landParts.entries())
+          if (includedLand[index]) intoLand(part.shape);
+        const bordersPath = new Path2D();
+        const intoBorders = geoPath(shown, bordersPath as unknown as CanvasRenderingContext2D);
+        for (const [index, run] of each.borderRuns.entries())
+          if (includedBorders[index]) intoBorders(run.shape);
+        held.set(each.country, {
+          of: each,
+          land: landPath,
+          borders: bordersPath,
+          snapshot,
+          builtAt: now,
+          includedLand,
+          includedBorders,
+        });
+        matrices.set(each.country, IDENTITY_MATRIX);
+      }
     }
 
     /*
@@ -1299,6 +1330,28 @@ export function RouteMap({
   const gesture = useRef<Gesture | null>(null);
 
   /**
+   * How long past the end of a rotate drag `forcesDegrade` still answers
+   * `true` on its own — a `performance.now()` timestamp, `0` until the first
+   * drag ends. `draw` reads it every frame; only `endGesture` ever writes it.
+   */
+  const draggedUntil = useRef(0);
+
+  /**
+   * The one redraw that lands once `draggedUntil` passes, so degrading has
+   * an end a reader can see rather than a frame nobody asked to repaint.
+   * Cleared and reset by every rotate drag, the same way `wheelStop` is for
+   * a wheel gesture — a second drag inside the grace window replaces the
+   * pending settle with its own rather than racing it.
+   */
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    };
+  }, []);
+
+  /**
    * What was under the pointer when it went down, and where.
    *
    * Selection is decided on the way *up*, not with an `onClick` on the arc.
@@ -1319,6 +1372,14 @@ export function RouteMap({
       x: offsetX,
       y: offsetY,
     };
+    // A new drag starting inside the previous one's settle window replaces
+    // it outright: `gesture.current` being set again is already enough for
+    // `forcesDegrade` to answer `true`, so the pending redraw at the old
+    // `draggedUntil` would only repaint a frame nothing changed for.
+    if (settleTimer.current) {
+      clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
     if (projection === 'globe') {
       const inverted = projections.current.globe.invert?.([offsetX, offsetY]);
       if (!inverted) return;
@@ -1369,9 +1430,24 @@ export function RouteMap({
       if (Math.hypot(offsetX - press.x, offsetY - press.y) <= STILL) onSelect(press.route);
     }
     if (!gesture.current) return;
+    const wasRotating = gesture.current.kind === 'rotate';
     gesture.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     setMoving(false);
+    if (wasRotating) {
+      // Hold the coarse stand-in for one more `SETTLE_MS` past the drag —
+      // the same beat the map already waits before asking whose
+      // subdivisions to draw. Rebuilding every held-back country's fine
+      // geometry the instant the pointer lifts would land that cost, and the
+      // jump to full detail, inside the very frame that stops the drag: one
+      // more flip rather than the drag settling. See `forcesDegrade`.
+      draggedUntil.current = performance.now() + SETTLE_MS;
+      settleTimer.current = setTimeout(() => {
+        settleTimer.current = null;
+        draw();
+        repaint((count) => count + 1);
+      }, SETTLE_MS);
+    }
     draw();
     repaint((count) => count + 1);
   }

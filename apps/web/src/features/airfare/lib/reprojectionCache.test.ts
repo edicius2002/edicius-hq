@@ -9,6 +9,7 @@ import {
   anyStale,
   applyMatrix,
   decideReuse,
+  forcesDegrade,
   geometryWeight,
   rotateThrottleMs,
   sameRotation,
@@ -365,5 +366,34 @@ describe('anyStale', () => {
 
   it('is true when it is the only country on screen', () => {
     expect(anyStale([{ kind: 'stale' }])).toBe(true);
+  });
+});
+
+describe('forcesDegrade', () => {
+  it('is true for the whole gesture, independently of the grace window', () => {
+    // A pointer that is still down forces coarse no matter what `until` says
+    // — including a stale one left over from an earlier gesture.
+    expect(forcesDegrade('rotate', 1000, 0)).toBe(true);
+    expect(forcesDegrade('rotate', 1000, 2000)).toBe(true);
+  });
+
+  it('is true during the grace window after the gesture ends', () => {
+    expect(forcesDegrade(undefined, 1000, 1250)).toBe(true);
+  });
+
+  it('is false once the grace window has passed with no gesture held', () => {
+    expect(forcesDegrade(undefined, 1250, 1250)).toBe(false);
+    expect(forcesDegrade(undefined, 1251, 1250)).toBe(false);
+  });
+
+  it('is false at rest, with no gesture and no grace window pending', () => {
+    expect(forcesDegrade(undefined, 1000, 0)).toBe(false);
+  });
+
+  it('is false for a pan gesture, which never mismatches resolution to begin with', () => {
+    // The flat map's rotation never changes, so `decideReuse` always answers
+    // `reuse` for it; forcing coarse during a pan would degrade a gesture
+    // that was never the one this rule exists for.
+    expect(forcesDegrade('pan', 1000, 0)).toBe(false);
   });
 });

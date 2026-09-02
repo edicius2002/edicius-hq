@@ -1,4 +1,5 @@
 import type { AlertKind, PriceAlert } from '@/features/investing/data/priceAlerts';
+import type { Quote } from '@/shared/api/market';
 
 /**
  * Detecting a price *crossing* a threshold, not merely sitting past one.
@@ -38,6 +39,20 @@ export function sideOf(kind: AlertKind, price: number, threshold: number): Alert
 export type TrackedAlert = { price: number; kind: AlertKind; side: AlertSide };
 
 export type Evaluation = { fired: boolean; next: TrackedAlert };
+
+/**
+ * Whether a quote was printed during the regular session — as opposed to
+ * pre-/post-market, or a stale last price handed back while the market is
+ * fully closed. `marketState` is the one field that distinguishes all three;
+ * a quote's own `extended` flag only ever means "pre- or post-market" and
+ * says nothing about a market that isn't in any session at all, which a
+ * closed weekend read still needs to be told apart from a regular one.
+ * `null` is treated as not regular — nothing here should judge or fire
+ * against a session nobody has confirmed.
+ */
+export function isRegularSessionQuote(quote: Pick<Quote, 'marketState'>): boolean {
+  return quote.marketState === 'REGULAR';
+}
 
 /**
  * One alert, one freshly observed price, against what was tracked for it
@@ -84,15 +99,59 @@ export function evaluateAlert(
  * either fire the instant it is created (surprising — the user asked to be
  * told about a future crossing, not the present price) or, worse, sit armed
  * and silent forever because there is no crossing left to detect without a
- * previous "unmet" reading to cross from. Absent a quote there is nothing to
- * judge it against, so it is allowed — the same reasoning `valuePosition`
- * uses for a position with no quote yet.
+ * previous "unmet" reading to cross from.
+ *
+ * That refusal only holds when the price being judged is itself a regular
+ * quote. Outside the regular session there is no live reading to reject an
+ * alert against in the first place — only a stale one, pre-/post-market or
+ * a last close — and creation must still be possible around the clock: an
+ * alert set up at 2am has to exist for the open to evaluate it against, not
+ * be turned away because the only price on hand right then already reads as
+ * met. The caller is expected to show that state instead (see
+ * `ui/PriceAlerts.tsx`), never to silently create a mute alert.
+ *
+ * Absent a quote at all, there is nothing to judge it against either way, so
+ * it is allowed — the same reasoning `valuePosition` uses for a position
+ * with no quote yet.
  */
 export function canCreateAlert(
   kind: AlertKind,
   price: number,
   currentPrice: number | undefined,
+  isRegularSession: boolean,
 ): boolean {
-  if (currentPrice === undefined) return true;
+  if (currentPrice === undefined || !isRegularSession) return true;
   return sideOf(kind, currentPrice, price) === 'unmet';
+}
+
+/**
+ * The starting tracked state for an alert nobody has evaluated yet, anchored
+ * to the last known *regular*-session price rather than to whatever price
+ * happens to arrive first.
+ *
+ * Without this, an alert created overnight seeds itself from the very first
+ * quote it observes — which, once extended and closed-market prints are
+ * skipped (see `PriceAlertsWatcher`), is the opening regular print. Seeding
+ * *from* that print rather than *against* it means a crossing that actually
+ * happened between last night's close and this morning's open is never
+ * detected: the first reading simply becomes the new baseline, silently.
+ * Seeding from `previousClose` instead — a value every quote already
+ * carries, no extra request needed — means the opening print is the first
+ * thing genuinely *evaluated*, so a real overnight crossing fires right when
+ * the regular session's first quote lands.
+ *
+ * Returns `null` when there is no previous close to seed from (a data gap,
+ * a brand-new listing); the caller falls back to the plain first-observation
+ * behaviour `evaluateAlert` already gives a `null` previous.
+ */
+export function seedFromPreviousClose(
+  alert: Pick<PriceAlert, 'kind' | 'price'>,
+  previousClose: number | null,
+): TrackedAlert | null {
+  if (previousClose === null) return null;
+  return {
+    price: alert.price,
+    kind: alert.kind,
+    side: sideOf(alert.kind, previousClose, alert.price),
+  };
 }

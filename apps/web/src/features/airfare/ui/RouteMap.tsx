@@ -43,6 +43,8 @@ import {
 } from '@/features/airfare/lib/globe';
 import {
   IDENTITY_MATRIX,
+  standInFor,
+  strokesInnerBorders,
   decideReuse,
   geometryWeight,
   rotateThrottleMs,
@@ -465,14 +467,24 @@ export function RouteMap({
    * and not once a frame — the neighbour search walks all 177 bounding boxes
    * once per country, which is nothing on a settle and real work sixty times a
    * second.
+   *
+   * `byId` is the same `shapes` array again, keyed by country so `draw` can
+   * find one country's own 1:110m outline in constant time — the shape it
+   * substitutes for a country's frozen 1:10m one while that one is `stale`,
+   * see the reprojection block below.
    */
   const coarse = useMemo(() => {
     const found = outlinesOf(swapped ? swapped.split(',') : []);
+    const byId = new Map<string, object>();
+    for (const shape of found.shapes) {
+      const id = (shape as { id?: string | number }).id;
+      if (id !== undefined) byId.set(String(id), shape);
+    }
     // Indexed on the same terms as everything else the map draws. The clipped
     // shapes are the countries the reader zoomed into and are on screen by
     // construction; the neighbours are whatever the bounding-box sweep swept
     // up, which over Europe is most of the continent.
-    return { shapes: found.shapes, neighbours: capped(found.neighbours as never[]) };
+    return { shapes: found.shapes, neighbours: capped(found.neighbours as never[]), byId };
   }, [swapped]);
 
   /**
@@ -762,12 +774,30 @@ export function RouteMap({
      * rotation never changes — is always. A spin still moves every point on
      * the sphere by a different amount, which no single map can stand in for;
      * there, a country's borders are allowed to lag the turn by up to
-     * `rotateThrottleMs`'s throttle before they are worth reprojecting again,
-     * the same kind of bounded trade `SETTLE_MS` and `ARRIVAL_MS` already make
-     * between showing the latest thing and showing anything smoothly at all —
-     * scaled by `geometryWeight` rather than flat, so a country cheap enough
-     * to reproject every frame is not made to lag as long as the heaviest one
-     * on file just because they share a constant.
+     * `rotateThrottleMs`'s throttle before the 1:10m shape is worth
+     * reprojecting again, scaled by `geometryWeight` rather than flat so a
+     * country cheap enough to reproject every frame is not held back as long
+     * as the heaviest one on file just because they share a constant.
+     *
+     * **What a country looks like while it is held back changed once this was
+     * measured against a moving globe rather than a still one.** The first
+     * version of this throttle drew the held `Path2D` exactly where it was
+     * built — a deliberate lie about *position*, bounded in time — and
+     * measured live at a state-border zoom with the United States on screen
+     * (60°/s, `docs/airfare-map-rendering.md` §1.4), that lie cost up to ~60 px
+     * of drift between the frozen shape and where the same lon/lat point
+     * actually sits, visible as a seam on the spin's leading edge. A country
+     * held back now instead swaps in its own bundled 1:110m outline — the same
+     * shape `coarse.shapes` already re-clips every frame for the resolution
+     * step below, so drawing it again here costs one more cheap `geoPath` call
+     * per held-back country, not another expensive one — and that shape is
+     * projected fresh, this frame, from the live rotation, so it carries none
+     * of the lag the fine geometry would have. The lie is now about
+     * *resolution* instead of position: coarser for as long as the throttle
+     * says, but never anywhere but where the country actually is. Its internal
+     * admin borders are skipped for the same frames, rather than stroked from
+     * a shape whose outline has just moved out from under them — see `inside`
+     * further down.
      *
      * **Per country, not per view's worth of countries**, and that is the half
      * that makes the fade a fade. A fan-out lands one country at a time, a few
@@ -801,6 +831,13 @@ export function RouteMap({
     const now = performance.now();
     const held = served.current;
     const matrices = new Map<string, Matrix2D>();
+    /**
+     * A country's 1:110m outline, reprojected fresh this frame, standing in
+     * for its held-back 1:10m one — see the comment above. Keyed apart from
+     * `matrices` because it is a finished `Path2D` under the live projection
+     * already, not something a matrix still has to be applied to.
+     */
+    const degradedLand = new Map<string, Path2D>();
     for (const country of held.keys()) {
       if (!subdivisions.some((each) => each.country === country)) held.delete(country);
     }
@@ -823,10 +860,21 @@ export function RouteMap({
         continue;
       }
       if (decision.kind === 'stale') {
-        // Kept exactly as it was built — see the comment above for why a
-        // rotation change cannot be answered with a matrix — so it is drawn
-        // unmoved rather than reprojected again this frame.
-        matrices.set(each.country, IDENTITY_MATRIX);
+        // The 1:10m shape is held back — see the comment above for why a
+        // rotation change cannot be answered with a matrix. Its 1:110m
+        // outline stands in instead, projected fresh from the current
+        // rotation rather than reused from any earlier frame; the shape
+        // itself is only present while `swapped` names this country, which is
+        // exactly while it is on screen with subdivisions to hold back.
+        const outline = coarse.byId.get(each.country);
+        if (standInFor(outline !== undefined) === 'coarse-outline') {
+          const outlinePath = new Path2D();
+          const intoOutline = geoPath(shown, outlinePath as unknown as CanvasRenderingContext2D);
+          intoOutline(outline as never);
+          degradedLand.set(each.country, outlinePath);
+        } else {
+          matrices.set(each.country, IDENTITY_MATRIX);
+        }
         continue;
       }
 
@@ -864,6 +912,11 @@ export function RouteMap({
     if (fine.length > 0) {
       fineLand = new Path2D();
       for (const each of fine) {
+        const degradedPath = degradedLand.get(each.country);
+        if (degradedPath) {
+          fineLand.addPath(degradedPath);
+          continue;
+        }
         const ready = held.get(each.country);
         if (ready) fineLand.addPath(ready.land, matrices.get(each.country) ?? IDENTITY_MATRIX);
       }
@@ -911,13 +964,20 @@ export function RouteMap({
      * Opacity comes from the geometry, per frame, the same way a place name's
      * does — 12.27 — so the borders arrive as the countries' names leave
      * rather than switching on at a threshold.
+     *
+     * A country drawn from its `degradedLand` outline this frame keeps its own
+     * name's worth of admin borders out of this stroke: they are 1:10m lines
+     * held back from an older rotation, and stroking them against an outline
+     * that just moved out from under them would show state borders crossing
+     * the coast rather than following it.
      */
     const inner = subdivisionFade(zoom.current);
     const inside =
       inner > 0
         ? subdivisions.filter(
             (each): each is Subdivisions & { borders: NonNullable<Subdivisions['borders']> } =>
-              each.borders !== null,
+              each.borders !== null &&
+              strokesInnerBorders(standInFor(degradedLand.has(each.country))),
           )
         : [];
     if (inside.length > 0) {

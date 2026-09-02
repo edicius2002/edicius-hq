@@ -22,30 +22,44 @@
  *
  * A rotation change is the one case this cannot do exactly — `u` itself moves,
  * differently for every point on the sphere, and no single affine map covers
- * that. `decideReuse` answers it with a bounded, deliberate lie instead: keep
- * drawing the last built shape, unmoved, for up to `throttleMs`, rather than
- * paying the full cost on every frame of a spin. The country's borders lag the
- * globe by at most that long and then snap back exact — a trade this map
- * already makes elsewhere (`SETTLE_MS`, `ARRIVAL_MS`) between showing the
- * latest thing and showing anything smoothly at all.
+ * that. `decideReuse` answers it with a bounded, deliberate trade instead:
+ * hold the 1:10m shape back for up to `throttleMs` rather than paying the
+ * full cost of rebuilding it on every frame of a spin — the same kind of
+ * trade this map already makes elsewhere (`SETTLE_MS`, `ARRIVAL_MS`) between
+ * showing the latest thing and showing anything smoothly at all. What
+ * `RouteMap.tsx` draws in place of the held-back shape is its job, not this
+ * module's — see below for why that used to be "the last built shape,
+ * unmoved" and no longer is.
  *
  * **`throttleMs` used to be one constant everyone paid**, `ROTATE_REBUILD_MS`,
  * measured for the one country expensive enough to need it — the United
  * States. That made every lighter country lag the spin by just as much as the
  * heaviest one on file, for no reason: reprojecting El Salvador (1,031 land
  * and border vertices, decoded) costs a small fraction of reprojecting the
- * United States (41,825), so it can afford to catch up far sooner. Measured
- * live at a state-border zoom with the United States on screen (a 60°/s spin,
- * the method in `docs/airfare-map-rendering.md` §1.4), the flat 120 ms
- * throttle let the frozen shape drift up to ~60 px from where the live
- * projection put the same point before the next rebuild — a mismatch a
- * reader reads as a border in the wrong place. `rotateThrottleMs` scales the
- * throttle by `geometryWeight` instead, calibrated so the heaviest country on
- * file still gets exactly `ROTATE_REBUILD_MS` — no regression for the case
- * the constant was measured for — while Mexico (12,747, ~30% of the United
- * States' weight) catches up more than three times as often, and a country as
- * light as El Salvador rebuilds on nearly every frame instead of lagging a
- * fifth of a second behind the spin.
+ * United States (41,825), so it can afford to catch up far sooner.
+ * `rotateThrottleMs` scales the throttle by `geometryWeight` instead,
+ * calibrated so the heaviest country on file still gets exactly
+ * `ROTATE_REBUILD_MS` — no regression for the case the constant was measured
+ * for — while Mexico (12,747, ~30% of the United States' weight) catches up
+ * more than three times as often, and a country as light as El Salvador
+ * rebuilds on nearly every frame.
+ *
+ * **What "held back" draws changed once this was measured against a moving
+ * globe rather than a still one.** Measured live at a state-border zoom with
+ * the United States on screen (a 60°/s spin, the method in
+ * `docs/airfare-map-rendering.md` §1.4), drawing the frozen 1:10m shape
+ * unmoved for up to `throttleMs` let it drift up to ~60 px from where the
+ * live projection put the same point — a mismatch a reader reads as a border
+ * in the wrong place, and one that scaling the throttle by weight does
+ * nothing for, because it is a lie about *position* and every value of
+ * `throttleMs` above zero tells it for some span of time. `RouteMap.tsx` no
+ * longer tells that lie: while a country's 1:10m shape is held back, it draws
+ * that country's bundled 1:110m outline instead, reprojected fresh every
+ * frame from the live rotation — coarser for as long as the throttle says,
+ * but never anywhere but where the country actually is. The measured
+ * mismatch for the United States is now ~0 px at every sampled frame, not
+ * because the throttle changed, but because what stands in for the held-back
+ * shape moves with the globe instead of sitting still.
  */
 
 /** The three numbers of a `GeoProjection` that decide where a point lands. */
@@ -123,7 +137,13 @@ export type ReuseDecision =
   | { kind: 'rebuild' }
   /** Cached under the same rotation: draw it through this exact affine map. */
   | { kind: 'reuse'; matrix: Matrix2D }
-  /** Rotation changed, but not long enough ago to be worth paying for: draw it unmoved. */
+  /**
+   * Rotation changed, but not long enough ago to be worth paying for: the
+   * 1:10m shape stays as it was last built, and the caller draws something
+   * cheaper in its place for this frame instead of reprojecting it — a
+   * coarser but correctly positioned outline in `RouteMap.tsx`, not the stale
+   * shape itself.
+   */
   | { kind: 'stale' };
 
 /**
@@ -159,17 +179,19 @@ export function decideReuse<T>(
 }
 
 /**
- * How long a country's borders may lag a spin before they are worth
- * reprojecting again, in milliseconds.
+ * How long a country's 1:10m detail may lag a spin before it is worth
+ * reprojecting again, in milliseconds — its outline itself never lags, see
+ * the header above.
  *
  * About eight updates a second — slow enough that rebuilding the heaviest
  * country on file (the United States, 18 to 21 ms measured) costs a small
  * fraction of any one frame once spread over the gap, fast enough that the
- * lag reads as the country keeping up with the spin rather than as it being
- * wrong. It only ever applies to a country already on screen and already
- * fine — a reader spinning past new ground still gets it at the zoom gate's
- * own pace, this only decides how often an already-detailed country's own
- * shape is asked to catch up.
+ * coarser stand-in reads as the country's own detail catching up with the
+ * spin rather than as a country stuck at the wrong resolution. It only ever
+ * applies to a country already on screen and already fine — a reader
+ * spinning past new ground still gets it at the zoom gate's own pace, this
+ * only decides how often an already-detailed country's own admin borders are
+ * asked to catch up.
  */
 export const ROTATE_REBUILD_MS = 120;
 
@@ -220,4 +242,36 @@ export const REFERENCE_GEOMETRY_WEIGHT = 41_825;
  */
 export function rotateThrottleMs(weight: number): number {
   return Math.min(ROTATE_REBUILD_MS, (weight / REFERENCE_GEOMETRY_WEIGHT) * ROTATE_REBUILD_MS);
+}
+
+/**
+ * What stands in for a country's held-back 1:10m geometry while a rotation is
+ * in flight.
+ *
+ * `decideReuse` answering `stale` says only that the fine shape must not be
+ * rebuilt this frame. It does not say what to draw instead, and there are two
+ * answers. The country's own 1:110m outline, reprojected fresh under the live
+ * rotation, is exactly where it belongs — coarser, but in its place. Without
+ * one on hand there is only the fine shape it already holds, drawn unmoved,
+ * which is where the visible drift comes from.
+ */
+export type StandIn = 'coarse-outline' | 'frozen-fine';
+
+export function standInFor(hasCoarseOutline: boolean): StandIn {
+  return hasCoarseOutline ? 'coarse-outline' : 'frozen-fine';
+}
+
+/**
+ * Whether a country's internal borders may be stroked over that stand-in.
+ *
+ * Never over a coarse outline. The admin borders are 1:10m lines built under
+ * an older rotation and the outline beneath them has just moved, so stroking
+ * the two together draws state borders crossing the coast rather than
+ * following it. The frozen fine shape has the opposite property: it is stale
+ * in exactly the way its own borders are, so the two still agree with each
+ * other, and holding them back would only remove detail that is no more wrong
+ * than the coastline it sits inside.
+ */
+export function strokesInnerBorders(standIn: StandIn): boolean {
+  return standIn === 'frozen-fine';
 }

@@ -12,6 +12,8 @@ import {
   rotateThrottleMs,
   sameRotation,
   sameSelection,
+  standInFor,
+  strokesInnerBorders,
   type ProjectionSnapshot,
 } from './reprojectionCache';
 
@@ -298,5 +300,42 @@ describe('decideReuse with a weight-scaled throttle', () => {
     expect(
       decideReuse(cached, 'el-salvador', rotated, now, ROTATE_REBUILD_MS, included, []),
     ).toEqual({ kind: 'stale' });
+  });
+});
+
+describe('standInFor', () => {
+  it('prefers the coarse outline, because it can be drawn where the country actually is', () => {
+    expect(standInFor(true)).toBe('coarse-outline');
+  });
+
+  it('falls back to the held fine shape when there is no outline to stand in', () => {
+    expect(standInFor(false)).toBe('frozen-fine');
+  });
+});
+
+describe('strokesInnerBorders', () => {
+  /*
+   * This is the pairing worth pinning down, and the one a later edit is most
+   * likely to undo: the borders look like detail somebody removed for no
+   * reason, and putting them back costs nothing until you spin the globe.
+   *
+   * They are 1:10m lines built under an earlier rotation. Over a coarse
+   * outline that was reprojected this frame, the two disagree by exactly the
+   * drift the outline was brought in to remove — state borders drawn crossing
+   * the coast instead of following it, which reads worse than the drift did.
+   */
+  it('keeps the held-back admin borders off a freshly reprojected outline', () => {
+    expect(strokesInnerBorders('coarse-outline')).toBe(false);
+  });
+
+  it('strokes them over the frozen fine shape, which is stale the same way they are', () => {
+    expect(strokesInnerBorders('frozen-fine')).toBe(true);
+  });
+
+  it('draws borders in exactly one of the two stand-ins', () => {
+    // Neither both nor neither: a country in a held-back frame shows its admin
+    // borders if and only if its coastline is the one they were built against.
+    const both = [standInFor(true), standInFor(false)].map(strokesInnerBorders);
+    expect(both.filter(Boolean)).toHaveLength(1);
   });
 });

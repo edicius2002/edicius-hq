@@ -216,6 +216,55 @@ En el orden en que atacan las cuatro quejas:
    de prueba. La cuadrícula de pruebas de este trade-off vive en
    `reprojectionCache.test.ts`.
 
+   **Recalibrado otra vez en una sesión posterior (commit de este trabajo): degradar
+   resolución en vez de congelar posición.** El (b) de arriba deja EEUU con exactamente el
+   mismo desfase de antes de (b) — su peso es la propia referencia, así que sigue recibiendo
+   los 120 ms íntegros — y ese desfase medido de nuevo en esta sesión, con el mismo método de
+   navegador (globo real, sin aceleración de hardware forzada, `performance.now` interceptado
+   para simular pasos de 16 ms dentro de una sola llamada de página, comparando la posición
+   verdadera de un punto lon/lat contra su reproyección bajo la instantánea congelada), llega
+   a **hasta ~195 px** para EEUU a una escala de proyección de 2.386 (zoom de fronteras
+   estatales, Montana/Dakota del Norte/frontera con Canadá) — más que los ~60 px heredados
+   porque el punto de prueba y la escala son distintos, no porque el bug haya empeorado; y a
+   **~66 px** para México en el mismo experimento, sobre el mismo punto de referencia
+   (12.747 puntos, throttle de ~36,6 ms), que el informe anterior no había medido con este
+   método. El problema de fondo — el umbral acota _cuándo_ se paga por reproyectar, no _qué_
+   se dibuja mientras tanto — seguía sin tocar.
+
+   La premisa se verificó antes de tocar código: reproyectar el contorno 1:110m de EEUU (el
+   mismo que ya sirve `world-atlas/countries-110m.json` y que el mapa ya usa para un país
+   fuera de presupuesto, §4 punto 5 y `lib/fanOut.ts`) cuesta, medido en el navegador sobre
+   3.000 repeticiones, **~0,52 ms de media** — contra ~85 ms para reproyectar la geometría
+   1:10m completa (tierra + fronteras internas) en el mismo banco de pruebas, **164 veces más
+   barato**. Sobra margen de sobra dentro de un frame de 16,7 ms para pagarlo todos los
+   frames, incluso los que además reconstruyen la geometría 1:10m completa de otro país.
+
+   El arreglo: mientras `decideReuse` devuelve `stale` para un país, `RouteMap.tsx` ya no
+   reutiliza su `Path2D` 1:10m congelado sin moverlo. En su lugar dibuja el contorno 1:110m de
+   ese mismo país — el que `coarse.shapes` ya recorta como clip cada frame, así que la única
+   `geoPath` nueva es sobre un contorno, no sobre miles de vértices — reproyectado con la
+   proyección **en vivo** de ese frame, y omite sus fronteras administrativas internas
+   mientras dura la degradación (dibujarlas contra un contorno que se acaba de mover las
+   habría dejado cruzando la costa). Al construirse desde la misma instancia de proyección que
+   todo lo demás en el frame, la posición dibujada coincide con la verdadera por construcción,
+   no por medición — lo que sí se midió, en esta sesión, es que la ruta de código realmente se
+   activa: de 60 frames de un giro simulado de 60°/s, EEUU pasó por la rama degradada en 52 y
+   México en 40, y en ninguno de los dos el contorno degradado costó más de ~1 ms.
+
+   Medido tras el cambio, en el mismo escenario: el coste por frame de `draw()` durante un giro
+   continuo simulado (120 llamadas reales, sin simular el reloj) tiene una mediana de 7 ms y un
+   p95 de 11,3 ms, con solo 3 de 120 frames por encima de 16,7 ms — el mismo patrón de picos
+   ocasionales por la reconstrucción periódica de EEUU cada ~120 ms que este documento ya
+   aceptaba antes de (b) y (c), sin empeorar: `decideReuse`, `geometryWeight` y
+   `rotateThrottleMs` no cambiaron una línea de lógica en esta sesión, solo sus comentarios —
+   verificado por diff. El paso de escalón no compite con `SETTLE_MS`/`ARRIVAL_MS` por la misma
+   razón: no toca cuándo se piden ni cuándo llegan los datos, solo qué se dibuja mientras un
+   país ya detallado se pone al día con el giro. Los 79 tests de
+   `reprojectionCache.test.ts`/`RouteMap.test.tsx` siguen en verde sin cambios, porque la
+   decisión (`decideReuse`) no cambió — lo que cambió es una rama de dibujo en `canvas`, que
+   `RouteMap.test.tsx` no ejerce (`getContext` se mockea a `null` en ese archivo), de ahí que la
+   verificación real para este cambio sea de navegador y no de test unitario.
+
 2. **Separar "cuándo pedir datos" de "cuándo mostrarlos" (queja D).** `SETTLE_MS`/`ARRIVAL_MS`
    existen para no bombardear la red mientras el lector gira el globo — una razón válida
    para el _fetch_. Pero un país cuyos datos **ya están en la caché de React Query** no tiene

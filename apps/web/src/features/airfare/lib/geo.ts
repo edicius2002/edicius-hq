@@ -294,3 +294,35 @@ export function greatCircle(
 export function facesViewer(point: LngLat, rotation: [number, number, number]): boolean {
   return geoDistance(point, [-rotation[0], -rotation[1]]) <= Math.PI / 2;
 }
+
+/**
+ * Where the sun is directly overhead, right now.
+ *
+ * Two standard approximations, good to about a degree — plenty for a globe a
+ * few hundred pixels across, and the reason this is arithmetic rather than an
+ * ephemeris. The declination follows the day of year: a cosine that peaks at
+ * the solstices and crosses zero at the equinoxes, phased so day 172 (21
+ * June) reads near +23.44° and day 355 (21 December) near -23.44°. The
+ * longitude follows the clock: solar noon is under the sun at 0° longitude at
+ * 12:00 UTC, and the sun crosses 15° of longitude an hour either side of that.
+ */
+export function subsolarPoint(at: Date): LngLat {
+  const start = Date.UTC(at.getUTCFullYear(), 0, 1);
+  const dayOfYear = Math.floor((at.getTime() - start) / 86_400_000);
+  const declination = -23.44 * Math.cos(((2 * Math.PI) / 365) * (dayOfYear + 10));
+
+  const utcHours = at.getUTCHours() + at.getUTCMinutes() / 60 + at.getUTCSeconds() / 3600;
+  const longitude = wrapLongitude(-(utcHours - 12) * 15);
+
+  return [longitude, declination];
+}
+
+/** The point with no daylight at all — the centre of the night hemisphere. */
+export function antisolarPoint(at: Date): LngLat {
+  const [longitude, declination] = subsolarPoint(at);
+  return [wrapLongitude(longitude + 180), -declination];
+}
+
+function wrapLongitude(degrees: number): number {
+  return ((((degrees + 180) % 360) + 360) % 360) - 180;
+}

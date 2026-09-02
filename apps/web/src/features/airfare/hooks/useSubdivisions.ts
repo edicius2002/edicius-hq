@@ -76,6 +76,47 @@ export function useSubdivisions(countries: readonly string[]): Subdivisions[] {
 }
 
 /**
+ * Which of these countries have answered at all, whether or not they had
+ * anything to draw.
+ *
+ * `useSubdivisions` throws a country with nothing to give away — `arrived`
+ * filters it out, on purpose, so the map has one shape to handle instead of
+ * two. That is exactly right for drawing and exactly wrong for the settle
+ * wait in `RouteMap.tsx`: the wait exists to keep a spinning globe from
+ * bursting the connection, and a country that already came back 404 is as
+ * fully answered, and as free to ask about again, as one that came back with
+ * real geometry — `useSubdivisions.test.tsx`'s "remembers a country that had
+ * nothing to give" is the proof that the second ask costs nothing on the
+ * wire. So this is the question asked apart from the drawable shape, over the
+ * same queries — react-query dedupes by key, so this shares the one fetch and
+ * the one cache entry with `useSubdivisions` rather than doubling either.
+ */
+export function useSettledSubdivisionCountries(countries: readonly string[]): ReadonlySet<string> {
+  return useQueries({
+    queries: countries.map((country) => ({
+      queryKey: ['geography', 'subdivisions', country],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        fetchSubdivisions(country, { signal }).then(readSubdivisions),
+      staleTime: Infinity,
+      gcTime: Infinity,
+      retry: false,
+    })),
+    combine: (results) => settledOf(countries, results),
+  });
+}
+
+function settledOf(
+  countries: readonly string[],
+  results: readonly { status: string }[],
+): ReadonlySet<string> {
+  const settled = new Set<string>();
+  results.forEach((result, index) => {
+    if (result.status === 'success') settled.add(countries[index]);
+  });
+  return settled;
+}
+
+/**
  * The countries that have arrived and have something to draw, in the order
  * they were asked for.
  *

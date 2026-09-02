@@ -14,6 +14,8 @@ import {
   drawPane,
   type IndicatorSeries,
 } from '@/features/investing/chart/indicatorLayers';
+import { drawPriceLines, positionPriceLine } from '@/features/investing/chart/priceLines';
+import type { Position } from '@/features/investing/data/portfolio';
 import { layoutPanes, type PaneId, type PaneLayout } from '@/features/investing/lib/panes';
 
 import {
@@ -65,6 +67,8 @@ type CandleChartProps = {
   indicators?: IndicatorSeries;
   /** Which panes to open below the price, in the order they are drawn. */
   panes?: PaneId[];
+  /** The open position on `symbol`, if any — draws its entry as a dashed reference line. */
+  position?: Position;
   /** Whether a bar falls outside the regular session, and so draws translucent. */
   isGhost: (bar: Bar, index: number) => boolean;
   /** How to label a bar on the time axis; the chart does not own the calendar. */
@@ -81,6 +85,7 @@ export function CandleChart({
   timeframe,
   indicators,
   panes,
+  position,
   isGhost,
   formatTime,
   loading,
@@ -156,6 +161,9 @@ export function CandleChart({
     () => (tableOpen ? shownBars.map((bar) => ({ bar })) : []),
     [shownBars, tableOpen],
   );
+  // A screen reader user cannot see the dashed line drawn on the canvas below,
+  // so the entry price it stands for is spoken here instead.
+  const positionSummary = position ? `Position entry at ${position.averageCost.toFixed(2)}.` : '';
   const instructionsId = useId();
   const statusId = useId();
   const tableId = useId();
@@ -172,8 +180,8 @@ export function CandleChart({
 
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, size.width, size.height);
-    drawChart(ctx, { bars, window, plot, size, isGhost, formatTime, layout, indicators });
-  }, [bars, window, plot, size, isGhost, formatTime, layout, indicators]);
+    drawChart(ctx, { bars, window, plot, size, isGhost, formatTime, layout, indicators, position });
+  }, [bars, window, plot, size, isGhost, formatTime, layout, indicators, position]);
 
   useEffect(() => {
     const canvas = overlayRef.current;
@@ -368,7 +376,7 @@ export function CandleChart({
           aria-roledescription="candlestick chart"
           aria-label={`${symbol} ${timeframe} chart. ${visibleRange} ${
             following ? 'Following latest candles.' : 'Viewing historical candles.'
-          }`}
+          } ${positionSummary}`.trim()}
           aria-describedby={`${instructionsId} ${statusId}`}
           tabIndex={0}
           onPointerDown={(event) => {
@@ -484,6 +492,7 @@ type DrawArgs = {
   formatTime: (bar: Bar) => string;
   layout: PaneLayout;
   indicators?: IndicatorSeries;
+  position?: Position;
 };
 
 const COLOURS = {
@@ -494,7 +503,7 @@ const COLOURS = {
 };
 
 function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
-  const { bars, window, plot, size, isGhost, formatTime, layout, indicators } = args;
+  const { bars, window, plot, size, isGhost, formatTime, layout, indicators, position } = args;
   const shown = visibleBars(bars, window);
   if (!shown.length) return;
 
@@ -544,6 +553,15 @@ function drawChart(ctx: CanvasRenderingContext2D, args: DrawArgs): void {
   // Under the candles: a moving average must never hide the bar that made it.
   if (indicators) {
     drawOverlays(ctx, { series: indicators, window, plot, band: layout.price, scale });
+  }
+
+  if (position) {
+    drawPriceLines(ctx, {
+      lines: [positionPriceLine(bars, position)],
+      band: layout.price,
+      plot,
+      scale,
+    });
   }
 
   ctx.save();

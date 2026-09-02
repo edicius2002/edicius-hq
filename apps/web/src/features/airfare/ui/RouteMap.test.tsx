@@ -139,6 +139,9 @@ const LIM_CUZ = arcFor('LIM-CUZ-2026-10-17', ['LIM', 'CUZ'], LIMA, CUSCO, ['Lima
 
 const LIM_MAD = arcFor('LIM-MAD-2026-10-17', ['LIM', 'MAD'], LIMA, MADRID, ['Lima', 'Madrid']);
 
+// Both ends sit on the near side, but its middle is inside the 16° limb band.
+const LIMB_ARC = arcFor('LIM-EDGE-2026-10-17', ['LIM', 'EDG'], [0, 0], [10, 0], ['Lima', 'Edge']);
+
 /**
  * Lima and Santiago watched both ways, drawn as the one arc they are.
  *
@@ -1512,7 +1515,39 @@ describe('RouteMap', () => {
     // Tokyo is on the far side and still on screen.
     const tokyo = [...container.querySelectorAll('text')].find((t) => t.textContent === 'NRT');
     expect(tokyo).toBeInTheDocument();
-    expect(tokyo?.closest('g')?.getAttribute('class')).toContain('behind');
+    expect(tokyo?.closest('g')).toHaveStyle({ opacity: '0' });
+  });
+
+  it('fades airports and arc runs as they approach the globe horizon', () => {
+    /*
+     * Replacing the geometric fade with the old `.behind` switch makes NRT
+     * jump from solid to a fixed opacity, and leaves the near stretch of its
+     * route equally solid right up to the limb. The far endpoint is exactly
+     * on the hidden hemisphere in this fixed view, while the retained arc
+     * stretch crosses the limb band, so both are observable without mocking
+     * the projection.
+     */
+    const { container } = renderMap({ routes: [LIM_TOKYO, LIMB_ARC] });
+
+    const tokyo = [...container.querySelectorAll('text')].find(
+      (text) => text.textContent === 'NRT',
+    );
+    expect(tokyo?.closest('g')).toHaveStyle({ opacity: '0' });
+
+    const nearRun = container.querySelector('[aria-label="Lima to Edge"]') as SVGPathElement;
+    expect(Number(nearRun.style.opacity)).toBeGreaterThan(0);
+    expect(Number(nearRun.style.opacity)).toBeLessThan(1);
+  });
+
+  it('keeps airports and arc runs fully opaque on the flat map', () => {
+    const { container } = renderMap({ projection: 'mercator', routes: [LIM_TOKYO] });
+
+    const tokyo = [...container.querySelectorAll('text')].find(
+      (text) => text.textContent === 'NRT',
+    );
+    expect(tokyo?.closest('g')).toHaveStyle({ opacity: '1' });
+    for (const arc of container.querySelectorAll('path[class*="arc"]'))
+      expect(arc).toHaveStyle({ opacity: '1' });
   });
 
   it('offers no zoom buttons, and refuses to reset a view nobody has moved', () => {

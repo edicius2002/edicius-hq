@@ -212,6 +212,15 @@ En el orden en que atacan las cuatro quejas:
    completo" para el país que no entra en el presupuesto — una idea a validar, no algo que
    este documento confirme que ya funciona.
 
+**Conclusión de la evaluación 1:50m (2026-09-02): no implementarlo aún.** Natural Earth solo
+cubre nueve países en esa escala, por lo que no puede ser el escalón general que sustituya al
+atlas 1:110m para un vecino rechazado. El catálogo y el endpoint actuales solo describen una
+variante 1:10m por país; añadir 1:50m exige producir, servir y presupuestar una segunda variante
+y medir sus bytes, tiempo de descarga y coste de `geoPath` en esos nueve casos. El presupuesto
+de 512 KB ya cubre el caso de uso prioritario sin esa complejidad; si futuros perfiles muestran
+que uno de esos nueve países sigue siendo el rechazo dominante, se hará esa medición y se
+propondrá como una fase de datos separada.
+
 **Qué cubren estas cinco de las cuatro quejas:** A (parcial a total, según cuánto se suba el
 umbral del nº1), B (parcial — tres de seis efectos), C (parcial — nº3 y nº5 alivian, no
 eliminan, el límite del presupuesto), D (total — nº2 elimina la espera artificial en
@@ -309,6 +318,11 @@ la §4), y evaluar si servir un peldaño 1:50m para los países que se queden fu
 presupuesto ampliado (nº5) — esto necesita medir primero cuánto margen dejó la fase 1, así que
 va después, no en paralelo. Riesgo: bajo, pero depende de datos que la fase 1 todavía no ha
 producido.
+
+La subida a 512 KB ya quedó validada. La evaluación 1:50m concluye por ahora que no conviene
+servirlo: su cobertura se limita a nueve países y faltan las mediciones por variante que
+justificarían una segunda ruta de datos; se reabre solo con evidencia de un rechazo recurrente
+en uno de esos países.
 
 **Fase 3 — el único efecto que pide GPU, si de verdad importa.**
 Relieve/batimetría con textura sobre el globo girando (la única fila de la §3 marcada como

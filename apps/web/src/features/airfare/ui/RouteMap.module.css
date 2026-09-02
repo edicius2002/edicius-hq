@@ -332,22 +332,6 @@
   filter: drop-shadow(0 0 2px currentColor);
 }
 
-/*
- * An airport that has gone round the back. Faint rather than gone: the globe
- * is glass, and an endpoint you spun away from is still one you are watching.
- *
- * Only the dots and their codes. The arc between them is dropped at the limb
- * instead — a faint curve across the back reads as a curve across the front,
- * and it crosses everything genuinely in front of it on the way.
- */
-.behind {
-  opacity: 0.3;
-}
-
-.behind .label {
-  opacity: 0.8;
-}
-
 .active {
   stroke-width: 3;
   opacity: 1;

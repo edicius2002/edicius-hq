@@ -8,7 +8,6 @@ import worldAtlas from 'world-atlas/countries-110m.json';
 import { flowDelay, polylineLength } from '@/features/airfare/lib/arcFlow';
 import {
   antisolarPoint,
-  facesViewer,
   greatCircle,
   nextWatch,
   type LngLat,
@@ -1493,6 +1492,7 @@ export function RouteMap({
   const place: GeoProjection = isGlobe ? projections.current.glass : projections.current.mercator;
   const svgPath = geoPath(place);
   const centre = rotation.current;
+  const surfaceOpacity = (point: LngLat) => (isGlobe ? limbFade(point, centre) : 1);
 
   /**
    * The stretches of an arc that are actually drawn, and how far along the
@@ -1520,11 +1520,14 @@ export function RouteMap({
    * Only the globe needs any of this — the flat map's arcs are solid.
    */
   function runsFor(coordinates: LngLat[]) {
-    if (!isGlobe) return [{ points: coordinates, before: 0 }];
-    const drawn: { points: LngLat[]; before: number }[] = [];
+    if (!isGlobe) return [{ points: coordinates, before: 0, opacity: 1 }];
+    const drawn: { points: LngLat[]; before: number; opacity: number }[] = [];
     let before = 0;
     for (const run of splitByHorizon(coordinates, centre)) {
-      if (run.near) drawn.push({ points: run.points, before });
+      if (run.near) {
+        const middle = run.points[Math.floor(run.points.length / 2)];
+        drawn.push({ points: run.points, before, opacity: surfaceOpacity(middle) });
+      }
       before += polylineLength(
         run.points.flatMap((point) => {
           const xy = place(point);
@@ -1874,8 +1877,13 @@ export function RouteMap({
                         // inherit it.
                         style={
                           flowing
-                            ? { stroke, color: stroke, animationDelay: flowDelay(run.before) }
-                            : { stroke }
+                            ? {
+                                stroke,
+                                color: stroke,
+                                opacity: run.opacity,
+                                animationDelay: flowDelay(run.before),
+                              }
+                            : { stroke, opacity: run.opacity }
                         }
                         className={[
                           styles.arc,
@@ -1940,7 +1948,12 @@ export function RouteMap({
                 <path
                   key={`${id}:${index}`}
                   d={d}
-                  style={{ stroke: colour, color: colour, animationDelay: flowDelay(run.before) }}
+                  style={{
+                    stroke: colour,
+                    color: colour,
+                    opacity: run.opacity,
+                    animationDelay: flowDelay(run.before),
+                  }}
                   className={[
                     styles.arc,
                     styles.stop,
@@ -1961,9 +1974,8 @@ export function RouteMap({
           {stopNodes.map(({ id, point, code, colour }) => {
             const xy = place(point);
             if (!xy) return null;
-            const behind = isGlobe && !facesViewer(point, centre);
             return (
-              <g key={id} className={behind ? styles.behind : undefined}>
+              <g key={id} style={{ opacity: surfaceOpacity(point) }}>
                 <circle
                   cx={xy[0]}
                   cy={xy[1]}
@@ -1987,10 +1999,6 @@ export function RouteMap({
             ).map(([point, code, isOrigin]) => {
               const xy = place(point);
               if (!xy) return null;
-              // Dimmed, never hidden. That is the whole point of a translucent
-              // globe: an endpoint you have spun away from is still an
-              // endpoint you are watching.
-              const behind = isGlobe && !facesViewer(point, centre);
               /*
                * A departure, and on a pair watched both ways both ends are one
                * — `a-both-ways-pair-has-two-homes`.
@@ -2006,7 +2014,7 @@ export function RouteMap({
                */
               const departure = isOrigin || route.bothWays;
               return (
-                <g key={`${route.id}-${code}`} className={behind ? styles.behind : undefined}>
+                <g key={`${route.id}-${code}`} style={{ opacity: surfaceOpacity(point) }}>
                   <circle
                     cx={xy[0]}
                     cy={xy[1]}

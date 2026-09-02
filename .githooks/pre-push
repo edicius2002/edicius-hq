@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+#
+# Typecheck, before anything leaves the machine.
+#
+# Cheaper than a runner and far cheaper than a red PR: `tsc -b` is incremental,
+# so after the first run it costs a couple of seconds. Lint and the test suite
+# stay in CI, where their cost is somebody else's wall clock.
+#
+# SKIP_HOOKS=1 git push ... to bypass.
+
+[ "${SKIP_HOOKS:-}" = "1" ] && exit 0
+
+if ! npm run --silent typecheck; then
+  printf '\nTypecheck failed; the push was stopped before it reached the remote.\nFix the errors above, or SKIP_HOOKS=1 to bypass.\n' >&2
+  exit 1
+fi

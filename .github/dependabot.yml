@@ -1,0 +1,45 @@
+# Dependency updates, on a schedule slow enough to read.
+#
+# `npm audit` sat on a high-severity advisory in nanoid with nobody watching,
+# which is the failure this file exists to stop: a lockfile nothing updates is
+# a lockfile that only moves when something breaks.
+#
+# Weekly, not daily. This is a one-person repository; a daily cadence produces
+# more PRs than anyone reads, and unread PRs are how the useful one gets lost.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # One PR for the dev toolchain rather than five. eslint, prettier and
+    # typescript-eslint move together and break together; reviewing them apart
+    # costs more than it catches.
+    groups:
+      dev-tooling:
+        dependency-type: development
+        patterns:
+          - '*'
+      react:
+        patterns:
+          - 'react'
+          - 'react-dom'
+          - '@types/react'
+          - '@types/react-dom'
+
+  - package-ecosystem: pip
+    directory: /services/api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  # The actions in .github/workflows pin major versions and otherwise never
+  # move. A deprecated runner image is found by CI turning red, not by anyone
+  # noticing; this is how the notice arrives first.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

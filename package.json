@@ -11,6 +11,7 @@
     "apps/*"
   ],
   "scripts": {
+    "prepare": "node scripts/install-hooks.mjs",
     "dev": "npm run dev -w web",
     "dev:web": "npm run dev -w web",
     "dev:api": "npm run api:dev",

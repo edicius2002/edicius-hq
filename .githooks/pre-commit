@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+#
+# Prettier, on what is about to be committed.
+#
+# The format gate is the first thing CI runs and the cheapest thing to get
+# wrong: PRs #143 and #144 were both about a red `format:check` and nothing
+# else. Running it here, over the staged files only, turns a round trip through
+# a runner into about a second of local wall clock.
+#
+# Staged paths only, never the whole tree — `npm run format:check` already
+# covers the tree in CI, and a hook that lints files the author did not touch
+# is a hook people disable. `.prettierignore` still applies; prettier reads it
+# for explicit paths too, and `--ignore-unknown` skips the extensionless files
+# in this very directory.
+#
+# The list is piped rather than captured: a command substitution drops the NUL
+# bytes that `-z` exists to produce, which would silently glue two paths into
+# one the moment a commit touched more than a single file.
+#
+# SKIP_HOOKS=1 git commit ... to bypass, for the cases that deserve it.
+
+[ "${SKIP_HOOKS:-}" = "1" ] && exit 0
+
+# A clone that has not run `npm install` yet has no prettier to run. That is a
+# reason to say so and step aside, not to block the commit; CI still checks.
+if [ ! -x node_modules/.bin/prettier ] && [ ! -f node_modules/prettier/package.json ]; then
+  printf 'pre-commit: prettier not installed, skipping the format check.\n' >&2
+  exit 0
+fi
+
+if git diff --cached --name-only --diff-filter=ACMR -z |
+  xargs -0 -r npx --no-install prettier --check --ignore-unknown; then
+  exit 0
+fi
+
+printf '\nSome staged files are not formatted. Fix them with:\n\n  npm run format\n\nThen stage the result and commit again (or SKIP_HOOKS=1 to bypass).\n' >&2
+exit 1

@@ -6,7 +6,12 @@ import { activeAlertSymbols } from '@/features/investing/data/priceAlerts';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { usePriceAlerts } from '@/features/investing/hooks/usePriceAlerts';
 import { alertSoundPlayer, armOnFirstGesture } from '@/features/investing/lib/alertSound';
-import { evaluateAlert, type TrackedAlert } from '@/features/investing/lib/alertCross';
+import {
+  evaluateAlert,
+  isRegularSessionQuote,
+  seedFromPreviousClose,
+  type TrackedAlert,
+} from '@/features/investing/lib/alertCross';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { formatAmount } from '@/shared/lib/money';
 import { toastBus } from '@/shared/ui/toastBus';
@@ -61,17 +66,28 @@ export function PriceAlertsWatcher() {
       const quote = bySymbol.get(alert.symbol);
       if (!quote || !Number.isFinite(quote.price)) continue;
 
-      // Extended-hours prints are skipped entirely, not merely excluded from
-      // firing: they are never fed into `evaluateAlert` at all, so the
-      // tracked side stays whatever the last *regular*-session price left it
-      // at. That is what makes a crossing that happens overnight wait for the
-      // open instead of firing on a pre-market print — the same `extended`
-      // flag that fades a candle outside the regular session (see
-      // `lib/session.ts` and `chart/useCandles.ts`'s `isGhost`) already says
-      // whether this quote came from one.
-      if (quote.extended) continue;
+      // A never-tracked alert is seeded from the last known *regular*-session
+      // price (`previousClose`) rather than from whatever quote happens to
+      // arrive first — see `seedFromPreviousClose`. Computed once and kept:
+      // once tracked, this branch never runs for this alert again.
+      const previous =
+        tracked.current.get(alert.id) ?? seedFromPreviousClose(alert, quote.previousClose);
 
-      const previous = tracked.current.get(alert.id) ?? null;
+      // Extended-hours and closed-market prints are skipped entirely, not
+      // merely excluded from firing: they are never fed into `evaluateAlert`
+      // at all, so the tracked side stays whatever the last *regular*-session
+      // price left it at. That is what makes a crossing that happens
+      // overnight wait for the open instead of firing on a pre-market print
+      // — `marketState` is what says whether this quote came from the
+      // regular session (see `lib/alertCross.ts`'s `isRegularSessionQuote`
+      // and `lib/session.ts`). The seed above still lands even on a
+      // non-regular print, so the next regular one has something honest to
+      // evaluate against instead of starting from nothing.
+      if (!isRegularSessionQuote(quote)) {
+        if (previous) tracked.current.set(alert.id, previous);
+        continue;
+      }
+
       const { fired, next } = evaluateAlert(alert, quote.price, previous);
 
       if (fired) {

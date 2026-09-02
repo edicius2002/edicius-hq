@@ -147,11 +147,20 @@ describe('PriceAlertsWatcher', () => {
     const quotesSpy = vi
       .spyOn(quoteBus, 'quotes')
       // Seed unmet at the regular price.
-      .mockResolvedValueOnce({ quotes: [quote({ price: 210, extended: false })], failed: [] })
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 210, marketState: 'REGULAR' })],
+        failed: [],
+      })
       // A pre-market print already past the threshold — must not fire.
-      .mockResolvedValueOnce({ quotes: [quote({ price: 190, extended: true })], failed: [] })
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 190, marketState: 'PRE', extended: true })],
+        failed: [],
+      })
       // The regular session resumes exactly where it left off — this now fires.
-      .mockResolvedValueOnce({ quotes: [quote({ price: 195, extended: false })], failed: [] });
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 195, marketState: 'REGULAR' })],
+        failed: [],
+      });
 
     const client = renderWatcher();
     await waitForQuotesCall(quotesSpy, 1);
@@ -163,6 +172,62 @@ describe('PriceAlertsWatcher', () => {
     await forceRefetch(client);
     await waitForQuotesCall(quotesSpy, 3);
     await waitFor(() => expect(soundSpy).toHaveBeenCalledWith('buy'));
+
+    quotesSpy.mockRestore();
+  });
+
+  it('fires on the first regular reading when the target crossed overnight, market closed at creation', async () => {
+    stubStoredAlert();
+    const soundSpy = vi.spyOn(alertSoundPlayer, 'play');
+
+    const quotesSpy = vi
+      .spyOn(quoteBus, 'quotes')
+      // The market is closed: a stale last read, unmet for a buy at 200,
+      // carrying yesterday's regular close as `previousClose`.
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 210, previousClose: 210, marketState: 'CLOSED' })],
+        failed: [],
+      })
+      // The regular session opens with the price already through 200 — a
+      // crossing that happened overnight, never observed live until now.
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 195, previousClose: 210, marketState: 'REGULAR' })],
+        failed: [],
+      });
+
+    const client = renderWatcher();
+    await waitForQuotesCall(quotesSpy, 1);
+    expect(soundSpy).not.toHaveBeenCalled();
+
+    await forceRefetch(client);
+    await waitForQuotesCall(quotesSpy, 2);
+    await waitFor(() => expect(soundSpy).toHaveBeenCalledWith('buy'));
+
+    quotesSpy.mockRestore();
+  });
+
+  it('does not fire at the open when the target never crossed overnight, market closed at creation', async () => {
+    stubStoredAlert();
+    const soundSpy = vi.spyOn(alertSoundPlayer, 'play');
+
+    const quotesSpy = vi
+      .spyOn(quoteBus, 'quotes')
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 210, previousClose: 210, marketState: 'CLOSED' })],
+        failed: [],
+      })
+      // Opens still above 200 — nothing to fire on.
+      .mockResolvedValueOnce({
+        quotes: [quote({ price: 205, previousClose: 210, marketState: 'REGULAR' })],
+        failed: [],
+      });
+
+    const client = renderWatcher();
+    await waitForQuotesCall(quotesSpy, 1);
+
+    await forceRefetch(client);
+    await waitForQuotesCall(quotesSpy, 2);
+    expect(soundSpy).not.toHaveBeenCalled();
 
     quotesSpy.mockRestore();
   });

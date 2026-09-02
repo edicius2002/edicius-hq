@@ -22,7 +22,7 @@ function alert(over: Partial<PriceAlert> = {}): PriceAlert {
   };
 }
 
-function quote(price: number): Quote {
+function quote(price: number, over: Partial<Quote> = {}): Quote {
   return {
     symbol: 'AAPL',
     price,
@@ -35,6 +35,7 @@ function quote(price: number): Quote {
     marketState: 'REGULAR',
     name: 'Apple',
     extended: false,
+    ...over,
   };
 }
 
@@ -108,6 +109,7 @@ describe('PriceAlerts add form', () => {
     // Enter with nothing chosen from the list follows the typed symbol
     // directly — see `SymbolSearch`.
     await user.type(screen.getByLabelText('Search a symbol'), 'MSFT{Enter}');
+    expect(screen.getByLabelText('Search a symbol')).toHaveValue('MSFT');
     await user.click(screen.getByRole('button', { name: 'Sell' }));
     await user.type(screen.getByLabelText('Price'), '410');
     await user.click(screen.getByRole('button', { name: 'Save' }));
@@ -139,6 +141,54 @@ describe('PriceAlerts add form', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(onAdd).toHaveBeenCalledWith({ symbol: 'AAPL', kind: 'buy', price: 200 });
+  });
+
+  it('accepts and warns, rather than refusing, when the target is already met outside the regular session', async () => {
+    const user = userEvent.setup();
+    // Market closed: the only price on hand is a stale last read.
+    const { onAdd } = renderPanel({
+      quotes: new Map([['AAPL', quote(190, { marketState: 'CLOSED' })]]),
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Add alert' }));
+    await user.type(screen.getByLabelText('Search a symbol'), 'AAPL{Enter}');
+    // Kind defaults to buy; 190 already sits at or below 200.
+    await user.type(screen.getByLabelText('Price'), '200');
+
+    expect(screen.getByText(/already meets this target/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onAdd).toHaveBeenCalledWith({ symbol: 'AAPL', kind: 'buy', price: 200 });
+  });
+
+  it('explains why saving did nothing when no symbol was chosen, instead of doing nothing silently', async () => {
+    const user = userEvent.setup();
+    // The real caller always prefills the charted symbol; an empty one here
+    // stands in for whatever future gesture might leave the field blank —
+    // the point under test is that the form explains it rather than doing
+    // nothing, not how a blank symbol arises.
+    const { onAdd } = renderPanel({ defaultSymbol: '' });
+
+    await user.click(screen.getByRole('button', { name: 'Add alert' }));
+    await user.type(screen.getByLabelText('Price'), '200');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose a symbol first.');
+  });
+
+  it('explains why saving did nothing when no price was entered, instead of doing nothing silently', async () => {
+    const user = userEvent.setup();
+    const { onAdd } = renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Add alert' }));
+    await user.type(screen.getByLabelText('Search a symbol'), 'AAPL{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a price above zero.');
   });
 
   it('closes without saving on cancel', async () => {

@@ -198,6 +198,15 @@
   font-size: 0.7rem;
 }
 
+/* Informational, not a refusal: what "already met, will sound on the next
+   crossing" looks like, so it does not read with the same alarm as formError. */
+.formHint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
 .formActions {
   display: flex;
   justify-content: flex-end;

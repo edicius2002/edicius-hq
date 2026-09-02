@@ -6,7 +6,7 @@ import {
   type AlertPatch,
   type PriceAlert,
 } from '@/features/investing/data/priceAlerts';
-import { canCreateAlert } from '@/features/investing/lib/alertCross';
+import { canCreateAlert, isRegularSessionQuote, sideOf } from '@/features/investing/lib/alertCross';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import type { Quote } from '@/shared/api/market';
 import { formatAmount } from '@/shared/lib/money';
@@ -176,23 +176,47 @@ function AlertForm({
   const [error, setError] = useState<string | null>(null);
 
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const priceEntered = price.trim() !== '';
   const parsedPrice = Number(price);
-  const valid = normalizedSymbol !== '' && price !== '' && isUsablePrice(parsedPrice);
+  const priceUsable = priceEntered && isUsablePrice(parsedPrice);
+
+  const currentQuote = quotes.get(normalizedSymbol);
+  const currentPrice = currentQuote?.price;
+  const regularSession = currentQuote !== undefined && isRegularSessionQuote(currentQuote);
+  const alreadyMet =
+    priceUsable && currentPrice !== undefined && sideOf(kind, currentPrice, parsedPrice) === 'met';
+
+  // Shown ahead of submitting, not only once refused: creating an alert
+  // whose target the last known price already meets is allowed outside the
+  // regular session (see `canCreateAlert`), and the user has to be told what
+  // they are creating, not left to find out only once it never sounds.
+  let hint: string | null = null;
+  if (alreadyMet && !regularSession && currentPrice !== undefined) {
+    hint = `${normalizedSymbol || 'This symbol'} already meets this target at its last known price (${formatAmount(currentPrice)}). It will sound the next time it crosses, not immediately.`;
+  }
 
   return (
     <form
       className={`${styles.form} ${alert ? styles.editForm : styles.addForm}`}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!valid) return;
 
-        // Refused rather than accepted-and-silent: an alert created past its
-        // own target would either fire on the spot (not what "tell me when
-        // it gets there" means) or, once `evaluateAlert`'s reseed rule takes
-        // over, never fire at all until the price first moves away and back.
-        // Absent a quote there is nothing to judge it against, so it passes.
-        const currentPrice = quotes.get(normalizedSymbol)?.price;
-        if (!canCreateAlert(kind, parsedPrice, currentPrice)) {
+        // Every reason saving does not proceed is said here, in the form —
+        // a save that silently does nothing is worse than one that refuses
+        // and explains itself.
+        if (!normalizedSymbol) {
+          setError('Choose a symbol first.');
+          return;
+        }
+        if (!priceUsable) {
+          setError('Enter a price above zero.');
+          return;
+        }
+        // Refused only when there is a regular-session price to judge it
+        // against — see `canCreateAlert`. Outside the regular session the
+        // alert is created regardless, with `hint` above already having said
+        // what that means.
+        if (!canCreateAlert(kind, parsedPrice, currentPrice, regularSession)) {
           setError(
             `${normalizedSymbol} is already ${kind === 'buy' ? 'at or below' : 'at or above'} ${formatAmount(parsedPrice)}.`,
           );
@@ -251,6 +275,12 @@ function AlertForm({
         />
       </label>
 
+      {hint && !error ? (
+        <p className={styles.formHint} aria-live="polite">
+          {hint}
+        </p>
+      ) : null}
+
       {error ? (
         <p className={styles.formError} role="alert">
           {error}
@@ -261,7 +291,7 @@ function AlertForm({
         <button type="button" className={styles.cancel} onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className={styles.save} disabled={!valid}>
+        <button type="submit" className={styles.save}>
           Save
         </button>
       </div>

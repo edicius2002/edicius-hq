@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   IDENTITY_MATRIX,
+  REFERENCE_GEOMETRY_WEIGHT,
   ROTATE_REBUILD_MS,
   affineMatrix,
   applyMatrix,
   decideReuse,
+  geometryWeight,
+  rotateThrottleMs,
   sameRotation,
   sameSelection,
   type ProjectionSnapshot,
@@ -188,5 +191,112 @@ describe('decideReuse', () => {
         [],
       ),
     ).toEqual({ kind: 'rebuild' });
+  });
+});
+
+describe('geometryWeight', () => {
+  it('counts every point in every land ring and every border run, and nothing else', () => {
+    const landParts = [
+      {
+        shape: {
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 0],
+            ],
+          ],
+        },
+      }, // one ring, 4 points
+      {
+        shape: {
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 0],
+            ], // outer ring, 4 points
+            [
+              [0.2, 0.2],
+              [0.3, 0.2],
+              [0.2, 0.2],
+            ], // a hole, 3 points
+          ],
+        },
+      },
+    ];
+    const borderRuns = [
+      {
+        shape: {
+          coordinates: [
+            [0, 0],
+            [1, 1],
+            [2, 2],
+          ],
+        },
+      }, // 3 points
+      {
+        shape: {
+          coordinates: [
+            [5, 5],
+            [6, 6],
+          ],
+        },
+      }, // 2 points
+    ];
+
+    expect(geometryWeight(landParts, borderRuns)).toBe(4 + 4 + 3 + 3 + 2);
+  });
+
+  it('is zero for a country with no land and no borders', () => {
+    expect(geometryWeight([], [])).toBe(0);
+  });
+});
+
+describe('rotateThrottleMs', () => {
+  it('gives the reference weight exactly ROTATE_REBUILD_MS — the heaviest country on file sees no regression', () => {
+    expect(rotateThrottleMs(REFERENCE_GEOMETRY_WEIGHT)).toBe(ROTATE_REBUILD_MS);
+  });
+
+  it('scales down linearly for a lighter country', () => {
+    const aFifth = REFERENCE_GEOMETRY_WEIGHT / 5;
+    expect(rotateThrottleMs(aFifth)).toBeCloseTo(ROTATE_REBUILD_MS / 5, 6);
+  });
+
+  it('is zero for weightless geometry, so it never lags a spin', () => {
+    expect(rotateThrottleMs(0)).toBe(0);
+  });
+
+  it('never exceeds ROTATE_REBUILD_MS, even for a country heavier than the calibration point', () => {
+    expect(rotateThrottleMs(REFERENCE_GEOMETRY_WEIGHT * 10)).toBe(ROTATE_REBUILD_MS);
+  });
+});
+
+describe('decideReuse with a weight-scaled throttle', () => {
+  const snapshot: ProjectionSnapshot = { rotation: [0, 0, 0], scale: 200, translate: [100, 100] };
+  const included = [true];
+
+  it('a country light enough rebuilds instead of drawing stale, where the reference-weight country would still be throttled', () => {
+    const cached = {
+      of: 'el-salvador',
+      snapshot,
+      builtAt: 1000,
+      includedLand: included,
+      includedBorders: [],
+    };
+    const rotated: ProjectionSnapshot = { rotation: [5, 0, 0], scale: 200, translate: [100, 100] };
+    const lightThrottle = rotateThrottleMs(1_031); // El Salvador's measured weight
+    const now = 1000 + lightThrottle + 1; // just past this country's own throttle...
+    expect(now - 1000).toBeLessThan(ROTATE_REBUILD_MS); // ...but well inside the flat constant
+
+    expect(decideReuse(cached, 'el-salvador', rotated, now, lightThrottle, included, [])).toEqual({
+      kind: 'rebuild',
+    });
+    // The same elapsed time, at the flat throttle every country used to share, would still be stale.
+    expect(
+      decideReuse(cached, 'el-salvador', rotated, now, ROTATE_REBUILD_MS, included, []),
+    ).toEqual({ kind: 'stale' });
   });
 });

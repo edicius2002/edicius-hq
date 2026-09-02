@@ -189,6 +189,33 @@ En el orden en que atacan las cuatro quejas:
    contexto antes de un `fill`/`stroke`, que es exactamente una operación afín barata) — el
    mismo patrón que un motor de mapas por _tiles_ usa para no volver a pedir un _tile_ en
    cada frame de un _pan_. Esto no cambia el renderer, cambia cuándo se le pide trabajo.
+
+   **Implementado (commit `efa84d8`, #147) de forma distinta a como se esboza arriba, y
+   recalibrado en esta sesión.** En vez de un umbral por grados de rotación acumulados más
+   una afín aproximada, `reprojectionCache.decideReuse` usa una afín _exacta_ para
+   escala/traslación (§1.3 de este documento sigue describiendo esa parte con precisión) y,
+   solo para el caso de rotación — donde ninguna afín puede ser exacta — un umbral de
+   **tiempo**: la geometría ya proyectada se sigue dibujando sin moverse hasta
+   `ROTATE_REBUILD_MS` (120 ms) después de construida, y entonces se reproyecta. Ese umbral
+   fijo resultó ser el propio origen de un bug nuevo: durante esos hasta 120 ms el país
+   dibujado se queda literalmente detrás del giro del globo, un desfase medido en esta sesión
+   (globo real, Chromium con GPU, no el Chromium sin aceleración de §1.2) en hasta **~60 px**
+   para EEUU a zoom de fronteras estatales con un giro de 60°/s — visible como una costura o
+   una cuña oscura en el borde de avance del país mientras gira. La causa: el umbral de 120 ms
+   se calibró para el país más caro (EEUU) pero se aplicaba **igual a todos**, así que un país
+   barato de reproyectar (El Salvador, por ejemplo) pagaba el mismo retraso que EEUU sin
+   necesitarlo. El arreglo — `rotateThrottleMs`/`geometryWeight` en `reprojectionCache.ts` —
+   escala ese umbral por el peso real de la geometría de cada país (vértices de tierra y
+   fronteras internas, decodificados), calibrado para que EEUU (el más pesado, 41.825 puntos)
+   siga recibiendo exactamente los mismos 120 ms de antes — sin regresión para el caso que
+   motivó la constante — mientras que México (12.747 puntos, ~30% del peso de EEUU) se pone
+   al día más de tres veces más seguido, y un país tan liviano como El Salvador (1.031 puntos)
+   se reproyecta en prácticamente cada frame. Medido en el mismo escenario tras el cambio: el
+   desfase de EEUU no cambia (sigue el mismo umbral, ~40-60 px según el frame muestreado,
+   coherente con no tocar el caso calibrado), y el de países livianos cae a 0 px en la ventana
+   de prueba. La cuadrícula de pruebas de este trade-off vive en
+   `reprojectionCache.test.ts`.
+
 2. **Separar "cuándo pedir datos" de "cuándo mostrarlos" (queja D).** `SETTLE_MS`/`ARRIVAL_MS`
    existen para no bombardear la red mientras el lector gira el globo — una razón válida
    para el _fetch_. Pero un país cuyos datos **ya están en la caché de React Query** no tiene

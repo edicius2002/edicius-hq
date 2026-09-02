@@ -43,8 +43,9 @@ import {
 } from '@/features/airfare/lib/globe';
 import {
   IDENTITY_MATRIX,
-  ROTATE_REBUILD_MS,
   decideReuse,
+  geometryWeight,
+  rotateThrottleMs,
   type CachedGeometry,
   type Matrix2D,
   type ProjectionSnapshot,
@@ -761,9 +762,12 @@ export function RouteMap({
      * rotation never changes — is always. A spin still moves every point on
      * the sphere by a different amount, which no single map can stand in for;
      * there, a country's borders are allowed to lag the turn by up to
-     * `ROTATE_REBUILD_MS` before they are worth reprojecting again, the same
-     * kind of bounded trade `SETTLE_MS` and `ARRIVAL_MS` already make between
-     * showing the latest thing and showing anything smoothly at all.
+     * `rotateThrottleMs`'s throttle before they are worth reprojecting again,
+     * the same kind of bounded trade `SETTLE_MS` and `ARRIVAL_MS` already make
+     * between showing the latest thing and showing anything smoothly at all —
+     * scaled by `geometryWeight` rather than flat, so a country cheap enough
+     * to reproject every frame is not made to lag as long as the heaviest one
+     * on file just because they share a constant.
      *
      * **Per country, not per view's worth of countries**, and that is the half
      * that makes the fade a fade. A fan-out lands one country at a time, a few
@@ -809,7 +813,7 @@ export function RouteMap({
         each,
         snapshot,
         now,
-        ROTATE_REBUILD_MS,
+        rotateThrottleMs(geometryWeight(each.landParts, each.borderRuns)),
         includedLand,
         includedBorders,
       );

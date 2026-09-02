@@ -28,6 +28,24 @@
  * globe by at most that long and then snap back exact — a trade this map
  * already makes elsewhere (`SETTLE_MS`, `ARRIVAL_MS`) between showing the
  * latest thing and showing anything smoothly at all.
+ *
+ * **`throttleMs` used to be one constant everyone paid**, `ROTATE_REBUILD_MS`,
+ * measured for the one country expensive enough to need it — the United
+ * States. That made every lighter country lag the spin by just as much as the
+ * heaviest one on file, for no reason: reprojecting El Salvador (1,031 land
+ * and border vertices, decoded) costs a small fraction of reprojecting the
+ * United States (41,825), so it can afford to catch up far sooner. Measured
+ * live at a state-border zoom with the United States on screen (a 60°/s spin,
+ * the method in `docs/airfare-map-rendering.md` §1.4), the flat 120 ms
+ * throttle let the frozen shape drift up to ~60 px from where the live
+ * projection put the same point before the next rebuild — a mismatch a
+ * reader reads as a border in the wrong place. `rotateThrottleMs` scales the
+ * throttle by `geometryWeight` instead, calibrated so the heaviest country on
+ * file still gets exactly `ROTATE_REBUILD_MS` — no regression for the case
+ * the constant was measured for — while Mexico (12,747, ~30% of the United
+ * States' weight) catches up more than three times as often, and a country as
+ * light as El Salvador rebuilds on nearly every frame instead of lagging a
+ * fifth of a second behind the spin.
  */
 
 /** The three numbers of a `GeoProjection` that decide where a point lands. */
@@ -154,3 +172,52 @@ export function decideReuse<T>(
  * shape is asked to catch up.
  */
 export const ROTATE_REBUILD_MS = 120;
+
+/**
+ * A country's land and internal-border vertex count, decoded — the same unit
+ * `geoPath` pays to project one at a time, and so a fair stand-in for how
+ * expensive rebuilding this country's `Path2D` is.
+ *
+ * Only ring and run *lengths* are read, never a coordinate itself, so this
+ * costs nothing close to what it is standing in for: an array's `.length` is
+ * one property read regardless of how many points are behind it. Safe to call
+ * every frame for every country on screen, which is what lets `throttleMs`
+ * be recalculated live rather than baked in once.
+ */
+export function geometryWeight(
+  landParts: readonly { shape: { coordinates: readonly (readonly number[])[][] } }[],
+  borderRuns: readonly { shape: { coordinates: readonly (readonly number[])[] } }[],
+): number {
+  let total = 0;
+  for (const part of landParts) for (const ring of part.shape.coordinates) total += ring.length;
+  for (const run of borderRuns) total += run.shape.coordinates.length;
+  return total;
+}
+
+/**
+ * The heaviest country on file, weighed by `geometryWeight` — the United
+ * States' decoded 1:10m land and internal borders (41,825 points; measured
+ * live in the running app, not from the served file — TopoJSON's arc sharing
+ * and the many small disjoint pieces of a real coastline mean decoded point
+ * count is not a simple multiple of the 326 KB `docs/airfare-map-rendering.md`
+ * §1.2 measures on the wire). The calibration point for `rotateThrottleMs`:
+ * this weight is the one that still gets the full `ROTATE_REBUILD_MS`, so the
+ * country the constant was measured for sees no regression from this change.
+ */
+export const REFERENCE_GEOMETRY_WEIGHT = 41_825;
+
+/**
+ * How long a country of this weight may lag a spin before it is worth
+ * reprojecting again, in milliseconds — `decideReuse`'s `throttleMs`, scaled
+ * instead of flat.
+ *
+ * Linear in weight, capped at `ROTATE_REBUILD_MS`: a country as heavy as
+ * `REFERENCE_GEOMETRY_WEIGHT` gets the full throttle, unchanged from before
+ * this scaling existed; a country a fifth as heavy gets a fifth of it, and
+ * catches up roughly five times as often. Nothing exceeds the historical cap
+ * — a country heavier than any on file today would still be bounded at
+ * `ROTATE_REBUILD_MS`, not thrown further.
+ */
+export function rotateThrottleMs(weight: number): number {
+  return Math.min(ROTATE_REBUILD_MS, (weight / REFERENCE_GEOMETRY_WEIGHT) * ROTATE_REBUILD_MS);
+}

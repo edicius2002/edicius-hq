@@ -210,6 +210,9 @@ export function planFanOut(
  * `useSettledSubdivisionCountries` — is not going to touch the network at
  * all. Waiting on it anyway is waiting on nothing.
  */
-export function needsSettleWait(countries: readonly string[], resolvedEver: ReadonlySet<string>): boolean {
+export function needsSettleWait(
+  countries: readonly string[],
+  resolvedEver: ReadonlySet<string>,
+): boolean {
   return !countries.every((country) => resolvedEver.has(country));
 }

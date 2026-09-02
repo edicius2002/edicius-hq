@@ -43,10 +43,7 @@ export type Matrix2D = { a: number; b: number; c: number; d: number; e: number; 
 export const IDENTITY_MATRIX: Matrix2D = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 
 /** Whether two rotations are the same projection state, not merely close. */
-export function sameRotation(
-  a: readonly number[],
-  b: readonly number[],
-): boolean {
+export function sameRotation(a: readonly number[], b: readonly number[]): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 }
 
@@ -72,7 +69,10 @@ export function affineMatrix(from: ProjectionSnapshot, to: ProjectionSnapshot): 
 
 /** Applies a matrix to a point, the same way `Path2D.addPath` would to every point in a path. */
 export function applyMatrix(matrix: Matrix2D, point: readonly [number, number]): [number, number] {
-  return [matrix.a * point[0] + matrix.c * point[1] + matrix.e, matrix.b * point[0] + matrix.d * point[1] + matrix.f];
+  return [
+    matrix.a * point[0] + matrix.c * point[1] + matrix.e,
+    matrix.b * point[0] + matrix.d * point[1] + matrix.f,
+  ];
 }
 
 /**

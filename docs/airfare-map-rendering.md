@@ -21,8 +21,8 @@
   mientras la cámara se mueve, no solo una vez, por una razón de caché que se explica en la
   §2.
 - **La causa de las cuatro quejas no es la misma, y solo una de las cuatro roza el renderer**
-  (§2): fluidez (A) y detalle (C) son un problema de *cuánta geometría se reproyecta por
-  frame* y de *qué presupuesto de bytes se le da a cada país*; inmediatez (D) es una decisión
+  (§2): fluidez (A) y detalle (C) son un problema de _cuánta geometría se reproyecta por
+  frame_ y de _qué presupuesto de bytes se le da a cada país_; inmediatez (D) es una decisión
   de temporización que no toca ni un píxel; aspecto (B) tiene partes que ya existen en Canvas
   2D, partes baratas de añadir sin GPU, y una sola pieza (relieve/batimetría con textura sobre
   un globo que gira) que sí pide un shader.
@@ -42,7 +42,7 @@ El documento anterior citó `lib/visible.ts:8-29` (una mediana de 6,1 ms tras cu
 casquete esférico) como evidencia de que no hay problema de rendimiento. Esa medición es real,
 pero es del **mundo entero a 1:110 m** — el atlas base, sin ninguna subdivisión territorial
 cargada. `lib/visible.ts` no menciona subdivisiones ni una vez, y su culling por casquete
-opera sobre qué *países* pueden estar en pantalla, no sobre los miles de vértices que forman
+opera sobre qué _países_ pueden estar en pantalla, no sobre los miles de vértices que forman
 el contorno de un solo país ya en pantalla. El propio `RouteMap.tsx` lo dice sin rodeos, en el
 bloque que construye la geometría fina de un país (`RouteMap.tsx:711-721`):
 
@@ -61,7 +61,7 @@ anterior no citó porque estaba buscando en el archivo equivocado.
 Para responder con el caso exacto que pide la tarea (EEUU, Brasil, España), medí el coste real
 en un Chromium sin cabeza (el mismo binario que usa Playwright, ya presente en la máquina:
 `~/.cache/ms-playwright/chromium-1187`), pilotado por CDP desde un script Node desechable
-(no forma parte del repositorio). El *benchmark* replica exactamente la secuencia de
+(no forma parte del repositorio). El _benchmark_ replica exactamente la secuencia de
 `RouteMap.tsx:758-770` y `833-874` — construir un `Path2D` por país vía `d3-geo`'s `geoPath`
 a partir de los ficheros de subdivisiones realmente servidos
 (`services/api/app/data/subdivisions/{840,076,724,604,068,152}.json`, es decir EEUU, Brasil,
@@ -72,12 +72,12 @@ España, y Perú+Bolivia+Chile como control cruzado contra la cita de arriba), p
 **Resultado — reconstruir el `Path2D` desde cero (lo que pasa en cualquier frame donde la
 cámara se movió), mediana de 38 repeticiones tras descartar 2 de calentamiento:**
 
-| País | Peso servido | Mediana | Mín–máx |
-|---|---|---|---|
-| España (724) | 63,2 KB | 4,2–4,6 ms | 2,7–13,2 ms |
-| Brasil (076) | 153,4 KB | 10,8–14,5 ms | 8,4–35,6 ms |
-| Perú+Bolivia+Chile (control cruzado) | 187,1 KB | 17,1–18,6 ms | 12,2–38,5 ms |
-| **EEUU (840)** | **326,3 KB** | **18,6–21,3 ms** | **11,2–49,5 ms** |
+| País                                 | Peso servido | Mediana          | Mín–máx          |
+| ------------------------------------ | ------------ | ---------------- | ---------------- |
+| España (724)                         | 63,2 KB      | 4,2–4,6 ms       | 2,7–13,2 ms      |
+| Brasil (076)                         | 153,4 KB     | 10,8–14,5 ms     | 8,4–35,6 ms      |
+| Perú+Bolivia+Chile (control cruzado) | 187,1 KB     | 17,1–18,6 ms     | 12,2–38,5 ms     |
+| **EEUU (840)**                       | **326,3 KB** | **18,6–21,3 ms** | **11,2–49,5 ms** |
 
 El control cruzado (Perú+Bolivia+Chile, 17,1-18,6 ms medidos aquí) coincide casi exactamente
 con los 16-20 ms que ya documentaba `RouteMap.tsx:719-721` para el mismo trío de países — lo
@@ -91,7 +91,7 @@ decir el trabajo que le correspondería a "el renderer", **es gratis**. El coste
 JavaScript, no de rasterizado.
 
 **Advertencia de método, con la misma honestidad que pide la tarea:** esto corre en un
-Chromium sin aceleración de GPU real (`--disable-gpu`, *software rendering* vía SwiftShader),
+Chromium sin aceleración de GPU real (`--disable-gpu`, _software rendering_ vía SwiftShader),
 sin las optimizaciones de contexto completo que sí tiene la app en producción (el `clip()` al
 contorno grueso que acota el área a rellenar, el batching de varios países en un solo
 `fill`/`stroke`). Es razonable esperar que en el Chrome real de un lector, con GPU, los números
@@ -122,7 +122,7 @@ la cámara se mueve — y `draw()`, que es donde se lee y escribe esta caché, s
 el propio archivo llama "a frame loop only while something is actually moving"). Así que la
 caché ayuda exactamente en el caso que su comentario describe — la cámara parada — pero **no**
 en el caso que un lector reporta como lento: seguir haciendo zoom o arrastrar el mapa
-*después* de que las subdivisiones de un país ya están cargadas y visibles. En ese momento,
+_después_ de que las subdivisiones de un país ya están cargadas y visibles. En ese momento,
 cada frame cambia la clave `view`, la caché falla, y se paga el coste completo de la §1.2 —
 18-21 ms para EEUU — encima de todo lo demás que el frame ya tenía que hacer.
 
@@ -133,12 +133,12 @@ el gesto que un lector describiría como "el mapa se atasca cuando aparecen las 
 
 ## 2. Causa por queja, separada del renderer
 
-| Queja | Causa | Categoría | ¿Argumento a favor de GPU? |
-|---|---|---|---|
-| **A. Fluidez al hacer zoom con subdivisiones** | La caché de `Path2D` (`served.current`) solo sobrevive con la cámara parada; cualquier frame de zoom/arrastre con un país ya cargado reconstruye su geometría entera, 18-21 ms para EEUU (§1) | **(i) volumen de geometría reproyectada por frame**, causado por el alcance de una caché, no por el volumen de datos en sí | **No.** La §1.2 demuestra que el `fill`/`stroke` (lo único que un renderer nuevo cambiaría) cuesta 0 ms; el 100% del coste es la reproyección en JS, que un pipeline de GPU también tendría que pagar en algún punto — a menos que se rediseñe la estrategia de caché, que es exactamente el arreglo de la §4, sin GPU. |
-| **B. Aspecto plano** | Ver desglose por efecto en §3 | Mixto — depende del efecto | Solo para uno de los efectos pedidos (relieve/batimetría con textura sobre el globo girando); el resto ya existe o es alcanzable en Canvas 2D/SVG |
-| **C. Fronteras toscas / detalle insuficiente** | Dos causas distintas según qué se esté mirando: (a) países vecinos que se quedan sin presupuesto — `lib/fanOut.ts:85`, `VIEW_BUDGET_BYTES = 256_000` (256 KB); EEUU solo ya pesa 326 KB, **más que todo el presupuesto de una vista**, así que al mirar EEUU, Canadá y México se quedan en el atlas de 1:110m aunque el país central esté a 1:10m; (b) el propio 1:10m es, hoy, el techo de resolución que existe — no hay un "1:1m" al que subir | (a) **(ii) estrategia de carga de datos** (presupuesto de bytes); (b) **(iii) resolución de los datos servidos**, pero ya en su máximo práctico para cobertura mundial (ver §2.1) | No en ninguno de los dos casos — ninguno es "el canvas no puede pintar suficiente detalle", es "el presupuesto no llega" o "no existe un fichero más fino" |
-| **D. Inmediatez — la espera del desvanecido** | `SETTLE_MS = 250` (`RouteMap.tsx:200`) más `ARRIVAL_MS = 250` (`RouteMap.tsx:215`) se aplican **siempre**, incluso cuando el país ya está en caché de React Query (`staleTime: Infinity, gcTime: Infinity`, `useSubdivisions.ts:70-71` — no hay red de por medio en una revisita). Mínimo 500 ms de espera desde que el mapa se detiene hasta que las fronteras están a opacidad completa, sea la primera vez o la décima | **(ii) estrategia de temporización/UX**, cero relación con geometría o con el renderer | **No.** Confirmado en el propio código: es un `setTimeout` con un valor fijo, no una espera por datos o por un frame lento. |
+| Queja                                          | Causa                                                                                                                                                                                                                                                                                                                                                                                                                                             | Categoría                                                                                                                                                                         | ¿Argumento a favor de GPU?                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. Fluidez al hacer zoom con subdivisiones** | La caché de `Path2D` (`served.current`) solo sobrevive con la cámara parada; cualquier frame de zoom/arrastre con un país ya cargado reconstruye su geometría entera, 18-21 ms para EEUU (§1)                                                                                                                                                                                                                                                     | **(i) volumen de geometría reproyectada por frame**, causado por el alcance de una caché, no por el volumen de datos en sí                                                        | **No.** La §1.2 demuestra que el `fill`/`stroke` (lo único que un renderer nuevo cambiaría) cuesta 0 ms; el 100% del coste es la reproyección en JS, que un pipeline de GPU también tendría que pagar en algún punto — a menos que se rediseñe la estrategia de caché, que es exactamente el arreglo de la §4, sin GPU. |
+| **B. Aspecto plano**                           | Ver desglose por efecto en §3                                                                                                                                                                                                                                                                                                                                                                                                                     | Mixto — depende del efecto                                                                                                                                                        | Solo para uno de los efectos pedidos (relieve/batimetría con textura sobre el globo girando); el resto ya existe o es alcanzable en Canvas 2D/SVG                                                                                                                                                                       |
+| **C. Fronteras toscas / detalle insuficiente** | Dos causas distintas según qué se esté mirando: (a) países vecinos que se quedan sin presupuesto — `lib/fanOut.ts:85`, `VIEW_BUDGET_BYTES = 256_000` (256 KB); EEUU solo ya pesa 326 KB, **más que todo el presupuesto de una vista**, así que al mirar EEUU, Canadá y México se quedan en el atlas de 1:110m aunque el país central esté a 1:10m; (b) el propio 1:10m es, hoy, el techo de resolución que existe — no hay un "1:1m" al que subir | (a) **(ii) estrategia de carga de datos** (presupuesto de bytes); (b) **(iii) resolución de los datos servidos**, pero ya en su máximo práctico para cobertura mundial (ver §2.1) | No en ninguno de los dos casos — ninguno es "el canvas no puede pintar suficiente detalle", es "el presupuesto no llega" o "no existe un fichero más fino"                                                                                                                                                              |
+| **D. Inmediatez — la espera del desvanecido**  | `SETTLE_MS = 250` (`RouteMap.tsx:200`) más `ARRIVAL_MS = 250` (`RouteMap.tsx:215`) se aplican **siempre**, incluso cuando el país ya está en caché de React Query (`staleTime: Infinity, gcTime: Infinity`, `useSubdivisions.ts:70-71` — no hay red de por medio en una revisita). Mínimo 500 ms de espera desde que el mapa se detiene hasta que las fronteras están a opacidad completa, sea la primera vez o la décima                         | **(ii) estrategia de temporización/UX**, cero relación con geometría o con el renderer                                                                                            | **No.** Confirmado en el propio código: es un `setTimeout` con un valor fijo, no una espera por datos o por un frame lento.                                                                                                                                                                                             |
 
 ### 2.1 Sobre la resolución de los datos (aclarando C)
 
@@ -159,15 +159,15 @@ existe.
 
 ## 3. Los efectos visuales (queja B), uno por uno
 
-| Efecto pedido | ¿Existe ya? | ¿Alcanzable en Canvas 2D / SVG? | Coste |
-|---|---|---|---|
-| **Atmósfera / halo alrededor del globo** | **Sí, ya existe.** `RouteMap.tsx:642-652`: un `createRadialGradient` justo fuera del limbo del globo (radio 0,96x a 1,16x), leído de `--map-halo` | — | Ya pagado |
-| **Iluminación del globo (cara "lit")** | **Sí, ya existe.** `RouteMap.tsx:613-631`: el océano se pinta con un `createRadialGradient` descentrado (arriba-izquierda, `cx - radius*0.35, cy - radius*0.4`) para simular una fuente de luz | — | Ya pagado |
-| **Terminador día/noche real** (la mitad nocturna del globo oscurecida según la hora) | No | **Sí.** `d3-geo` (ya una dependencia) tiene `geoCircle()`; centrado en el punto antisolar actual con radio 90°, da exactamente el círculo del terminador. Se dibuja como un `Path2D` más, oscurecido y semitransparente, con el mismo `geoPath` que ya se usa para todo lo demás | Bajo — una función más en `lib/globe.ts`, un `fill()` más en `draw()` |
-| **Brillo/resplandor en los arcos que fluyen** | No (verificado: no hay `shadowBlur`, `filter` ni `drop-shadow` en `RouteMap.tsx` ni en `RouteMap.module.css`) | **Sí, y más barato de lo normal:** los arcos son `<path>` de SVG (`RouteMap.tsx:1733-1739`), no canvas — un filtro SVG nativo (`<feGaussianBlur>` + `feMerge`, o simplemente `filter: drop-shadow(...)` en CSS) da resplandor sin una sola línea de JavaScript, compuesto por el propio navegador | Muy bajo — una regla CSS |
-| **Profundidad real en los arcos** (elevados sobre la superficie, no pegados a ella, como en Cesium/Google Earth) | No. `greatCircle()` (`lib/geo.ts:275-285`) muestrea puntos exactamente sobre la esfera, sin altitud | Sí, pero con más trabajo: `geoOrthographic` solo sabe proyectar puntos *sobre* la esfera unitaria. Elevar un arco exige calcular a mano la posición 3D de cada muestra (escalar el vector unitario por `1 + altura(t)`), aplicar la misma rotación que ya usa `versor`, y proyectar con una perspectiva débil manual — matemática de vectores en CPU, sin canvas ni GPU de por medio, pero es trabajo nuevo, no una línea de configuración | Medio |
-| **Profundidad continua en arcos/aeropuertos que se alejan del centro visible** | Parcial y binaria: `RouteMap.module.css:329-331`, `.behind { opacity: 0.3 }` — un interruptor, no un desvanecido | **Sí**, con la misma función que ya usan los nombres de lugar: `limbFade()` (`lib/globe.ts:125-128`, ya usada en `RouteMap.tsx:1452`) da un desvanecido continuo por cercanía al horizonte. Aplicarla a la opacidad de arcos y aeropuertos en vez del interruptor fijo es reutilizar código que ya existe | Bajo |
-| **Relieve / batimetría (textura de elevación) sobre el globo girando** | No | **No, honestamente.** `drawImage` de Canvas 2D solo hace transformaciones afines (escala, rotación, traslación); deformar una textura equirectangular a través de una proyección ortográfica no lineal, cada frame, mientras el globo gira, no es una transformación afín. Es exactamente el caso donde un *fragment shader* de GPU (muestrear una textura por lat/lon, por píxel) es la herramienta natural — remapear la imagen en CPU con `ImageData` es posible pero cuesta del orden de decenas de ms por frame para un lienzo completo, y no escala | Alto, y el único ítem de esta lista donde "GPU" es la respuesta honesta, no una excusa |
+| Efecto pedido                                                                                                    | ¿Existe ya?                                                                                                                                                                                    | ¿Alcanzable en Canvas 2D / SVG?                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Coste                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Atmósfera / halo alrededor del globo**                                                                         | **Sí, ya existe.** `RouteMap.tsx:642-652`: un `createRadialGradient` justo fuera del limbo del globo (radio 0,96x a 1,16x), leído de `--map-halo`                                              | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Ya pagado                                                                              |
+| **Iluminación del globo (cara "lit")**                                                                           | **Sí, ya existe.** `RouteMap.tsx:613-631`: el océano se pinta con un `createRadialGradient` descentrado (arriba-izquierda, `cx - radius*0.35, cy - radius*0.4`) para simular una fuente de luz | —                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Ya pagado                                                                              |
+| **Terminador día/noche real** (la mitad nocturna del globo oscurecida según la hora)                             | No                                                                                                                                                                                             | **Sí.** `d3-geo` (ya una dependencia) tiene `geoCircle()`; centrado en el punto antisolar actual con radio 90°, da exactamente el círculo del terminador. Se dibuja como un `Path2D` más, oscurecido y semitransparente, con el mismo `geoPath` que ya se usa para todo lo demás                                                                                                                                                                                                                                                                          | Bajo — una función más en `lib/globe.ts`, un `fill()` más en `draw()`                  |
+| **Brillo/resplandor en los arcos que fluyen**                                                                    | No (verificado: no hay `shadowBlur`, `filter` ni `drop-shadow` en `RouteMap.tsx` ni en `RouteMap.module.css`)                                                                                  | **Sí, y más barato de lo normal:** los arcos son `<path>` de SVG (`RouteMap.tsx:1733-1739`), no canvas — un filtro SVG nativo (`<feGaussianBlur>` + `feMerge`, o simplemente `filter: drop-shadow(...)` en CSS) da resplandor sin una sola línea de JavaScript, compuesto por el propio navegador                                                                                                                                                                                                                                                         | Muy bajo — una regla CSS                                                               |
+| **Profundidad real en los arcos** (elevados sobre la superficie, no pegados a ella, como en Cesium/Google Earth) | No. `greatCircle()` (`lib/geo.ts:275-285`) muestrea puntos exactamente sobre la esfera, sin altitud                                                                                            | Sí, pero con más trabajo: `geoOrthographic` solo sabe proyectar puntos _sobre_ la esfera unitaria. Elevar un arco exige calcular a mano la posición 3D de cada muestra (escalar el vector unitario por `1 + altura(t)`), aplicar la misma rotación que ya usa `versor`, y proyectar con una perspectiva débil manual — matemática de vectores en CPU, sin canvas ni GPU de por medio, pero es trabajo nuevo, no una línea de configuración                                                                                                                | Medio                                                                                  |
+| **Profundidad continua en arcos/aeropuertos que se alejan del centro visible**                                   | Parcial y binaria: `RouteMap.module.css:329-331`, `.behind { opacity: 0.3 }` — un interruptor, no un desvanecido                                                                               | **Sí**, con la misma función que ya usan los nombres de lugar: `limbFade()` (`lib/globe.ts:125-128`, ya usada en `RouteMap.tsx:1452`) da un desvanecido continuo por cercanía al horizonte. Aplicarla a la opacidad de arcos y aeropuertos en vez del interruptor fijo es reutilizar código que ya existe                                                                                                                                                                                                                                                 | Bajo                                                                                   |
+| **Relieve / batimetría (textura de elevación) sobre el globo girando**                                           | No                                                                                                                                                                                             | **No, honestamente.** `drawImage` de Canvas 2D solo hace transformaciones afines (escala, rotación, traslación); deformar una textura equirectangular a través de una proyección ortográfica no lineal, cada frame, mientras el globo gira, no es una transformación afín. Es exactamente el caso donde un _fragment shader_ de GPU (muestrear una textura por lat/lon, por píxel) es la herramienta natural — remapear la imagen en CPU con `ImageData` es posible pero cuesta del orden de decenas de ms por frame para un lienzo completo, y no escala | Alto, y el único ítem de esta lista donde "GPU" es la respuesta honesta, no una excusa |
 
 **Resumen de la sección:** de seis efectos pedidos, dos ya están hechos, tres son alcanzables
 en la pila actual (uno de ellos, el resplandor de los arcos, casi gratis por ser SVG), uno es
@@ -187,11 +187,11 @@ En el orden en que atacan las cuatro quejas:
    ej. un grado de rotación, o un 2% de zoom) y, entre medias, aplicar una transformación
    afín aproximada sobre el `Path2D` ya construido (canvas soporta `setTransform` sobre el
    contexto antes de un `fill`/`stroke`, que es exactamente una operación afín barata) — el
-   mismo patrón que un motor de mapas por *tiles* usa para no volver a pedir un *tile* en
-   cada frame de un *pan*. Esto no cambia el renderer, cambia cuándo se le pide trabajo.
+   mismo patrón que un motor de mapas por _tiles_ usa para no volver a pedir un _tile_ en
+   cada frame de un _pan_. Esto no cambia el renderer, cambia cuándo se le pide trabajo.
 2. **Separar "cuándo pedir datos" de "cuándo mostrarlos" (queja D).** `SETTLE_MS`/`ARRIVAL_MS`
    existen para no bombardear la red mientras el lector gira el globo — una razón válida
-   para el *fetch*. Pero un país cuyos datos **ya están en la caché de React Query** no tiene
+   para el _fetch_. Pero un país cuyos datos **ya están en la caché de React Query** no tiene
    ninguna razón de red para esperar: el `setTimeout` de `RouteMap.tsx:969-995` podría
    comprobar si el país ya está resuelto (`queryClient.getQueryData`) y, si lo está, saltar
    directo al desvanecido de `ARRIVAL_MS` sin los 250 ms de `SETTLE_MS` — sin tocar una línea
@@ -223,18 +223,18 @@ revisitas). Ninguna de las cinco toca `RouteMap.tsx`'s elección de Canvas 2D + 
 
 ### 5.1 vgpu — análisis original, conservado íntegro
 
-`vercel-labs/vgpu` **no es una librería de mapas**: es un *wrapper* de bajo nivel sobre WebGPU
-de propósito general (shaders WGSL tipados, escenas 3D, cómputo GPU — README: *"Modular
+`vercel-labs/vgpu` **no es una librería de mapas**: es un _wrapper_ de bajo nivel sobre WebGPU
+de propósito general (shaders WGSL tipados, escenas 3D, cómputo GPU — README: _"Modular
 cross-runtime WebGPU library for shaders, 3D scenes, GPU tensors, neural networks, and math
-viz"*). MIT, activo (`0.3.1` en npm, primera publicación 2026-05-26, ~32.700 descargas/mes,
+viz"_). MIT, activo (`0.3.1` en npm, primera publicación 2026-05-26, ~32.700 descargas/mes,
 5 colaboradores), pre-1.0. Cero menciones a proyecciones, globos, canvas 2D o SVG en su
 documentación pública — adoptarlo no resolvería una sola línea de la cartografía que hoy vive
 en `lib/globe.ts`/`lib/visible.ts`/`RouteMap.tsx`, solo cambiaría la superficie de dibujo, y
-todo el trabajo de proyección, teselado, *picking* y corte por horizonte habría que
+todo el trabajo de proyección, teselado, _picking_ y corte por horizonte habría que
 escribirlo a mano en WGSL. Requiere WebGPU nativo del navegador — habilitado por defecto en
 Chrome/Edge desde 2023, mucho más recientemente en Safari (solo desde la versión de SO "26",
 ~sept. 2025) y de forma parcial en Firefox (Windows sí, Linux/Mac Intel no todavía) — sin
-ningún mecanismo de *fallback* propio. El inventario completo (qué es matemática de proyección
+ningún mecanismo de _fallback_ propio. El inventario completo (qué es matemática de proyección
 portable y qué está casado con el canvas actual), el coste en los 55 tests de
 `RouteMap.test.tsx`, y el análisis de adopción parcial siguen en el documento original y no
 se repiten aquí porque no ha cambiado nada de eso — la única corrección de este reencuadre es
@@ -251,16 +251,16 @@ que cualquier cifra exacta (tamaño de bundle en KB, fecha de último release, n
 marcada como "sin verificar" debe confirmarse contra bundlephobia.com/npm/el repo antes de
 decidir con ella.
 
-| | **deck.gl (`GlobeView`)** | **globe.gl / three-globe** | **MapLibre GL JS (proyección `globe`, v5+)** |
-|---|---|---|---|
-| Motor | WebGL2. (Su sucesor `luma.gl` v9 explora WebGPU, pero `GlobeView` en producción hoy es WebGL2, no WebGPU — **confirmar versión exacta antes de decidir**) | Three.js → WebGL. (Three.js tiene un `WebGPURenderer` experimental, pero `three-globe`/`globe.gl` no lo usan por defecto) | WebGL/WebGL2 |
-| ¿Globo + Mercator en la misma librería? | Solo globo (`GlobeView` es una vista 3D dedicada; el Mercator plano de deck.gl es una vista distinta, `MapView`) | Solo globo — es su único modo | **Sí**, es la única de las tres pensada para esto: la proyección `globe` de MapLibre v5 es un modo del mismo mapa, intercambiable en caliente con el Mercator plano de siempre |
-| Licencia | MIT | MIT (ambos) | BSD-3-Clause (bifurcación de Mapbox GL JS anterior al cambio de licencia de Mapbox) |
-| Nodos DOM/SVG por elemento (aeropuertos, etiquetas) vs. todo-canvas | Todo-canvas; *picking* por buffer de color codificado, no hay nodo por marcador | Todo-canvas (escena Three.js); *picking* por *raycasting*, no hay nodo por marcador | **Híbrido** — las capas de datos (`fill`/`line`/`circle`) son WebGL, pero su API `Marker`/`Popup` coloca elementos DOM reales posicionados sobre el mapa, pensada explícitamente para casos donde un marcador necesita ser interactivo/accesible |
-| Arcos animados como primitiva | **Sí** — `ArcLayer` es una de sus capas principales, hecha justo para esto (origen/destino con gran círculo) | Sí — `three-globe` incluye una capa de arcos, es una de sus demos insignia | No como primitiva directa; se puede construir con una fuente `geojson` de líneas y estilos animados, con más trabajo manual |
-| Datos propios (GeoJSON/TopoJSON locales, sin *tiles*) | Sí, sin problema — es agnóstico a la fuente | Sí, sin problema | Sí — soporta una fuente `type: "geojson"` con datos locales y un estilo sin ninguna capa de *tiles* ("*blank style*"), que es justo el caso de este repositorio (nunca toca la red para *tiles*) |
-| Tamaño de *bundle* | Conocido por ser considerable (núcleo + capas); cifra exacta **sin verificar** — confirmar en bundlephobia antes de decidir | Three.js por sí solo ronda un mínimo no trivial y `three-globe`/`globe.gl` añaden más; cifra exacta **sin verificar** | Cifra exacta **sin verificar** |
-| Mantenimiento activo a sept. 2026 | Proyecto de Uber/OpenJS Foundation con historial largo de mantenimiento; estado exacto reciente **sin verificar** | Proyecto individual con adopción amplia; estado exacto reciente **sin verificar** | Proyecto de OpenJS Foundation, sucesor comunitario de Mapbox GL JS, con cadencia de releases activa conocida; fecha exacta del último release **sin verificar** |
+|                                                                     | **deck.gl (`GlobeView`)**                                                                                                                                 | **globe.gl / three-globe**                                                                                                | **MapLibre GL JS (proyección `globe`, v5+)**                                                                                                                                                                                                     |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Motor                                                               | WebGL2. (Su sucesor `luma.gl` v9 explora WebGPU, pero `GlobeView` en producción hoy es WebGL2, no WebGPU — **confirmar versión exacta antes de decidir**) | Three.js → WebGL. (Three.js tiene un `WebGPURenderer` experimental, pero `three-globe`/`globe.gl` no lo usan por defecto) | WebGL/WebGL2                                                                                                                                                                                                                                     |
+| ¿Globo + Mercator en la misma librería?                             | Solo globo (`GlobeView` es una vista 3D dedicada; el Mercator plano de deck.gl es una vista distinta, `MapView`)                                          | Solo globo — es su único modo                                                                                             | **Sí**, es la única de las tres pensada para esto: la proyección `globe` de MapLibre v5 es un modo del mismo mapa, intercambiable en caliente con el Mercator plano de siempre                                                                   |
+| Licencia                                                            | MIT                                                                                                                                                       | MIT (ambos)                                                                                                               | BSD-3-Clause (bifurcación de Mapbox GL JS anterior al cambio de licencia de Mapbox)                                                                                                                                                              |
+| Nodos DOM/SVG por elemento (aeropuertos, etiquetas) vs. todo-canvas | Todo-canvas; _picking_ por buffer de color codificado, no hay nodo por marcador                                                                           | Todo-canvas (escena Three.js); _picking_ por _raycasting_, no hay nodo por marcador                                       | **Híbrido** — las capas de datos (`fill`/`line`/`circle`) son WebGL, pero su API `Marker`/`Popup` coloca elementos DOM reales posicionados sobre el mapa, pensada explícitamente para casos donde un marcador necesita ser interactivo/accesible |
+| Arcos animados como primitiva                                       | **Sí** — `ArcLayer` es una de sus capas principales, hecha justo para esto (origen/destino con gran círculo)                                              | Sí — `three-globe` incluye una capa de arcos, es una de sus demos insignia                                                | No como primitiva directa; se puede construir con una fuente `geojson` de líneas y estilos animados, con más trabajo manual                                                                                                                      |
+| Datos propios (GeoJSON/TopoJSON locales, sin _tiles_)               | Sí, sin problema — es agnóstico a la fuente                                                                                                               | Sí, sin problema                                                                                                          | Sí — soporta una fuente `type: "geojson"` con datos locales y un estilo sin ninguna capa de _tiles_ ("_blank style_"), que es justo el caso de este repositorio (nunca toca la red para _tiles_)                                                 |
+| Tamaño de _bundle_                                                  | Conocido por ser considerable (núcleo + capas); cifra exacta **sin verificar** — confirmar en bundlephobia antes de decidir                               | Three.js por sí solo ronda un mínimo no trivial y `three-globe`/`globe.gl` añaden más; cifra exacta **sin verificar**     | Cifra exacta **sin verificar**                                                                                                                                                                                                                   |
+| Mantenimiento activo a sept. 2026                                   | Proyecto de Uber/OpenJS Foundation con historial largo de mantenimiento; estado exacto reciente **sin verificar**                                         | Proyecto individual con adopción amplia; estado exacto reciente **sin verificar**                                         | Proyecto de OpenJS Foundation, sucesor comunitario de Mapbox GL JS, con cadencia de releases activa conocida; fecha exacta del último release **sin verificar**                                                                                  |
 
 **Lo que se puede afirmar sin más verificación, solo con lo anterior:**
 
@@ -276,14 +276,14 @@ decidir con ella.
 - MapLibre es la única que resuelve el requisito de "globo y Mercator en el mismo sistema" sin
   mantener dos motores de render en paralelo — pero también es la que más se aleja del modelo
   de estilos/capas que este mapa usa hoy (paint properties declarativas, no dibujo a medida),
-  así que el coste de adopción no es solo el *renderer*: es reaprender su forma de describir un
+  así que el coste de adopción no es solo el _renderer_: es reaprender su forma de describir un
   mapa.
 - deck.gl es la única con un `ArcLayer` literalmente hecho para lo que la queja de "arcos con
   brillo/profundidad" pide, pero solo resuelve el globo, no el Mercator, y viene con el coste
-  de *picking* de la fila anterior.
+  de _picking_ de la fila anterior.
 
 **Lo que queda explícitamente sin verificar y debe confirmarse antes de tomar una decisión con
-alguna de las tres:** tamaño exacto de *bundle* de cada una (crítico, porque esta feature hoy
+alguna de las tres:** tamaño exacto de _bundle_ de cada una (crítico, porque esta feature hoy
 pesa lo que pesan `d3-geo` + `topojson-client` + `versor`, mucho menos que un motor de mapas
 completo), fecha del último release y cadencia de mantenimiento actual, y si alguna ha añadido
 soporte WebGPU de forma estable desde la fecha de conocimiento de quien escribe esto.
@@ -297,7 +297,7 @@ primero:
 
 **Fase 1 — sin tocar el renderer, días.**
 Los cinco puntos de la §4: extender la vida de la caché de `Path2D` más allá de "vista
-idéntica" (arreglo de fondo para A), separar el *fetch* de la temporización visual para
+idéntica" (arreglo de fondo para A), separar el _fetch_ de la temporización visual para
 países ya en caché (arreglo completo para D), terminador día/noche y resplandor SVG en los
 arcos (dos de los seis efectos de B), y desvanecido continuo por horizonte en arcos/aeropuertos
 reutilizando `limbFade`. Riesgo: bajo — son cambios locales, con los tests de
@@ -321,10 +321,10 @@ sola, después de ver qué tanto queda por pedir una vez hechas las fases 1 y 2.
 **Cuándo tendría sentido plantearse un cambio de renderer completo (MapLibre, deck.gl, u
 otro):** no como respuesta a estas cuatro quejas — las fases 1 y 2 las cubren sin eso — sino
 si en el futuro aparece un requisito que el modelo actual (Canvas 2D + SVG, dibujado a mano)
-no pueda dar en absoluto, por ejemplo *tiles* de un proveedor externo, miles de rutas
+no pueda dar en absoluto, por ejemplo _tiles_ de un proveedor externo, miles de rutas
 simultáneas muy por encima del uso de hoy, o un catálogo de efectos que crezca mucho más allá
 de la §3. Llegado ese punto, MapLibre es la candidata que menos se pelea con lo que ya existe
-(soporta datos locales sin *tiles*, tiene un mecanismo DOM para marcadores accesibles, cubre
+(soporta datos locales sin _tiles_, tiene un mecanismo DOM para marcadores accesibles, cubre
 globo y Mercator a la vez) — pero su adopción sigue siendo una reescritura del modelo de
 dibujo, no un cambio de una línea, y merece su propio análisis de factibilidad el día que haya
 un motivo real para plantearla.

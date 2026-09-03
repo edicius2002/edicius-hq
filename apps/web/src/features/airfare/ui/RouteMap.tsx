@@ -1,5 +1,13 @@
 import { geoCircle, geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { feature, mesh } from 'topojson-client';
 import versor from 'versor';
@@ -234,6 +242,56 @@ const ARRIVAL_MS = SETTLE_MS;
 
 export type Projection = 'globe' | 'mercator';
 
+/** The three projections `fit` keeps up to date, shared by the canvas and the SVG. */
+type Places = { globe: GeoProjection; glass: GeoProjection; mercator: GeoProjection };
+
+/**
+ * The three projections a frame is drawn through, made fresh per map.
+ *
+ * Not module-level constants, even though the arguments never vary: `fit`
+ * writes each one's translate, scale and rotate on every frame, so two maps on
+ * one page sharing these would each be turning the other's globe.
+ */
+function makePlaces(): Places {
+  return {
+    // Clipped, for the land: the near face has to be opaque or there is no
+    // globe, only a tangle of outlines.
+    globe: geoOrthographic().clipAngle(90).precision(0.5),
+    // Unclipped, for everything drawn *through* the glass.
+    //
+    // `clipAngle(null)` is the whole trick, and it is easy to miss:
+    // `geoOrthographic()` ships with `clipAngle(90)` already applied, so a
+    // projection that merely *looks* unclipped still throws the far hemisphere
+    // away. Projecting a lone point sidesteps the clip — it never enters a
+    // stream — which is why the airport codes survived a rotation while the
+    // arcs behind the globe silently vanished.
+    //
+    // `precision(0)` then turns off adaptive resampling, which has nothing to
+    // do here: the great circle arrives already sampled into its own points.
+    glass: geoOrthographic().clipAngle(null).precision(0),
+    mercator: geoMercator().rotate([62, 0]).precision(0.5),
+  };
+}
+
+/** One frame's worth of view, as `commit` publishes it. See `painted`. */
+type Painted = {
+  rotation: [number, number, number];
+  zoom: number;
+  zoomTarget: number;
+  pan: { x: number; y: number };
+  size: { width: number; height: number };
+  places: Places;
+  /**
+   * How far into its arrival each redrawn country was on this frame.
+   *
+   * The fade itself rather than the instant to work it out from, so the name a
+   * country is handing over and the borders the canvas painted underneath it
+   * are two halves of one number instead of two readings of the clock a moment
+   * apart. A country not in here has not landed, which is a fade of 0.
+   */
+  fades: ReadonlyMap<string, number>;
+};
+
 type RouteMapProps = {
   routes: RouteGeometry[];
   /** Distinct stop sequences for the selected month, already coordinate-resolved. */
@@ -311,7 +369,41 @@ export function RouteMap({
    */
   const anchor = useRef<{ at: [number, number]; geo: [number, number] } | null>(null);
   const [moving, setMoving] = useState(false);
-  const [tick, repaint] = useState(0);
+
+  /**
+   * Whether the view is anywhere but home, which is the only thing "Reset the
+   * view" needs to know.
+   *
+   * State of its own, written wherever the view is *asked* to move, rather
+   * than read off the frame that was last painted. The two agree through a
+   * drag, where every frame is a render — but a wheel notch writes the new
+   * target and then waits for the loop, and a button that stays greyed out
+   * until the next frame is answering a question the reader did not ask. What
+   * has moved the view is the request, and this is the request.
+   */
+  const [moved, setMoved] = useState(false);
+
+  /**
+   * Recomputed wherever rotation, pan or the zoom target is written, which is
+   * every place the view can move from.
+   *
+   * A `setState` per pointer move looks like the thing the note on `zoom`
+   * warns against and is not: this one is a boolean that spends a whole
+   * gesture unchanged, and React drops an update that would set the same
+   * value, so a drag costs exactly one render here — the one where the answer
+   * turns over.
+   */
+  const noteMoved = useCallback(() => {
+    // Rotation counts as having moved the view. Without it, spinning the globe
+    // halfway round the planet left "Reset the view" greyed out.
+    const turned = rotation.current.some((angle, axis) => Math.abs(angle - HOME[axis]) > 0.5);
+    setMoved(
+      Math.abs(zoomTarget.current - 1) > 0.001 ||
+        turned ||
+        Math.abs(pan.current.x) > 0.5 ||
+        Math.abs(pan.current.y) > 0.5,
+    );
+  }, []);
 
   /*
    * Which countries the camera has in front of it, and their subdivisions once
@@ -361,7 +453,6 @@ export function RouteMap({
    * re-run for the same reason twice.
    */
   const drawn = useRef<readonly string[]>([]);
-  drawn.current = subdivisions.map((each) => each.country);
 
   /**
    * Every country this map has ever had an answer for, drawable or not, kept
@@ -373,7 +464,22 @@ export function RouteMap({
    * `useSubdivisions` and answering it again costs no request either way.
    */
   const resolvedEver = useRef(new Set<string>());
-  for (const country of settled) resolvedEver.current.add(country);
+
+  /*
+   * Both of the above brought up to date, in an effect rather than in the
+   * render body they used to be written from.
+   *
+   * Neither is read by the render — `drawn` by the settle plan and by the
+   * fades `commit` publishes, `resolvedEver` by the settle wait — so writing
+   * them here loses nothing and stops the render having a side effect. It runs
+   * before both of those because it is declared before them, which is the
+   * ordering the render-body writes gave for free and the one the plan below
+   * depends on.
+   */
+  useEffect(() => {
+    drawn.current = subdivisions.map((each) => each.country);
+    for (const country of settled) resolvedEver.current.add(country);
+  }, [subdivisions, settled]);
 
   /* ------------------------------------------------------------ arrival -- */
 
@@ -410,8 +516,6 @@ export function RouteMap({
   const served = useRef(
     new Map<string, CachedGeometry<Subdivisions> & { land: Path2D; borders: Path2D }>(),
   );
-  /** Whether any country is still fading in, which is the only thing that keeps the loop awake. */
-  const [arriving, setArriving] = useState(false);
 
   /**
    * Motion the reader has asked not to see.
@@ -422,21 +526,23 @@ export function RouteMap({
    * mid-drag, and `matchMedia` in the render body would run sixty times a
    * second.
    */
-  const stillness = useRef<boolean | null>(null);
-  if (stillness.current === null) {
-    stillness.current =
-      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        : false;
-  }
+  const [stillness] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
 
   /** How far into its arrival a country is, from 0 to 1. */
-  const arrivalFade = useCallback((country: string, at: number) => {
-    const since = arrivedAt.current.get(country);
-    if (since === undefined) return 0;
-    if (stillness.current) return 1;
-    return Math.min(1, (at - since) / ARRIVAL_MS);
-  }, []);
+  const arrivalFade = useCallback(
+    (country: string, at: number) => {
+      const since = arrivedAt.current.get(country);
+      if (since === undefined) return 0;
+      if (stillness) return 1;
+      return Math.min(1, (at - since) / ARRIVAL_MS);
+    },
+    [stillness],
+  );
 
   /*
    * A country that has just landed starts its fade; one that has left the view
@@ -453,13 +559,10 @@ export function RouteMap({
     for (const country of arrivedAt.current.keys()) {
       if (!here.has(country)) arrivedAt.current.delete(country);
     }
-    let fresh = false;
     for (const country of here) {
       if (arrivedAt.current.has(country)) continue;
       arrivedAt.current.set(country, at);
-      fresh = true;
     }
-    if (fresh && !stillness.current) setArriving(true);
   }, [subdivisions]);
 
   /**
@@ -553,24 +656,19 @@ export function RouteMap({
     [stopRoutes],
   );
 
-  const projections = useRef({
-    // Clipped, for the land: the near face has to be opaque or there is no
-    // globe, only a tangle of outlines.
-    globe: geoOrthographic().clipAngle(90).precision(0.5),
-    // Unclipped, for everything drawn *through* the glass.
-    //
-    // `clipAngle(null)` is the whole trick, and it is easy to miss:
-    // `geoOrthographic()` ships with `clipAngle(90)` already applied, so a
-    // projection that merely *looks* unclipped still throws the far hemisphere
-    // away. Projecting a lone point sidesteps the clip — it never enters a
-    // stream — which is why the airport codes survived a rotation while the
-    // arcs behind the globe silently vanished.
-    //
-    // `precision(0)` then turns off adaptive resampling, which has nothing to
-    // do here: the great circle arrives already sampled into its own points.
-    glass: geoOrthographic().clipAngle(null).precision(0),
-    mercator: geoMercator().rotate([62, 0]).precision(0.5),
-  });
+  /**
+   * The three projections, made once and then written in place by `fit`.
+   *
+   * A value rather than a ref, and that is not bookkeeping: the SVG overlay
+   * projects its arcs, its airport dots and its place names through these, so
+   * they are an input to the render, and reaching for them through a ref was
+   * the render reading state React had never been told about. `useState`'s
+   * initialiser rather than `useMemo` because this has to happen exactly once
+   * — `useMemo` is allowed to throw its result away and recompute, which for
+   * three objects `fit` has been writing into all along would silently reset
+   * the view.
+   */
+  const [places] = useState<Places>(makePlaces);
 
   const fit = useCallback(() => {
     const stage = stageRef.current;
@@ -592,7 +690,7 @@ export function RouteMap({
 
     // The globe is turned, not dragged, so panning never applies to it.
     const middle: [number, number] = [rect.width / 2, rect.height / 2];
-    for (const globe of [projections.current.globe, projections.current.glass]) {
+    for (const globe of [places.globe, places.glass]) {
       globe.translate(middle).scale(radius).rotate(rotation.current);
     }
 
@@ -601,7 +699,7 @@ export function RouteMap({
     // inside `radius`, so the cap — which is exactly the scale that fits 360°
     // of longitude across the frame — bit at about 1.1× and the flat map
     // stopped zooming there while the globe went on to 8×.
-    const mercator = projections.current.mercator;
+    const mercator = places.mercator;
     mercator
       .translate([middle[0] + pan.current.x, middle[1] + pan.current.y])
       .scale(Math.min(rect.width / (2 * Math.PI), fitted * 0.6) * zoom.current);
@@ -613,7 +711,88 @@ export function RouteMap({
     mercator.translate([middle[0] + pan.current.x, middle[1] + pan.current.y]);
 
     return { rect, dpr };
-  }, []);
+  }, [places]);
+
+  /**
+   * The view the canvas was last painted at, as a value rather than as a set
+   * of refs the render reaches into behind React's back.
+   *
+   * Every field here lives in a ref as well, and the refs stay the working
+   * copy — the note on `zoom` above is about exactly that and it still holds:
+   * a wheel gesture writes `zoom.current` dozens of times and a drag writes
+   * `rotation.current` on every pointer move, and not one of those should be a
+   * render. Nothing about that changes. What changes is that the *render* no
+   * longer reads them mid-flight. `commit` publishes them once, in the same
+   * breath as the `draw` that used them, so the SVG overlay is laid out from
+   * exactly the numbers the canvas underneath it was painted with.
+   *
+   * That is the same guarantee `flushSync` gives the frame loop, and this is
+   * its other half: `flushSync` fixes *when* the overlay commits, this fixes
+   * *what it commits from*. A render caused by anything else — a prop
+   * arriving, a query landing, `setMoving` at the top of a wheel gesture —
+   * used to lay the overlay out from whatever the refs held at that instant,
+   * which is a view no `draw` had painted and the canvas was not showing.
+   *
+   * `places` is handed over by reference on purpose. `fit` mutates the three
+   * d3 projections in place, because rebuilding them sixty times a second is
+   * the cost this map does not pay; what a snapshot can pin is therefore
+   * *when* they are read rather than a copy of them, and every caller of
+   * `commit` has just finished writing them.
+   */
+  const [painted, setPainted] = useState<Painted>(() => ({
+    rotation: [...HOME],
+    zoom: 1,
+    zoomTarget: 1,
+    pan: { x: 0, y: 0 },
+    size: { width: 0, height: 0 },
+    places,
+    fades: new Map(),
+  }));
+
+  /**
+   * Publish what `draw` just painted. Always called with it, never instead of
+   * it — the pair is one frame.
+   */
+  const commit = useCallback(() => {
+    const at = performance.now();
+    setPainted({
+      rotation: rotation.current,
+      zoom: zoom.current,
+      zoomTarget: zoomTarget.current,
+      pan: pan.current,
+      size: size.current,
+      places,
+      fades: new Map(drawn.current.map((country) => [country, arrivalFade(country, at)])),
+    });
+  }, [places, arrivalFade]);
+
+  /*
+   * What a gesture is doing, and how long its aftermath lasts.
+   *
+   * Up here rather than down with the handlers that write them because `draw`
+   * reads both on every frame — `forcesDegrade` is handed `gesture.current
+   * ?.kind` and `coarseUntil.current` — and a ref a hook closes over before it
+   * has been declared is a ref nothing downstream can be shown to be allowed
+   * to write.
+   */
+  type Gesture =
+    | {
+        kind: 'rotate';
+        v0: [number, number, number];
+        q0: [number, number, number, number];
+        r0: [number, number, number];
+      }
+    | { kind: 'pan'; x: number; y: number; from: { x: number; y: number } };
+
+  const gesture = useRef<Gesture | null>(null);
+
+  /**
+   * How long past the end of a rotate drag, or a zoom glide, `forcesDegrade`
+   * still answers `true` on its own — a `performance.now()` timestamp, `0`
+   * until the first one ends. `draw` reads it every frame; only
+   * `scheduleSettle` writes it.
+   */
+  const coarseUntil = useRef(0);
 
   const draw = useCallback(() => {
     const fitted = fit();
@@ -624,8 +803,7 @@ export function RouteMap({
     if (!context) return;
 
     const { rect, dpr } = fitted;
-    const shown: GeoProjection =
-      projection === 'globe' ? projections.current.globe : projections.current.mercator;
+    const shown: GeoProjection = projection === 'globe' ? places.globe : places.mercator;
     const path = geoPath(shown, context);
 
     /*
@@ -654,8 +832,8 @@ export function RouteMap({
      */
     const paintWater = () => {
       if (projection === 'globe') {
-        const [cx, cy] = projections.current.globe.translate();
-        const radius = projections.current.globe.scale();
+        const [cx, cy] = places.globe.translate();
+        const radius = places.globe.scale();
         const face = context.createRadialGradient(
           cx - radius * 0.35,
           cy - radius * 0.4,
@@ -679,8 +857,8 @@ export function RouteMap({
     };
 
     if (projection === 'globe') {
-      const [cx, cy] = projections.current.globe.translate();
-      const radius = projections.current.globe.scale();
+      const [cx, cy] = places.globe.translate();
+      const radius = places.globe.scale();
       // The halo just outside the limb is most of what makes a flat disc read
       // as a sphere, and it costs one gradient. Outside the globe, so it is
       // not part of `paintWater` and never repainted inside a country.
@@ -1171,12 +1349,12 @@ export function RouteMap({
       context.fillStyle = readToken(stage, '--map-night');
       context.fill(shadow);
     }
-  }, [fit, projection, subdivisions, coarse, boundaries, arrivalFade]);
+  }, [fit, places, projection, subdivisions, coarse, boundaries, arrivalFade]);
 
   useEffect(() => {
     draw();
-    repaint((count) => count + 1);
-  }, [draw]);
+    commit();
+  }, [draw, commit]);
 
   /*
    * Which countries the camera has in front of it, and which of those the
@@ -1194,7 +1372,7 @@ export function RouteMap({
    * no separate rule: the sweep is done through the shown projection's own
    * `invert`, so the globe's clip and Mercator's pan are already in it.
    *
-   * `tick` is in the dependencies as the map's own "something was drawn"
+   * `painted` is in the dependencies as the map's own "something was drawn"
    * signal, so a view that changed without a gesture — a reset, a resize — is
    * noticed too. It changes every frame during a drag, and every one of those
    * runs stops at the `moving` check without setting a timer.
@@ -1212,7 +1390,7 @@ export function RouteMap({
 
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect || !rect.width || !rect.height) return;
-    const shown = projection === 'globe' ? projections.current.globe : projections.current.mercator;
+    const shown = projection === 'globe' ? places.globe : places.mercator;
     const invert = (at: [number, number]) => shown.invert?.(at) ?? null;
     const middle = invert([rect.width / 2, rect.height / 2]);
     // Open water, or a shape the atlas carries without a numeric code, both
@@ -1270,18 +1448,58 @@ export function RouteMap({
     indexed.current = catalogue !== undefined;
     const handle = setTimeout(apply, first ? 0 : SETTLE_MS);
     return () => clearTimeout(handle);
-  }, [moving, tick, projection, catalogue]);
+  }, [moving, painted, places, projection, catalogue]);
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const observer = new ResizeObserver(() => {
       draw();
-      repaint((count) => count + 1);
+      commit();
     });
     observer.observe(stage);
     return () => observer.disconnect();
-  }, [draw]);
+  }, [draw, commit]);
+
+  /**
+   * Whether any country is still fading in, which is the only thing besides a
+   * gesture that keeps the frame loop awake.
+   *
+   * Read off the last frame rather than kept as its own flag. The two are the
+   * same fact — a fade under 1 is a country still arriving — and holding it
+   * twice meant an effect that noticed geometry landing and set a boolean,
+   * which is a render cascading out of a render. This way the sequence has one
+   * driver: a country's geometry lands, `subdivisions` changes, `draw` is
+   * rebuilt, the effect that watches `draw` paints and commits a frame whose
+   * fades start at 0 — and the loop starts because the frame says so. It stops
+   * the same way, on the first frame whose fades are all 1, which is the frame
+   * that finished the fade; there is nothing left to draw after it.
+   *
+   * `prefers-reduced-motion` never gets here: `arrivalFade` answers 1 the
+   * moment a country is known, so the frame it lands on is already finished.
+   */
+  const arriving = [...painted.fades.values()].some((fade) => fade < 1);
+
+  /**
+   * The three functions the frame loop and the wheel listener reach for, each
+   * through a ref.
+   *
+   * Both of those are set up once — the loop is started when something begins
+   * moving, the listener is attached on mount — while all three functions are
+   * rebuilt on every render. Called directly, the loop would freeze on
+   * whichever copy of `stepZoom` existed when the gesture started, and the
+   * listener would have to detach and reattach sixty times a second during a
+   * drag, on the one component whose whole point is that a drag stays smooth.
+   * All three are hoisted declarations, so the initial value here is already
+   * the real function; the layout effect below keeps them current after that.
+   *
+   * Declared above the two effects that read them, which is what lets those
+   * writes be seen for what they are — see `gesture` and `coarseUntil` for the
+   * same reason in the other direction.
+   */
+  const latestStep = useRef(stepZoom);
+  const latestEnd = useRef(endGlide);
+  const latestWheel = useRef(onWheel);
 
   /*
    * A frame loop only while something is actually moving, or arriving.
@@ -1315,13 +1533,8 @@ export function RouteMap({
       if (last) latestStep.current(Math.min(now - last, 50));
       last = now;
       draw();
-      const landed = drawn.current.every((country) => arrivalFade(country, performance.now()) >= 1);
       flushSync(() => {
-        repaint((count) => count + 1);
-        // Switched off only once every country is fully lit, so the frame that
-        // stops the loop is already the frame that finished the fade — there
-        // is nothing left to draw after it.
-        if (landed) setArriving(false);
+        commit();
       });
       requestAnimationFrame(tick);
     };
@@ -1330,28 +1543,9 @@ export function RouteMap({
       running = false;
       cancelAnimationFrame(handle);
     };
-  }, [moving, arriving, draw, arrivalFade]);
+  }, [moving, arriving, draw, commit]);
 
   /* --------------------------------------------------------------- input -- */
-
-  type Gesture =
-    | {
-        kind: 'rotate';
-        v0: [number, number, number];
-        q0: [number, number, number, number];
-        r0: [number, number, number];
-      }
-    | { kind: 'pan'; x: number; y: number; from: { x: number; y: number } };
-
-  const gesture = useRef<Gesture | null>(null);
-
-  /**
-   * How long past the end of a rotate drag, or a zoom glide, `forcesDegrade`
-   * still answers `true` on its own — a `performance.now()` timestamp, `0`
-   * until the first one ends. `draw` reads it every frame; only
-   * `scheduleSettle` writes it.
-   */
-  const coarseUntil = useRef(0);
 
   /**
    * The one redraw that lands once `coarseUntil` passes, so degrading has an
@@ -1378,7 +1572,7 @@ export function RouteMap({
     settleTimer.current = setTimeout(() => {
       settleTimer.current = null;
       draw();
-      repaint((count) => count + 1);
+      commit();
     }, SETTLE_MS);
   }
 
@@ -1418,7 +1612,7 @@ export function RouteMap({
       settleTimer.current = null;
     }
     if (projection === 'globe') {
-      const inverted = projections.current.globe.invert?.([offsetX, offsetY]);
+      const inverted = places.globe.invert?.([offsetX, offsetY]);
       if (!inverted) return;
       gesture.current = {
         kind: 'rotate',
@@ -1443,10 +1637,11 @@ export function RouteMap({
       // Free in both directions; `fit` clamps it to the map's own edges, which
       // at the default zoom leaves only up and down reachable.
       pan.current = { x: held.from.x + (offsetX - held.x), y: held.from.y + (offsetY - held.y) };
+      noteMoved();
       return;
     }
 
-    const inverted = projections.current.globe.rotate(held.r0).invert?.([offsetX, offsetY]);
+    const inverted = places.globe.rotate(held.r0).invert?.([offsetX, offsetY]);
     if (!inverted) return;
     const next = versor.rotation(
       versor.multiply(held.q0, versor.delta(held.v0, versor.cartesian(inverted))),
@@ -1454,6 +1649,7 @@ export function RouteMap({
     // The third angle is dropped so the horizon stays level. Letting it drift
     // makes the globe feel like it is tumbling rather than turning.
     rotation.current = [next[0], next[1], 0];
+    noteMoved();
   }
 
   /** A press that has not travelled far enough to be a drag. */
@@ -1473,7 +1669,7 @@ export function RouteMap({
     setMoving(false);
     if (wasRotating) scheduleSettle();
     draw();
-    repaint((count) => count + 1);
+    commit();
   }
 
   /**
@@ -1489,12 +1685,13 @@ export function RouteMap({
   function applyZoom(next: number) {
     zoom.current = next;
     fit();
+    noteMoved();
 
     const pinned = anchor.current;
     if (!pinned) return;
 
     if (projection === 'globe') {
-      const nowThere = projections.current.globe.invert?.(pinned.at);
+      const nowThere = places.globe.invert?.(pinned.at);
       if (!nowThere || !Number.isFinite(nowThere[0])) return;
       const turned = versor.rotation(
         versor.multiply(
@@ -1509,7 +1706,7 @@ export function RouteMap({
       // it drift makes the globe tumble rather than turn.
       rotation.current = [turned[0], turned[1], 0];
     } else {
-      const where = projections.current.mercator(pinned.geo);
+      const where = places.mercator(pinned.geo);
       if (!where) return;
       pan.current = {
         x: pan.current.x + (pinned.at[0] - where[0]),
@@ -1548,9 +1745,6 @@ export function RouteMap({
     return true;
   }
 
-  const latestStep = useRef(stepZoom);
-  latestStep.current = stepZoom;
-
   /**
    * The end of a glide, put where the gesture asked for rather than a hair
    * short of it.
@@ -1588,17 +1782,15 @@ export function RouteMap({
     // to notice it on its own, so this is the only place that will.
     scheduleSettle();
     draw();
-    repaint((count) => count + 1);
+    commit();
   }
-  const latestEnd = useRef(endGlide);
-  latestEnd.current = endGlide;
 
   /** Ask for a new scale, pinned to a point, and let the easing take it there. */
   function aimZoom(factor: number, at: [number, number]) {
     const next = Math.min(ZOOM.max, Math.max(ZOOM.min, zoomTarget.current * factor));
     if (next === zoomTarget.current) return false;
 
-    const shown = projection === 'globe' ? projections.current.globe : projections.current.mercator;
+    const shown = projection === 'globe' ? places.globe : places.mercator;
     const geo = shown.invert?.(at);
     if (geo && Number.isFinite(geo[0]) && Number.isFinite(geo[1])) {
       anchor.current = { at, geo: [geo[0], geo[1]] };
@@ -1607,6 +1799,7 @@ export function RouteMap({
     // One step straight away, so the map answers a notch in the frame it
     // arrived in rather than only once the loop wakes.
     stepZoom(16);
+    noteMoved();
     return true;
   }
 
@@ -1624,7 +1817,7 @@ export function RouteMap({
    * listener sixty times a second during a drag, on the one component whose
    * whole point is that a drag stays smooth.
    */
-  const onWheel = (event: WheelEvent) => {
+  function onWheel(event: WheelEvent) {
     event.preventDefault();
     // Exponential in the delta, so a trackpad's few pixels and a mouse notch's
     // hundred read as the same gesture at different speeds.
@@ -1639,9 +1832,23 @@ export function RouteMap({
       latestEnd.current();
       setMoving(false);
     }, 320);
-  };
-  const latestWheel = useRef(onWheel);
-  latestWheel.current = onWheel;
+  }
+
+  /*
+   * The three above brought up to date once the render they belong to has
+   * committed, rather than partway through it.
+   *
+   * Same reason as `drawn` and `resolvedEver`: a render that writes to a ref
+   * is a render with a side effect. Nothing can read a stale one in between —
+   * a layout effect runs before the browser paints, and the only readers are a
+   * `requestAnimationFrame` callback and a `setTimeout`, neither of which can
+   * be reached without the browser getting a turn first.
+   */
+  useLayoutEffect(() => {
+    latestStep.current = stepZoom;
+    latestEnd.current = endGlide;
+    latestWheel.current = onWheel;
+  });
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -1678,7 +1885,7 @@ export function RouteMap({
       setMoving(false);
     }, 320);
     draw();
-    repaint((count) => count + 1);
+    commit();
   }
 
   function reset() {
@@ -1687,26 +1894,18 @@ export function RouteMap({
     zoom.current = 1;
     zoomTarget.current = 1;
     anchor.current = null;
+    noteMoved();
     draw();
-    repaint((count) => count + 1);
+    commit();
   }
-
-  // Rotation counts as having moved the view. Without it, spinning the globe
-  // halfway round the planet left "Reset the view" greyed out.
-  const turned = rotation.current.some((angle, axis) => Math.abs(angle - HOME[axis]) > 0.5);
-  const moved =
-    Math.abs(zoomTarget.current - 1) > 0.001 ||
-    turned ||
-    Math.abs(pan.current.x) > 0.5 ||
-    Math.abs(pan.current.y) > 0.5;
 
   /* ----------------------------------------------------------------- svg -- */
 
   const isGlobe = projection === 'globe';
   // Through the glass on a globe; a flat map has no far side to see through.
-  const place: GeoProjection = isGlobe ? projections.current.glass : projections.current.mercator;
+  const place: GeoProjection = isGlobe ? painted.places.glass : painted.places.mercator;
   const svgPath = geoPath(place);
-  const centre = rotation.current;
+  const centre = painted.rotation;
   const surfaceOpacity = (point: LngLat) => (isGlobe ? limbFade(point, centre) : 1);
 
   /**
@@ -1766,11 +1965,8 @@ export function RouteMap({
    * function of where the globe is pointing, which no amount of CSS on a
    * mounting and unmounting node can imitate.
    */
-  const frame = size.current;
+  const frame = painted.size;
   const view: View = { globe: isGlobe, scale: place.scale(), rotation: centre };
-  // Read once per render rather than per name, so every name on a frame agrees
-  // about how far into an arrival that frame is.
-  const now = performance.now();
 
   type MapName = Boxed & { key: string; text: string; opacity: number; tier: NameTier };
   const names: MapName[] = [];
@@ -1839,7 +2035,7 @@ export function RouteMap({
     claimed.push({ x: xy[0] + 3 + width / 2, y: xy[1] + 3.5, width, height: 17 });
   }
 
-  const continents = continentFade(zoom.current) * 0.55;
+  const continents = continentFade(painted.zoom) * 0.55;
   for (const continent of CONTINENTS)
     offer(continent.name, continent.name, continent.at, continents, 'continent');
 
@@ -1858,13 +2054,13 @@ export function RouteMap({
    * third state, and a reader can read off the map which countries it drew in
    * detail without being told a number to trust.
    */
-  const handover = subdivisionFade(zoom.current);
+  const handover = subdivisionFade(painted.zoom);
   const naming = new Map(
     subdivisions
       .filter((each) => each.labels.length > 0)
-      .map((each) => [each.country, arrivalFade(each.country, now)] as const),
+      .map((each) => [each.country, painted.fades.get(each.country) ?? 0] as const),
   );
-  const countries = countryFade(zoom.current) * 0.72;
+  const countries = countryFade(painted.zoom) * 0.72;
   for (const country of COUNTRIES) {
     if (countries <= 0.01) break;
     const room = roomFade(screenArea(country.area, country.at, view));
@@ -1913,7 +2109,7 @@ export function RouteMap({
       // The country's own arrival carried on each of its units, so a fan-out
       // that lands one country at a time reads as a wave rather than as a run
       // of separate pops.
-      each.labels.map((label) => ({ label, arriving: arrivalFade(each.country, now) })),
+      each.labels.map((label) => ({ label, arriving: painted.fades.get(each.country) ?? 0 })),
     );
     if (subdivisions.length > 1) units.sort((left, right) => right.label.area - left.label.area);
     for (const { label: unit, arriving } of units) {
@@ -1987,7 +2183,7 @@ export function RouteMap({
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
           className={`${styles.overlay} ${moving ? '' : styles.settled}`}
-          viewBox={`0 0 ${size.current.width || 1} ${size.current.height || 1}`}
+          viewBox={`0 0 ${painted.size.width || 1} ${painted.size.height || 1}`}
           role="list"
           aria-label="Watched routes"
         >

@@ -2,10 +2,11 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.streams import CompositeStream
+from app.auth import require_session_gate
 from app.config import (
     CORS_ORIGINS,
     kv_dir,
@@ -77,12 +78,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(health.router)
-app.include_router(kv.router)
-app.include_router(market.router)
-app.include_router(fares.router)
-app.include_router(geography.router)
-app.include_router(tweets.router)
+# The gate, in one place. Every router below is included with it, so a router
+# added later is added next to a visible example and cannot arrive unprotected
+# — `tests/test_gate.py` walks this route table and insists on it. The four SSE
+# routes need the token in the query string and `require_session_gate` is what
+# decides that, for the reason its own docstring gives: a route-level
+# dependency can only add to a router-level one, never loosen it.
+#
+# `/api/health` is in here on purpose. Signed out, the status indicator reads
+# "API offline"; that is honest, it leaks nothing, and the login screen is what
+# an unauthenticated visitor sees anyway.
+GATED = [Depends(require_session_gate)]
+
+app.include_router(health.router, dependencies=GATED)
+app.include_router(kv.router, dependencies=GATED)
+app.include_router(market.router, dependencies=GATED)
+app.include_router(fares.router, dependencies=GATED)
+app.include_router(geography.router, dependencies=GATED)
+app.include_router(tweets.router, dependencies=GATED)
 
 
 @app.get("/")

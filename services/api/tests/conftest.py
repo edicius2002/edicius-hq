@@ -42,3 +42,40 @@ def _unpaced_between_tests():
     GOOGLE_PACER.reset()
     yield
     GOOGLE_PACER.reset()
+
+
+@pytest.fixture(autouse=True)
+def _a_session_on_every_request(request, _own_data_directory, monkeypatch):
+    """
+    Every route needs a session now, so every `TestClient` request carries one.
+
+    The gate is not relaxed for tests and no dependency is overridden: what
+    this does is present a real bearer token, minted by the real store, to the
+    real `require_session_gate`. A test that means to arrive unauthenticated
+    says so with `pytest.mark.unauthenticated` — `test_gate.py` is the whole of
+    that, and it is the file that would otherwise be testing nothing.
+
+    The session is created per request rather than once per test on purpose.
+    Several tests repoint `LOCAL_DATA_DIR` inside the test body (`test_kv` is
+    the clearest), and a token minted before that move would be written into
+    the directory the test just stopped using — so the gate would refuse a
+    session this fixture had genuinely created, which is a confusing failure to
+    debug for no gain. Minting at request time means the token always lands in
+    whatever directory the request itself is about to read.
+    """
+    if request.node.get_closest_marker("unauthenticated"):
+        return
+
+    from starlette.testclient import TestClient
+
+    from app.services import auth_store
+
+    original = TestClient.request
+
+    def request_with_a_session(self, method, url, **kwargs):
+        headers = dict(kwargs.pop("headers", None) or {})
+        if not any(name.lower() == "authorization" for name in headers):
+            headers["Authorization"] = f"Bearer {auth_store.create_session()}"
+        return original(self, method, url, headers=headers, **kwargs)
+
+    monkeypatch.setattr(TestClient, "request", request_with_a_session)

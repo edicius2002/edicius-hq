@@ -21,12 +21,13 @@ was chosen to. The reasoning is in "Who can reach the API" and in Open questions
   Flights and X are reached by `services/api` running on the home PC, from a
   residential address, and by nothing else. The next section is the evidence; the
   section after it lists what the invariant rules out.
-- **Access control is the tailnet, and that is decided rather than open.** The API is
-  reachable only from devices signed in to the owner's tailnet, so no authentication
-  code is added to it. The Vercel URL itself stays publicly reachable and serves the
-  app shell to anyone who opens it. That is accepted, not overlooked: every byte of
-  data on the page comes from an API nobody outside the tailnet can route to, and
-  blocking the URL itself would need Vercel Deployment Protection on a paid plan.
+- **Access control is a passkey, and the tailnet carries the traffic.** It used to be
+  the tailnet alone. Every `/api` route except `/api/auth/*` now requires a WebAuthn
+  session, so the question "who may ask" is answered by the application and no longer
+  only by what can route to it. The Vercel URL itself stays publicly reachable and
+  serves the app shell to anyone who opens it; what they get is the login screen.
+  That is accepted, not overlooked: blocking the URL itself would need Vercel
+  Deployment Protection on a paid plan, and there is nothing behind it to reach.
 
 ## Why the API doesn't move to a datacenter
 
@@ -85,21 +86,29 @@ session does not rediscover them as if they were open:
 
 ## Who can reach the API
 
-**There is still no authentication in `services/api` — none at all.** No API key, no
-bearer token, no auth dependency on any router; `main.py` mounts six routers and adds
-only `CORSMiddleware` (`services/api/app/main.py:73-85`).
+**Two things now, where there was one.** The tailnet still carries the traffic, and a
+passkey session decides who may ask.
 
-**Under this shape that stays correct, and it is a decision rather than an omission.**
 uvicorn binds `127.0.0.1:8000` in both modes (`scripts/api.mjs:74` and `:86`), the
 local `tailscaled` daemon proxies to that loopback address, and the hostname it
-publishes is routable only from devices signed in to the owner's tailnet. There is no
-public URL to leak and no anonymous caller to authenticate. The first draft of this
-document treated "what authenticates the API?" as its largest open item because the
-tunnel it assumed would have made the answer — nothing — a public fact. This shape
-does not create that problem, so it does not need to solve it.
+publishes is routable only from devices signed in to the owner's tailnet. That part is
+unchanged and is still the outer wall.
 
-That property is worth stating rather than assuming, because of what it protects. The
-inventory is unchanged from the first draft; only the mechanism that holds it is:
+**What changed is that it is no longer the only one.** Every route under `/api` except
+`/api/auth/*` requires a live WebAuthn session, applied once where the routers are
+included (`services/api/app/main.py`, `services/api/app/auth.py`). `/api/health` is
+gated with the rest, so the status indicator reads "API offline" while signed out —
+deliberate, and honest, since the API genuinely will not answer that visitor.
+
+**So the API is no longer safe by network alone, and that is the point.** The earlier
+version of this section argued that no authentication was correct because there was no
+anonymous caller to authenticate. That argument was sound for the shape it described
+and it is no longer the shape: the requirement changed to a link that stays public, and
+an API whose only defence is that nobody can route to it cannot survive its own
+transport being widened. It now survives that.
+
+The inventory below is why any of this matters. It is unchanged from the first draft;
+only the mechanism that holds it is — and it is now held twice:
 
 - `PUT /api/kv/{key}` and `DELETE /api/kv/{key}` (`services/api/app/routers/kv.py:25`
   and `:30`) — overwrite or delete the owner's stored state. The key allowlist in
@@ -117,12 +126,24 @@ inventory is unchanged from the first draft; only the mechanism that holds it is
 - `POST /api/fares/watch/import` (`routers/fares.py:715`) — upload a file that merges
   into the watched routes and their history.
 
-**Serve, not Funnel.** `tailscale serve` publishes a service inside the tailnet;
-`tailscale funnel` publishes it to the entire internet. Running the second command
-where the first was meant would restore every exposure listed above, against an API
-that has no authentication and is not written to have any. The distinction is one word
-on a command line, which is exactly why it belongs in the record rather than in
-somebody's memory.
+**Serve, not Funnel — and now the reason has changed.** `tailscale serve` publishes a
+service inside the tailnet; `tailscale funnel` publishes it to the entire internet. The
+distinction is one word on a command line, which is exactly why it belongs in the
+record rather than in somebody's memory.
+
+It used to be that Funnel must never be run, because it would expose an API with no
+authentication at all. **Funnel is now possible** — the passkey gate is what makes it
+so. What has replaced the prohibition is an ordering, and the ordering is the thing to
+record: the login has to be working, verified against a real enrolled device, before
+the transport is widened. Running Funnel first would publish every write endpoint
+listed above to the internet for however long it took to notice.
+
+One thing to revisit with it. The four Server-Sent Events routes accept the session
+token in a query string, because `EventSource` cannot set request headers. That is
+sound only while TLS terminates on the owner's own machine, which is true of Serve and
+of Funnel, and stops being true the moment the API is routed through Cloudflare, ngrok
+or a Vercel rewrite — any of those would put the token in someone else's logs.
+`services/api/app/auth.py` says so at the point it would have to change.
 
 `CORS_ORIGINS` is configuration, not access control — a browser policy sent in a
 response header, which `curl` never asks for. It belongs in the list of things to
@@ -312,7 +333,7 @@ invariant in "The shape": it does, and it may not run anywhere else. **Whether t
 tunnel supports WebSockets** was the wrong question, answered above.
 
 **What authenticates the API** is answered by the shape rather than by code. Serve
-publishes it only inside the tailnet, so there is no anonymous caller to authenticate,
+publishes it only inside the tailnet, and a passkey session gates every route besides,
 and no auth code is added. The first draft's client-credentials paragraph — the
 cross-origin cookie change it wanted on `fetch` and on every `EventSource`, and the
 header key an `EventSource` cannot send — is deleted rather than deferred: no cookie

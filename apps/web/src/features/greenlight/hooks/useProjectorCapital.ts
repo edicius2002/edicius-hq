@@ -66,7 +66,9 @@ export function useProjectorCapital(netText: string): ProjectorCapital {
   // depended on: the effect below has to fire on a keystroke and on the read
   // settling, and on nothing else.
   const storeRef = useRef(store);
-  storeRef.current = store;
+  useEffect(() => {
+    storeRef.current = store;
+  });
 
   useEffect(() => {
     if (!known || typed === null) return;

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type SetStateAction } from 'react';
+import { useCallback, useState, type SetStateAction } from 'react';
 
 import { IDENTITY_CAMERA, type Camera } from '@/features/finance/lib/camera';
 import {
@@ -25,7 +25,10 @@ export function useDiagramCamera(diagramId: DiagramId) {
     normalize: normalizeFinanceCameraViews,
     placeholder: NO_FINANCE_CAMERA_VIEWS,
   });
-  const remembered = useRef(new Map<DiagramId, Camera>());
+  // A camera-per-diagram cache. Kept as state rather than a ref because it is
+  // both read and written while computing this render's camera, not just from
+  // callbacks.
+  const [remembered, setRemembered] = useState(() => new Map<DiagramId, Camera>());
   const [camera, setCamera] = useState<Camera>(IDENTITY_CAMERA);
   const [shownId, setShownId] = useState(diagramId);
   const [hydrated, setHydrated] = useState(false);
@@ -34,7 +37,7 @@ export function useDiagramCamera(diagramId: DiagramId) {
   // first usable paint has the restored view rather than briefly showing 100%.
   if (!store.isFetching && !hydrated) {
     const restored = cameraFor(store.data, diagramId);
-    remembered.current.set(diagramId, restored);
+    setRemembered((current) => new Map(current).set(diagramId, restored));
     setCamera(restored);
     setHydrated(true);
   }
@@ -42,9 +45,9 @@ export function useDiagramCamera(diagramId: DiagramId) {
   // Switching tabs swaps cameras rather than carrying one across. An in-memory
   // map covers the instant switch; the stored map covers leaving and returning.
   if (shownId !== diagramId) {
-    remembered.current.set(shownId, camera);
+    setRemembered((current) => new Map(current).set(shownId, camera));
     setShownId(diagramId);
-    setCamera(remembered.current.get(diagramId) ?? cameraFor(store.data, diagramId));
+    setCamera(remembered.get(diagramId) ?? cameraFor(store.data, diagramId));
   }
 
   const updateCamera = useCallback(
@@ -53,7 +56,7 @@ export function useDiagramCamera(diagramId: DiagramId) {
         const next = typeof nextOrChange === 'function' ? nextOrChange(current) : nextOrChange;
         if (next === current) return current;
 
-        remembered.current.set(diagramId, next);
+        setRemembered((prev) => new Map(prev).set(diagramId, next));
         void store.edit((views) => setFinanceCamera(views, diagramId, next));
         return next;
       });

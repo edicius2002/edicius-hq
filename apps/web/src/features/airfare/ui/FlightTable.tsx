@@ -164,10 +164,19 @@ function SortHeader({
  *
  * Rendered even when the table has nothing to show, because a panel whose
  * heading disappears with its data reads as a panel that lost its name.
+ *
+ * The `·` is `aria-hidden` on purpose — "middle dot" is noise between a name
+ * and a date — but that leaves nothing standing between "seen" and the date
+ * for a screen reader either, so the two run together as one word. `aria-label`
+ * says what the heading should actually be read as, with a real space where
+ * the hidden glyph is, independent of whichever text the visible spans hold.
  */
 function TableHeading({ departure }: { departure: string | null }) {
   return (
-    <h2 className={styles.title}>
+    <h2
+      className={styles.title}
+      aria-label={departure === null ? undefined : `Flights seen ${departure}`}
+    >
       Flights seen
       {departure === null ? null : (
         <>

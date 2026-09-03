@@ -95,6 +95,28 @@ afterEach(() => {
 let subdivisionRequests: string[] = [];
 
 /**
+ * What a style property reads back as once the DOM has had it.
+ *
+ * jsdom 30 parses a declaration and re-serialises it the way a browser does,
+ * where jsdom 26 handed back the string it was given: `#d6a65d` comes out of
+ * `style.stroke` as `rgb(214, 166, 93)`, and the `-0.8500s` `flowDelay` writes
+ * comes out of `style.animationDelay` as `-0.85s`. Both spellings name the
+ * same value and the component is writing the right one — Chrome answers those
+ * two reads exactly as jsdom now does, so what was stale is the assertions,
+ * which were comparing the DOM's answer against a raw string nothing had
+ * parsed.
+ *
+ * Putting the expected value through the same round trip compares like with
+ * like without loosening what is compared: two different colours serialise to
+ * two different strings, so a stroke that changes still fails here.
+ */
+function asStored(property: 'stroke' | 'fill' | 'animationDelay', value: string): string {
+  const probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  probe.style[property] = value;
+  return probe.style[property];
+}
+
+/**
  * An arc standing for a single watch, which is what most of this suite wants.
  *
  * Built rather than written out since `a-pair-draws-one-arc`, because an arc
@@ -442,7 +464,7 @@ describe('RouteMap', () => {
     // Opened, because only the open route flows now.
     const { container } = renderMap({ routes: [LIM_CUZ], selectedId: LIM_CUZ.leading });
     const arc = container.querySelector('[class*="flow"]') as SVGElement;
-    expect(arc.style.animationDelay).toBe(flowDelay(0));
+    expect(arc.style.animationDelay).toBe(asStored('animationDelay', flowDelay(0)));
   });
 
   it('glows the flowing arc in its own colour, not a colour of its own', () => {
@@ -623,7 +645,7 @@ describe('RouteMap', () => {
       (dot) => Math.abs(Number(dot.getAttribute('cx')) - start[0]) < 0.5,
     );
     expect(at?.closest('g')?.querySelector('text')?.textContent).toBe('LIM');
-    expect((named as SVGElement).style.stroke).toBe('#d6a65d');
+    expect((named as SVGElement).style.stroke).toBe(asStored('stroke', '#d6a65d'));
     outbound.unmount();
 
     // The other leg opened. The same line now runs the other way and says so,
@@ -637,13 +659,13 @@ describe('RouteMap', () => {
       '[aria-label="Santiago to Lima, watched both ways"]',
     );
     expect(back).toBeInTheDocument();
-    expect((back as SVGElement).style.stroke).toBe('#d6a65d');
+    expect((back as SVGElement).style.stroke).toBe(asStored('stroke', '#d6a65d'));
     // And the second row's colour is on no line at all, which is what one arc
     // standing for two watches costs.
     const strokes = [...inbound.container.querySelectorAll('path[class*="arc"]')].map(
       (arc) => (arc as SVGElement).style.stroke,
     );
-    expect(strokes).not.toContain('#70b9c9');
+    expect(strokes).not.toContain(asStored('stroke', '#70b9c9'));
   });
 
   it('colours the arrival dot for the same watch the line is drawn for', () => {
@@ -665,9 +687,9 @@ describe('RouteMap', () => {
     });
     const arrival = container.querySelector('circle[class*="node"]') as SVGElement;
     expect(arrival).toBeInTheDocument();
-    expect(arrival.style.fill).toBe('#d6a65d');
+    expect(arrival.style.fill).toBe(asStored('fill', '#d6a65d'));
     const stroke = (container.querySelector('path[class*="arc"]') as SVGElement).style.stroke;
-    expect(stroke).toBe('#d6a65d');
+    expect(stroke).toBe(asStored('stroke', '#d6a65d'));
   });
 
   it('cycles to the other watch whichever of the two is leading the arc', () => {
@@ -1455,8 +1477,8 @@ describe('RouteMap', () => {
     const strokes = [...container.querySelectorAll('[class*="arc"]')].map(
       (arc) => (arc as SVGElement).style.stroke,
     );
-    expect(strokes).toContain('#d6a65d');
-    expect(strokes).toContain('#70b9c9');
+    expect(strokes).toContain(asStored('stroke', '#d6a65d'));
+    expect(strokes).toContain(asStored('stroke', '#70b9c9'));
   });
 
   it('opens a route when its line is pressed', () => {

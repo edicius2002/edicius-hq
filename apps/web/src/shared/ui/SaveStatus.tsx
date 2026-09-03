@@ -39,11 +39,16 @@ export function SaveStatus({ state, onRetry }: SaveStatusProps) {
    */
   const [settled, setSettled] = useState(false);
 
+  // Leaving "saved" un-settles at once. Adjusted here, during render, rather
+  // than from the effect below.
+  const [shownState, setShownState] = useState(state);
+  if (shownState !== state) {
+    setShownState(state);
+    if (state !== 'saved') setSettled(false);
+  }
+
   useEffect(() => {
-    if (state !== 'saved') {
-      setSettled(false);
-      return;
-    }
+    if (state !== 'saved') return;
     const timer = setTimeout(() => setSettled(true), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [state]);

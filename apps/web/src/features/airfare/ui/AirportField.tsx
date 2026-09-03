@@ -90,15 +90,19 @@ export function AirportField({
    */
   const settled = useRef(value);
 
+  // A short query has nothing worth showing. Cleared here, during render, as
+  // soon as it is known — rather than from the effect below — so there is
+  // nothing to undo if the debounced search further down never runs.
+  if (value.trim().length < 2 && (matches.length > 0 || open)) {
+    setMatches([]);
+    setOpen(false);
+  }
+
   useEffect(() => {
     if (value === settled.current) return;
     settled.current = value;
     const query = value.trim();
-    if (query.length < 2) {
-      setMatches([]);
-      setOpen(false);
-      return;
-    }
+    if (query.length < 2) return;
 
     const controller = new AbortController();
     const timer = setTimeout(() => {

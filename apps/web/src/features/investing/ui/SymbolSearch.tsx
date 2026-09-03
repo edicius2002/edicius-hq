@@ -120,6 +120,12 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
                   className={styles.hit}
                   disabled={already}
                   onClick={() => pick(hit)}
+                  // The three spans below sit flush against each other in the
+                  // markup — nothing but a CSS grid gap separates them
+                  // visually — so their concatenated text is one run-on word
+                  // to a screen reader. An explicit label gives the name the
+                  // word breaks the layout only supplies visually.
+                  aria-label={`${hit.symbol} ${hit.name} ${already ? 'following' : hit.kind}`}
                 >
                   <span className={styles.hitSymbol}>{hit.symbol}</span>
                   <span className={styles.hitName}>{hit.name}</span>

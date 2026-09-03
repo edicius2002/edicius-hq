@@ -189,6 +189,165 @@ En el orden en que atacan las cuatro quejas:
    contexto antes de un `fill`/`stroke`, que es exactamente una operación afín barata) — el
    mismo patrón que un motor de mapas por _tiles_ usa para no volver a pedir un _tile_ en
    cada frame de un _pan_. Esto no cambia el renderer, cambia cuándo se le pide trabajo.
+
+   **Implementado (commit `efa84d8`, #147) de forma distinta a como se esboza arriba, y
+   recalibrado en esta sesión.** En vez de un umbral por grados de rotación acumulados más
+   una afín aproximada, `reprojectionCache.decideReuse` usa una afín _exacta_ para
+   escala/traslación (§1.3 de este documento sigue describiendo esa parte con precisión) y,
+   solo para el caso de rotación — donde ninguna afín puede ser exacta — un umbral de
+   **tiempo**: la geometría ya proyectada se sigue dibujando sin moverse hasta
+   `ROTATE_REBUILD_MS` (120 ms) después de construida, y entonces se reproyecta. Ese umbral
+   fijo resultó ser el propio origen de un bug nuevo: durante esos hasta 120 ms el país
+   dibujado se queda literalmente detrás del giro del globo, un desfase medido en esta sesión
+   (globo real, Chromium con GPU, no el Chromium sin aceleración de §1.2) en hasta **~60 px**
+   para EEUU a zoom de fronteras estatales con un giro de 60°/s — visible como una costura o
+   una cuña oscura en el borde de avance del país mientras gira. La causa: el umbral de 120 ms
+   se calibró para el país más caro (EEUU) pero se aplicaba **igual a todos**, así que un país
+   barato de reproyectar (El Salvador, por ejemplo) pagaba el mismo retraso que EEUU sin
+   necesitarlo. El arreglo — `rotateThrottleMs`/`geometryWeight` en `reprojectionCache.ts` —
+   escala ese umbral por el peso real de la geometría de cada país (vértices de tierra y
+   fronteras internas, decodificados), calibrado para que EEUU (el más pesado, 41.825 puntos)
+   siga recibiendo exactamente los mismos 120 ms de antes — sin regresión para el caso que
+   motivó la constante — mientras que México (12.747 puntos, ~30% del peso de EEUU) se pone
+   al día más de tres veces más seguido, y un país tan liviano como El Salvador (1.031 puntos)
+   se reproyecta en prácticamente cada frame. Medido en el mismo escenario tras el cambio: el
+   desfase de EEUU no cambia (sigue el mismo umbral, ~40-60 px según el frame muestreado,
+   coherente con no tocar el caso calibrado), y el de países livianos cae a 0 px en la ventana
+   de prueba. La cuadrícula de pruebas de este trade-off vive en
+   `reprojectionCache.test.ts`.
+
+   **Recalibrado otra vez en una sesión posterior (commit de este trabajo): degradar
+   resolución en vez de congelar posición.** El (b) de arriba deja EEUU con exactamente el
+   mismo desfase de antes de (b) — su peso es la propia referencia, así que sigue recibiendo
+   los 120 ms íntegros — y ese desfase medido de nuevo en esta sesión, con el mismo método de
+   navegador (globo real, sin aceleración de hardware forzada, `performance.now` interceptado
+   para simular pasos de 16 ms dentro de una sola llamada de página, comparando la posición
+   verdadera de un punto lon/lat contra su reproyección bajo la instantánea congelada), llega
+   a **hasta ~195 px** para EEUU a una escala de proyección de 2.386 (zoom de fronteras
+   estatales, Montana/Dakota del Norte/frontera con Canadá) — más que los ~60 px heredados
+   porque el punto de prueba y la escala son distintos, no porque el bug haya empeorado; y a
+   **~66 px** para México en el mismo experimento, sobre el mismo punto de referencia
+   (12.747 puntos, throttle de ~36,6 ms), que el informe anterior no había medido con este
+   método. El problema de fondo — el umbral acota _cuándo_ se paga por reproyectar, no _qué_
+   se dibuja mientras tanto — seguía sin tocar.
+
+   La premisa se verificó antes de tocar código: reproyectar el contorno 1:110m de EEUU (el
+   mismo que ya sirve `world-atlas/countries-110m.json` y que el mapa ya usa para un país
+   fuera de presupuesto, §4 punto 5 y `lib/fanOut.ts`) cuesta, medido en el navegador sobre
+   3.000 repeticiones, **~0,52 ms de media** — contra ~85 ms para reproyectar la geometría
+   1:10m completa (tierra + fronteras internas) en el mismo banco de pruebas, **164 veces más
+   barato**. Sobra margen de sobra dentro de un frame de 16,7 ms para pagarlo todos los
+   frames, incluso los que además reconstruyen la geometría 1:10m completa de otro país.
+
+   El arreglo: mientras `decideReuse` devuelve `stale` para un país, `RouteMap.tsx` ya no
+   reutiliza su `Path2D` 1:10m congelado sin moverlo. En su lugar dibuja el contorno 1:110m de
+   ese mismo país — el que `coarse.shapes` ya recorta como clip cada frame, así que la única
+   `geoPath` nueva es sobre un contorno, no sobre miles de vértices — reproyectado con la
+   proyección **en vivo** de ese frame, y omite sus fronteras administrativas internas
+   mientras dura la degradación (dibujarlas contra un contorno que se acaba de mover las
+   habría dejado cruzando la costa). Al construirse desde la misma instancia de proyección que
+   todo lo demás en el frame, la posición dibujada coincide con la verdadera por construcción,
+   no por medición — lo que sí se midió, en esta sesión, es que la ruta de código realmente se
+   activa: de 60 frames de un giro simulado de 60°/s, EEUU pasó por la rama degradada en 52 y
+   México en 40, y en ninguno de los dos el contorno degradado costó más de ~1 ms.
+
+   Medido tras el cambio, en el mismo escenario: el coste por frame de `draw()` durante un giro
+   continuo simulado (120 llamadas reales, sin simular el reloj) tiene una mediana de 7 ms y un
+   p95 de 11,3 ms, con solo 3 de 120 frames por encima de 16,7 ms — el mismo patrón de picos
+   ocasionales por la reconstrucción periódica de EEUU cada ~120 ms que este documento ya
+   aceptaba antes de (b) y (c), sin empeorar: `decideReuse`, `geometryWeight` y
+   `rotateThrottleMs` no cambiaron una línea de lógica en esta sesión, solo sus comentarios —
+   verificado por diff. El paso de escalón no compite con `SETTLE_MS`/`ARRIVAL_MS` por la misma
+   razón: no toca cuándo se piden ni cuándo llegan los datos, solo qué se dibuja mientras un
+   país ya detallado se pone al día con el giro. Los 79 tests de
+   `reprojectionCache.test.ts`/`RouteMap.test.tsx` siguen en verde sin cambios, porque la
+   decisión (`decideReuse`) no cambió — lo que cambió es una rama de dibujo en `canvas`, que
+   `RouteMap.test.tsx` no ejerce (`getContext` se mockea a `null` en ese archivo), de ahí que la
+   verificación real para este cambio sea de navegador y no de test unitario.
+
+   **Recalibrado una tercera vez (esta sesión): un reporte de "bordes negros de los países,
+   aún hay bugs visuales" durante el giro.** (c) resuelve la posición de un país degradado
+   mientras gira — su contorno 1:110m se reproyecta en vivo, no se queda congelado — pero
+   `decideReuse` sigue decidiendo `stale` país por país, de forma independiente. Durante un
+   giro continuo, dos países vecinos pueden estar en ramas distintas en el mismo frame: uno ya
+   reproyectado en 1:10m, el otro todavía dibujando su contorno 1:110m porque su propio
+   `rotateThrottleMs` no ha vencido. Verificado en el navegador forzando ese desacople
+   (`decideReuse` de un país fijado a `stale` mientras sus vecinos seguían en `rebuild`/`reuse`,
+   ambos capturados con `window.__mapDebug` frame por frame durante un giro real): la frontera
+   compartida entre Chile (forzado `stale`) y Bolivia (sin forzar) se abre en una costura
+   dentada de fondo oscuro, no un doble trazo — la línea 1:110m de Chile y la línea 1:10m de
+   Bolivia no comparten vértices en absoluto, y difieren en 1,5-5,2 km de mediana (hasta 31 km
+   en el peor vértice, la misma medición de más arriba en este documento), así que ninguno de
+   los dos rellenos cubre la franja entre ambos. Eso es exactamente lo que un lector describe
+   como "bordes negros" — y solo durante el giro, porque en reposo todos los países vecinos
+   comparten la misma resolución (todos en 1:10m o, tras un `reset`, todos recién construidos a
+   la vez).
+
+   El arreglo no puede ser país por país, porque el desacople es entre las respuestas de dos
+   países, no un error en ninguna de las dos por separado. `reprojectionCache.anyStale`
+   decide, **antes de que ninguno dibuje nada**, si algún país redibujado en este frame
+   respondió `stale`; si es así, `RouteMap.tsx` hace que **todos** los países redibujados de
+   este frame dibujen su contorno 1:110m juntos — la misma rama de (c), aplicada al grupo en
+   vez de a cada país por su cuenta — en lugar de dejar que cada uno responda por separado. El
+   costo es que un país que ya le tocaba ponerse al día se queda en baja resolución tanto como
+   el vecino más lento; el beneficio es que las dos resoluciones nunca coexisten en la misma
+   frontera compartida, porque el atlas 1:110m ya tesela consigo mismo por construcción. Un
+   país cuyo `decideReuse` respondió `rebuild` pero cuyo frame terminó degradado por el grupo
+   **no reproyecta su geometría 1:10m ese frame** — el trabajo se habría descartado sin
+   dibujarse — así que su caché queda tan desactualizada como estaba, y la próxima vez que
+   `decideReuse` lo pida se reproyecta desde la rotación que esté vigente entonces, no desde
+   una ya vieja cuando se pidió. Repetido el mismo experimento de forzado tras el cambio: la
+   costura desaparece porque ambos países — el forzado y su vecino — degradan juntos al mismo
+   contorno 1:110m, verificado con capturas antes/después a la misma región y el mismo zoom.
+   `anyStale` vive en `reprojectionCache.ts` junto a `standInFor`/`strokesInnerBorders`, con
+   tests que cubren: ningún país `stale` (falso), un solo país en pantalla que sí lo es
+   (verdadero), y un `stale` entre otros que no lo son (verdadero) — la regla que la corrección
+   necesitaba probar, porque un país vecino "vota" por todos.
+
+   **Recalibrado una cuarta vez (esta sesión): la costura ya no aparece, pero un lector
+   reporta parpadeo — las fronteras internas entran y salen varias veces durante UN solo
+   arrastre.** El fix de arriba resuelve el desacople _espacial_ entre países vecinos; deja
+   intacto un desacople _temporal_ dentro de un mismo país. Un arrastre continuo cambia la
+   rotación en cada frame, así que el `rotateThrottleMs` de un país liviano vence y se renueva
+   cada pocos frames — barato de reproyectar, pero cada una de esas reproyecciones es un
+   instante en que `anyStale` vuelve a leer `false`. El intercambio fino/basto que este
+   documento ya acepta una vez por ventana de throttle pasa a repetirse varias veces por
+   segundo durante el mismo gesto, y el lector ve las fronteras administrativas parpadear en
+   vez de una frontera que se queda quieta. Medido inyectando un contador de transiciones
+   (`degradedLand.size > 0`) y accionando `draw()` con el reloj controlado, sobre el mismo
+   arrastre continuo de 120 frames (~2 s a 60 Hz) que este documento ya usa como referencia:
+   **59 transiciones** con la lógica de antes (una decisión de `decideReuse` por frame, por
+   país). `decideReuse` no se equivoca en ninguno de esos frames — contesta sobre la geometría
+   de un país, y ningún país por sí solo era lo que necesitaba quedarse quieto.
+
+   El arreglo no es por frame ni por país: es por gesto. `RouteMap.tsx` ya guarda en
+   `gesture.current` si el lector está girando el globo con el puntero (`kind: 'rotate'`, para
+   distinguirlo de arrastrar el mapa plano o de la rueda, que nunca giran así). Mientras ese
+   gesto está activo, `reprojectionCache.forcesDegrade` contesta que el frame degrada sin
+   preguntarle nada a `decideReuse`: todos los países redibujados caen juntos al contorno
+   1:110m, y ninguno paga por reproyectar su 1:10m — esa reproyección se habría descartado sin
+   dibujarse en el frame siguiente de todos modos, porque la rotación ya se movió. Al soltar el
+   puntero, el basto se mantiene un `SETTLE_MS` más (el mismo cuarto de segundo que el mapa ya
+   espera antes de pedir qué subdivisiones dibujar) antes de que un único redibujo — programado,
+   no el que detiene el gesto — reconstruya cada país desde la rotación vigente en ese momento y
+   lo muestre a resolución fina. Repetido el mismo experimento tras el cambio, sobre el mismo
+   gesto de 120 frames más el soltar: **2 transiciones** — una al entrar, una al salir — el
+   mismo número tanto llamando a `draw()` con el reloj controlado como disparando el gesto real
+   por el pipeline de punteros del navegador.
+
+   La rueda queda fuera a propósito: sube el zoom sin poner `gesture.current` en `'rotate'`
+   (el reencuadre que hace para mantener el punto anclado bajo el cursor sí cambia la
+   rotación un poco, pero no es el gesto que causaba el parpadeo, y forzar el degradado ahí
+   habría sido degradar de más algo que ya funcionaba). `forcesDegrade` vive en
+   `reprojectionCache.ts` junto a `anyStale`, con tests que cubren: verdadero durante todo el
+   gesto sin importar la ventana de gracia, verdadero durante esa ventana tras soltar, falso
+   una vez que la ventana pasó sin gesto activo, y falso para un gesto `'pan'` (el mapa plano
+   nunca cambia de rotación, así que nunca tuvo este problema). La regla en sí —"mientras hay
+   gesto, degradado"— es pura y vive ahí; lo que no es testeable desde `RouteMap.test.tsx` es,
+   otra vez, si el canvas realmente deja de pintar las fronteras internas frame a frame:
+   `getContext` se mockea a `null` en ese archivo, así que la verificación de esta sesión fue
+   de navegador, inyectando el contador de transiciones directamente en `draw()`.
+
 2. **Separar "cuándo pedir datos" de "cuándo mostrarlos" (queja D).** `SETTLE_MS`/`ARRIVAL_MS`
    existen para no bombardear la red mientras el lector gira el globo — una razón válida
    para el _fetch_. Pero un país cuyos datos **ya están en la caché de React Query** no tiene

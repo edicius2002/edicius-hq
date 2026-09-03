@@ -3,12 +3,19 @@ import { describe, expect, it } from 'vitest';
 
 import {
   IDENTITY_MATRIX,
+  REFERENCE_GEOMETRY_WEIGHT,
   ROTATE_REBUILD_MS,
   affineMatrix,
+  anyStale,
   applyMatrix,
   decideReuse,
+  forcesDegrade,
+  geometryWeight,
+  rotateThrottleMs,
   sameRotation,
   sameSelection,
+  standInFor,
+  strokesInnerBorders,
   type ProjectionSnapshot,
 } from './reprojectionCache';
 
@@ -188,5 +195,217 @@ describe('decideReuse', () => {
         [],
       ),
     ).toEqual({ kind: 'rebuild' });
+  });
+});
+
+describe('geometryWeight', () => {
+  it('counts every point in every land ring and every border run, and nothing else', () => {
+    const landParts = [
+      {
+        shape: {
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 0],
+            ],
+          ],
+        },
+      }, // one ring, 4 points
+      {
+        shape: {
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 0],
+            ], // outer ring, 4 points
+            [
+              [0.2, 0.2],
+              [0.3, 0.2],
+              [0.2, 0.2],
+            ], // a hole, 3 points
+          ],
+        },
+      },
+    ];
+    const borderRuns = [
+      {
+        shape: {
+          coordinates: [
+            [0, 0],
+            [1, 1],
+            [2, 2],
+          ],
+        },
+      }, // 3 points
+      {
+        shape: {
+          coordinates: [
+            [5, 5],
+            [6, 6],
+          ],
+        },
+      }, // 2 points
+    ];
+
+    expect(geometryWeight(landParts, borderRuns)).toBe(4 + 4 + 3 + 3 + 2);
+  });
+
+  it('is zero for a country with no land and no borders', () => {
+    expect(geometryWeight([], [])).toBe(0);
+  });
+});
+
+describe('rotateThrottleMs', () => {
+  it('gives the reference weight exactly ROTATE_REBUILD_MS — the heaviest country on file sees no regression', () => {
+    expect(rotateThrottleMs(REFERENCE_GEOMETRY_WEIGHT)).toBe(ROTATE_REBUILD_MS);
+  });
+
+  it('scales down linearly for a lighter country', () => {
+    const aFifth = REFERENCE_GEOMETRY_WEIGHT / 5;
+    expect(rotateThrottleMs(aFifth)).toBeCloseTo(ROTATE_REBUILD_MS / 5, 6);
+  });
+
+  it('is zero for weightless geometry, so it never lags a spin', () => {
+    expect(rotateThrottleMs(0)).toBe(0);
+  });
+
+  it('never exceeds ROTATE_REBUILD_MS, even for a country heavier than the calibration point', () => {
+    expect(rotateThrottleMs(REFERENCE_GEOMETRY_WEIGHT * 10)).toBe(ROTATE_REBUILD_MS);
+  });
+});
+
+describe('decideReuse with a weight-scaled throttle', () => {
+  const snapshot: ProjectionSnapshot = { rotation: [0, 0, 0], scale: 200, translate: [100, 100] };
+  const included = [true];
+
+  it('a country light enough rebuilds instead of drawing stale, where the reference-weight country would still be throttled', () => {
+    const cached = {
+      of: 'el-salvador',
+      snapshot,
+      builtAt: 1000,
+      includedLand: included,
+      includedBorders: [],
+    };
+    const rotated: ProjectionSnapshot = { rotation: [5, 0, 0], scale: 200, translate: [100, 100] };
+    const lightThrottle = rotateThrottleMs(1_031); // El Salvador's measured weight
+    const now = 1000 + lightThrottle + 1; // just past this country's own throttle...
+    expect(now - 1000).toBeLessThan(ROTATE_REBUILD_MS); // ...but well inside the flat constant
+
+    expect(decideReuse(cached, 'el-salvador', rotated, now, lightThrottle, included, [])).toEqual({
+      kind: 'rebuild',
+    });
+    // The same elapsed time, at the flat throttle every country used to share, would still be stale.
+    expect(
+      decideReuse(cached, 'el-salvador', rotated, now, ROTATE_REBUILD_MS, included, []),
+    ).toEqual({ kind: 'stale' });
+  });
+});
+
+describe('standInFor', () => {
+  it('prefers the coarse outline, because it can be drawn where the country actually is', () => {
+    expect(standInFor(true)).toBe('coarse-outline');
+  });
+
+  it('falls back to the held fine shape when there is no outline to stand in', () => {
+    expect(standInFor(false)).toBe('frozen-fine');
+  });
+});
+
+describe('strokesInnerBorders', () => {
+  /*
+   * This is the pairing worth pinning down, and the one a later edit is most
+   * likely to undo: the borders look like detail somebody removed for no
+   * reason, and putting them back costs nothing until you spin the globe.
+   *
+   * They are 1:10m lines built under an earlier rotation. Over a coarse
+   * outline that was reprojected this frame, the two disagree by exactly the
+   * drift the outline was brought in to remove — state borders drawn crossing
+   * the coast instead of following it, which reads worse than the drift did.
+   */
+  it('keeps the held-back admin borders off a freshly reprojected outline', () => {
+    expect(strokesInnerBorders('coarse-outline')).toBe(false);
+  });
+
+  it('strokes them over the frozen fine shape, which is stale the same way they are', () => {
+    expect(strokesInnerBorders('frozen-fine')).toBe(true);
+  });
+
+  it('draws borders in exactly one of the two stand-ins', () => {
+    // Neither both nor neither: a country in a held-back frame shows its admin
+    // borders if and only if its coastline is the one they were built against.
+    const both = [standInFor(true), standInFor(false)].map(strokesInnerBorders);
+    expect(both.filter(Boolean)).toHaveLength(1);
+  });
+});
+
+describe('anyStale', () => {
+  it('is false when nothing is held back', () => {
+    expect(anyStale([{ kind: 'reuse', matrix: IDENTITY_MATRIX }, { kind: 'rebuild' }])).toBe(false);
+  });
+
+  it('is false with nothing on screen to redraw at all', () => {
+    expect(anyStale([])).toBe(false);
+  });
+
+  it('is true the moment any one country is held back, even among others that are not', () => {
+    // The whole point: one neighbour answering `stale` outvotes the rest, so
+    // the caller degrades every one of them together rather than mixing
+    // resolutions across a shared frontier.
+    expect(
+      anyStale([
+        { kind: 'reuse', matrix: IDENTITY_MATRIX },
+        { kind: 'stale' },
+        { kind: 'rebuild' },
+      ]),
+    ).toBe(true);
+  });
+
+  it('is true when it is the only country on screen', () => {
+    expect(anyStale([{ kind: 'stale' }])).toBe(true);
+  });
+});
+
+describe('forcesDegrade', () => {
+  it('is true for the whole gesture, independently of the grace window', () => {
+    // A pointer that is still down forces coarse no matter what `until` says
+    // — including a stale one left over from an earlier gesture.
+    expect(forcesDegrade('rotate', false, 1000, 0)).toBe(true);
+    expect(forcesDegrade('rotate', false, 1000, 2000)).toBe(true);
+  });
+
+  it('is true during the grace window after the gesture ends', () => {
+    expect(forcesDegrade(undefined, false, 1000, 1250)).toBe(true);
+  });
+
+  it('is false once the grace window has passed with no gesture held', () => {
+    expect(forcesDegrade(undefined, false, 1250, 1250)).toBe(false);
+    expect(forcesDegrade(undefined, false, 1251, 1250)).toBe(false);
+  });
+
+  it('is false at rest, with no gesture and no grace window pending', () => {
+    expect(forcesDegrade(undefined, false, 1000, 0)).toBe(false);
+  });
+
+  it('is false for a pan gesture, which never mismatches resolution to begin with', () => {
+    // The flat map's rotation never changes, so `decideReuse` always answers
+    // `reuse` for it; forcing coarse during a pan would degrade a gesture
+    // that was never the one this rule exists for.
+    expect(forcesDegrade('pan', false, 1000, 0)).toBe(false);
+  });
+
+  it('is true for the whole zoom glide, independently of the grace window', () => {
+    // A wheel/keyboard zoom on the globe is never a `gestureKind` — no
+    // pointer is held down for it — but it re-anchors through a rotation
+    // change on every frame it is in flight, same as a spin.
+    expect(forcesDegrade(undefined, true, 1000, 0)).toBe(true);
+    expect(forcesDegrade(undefined, true, 1000, 2000)).toBe(true);
+  });
+
+  it('is true when both a rotate drag and a zoom glide happen to overlap', () => {
+    expect(forcesDegrade('rotate', true, 1000, 0)).toBe(true);
   });
 });

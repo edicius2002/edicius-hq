@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from '@/shared/api/config';
 import type { Quote } from '@/shared/api/market';
+import { withStreamToken } from '@/shared/auth/streamUrl';
 
 /**
  * Live prices, pushed rather than asked for.
@@ -120,7 +121,7 @@ export function openQuoteStream(symbols: string[], options: QuoteStreamOptions):
   if (!symbols.length) return () => {};
 
   const create = options.create ?? ((url: string) => new EventSource(url));
-  const source = create(streamUrl(symbols));
+  const source = create(withStreamToken(streamUrl(symbols)));
 
   source.addEventListener('open', () => options.onOpen?.());
   source.addEventListener('quotes', (event) => {

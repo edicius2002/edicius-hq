@@ -4,9 +4,11 @@ import { type ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { App } from '@/app/App';
 import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
 import { AppProviders } from '@/app/providers/AppProviders';
 import { createAppMemoryRouter } from '@/app/router/createAppRouter';
+import { clearToken, writeToken } from '@/shared/auth/session';
 
 afterEach(() => {
   cleanup();
@@ -322,5 +324,46 @@ describe('AppErrorBoundary', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong');
     expect(screen.getByText('boom')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The shell gate.
+ *
+ * One decision around the router rather than a guard per route, so these tests
+ * render `App` itself — the rest of this file goes around it, straight to
+ * `RouterProvider`, because it is testing navigation rather than access.
+ */
+describe('The session gate', () => {
+  afterEach(() => {
+    clearToken();
+  });
+
+  it('renders the login screen when there is no session', () => {
+    clearToken();
+    render(<App />);
+
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  it('renders the app when a session exists', async () => {
+    writeToken('a-token');
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('falls back to the login screen when the stored token is refused', async () => {
+    writeToken('a-stale-token');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ detail: 'Not authenticated' }, { status: 401 })),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument();
   });
 });

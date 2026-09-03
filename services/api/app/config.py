@@ -28,6 +28,15 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 
+# What a passkey is bound to. `WEBAUTHN_RP_ID` is the domain the credential
+# belongs to and `WEBAUTHN_ORIGIN` the exact origin a ceremony must come from;
+# a credential enrolled under one pair is refused under any other, which is why
+# these are configuration and not constants — they change with where the SPA is
+# served. The defaults are the local development pair on purpose, so a
+# developer who sets nothing can still enrol.
+WEBAUTHN_RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
+WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN", "http://localhost:5173")
+
 
 def sky_official_lookup_enabled() -> bool:
     """Whether the opt-in, fail-closed official SKY booking lookup may run."""

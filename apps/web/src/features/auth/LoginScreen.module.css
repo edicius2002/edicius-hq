@@ -1,0 +1,98 @@
+/*
+ * The one screen with no shell around it, so it centres itself rather than
+ * sitting in `AppShell`'s main column. `100dvh` and not `100vh`: on a phone —
+ * which is half the reason this feature exists — `vh` is the viewport with the
+ * browser chrome retracted, so the card sits low and the hint under it is
+ * behind the address bar until you scroll.
+ */
+.screen {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-5);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  /*
+   * Narrow on purpose. There are two controls and one paragraph, and a card
+   * that stretched to a desktop's width would make the eye travel across empty
+   * space to reach a button in the middle of it.
+   */
+  max-width: 26rem;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.lede {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.action {
+  justify-self: stretch;
+}
+
+.enrol {
+  display: grid;
+  gap: var(--space-2);
+  text-align: left;
+}
+
+.label {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  /*
+   * The code is eight characters over an alphabet chosen so none of them can
+   * be confused for another. Letter-spacing is what carries that choice
+   * through to the person typing it back.
+   */
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.code {
+  padding: 0 var(--space-1);
+  border-radius: calc(var(--radius) / 2);
+  background: var(--color-surface-soft);
+  color: var(--color-text);
+  /* It is a command to be typed exactly, so it must not wrap mid-word. */
+  white-space: nowrap;
+}
+
+.message {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}

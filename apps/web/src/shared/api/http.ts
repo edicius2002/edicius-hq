@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from '@/shared/api/config';
+import { clearToken, readToken } from '@/shared/auth/session';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -54,12 +55,26 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     body = JSON.stringify(options.body);
   }
 
+  const token = readToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch(url, {
     method: options.method ?? 'GET',
     headers,
     body,
     signal: composeAbortSignal(options.signal, options.timeoutMs ?? REQUEST_TIMEOUT_MS),
   });
+
+  /*
+   * One path for every way of not being signed in: expired, revoked, or never
+   * valid. The API answers all three identically and the recovery is the same,
+   * so the token goes and the shell falls back to the login screen.
+   *
+   * The error is still thrown. Swallowing it here would leave every caller
+   * believing an empty result was the real answer, which is the silent failure
+   * this codebase keeps designing against.
+   */
+  if (response.status === 401) clearToken();
 
   if (response.status === 204) {
     return undefined as T;

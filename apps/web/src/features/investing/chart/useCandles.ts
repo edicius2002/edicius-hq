@@ -100,24 +100,20 @@ export function useCandles(symbol: string, timeframe: string): Candles {
   const reportedSession = query.data?.hasSession ?? hasSession;
   const bars = useMemo(() => query.data?.bars ?? [], [query.data]);
 
-  useEffect(() => {
-    const nextHasSession = query.data?.hasSession;
-    if (nextHasSession === undefined) return;
-    setSessions((current) => {
-      if (current.get(symbol) === nextHasSession) return current;
-      const next = new Map(current);
-      next.set(symbol, nextHasSession);
-      return next;
-    });
-  }, [query.data, symbol]);
+  // Reported session support is remembered per symbol, purely as a function of
+  // the freshest query response, so it is adjusted here during render instead
+  // of from an effect.
+  const nextHasSession = query.data?.hasSession;
+  if (nextHasSession !== undefined && sessions.get(symbol) !== nextHasSession) {
+    setSessions((current) => new Map(current).set(symbol, nextHasSession));
+  }
 
   const isGhost = useMemo(() => {
     // Crypto never has an overlay: a pair's market runs around the clock, so
     // there is no session for a bar to fall outside of. The API says which,
     // rather than this reading a provider's name to work it out.
-    if (!reportedSession) return () => false;
-    const rule = makeIsExtended(timeframe, regime, bars.length);
-    return (bar: Bar, index: number) => rule(bar.time, index);
+    const rule = reportedSession ? makeIsExtended(timeframe, regime, bars.length) : null;
+    return (bar: Bar, index: number) => (rule ? rule(bar.time, index) : false);
   }, [reportedSession, timeframe, regime, bars.length]);
 
   return {

@@ -32,20 +32,24 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
    * only the second should re-open the results list and search again. Any
    * further edit clears it in `onChange`, which is what lets typing over a
    * picked symbol search again rather than staying stuck closed.
+   *
+   * State rather than a ref: the results list below reads it during render to
+   * decide whether it is open at all.
    */
-  const pickedRef = useRef<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+
+  // Nothing to search: the field holds what was just picked, or the query is
+  // too short. Cleared here, during render, rather than from the effect
+  // below.
+  if ((query === picked || query.trim().length < 2) && hits.length > 0) {
+    setHits([]);
+  }
 
   useEffect(() => {
-    if (query === pickedRef.current) {
-      setHits([]);
-      return;
-    }
+    if (query === picked) return;
 
     const wanted = query.trim();
-    if (wanted.length < 2) {
-      setHits([]);
-      return;
-    }
+    if (wanted.length < 2) return;
 
     // Aborted on the next keystroke, so a slow answer for "mic" cannot land
     // after the answer for "micros" and overwrite it.
@@ -62,7 +66,7 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
       clearTimeout(id);
       controller.abort();
     };
-  }, [query]);
+  }, [query, picked]);
 
   /**
    * Picking sets the field to the symbol chosen rather than clearing it —
@@ -71,7 +75,7 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
    * only in a caller's own "Selected: X" line beside it.
    */
   function pick(hit: SymbolHit) {
-    pickedRef.current = hit.symbol;
+    setPicked(hit.symbol);
     onPick(hit.symbol, hit.name);
     setQuery(hit.symbol);
     setHits([]);
@@ -85,7 +89,7 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
         placeholder="Search a symbol"
         aria-label="Search a symbol"
         onChange={(event) => {
-          pickedRef.current = null;
+          setPicked(null);
           setQuery(event.target.value);
         }}
         onKeyDown={(event) => {
@@ -102,7 +106,7 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
         }}
       />
 
-      {query.trim().length >= 2 && query !== pickedRef.current ? (
+      {query.trim().length >= 2 && query !== picked ? (
         <ul className={styles.results} aria-label="Search results">
           {searching && !hits.length ? <li className={styles.hint}>Searching…</li> : null}
           {!searching && !hits.length ? <li className={styles.hint}>Nothing found.</li> : null}
@@ -116,6 +120,12 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
                   className={styles.hit}
                   disabled={already}
                   onClick={() => pick(hit)}
+                  // The three spans below sit flush against each other in the
+                  // markup — nothing but a CSS grid gap separates them
+                  // visually — so their concatenated text is one run-on word
+                  // to a screen reader. An explicit label gives the name the
+                  // word breaks the layout only supplies visually.
+                  aria-label={`${hit.symbol} ${hit.name} ${already ? 'following' : hit.kind}`}
                 >
                   <span className={styles.hitSymbol}>{hit.symbol}</span>
                   <span className={styles.hitName}>{hit.name}</span>

@@ -863,8 +863,9 @@ export function RouteMap({
     };
 
     /**
-     * Whether the reader's pointer is turning the globe right now, or let go
-     * of it within the last `SETTLE_MS` — see `forcesDegrade` for why a held
+     * Whether the reader's pointer is turning the globe right now, whether a
+     * wheel/keyboard zoom on the globe is still gliding, or either one let go
+     * within the last `SETTLE_MS` — see `forcesDegrade` for why a held
      * gesture decides this on its own, without asking `decideReuse` anything.
      *
      * Rotation changes on every frame of a drag, so a light country's own
@@ -880,16 +881,31 @@ export function RouteMap({
      * needed to hold still. This is a coarser question, asked once for the
      * whole gesture instead of once per country per frame: while the pointer
      * is down, and for one settle beat after, the map shows one thing.
+     *
+     * A wheel/keyboard zoom on the globe answers the same coarser question,
+     * for the same reason: `applyZoom` re-anchors the pointed-at place back
+     * under the cursor every frame the glide runs, and on a sphere that is a
+     * rotation change like any other. `zoomGliding` is `zoom.current !==
+     * zoomTarget.current` — true for exactly as long as `stepZoom` still has
+     * somewhere to ease towards — rather than anything read off `gesture`,
+     * because a zoom never captures the pointer the way a drag does.
      */
-    const dragging = forcesDegrade(gesture.current?.kind, now, draggedUntil.current);
+    const zoomGliding = projection === 'globe' && zoom.current !== zoomTarget.current;
+    const forcedCoarse = forcesDegrade(
+      gesture.current?.kind,
+      zoomGliding,
+      now,
+      coarseUntil.current,
+    );
 
-    if (dragging) {
+    if (forcedCoarse) {
       // Every redrawn country takes the coarse branch together, and none of
-      // them pays to rebuild: a rebuild mid-drag would answer for a rotation
-      // that has already moved on by the time the next frame asks again, so
-      // it is thrown away undrawn either way. `held` is left exactly as
-      // stale as it was; the first frame once dragging ends rebuilds it from
-      // whatever rotation is live then, not one already behind it.
+      // them pays to rebuild: a rebuild mid-gesture would answer for a
+      // rotation that has already moved on by the time the next frame asks
+      // again, so it is thrown away undrawn either way. `held` is left
+      // exactly as stale as it was; the first frame once the gesture ends
+      // rebuilds it from whatever rotation is live then, not one already
+      // behind it.
       for (const each of subdivisions) degradeCountry(each.country);
     } else {
       /**
@@ -1330,20 +1346,41 @@ export function RouteMap({
   const gesture = useRef<Gesture | null>(null);
 
   /**
-   * How long past the end of a rotate drag `forcesDegrade` still answers
-   * `true` on its own — a `performance.now()` timestamp, `0` until the first
-   * drag ends. `draw` reads it every frame; only `endGesture` ever writes it.
+   * How long past the end of a rotate drag, or a zoom glide, `forcesDegrade`
+   * still answers `true` on its own — a `performance.now()` timestamp, `0`
+   * until the first one ends. `draw` reads it every frame; only
+   * `scheduleSettle` writes it.
    */
-  const draggedUntil = useRef(0);
+  const coarseUntil = useRef(0);
 
   /**
-   * The one redraw that lands once `draggedUntil` passes, so degrading has
-   * an end a reader can see rather than a frame nobody asked to repaint.
-   * Cleared and reset by every rotate drag, the same way `wheelStop` is for
-   * a wheel gesture — a second drag inside the grace window replaces the
-   * pending settle with its own rather than racing it.
+   * The one redraw that lands once `coarseUntil` passes, so degrading has an
+   * end a reader can see rather than a frame nobody asked to repaint. Reset
+   * by every call to `scheduleSettle`, the same way `wheelStop` replaces its
+   * own pending timeout — a gesture that ends inside a previous one's grace
+   * window replaces the pending settle with its own rather than racing it.
    */
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Holds the coarse stand-in for one more `SETTLE_MS` past a rotate drag or
+   * a zoom glide ending, then asks for the one redraw that rebuilds whatever
+   * was held back — the same beat the map already waits before asking whose
+   * subdivisions to draw. Rebuilding the instant the gesture ends would land
+   * that cost, and the jump to full detail, inside the very frame that stops
+   * it: one more flip rather than the gesture settling. See `forcesDegrade`.
+   * Called from `endGesture` for a rotate drag and from `stepZoom`/`endGlide`
+   * for a zoom glide — the two places that ever notice one just ended.
+   */
+  function scheduleSettle() {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    coarseUntil.current = performance.now() + SETTLE_MS;
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = null;
+      draw();
+      repaint((count) => count + 1);
+    }, SETTLE_MS);
+  }
 
   useEffect(() => {
     return () => {
@@ -1372,10 +1409,10 @@ export function RouteMap({
       x: offsetX,
       y: offsetY,
     };
-    // A new drag starting inside the previous one's settle window replaces
+    // A new drag starting inside a previous gesture's settle window replaces
     // it outright: `gesture.current` being set again is already enough for
     // `forcesDegrade` to answer `true`, so the pending redraw at the old
-    // `draggedUntil` would only repaint a frame nothing changed for.
+    // `coarseUntil` would only repaint a frame nothing changed for.
     if (settleTimer.current) {
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
@@ -1434,20 +1471,7 @@ export function RouteMap({
     gesture.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     setMoving(false);
-    if (wasRotating) {
-      // Hold the coarse stand-in for one more `SETTLE_MS` past the drag —
-      // the same beat the map already waits before asking whose
-      // subdivisions to draw. Rebuilding every held-back country's fine
-      // geometry the instant the pointer lifts would land that cost, and the
-      // jump to full detail, inside the very frame that stops the drag: one
-      // more flip rather than the drag settling. See `forcesDegrade`.
-      draggedUntil.current = performance.now() + SETTLE_MS;
-      settleTimer.current = setTimeout(() => {
-        settleTimer.current = null;
-        draw();
-        repaint((count) => count + 1);
-      }, SETTLE_MS);
-    }
+    if (wasRotating) scheduleSettle();
     draw();
     repaint((count) => count + 1);
   }
@@ -1513,7 +1537,14 @@ export function RouteMap({
   function stepZoom(elapsed: number) {
     if (zoom.current === zoomTarget.current) return false;
     applyZoom(approach(zoom.current, zoomTarget.current, elapsed));
-    if (zoom.current === zoomTarget.current) anchor.current = null;
+    if (zoom.current === zoomTarget.current) {
+      anchor.current = null;
+      // The glide just reached its target on its own — the same "a gesture
+      // that changed rotation just stopped" moment `endGesture` notices for a
+      // drag. See `forcesDegrade` for why the rebuild this unblocks has to
+      // wait one settle beat rather than land in this frame.
+      scheduleSettle();
+    }
     return true;
   }
 
@@ -1553,6 +1584,9 @@ export function RouteMap({
     if (zoom.current === zoomTarget.current) return;
     applyZoom(zoomTarget.current);
     anchor.current = null;
+    // Forcing the snap here is itself the glide ending — `stepZoom` never got
+    // to notice it on its own, so this is the only place that will.
+    scheduleSettle();
     draw();
     repaint((count) => count + 1);
   }

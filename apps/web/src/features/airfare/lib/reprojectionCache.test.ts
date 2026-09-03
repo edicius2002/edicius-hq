@@ -373,27 +373,39 @@ describe('forcesDegrade', () => {
   it('is true for the whole gesture, independently of the grace window', () => {
     // A pointer that is still down forces coarse no matter what `until` says
     // — including a stale one left over from an earlier gesture.
-    expect(forcesDegrade('rotate', 1000, 0)).toBe(true);
-    expect(forcesDegrade('rotate', 1000, 2000)).toBe(true);
+    expect(forcesDegrade('rotate', false, 1000, 0)).toBe(true);
+    expect(forcesDegrade('rotate', false, 1000, 2000)).toBe(true);
   });
 
   it('is true during the grace window after the gesture ends', () => {
-    expect(forcesDegrade(undefined, 1000, 1250)).toBe(true);
+    expect(forcesDegrade(undefined, false, 1000, 1250)).toBe(true);
   });
 
   it('is false once the grace window has passed with no gesture held', () => {
-    expect(forcesDegrade(undefined, 1250, 1250)).toBe(false);
-    expect(forcesDegrade(undefined, 1251, 1250)).toBe(false);
+    expect(forcesDegrade(undefined, false, 1250, 1250)).toBe(false);
+    expect(forcesDegrade(undefined, false, 1251, 1250)).toBe(false);
   });
 
   it('is false at rest, with no gesture and no grace window pending', () => {
-    expect(forcesDegrade(undefined, 1000, 0)).toBe(false);
+    expect(forcesDegrade(undefined, false, 1000, 0)).toBe(false);
   });
 
   it('is false for a pan gesture, which never mismatches resolution to begin with', () => {
     // The flat map's rotation never changes, so `decideReuse` always answers
     // `reuse` for it; forcing coarse during a pan would degrade a gesture
     // that was never the one this rule exists for.
-    expect(forcesDegrade('pan', 1000, 0)).toBe(false);
+    expect(forcesDegrade('pan', false, 1000, 0)).toBe(false);
+  });
+
+  it('is true for the whole zoom glide, independently of the grace window', () => {
+    // A wheel/keyboard zoom on the globe is never a `gestureKind` — no
+    // pointer is held down for it — but it re-anchors through a rotation
+    // change on every frame it is in flight, same as a spin.
+    expect(forcesDegrade(undefined, true, 1000, 0)).toBe(true);
+    expect(forcesDegrade(undefined, true, 1000, 2000)).toBe(true);
+  });
+
+  it('is true when both a rotate drag and a zoom glide happen to overlap', () => {
+    expect(forcesDegrade('rotate', true, 1000, 0)).toBe(true);
   });
 });

@@ -342,11 +342,27 @@ export function anyStale(decisions: readonly ReuseDecision[]): boolean {
  * once, since a continuous drag leaves all of their caches equally stale —
  * lands a beat after the drag stops instead of inside the frame that stops
  * it, which is one settle rather than one more flip.
+ *
+ * `zoomGliding` answers the same question for a wheel or keyboard zoom, which
+ * is never a `gestureKind` because no pointer is held down for it. A zoom on
+ * the globe still changes rotation on every frame it is in flight: `applyZoom`
+ * re-anchors the point under the cursor back to a fixed screen position, and
+ * on a sphere the only way to hold a point still under a moving scale is to
+ * turn — so a zoom glide hits the exact case `decideReuse` cannot cover
+ * exactly, the same as a spin, just measured smaller: simulating a 40-frame
+ * zoom-in glide through `decideReuse` directly counted 10 coarse/fine
+ * transitions where the old, zoom-blind `forcesDegrade` never answered `true`
+ * for any of them, and 14 for a 55-frame zoom-out. `until` already carries a
+ * shared grace deadline rather than a per-gesture one, so the caller can set
+ * it from wherever a zoom glide ends too — `stepZoom` snapping to target on
+ * its own, or `endGlide` forcing it there — and pay for only one more
+ * parameter here.
  */
 export function forcesDegrade(
   gestureKind: 'rotate' | 'pan' | undefined,
+  zoomGliding: boolean,
   now: number,
   until: number,
 ): boolean {
-  return gestureKind === 'rotate' || now < until;
+  return gestureKind === 'rotate' || zoomGliding || now < until;
 }

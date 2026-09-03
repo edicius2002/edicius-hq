@@ -1,5 +1,6 @@
 import { apiRequest } from '@/shared/api/http';
 import { getApiBaseUrl } from '@/shared/api/config';
+import { withStreamToken } from '@/shared/auth/streamUrl';
 
 export type Tweet = {
   id: string;
@@ -66,7 +67,7 @@ export function stopWatch(handle: string) {
 
 export function openTweetStream(handle: string, onTweets: () => void): () => void {
   const source = new EventSource(
-    `${getApiBaseUrl()}/api/tweets/${encodeURIComponent(handle)}/stream`,
+    withStreamToken(`${getApiBaseUrl()}/api/tweets/${encodeURIComponent(handle)}/stream`),
   );
   source.addEventListener('tweets', onTweets);
   return () => source.close();

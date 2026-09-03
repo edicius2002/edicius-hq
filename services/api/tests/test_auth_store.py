@@ -110,3 +110,32 @@ def test_revoke_credential_reports_whether_it_removed_anything(tmp_local_data):
     assert auth_store.revoke_credential(short_id) is True
     assert auth_store.revoke_credential(short_id) is False
     assert auth_store.get_credential(b"cred-1") is None
+
+
+def test_code_is_accepted_with_or_without_the_printed_separator(tmp_local_data):
+    """The PC prints `K7M2-9QX4`; the phone may be typed anything equivalent."""
+    code = auth_store.issue_code()
+    formatted = f"{code[:4]}-{code[4:]}"
+    assert auth_store.consume_code(formatted.lower()) is True
+
+
+def test_authorise_code_does_not_burn_it(tmp_local_data):
+    code = auth_store.issue_code()
+    assert auth_store.authorise_code(code) is True
+    assert auth_store.authorise_code(code) is True
+    assert auth_store.consume_code(code) is True
+    assert auth_store.authorise_code(code) is False
+
+
+def test_authorise_still_charges_a_failed_guess(tmp_local_data):
+    code = auth_store.issue_code()
+    for _ in range(5):
+        assert auth_store.authorise_code("WRONGCOD") is False
+    assert auth_store.authorise_code(code) is False
+
+
+def test_a_challenge_is_single_use_and_bound_to_its_purpose(tmp_local_data):
+    challenge_id = auth_store.store_challenge(b"a-challenge", "registration")
+    assert auth_store.take_challenge(challenge_id, "authentication") is None
+    assert auth_store.take_challenge(challenge_id, "registration") == b"a-challenge"
+    assert auth_store.take_challenge(challenge_id, "registration") is None

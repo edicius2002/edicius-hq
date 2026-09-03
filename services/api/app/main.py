@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.adapters.streams import CompositeStream
 from app.auth import require_session_gate
@@ -79,6 +80,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# `GET /api/fares/history` answers with every snapshot for a city pair, and the
+# reader is usually on another device over a Tailscale path that is sometimes a
+# DERP relay rather than a direct one. Measured on this archive: one month of
+# LIM-MAD is 1,960,559 bytes uncompressed and 78,365 gzipped, which is 46 ms of
+# zlib against 1.9 MB that would otherwise be relayed. That trade is the whole
+# reason this is here.
+#
+# **It must never reach the streams.** Four endpoints answer `text/event-stream`
+# and every one was built against buffering — `X-Accel-Buffering: no`, a
+# keep-alive comment on a silent interval, a hub that reports silence rather
+# than timing out. Starlette's own middleware is used rather than a hand-rolled
+# one because it already discriminates the right way: on the response's content
+# type, not on whether the response streams. That distinction matters here,
+# since `GET /api/fares/watch/export` streams too and is not a stream.
+#
+# The exclusion is a default rather than something this line asks for, so
+# `test_compression` holds an actual `text/event-stream` open through the
+# middleware and reads the first frame back. Nothing else in the suite would
+# notice it going: compressed frames still arrive and still parse, and only the
+# timing changes.
+#
+# The floor is a kilobyte — below that the gzip envelope costs more than the
+# packet it saves — and it only applies to responses that arrive in one piece.
+# Starlette compresses a streaming body whatever its length, which is why
+# `/watch/export` gets a second, useless pass: it is `application/gzip` already,
+# and starlette 0.47 excludes only `text/event-stream`. Measured at +24 bytes on
+# an empty export. Left alone rather than worked around: the fix is upstream,
+# where 1.6 already excludes `application/gzip` as well.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 # The gate, in one place. Every router below is included with it, so a router
 # added later is added next to a visible example and cannot arrive unprotected
 # — `tests/test_gate.py` walks this route table and insists on it. The four SSE

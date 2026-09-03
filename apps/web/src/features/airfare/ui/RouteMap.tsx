@@ -43,11 +43,17 @@ import {
 } from '@/features/airfare/lib/globe';
 import {
   IDENTITY_MATRIX,
-  ROTATE_REBUILD_MS,
+  anyStale,
+  forcesDegrade,
+  standInFor,
+  strokesInnerBorders,
   decideReuse,
+  geometryWeight,
+  rotateThrottleMs,
   type CachedGeometry,
   type Matrix2D,
   type ProjectionSnapshot,
+  type ReuseDecision,
 } from '@/features/airfare/lib/reprojectionCache';
 import type { Subdivisions } from '@/features/airfare/lib/subdivisions';
 import { type Cap, capped, cappedRuns, capsMeet, viewCap } from '@/features/airfare/lib/visible';
@@ -464,14 +470,24 @@ export function RouteMap({
    * and not once a frame — the neighbour search walks all 177 bounding boxes
    * once per country, which is nothing on a settle and real work sixty times a
    * second.
+   *
+   * `byId` is the same `shapes` array again, keyed by country so `draw` can
+   * find one country's own 1:110m outline in constant time — the shape it
+   * substitutes for a country's frozen 1:10m one while that one is `stale`,
+   * see the reprojection block below.
    */
   const coarse = useMemo(() => {
     const found = outlinesOf(swapped ? swapped.split(',') : []);
+    const byId = new Map<string, object>();
+    for (const shape of found.shapes) {
+      const id = (shape as { id?: string | number }).id;
+      if (id !== undefined) byId.set(String(id), shape);
+    }
     // Indexed on the same terms as everything else the map draws. The clipped
     // shapes are the countries the reader zoomed into and are on screen by
     // construction; the neighbours are whatever the bounding-box sweep swept
     // up, which over Europe is most of the continent.
-    return { shapes: found.shapes, neighbours: capped(found.neighbours as never[]) };
+    return { shapes: found.shapes, neighbours: capped(found.neighbours as never[]), byId };
   }, [swapped]);
 
   /**
@@ -761,9 +777,30 @@ export function RouteMap({
      * rotation never changes — is always. A spin still moves every point on
      * the sphere by a different amount, which no single map can stand in for;
      * there, a country's borders are allowed to lag the turn by up to
-     * `ROTATE_REBUILD_MS` before they are worth reprojecting again, the same
-     * kind of bounded trade `SETTLE_MS` and `ARRIVAL_MS` already make between
-     * showing the latest thing and showing anything smoothly at all.
+     * `rotateThrottleMs`'s throttle before the 1:10m shape is worth
+     * reprojecting again, scaled by `geometryWeight` rather than flat so a
+     * country cheap enough to reproject every frame is not held back as long
+     * as the heaviest one on file just because they share a constant.
+     *
+     * **What a country looks like while it is held back changed once this was
+     * measured against a moving globe rather than a still one.** The first
+     * version of this throttle drew the held `Path2D` exactly where it was
+     * built — a deliberate lie about *position*, bounded in time — and
+     * measured live at a state-border zoom with the United States on screen
+     * (60°/s, `docs/airfare-map-rendering.md` §1.4), that lie cost up to ~60 px
+     * of drift between the frozen shape and where the same lon/lat point
+     * actually sits, visible as a seam on the spin's leading edge. A country
+     * held back now instead swaps in its own bundled 1:110m outline — the same
+     * shape `coarse.shapes` already re-clips every frame for the resolution
+     * step below, so drawing it again here costs one more cheap `geoPath` call
+     * per held-back country, not another expensive one — and that shape is
+     * projected fresh, this frame, from the live rotation, so it carries none
+     * of the lag the fine geometry would have. The lie is now about
+     * *resolution* instead of position: coarser for as long as the throttle
+     * says, but never anywhere but where the country actually is. Its internal
+     * admin borders are skipped for the same frames, rather than stroked from
+     * a shape whose outline has just moved out from under them — see `inside`
+     * further down.
      *
      * **Per country, not per view's worth of countries**, and that is the half
      * that makes the fade a fade. A fan-out lands one country at a time, a few
@@ -797,53 +834,156 @@ export function RouteMap({
     const now = performance.now();
     const held = served.current;
     const matrices = new Map<string, Matrix2D>();
+    /**
+     * A country's 1:110m outline, reprojected fresh this frame, standing in
+     * for its held-back 1:10m one — see the comment above. Keyed apart from
+     * `matrices` because it is a finished `Path2D` under the live projection
+     * already, not something a matrix still has to be applied to.
+     */
+    const degradedLand = new Map<string, Path2D>();
     for (const country of held.keys()) {
       if (!subdivisions.some((each) => each.country === country)) held.delete(country);
     }
-    for (const each of subdivisions) {
-      const had = held.get(each.country);
-      const includedLand = each.landParts.map((part) => onScreen(part.cap));
-      const includedBorders = each.borderRuns.map((run) => onScreen(run.cap));
-      const decision = decideReuse(
-        had,
-        each,
-        snapshot,
-        now,
-        ROTATE_REBUILD_MS,
-        includedLand,
-        includedBorders,
-      );
 
-      if (decision.kind === 'reuse') {
-        matrices.set(each.country, decision.matrix);
-        continue;
+    /**
+     * Draws `country`'s coarse stand-in for this frame, whichever of the two
+     * reasons below asked for it — the coarse atlas does not know which one
+     * drew it, and neither should the reader.
+     */
+    const degradeCountry = (country: string) => {
+      const outline = coarse.byId.get(country);
+      if (standInFor(outline !== undefined) === 'coarse-outline') {
+        const outlinePath = new Path2D();
+        const intoOutline = geoPath(shown, outlinePath as unknown as CanvasRenderingContext2D);
+        intoOutline(outline as never);
+        degradedLand.set(country, outlinePath);
+      } else {
+        matrices.set(country, IDENTITY_MATRIX);
       }
-      if (decision.kind === 'stale') {
-        // Kept exactly as it was built — see the comment above for why a
-        // rotation change cannot be answered with a matrix — so it is drawn
-        // unmoved rather than reprojected again this frame.
+    };
+
+    /**
+     * Whether the reader's pointer is turning the globe right now, whether a
+     * wheel/keyboard zoom on the globe is still gliding, or either one let go
+     * within the last `SETTLE_MS` — see `forcesDegrade` for why a held
+     * gesture decides this on its own, without asking `decideReuse` anything.
+     *
+     * Rotation changes on every frame of a drag, so a light country's own
+     * `rotateThrottleMs` keeps expiring and being renewed a few frames apart
+     * — cheap enough to rebuild almost every time, which is exactly the
+     * problem: each of those rebuilds is a moment where `anyStale` reads
+     * `false` again, so the fine/coarse swap this file already accepts once
+     * per throttle window instead flips several times over one continuous
+     * drag, and a reader watching one gesture sees the admin borders blink
+     * rather than a border that held still. `decideReuse` is not wrong on
+     * any of those frames — it is answering a question about one country's
+     * own geometry, and no single country's answer was ever the thing that
+     * needed to hold still. This is a coarser question, asked once for the
+     * whole gesture instead of once per country per frame: while the pointer
+     * is down, and for one settle beat after, the map shows one thing.
+     *
+     * A wheel/keyboard zoom on the globe answers the same coarser question,
+     * for the same reason: `applyZoom` re-anchors the pointed-at place back
+     * under the cursor every frame the glide runs, and on a sphere that is a
+     * rotation change like any other. `zoomGliding` is `zoom.current !==
+     * zoomTarget.current` — true for exactly as long as `stepZoom` still has
+     * somewhere to ease towards — rather than anything read off `gesture`,
+     * because a zoom never captures the pointer the way a drag does.
+     */
+    const zoomGliding = projection === 'globe' && zoom.current !== zoomTarget.current;
+    const forcedCoarse = forcesDegrade(
+      gesture.current?.kind,
+      zoomGliding,
+      now,
+      coarseUntil.current,
+    );
+
+    if (forcedCoarse) {
+      // Every redrawn country takes the coarse branch together, and none of
+      // them pays to rebuild: a rebuild mid-gesture would answer for a
+      // rotation that has already moved on by the time the next frame asks
+      // again, so it is thrown away undrawn either way. `held` is left
+      // exactly as stale as it was; the first frame once the gesture ends
+      // rebuilds it from whatever rotation is live then, not one already
+      // behind it.
+      for (const each of subdivisions) degradeCountry(each.country);
+    } else {
+      /**
+       * Every country's own answer, decided before any of them draws
+       * anything.
+       *
+       * `decideReuse` only compares one country's cache against the current
+       * frame — it has no way to know what its neighbours just decided, and
+       * it is not supposed to: the throttle it applies is genuinely
+       * per-country, scaled by that one country's own `geometryWeight`.
+       * Collecting every answer first, and only then choosing what to draw,
+       * is what lets `anyStale` see all of them at once before the expensive
+       * half of this loop — the actual reprojection below — commits to doing
+       * anything.
+       */
+      const decisions = new Map<
+        string,
+        { decision: ReuseDecision; includedLand: boolean[]; includedBorders: boolean[] }
+      >();
+      for (const each of subdivisions) {
+        const had = held.get(each.country);
+        const includedLand = each.landParts.map((part) => onScreen(part.cap));
+        const includedBorders = each.borderRuns.map((run) => onScreen(run.cap));
+        const decision = decideReuse(
+          had,
+          each,
+          snapshot,
+          now,
+          rotateThrottleMs(geometryWeight(each.landParts, each.borderRuns)),
+          includedLand,
+          includedBorders,
+        );
+        decisions.set(each.country, { decision, includedLand, includedBorders });
+      }
+
+      /**
+       * Whether this frame draws every redrawn country's coarse stand-in
+       * together — see `anyStale` for why a mismatch between two countries'
+       * own answers, not either answer alone, is the thing that opens a seam.
+       */
+      const degradeGroup = anyStale([...decisions.values()].map((each) => each.decision));
+
+      for (const each of subdivisions) {
+        const found = decisions.get(each.country);
+        if (!found) continue;
+        const { decision, includedLand, includedBorders } = found;
+
+        if (degradeGroup) {
+          degradeCountry(each.country);
+          continue;
+        }
+
+        if (decision.kind === 'reuse') {
+          matrices.set(each.country, decision.matrix);
+          continue;
+        }
+
+        // `decision.kind` is `rebuild` here, never `stale`: `degradeGroup` is
+        // false only when no country's own answer was `stale` to begin with.
+        const landPath = new Path2D();
+        const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
+        for (const [index, part] of each.landParts.entries())
+          if (includedLand[index]) intoLand(part.shape);
+        const bordersPath = new Path2D();
+        const intoBorders = geoPath(shown, bordersPath as unknown as CanvasRenderingContext2D);
+        for (const [index, run] of each.borderRuns.entries())
+          if (includedBorders[index]) intoBorders(run.shape);
+        held.set(each.country, {
+          of: each,
+          land: landPath,
+          borders: bordersPath,
+          snapshot,
+          builtAt: now,
+          includedLand,
+          includedBorders,
+        });
         matrices.set(each.country, IDENTITY_MATRIX);
-        continue;
       }
-
-      const landPath = new Path2D();
-      const intoLand = geoPath(shown, landPath as unknown as CanvasRenderingContext2D);
-      for (const [index, part] of each.landParts.entries())
-        if (includedLand[index]) intoLand(part.shape);
-      const bordersPath = new Path2D();
-      const intoBorders = geoPath(shown, bordersPath as unknown as CanvasRenderingContext2D);
-      for (const [index, run] of each.borderRuns.entries())
-        if (includedBorders[index]) intoBorders(run.shape);
-      held.set(each.country, {
-        of: each,
-        land: landPath,
-        borders: bordersPath,
-        snapshot,
-        builtAt: now,
-        includedLand,
-        includedBorders,
-      });
-      matrices.set(each.country, IDENTITY_MATRIX);
     }
 
     /*
@@ -860,6 +1000,11 @@ export function RouteMap({
     if (fine.length > 0) {
       fineLand = new Path2D();
       for (const each of fine) {
+        const degradedPath = degradedLand.get(each.country);
+        if (degradedPath) {
+          fineLand.addPath(degradedPath);
+          continue;
+        }
         const ready = held.get(each.country);
         if (ready) fineLand.addPath(ready.land, matrices.get(each.country) ?? IDENTITY_MATRIX);
       }
@@ -907,13 +1052,20 @@ export function RouteMap({
      * Opacity comes from the geometry, per frame, the same way a place name's
      * does — 12.27 — so the borders arrive as the countries' names leave
      * rather than switching on at a threshold.
+     *
+     * A country drawn from its `degradedLand` outline this frame keeps its own
+     * name's worth of admin borders out of this stroke: they are 1:10m lines
+     * held back from an older rotation, and stroking them against an outline
+     * that just moved out from under them would show state borders crossing
+     * the coast rather than following it.
      */
     const inner = subdivisionFade(zoom.current);
     const inside =
       inner > 0
         ? subdivisions.filter(
             (each): each is Subdivisions & { borders: NonNullable<Subdivisions['borders']> } =>
-              each.borders !== null,
+              each.borders !== null &&
+              strokesInnerBorders(standInFor(degradedLand.has(each.country))),
           )
         : [];
     if (inside.length > 0) {
@@ -1194,6 +1346,49 @@ export function RouteMap({
   const gesture = useRef<Gesture | null>(null);
 
   /**
+   * How long past the end of a rotate drag, or a zoom glide, `forcesDegrade`
+   * still answers `true` on its own — a `performance.now()` timestamp, `0`
+   * until the first one ends. `draw` reads it every frame; only
+   * `scheduleSettle` writes it.
+   */
+  const coarseUntil = useRef(0);
+
+  /**
+   * The one redraw that lands once `coarseUntil` passes, so degrading has an
+   * end a reader can see rather than a frame nobody asked to repaint. Reset
+   * by every call to `scheduleSettle`, the same way `wheelStop` replaces its
+   * own pending timeout — a gesture that ends inside a previous one's grace
+   * window replaces the pending settle with its own rather than racing it.
+   */
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Holds the coarse stand-in for one more `SETTLE_MS` past a rotate drag or
+   * a zoom glide ending, then asks for the one redraw that rebuilds whatever
+   * was held back — the same beat the map already waits before asking whose
+   * subdivisions to draw. Rebuilding the instant the gesture ends would land
+   * that cost, and the jump to full detail, inside the very frame that stops
+   * it: one more flip rather than the gesture settling. See `forcesDegrade`.
+   * Called from `endGesture` for a rotate drag and from `stepZoom`/`endGlide`
+   * for a zoom glide — the two places that ever notice one just ended.
+   */
+  function scheduleSettle() {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    coarseUntil.current = performance.now() + SETTLE_MS;
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = null;
+      draw();
+      repaint((count) => count + 1);
+    }, SETTLE_MS);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    };
+  }, []);
+
+  /**
    * What was under the pointer when it went down, and where.
    *
    * Selection is decided on the way *up*, not with an `onClick` on the arc.
@@ -1214,6 +1409,14 @@ export function RouteMap({
       x: offsetX,
       y: offsetY,
     };
+    // A new drag starting inside a previous gesture's settle window replaces
+    // it outright: `gesture.current` being set again is already enough for
+    // `forcesDegrade` to answer `true`, so the pending redraw at the old
+    // `coarseUntil` would only repaint a frame nothing changed for.
+    if (settleTimer.current) {
+      clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
     if (projection === 'globe') {
       const inverted = projections.current.globe.invert?.([offsetX, offsetY]);
       if (!inverted) return;
@@ -1264,9 +1467,11 @@ export function RouteMap({
       if (Math.hypot(offsetX - press.x, offsetY - press.y) <= STILL) onSelect(press.route);
     }
     if (!gesture.current) return;
+    const wasRotating = gesture.current.kind === 'rotate';
     gesture.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     setMoving(false);
+    if (wasRotating) scheduleSettle();
     draw();
     repaint((count) => count + 1);
   }
@@ -1332,7 +1537,14 @@ export function RouteMap({
   function stepZoom(elapsed: number) {
     if (zoom.current === zoomTarget.current) return false;
     applyZoom(approach(zoom.current, zoomTarget.current, elapsed));
-    if (zoom.current === zoomTarget.current) anchor.current = null;
+    if (zoom.current === zoomTarget.current) {
+      anchor.current = null;
+      // The glide just reached its target on its own — the same "a gesture
+      // that changed rotation just stopped" moment `endGesture` notices for a
+      // drag. See `forcesDegrade` for why the rebuild this unblocks has to
+      // wait one settle beat rather than land in this frame.
+      scheduleSettle();
+    }
     return true;
   }
 
@@ -1372,6 +1584,9 @@ export function RouteMap({
     if (zoom.current === zoomTarget.current) return;
     applyZoom(zoomTarget.current);
     anchor.current = null;
+    // Forcing the snap here is itself the glide ending — `stepZoom` never got
+    // to notice it on its own, so this is the only place that will.
+    scheduleSettle();
     draw();
     repaint((count) => count + 1);
   }

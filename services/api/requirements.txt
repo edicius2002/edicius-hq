@@ -1,15 +1,15 @@
 fastapi==0.116.1
 # `UploadFile` for the portable watched-route import is parsed as multipart.
 python-multipart==0.0.32
-uvicorn[standard]==0.35.0
+uvicorn[standard]==0.52.4
 httpx==0.28.1
-playwright==1.55.0
+playwright==1.62.0
 # Arrives with uvicorn[standard], but the streaming adapters import it directly
 # — a transitive dependency you rely on by name is one an upgrade can remove.
-websockets==17.0.1
+websockets==17.1
 pytest==9.0.3
 # Lint and format for the API. Pinned like everything else: the code already
 # carried `# noqa` codes for a linter nobody had installed, which suppressed
 # nothing and told no one.
-ruff==0.16.2
+ruff==0.16.5
 mypy==2.3.0

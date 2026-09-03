@@ -1,0 +1,5 @@
+# One maintainer today. This exists so Dependabot's weekly PRs get a
+# reviewer assigned automatically, not because review is required —
+# branch protection sets required_approving_review_count to 0 on purpose,
+# so the sole maintainer is never locked out of their own repository.
+* @edicius2002

@@ -58,6 +58,18 @@ export default defineConfig({
      * cards is arithmetic over lengths that live in `SegmentSummary`, and a
      * reserve computed from another file's font sizes drifts the moment either
      * moves. Scoped to these files so no other suite changes behaviour.
+     *
+     * These same `?inline` imports are a blind spot for `vitest --changed`:
+     * edit one of these `.module.css` files and `--changed` selects only the
+     * files it can see as changed *inputs*, not the tests that read the
+     * compiled string through this query. Measured by editing
+     * `RouteMap.module.css` and running `--changed` — it picked up
+     * `RouteMap.test.tsx` but not `routesScroll.test.ts`, which imports that
+     * same file this way (`import MAP_SOURCE from './RouteMap.module.css?inline'`)
+     * and fails without it. `--changed` is reliable for TS/TSX and for
+     * `setup.ts` — measured separately, it re-selects the full 137/137 suite
+     * for a `setup.ts` edit — so this gap is narrow, but touching any file in
+     * the list below calls for a full run, not `--changed`.
      */
     css: {
       include: [
@@ -86,5 +98,21 @@ export default defineConfig({
     // room over `ROUTE_LOAD_MS` in `App.test.tsx`, and still fails a hung
     // interaction inside a minute.
     testTimeout: 45_000,
+    // The default forks pool opens one process per logical core — up to
+    // eleven on a twelve-core machine — each with its own jsdom. Run this
+    // suite alongside anything else memory-hungry (another dev server,
+    // another suite, an agent or two) and some of those forks fail to start
+    // at all: vitest reports `Timeout starting forks runner` and the run ends
+    // at `Test Files no tests` — zero tests executed, not tests failing. That
+    // is a memory-arrival problem, not a slow one, so it needs a ceiling, not
+    // a faster runner. Six is half the logical cores, chosen only to keep
+    // that ceiling under whatever else is running; it is not a speed
+    // recommendation. Measured on this repo, wall time across worker counts
+    // varied 96s–163s under load with no clean relationship to the number of
+    // workers, so retune this by measuring on an idle machine, not by
+    // reasoning about it. `poolOptions.forks.maxForks` is the same setting
+    // under its pre-v4 name, still honoured at runtime but no longer in
+    // vitest 4's types — `maxWorkers` is what `InlineConfig` declares now.
+    maxWorkers: 6,
   },
 });

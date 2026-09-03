@@ -1,0 +1,169 @@
+"""
+`/api/auth/*` — the only routes that answer without a session, because they are
+how a session is obtained.
+
+Four of the six are open by necessity. `session` and `logout` are not, and they
+carry `require_session` at their own decorators rather than inheriting it,
+because this router is mounted without the gate that `main.py` puts on
+everything else.
+
+**Every failure here is the same 401 with the same body.** Wrong code, spent
+code, expired code, unknown credential, replayed challenge, refused assertion —
+one answer. The client's recovery is identical in all of them (show the login
+screen and say the attempt failed), and distinguishing them would report to an
+unauthenticated caller on which codes and credentials exist. The one thing that
+is not uniform is the failure *count*: `authorise_code` charges a miss whether
+or not the caller learns anything from the response, which is what makes an
+eight-character code worth using.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
+
+from app.auth import bearer_token, require_session
+from app.services import auth_store, webauthn_ceremony
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+REGISTRATION = "registration"
+AUTHENTICATION = "authentication"
+
+
+class LoginOptionsRequest(BaseModel):
+    pass
+
+
+class LoginVerifyRequest(BaseModel):
+    #: camelCase on the model rather than an alias, which is how the rest of
+    #: this API spells its wire fields — see `RouteResultModel.flightDate`.
+    challengeId: str
+    response: dict
+
+
+class RegisterOptionsRequest(BaseModel):
+    code: str
+
+
+class RegisterVerifyRequest(BaseModel):
+    #: camelCase on the model rather than an alias, which is how the rest of
+    #: this API spells its wire fields — see `RouteResultModel.flightDate`.
+    challengeId: str
+    code: str
+    response: dict
+    # What the CLI's `credentials` listing shows. Cosmetic, so a client that
+    # does not send one still enrols.
+    label: str = "Passkey"
+
+
+def _refuse() -> HTTPException:
+    """The single answer. See the module docstring for why there is only one."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication failed",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+@router.post("/register/options")
+def register_options(body: RegisterOptionsRequest) -> dict:
+    """
+    A challenge, but only for a caller holding a live enrolment code.
+
+    The code is checked and not burned. Burning it here would mean a ceremony
+    the owner cancels — closing the Windows Hello dialog — costs them a walk
+    back to the PC for a new code, while buying nothing: `authorise_code`
+    already charges the failure that stops guessing.
+    """
+    if not auth_store.authorise_code(body.code):
+        raise _refuse()
+
+    options, challenge = webauthn_ceremony.registration_options(auth_store.list_credentials())
+    return {
+        "challengeId": auth_store.store_challenge(challenge, REGISTRATION),
+        "options": options,
+    }
+
+
+@router.post("/register/verify")
+def register_verify(body: RegisterVerifyRequest) -> dict:
+    """
+    Stores the credential, burns the code, and returns a session.
+
+    The session comes back from this call on purpose: enrolling a device and
+    then being asked to sign in on it would be a second ceremony for something
+    the owner has just proved.
+    """
+    challenge = auth_store.take_challenge(body.challengeId, REGISTRATION)
+    if challenge is None:
+        raise _refuse()
+
+    try:
+        registered = webauthn_ceremony.verify_registration(body.response, challenge)
+    except webauthn_ceremony.CeremonyError as error:
+        raise _refuse() from error
+
+    # The burn happens after the ceremony and before the credential is stored,
+    # so a code that expired while the owner was looking at the prompt enrols
+    # nothing rather than enrolling on a dead authorisation.
+    if not auth_store.consume_code(body.code):
+        raise _refuse()
+
+    auth_store.add_credential(
+        registered.credential_id,
+        registered.public_key,
+        registered.sign_count,
+        body.label,
+    )
+    return {"token": auth_store.create_session()}
+
+
+@router.post("/login/options")
+def login_options(_body: LoginOptionsRequest | None = None) -> dict:
+    options, challenge = webauthn_ceremony.authentication_options(auth_store.list_credentials())
+    return {
+        "challengeId": auth_store.store_challenge(challenge, AUTHENTICATION),
+        "options": options,
+    }
+
+
+@router.post("/login/verify")
+def login_verify(body: LoginVerifyRequest) -> dict:
+    challenge = auth_store.take_challenge(body.challengeId, AUTHENTICATION)
+    if challenge is None:
+        raise _refuse()
+
+    try:
+        credential_id = webauthn_ceremony.credential_id_from_response(body.response)
+    except webauthn_ceremony.CeremonyError as error:
+        raise _refuse() from error
+
+    credential = auth_store.get_credential(credential_id)
+    if credential is None:
+        raise _refuse()
+
+    try:
+        sign_count = webauthn_ceremony.verify_authentication(body.response, challenge, credential)
+    except webauthn_ceremony.CeremonyError as error:
+        raise _refuse() from error
+
+    auth_store.touch_credential(credential_id, sign_count)
+    return {"token": auth_store.create_session()}
+
+
+@router.get("/session", dependencies=[Depends(require_session)])
+def read_session() -> dict:
+    """
+    Is this token still worth holding?
+
+    The client asks on start-up so a token that expired while the tab was
+    closed becomes the login screen rather than a wall of failed requests.
+    """
+    return {"authenticated": True}
+
+
+@router.post(
+    "/logout", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_session)]
+)
+def logout(request: Request) -> Response:
+    auth_store.revoke_session(bearer_token(request))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

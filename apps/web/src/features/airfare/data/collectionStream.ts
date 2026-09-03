@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from '@/shared/api/config';
 import type { CalendarCollectResponse, CollectResponse, FareSnapshot } from '@/shared/api/fares';
+import { withStreamToken } from '@/shared/auth/streamUrl';
 
 /**
  * A collection pass, pushed rather than asked for —
@@ -94,7 +95,7 @@ function readFrame<T>(event: Event, apply: (value: T) => void): void {
  */
 export function openCollectionStream(options: CollectionStreamOptions): () => void {
   const create = options.create ?? ((url: string) => new EventSource(url));
-  const source = create(collectionStreamUrl());
+  const source = create(withStreamToken(collectionStreamUrl()));
 
   source.addEventListener('open', () => options.onOpen?.());
   source.addEventListener('pass', (event) => readFrame<CollectResponse>(event, options.onPass));
@@ -116,7 +117,7 @@ export function openCollectionStream(options: CollectionStreamOptions): () => vo
  */
 export function openHorizonStream(options: HorizonStreamOptions): () => void {
   const create = options.create ?? ((url: string) => new EventSource(url));
-  const source = create(horizonStreamUrl());
+  const source = create(withStreamToken(horizonStreamUrl()));
 
   source.addEventListener('open', () => options.onOpen?.());
   source.addEventListener('pass', (event) =>

@@ -337,6 +337,41 @@ def issue_code() -> str:
     return code
 
 
+def _check_code(code: str, *, burn: bool) -> bool:
+    """
+    Shared by both code checks. A miss always charges a failure; a hit burns
+    the code only when the caller says to.
+    """
+    now = _now()
+    records = _live_codes(_read(CODES_FILE), now)
+    candidate = _digest(normalise_code(code))
+    for index, record in enumerate(records):
+        if _matches(candidate, record["code_hash"]):
+            if burn:
+                del records[index]
+                _write(CODES_FILE, records)
+            return True
+
+    for record in records:
+        record["failures"] = int(record.get("failures", 0)) + 1
+    _write(CODES_FILE, _live_codes(records, now))
+    return False
+
+
+def authorise_code(code: str) -> bool:
+    """
+    Is this code good enough to start a registration ceremony? Does not burn it.
+
+    Split from `consume_code` so that a ceremony the owner cancels — closing
+    the Windows Hello dialog, changing their mind — does not cost them the
+    code and a second trip to the PC. The guessing protection still lives here
+    rather than at the burn, because this is the call an attacker can make
+    repeatedly: a miss charges a failure exactly as a miss at `consume_code`
+    does, and five of them kill the code either way.
+    """
+    return _check_code(code, burn=False)
+
+
 def consume_code(code: str) -> bool:
     """
     `True` exactly once per code, and `False` for spent, expired and dead alike.
@@ -344,16 +379,71 @@ def consume_code(code: str) -> bool:
     A miss charges a failure to every live code — see the module docstring for
     why the count cannot be per code.
     """
-    now = _now()
-    records = _live_codes(_read(CODES_FILE), now)
-    candidate = _digest(normalise_code(code))
-    for index, record in enumerate(records):
-        if _matches(candidate, record["code_hash"]):
-            del records[index]
-            _write(CODES_FILE, records)
-            return True
+    return _check_code(code, burn=True)
 
+
+# -------------------------------------------------------------- challenges ---
+
+CHALLENGES_FILE = "challenges.json"
+
+# A ceremony that has not finished in ten minutes is one nobody is standing in
+# front of. Matches the enrolment code's life so neither outlives the other.
+CHALLENGE_TTL = timedelta(minutes=10)
+
+
+def _live_challenges(records: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
+    live = []
     for record in records:
-        record["failures"] = int(record.get("failures", 0)) + 1
-    _write(CODES_FILE, _live_codes(records, now))
-    return False
+        expires_at = _parse(record.get("expires_at"))
+        if expires_at is not None and expires_at > now:
+            live.append(record)
+    return live
+
+
+def store_challenge(challenge: bytes, purpose: str) -> str:
+    """
+    Keeps a challenge between the `options` call that made it and the `verify`
+    call that answers it, and returns the id the client quotes back.
+
+    On disk rather than in a module-level dict, and the difference is not
+    theoretical: a dict does not survive `--reload`, so the developer running
+    the API with the reloader would have every ceremony fail with a working
+    test suite explaining nothing.
+
+    The id is a handle and not a secret. Holding it buys nothing on its own —
+    answering a challenge still needs the private key the authenticator will
+    not give up — so unlike the token and the code it is stored as it is.
+    """
+    now = _now()
+    challenge_id = secrets.token_urlsafe(16)
+    records = _live_challenges(_read(CHALLENGES_FILE), now)
+    records.append(
+        {
+            "id": challenge_id,
+            "challenge": _encode(challenge),
+            "purpose": purpose,
+            "expires_at": _iso(now + CHALLENGE_TTL),
+        }
+    )
+    _write(CHALLENGES_FILE, records)
+    return challenge_id
+
+
+def take_challenge(challenge_id: str, purpose: str) -> bytes | None:
+    """
+    Single use, and the purpose has to match.
+
+    Both halves matter. Replay is what the challenge exists to stop, so one
+    that has been answered is gone; and a registration challenge presented to
+    the login route would otherwise let one ceremony's answer be spent on the
+    other.
+    """
+    now = _now()
+    records = _live_challenges(_read(CHALLENGES_FILE), now)
+    for index, record in enumerate(records):
+        if record["id"] == challenge_id and record["purpose"] == purpose:
+            del records[index]
+            _write(CHALLENGES_FILE, records)
+            return _decode(record["challenge"])
+    _write(CHALLENGES_FILE, records)
+    return None

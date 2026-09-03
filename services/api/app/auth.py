@@ -69,7 +69,8 @@ def _unauthenticated() -> HTTPException:
     )
 
 
-def _bearer_token(request: Request) -> str:
+def bearer_token(request: Request) -> str:
+    """Public because `routers/auth.py` needs the token itself in order to revoke it."""
     header = request.headers.get("authorization", "")
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer":
@@ -79,7 +80,7 @@ def _bearer_token(request: Request) -> str:
 
 def require_session(request: Request) -> Session:
     """The rule for everything that is not a stream: the header, and only the header."""
-    session = auth_store.resolve_session(_bearer_token(request))
+    session = auth_store.resolve_session(bearer_token(request))
     if session is None:
         raise _unauthenticated()
     return session
@@ -87,7 +88,7 @@ def require_session(request: Request) -> Session:
 
 def require_session_stream(request: Request) -> Session:
     """The rule for the four SSE routes: the header, or `?token=` when there is none."""
-    token = _bearer_token(request) or request.query_params.get(TOKEN_QUERY_PARAM, "")
+    token = bearer_token(request) or request.query_params.get(TOKEN_QUERY_PARAM, "")
     session = auth_store.resolve_session(token)
     if session is None:
         raise _unauthenticated()

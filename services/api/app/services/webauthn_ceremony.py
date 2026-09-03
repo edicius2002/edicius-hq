@@ -19,6 +19,7 @@ translation and there is no second encoding to keep in step.
 """
 
 import json
+from binascii import Error as BinasciiError
 from dataclasses import dataclass
 
 import webauthn as py_webauthn
@@ -116,6 +117,21 @@ def verify_registration(response: dict, challenge: bytes) -> RegisteredCredentia
         public_key=verified.credential_public_key,
         sign_count=verified.sign_count,
     )
+
+
+def credential_id_from_response(response: dict) -> bytes:
+    """
+    Which enrolled credential an assertion claims to be from.
+
+    The decoding lives here rather than in the router for the reason the whole
+    module does: `id` is base64url in WebAuthn's own dialect, and py_webauthn
+    already owns that spelling. A router doing its own `urlsafe_b64decode` is a
+    second opinion about padding waiting to disagree.
+    """
+    try:
+        return py_webauthn.base64url_to_bytes(response["id"])
+    except (KeyError, TypeError, ValueError, BinasciiError) as error:
+        raise CeremonyError("The response named no credential") from error
 
 
 def authentication_options(existing: list[Credential]) -> tuple[dict, bytes]:

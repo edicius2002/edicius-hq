@@ -1,10 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useGreenlightData } from '@/features/greenlight/hooks/useGreenlightData';
 import type { GreenlightState } from '@/features/greenlight/model/types';
+import { stubKvStore, type KvStoreOptions } from '@/test/kvStore';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   // Unmounted before the stub goes: leaving a hook mounted would let its
@@ -20,53 +20,21 @@ const STORED: GreenlightState = {
   widgets: { '2026-04': ['vscode'] },
 };
 
-/** Fake KV endpoint. `readFails` makes the initial GET fail without breaking writes. */
-function stubApi(
-  options: { readFails?: boolean; writeDelayMs?: number; stored?: GreenlightState } = {},
-) {
-  let stored: GreenlightState = structuredClone(options.stored ?? STORED);
-  const writes: GreenlightState[] = [];
+/** The Greenlight document's KV endpoint, seeded so a first read finds something. */
+const stubStore = (
+  options: Omit<KvStoreOptions<GreenlightState>, 'key' | 'initial'> & {
+    stored?: GreenlightState;
+  } = {},
+) => {
+  const { stored, ...rest } = options;
+  return stubKvStore<GreenlightState>({ key: 'greenlight', initial: stored ?? STORED, ...rest });
+};
 
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const method = init?.method ?? 'GET';
-
-      if (method === 'PUT') {
-        const body = JSON.parse(String(init?.body)) as { value: GreenlightState };
-        if (options.writeDelayMs) {
-          await new Promise((resolve) => setTimeout(resolve, options.writeDelayMs));
-        }
-        stored = body.value;
-        writes.push(structuredClone(body.value));
-        return Response.json({ key: 'greenlight', value: body.value });
-      }
-
-      if (options.readFails) {
-        return Response.json({ detail: 'boom' }, { status: 500 });
-      }
-      return Response.json({ key: 'greenlight', value: stored });
-    }),
-  );
-
-  return {
-    writes,
-    get stored() {
-      return stored;
-    },
-  };
-}
-
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 describe('useGreenlightData storage sync', () => {
   it('does not lose a write when two toggles are fired back to back', async () => {
-    const api = stubApi({
+    const api = stubStore({
       writeDelayMs: 20,
       stored: {
         ...STORED,
@@ -101,7 +69,7 @@ describe('useGreenlightData storage sync', () => {
   });
 
   it('keeps stats intact while toggling', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
 
     await waitFor(() => expect(result.current.state.stats['2026-04-17']).toBeDefined());
@@ -116,7 +84,7 @@ describe('useGreenlightData storage sync', () => {
   });
 
   it('says that edits are held before it says they are saved', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
 
     await waitFor(() => expect(result.current.saveState).toBe('idle'));
@@ -133,7 +101,7 @@ describe('useGreenlightData storage sync', () => {
   });
 
   it('refuses to write when the read failed, instead of overwriting stored data', async () => {
-    const api = stubApi({ readFails: true });
+    const api = stubStore({ readFails: true });
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -169,7 +137,7 @@ describe('importing a CSV', () => {
   }
 
   it('keeps weeks the CSV does not mention', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const csv = csvForThisMonth();
 
     const { result } = renderHook(() => useGreenlightData(), { wrapper });
@@ -192,7 +160,7 @@ describe('importing a CSV', () => {
     // Replace all exists only as this empty-store seed: there is no history to
     // protect, so the CSV *is* the document. With data, the same function
     // rebuilds weeks instead — there is no longer a switch that can wipe them.
-    const api = stubApi();
+    const api = stubStore();
     api.stored.stats = {};
     const csv = csvForThisMonth();
 
@@ -211,7 +179,7 @@ describe('importing a CSV', () => {
   });
 
   it('keeps the markers after a week rebuild', async () => {
-    const api = stubApi();
+    const api = stubStore();
     api.stored.markers = ['2026-04-13'];
     const csv = csvForThisMonth();
 

@@ -1,10 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
+import { queryWrapper, sharedQueryWrapper } from '@/test/queryWrapper';
 
 /**
  * Which departures the archive is asked about.
@@ -51,12 +50,7 @@ function stubHistory() {
   return urls;
 }
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 describe('useFareHistory', () => {
   it('asks about the whole month, which is the whole of what a watch is', async () => {
@@ -78,12 +72,10 @@ describe('useFareHistory', () => {
      * with `focusDate: '2027-03-09'` in place of the second month.
      */
     const urls = stubHistory();
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    const shared = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
+    // `sharedQueryWrapper`, not the module's `wrapper`: one client across the
+    // rerender, or the second month would find an empty cache whatever the
+    // query key said and the test would pass for the wrong reason.
+    const shared = sharedQueryWrapper();
 
     // One route read at two months, which is what this test now describes: it
     // used to be two routes that happened to share a pair.

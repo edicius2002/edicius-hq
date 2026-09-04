@@ -1,18 +1,14 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { candleRefetchInterval, useCandles } from '@/features/investing/chart/useCandles';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 const barsResponse = {
   symbol: 'SPCX',

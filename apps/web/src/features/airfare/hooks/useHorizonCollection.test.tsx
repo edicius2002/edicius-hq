@@ -1,10 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
+import { queryWrapper } from '@/test/queryWrapper';
 
 /**
  * The collection that adding a route fires by itself.
@@ -73,12 +72,7 @@ const LIM_SCL: FareRoute = {
   currency: 'USD',
 };
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 /** One finished horizon pass over one city pair, as the server reports it. */
 function horizonPass(overrides: Record<string, unknown> = {}) {

@@ -7,6 +7,7 @@ import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { NOTICE_LIFE_MS } from '@/features/airfare/lib/collectNotice';
 import type { FareHistoryResponse, FareSnapshot } from '@/shared/api/fares';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   cleanup();
@@ -76,15 +77,10 @@ const LIM_MAD: FareRoute = {
   currency: 'USD',
 };
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 /**
- * The same client with its garbage collection switched off.
+ * `queryWrapper`'s client with its garbage collection switched off.
  *
  * React Query schedules a `setTimeout` per cache entry to sweep it, and an
  * infinite `gcTime` is the documented way to say "never" — `isValidTimeout`

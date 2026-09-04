@@ -1,43 +1,19 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { usePriceAlerts } from '@/features/investing/hooks/usePriceAlerts';
 import type { AlertRules } from '@/features/investing/data/priceAlerts';
+import { stubKvStore } from '@/test/kvStore';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
-function stubAlertRules(initial: AlertRules) {
-  let stored = structuredClone(initial);
-
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? 'GET') === 'PUT') {
-        stored = JSON.parse(String(init?.body)).value;
-        return Response.json({ key: 'alert-rules', value: stored });
-      }
-      return Response.json({ key: 'alert-rules', value: stored });
-    }),
-  );
-
-  return {
-    get stored() {
-      return stored;
-    },
-  };
-}
+const stubAlertRules = (initial: AlertRules) => stubKvStore({ key: 'alert-rules', initial });
 
 describe('usePriceAlerts storage sync', () => {
   it('hydrates alerts and persists an add, an edit, a toggle, and a trigger', async () => {

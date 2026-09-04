@@ -1,10 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
+import { queryWrapper, sharedQueryWrapper } from '@/test/queryWrapper';
 
 /**
  * What the horizon is keyed by, and when it is not asked for at all.
@@ -33,10 +32,7 @@ const APRIL: FareRoute = {
   currency: 'USD',
 };
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 function stubCalendar() {
   const fetcher = vi.fn().mockResolvedValue(
@@ -82,10 +78,10 @@ describe('useFareCalendar', () => {
 
   it('reads one cached curve for two watches on the same pair in different months', async () => {
     stubCalendar();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const shared = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
+    // `sharedQueryWrapper`, not the module's `wrapper`: that one builds a new
+    // client per render, so the two hooks below would never meet in a cache and
+    // this test would prove nothing.
+    const shared = sharedQueryWrapper();
 
     const first = renderHook(() => useFareCalendar(MARCH), { wrapper: shared });
     await waitFor(() => expect(first.result.current.data).toBeDefined());
@@ -95,8 +91,10 @@ describe('useFareCalendar', () => {
     // curve spans every month at once, so March's and April's are one row.
     const second = renderHook(() => useFareCalendar(APRIL), { wrapper: shared });
     expect(second.result.current.data).toBeDefined();
-    expect(client.getQueryData(['fares', 'calendar', 'ARI', 'SCL'])).toBeDefined();
-    expect(client.getQueryCache().findAll({ queryKey: ['fares', 'calendar'] })).toHaveLength(1);
+    expect(shared.client.getQueryData(['fares', 'calendar', 'ARI', 'SCL'])).toBeDefined();
+    expect(shared.client.getQueryCache().findAll({ queryKey: ['fares', 'calendar'] })).toHaveLength(
+      1,
+    );
   });
 
   it('asks for nothing when no route is open', async () => {

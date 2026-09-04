@@ -1,10 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
+import { stubKvStore } from '@/test/kvStore';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   cleanup();
@@ -18,33 +18,9 @@ const LIM_SCL: FareRoute = {
   currency: 'USD',
 };
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
-function stubRoutes(initial: unknown) {
-  let stored = structuredClone(initial);
-
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? 'GET') === 'PUT') {
-        stored = JSON.parse(String(init?.body)).value;
-        return Response.json({ key: 'airfare-routes', value: stored });
-      }
-      return Response.json({ key: 'airfare-routes', value: stored });
-    }),
-  );
-
-  return {
-    get stored() {
-      return stored;
-    },
-  };
-}
+const stubRoutes = (initial: unknown) => stubKvStore({ key: 'airfare-routes', initial });
 
 describe('useFareRoutes storage sync', () => {
   it('hydrates stored routes and persists an add', async () => {

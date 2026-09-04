@@ -1,9 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useSubdivisionCatalogue, useSubdivisions } from '@/features/airfare/hooks/useSubdivisions';
+import { sharedQueryWrapper } from '@/test/queryWrapper';
 
 /**
  * Fetching the subdivisions of the countries in front of the reader, once
@@ -51,19 +50,15 @@ const BOLIVIA = {
   labels: [{ name: 'Santa Cruz', at: [-62.5, -17.2], area: 0.0091 }],
 };
 
-/**
- * One client for the whole test, not one per render.
+/*
+ * Every test below builds its own `sharedQueryWrapper`: one client for the
+ * whole test, not one per render.
  *
- * A fresh client per `renderHook` would make every cache assertion below pass
- * for the wrong reason — there would be nothing to hit.
+ * A fresh client per `renderHook` — which is what `queryWrapper` gives, and
+ * what every other hook test in this repository wants — would make every cache
+ * assertion here pass for the wrong reason, because there would be nothing in
+ * there to hit. This file is the reason the two forms have separate names.
  */
-function makeWrapper() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  function wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  }
-  return wrapper;
-}
 
 function stub(answer: (url: string) => Response) {
   const calls: string[] = [];
@@ -90,14 +85,14 @@ describe('useSubdivisions', () => {
      * rejection — so a request here would fail the test loudly rather than
      * quietly hitting a real API.
      */
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisions([]), { wrapper });
     await waitFor(() => expect(result.current).toEqual([]));
   });
 
   it('fetches the country it was given and hands back something drawable', async () => {
     const calls = stub(serving);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisions(['604']), { wrapper });
 
     await waitFor(() => expect(result.current).toHaveLength(1));
@@ -114,7 +109,7 @@ describe('useSubdivisions', () => {
      * what the first did not already have.
      */
     const calls = stub(serving);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisions(['604', '068']), { wrapper });
 
     await waitFor(() => expect(result.current).toHaveLength(2));
@@ -127,7 +122,7 @@ describe('useSubdivisions', () => {
     // order the subdivision names then claim their ground in.
     const stubbed = stub(serving);
     expect(stubbed).toEqual([]);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisions(['068', '604']), { wrapper });
 
     await waitFor(() => expect(result.current).toHaveLength(2));
@@ -142,7 +137,7 @@ describe('useSubdivisions', () => {
      * flight: keep the country's own name.
      */
     stub(serving);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisions(['604', '732']), { wrapper });
 
     await waitFor(() => expect(result.current).toHaveLength(1));
@@ -156,7 +151,7 @@ describe('useSubdivisions', () => {
      * hand.
      */
     const calls = stub(serving);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const held = { countries: ['604'] };
     const { result, rerender } = renderHook(() => useSubdivisions(held.countries), { wrapper });
     await waitFor(() => expect(result.current).toHaveLength(1));
@@ -175,7 +170,7 @@ describe('useSubdivisions', () => {
      * damping this, and the one that matters over a long session.
      */
     const calls = stub(serving);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
 
     const first = renderHook(() => useSubdivisions(['604']), { wrapper });
     await waitFor(() => expect(first.result.current).toHaveLength(1));
@@ -189,7 +184,7 @@ describe('useSubdivisions', () => {
   it('remembers a country that had nothing to give, rather than asking again', async () => {
     // Passing over Western Sahara twice is one 404, not one per visit.
     const calls = stub(() => new Response('null', { status: 404 }));
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
 
     const first = renderHook(() => useSubdivisions(['732']), { wrapper });
     await waitFor(() => expect(calls).toHaveLength(1));
@@ -209,7 +204,7 @@ describe('useSubdivisions', () => {
      * `combine` is declared once at module scope rather than inline.
      */
     stub(serving);
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result, rerender } = renderHook(() => useSubdivisions(['604']), { wrapper });
     await waitFor(() => expect(result.current).toHaveLength(1));
 
@@ -224,7 +219,7 @@ describe('useSubdivisionCatalogue', () => {
   const CATALOGUE = { countries: { '604': 43085, '068': 20656 } };
 
   it('asks for nothing until the reader has come close enough to need it', async () => {
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisionCatalogue(false), { wrapper });
     await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
     expect(result.current.data).toBeUndefined();
@@ -232,7 +227,7 @@ describe('useSubdivisionCatalogue', () => {
 
   it('hands back what every country weighs, so a view can be budgeted', async () => {
     const calls = stub(() => Response.json(CATALOGUE));
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
     const { result } = renderHook(() => useSubdivisionCatalogue(true), { wrapper });
 
     await waitFor(() => expect(result.current.data).toBeTruthy());
@@ -242,7 +237,7 @@ describe('useSubdivisionCatalogue', () => {
 
   it('fetches the index once and never again', async () => {
     const calls = stub(() => Response.json(CATALOGUE));
-    const wrapper = makeWrapper();
+    const wrapper = sharedQueryWrapper();
 
     const first = renderHook(() => useSubdivisionCatalogue(true), { wrapper });
     await waitFor(() => expect(first.result.current.data).toBeTruthy());

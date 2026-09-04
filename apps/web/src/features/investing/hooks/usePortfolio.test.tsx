@@ -1,45 +1,18 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { usePortfolio } from '@/features/investing/hooks/usePortfolio';
+import { stubKvStore } from '@/test/kvStore';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
-function stubPortfolio(initial: unknown) {
-  let stored = structuredClone(initial);
-  const writes: unknown[] = [];
-
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? 'GET') === 'PUT') {
-        stored = JSON.parse(String(init?.body)).value;
-        writes.push(structuredClone(stored));
-        return Response.json({ key: 'portfolio', value: stored });
-      }
-      return Response.json({ key: 'portfolio', value: stored });
-    }),
-  );
-
-  return {
-    writes,
-    get stored() {
-      return stored;
-    },
-  };
-}
+const stubPortfolio = (initial: unknown) => stubKvStore({ key: 'portfolio', initial });
 
 describe('usePortfolio storage sync', () => {
   it('hydrates positions and persists adds, edits, and removals', async () => {

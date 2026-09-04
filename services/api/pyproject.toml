@@ -40,6 +40,20 @@ quote-style = "double"
 # turning it on is to stop that happening again rather than to reach strictness
 # in one move.
 python_version = "3.12"
+# Pinned for the same reason `python_version` is: without it mypy assumes
+# whatever platform it is running on, so this gate returned different answers
+# on the maintainer's Windows machine and in CI. `_loop_factory` in
+# `tweet_watcher` is the code that exposes it — Playwright's driver needs a
+# `ProactorEventLoop` on Windows and there is no such name anywhere else, so
+# under win32 the `# type: ignore[attr-defined]` it carries reads as unused and
+# the line after it reads as unreachable, which is precisely the reverse of
+# what CI saw. Two errors locally, zero on CI, on identical source.
+# Linux is what CI runs and what the API is deployed onto, so it is what the
+# gate should be answering about. The cost is that mypy no longer checks the
+# win32 branch of a platform switch; mypy can only be pointed at one platform
+# at a time, and an unchecked branch is better than a gate whose result depends
+# on who ran it.
+platform = "linux"
 # `app` and the repo-root scripts, which is the same widening ruff already got
 # and for a fault that had already happened rather than a hypothetical one:
 # `scripts/fares-collect.py` passed `focus=` to a `FareWatch` that lost the

@@ -87,11 +87,19 @@ export function LoginScreen({ onSignedIn }: LoginScreenProps) {
           The instruction is here rather than behind the toggle because someone
           who has no passkey yet does not know that "enrol" is the word for
           what they need, and this is the only place they can be told.
+
+          Two sources for the code now, and the easy one goes first: a device
+          already signed in can issue one from its own menu, which is what the
+          person reading this has whenever they are adding a second device
+          rather than rebuilding from nothing. The command stays named because
+          it is still the only way to a *first* passkey, and the visitor who
+          has none is exactly the one who cannot be told to go and use the app.
         */}
         <p className={styles.hint}>
-          No passkey yet? On the PC that runs the API, run{' '}
-          <code className={styles.code}>node scripts/api.mjs enroll</code> and type the code it
-          prints. It is good for ten minutes.
+          No passkey yet? On a device that is already signed in, open the menu and choose{' '}
+          <strong>Enrol a device</strong>. If this is the first one, run{' '}
+          <code className={styles.code}>node scripts/api.mjs enroll</code> on the PC that runs the
+          API instead. Either way the code is good for ten minutes.
         </p>
 
         {message ? (

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 import { ApiStatus } from '@/app/layout/ApiStatus';
+import { EnrolDevice } from '@/features/auth/EnrolDevice';
 
 import styles from './TopNav.module.css';
 
@@ -73,22 +74,36 @@ export function TopNav() {
         Menu
       </button>
       {open ? (
-        <nav id={menuId} className={styles.menu} aria-label="Primary">
-          <ul className={styles.navList}>
-            {navItems.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  className={({ isActive }) =>
-                    isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        /*
+         * The `nav` landmark wraps the links and stops there, so the enrolment
+         * block below is not announced as navigation — it goes nowhere. The
+         * dropdown itself is a plain box, which is also what `aria-controls`
+         * on the trigger has to name.
+         */
+        <div id={menuId} className={styles.menu}>
+          <nav aria-label="Primary">
+            <ul className={styles.navList}>
+              {navItems.map((item) => (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    className={({ isActive }) =>
+                      isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          {/* The app has no account or settings screen, and this is the only
+              surface that is on every page. It sits under a rule because it is
+              not a sixth place to go. */}
+          <div className={styles.account}>
+            <EnrolDevice />
+          </div>
+        </div>
       ) : null}
     </header>
   );

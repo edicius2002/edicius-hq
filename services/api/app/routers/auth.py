@@ -2,10 +2,12 @@
 `/api/auth/*` — the only routes that answer without a session, because they are
 how a session is obtained.
 
-Four of the six are open by necessity. `session` and `logout` are not, and they
-carry `require_session` at their own decorators rather than inheriting it,
-because this router is mounted without the gate that `main.py` puts on
-everything else.
+Four of the seven are open by necessity. `session`, `logout` and
+`enrolment-code` are not, and they carry `require_session` at their own
+decorators rather than inheriting it, because this router is mounted without
+the gate that `main.py` puts on everything else. `tests/test_gate.py` names the
+four open ones and insists every other route under this prefix refuses without
+a session, so a route added here cannot arrive open by accident.
 
 **Every failure here is the same 401 with the same body.** Wrong code, spent
 code, expired code, unknown credential, replayed challenge, refused assertion —
@@ -167,3 +169,35 @@ def read_session() -> dict:
 def logout(request: Request) -> Response:
     auth_store.revoke_session(bearer_token(request))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/enrolment-code", dependencies=[Depends(require_session)])
+def issue_enrolment_code() -> dict:
+    """
+    A code for the next device, asked for by a device that already has one.
+
+    This is the route that loosens `cli/auth_cli.py`'s original claim that the
+    only way to authorise a new device is a command on the PC. The trust it
+    spends is real and deliberate: an enrolled device can now enrol another,
+    so a stolen unlocked phone with a live session can add a passkey rather
+    than only read the data. It buys the case that made the CLI painful —
+    adding a second device from anywhere but the machine the API runs on — and
+    the CLI stays the bootstrap path for the first device and for the day
+    every device is gone.
+
+    The gate does the refusing, so there is nothing here that could report on
+    which codes exist: without a session `require_session` answers its own 401
+    before the handler runs, exactly as it does for every other gated route in
+    the app.
+
+    **A duration, not an instant.** The client needs to say how long the code
+    is good for, and it is the only clock the two ends share — the browser is
+    often on a phone reaching this API over Tailscale, and two machines whose
+    clocks disagree by a minute would have the page claim a code was dead
+    while the store still honoured it, or the reverse. Ten minutes from *now*
+    is true on either side of that.
+    """
+    return {
+        "code": auth_store.issue_code(),
+        "expiresInSeconds": int(auth_store.CODE_TTL.total_seconds()),
+    }

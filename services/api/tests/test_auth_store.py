@@ -67,6 +67,22 @@ def test_code_is_single_use(tmp_local_data):
     assert auth_store.consume_code(code) is False
 
 
+def test_issuing_a_code_replaces_the_live_one(tmp_local_data):
+    """
+    At most one code opens the door, whichever caller asked for it.
+
+    The store cannot charge a failed guess to one code rather than another —
+    `consume_code` is handed a string, not a target — so it charges every live
+    one. That is only cheap while "every live one" is one, which is what this
+    replacement guarantees rather than assumes.
+    """
+    first = auth_store.issue_code()
+    second = auth_store.issue_code()
+
+    assert auth_store.authorise_code(first) is False
+    assert auth_store.authorise_code(second) is True
+
+
 def test_code_expires_after_ten_minutes(tmp_local_data, monkeypatch):
     code = auth_store.issue_code()
     later = _now() + timedelta(minutes=11)

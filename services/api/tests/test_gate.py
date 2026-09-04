@@ -35,6 +35,20 @@ STREAM_PATHS = {
     "/api/tweets/{handle}/stream",
 }
 
+# The `/api/auth/*` routes that answer without a session, because they are how
+# a session is obtained. `test_every_non_auth_route_is_gated` has to skip this
+# whole prefix on their account, which leaves the router's authenticated routes
+# — `session`, `logout` and `enrolment-code` — checked by nothing. Naming the
+# open four instead of the closed three is what makes
+# `test_every_other_auth_route_needs_a_session` fail closed: a route added to
+# that router and forgotten is refused by this list rather than skipped by it.
+OPEN_AUTH_PATHS = {
+    "/api/auth/register/options",
+    "/api/auth/register/verify",
+    "/api/auth/login/options",
+    "/api/auth/login/verify",
+}
+
 
 @pytest.fixture
 def live_token():
@@ -75,6 +89,43 @@ def test_every_non_auth_route_is_gated():
             assert response.status_code == 401, f"{method} {path} answered without a session"
             checked += 1
     assert checked > 0, "the route table produced nothing to check"
+
+
+def test_every_other_auth_route_needs_a_session():
+    """
+    The other half of the route-table walk, for the prefix that one skips.
+
+    `enrolment-code` hands out a secret that authorises a new device, so it
+    being reachable without a session would undo the gate entirely: a stranger
+    could ask for a code and then enrol with it. It is on this router because
+    the routes it lives beside are the enrolment flow, and this router is
+    mounted without the gate — which is exactly why the route carries
+    `require_session` at its own decorator and why that has to be checked here.
+    """
+    checked = 0
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if not path.startswith("/api/auth/") or path in OPEN_AUTH_PATHS:
+            continue
+        for method in getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}:
+            response = client.request(method, _fill_params(path))
+            assert response.status_code == 401, f"{method} {path} answered without a session"
+            checked += 1
+    assert checked == 3, "expected session, logout and enrolment-code"
+
+
+def test_an_enrolment_code_is_issued_to_a_session_and_only_to_a_session(live_token):
+    """
+    Both directions in one place, because the pair is the whole feature: the
+    code is real for the owner and unreachable for anyone else.
+    """
+    assert client.post("/api/auth/enrolment-code").status_code == 401
+
+    response = client.post(
+        "/api/auth/enrolment-code", headers={"Authorization": f"Bearer {live_token}"}
+    )
+    assert response.status_code == 200
+    assert auth_store.authorise_code(response.json()["code"]) is True
 
 
 def test_the_stream_exception_matches_the_route_table():

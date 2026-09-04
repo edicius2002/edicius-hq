@@ -60,8 +60,11 @@ describe('LoginScreen', () => {
   it('tells a first-time visitor where the code comes from', () => {
     render(<LoginScreen onSignedIn={() => {}} />);
 
-    // The only route to a first passkey is a command on the PC, and this
-    // screen is the one place a new device can be told so.
+    // Two sources, and the screen has to name both. A device already signed in
+    // can issue a code from its own menu, which is the ordinary case; the
+    // command on the PC is the only route to a *first* passkey, and someone
+    // holding none cannot be sent to an app they cannot open.
+    expect(screen.getByText(/open the menu and choose/i)).toBeInTheDocument();
     expect(screen.getByText(/node scripts\/api\.mjs enroll/)).toBeInTheDocument();
   });
 

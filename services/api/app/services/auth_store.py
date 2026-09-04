@@ -18,9 +18,10 @@ kv key:
 * **A failed enrolment attempt costs every live code.** `consume_code` is told
   a string and not which code it was aiming at, so there is no per-code counter
   to increment on a miss. Charging the failure to all of them is the
-  conservative reading: with a single owner there is normally one live code,
-  and the cost of being wrong is one re-run of the enrol command, against the
-  alternative of an eight-character secret that can be guessed at forever.
+  conservative reading, and `issue_code` makes it cost nothing: there is
+  exactly one live code at a time, so "all of them" is one, and the cost of
+  being wrong is one re-issue against the alternative of an eight-character
+  secret that can be guessed at forever.
 """
 
 import base64
@@ -355,19 +356,35 @@ def _live_codes(records: list[dict[str, Any]], now: datetime) -> list[dict[str, 
 
 
 def issue_code() -> str:
-    """Returns the plaintext code once. Only its digest reaches the disk."""
+    """
+    Returns the plaintext code once. Only its digest reaches the disk.
+
+    Issuing **replaces** whatever was live rather than joining it, so at most
+    one code opens the door at any moment. Both callers are the same person —
+    the CLI on the PC, the menu on a device already enrolled — and a second
+    code is what that person asks for when the first one got away from them: a
+    scrollback they walked away from, a menu they closed, a walk to the phone
+    they abandoned. Leaving that one alive for the rest of its ten minutes
+    would keep working a secret its owner has already given up on.
+
+    It also turns the module docstring's assumption into an invariant. Charging
+    a failed guess to every live code is defensible because there is normally
+    one; with the replacement here there is always one, so a stranger guessing
+    at the API can no longer cost the owner a *different* code they were in the
+    middle of typing on another device.
+    """
     with _FILE_LOCK:
         code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
-        now = _now()
-        records = _live_codes(_read(CODES_FILE), now)
-        records.append(
-            {
-                "code_hash": _digest(code),
-                "expires_at": _iso(now + CODE_TTL),
-                "failures": 0,
-            }
+        _write(
+            CODES_FILE,
+            [
+                {
+                    "code_hash": _digest(code),
+                    "expires_at": _iso(_now() + CODE_TTL),
+                    "failures": 0,
+                }
+            ],
         )
-        _write(CODES_FILE, records)
         return code
 
 

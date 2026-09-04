@@ -140,6 +140,61 @@ describe('Shell navigation', () => {
   });
 });
 
+/**
+ * The menu is the app's only surface that is not a page, which is why the way
+ * to enrol a second device hangs off it. These go through the shell rather
+ * than rendering `EnrolDevice` alone — that its own file already does — because
+ * what can only be wrong here is the wiring: whether the block reaches the
+ * dropdown at all, and whether using it survives the menu's own dismissal
+ * rules.
+ */
+describe('Enrolling a second device from the menu', () => {
+  it('issues a code into the menu without navigating away', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/auth/enrolment-code')) {
+          return Response.json({ code: 'K7M29QX4', expiresInSeconds: 600 });
+        }
+        if (url.includes('/api/kv/')) return new Response(null, { status: 404 });
+        return Response.json({ status: 'ok' });
+      }),
+    );
+
+    renderAt('/dashboard');
+    await arrivesAt('Dashboard');
+
+    const nav = await openMenu(user);
+    await user.click(screen.getByRole('button', { name: 'Enrol a device' }));
+
+    expect(await screen.findByText('K7M2-9QX4')).toBeInTheDocument();
+    // The menu closes on an outside click and on navigation. A button inside
+    // it is neither, and a dropdown that shut on the click that produced the
+    // code would take the code with it.
+    expect(nav).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+  });
+
+  it('does not offer the block, or issue anything, while the menu is shut', async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes('/api/kv/')
+        ? new Response(null, { status: 404 })
+        : Response.json({ status: 'ok' }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    renderAt('/dashboard');
+    await arrivesAt('Dashboard');
+
+    expect(screen.queryByRole('button', { name: 'Enrol a device' })).not.toBeInTheDocument();
+    expect(
+      fetchSpy.mock.calls.some(([url]) => String(url).includes('/api/auth/enrolment-code')),
+    ).toBe(false);
+  });
+});
+
 describe('Investing chart-first workspace', () => {
   it('imports positions into the portfolio and adds their symbols to the watchlist', async () => {
     const user = userEvent.setup();

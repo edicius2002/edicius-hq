@@ -74,6 +74,29 @@ function toJSON(credential: Credential | null): unknown {
   return serialisable.toJSON();
 }
 
+export type IssuedEnrolmentCode = {
+  code: string;
+  /**
+   * A duration and not an instant, because the API and this browser are two
+   * machines whose clocks need not agree — the phone reading this is often
+   * reaching the API over Tailscale. Ten minutes from the moment the answer
+   * arrives is true on both, where a server-side timestamp would have the page
+   * call a live code dead, or the reverse.
+   */
+  expiresInSeconds: number;
+};
+
+/**
+ * A code for the next device, asked for by this one.
+ *
+ * Needs a session, so it is only reachable from inside the app. The CLI on the
+ * PC issues the same thing and remains the way to a *first* passkey; this is
+ * the way to a second one without walking to the PC.
+ */
+export function issueEnrolmentCode(): Promise<IssuedEnrolmentCode> {
+  return apiRequest<IssuedEnrolmentCode>('/api/auth/enrolment-code', { method: 'POST' });
+}
+
 /** `200` while the stored token is still worth holding; throws otherwise. */
 export function fetchSessionStatus(signal?: AbortSignal): Promise<{ authenticated: boolean }> {
   return apiRequest<{ authenticated: boolean }>('/api/auth/session', { signal });

@@ -30,6 +30,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -177,25 +178,26 @@ def _as_credential(record: dict[str, Any]) -> Credential:
 
 def add_credential(credential_id: bytes, public_key: bytes, sign_count: int, label: str) -> str:
     """Stores one enrolled passkey and returns the short id the CLI revokes by."""
-    records = _read(CREDENTIALS_FILE)
-    encoded = _encode(credential_id)
-    # Re-enrolling the same authenticator replaces its record rather than
-    # leaving two rows that answer to the same credential id.
-    records = [record for record in records if record["credential_id"] != encoded]
-    short_id = secrets.token_hex(4)
-    records.append(
-        {
-            "id": short_id,
-            "credential_id": encoded,
-            "public_key": _encode(public_key),
-            "sign_count": sign_count,
-            "label": label,
-            "created_at": _iso(_now()),
-            "last_used_at": None,
-        }
-    )
-    _write(CREDENTIALS_FILE, records)
-    return short_id
+    with _FILE_LOCK:
+        records = _read(CREDENTIALS_FILE)
+        encoded = _encode(credential_id)
+        # Re-enrolling the same authenticator replaces its record rather than
+        # leaving two rows that answer to the same credential id.
+        records = [record for record in records if record["credential_id"] != encoded]
+        short_id = secrets.token_hex(4)
+        records.append(
+            {
+                "id": short_id,
+                "credential_id": encoded,
+                "public_key": _encode(public_key),
+                "sign_count": sign_count,
+                "label": label,
+                "created_at": _iso(_now()),
+                "last_used_at": None,
+            }
+        )
+        _write(CREDENTIALS_FILE, records)
+        return short_id
 
 
 def get_credential(credential_id: bytes) -> Credential | None:
@@ -212,23 +214,25 @@ def list_credentials() -> list[Credential]:
 
 def touch_credential(credential_id: bytes, sign_count: int) -> None:
     """The only audit trail this feature keeps: when each passkey last signed in."""
-    encoded = _encode(credential_id)
-    records = _read(CREDENTIALS_FILE)
-    for record in records:
-        if record["credential_id"] == encoded:
-            record["sign_count"] = sign_count
-            record["last_used_at"] = _iso(_now())
-            _write(CREDENTIALS_FILE, records)
-            return
+    with _FILE_LOCK:
+        encoded = _encode(credential_id)
+        records = _read(CREDENTIALS_FILE)
+        for record in records:
+            if record["credential_id"] == encoded:
+                record["sign_count"] = sign_count
+                record["last_used_at"] = _iso(_now())
+                _write(CREDENTIALS_FILE, records)
+                return
 
 
 def revoke_credential(short_id: str) -> bool:
-    records = _read(CREDENTIALS_FILE)
-    remaining = [record for record in records if record["id"] != short_id]
-    if len(remaining) == len(records):
-        return False
-    _write(CREDENTIALS_FILE, remaining)
-    return True
+    with _FILE_LOCK:
+        records = _read(CREDENTIALS_FILE)
+        remaining = [record for record in records if record["id"] != short_id]
+        if len(remaining) == len(records):
+            return False
+        _write(CREDENTIALS_FILE, remaining)
+        return True
 
 
 # --------------------------------------------------------------- sessions ---
@@ -245,19 +249,38 @@ def _live_sessions(records: list[dict[str, Any]], now: datetime) -> list[dict[st
     return live
 
 
+# Every request resolves a session, so this file is the busiest one the API
+# writes. `_write_atomically` renames a temporary into place, which is atomic on
+# POSIX and refuses on Windows while another thread holds the destination open —
+# `PermissionError [WinError 5]`, measured at 31 failures in 60 concurrent
+# resolutions. The lock makes read-modify-write one operation.
+#
+# Re-entrant, so a locked helper reached from a locked caller cannot
+# deadlock. A thread lock is enough because `api.mjs` runs one uvicorn process and FastAPI
+# dispatches sync handlers onto its threadpool. Run more than one worker and
+# this stops being sufficient; the file would then need a real file lock.
+_FILE_LOCK = threading.RLock()
+
+# How stale the idle clock may get before a read pays for a write. The session
+# still expires after `SESSION_TTL` of genuine disuse; this only says that a
+# session used twice within the hour is not worth two disk writes.
+SLIDE_AFTER = timedelta(hours=1)
+
+
 def create_session() -> str:
     """Returns the plaintext token once. Only its digest reaches the disk."""
     token = secrets.token_urlsafe(32)
     now = _now()
-    records = _live_sessions(_read(SESSIONS_FILE), now)
-    records.append(
-        {
-            "token_hash": _digest(token),
-            "created_at": _iso(now),
-            "last_used_at": _iso(now),
-        }
-    )
-    _write(SESSIONS_FILE, records)
+    with _FILE_LOCK:
+        records = _live_sessions(_read(SESSIONS_FILE), now)
+        records.append(
+            {
+                "token_hash": _digest(token),
+                "created_at": _iso(now),
+                "last_used_at": _iso(now),
+            }
+        )
+        _write(SESSIONS_FILE, records)
     return token
 
 
@@ -266,30 +289,40 @@ def resolve_session(token: str) -> Session | None:
     if not token:
         return None
     now = _now()
-    records = _live_sessions(_read(SESSIONS_FILE), now)
     candidate = _digest(token)
-    for record in records:
-        if _matches(candidate, record["token_hash"]):
-            record["last_used_at"] = _iso(now)
+    with _FILE_LOCK:
+        stored = _read(SESSIONS_FILE)
+        records = _live_sessions(stored, now)
+        for record in records:
+            if _matches(candidate, record["token_hash"]):
+                created_at = _parse(record["created_at"])
+                last_used = _parse(record["last_used_at"])
+                # Only pay for a write when the clock has drifted far enough to
+                # be worth recording. Thirty sliding days do not notice an hour.
+                if last_used is None or now - last_used >= SLIDE_AFTER:
+                    record["last_used_at"] = _iso(now)
+                    _write(SESSIONS_FILE, records)
+                return Session(
+                    created_at=created_at if created_at is not None else now,
+                    last_used_at=now,
+                )
+        # A miss writes only when this read actually dropped something expired.
+        # Rewriting on every miss would hand any stranger on the public internet
+        # a disk write per request, which is a cost the owner pays and they do
+        # not.
+        if len(records) != len(stored):
             _write(SESSIONS_FILE, records)
-            created_at = _parse(record["created_at"])
-            return Session(
-                created_at=created_at if created_at is not None else now,
-                last_used_at=now,
-            )
-    # The expired records the read above dropped are worth persisting even on a
-    # miss, so a file nobody signs into does not grow forever.
-    _write(SESSIONS_FILE, records)
     return None
 
 
 def revoke_session(token: str) -> None:
     candidate = _digest(token)
-    records = _read(SESSIONS_FILE)
-    _write(
-        SESSIONS_FILE,
-        [record for record in records if not _matches(candidate, record["token_hash"])],
-    )
+    with _FILE_LOCK:
+        records = _read(SESSIONS_FILE)
+        _write(
+            SESSIONS_FILE,
+            [record for record in records if not _matches(candidate, record["token_hash"])],
+        )
 
 
 # -------------------------------------------------------- enrolment codes ---
@@ -323,18 +356,19 @@ def _live_codes(records: list[dict[str, Any]], now: datetime) -> list[dict[str, 
 
 def issue_code() -> str:
     """Returns the plaintext code once. Only its digest reaches the disk."""
-    code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
-    now = _now()
-    records = _live_codes(_read(CODES_FILE), now)
-    records.append(
-        {
-            "code_hash": _digest(code),
-            "expires_at": _iso(now + CODE_TTL),
-            "failures": 0,
-        }
-    )
-    _write(CODES_FILE, records)
-    return code
+    with _FILE_LOCK:
+        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+        now = _now()
+        records = _live_codes(_read(CODES_FILE), now)
+        records.append(
+            {
+                "code_hash": _digest(code),
+                "expires_at": _iso(now + CODE_TTL),
+                "failures": 0,
+            }
+        )
+        _write(CODES_FILE, records)
+        return code
 
 
 def _check_code(code: str, *, burn: bool) -> bool:
@@ -342,20 +376,21 @@ def _check_code(code: str, *, burn: bool) -> bool:
     Shared by both code checks. A miss always charges a failure; a hit burns
     the code only when the caller says to.
     """
-    now = _now()
-    records = _live_codes(_read(CODES_FILE), now)
-    candidate = _digest(normalise_code(code))
-    for index, record in enumerate(records):
-        if _matches(candidate, record["code_hash"]):
-            if burn:
-                del records[index]
-                _write(CODES_FILE, records)
-            return True
+    with _FILE_LOCK:
+        now = _now()
+        records = _live_codes(_read(CODES_FILE), now)
+        candidate = _digest(normalise_code(code))
+        for index, record in enumerate(records):
+            if _matches(candidate, record["code_hash"]):
+                if burn:
+                    del records[index]
+                    _write(CODES_FILE, records)
+                return True
 
-    for record in records:
-        record["failures"] = int(record.get("failures", 0)) + 1
-    _write(CODES_FILE, _live_codes(records, now))
-    return False
+        for record in records:
+            record["failures"] = int(record.get("failures", 0)) + 1
+        _write(CODES_FILE, _live_codes(records, now))
+        return False
 
 
 def authorise_code(code: str) -> bool:
@@ -414,19 +449,20 @@ def store_challenge(challenge: bytes, purpose: str) -> str:
     answering a challenge still needs the private key the authenticator will
     not give up — so unlike the token and the code it is stored as it is.
     """
-    now = _now()
-    challenge_id = secrets.token_urlsafe(16)
-    records = _live_challenges(_read(CHALLENGES_FILE), now)
-    records.append(
-        {
-            "id": challenge_id,
-            "challenge": _encode(challenge),
-            "purpose": purpose,
-            "expires_at": _iso(now + CHALLENGE_TTL),
-        }
-    )
-    _write(CHALLENGES_FILE, records)
-    return challenge_id
+    with _FILE_LOCK:
+        now = _now()
+        challenge_id = secrets.token_urlsafe(16)
+        records = _live_challenges(_read(CHALLENGES_FILE), now)
+        records.append(
+            {
+                "id": challenge_id,
+                "challenge": _encode(challenge),
+                "purpose": purpose,
+                "expires_at": _iso(now + CHALLENGE_TTL),
+            }
+        )
+        _write(CHALLENGES_FILE, records)
+        return challenge_id
 
 
 def take_challenge(challenge_id: str, purpose: str) -> bytes | None:
@@ -438,12 +474,13 @@ def take_challenge(challenge_id: str, purpose: str) -> bytes | None:
     the login route would otherwise let one ceremony's answer be spent on the
     other.
     """
-    now = _now()
-    records = _live_challenges(_read(CHALLENGES_FILE), now)
-    for index, record in enumerate(records):
-        if record["id"] == challenge_id and record["purpose"] == purpose:
-            del records[index]
-            _write(CHALLENGES_FILE, records)
-            return _decode(record["challenge"])
-    _write(CHALLENGES_FILE, records)
-    return None
+    with _FILE_LOCK:
+        now = _now()
+        records = _live_challenges(_read(CHALLENGES_FILE), now)
+        for index, record in enumerate(records):
+            if record["id"] == challenge_id and record["purpose"] == purpose:
+                del records[index]
+                _write(CHALLENGES_FILE, records)
+                return _decode(record["challenge"])
+        _write(CHALLENGES_FILE, records)
+        return None

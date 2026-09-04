@@ -139,3 +139,47 @@ def test_a_challenge_is_single_use_and_bound_to_its_purpose(tmp_local_data):
     assert auth_store.take_challenge(challenge_id, "authentication") is None
     assert auth_store.take_challenge(challenge_id, "registration") == b"a-challenge"
     assert auth_store.take_challenge(challenge_id, "registration") is None
+
+
+def test_concurrent_resolution_does_not_fail(tmp_local_data):
+    """
+    Every request resolves a session, and the page opens ten at once.
+
+    The store writes beside-then-renames, which is atomic on POSIX and is not
+    on Windows: `os.replace` refuses while another thread holds the
+    destination open, with `PermissionError [WinError 5]`. Sliding the clock on
+    every single request made that collision the common case rather than a
+    rare one — measured at 31 failures in 60 concurrent calls before the lock.
+    """
+    import concurrent.futures
+
+    token = auth_store.create_session()
+
+    def resolve(_: int) -> str | None:
+        try:
+            auth_store.resolve_session(token)
+        except BaseException as error:  # noqa: BLE001 - the point is that none escape
+            return repr(error)
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+        failures = [outcome for outcome in pool.map(resolve, range(60)) if outcome]
+
+    assert failures == []
+
+
+def test_a_miss_does_not_write(tmp_local_data):
+    """
+    An unauthenticated request must not cost a disk write.
+
+    Once the API is public every stranger's request arrives here, and a store
+    that rewrites its file on each miss turns that into unbounded write load
+    against the owner's own disk.
+    """
+    auth_store.create_session()
+    path = auth_store.auth_dir() / "sessions.json"
+    before = path.stat().st_mtime_ns
+
+    assert auth_store.resolve_session("not-a-real-token") is None
+
+    assert path.stat().st_mtime_ns == before

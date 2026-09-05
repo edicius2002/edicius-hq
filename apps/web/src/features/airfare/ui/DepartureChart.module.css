@@ -112,6 +112,25 @@
  * outlined, which is the difference a disc glyph can carry at 26px, and the same
  * accent the pinned crosshair takes — one colour for one state.
  */
+/*
+ * The three ways the zoom is worked by hand: out, back to the whole period, in.
+ *
+ * A group of its own inside the corner, with a tighter gap than the corner's
+ * own, because they are one control in three parts and the corner's 8px let
+ * them read as three unrelated glyphs beside the pin. The same shape the
+ * Finance canvas gives its own zoom cluster; only the button size differs, and
+ * that is this chart's, not that one's.
+ *
+ * 4px rather than nothing between them. Touching buttons would read as a
+ * segmented control, which promises that exactly one of the three is *selected*
+ * — and none of them is a state.
+ */
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .pin[aria-pressed='true'] {
   border-color: var(--color-accent);
   background: var(--color-accent);
@@ -168,7 +187,18 @@
   width: 100%;
   height: auto;
   margin-inline: auto;
-  /* The crosshair follows a dragging finger instead of scrolling the page. */
+  /*
+   * The crosshair follows a dragging finger instead of scrolling the page, and
+   * two fingers close the frame instead of zooming the document.
+   *
+   * **This is what suppresses the browser's own pinch, so the chart has to
+   * supply one.** It now does — `startDrag` and `trackPointer` track pointers
+   * by id and drive `zoomAt` from the distance between two of them — and that
+   * is the whole justification for keeping this line. Without `none` the
+   * browser takes the second finger, stops delivering `pointermove` mid-gesture
+   * and page-zooms the panel around the plot; with it and no handler, which is
+   * what stood here until now, a pinch on this chart did nothing at all.
+   */
   touch-action: none;
 }
 

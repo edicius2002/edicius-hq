@@ -588,6 +588,194 @@ describe('a box the drawing does not fill', () => {
 });
 
 /**
+ * Zooming with something that is not a wheel.
+ *
+ * The chart had exactly two ways in — a hand-bound `wheel` listener and the
+ * `+`/`-`/`0` keys — and a phone fires neither. `.chart` sets
+ * `touch-action: none`, so the browser's own pinch was suppressed as well, and
+ * the one on-screen zoom control was `Reset zoom`, which only ever zooms *out*
+ * and is disabled while there is nothing to undo. On a touchscreen that button
+ * could not be reached at all: nothing a finger could do would ever give it
+ * something to undo. Since 12.267 shrank this plot to 250×101 on a phone, the
+ * width where the zoom is worth the most was the width where it did not exist.
+ *
+ * Two routes in, tested here because they answer different readers: the pinch,
+ * which is what a hand reaches for, and the buttons, which are what a reader
+ * who does not know the gesture — or cannot make it — is left with.
+ *
+ * The distances below are view units, because the box every test in this file
+ * is given is the viewBox: a `clientX` is an x on the plot, and the whole week
+ * is 10,080 minutes of frame across it.
+ */
+describe('zooming with two fingers, and with a button', () => {
+  /** Monday to Sunday, in the minutes the viewport is measured in. */
+  const WEEK_MINUTES = 7 * 1440;
+
+  /*
+   * jsdom has no pointer capture and every test here presses. The same stub
+   * 'a box the drawing does not fill' keeps, with `hasPointerCapture` added:
+   * these are the first tests in this file that lift a finger again, and that
+   * is the branch which asks.
+   */
+  beforeEach(() => {
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    Element.prototype.hasPointerCapture = () => false;
+  });
+
+  afterEach(() => {
+    delete (Element.prototype as Partial<Element>).setPointerCapture;
+    delete (Element.prototype as Partial<Element>).releasePointerCapture;
+    delete (Element.prototype as Partial<Element>).hasPointerCapture;
+  });
+
+  /**
+   * The chart with its zoom held for it, and every viewport it wrote.
+   *
+   * `Harness` already holds the zoom the way the panel does, but it hands a
+   * test nothing back. A gesture measured against what the gesture *before* it
+   * left — which is the whole of "two fingers down to one must not jump" — has
+   * to be run against a viewport that actually moves, so this wraps the state
+   * and records it on the way through.
+   */
+  function zoomable(initial: Viewport | null = null) {
+    const written: Array<Viewport | null> = [];
+    function Held() {
+      const [viewport, setViewport] = useState<Viewport | null>(initial);
+      return (
+        <Harness
+          viewport={viewport}
+          onViewportChange={(next: Viewport | null) => {
+            written.push(next);
+            setViewport(next);
+          }}
+        />
+      );
+    }
+    const view = render(<Held />);
+    return { ...view, svg: view.container.querySelector('svg')!, written };
+  }
+
+  /**
+   * One finger, at one height so that the spread between two of them is the
+   * distance between their `clientX` and nothing else.
+   */
+  function finger(svg: Element, act: 'down' | 'move' | 'up', pointerId: number, clientX: number) {
+    const at = { pointerId, pointerType: 'touch', button: 0, clientX, clientY: 150 };
+    if (act === 'down') fireEvent.pointerDown(svg, at);
+    else if (act === 'move') fireEvent.pointerMove(svg, at);
+    else fireEvent.pointerUp(svg, at);
+  }
+
+  it('closes the frame when two fingers spread apart', () => {
+    const { svg, written } = zoomable();
+    finger(svg, 'down', 1, 300);
+    finger(svg, 'down', 2, 460);
+
+    // 160 units apart, opened to 240: the frame keeps two thirds of its span.
+    finger(svg, 'move', 1, 260);
+    finger(svg, 'move', 2, 500);
+
+    const view = written.at(-1);
+    expect(view).not.toBeNull();
+    expect(view!.span).toBeCloseTo(WEEK_MINUTES * (160 / 240), 6);
+  });
+
+  it('opens it back up when the two fingers come together', () => {
+    // From a frame already closed to four thousand minutes, because a frame
+    // showing the whole week has nothing left to open and would pass on any
+    // arithmetic at all.
+    const { svg, written } = zoomable({ start: 2000, span: 4000 });
+    finger(svg, 'down', 1, 260);
+    finger(svg, 'down', 2, 500);
+
+    finger(svg, 'move', 1, 300);
+    finger(svg, 'move', 2, 460);
+
+    const view = written.at(-1);
+    expect(view).not.toBeNull();
+    expect(view!.span).toBeCloseTo(4000 * (240 / 160), 6);
+  });
+
+  it('still pans with one finger, and never zooms with it', () => {
+    const { svg, written } = zoomable({ start: 2000, span: 4000 });
+    finger(svg, 'down', 1, 600);
+    finger(svg, 'move', 1, 500);
+
+    const view = written.at(-1);
+    expect(view).not.toBeNull();
+    // The hand went left, so the frame went forward — and the span it is
+    // reading through did not change by so much as a minute.
+    expect(view!.span).toBe(4000);
+    expect(view!.start).toBeGreaterThan(2000);
+  });
+
+  it('does not jump when one of the two fingers is lifted', () => {
+    const { svg, written } = zoomable();
+    finger(svg, 'down', 1, 300);
+    finger(svg, 'down', 2, 460);
+    finger(svg, 'move', 1, 260);
+    finger(svg, 'move', 2, 500);
+    const pinched = written.at(-1)!;
+    expect(pinched).not.toBeNull();
+
+    // Lifting writes nothing at all: the frame is where the pinch left it, and
+    // the gesture that is left has to carry on from there rather than from
+    // wherever it began.
+    const settled = written.length;
+    finger(svg, 'up', 2, 500);
+    expect(written).toHaveLength(settled);
+
+    // Ten units of one finger, which is a nudge and not a leap. A pan resumed
+    // against the viewport the pinch started from would move the frame by the
+    // whole of what the pinch had done — about a quarter of the span.
+    finger(svg, 'move', 1, 250);
+    const after = written.at(-1)!;
+    expect(after.span).toBeCloseTo(pinched.span, 6);
+    expect(after.start).toBeGreaterThan(pinched.start);
+    expect(after.start - pinched.start).toBeLessThan(pinched.span * 0.02);
+  });
+
+  it('brings the way out of a zoom to life, which no finger could do before', () => {
+    const { svg } = zoomable();
+    expect(screen.getByTestId('reset-zoom')).toBeDisabled();
+
+    finger(svg, 'down', 1, 300);
+    finger(svg, 'down', 2, 460);
+    finger(svg, 'move', 1, 260);
+    finger(svg, 'move', 2, 500);
+
+    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
+  });
+
+  it('offers a zoom in and a zoom out either side of the way back to the period', () => {
+    // Named the way the Finance canvas names its own, because they are the
+    // same control and a reader should not have to learn it twice.
+    zoomable();
+    expect(screen.getByTestId('zoom-out')).toHaveAccessibleName('Zoom out');
+    expect(screen.getByTestId('zoom-in')).toHaveAccessibleName('Zoom in');
+    // Nothing to open up on a frame showing the whole week, which is the same
+    // thing the button between them says.
+    expect(screen.getByTestId('zoom-out')).toBeDisabled();
+    expect(screen.getByTestId('zoom-in')).toBeEnabled();
+  });
+
+  it('closes and opens the frame from the buttons alone', () => {
+    const { written } = zoomable();
+    fireEvent.click(screen.getByTestId('zoom-in'));
+    const closed = written.at(-1);
+    expect(closed).not.toBeNull();
+    expect(closed!.span).toBeLessThan(WEEK_MINUTES);
+    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId('zoom-out'));
+    // Back to the whole week, which is stored as nothing hidden rather than as
+    // a span that happens to equal it.
+    expect(written.at(-1)).toBeNull();
+  });
+});
+
+/**
  * Holding the reading still.
  *
  * The owner: *"creo una accion para poder fijar la vista en un punto con

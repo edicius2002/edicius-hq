@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
@@ -65,6 +65,54 @@ function StatefulPanel({
   return <PropertiesPanel diagram={diagram} selection={selection} actions={actions} />;
 }
 
+/**
+ * The panel over a store that applies an edit *after* the keystroke event, the
+ * way `useStoredDocument` does: every edit is queued on a promise chain, so the
+ * value a controlled field is given comes back a microtask late.
+ */
+function AsyncStatefulPanel({
+  selection,
+  initialDiagram = diagramWithFlow,
+  alsoSelectable,
+}: {
+  selection: { type: 'node' | 'flow'; id: string };
+  initialDiagram?: () => Diagram;
+  /** A second node the test can switch to, to see what a field carries over. */
+  alsoSelectable?: { type: 'node' | 'flow'; id: string; label: string };
+}) {
+  const [diagram, setDiagram] = useState(initialDiagram);
+  const [selected, setSelected] = useState(selection);
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
+
+  function edit(change: (current: Diagram) => Diagram) {
+    chain.current = chain.current.then(() => {
+      setDiagram((current) => change(current));
+    });
+  }
+
+  const actions: PropertiesPanelActions = {
+    renameNode: vi.fn(),
+    setNotes: (id, notes) => edit((current) => ops.setNotes(current, id, notes)),
+    addJobAsset: vi.fn(),
+    setJobBalance: vi.fn(),
+    setJobAssetActive: vi.fn(),
+    addHolding: vi.fn(),
+    updateHolding: vi.fn(),
+    updateFlow: (id, patch) => edit((current) => ops.updateFlow(current, id, patch)),
+    executeFlow: vi.fn(),
+    renameFrame: vi.fn(),
+  };
+
+  return (
+    <>
+      {alsoSelectable ? (
+        <button onClick={() => setSelected(alsoSelectable)}>{alsoSelectable.label}</button>
+      ) : null}
+      <PropertiesPanel diagram={diagram} selection={selected} actions={actions} />
+    </>
+  );
+}
+
 describe('notes', () => {
   it('is a box a running log fits in, not a single line', async () => {
     const user = userEvent.setup();
@@ -91,6 +139,43 @@ describe('notes', () => {
     await user.type(notes, 'paid late{Enter}chased twice');
 
     expect(notes).toHaveValue('paid late\nchased twice');
+  });
+
+  it('keeps a run of keystrokes together when the store answers late', async () => {
+    const user = userEvent.setup();
+    render(
+      <AsyncStatefulPanel
+        selection={{ type: 'node', id: 'a1' }}
+        initialDiagram={() => ops.setNotes(diagramWithFlow(), 'a1', 'paid  twice')}
+      />,
+    );
+
+    const notes = screen.getByRole('textbox', { name: 'Notes' });
+
+    await user.type(notes, 'late', { initialSelectionStart: 5, initialSelectionEnd: 5 });
+
+    expect(notes).toHaveValue('paid late twice');
+  });
+
+  it('leaves what was being typed behind when the selection moves on', async () => {
+    const user = userEvent.setup();
+    render(
+      <AsyncStatefulPanel
+        selection={{ type: 'node', id: 'a1' }}
+        initialDiagram={() =>
+          ops.setNotes(ops.setNotes(diagramWithFlow(), 'a1', 'the account'), 'j1', 'the job')
+        }
+        alsoSelectable={{ type: 'node', id: 'j1', label: 'pick the job' }}
+      />,
+    );
+
+    await user.type(screen.getByRole('textbox', { name: 'Notes' }), ' — paid');
+    await user.click(screen.getByRole('button', { name: 'pick the job' }));
+
+    // The field holds what is being typed into it, which is only ever about the
+    // node being looked at. Carried over, it would show one node's note on
+    // another and write it there on the next keystroke.
+    expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveValue('the job');
   });
 });
 

@@ -405,6 +405,16 @@ describe('forcesDegrade', () => {
     expect(forcesDegrade(undefined, true, 1000, 2000)).toBe(true);
   });
 
+  it('is true for a pinch even once its own glide has caught up', () => {
+    // A pinch turns the globe on every frame the fingers move, because it
+    // re-anchors through the same `aimZoom` a wheel notch does. `zoomGliding`
+    // is `false` here on purpose: the easing closes within a few frames of the
+    // fingers pausing, and a reader who holds a pinch still must not be given
+    // a full rebuild in the middle of their own gesture.
+    expect(forcesDegrade('pinch', false, 1000, 0)).toBe(true);
+    expect(forcesDegrade('pinch', false, 1000, 2000)).toBe(true);
+  });
+
   it('is true when both a rotate drag and a zoom glide happen to overlap', () => {
     expect(forcesDegrade('rotate', true, 1000, 0)).toBe(true);
   });

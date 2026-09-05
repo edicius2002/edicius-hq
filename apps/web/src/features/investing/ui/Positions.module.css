@@ -323,3 +323,65 @@
   color: var(--color-muted);
   font-weight: 400;
 }
+
+/*
+ * Two across on a phone, said outright rather than left to `auto-fill`.
+ *
+ * The container is the Investing page, which declares `container-type:
+ * inline-size`; 600px is the threshold that file already uses for "the panel
+ * is now a phone's width" and is reused rather than invented.
+ *
+ * `auto-fill` cannot be asked for this: it fits as many 190px tracks as the box
+ * holds, and a 225px box holds one. Naming the count is what overrides the
+ * derivation, and the derivation's own floor is what has to give — see the
+ * return line below, which is the thing that was sized for.
+ */
+@container (max-width: 600px) {
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /*
+   * What two across costs, and where it is paid.
+   *
+   * **These numbers are measured, not derived, and the two disagree — trust
+   * the measurement.** The estimate at the top of this file models Berkeley
+   * Mono at a 0.6em advance; a `Range` over the rendered text reports a
+   * noticeably wider line than that model predicts, so sizing this block from
+   * the 0.6em arithmetic gets it wrong. Re-measure the same way if you change
+   * it: select the text node and read `getBoundingClientRect().width`.
+   *
+   * The box: a 223px list at a 10px gap gives a 107px card. The padding is
+   * where the first width comes from — `--space-1` a side instead of
+   * `--space-2` — leaving a 95px text box inside the card's border.
+   *
+   * The fit: the widest return currently printed, `+20,99 · +8.66%`, measures
+   * 94.9px at 10.8px of type. That is 0.1px of margin. It is deliberately not
+   * presented as comfortable — 0.54rem is the largest size at which today's
+   * data prints in full, and anything longer meets the ellipsis below rather
+   * than the card beside it.
+   *
+   * **So the ellipsis is load-bearing.** The line this card was originally
+   * sized for is `+12,345.67 · +123.45%`, and no readable type fits that in
+   * 95px. A large enough position cannot print its return in full at two
+   * across; the holding line above has always made the same trade.
+   */
+  .pick {
+    padding: var(--space-1);
+  }
+
+  .pick > .up,
+  .pick > .down {
+    font-size: 0.54rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /*
+   * `.symbol` keeps its 3rem reserve, and the reserve is not dead weight on a
+   * phone the way it looks. The actions are revealed by `:hover` *or*
+   * `:focus-within`, and tapping a card focuses it — so they do appear on
+   * touch, and narrowing the corner they sit in would drop them on top of the
+   * ticker. The symbol ellipsizes early here instead, which it already did.
+   */
+}

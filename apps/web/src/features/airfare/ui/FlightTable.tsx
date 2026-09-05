@@ -559,13 +559,22 @@ export function FlightTable({ snapshots, granularity, departure, leg }: FlightTa
         </div>
       </div>
 
-      <table className={styles.table}>
-        <colgroup>
-          {COLUMNS.map((column) => (
-            <col key={column.column} className={styles[column.column]} />
-          ))}
-        </colgroup>
-        {/*
+      {/*
+        A scroll container of its own, so the board can be moved sideways where
+        the panel is narrower than its columns. A `div` rather than
+        `overflow` on the table itself: `display: block` on a `<table>` turns it
+        into a block box, which both switches off `table-layout: fixed` and does
+        not reliably take a wheel or a drag — measured, the table's `scrollLeft`
+        stayed at 0 while the page scrolled underneath it.
+      */}
+      <div className={styles.scroller}>
+        <table className={styles.table}>
+          <colgroup>
+            {COLUMNS.map((column) => (
+              <col key={column.column} className={styles[column.column]} />
+            ))}
+          </colgroup>
+          {/*
           Under the rows rather than over them — 12.253. It is still the
           table's `<caption>`, so it is still the thing a screen reader reads
           when it enters the table, and it is still announced when it changes,
@@ -575,31 +584,32 @@ export function FlightTable({ snapshots, granularity, departure, leg }: FlightTa
           the bottom of the panel, and the reader who came for the board was
           reading around them.
         */}
-        <caption className={styles.caption} aria-live="polite">
-          {summary}
-        </caption>
-        <thead>
-          <tr>
-            {COLUMNS.map((column) => (
-              <SortHeader
-                key={column.column}
-                column={column.column}
-                label={column.label}
-                numeric={column.numeric}
-                sort={sort}
-                onSort={(next) => setSort((current) => nextSort(current, next))}
-              />
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {slice.rows.map((row) => (
-            <tr key={row.track.key} className={row.track.present ? undefined : styles.gone}>
-              <FlightRowCells row={row} leg={leg} />
+          <caption className={styles.caption} aria-live="polite">
+            {summary}
+          </caption>
+          <thead>
+            <tr>
+              {COLUMNS.map((column) => (
+                <SortHeader
+                  key={column.column}
+                  column={column.column}
+                  label={column.label}
+                  numeric={column.numeric}
+                  sort={sort}
+                  onSort={(next) => setSort((current) => nextSort(current, next))}
+                />
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {slice.rows.map((row) => (
+              <tr key={row.track.key} className={row.track.present ? undefined : styles.gone}>
+                <FlightRowCells row={row} leg={leg} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {slice.rows.length === 0 ? (
         <p className={styles.empty}>

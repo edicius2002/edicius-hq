@@ -394,6 +394,32 @@
   .timeframes {
     max-width: 100%;
     overflow-x: auto;
+    /* The row is the widest thing in the panel and it does not wrap, so it is
+       the one that has to scroll. No reserved scrollbar: it would sit under
+       the buttons at every width, including the ones where the row fits. */
+    scrollbar-width: none;
+  }
+
+  .timeframes::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * Scaled to the panel, not to the page. Seven timeframes at the desktop
+   * padding measured 344px against a 225px content box; at these numbers the
+   * row costs 231px, so it fits at 360px and the scroll above is what absorbs
+   * an eighth timeframe rather than the layout.
+   *
+   * The floor is the target size, not the type: 0.66rem is 13.2px here, which
+   * with this padding leaves a 32px-tall control. That is under the 44px a
+   * touch target is usually held to and is a deliberate trade — the row is a
+   * segmented control where the pressed option is always visible, so a missed
+   * tap costs one more tap rather than a wrong page. The drawer's links, which
+   * are the only way to leave the page, are held to 44px.
+   */
+  .timeframe {
+    padding: 0.25rem var(--space-2);
+    font-size: 0.66rem;
   }
 }
 

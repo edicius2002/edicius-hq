@@ -459,3 +459,169 @@
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/*
+ * The phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * Two separate things, and the order matters.
+ *
+ * `.wrap` is a grid with no declared column, so its one implicit track is
+ * `auto` — sized to the widest child's max-content. Measured at a 360px
+ * viewport: a 223px box with a 273px track, the table's minimum, which the
+ * panel and then the page inherited. Capping the track is what stops a wide
+ * table widening everything above it; it is the same fix `Panel.module.css`
+ * carries for the same reason.
+ *
+ * That alone would only move the problem inside the table, because these
+ * columns are `nowrap` on purpose — a flight row is times and codes and prices,
+ * and none of them means anything wrapped. So the board is scrolled instead,
+ * inside a wrapper of its own. A table is one of the few things genuinely
+ * better scrolled than reflowed: the columns stay aligned, the header stays
+ * with them, and the reader moves along a row rather than reassembling it.
+ *
+ * Note that `table-layout: fixed` and the column percentages above stop
+ * applying below this width — the board is sized by its content there. Editing
+ * those percentages will change nothing on a phone; change the type size in
+ * `.table` instead.
+ */
+@media (max-width: 640px) {
+  .wrap {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /*
+   * The board scrolls in its wrapper, not in the table.
+   *
+   * The first version of this put `display: block; overflow-x: auto` on the
+   * `<table>` itself. It looked right — a scrollbar appeared, and setting
+   * `scrollLeft` from script moved it — and it did not work: a real wheel over
+   * the board scrolled the *page* instead and `scrollLeft` never left 0. A
+   * `<table>` forced to `display: block` is a block box wrapping an anonymous
+   * table, and it is not a dependable scroll container. It also switched off
+   * `table-layout: fixed`, which is what the column percentages above are
+   * written against.
+   *
+   * A plain `div` has none of that ambiguity, so the table goes back to being
+   * a table and the wrapper does the scrolling.
+   */
+  .scroller {
+    overflow-x: auto;
+    /* A bar you can see; without it the only clue is that the board is cut. */
+    scrollbar-width: thin;
+    /* Running off the end must not become a page swipe or a browser back. */
+    overscroll-behavior-x: contain;
+  }
+
+  /*
+   * Wide enough for its own columns rather than for the panel, and the type
+   * comes down with it.
+   *
+   * At 0.9rem — 18px, because a rem is 20px here — the seven columns measured
+   * 850px against a 223px panel, nearly four screens of panning for one row.
+   * At 0.55rem the board is about 723px, a little over three. Not smaller than
+   * this: every cell is a token a reader compares against the one above it, and
+   * past about 11px the digits stop being separable at a glance, which is the
+   * only thing this table is for.
+   *
+   * `max-content` rather than `width: 100%`: at 100% the seven `nowrap` columns
+   * would divide 223px between them and every one would clip. The board takes
+   * its natural width and the wrapper shows a window onto it.
+   */
+  .table {
+    table-layout: auto;
+    width: max-content;
+    min-width: 100%;
+    font-size: 0.55rem;
+  }
+
+  /*
+   * The padding is the other half of the width. `--space-3` either side is
+   * 15px per cell, 210px across seven columns — a quarter of the board spent
+   * on gutters, at a width where the gutters are the least valuable thing on
+   * screen.
+   */
+  .table th,
+  .table td {
+    padding: var(--space-1) var(--space-2);
+  }
+}
+
+/*
+ * The heading, still on the same phone step.
+ *
+ * `.title` is `nowrap` because "a heading that breaks between 'Flights' and
+ * 'seen' to save 40px has not saved anything" — true at the width that note
+ * was written for, where the row had 1099px and the heading 273px. At 223px
+ * the heading is the widest thing in the panel and its 273px was what the
+ * table's wrap, the panel and the page were all still being stretched to after
+ * the table itself stopped doing it. Here the 40px is the whole argument.
+ */
+@media (max-width: 640px) {
+  .title {
+    white-space: normal;
+    /*
+     * Down from 0.95rem, which is 19px here. At that size "Flights seen ·
+     * March 2027" took two lines of a 223px panel before anything in the panel
+     * had been said.
+     */
+    font-size: 0.66rem;
+  }
+
+  /*
+   * The filter block, which is the reason this panel opened 419px tall on a
+   * phone: a 57px heading over 352px of controls, all of it above the first
+   * flight, on a 740px screen.
+   *
+   * Six filters at their desktop size are one per row at this width — a long
+   * column of label-over-control, which is what makes the panel read as
+   * endless before any data appears. Smaller labels and controls put two on a
+   * line, so the block is three rows instead of six.
+   */
+  .filter > span {
+    font-size: 0.55rem;
+  }
+
+  .filter input,
+  .filter select {
+    font-size: 0.62rem;
+    padding: 1px var(--space-1);
+  }
+
+  /*
+   * `1 1 45%` is what makes it two across without naming a count: two basis
+   * plus the gap fit a 223px row and three cannot, so the line breaks after
+   * the second wherever the labels happen to fall.
+   */
+  .filter {
+    flex: 1 1 45%;
+  }
+
+  /*
+   * The pager and the caption, which sit under the board and were the last two
+   * things still at desktop size. "Previous page" and "Next page" at 16px are
+   * two lines each on a 223px row, so the three controls read as a block of
+   * wrapped words rather than a row.
+   */
+  .pager {
+    gap: var(--space-2);
+  }
+
+  .pager button {
+    font-size: 0.55rem;
+    padding: 3px 6px;
+  }
+
+  .pageOf {
+    font-size: 0.55rem;
+  }
+
+  /*
+   * The caption belongs to the table, so it inherits the scroller the table
+   * became and was being cut off at the panel's edge rather than wrapping.
+   */
+  .caption {
+    font-size: 0.55rem;
+    padding-top: var(--space-2);
+    white-space: normal;
+  }
+}

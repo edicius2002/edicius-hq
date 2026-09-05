@@ -339,3 +339,88 @@
   height: 0;
   border-top: 1px dotted var(--color-border);
 }
+
+/*
+ * The plot on a phone, and the same reasoning as `DepartureChart.module.css` —
+ * see the long note there.
+ *
+ * The figure is not made into a horizontal scroller. Both of these charts carry
+ * their own crosshair on a horizontal drag, and this one is drawn inside the
+ * same SVG so it can never fall out of step with the series; a scroll container
+ * around that takes the gesture away from the chart. The drawing fills its box
+ * and the axis type is raised instead, in the SVG's own units, so it scales
+ * with everything around it.
+ */
+@media (max-width: 640px) {
+  /* By class, for the specificity reason spelled out in `DepartureChart`. */
+  .axis,
+  .tagText,
+  .axisNote {
+    font-size: 28px;
+  }
+
+  /*
+   * The prose under the plot goes, and it is what was squeezing the plot.
+   *
+   * Measured at a 360px viewport: this figure gets 220px, and of that the
+   * legend took 80 and the readout's placeholder sentence 70 — so the chart
+   * itself was flex-shrunk to **49px**, against the 83 its own aspect ratio
+   * asks for at this width. The two blocks of text were costing three times
+   * the height of the thing they describe.
+   *
+   * `.hint` is the sentence that stands in for a reading before there is one
+   * ("Point at the chart… to read a day"); the live readout beside it is kept,
+   * because that is the chart answering. `.legend` names the marks, which a
+   * reader on a phone can get from the crosshair instead — every mark it
+   * labels prints its own figure when touched.
+   *
+   * `min-height` keeps the reservation the readout exists for. The note above
+   * it is right that a strip appearing on hover would shove the flight table
+   * down the page; one line of it is reserved here so that stays true without
+   * the paragraph.
+   */
+  .hint {
+    display: none;
+  }
+
+  .legend {
+    display: none;
+  }
+
+  /*
+   * The readout is laid over the plot instead of reserving a strip under it.
+   *
+   * A reserved strip was the right answer at desktop width — the note above it
+   * explains that a readout appearing on hover would shove the flight table
+   * down the page every time the pointer crossed the chart — and here the strip
+   * cost 23px of a 125px box, which is 23px the drawing could have had.
+   * Overlaid it costs nothing when there is no reading, and still cannot move
+   * anything below it when there is.
+   *
+   * Top-left because that is where the plot has room: the ink starts 36 units
+   * down the `viewBox`, under the highest gridline, and the price plate keeps
+   * the left margin clear of the series. `pointer-events: none` so it never
+   * takes a touch meant for the crosshair underneath it.
+   */
+  .readout {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    margin: 0;
+    min-height: 0;
+    pointer-events: none;
+  }
+
+  .figure {
+    position: relative;
+  }
+
+  /*
+   * Right-aligned labels get less, for the reason spelled out in
+   * `DepartureChart.module.css`: they sit in the price plate's margin rather
+   * than in a gap, and at 28 units they run out of the left of the `viewBox`.
+   */
+  .tagEnd {
+    font-size: 18px;
+  }
+}

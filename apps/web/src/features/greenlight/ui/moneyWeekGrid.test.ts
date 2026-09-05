@@ -282,4 +282,58 @@ describe('the widths the columns are given up at', () => {
   it('still holds three months and four weeks at the window it was asked for', () => {
     expect(windowFor(3)).toBeLessThanOrEqual(1536);
   });
+
+  /*
+   * The phone step, which reads like a contradiction of the 1116px rule above
+   * and is not. Every width in this block prices a month cell at four week
+   * cards. Below 601px the weeks are already single file, so the cell holds
+   * one — and two cells of one card each are a quarter of what two cells of
+   * four cost. One month per row below 640px was the 1116px rule outliving its
+   * own premise, not a width that had been measured.
+   */
+  it('takes the second month column back once a cell holds one card, not four', () => {
+    const cellFloor = FLOOR_TRACK_PX;
+
+    expect(FLOOR_CELL_PX).toBeCloseTo(4 * cellFloor, 1);
+    // Two cells and the one gutter between them, against the list a 360px
+    // phone leaves: 223px, measured in the drawer shell where there is no
+    // sidebar to subtract.
+    expect(2 * cellFloor + GUTTER_PX).toBeLessThanOrEqual(223);
+    expect(trackCount(ruleIn(media(640), 'list'))).toBe(2);
+  });
+
+  it('matches the width at which the shell drops its top row', () => {
+    // 640 is `NARROW_QUERY` in `useIsNarrow.ts`. The list is given its width by
+    // the shell, so the two have to name the same number; `narrowBreakpoint`
+    // guards the other side of the same seam.
+    expect(CSS).toContain('@media (max-width: 640px)');
+  });
+});
+
+describe('the month heading at two columns on a phone', () => {
+  /*
+   * `.monthTitle` is `minmax(0, 1fr) auto`: the month, then its total. `auto`
+   * is sized to the total, and in a 101px box the total took 89px — the
+   * month's track collapsed to 1.7px and the name printed over the figure. A
+   * `1fr` track goes to zero, which is what `minmax(0, ...)` promises.
+   */
+  it('stacks the month over its total rather than sharing a line', () => {
+    expect(trackCount(ruleIn(media(640), 'monthTitle'))).toBe(1);
+  });
+
+  it('puts the total on its own row, left aligned under the month', () => {
+    const total = /\._monthTitle_[0-9a-z]+ strong\s*\{([^}]*)\}/.exec(media(640))?.[1] ?? '';
+
+    expect(total, 'the narrow block must place the total').not.toBe('');
+    expect(total).toMatch(/grid-row:\s*2/);
+    expect(total).toMatch(/justify-self:\s*start/);
+  });
+
+  it('keeps every heading the same number of lines, which is what levels the row', () => {
+    // The base rule's note asks for a fixed line count so that boxes sharing a
+    // row start their week cards level. Three lines keeps that as well as two
+    // did — what breaks it is a heading that wraps a different number of times
+    // per box. So the chips must be pinned to a row, not left to flow.
+    expect(ruleIn(media(640), 'toolChips')).toMatch(/grid-row:\s*3/);
+  });
 });

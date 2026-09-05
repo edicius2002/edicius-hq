@@ -334,3 +334,55 @@
   line-height: 1.55;
   color: var(--color-muted);
 }
+
+/*
+ * The strip on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * **A grid, not the wrapping flex it looks like.** `.figures` is declared
+ * `flex-wrap: wrap` at the top of this file and set back to `nowrap` further
+ * down, because eight figures on one line is what the wide strip is for. With
+ * eight items on a single line in a 223px box every one of them shrank, and a
+ * `flex-shrink` has no floor once the content can fold: measured before this
+ * rule, each figure was 8px wide and up to 422px tall, printing one character
+ * per line.
+ *
+ * An earlier attempt set `flex: 1 1 45%` on the children to break the line
+ * after the second. It could not work, and it is worth recording which box was
+ * the wrong one to change: a basis only decides where a line *breaks*, and a
+ * `nowrap` container never breaks one. Naming the tracks settles it instead —
+ * two of them, so a row is a pair and nothing has to shrink to fit.
+ *
+ * The type comes down across the whole box with it. These sizes were chosen
+ * against a strip that ran the width of the page; at a quarter of that width
+ * the heading was the largest thing on screen and the figures were set larger
+ * than the table underneath them.
+ */
+@media (max-width: 640px) {
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pair {
+    font-size: 0.66rem;
+  }
+
+  .when,
+  .cities,
+  .note {
+    font-size: 0.55rem;
+  }
+
+  .figures dt {
+    font-size: 0.5rem;
+  }
+
+  .figures dd {
+    font-size: 0.62rem;
+  }
+
+  /* The cheapest fare keeps its emphasis, at the scale of the box it is in. */
+  .big {
+    font-size: 0.68rem;
+  }
+}

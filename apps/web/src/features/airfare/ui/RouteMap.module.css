@@ -524,3 +524,37 @@
     animation: none;
   }
 }
+
+/*
+ * The stage on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * **The 710px above is load-bearing and stays.** It is not a look: it is the
+ * height that lets ten watched routes stand beside the map without the list
+ * scrolling, and `routesScroll.test` derives that count from this very number
+ * — `a-taller-row-is-four-more-routes`. Lowering it would quietly cost four
+ * rows on the desktop this app is mostly used on.
+ *
+ * None of that reasoning survives the phone, because there is no row. Below
+ * this width the map and the watchlist are stacked, so the stage is not
+ * holding a list open beside it — it is only holding itself, and at 710px in a
+ * 740px viewport it was a full screen of globe with `touch-action: none`,
+ * which is also a screen the page cannot be scrolled through by dragging.
+ *
+ * 260px, and it is derived from the globe rather than from the viewport. The
+ * projection fits the sphere to the smaller of the stage's two sides, so at a
+ * 222px-wide stage the disc is drawn 199px across however tall the box is —
+ * measured off the canvas pixels, not estimated. A 380px box was tried first
+ * and left 179px of empty stage under a 199px globe. 260px keeps the width as
+ * the limiting side, so the disc is unchanged, and spends the remaining ~30px
+ * a side on the airport labels that sit against its edge.
+ *
+ * Retune by measuring the disc, not the box: read the painted extent off the
+ * canvas and keep this at least that plus room for the edge labels. Drop below
+ * the stage's own width and the height becomes the limiting side, which shrinks
+ * the globe rather than the padding around it.
+ */
+@media (max-width: 640px) {
+  .stage {
+    min-height: 260px;
+  }
+}

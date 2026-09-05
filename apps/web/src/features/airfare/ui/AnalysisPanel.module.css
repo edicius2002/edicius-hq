@@ -328,3 +328,311 @@
   grid-column: 3;
   min-width: 0;
 }
+
+/*
+ * The phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`, the width at which
+ * the shell drops its top row; this panel is given its width by that shell.
+ *
+ * **This block is the single largest cause of Airfare's overflow.** Measured at
+ * a 360px viewport before it: `.head` resolved to `0px 333.475px 0px`. The two
+ * `fr` columns had collapsed to nothing — the title printed into a zero-width
+ * box and `.chartMeta` sat at x=424, off the screen entirely — while the `auto`
+ * middle column took 333px for a `.switch` that wanted 452px and could not
+ * shrink. The page came to 691px in a 360px viewport, and 346px of that is
+ * this row.
+ *
+ * The `fr` columns are not at fault; `auto` beside them is. An `auto` track is
+ * sized to its content's minimum, and its content here declares `flex: 0 0
+ * auto` — "never shrinks and never grows". Two tracks that can go to zero
+ * beside one that cannot is a row with exactly one possible outcome.
+ *
+ * The desktop reasoning behind all three is still sound and untouched: the
+ * `0.8fr`/`1.2fr` split places the pill a little left of centre, and the fixed
+ * switch keeps the two chart names from shifting when the period fold opens
+ * beside them. Neither survives a 223px panel, and neither is asked to.
+ */
+@media (max-width: 640px) {
+  /*
+   * One thing per row. The title is the widest and gets its own line rather
+   * than a share of a line, which is what it had been given and what it could
+   * not use.
+   */
+  .head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .title,
+  .switches,
+  .chartMeta {
+    grid-column: 1;
+  }
+
+  /*
+   * Same reduction, and the same reason, as `.panelTitle` in
+   * `AirfarePage.module.css`: this heading is that one's twin and only carries
+   * its own class because the component moved. At 0.95rem — 19px here —
+   * "ARI → SCL · March 2027" took two lines and 57px of a 223px panel.
+   */
+  .title {
+    font-size: 0.66rem;
+  }
+
+  .chartMeta {
+    justify-content: start;
+    /*
+     * The flight count and the frame stepper, which sit at the chart's top-left
+     * once this head is stacked. They inherit the page's 20px and were the
+     * largest type in the panel — larger than its heading — for what is a
+     * footnote about the frame.
+     */
+    font-size: 0.5rem;
+  }
+
+  /*
+   * The switch may shrink here. `0 0 auto` exists so the chart names hold
+   * still while the fold opens to their right; at this width the fold no
+   * longer opens to their right (see below), so the reason has gone with it.
+   */
+  .switch {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .switch button {
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 0.62rem;
+  }
+
+  /*
+   * The names wrap now, and the ghost stack has to be told. `1lh` reserves
+   * exactly one line, which was true while every name was `nowrap`; with two
+   * lines possible the row must size to the tallest name instead, or the
+   * stack clips the very name it exists to reserve room for.
+   */
+  .nameLive,
+  .nameGhost {
+    white-space: normal;
+  }
+
+  .names {
+    grid-auto-rows: auto;
+    min-width: 0;
+  }
+
+  /*
+   * The ghost names are dropped here, and this is what narrows the second
+   * button.
+   *
+   * That stack exists so the button cannot change width when the name inside
+   * it changes: all four names occupy `1 / 1` and the hidden ones hold the box
+   * open at the widest. The widest is "Flights and cheapest per date" — 170px
+   * at 10px type against a 218px row — so on a phone the reserve was costing
+   * more than the button was worth, and folding it onto two lines was the only
+   * way it fit.
+   *
+   * Showing only the live name is what lets the button hold one line instead of
+   * two. It does not make the button jump when the name changes, which is the
+   * thing the ghosts are there to prevent: the two buttons are `flex: 1 1 0`
+   * here, so each is half of the row whatever is written in it, and the reserve
+   * has nothing left to do.
+   */
+  .nameGhost {
+    display: none;
+  }
+
+  /*
+   * The fold opens downward instead of rightward. At `left: 100%` it opened
+   * past the panel's edge and off the screen — measured at x=527 to 691 on a
+   * 360px viewport, which is the whole control invisible. Anchored to the
+   * switch's left edge and its bottom, it opens into the panel. The clip-path
+   * transition is unchanged and still runs, so nothing about how it reveals
+   * itself changes — only which way.
+   */
+  /*
+   * The fold is taken out of absolute positioning here and put back in flow.
+   *
+   * At a desktop width it opens rightward out of the switch's side, which is
+   * why it is absolute: it borrows space the row already has. Neither half of
+   * that survives this width. Opening rightward puts it off the screen — it
+   * measured x=527 to 691 on a 360px viewport — and opening downward while
+   * still absolute lays it straight over the flight count in the row beneath,
+   * which is what an earlier version of this rule did.
+   *
+   * In flow it takes its own height when open and none when shut, so nothing
+   * is covered either way. `height` rather than `display: none` so the control
+   * keeps the `inert` and `aria-hidden` contract the component sets, and the
+   * open state stays a single class.
+   */
+  .periodFold {
+    position: static;
+    height: 0;
+    overflow: hidden;
+    clip-path: none;
+  }
+
+  .periodOpen {
+    height: auto;
+    clip-path: none;
+  }
+}
+
+/*
+ * The chart box on a phone, and only its floor moves.
+ *
+ * The affine rule above is the part worth keeping: chart B's plot is a fixed
+ * proportion of the width it is given while its chrome is a constant, so the
+ * height has to track the width and no single rem is right at two panel
+ * widths. `calc(40.5cqw + 118px)` still says that here.
+ *
+ * What does not carry over is the floor. At a 223px panel the formula asks for
+ * 208px and the 23rem floor — 460px, because a rem is 20px in this app —
+ * overrode it with more than twice that, on a viewport 740px tall. The floor
+ * was measured against a desktop panel and is simply not about this one.
+ *
+ * 11rem is 220px, just above what the formula already wanted, so the box is
+ * sized by the rule rather than by the clamp and the ceiling never binds.
+ */
+@media (max-width: 640px) {
+  /*
+   * The box is sized by its content here rather than by the affine rule.
+   *
+   * That rule keeps a fixed height so that switching charts does not move the
+   * flight table below — chart A stood 719px and chart B 869 at a desktop
+   * panel, a 150px jump. At 223px the two are 90px and 83px, seven apart, so
+   * the jump it guards against has all but gone with the width.
+   *
+   * What the fixed height was costing instead: the plot is drawn to its own
+   * aspect from the width it is given, so a taller box does not make a taller
+   * drawing — it letterboxes it. Measured with the legend and the hint removed,
+   * the box stood at 220px with the drawing painted in a 73px band and 114px
+   * of empty space around it.
+   */
+  .body {
+    /*
+     * Definite, not `auto`. The figure inside is `flex: 1 1 0` — it spends a
+     * height it is given rather than asking for one — so `auto` collapsed this
+     * box to zero and took the plot with it. Measured that way: body 0, and the
+     * price chart's svg 0.
+     *
+     * 6.25rem is 125px, which is the drawing plus the readout strip under it:
+     * the departure plot is 90px at this width and the price plot 83, and the
+     * reserved readout is 23. Anything more is letterboxing, which is what the
+     * 220px this used to hold turned out to be — 114px of empty space inside
+     * the svg, because a plot drawn to its own aspect from its width does not
+     * get taller when its box does.
+     */
+    height: 6.25rem;
+  }
+}
+
+/*
+ * The chart switch and the plot, both on the same phone step as the block
+ * above. Separate block only because they are a different subject.
+ */
+@media (max-width: 640px) {
+  /*
+   * The switch was 71px tall for two options: at 12.4px the longer name wrapped
+   * onto three lines and the pill grew to hold them. Smaller type wraps it onto
+   * two and takes the control back to about 45px — height this panel spends on
+   * the plot instead.
+   */
+  /*
+   * The chart switch, sized so its first name holds a line.
+   *
+   * Measured unwrapped at 10px: "How the price moved" is 111px and chart B's
+   * widest name — "Flights and cheapest per date", the longest of the four its
+   * stack reserves for — is 170px. The switch has 214px inside its padding for
+   * both buttons, so **the two cannot both be one line at any readable size**:
+   * fitting the 170px name in half of that would take about 5.7px of type.
+   *
+   * So the first button is given a line and the second is allowed to wrap.
+   * `nowrap` and `flex: 0 0 auto` are what guarantee it: content width, never
+   * squeezed by its neighbour. At 0.44rem its text is 98px and the button 106,
+   * which leaves the stack beside it the rest to fold into. The control comes
+   * down from three lines to two, and from 59px tall to about 36.
+   */
+  .switch button {
+    font-size: 0.35rem;
+    padding: 2px 3px;
+    /* The pill is drawn around one line of type; 1.5 leaves 6px of it unused
+       above and below every label. */
+    line-height: 1.25;
+  }
+
+  /*
+   * The second button takes whatever the first leaves, rather than shrinking
+   * to its own smallest line. Left to itself it settled at 69px and folded its
+   * widest name onto three lines while 109px of the row sat unused beside it.
+   */
+  /*
+   * The second option is the width of what it says; the first takes the rest.
+   *
+   * A zero basis (`1 1 0`) split the line evenly, which handed "Flights seen"
+   * 110px for a name that needs about 70 and padded it out with space it had
+   * no use for. Sizing both to their content instead fixed that and left ~45px
+   * of empty pill to their right, because the pill cannot shrink to the pair:
+   * with the line allowed to wrap, its intrinsic width is the sum of *all
+   * three* children — the two buttons and the period fold, 275px — clamped to
+   * the 223 the panel gives.
+   *
+   * So the slack goes to the first button rather than to the border. The
+   * result is the proportion the control should have had: the longer name gets
+   * the longer half, and neither is padded for nothing.
+   */
+  .switch > button {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .switch > button:first-of-type {
+    flex: 1 1 auto;
+    white-space: nowrap;
+  }
+
+  /*
+   * Tighter than the desktop pill, which is drawn around 0.72rem type — and
+   * allowed to wrap, which is what gives the fold below a line of its own.
+   *
+   * Putting the fold back in flow made it a *third column* of this row rather
+   * than a row under it: measured, it took 39px of the 222 and left the second
+   * name folding onto three lines while the width it needed sat beside it.
+   * With the line allowed to break and the fold basing at 100%, the buttons
+   * share the first line and the fold takes the second only when it is open.
+   */
+  /*
+   * One row: the two chart names on the left, the period control pushed to the
+   * right, nothing wrapping.
+   *
+   * **The type is what pays for it, and the sum is why.** Measured unwrapped at
+   * 10px: "How the price moved" is 111px, the live second name 70px, and the
+   * three period buttons 70px between them. Add the chrome — eight buttons'
+   * worth of padding, the gaps, two pill borders — and one line costs roughly
+   * `25.1 x fontSize + 44`. Against the 218px this panel gives, that solves to
+   * about 6.9px of type. There is no arrangement of these five labels that
+   * fits one row at a larger size; the only other lever is shorter words, and
+   * those are constants in the component.
+   */
+  .switch {
+    padding: 2px;
+    gap: 2px;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+  }
+
+  .periodFold {
+    /*
+     * `flex`, not the `block` it is at desktop width. Its child is an
+     * `inline-flex` pill, and an inline child of a block sits on a line box
+     * whose height comes from the inherited `line-height` — 31px around a 23px
+     * pill, measured. As a flex parent there is no line box and the fold is
+     * the height of what is in it.
+     */
+    display: flex;
+    /* Hard right, so the two controls read as left and right of one row
+       rather than as three things in a queue. */
+    margin-inline-start: auto;
+    flex: 0 0 auto;
+  }
+}

@@ -257,3 +257,31 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/*
+ * Panel headings on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * 0.95rem is 19px here, and it was chosen against a panel around 1100px wide.
+ * At 223px the same heading is a fifth of the panel and wraps — "Watched
+ * routes" onto two lines, "Flights seen · March 2027" onto two — so each panel
+ * opened with two lines of chrome before its content. The heading names the
+ * panel; at this width it does not also need to be the largest thing in it.
+ */
+@media (max-width: 640px) {
+  .panelTitle {
+    margin-block-end: var(--space-2);
+    font-size: 0.66rem;
+  }
+
+  /*
+   * And the control beside it, which is what decides whether the heading gets
+   * one line or two. "Add route" at 16px is a 103px button; against a 223px
+   * panel that leaves the heading 110px for a string that needs 111, so
+   * "Watched routes" wrapped by a single pixel and cost the panel 20px of
+   * height for it.
+   */
+  .panelHead button {
+    font-size: 0.62rem;
+    padding: var(--space-1) var(--space-2);
+  }
+}

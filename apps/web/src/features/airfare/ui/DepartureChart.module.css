@@ -664,3 +664,114 @@
 .noteGhost {
   visibility: hidden;
 }
+
+/*
+ * The plot on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * **This chart already pans and zooms itself, and that is the thing to protect.**
+ * It holds a `viewport`, drags it with `DRAG_SLOP` to tell a drag from a click,
+ * takes the wheel, and takes arrow keys through `KEY_PAN` and `KEY_ZOOM` — the
+ * same model the Investing chart uses. An earlier attempt here wrapped the
+ * figure in `overflow-x: auto` with a `min-width` on the chart, which read as a
+ * fix and was not: it made the drawing wider than its box, so a drag moved the
+ * *picture* instead of the frame, and the chart's own gesture had to compete
+ * with a scroll container for the same finger. Measured after removing it: a
+ * wheel notch takes the axis from 01/03–31/03 to 01/03–21/03, which is the
+ * chart doing its own zooming again.
+ *
+ * So the drawing fills its box, and legibility is bought where it is actually
+ * lost. The `viewBox` is 760 units against a 223px panel, a scale of 0.29, and
+ * the axis type is authored at 9 units — 2.6 device pixels. These are user
+ * units, so raising them here scales with everything else and costs no layout.
+ * 20 units lands near 5.9px.
+ *
+ * The ceiling on that number is collision, not taste: this axis drops a label
+ * whose neighbour comes too close, and that rule is written in units against
+ * the glyph width it expects. Raise this and check the axis still reads at the
+ * widest frame, which is what `01/03 … 31/03` unzoomed is for.
+ */
+@media (max-width: 640px) {
+  /*
+   * Named by class, not by element. These are CSS-module class selectors and
+   * they beat the bare `text` selector a first attempt used, which is why that
+   * one silently did nothing — the chart's own `.axis { font-size: 9px }` won
+   * on specificity and the labels stayed at 2.6 device pixels.
+   */
+  .axis,
+  .endText,
+  .tagText,
+  .sourceLabel {
+    font-size: 28px;
+  }
+
+  /*
+   * Except anything right-aligned, which has a margin rather than a gap to
+   * live in.
+   *
+   * The price plate's column is `marginForPrices(PRICE_GAP)` — about 70 units,
+   * sized for 9-unit type. At 28 the figures measured 98 units wide: they
+   * started at -22, off the left edge of the `viewBox` entirely, and ran to 76,
+   * which is inside the plot. 18 units puts them at about 63 and leaves the
+   * margin a little air. The date labels below have no such wall, only each
+   * other, so they keep the larger size — measured with no overlapping pair at
+   * the widest frame this chart draws.
+   *
+   * Ordered after the rule above because both are single classes and the later
+   * one wins.
+   */
+  .tagEnd {
+    font-size: 18px;
+  }
+
+  /*
+   * The x axis, pushed clear of the plot it labels.
+   *
+   * Its baseline is a constant in the component — `AXIS_BASELINE` is
+   * `PLOT_BOTTOM + 19` — and it was chosen for 9-unit type. Tripling the
+   * glyphs left the baseline where it was, so the labels grew *upward* into
+   * the chart: measured, their tops sat at 258 against a plot floor of 266,
+   * eight units inside it. Ten units down puts them at 268, just clear, with
+   * their descenders at 300 inside a 308-unit box.
+   *
+   * A transform rather than a new `y`: the `y` belongs to the component, and
+   * two places deciding one baseline is how they drift apart.
+   */
+  .axis.tagMiddle {
+    transform: translateY(10px);
+  }
+
+  /*
+   * And the note under the axis goes, because there is no longer room for it.
+   *
+   * `SOURCE_BASELINE` is `AXIS_BASELINE + 16`, which fits a 9-unit caption
+   * under a 9-unit axis and cannot fit a 28-unit one under a 28-unit one — at
+   * this size the two overlap whatever is done with them, and the box has no
+   * spare height to give. Of the two, the axis is the data and the caption is
+   * prose repeating what the chart's own label already says.
+   *
+   * The trade to revisit if this is wrong: keeping the caption means taking
+   * the axis back to about 18 units, which is 5.3px on screen instead of 8.2.
+   */
+  .sourceLabel {
+    display: none;
+  }
+
+  /*
+   * The counter, which is the largest thing left in this panel and should be
+   * the smallest. `.chartMeta` sets 0.5rem on the row, but these two set their
+   * own size and were inheriting nothing: "103 flights" was still drawing at
+   * 19px and the frame stepper at 15.2px, against a panel heading of 13.2.
+   */
+  .window {
+    font-size: 0.5rem;
+  }
+
+  .steps {
+    font-size: 0.5rem;
+  }
+
+  .steps button {
+    width: 16px;
+    height: 16px;
+  }
+}

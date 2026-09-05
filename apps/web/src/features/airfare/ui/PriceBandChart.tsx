@@ -18,6 +18,7 @@ import {
   type TagAnchor,
 } from '@/features/airfare/lib/crosshair';
 import { NO_VALUE, formatMoney } from '@/shared/lib/money';
+import { useElementSize } from '@/shared/lib/useElementSize';
 
 import styles from './PriceBandChart.module.css';
 
@@ -50,6 +51,39 @@ const VIEW = {
   pad: { top: 14, right: 16, bottom: 48, left: marginForPrices(PRICE_GAP) },
 };
 
+/**
+ * The horizontal units this chart is drawn in when its box is narrow.
+ *
+ * **Only the width changes, and that is the whole trick.** Everything below is
+ * derived from `VIEW.height` and `VIEW.pad.bottom`, so a narrower view leaves
+ * the vertical geometry — the plot floor, the rail, the axis plates — exactly
+ * where it was. What it changes is the scale the browser draws at, because the
+ * same pixels now carry fewer units.
+ *
+ * Measured on a 360px phone before this existed: the figure is 223px wide, so
+ * 760 units mapped at 0.293 and the ink stood 73px tall inside a 125px box.
+ * The box was not the constraint and never had been — a plot drawn to its own
+ * aspect from its width does not get taller when its box does. 505 units map
+ * the same 223px at 0.442, which draws the ink at about 110px: half again as
+ * large, in the box it already had.
+ *
+ * 505 is derived from that box. The drawing is `VIEW.height` units tall, so it
+ * fills a 125px box when `223 / width = 125 / 284` — width 506, rounded down so
+ * the height binds a pixel before the width does and nothing is letterboxed
+ * sideways.
+ */
+const COMPACT_VIEW_WIDTH = 505;
+
+/**
+ * The width below which the compact geometry is used, in CSS pixels of figure.
+ *
+ * Not a viewport breakpoint: this chart is given its width by whatever panel
+ * holds it, and the question here is only ever "how many pixels do I have".
+ * 400 sits above the 223px a 360px phone leaves and below the ~700px the
+ * narrowest desktop column gives.
+ */
+const COMPACT_BELOW_PX = 400;
+
 const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
 /** Where a period whose boards came back empty is marked, just under the plot floor. */
 const RAIL_Y = PLOT_BOTTOM + 7;
@@ -69,6 +103,20 @@ const AXIS_BASELINE = VIEW.height - 4;
  * the next.
  */
 const LABEL_MIN_SPACING = 90;
+
+/**
+ * The same rule at the compact geometry, where the labels are drawn larger.
+ *
+ * **This number tracks a font size in the stylesheet, and the two have to move
+ * together.** `.axis` is 10 units at desktop and 18 in the narrow block of
+ * `PriceBandChart.module.css`, so a label is 1.8x the width it was; a spacing
+ * left at 90 lets two of them overlap, which is what it did — measured on a
+ * 360px phone, `06-19` and `07-07` printed into each other. 90 x 1.8 is 162.
+ *
+ * Retune it the same way it was derived: a label's own width and a little air,
+ * at whatever size that stylesheet is setting.
+ */
+const COMPACT_LABEL_MIN_SPACING = 162;
 
 /**
  * The anchor, as a class rather than as a `text-anchor` attribute.
@@ -169,6 +217,24 @@ export function PriceBandChart({
   const help = useId();
   const status = useId();
 
+  /*
+   * The figure measures itself and picks its horizontal units from what it
+   * finds — see `COMPACT_VIEW_WIDTH`.
+   *
+   * Measured rather than handed a breakpoint, because the question this answers
+   * is "how many pixels do I have", and the panel that holds this chart is not
+   * the viewport. It also means the chart is right at every width rather than
+   * at two.
+   *
+   * Zero is the width before the first measurement, and in jsdom it is the
+   * width always — `ResizeObserver` is stubbed there — so the desktop geometry
+   * is what every existing test keeps seeing.
+   */
+  const [frame, frameSize] = useElementSize<HTMLElement>();
+  const compact = frameSize.width > 0 && frameSize.width < COMPACT_BELOW_PX;
+  const viewWidth = compact ? COMPACT_VIEW_WIDTH : VIEW.width;
+  const labelMinSpacing = compact ? COMPACT_LABEL_MIN_SPACING : LABEL_MIN_SPACING;
+
   const geometry = useMemo(() => {
     if (!span || ours.length + baseline.length === 0) return null;
     // Never anchored at zero: a fare that moved from 620 to 640 is a real
@@ -187,7 +253,7 @@ export function PriceBandChart({
       axis.order,
     );
     const inner = {
-      width: VIEW.width - VIEW.pad.left - VIEW.pad.right,
+      width: viewWidth - VIEW.pad.left - VIEW.pad.right,
       height: PLOT_BOTTOM - VIEW.pad.top,
     };
 
@@ -275,7 +341,7 @@ export function PriceBandChart({
     const labelled: string[] = [];
     let lastLabelX = Number.NEGATIVE_INFINITY;
     for (const key of keys) {
-      if (x(key) - lastLabelX < LABEL_MIN_SPACING) continue;
+      if (x(key) - lastLabelX < labelMinSpacing) continue;
       labelled.push(key);
       lastLabelX = x(key);
     }
@@ -284,7 +350,7 @@ export function PriceBandChart({
     // before it.
     const last = keys.at(-1);
     if (last !== undefined && labelled.at(-1) !== last) {
-      if (labelled.length > 0 && x(last) - x(labelled.at(-1)!) < LABEL_MIN_SPACING) labelled.pop();
+      if (labelled.length > 0 && x(last) - x(labelled.at(-1)!) < labelMinSpacing) labelled.pop();
       labelled.push(last);
     }
 
@@ -303,7 +369,7 @@ export function PriceBandChart({
       /** What was actually observed, as opposed to the frame it is drawn in. */
       observed: span,
     };
-  }, [span, ours, baseline, unsold, axis]);
+  }, [span, ours, baseline, unsold, axis, viewWidth, labelMinSpacing]);
 
   /*
    * The crosshair, resolved against the geometry that exists right now.
@@ -412,7 +478,7 @@ export function PriceBandChart({
     hairX,
     reading?.label ?? '',
     VIEW.pad.left,
-    VIEW.width - VIEW.pad.right,
+    viewWidth - VIEW.pad.right,
   );
 
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
@@ -449,10 +515,10 @@ export function PriceBandChart({
   };
 
   return (
-    <figure className={styles.figure}>
+    <figure className={styles.figure} ref={frame}>
       <svg
         className={styles.chart}
-        viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
+        viewBox={`0 0 ${viewWidth} ${VIEW.height}`}
         role="img"
         tabIndex={0}
         aria-label={accessibleName}
@@ -466,7 +532,7 @@ export function PriceBandChart({
           <g key={value}>
             <line
               x1={VIEW.pad.left}
-              x2={VIEW.width - VIEW.pad.right}
+              x2={viewWidth - VIEW.pad.right}
               y1={geometry.y(value)}
               y2={geometry.y(value)}
               className={styles.grid}
@@ -484,7 +550,7 @@ export function PriceBandChart({
         {/* The floor the empty-board marks hang under, so the rail is a place rather than loose glyphs. */}
         <line
           x1={VIEW.pad.left}
-          x2={VIEW.width - VIEW.pad.right}
+          x2={viewWidth - VIEW.pad.right}
           y1={PLOT_BOTTOM}
           y2={PLOT_BOTTOM}
           className={styles.floor}
@@ -578,7 +644,7 @@ export function PriceBandChart({
               <>
                 <line
                   x1={VIEW.pad.left}
-                  x2={VIEW.width - VIEW.pad.right}
+                  x2={viewWidth - VIEW.pad.right}
                   y1={hairY}
                   y2={hairY}
                   className={`${styles.hair}${fromBaseline ? ` ${styles.hairBaseline}` : ''}`}

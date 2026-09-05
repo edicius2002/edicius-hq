@@ -14,6 +14,25 @@
   background: transparent;
 }
 
+/*
+ * The side gutters go to a minimum on a phone.
+ *
+ * `--space-6` is 40px at this app's 125% root, so a 390px screen was spending
+ * 80px — a fifth of its width — on empty margin, on pages whose whole problem
+ * is horizontal room: a map that needs an ocean, a chart 250px wide, a canvas.
+ * `--space-3` is what the top bar already insets its own row by, so the content
+ * below starts on the line the chrome above it does rather than inside it.
+ *
+ * **Inline only.** Three of the five pages pull their top edge up with a
+ * negative `margin-block-start` sized against the block padding this rule
+ * leaves alone; cutting that here would drag them under the top bar.
+ */
+@media (max-width: 640px) {
+  .main {
+    padding-inline: var(--space-3);
+  }
+}
+
 .fallback {
   margin: 0;
   color: var(--color-muted);

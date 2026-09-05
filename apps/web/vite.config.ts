@@ -95,6 +95,14 @@ const CSS_INCLUDE = [
   // at phone scale. A viewport between the two numbers gets one answer and the
   // other layout, and jsdom evaluates neither.
   /FinancePage\.module\.css/,
+  // The eleventh, and the third side of the same seam as the tenth. The shell
+  // drops its side gutters at the width `NARROW_QUERY` hands the navigation to
+  // a dropdown, so the threshold now lives in three files that cannot see each
+  // other. `narrowBreakpoint.test` also checks that the narrow rule takes only
+  // the *inline* padding: four pages lift their top edge with a negative margin
+  // sized against the block padding, and cutting that would pull them under the
+  // top bar. jsdom evaluates neither the query nor the margin.
+  /AppShell\.module\.css/,
   /styles\/tokens\.css/,
 ];
 

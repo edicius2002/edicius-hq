@@ -168,12 +168,18 @@ and sign in on it, which is the thing being asked for.
 **What Funnel actually changes, and what it does not.** It is a narrower change than it
 sounds, and being specific about that is what makes the risk assessable:
 
-- **DNS.** Measured 2026-09-04: `pc.tail80c91b.ts.net` resolves to `100.113.213.106`
-  through MagicDNS on the home PC and answers `NXDOMAIN` on `8.8.8.8`. That is the
-  whole of "Failed to fetch" on a phone that has not joined the tailnet — the lookup
-  fails before TLS, before CORS, before the API is asked anything. Funnel publishes a
-  public record for that name, and that is the single thing standing between the
-  current state and a working phone.
+- **DNS, which is the whole of "Failed to fetch" on a phone outside the tailnet.** The
+  lookup fails before TLS, before CORS, before the API is asked anything. Measured on
+  `8.8.8.8`, and the record type matters enough that "NXDOMAIN" on its own is the wrong
+  summary: **with Funnel off** there is no `A` record at all and there is an `AAAA`
+  pointing at Tailscale's ingress (`2607:f740:f::67`, `::b31`), which the ingress does
+  not answer for while the mapping is tailnet-only. **With Funnel on** that inverts —
+  `A` becomes `209.177.145.192` and `209.177.145.97`, and the `AAAA` goes. So a phone
+  on an IPv4-only mobile network resolves the name only once Funnel is on, which is the
+  question the inversion answers and the reason it is written down rather than
+  summarised. MagicDNS is unaffected throughout and keeps answering `100.113.213.106`
+  on the home PC. Neither record is a tailnet-wide wildcard: an invented node name in
+  the same domain is `NXDOMAIN` in both states.
 - **Who terminates TLS.** Nobody new. Funnel's ingress forwards the TLS stream to
   `tailscaled` on the home PC, which holds the certificate and decrypts there. The
   paragraph in "What Tailscale and Vercel can see" survives intact, and so does the SSE
@@ -450,18 +456,20 @@ names and connection times, and nothing about what was asked for.
   keep-alives arrive on time and unbuffered. The same question applies to the fares
   collection stream (`routers/fares.py:1263`) and the tweets one
   (`routers/tweets.py:130`), which use the same framing.
-- **Does the site work from a phone?** Half answered, and the half that failed has a
-  measured cause rather than a suspicion. The owner tried to enrol a phone that had not
-  joined the tailnet on 2026-09-04 and the attempt answered `Failed to fetch`. That is
-  not CORS and not the passkey — `pc.tail80c91b.ts.net`
-  answers `NXDOMAIN` on `8.8.8.8` while resolving to `100.113.213.106` through MagicDNS
-  on the home PC, so the lookup fails before a request is made. The two ways out are
-  the two this document already names: join the tailnet on the phone, or
-  `npm run tailnet:funnel`. **What is still untested is the second half** — an actual
-  passkey enrolment and sign-in completed on a phone, over either transport. The
-  ceremony is the part with the most moving pieces (the RP ID, the platform
-  authenticator, the ten-minute code) and none of it has been exercised on a device
-  that is not this PC.
+- **Does the site work from a phone?** The transport is answered and measured; the
+  ceremony on the phone is the owner's report rather than a measurement here. The owner
+  tried to enrol a phone that had not joined the tailnet on 2026-09-04 and the attempt
+  answered `Failed to fetch` — not CORS and not the passkey, but the DNS lookup
+  described above. Funnel was turned on the next day and the public path was then
+  verified from this machine, forcing `curl --resolve` onto the Funnel ingress
+  addresses so MagicDNS could not answer instead: `GET /api/auth/session` returned
+  **401 through both ingress addresses** with a valid certificate in about 1.1s, and an
+  `OPTIONS /api/auth/login/options` carrying the Vercel origin returned 200 with a
+  matching `Access-Control-Allow-Origin`. That is the phone's exact path, taken from a
+  keyboard. The owner then reported the phone working. **What is still not measured
+  here is the WebAuthn ceremony itself** — the RP ID against a real platform
+  authenticator, the ten-minute code typed on a handset — which has been exercised by
+  the owner and by nothing this document can point at.
 
 Four things that were open in earlier drafts are not open any more, recorded here so
 the change is visible rather than silent.

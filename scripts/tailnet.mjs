@@ -96,7 +96,12 @@ function signedInCredentials() {
  * survives the API restarting under it. What is not legitimate is finding out
  * from a phone: a mapping pointed at a dead port answers 502 from `tailscaled`
  * with nothing in it that names this machine, which is a long way to travel to
- * learn that `node scripts/api.mjs serve` is not running.
+ * learn that `node scripts/api.mjs serve` is not running. Measured 2026-09-05,
+ * once with Funnel already on: uvicorn was down, `127.0.0.1:8000` refused the
+ * connection outright, and every path above it — the tailnet name and both
+ * public ingress addresses — answered `502 Bad Gateway` with `Content-Length:
+ * 0`. An empty 502 is the same answer a misconfigured mapping would give, which
+ * is exactly why this warning is worth its four lines.
  *
  * Any HTTP status counts, including the 401 that a signed-out `/api/health`
  * correctly returns — the question is whether something is listening, not

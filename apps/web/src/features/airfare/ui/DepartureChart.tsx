@@ -80,6 +80,7 @@ import {
   clampViewport,
   fullViewport,
   isFull,
+  MIN_VIEWPORT_MINUTES,
   panBy,
   spanFactorForWheel,
   visibleDays,
@@ -124,6 +125,21 @@ const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
 const LEFT = VIEW.pad.left;
 const RIGHT = VIEW.width - VIEW.pad.right;
 const TRACK = RIGHT - LEFT;
+
+/**
+ * An x on the plot as the fraction of the visible track `zoomAt` anchors on.
+ *
+ * One line, and it is here rather than written out at each call because there
+ * are now four zooms asking it — the wheel, the keys, the two fingers and the
+ * buttons — and a zoom that measures its anchor from the left of the *box*
+ * instead of the left of the track sails off the frame. `TRACK || 1` guards a
+ * degenerate viewBox rather than a real one: the constant above is fixed, and
+ * dividing by zero here would put every anchor at infinity.
+ */
+function anchorOf(x: number): number {
+  return (x - LEFT) / (TRACK || 1);
+}
+
 /** Where a departure date with no answer of any kind is marked, under the plot floor. */
 const RAIL_Y = PLOT_BOTTOM + 7;
 /*
@@ -205,7 +221,9 @@ const HELP =
   'Left and right arrow keys move one departure date at a time; up and down move through that ' +
   'date’s board by price, where there is a board to move through. Plus and minus close and open ' +
   'the frame around whatever the crosshair is on, zero returns to the whole period, and shift ' +
-  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer. ' +
+  'with left or right moves the frame along it. The wheel and a drag do the same with a pointer, ' +
+  'two fingers pinch to do it on a touchscreen, and the three buttons above the plot zoom out, ' +
+  'return to the whole period and zoom in without any gesture at all. ' +
   'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
   'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
   'plot does both. Where the airline that flies a mark has a booking search we can reach, that ' +
@@ -475,6 +493,16 @@ export function DepartureChart({
     [viewport, frameSpan],
   );
   const zoomed = !isFull(view, frameSpan);
+  /*
+   * Whether there is any frame left to close, which is the only thing the two
+   * new buttons need that `zoomed` does not already say. The floor is
+   * `clampViewport`'s and is stated in minutes, so it is asked in minutes here
+   * rather than turned into a scale; the half-minute is the same tolerance
+   * `isFull` keeps at the other end of the range, and for the same reason — the
+   * span arrives through a chain of multiplications and a button that stays lit
+   * on a frame that will not close is the page disagreeing with itself.
+   */
+  const atFloor = view.span <= Math.min(MIN_VIEWPORT_MINUTES, frameSpan) + 0.5;
 
   /*
    * The one way the zoom is written, so "nothing hidden" has one spelling.
@@ -536,8 +564,7 @@ export function DepartureChart({
       const at = pointerInView(box, VIEW, event.clientX, event.clientY);
       if (at === null) return;
       event.preventDefault();
-      const anchor = (at.x - LEFT) / (TRACK || 1);
-      put(zoomAt(held, frame, spanFactorForWheel(event.deltaY, event.deltaMode), anchor));
+      put(zoomAt(held, frame, spanFactorForWheel(event.deltaY, event.deltaMode), anchorOf(at.x)));
     };
 
     node.addEventListener('wheel', onWheel, { passive: false });
@@ -825,6 +852,52 @@ export function DepartureChart({
     null,
   );
 
+  /**
+   * Every finger currently on the plot, by `pointerId`.
+   *
+   * A pinch is the distance between two of them, and a `pointermove` carries
+   * only the one that moved — so the other one's last position has to be
+   * remembered somewhere or the distance cannot be computed at all. A `Map`
+   * rather than a pair of fields because pointer ids are whatever the platform
+   * hands out, they are not 0 and 1, and a third finger landing has to be
+   * something the chart can ignore rather than something that overwrites one of
+   * the two it is already following.
+   *
+   * A ref rather than state, like the drag beside it: nothing about where the
+   * fingers are is drawn, and re-rendering the plot on every `pointermove` to
+   * store a coordinate would be paying for a frame nobody sees.
+   */
+  const touches = useRef(new Map<number, { clientX: number; clientY: number }>());
+
+  /**
+   * The pinch in progress, or nothing.
+   *
+   * `from` is the viewport as it stood when the second finger landed and
+   * `distance` is how far apart the fingers were then, so every move is
+   * `distance / now` against that one baseline rather than a factor multiplied
+   * onto the last frame's. The drag beside it holds its `from` for exactly this
+   * reason and the reasoning is the same one squared: a span that accumulates
+   * multiplications never comes back to where it started when the hand does,
+   * and the reader sees a frame that drifts while they hold still.
+   *
+   * `anchor` is fixed at the midpoint the pinch began on, so the date under the
+   * middle of the two fingers is the one thing that does not move — the same
+   * promise the wheel makes about the date under the pointer.
+   *
+   * `applied` is what this gesture last actually wrote. It is what the finger
+   * that is *left* resumes panning from when the other one lifts: reading the
+   * rendered viewport there would be reading whatever the last commit happened
+   * to hold, and one uncommitted move is the difference between the frame
+   * staying still under the lift and jumping back to where the pinch began.
+   */
+  const pinch = useRef<{
+    pointers: [number, number];
+    distance: number;
+    anchor: number;
+    from: Viewport;
+    applied: Viewport;
+  } | null>(null);
+
   const priced = points.length + marks.filter((mark) => mark.price !== null).length;
   const notes = horizonNote(days, curve, horizonLoading, horizonError, priced, marks);
 
@@ -947,9 +1020,46 @@ export function DepartureChart({
 
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
+    // Before anything else, because the pinch's whole memory of where the other
+    // finger is sits in this map, and a move that returned early for any reason
+    // would leave it reading a coordinate the hand has left.
+    if (touches.current.has(event.pointerId)) {
+      touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    }
+
     const box = event.currentTarget.getBoundingClientRect();
     const at = pointerInView(box, VIEW, event.clientX, event.clientY);
     if (at === null) return;
+
+    /*
+     * Two fingers zoom, and they do it through the same `zoomAt` the wheel and
+     * the keys go through rather than through a second arithmetic of their own.
+     *
+     * Spread apart is in, which is the gesture every map and every photo on
+     * this reader's phone already uses, and it falls out of the ratio without a
+     * sign anywhere: `spanFactor` multiplies the span, the fingers moving apart
+     * makes `distance / spread` smaller than one, and a smaller span is a
+     * closer frame.
+     *
+     * A pinch does not move the crosshair and does not pan, and both are
+     * deliberate. The reading would flicker through twenty itineraries under a
+     * hand that is doing something else entirely, and a frame that panned as
+     * well would be answering two questions from one gesture — which is what
+     * the one-finger drag is for, and what the finger left over goes back to
+     * being the moment the other one lifts.
+     */
+    const pinching = pinch.current;
+    if (pinching !== null) {
+      const first = touches.current.get(pinching.pointers[0]);
+      const second = touches.current.get(pinching.pointers[1]);
+      if (first === undefined || second === undefined) return;
+      const spread = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+      if (spread <= 0) return;
+      const next = zoomAt(pinching.from, frameSpan, pinching.distance / spread, pinching.anchor);
+      pinching.applied = next;
+      write(next);
+      return;
+    }
 
     /*
      * A drag moves the frame and does not move the crosshair. Reading both from
@@ -1037,25 +1147,100 @@ export function DepartureChart({
    *
    * Only a primary press. A right-click opens the context menu and a middle
    * click is the platform's own scroll, and taking either would be this chart
-   * deciding what those buttons mean everywhere.
+   * deciding what those buttons mean everywhere. A finger is always primary, so
+   * this refuses nothing a touchscreen can send.
+   *
+   * **The second finger turns the pan into a pinch rather than restarting it.**
+   * The drag is dropped where it stands — the frame does not move on the way
+   * into the zoom — and the pinch takes the viewport the pan had reached as its
+   * own baseline, so a hand that goes from one finger to two mid-gesture sees
+   * one continuous frame rather than two.
    */
   const startDrag = (event: PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return;
+    touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const down = [...touches.current.entries()];
+    if (down.length === 2) {
+      const [[firstId, first], [secondId, second]] = down;
+      const box = event.currentTarget.getBoundingClientRect();
+      const middle = pointerInView(
+        box,
+        VIEW,
+        (first.clientX + second.clientX) / 2,
+        (first.clientY + second.clientY) / 2,
+      );
+      drag.current = null;
+      pinch.current = {
+        pointers: [firstId, secondId],
+        distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
+        // A midpoint the chart cannot place — which only happens in a box it
+        // cannot measure — closes the frame about its middle rather than
+        // refusing the gesture outright.
+        anchor: middle === null ? 0.5 : anchorOf(middle.x),
+        from: view,
+        applied: view,
+      };
+      return;
+    }
+
+    // A third finger is not a gesture this chart has, and it is not an excuse
+    // to abandon the two that are already working.
+    if (down.length !== 1) return;
     drag.current = {
       pointer: event.pointerId,
       clientX: event.clientX,
       from: view.start,
       moved: false,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
+  /*
+   * A finger lifting, which is the end of one gesture and sometimes the start
+   * of another.
+   *
+   * Lifting one of two hands the frame back to the one that is left, seated at
+   * where that finger actually is and at the viewport the pinch actually wrote.
+   * Anything else jumps: seated at the press that started the whole gesture,
+   * the first move after the lift pans the frame by the entire width of the
+   * pinch. It is seated as an unmoved drag rather than a moving one, so
+   * `DRAG_SLOP` has to be cleared again — a finger resting still while its
+   * partner leaves the glass should not drag the frame a pixel.
+   */
   const endDrag = (event: PointerEvent<SVGSVGElement>) => {
-    if (drag.current?.pointer !== event.pointerId) return;
-    drag.current = null;
+    touches.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
+    const pinching = pinch.current;
+    if (pinching !== null && pinching.pointers.includes(event.pointerId)) {
+      pinch.current = null;
+      const [left] = [...touches.current.entries()];
+      if (left !== undefined) {
+        const [pointer, at] = left;
+        drag.current = { pointer, clientX: at.clientX, from: pinching.applied.start, moved: false };
+      }
+      return;
+    }
+
+    if (drag.current?.pointer === event.pointerId) drag.current = null;
+  };
+
+  /**
+   * A zoom asked for by a control rather than by a hand on the plot.
+   *
+   * The keys and the two buttons above the plot share it because they share the
+   * one thing a gesture has and they do not: somewhere to anchor. A wheel and a
+   * pinch both name a point on the track by happening there; a `+` names
+   * nothing, so it closes the frame about the crosshair where there is one and
+   * about the middle where there is not. Closing about the middle regardless
+   * would carry whatever the reader had walked to towards an edge, and chasing
+   * it back is what the arrows are for.
+   */
+  const zoomFromControl = (spanFactor: number) => {
+    write(zoomAt(view, frameSpan, spanFactor, hair === null ? 0.5 : anchorOf(hair.x)));
   };
 
   /*
@@ -1108,16 +1293,15 @@ export function DepartureChart({
      * every browser uses for "back to normal", so none of the three has to be
      * learned.
      *
-     * **A keyboard zoom anchors on the crosshair where there is one.** The
-     * reader has already said what they are looking at by walking to it, and
-     * closing the frame about the middle instead would carry it towards an edge
-     * — the same reason the wheel anchors on the pointer.
+     * **A keyboard zoom anchors on the crosshair where there is one**, which is
+     * `zoomFromControl`'s business and is argued there: it is the same zoom the
+     * two buttons above the plot ask for, and one press and one click should
+     * not be able to disagree about where the frame closes.
      */
     if (event.key === '+' || event.key === '=' || event.key === '-' || event.key === '_') {
       event.preventDefault();
       const closer = event.key === '+' || event.key === '=';
-      const anchor = hair === null ? 0.5 : (hair.x - LEFT) / (TRACK || 1);
-      write(zoomAt(view, frameSpan, closer ? 1 / KEY_ZOOM : KEY_ZOOM, anchor));
+      zoomFromControl(closer ? 1 / KEY_ZOOM : KEY_ZOOM);
       return;
     }
     if (event.key === '0') {
@@ -1285,23 +1469,6 @@ export function DepartureChart({
         ) : null}
 
         {/*
-            The way back out of a zoom, beside the arrows that move the frame
-            because both are the same kind of control.
-
-            Always rendered and disabled when there is nothing to undo, rather
-            than appearing with the first wheel notch. A control that arrives
-            when the reader zooms would reflow the corner at the exact moment
-            they are watching the chart move, and a disabled button is the
-            honest reading anyway: this is a thing you can do, and there is
-            currently nothing to do it to.
-
-            The two words became a glyph, which is the whole of the size
-            reduction — `Reset zoom` set the width of this cluster while saying
-            what a return arrow already says, and the words survive where a
-            control's words have to: the accessible name, and the tooltip a
-            pointer finds.
-          */}
-        {/*
             The pin, beside the way out of a zoom, because both are things done
             to the frame rather than to the archive — and because this corner is
             where this chart already keeps its own controls.
@@ -1341,17 +1508,92 @@ export function DepartureChart({
           <span aria-hidden="true">&#9679;</span>
         </button>
 
-        <button
-          type="button"
-          className={styles.reset}
-          onClick={() => onViewportChange(null)}
-          disabled={!zoomed}
-          aria-label="Reset zoom"
-          title="Reset zoom"
-          data-testid="reset-zoom"
-        >
-          <span aria-hidden="true">&#8634;</span>
-        </button>
+        {/*
+            The zoom, as three controls in one group rather than as three
+            controls.
+
+            `Reset zoom` used to stand here alone, and alone it was a control a
+            touchscreen could never enable: it only ever zooms *out*, it is
+            disabled while there is nothing to undo, and until the pinch above
+            existed nothing a finger could do would ever give it something to
+            undo. The wheel and the `+`/`-` keys were the whole of the way in,
+            and a phone has neither.
+
+            **Out, back, in — which is the order and the shape the Finance
+            canvas already uses** for exactly this cluster. A reader who has
+            worked the money map should not have to learn a second zoom on this
+            page, so these are its labels, its ordering and its glyphs, at this
+            chart's own button size. Putting the reset *between* them is what
+            keeps the count at three controls rather than at four: it stops
+            being a lone thing in the corner and becomes the middle of the one
+            group that answers "how much of the period am I looking at".
+
+            **At every width, not only the narrow ones.** The gesture is what a
+            phone is short of, but the button is what a reader who does not know
+            the gesture is short of at any width — the same argument the pin
+            beside it already makes about the right-click, and the argument the
+            `+` and `-` keys make about the wheel. A cluster that appeared at
+            640px would also be a cluster that vanished from under a reader
+            rotating their phone, and this corner is already written to reflow
+            for nothing.
+
+            Each is disabled where it has nothing to do, like the two beside
+            them: `-` and the reset when the whole period is already on screen,
+            `+` at the hour `clampViewport` will not go under. A live button
+            that visibly does nothing is the thing this corner has consistently
+            refused.
+          */}
+        <div className={styles.zoom}>
+          <button
+            type="button"
+            className={styles.reset}
+            onClick={() => zoomFromControl(KEY_ZOOM)}
+            disabled={!zoomed}
+            aria-label="Zoom out"
+            title="Zoom out"
+            data-testid="zoom-out"
+          >
+            <span aria-hidden="true">&minus;</span>
+          </button>
+
+          {/*
+              Always rendered and disabled when there is nothing to undo, rather
+              than appearing with the first wheel notch. A control that arrives
+              when the reader zooms would reflow the corner at the exact moment
+              they are watching the chart move, and a disabled button is the
+              honest reading anyway: this is a thing you can do, and there is
+              currently nothing to do it to.
+
+              The two words became a glyph, which is the whole of the size
+              reduction — `Reset zoom` set the width of this cluster while
+              saying what a return arrow already says, and the words survive
+              where a control's words have to: the accessible name, and the
+              tooltip a pointer finds.
+            */}
+          <button
+            type="button"
+            className={styles.reset}
+            onClick={() => onViewportChange(null)}
+            disabled={!zoomed}
+            aria-label="Reset zoom"
+            title="Reset zoom"
+            data-testid="reset-zoom"
+          >
+            <span aria-hidden="true">&#8634;</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.reset}
+            onClick={() => zoomFromControl(1 / KEY_ZOOM)}
+            disabled={atFloor}
+            aria-label="Zoom in"
+            title="Zoom in"
+            data-testid="zoom-in"
+          >
+            <span aria-hidden="true">+</span>
+          </button>
+        </div>
       </div>
     </div>
   );

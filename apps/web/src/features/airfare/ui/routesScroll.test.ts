@@ -100,8 +100,30 @@ describe('the watchlist scrolls rather than growing the row it sits in', () => {
     expect(box).toMatch(/contain:\s*var\(--airfare-routes-contain/);
     expect(box).toMatch(/flex:\s*var\(--airfare-routes-flex/);
     expect(box).toMatch(/max-height:\s*var\(--airfare-routes-cap/);
-    expect(LIST).not.toMatch(/@media[^{]*width/);
     expect(LIST).not.toContain('1080');
+
+    /*
+     * Checked by subject rather than by absence.
+     *
+     * This used to read `expect(LIST).not.toMatch(/@media[^{]*width/)` — no
+     * width query in this file at all. That was a proxy for the real rule and
+     * it outgrew it: the drift being guarded against is a *second copy of the
+     * row's threshold*, not a media query as such, and the file now carries a
+     * phone block that sizes type and touches none of the mechanism. Banning
+     * the construct instead of the mistake would have meant either giving up
+     * that block or weakening the guard to nothing.
+     *
+     * So every width query here is read, and none of them may set the three
+     * custom properties the page owns or name the page's own breakpoint.
+     */
+    for (const block of LIST.matchAll(/@media ([^{]*)\{([\s\S]*?)\n\}/g)) {
+      expect(block[2], 'a media query here may not set the row mechanism').not.toMatch(
+        /--airfare-routes-/,
+      );
+      expect(block[1], 'a media query here may not restate the page breakpoint').not.toContain(
+        '1080',
+      );
+    }
   });
 
   it('leaves the scroller a scroller, with a floor of zero to shrink to', () => {

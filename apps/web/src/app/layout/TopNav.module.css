@@ -22,6 +22,42 @@
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--color-accent);
+  /* See `.status`: stacked, the two words cost the header 24px it does not
+     have to spend, and they cost it on every page at every width. */
+  white-space: nowrap;
+}
+
+/*
+ * The brand doubles as the drawer's trigger below the threshold. Styled back
+ * down to the `div` it replaces rather than up from a button, so the row looks
+ * the same either side of the breakpoint and only its behaviour changes.
+ */
+.brandButton {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  /*
+   * A point under the wide brand's 1.05rem, and the point buys slack rather
+   * than looks. On one line the row is brand + status + padding + gap; at
+   * 1.05rem that came to 345px against the 345px a 360px viewport leaves —
+   * fitting exactly, with nothing left for a longer status string. At 0.95rem
+   * the brand is ~140px and the row ~335px, so there are 10px to give.
+   */
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  /* The row is the only tall thing in the header, so the target is as tall as
+     the header lets it be rather than as tall as the word. */
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+.brandButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
 }
 
 .pageTitle {
@@ -29,6 +65,27 @@
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--color-text);
+}
+
+/*
+ * Out of the row, still in the tree.
+ *
+ * Three pages name their main section with `aria-labelledby="page-title"`, so
+ * this cannot be `display: none` — that would take the heading out of the
+ * accessibility tree along with the three names that point at it. The old
+ * `clip` pair is what the rest of this repo uses for the same job; see
+ * `ImportPanel.module.css`.
+ */
+.pageTitleHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .menuButton {
@@ -90,6 +147,68 @@
   color: var(--color-accent);
   background: var(--color-accent-soft);
   font-weight: 700;
+}
+
+/*
+ * The narrow branch.
+ *
+ * **640px is derived and lives in `useIsNarrow.ts` as `NARROW_QUERY`; the two
+ * must agree.** The row's `min-content` is 474px on Dashboard and 485px on
+ * Greenlight — brand, status, title and trigger, none of which shrink past
+ * their own text — against the 345px a 360px viewport leaves after the shell's
+ * padding, which is how the trigger came to sit at x=396 on a 360px screen.
+ * The threshold is in pixels because `--font-size-base: 125%` makes a rem 20px
+ * here; `40rem` would read 800px, not 640.
+ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.drawer {
+  position: fixed;
+  z-index: 31;
+  inset-block: 0;
+  inset-inline-start: 0;
+  /* Never the full width: the strip of scrim that stays uncovered is the
+     affordance that says the page is still behind this and how to get back. */
+  width: min(17rem, 78vw);
+  padding: var(--space-4) var(--space-3);
+  background: var(--color-surface);
+  border-inline-end: 1px solid var(--color-border);
+  box-shadow: 8px 0 28px var(--color-shadow);
+  overflow-y: auto;
+  animation: drawer-in 0.18s ease-out;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawer .navList {
+  gap: var(--space-2);
+}
+
+/*
+ * Full rows at a thumb's size. The dropdown's links are pointer targets beside
+ * a cursor; these are the only way to change page on a phone.
+ */
+.drawer .navLink {
+  padding: var(--space-3) var(--space-4);
+  font-size: 1rem;
+  /* 44px is the floor a touch target is usually held to, and the padding above
+     only reaches it for a single line of this type scale. Said outright so it
+     survives a change to either. */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }
 
 /*

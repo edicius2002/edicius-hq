@@ -464,3 +464,100 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/*
+ * Two month boxes to a row again on a phone — `two-months-to-a-row-again`.
+ *
+ * This looks like it contradicts the 1116px rule above it and does not, because
+ * the two are sizing different things. Every threshold above is derived from a
+ * month cell holding **four** week cards: `FLOOR_CELL_PX` is `4 x
+ * FLOOR_TRACK_PX`, which is why three columns need 1486px and two need 1116px.
+ * Below 601px `.weeks` is already single file, so a cell holds **one** card and
+ * its floor is `FLOOR_TRACK_PX` — a quarter of what the sums above spend. Two
+ * of those fit a phone with room over; one per row was never a width decision
+ * at this size, it was the 1116px rule still applying long after its premise
+ * stopped being true.
+ *
+ * 640px matches `NARROW_QUERY` in `useIsNarrow.ts` — the width at which the
+ * shell drops its sidebar-less top row — because that is what changes the space
+ * this list is given. `moneyWeekGrid.test` derives the floor and checks it
+ * against this block.
+ *
+ * The rules are written fresh rather than copied from the 1486px block. That
+ * block reaches two columns on its way down from three and still carries the
+ * `nth-child(3n + 1)` selectors it needed there; at a fixed two columns the
+ * only questions are which side of a box faces its neighbour and whether a row
+ * is the last, so `odd`/`even` say it directly.
+ */
+@media (max-width: 640px) {
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Half a gutter each side of the one vertical rule, which the left box
+     carries. The outer edges of the list stay flush. */
+  .monthRow:nth-child(odd) {
+    padding-inline: 0 var(--space-2);
+    border-inline-end: 1px solid var(--color-border);
+  }
+
+  .monthRow:nth-child(even) {
+    padding-inline: var(--space-2) 0;
+    border-inline-end: 0;
+  }
+
+  /* A lone last box sits in the left column with nothing beside it, so its
+     rule would run down the middle of empty space. */
+  .monthRow:last-child:nth-child(odd) {
+    border-inline-end: 0;
+  }
+
+  /* Horizontal rules between rows, none above the first pair or below the
+     last. `-n + 2` is the first row now that a row is two boxes wide. */
+  .monthRow {
+    padding-block: var(--space-5) var(--space-5);
+    border-block-end: 1px solid var(--color-border);
+  }
+
+  .monthRow:nth-child(-n + 2) {
+    padding-block-start: 0;
+  }
+
+  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2),
+  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2) ~ .monthRow {
+    padding-block-end: 0;
+    border-block-end: 0;
+  }
+  /*
+   * The heading stacks here, and it has to rather than merely looks better.
+   *
+   * `.monthTitle` is `minmax(0, 1fr) auto` with the month in column one and its
+   * total in column two. `auto` is sized to the total, and at a 101px box the
+   * total asked for 89px of it — the month's track collapsed to 1.7px and
+   * "April 2026" printed straight over "$1444,25". A `1fr` track will go to
+   * zero; that is what `minmax(0, ...)` says.
+   *
+   * The note above the base rule wants a heading of a fixed number of lines so
+   * that boxes sharing a row start their week cards level. Three lines keeps
+   * that promise as well as two did — what breaks it is a heading that wraps a
+   * different number of times per box, not the number itself.
+   *
+   * The type comes down with it because it has to: `APRIL 2026` at 0.95rem is
+   * about 114px and the box is 101px, so the month alone did not fit its own
+   * line either.
+   */
+  .monthTitle {
+    grid-template-columns: minmax(0, 1fr);
+    font-size: 0.7rem;
+  }
+
+  .monthTitle strong {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .toolChips {
+    grid-row: 3;
+  }
+}

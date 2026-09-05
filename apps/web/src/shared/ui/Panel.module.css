@@ -1,5 +1,30 @@
 .panel {
   display: grid;
+  /*
+   * `minmax(0, 1fr)` rather than the implicit `auto` track, and this is the one
+   * line in this file worth reading twice.
+   *
+   * A grid with no `grid-template-columns` gets a single `auto` column, and an
+   * `auto` track is sized to its widest child's *max-content* — so any child
+   * that will not wrap sizes the panel instead of fitting inside it. Measured
+   * at a 360px viewport: the Investing chart panel is 265px wide with a 225px
+   * content box, and its track resolved to 344px, the width of the seven
+   * timeframe buttons in a `nowrap` flex row. The chart, its header and the
+   * canvas were all laid out to that 344px and ran 45px off the right of the
+   * screen.
+   *
+   * What makes it worth fixing here rather than there: the page-level rule in
+   * `InvestingPage.module.css` already avoids exactly this trap for exactly
+   * this reason, and the `@container` rule that tried to fix the row —
+   * `max-width: 100%` on the timeframes — could not work, because that `100%`
+   * resolves against the track the row had already stretched. Capping the
+   * track is the only place the cycle breaks.
+   *
+   * For every panel whose content already fits, `auto` and `1fr` resolve to
+   * the same width and nothing moves; the only behaviour this removes is the
+   * track's ability to grow past its own container.
+   */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   padding: var(--space-4);
   background: linear-gradient(180deg, rgba(45, 39, 33, 0.98), rgba(35, 30, 25, 0.98));

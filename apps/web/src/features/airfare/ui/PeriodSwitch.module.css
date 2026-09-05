@@ -42,3 +42,25 @@
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/*
+ * The period pill on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * This control sits inside the analysis panel's chart switch, on a line of its
+ * own once that switch is allowed to wrap, so its height is added to the
+ * control above rather than borrowed from it. At 0.72rem it stood 31px tall
+ * under a pair of buttons that had just come down to 17 — the smaller half of
+ * the pair drawn larger than the larger half.
+ */
+@media (max-width: 640px) {
+  .switch button {
+    font-size: 0.35rem;
+    padding: 2px 3px;
+  }
+
+  /* Every pixel of chrome here is a pixel the names on the left do not get. */
+  .switch {
+    padding: 1px;
+    gap: 1px;
+  }
+}

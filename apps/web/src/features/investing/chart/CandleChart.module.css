@@ -41,6 +41,56 @@
   cursor: grabbing;
 }
 
+/*
+ * The zoom pair, pinned top left inside the frame.
+ *
+ * Hairline-separated rather than spaced, the way the route map's pair is: the
+ * 1px gap over the border colour reads as one control in two halves, which is
+ * what it is. It sits opposite the Latest and data-table buttons so the corners
+ * do not compete, and clear of both gutters — the price labels take the right,
+ * the time labels the bottom.
+ */
+.zoom {
+  position: absolute;
+  z-index: 2;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+/*
+ * Sized for a thumb rather than for its glyph. A `+` is one narrow character,
+ * and the reader who needs these most is holding the device rather than
+ * pointing at it; the minimum width and the padding put each button past the
+ * 44px both platform guidelines ask for, and well past WCAG 2.2's 24px floor.
+ */
+.zoomButton {
+  border: 0;
+  min-width: 2.25rem;
+  padding: var(--space-2);
+  background: var(--color-bg-2);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.zoomButton:hover {
+  color: var(--color-accent);
+}
+
+.zoomButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
 .follow {
   position: absolute;
   z-index: 2;

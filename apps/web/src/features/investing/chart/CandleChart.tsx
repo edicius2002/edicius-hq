@@ -243,8 +243,97 @@ export function CandleChart({
     setWindow((current) => change(current));
   }, []);
 
+  /**
+   * Every finger currently on the surface, by `pointerId`.
+   *
+   * A pinch is the distance between two of them and a `pointermove` carries
+   * only the one that moved, so the other's last position has to be remembered
+   * or the distance cannot be computed at all. A `Map` rather than a pair of
+   * fields because pointer ids are whatever the platform hands out — they are
+   * not 0 and 1 — and a third finger landing has to be something the chart can
+   * ignore rather than something that displaces one of the two it is following.
+   *
+   * Refs rather than state, unlike the drag beside them: nothing here is drawn,
+   * and a re-render per `pointermove` to store a coordinate would repaint the
+   * candles for a frame nobody sees.
+   */
+  const touches = useRef(new Map<number, { clientX: number; clientY: number }>());
+
+  /**
+   * The pinch in progress, or nothing.
+   *
+   * `from` is the window as it stood when the second finger landed and
+   * `distance` is how far apart the fingers were then, so every move is
+   * `distance / spread` against that one baseline rather than a factor
+   * multiplied onto the last frame's. A span that accumulates multiplications
+   * never comes back to where it started when the hand does, and the reader
+   * sees a chart that drifts while they hold still.
+   *
+   * `pivot` is the bar under the midpoint the pinch began on, so the candle
+   * between the fingers is the one that does not move — the same promise the
+   * wheel makes about the candle under the pointer.
+   *
+   * There is deliberately no record here of what the gesture last wrote. The
+   * departure chart's pinch keeps one and resumes the surviving finger from it;
+   * this chart must not, because the follow clamp above can move the window
+   * *after* a pinch has written it — a zoom while following is re-pinned to the
+   * live edge on the very next render. What the pinch wrote and what the reader
+   * is looking at are therefore two different windows, and the finger left over
+   * has to carry on from the second one.
+   */
+  const pinch = useRef<{
+    pointers: [number, number];
+    distance: number;
+    pivot: number;
+    from: IndexWindow;
+  } | null>(null);
+
+  function spreadOf(pointers: [number, number]): number | null {
+    const first = touches.current.get(pointers[0]);
+    const second = touches.current.get(pointers[1]);
+    if (first === undefined || second === undefined) return null;
+    return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+  }
+
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     const { x, y } = pointerPosition(event);
+
+    // Before anything else: the pinch's whole memory of where the other finger
+    // is sits in this map, and a move that returned early for any reason would
+    // leave it measuring against a coordinate the hand has left.
+    if (touches.current.has(event.pointerId)) {
+      touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    }
+
+    /*
+     * Two fingers scale the window, through the same `zoomWindow` the wheel and
+     * the keys go through rather than through an arithmetic of their own.
+     *
+     * Spreading apart closes the window, which is what every map and photo on
+     * this reader's phone already does, and it falls out of the ratio with no
+     * sign anywhere: `factor` multiplies the span, fingers moving apart make
+     * `distance / spread` smaller than one, and a smaller span is a closer look.
+     *
+     * A pinch does not move the crosshair and does not pan. The readout would
+     * flicker through a hundred candles under a hand that is doing something
+     * else entirely, and panning as well would answer two questions with one
+     * gesture — which is the one-finger drag's job, and what the finger left
+     * over goes back to the moment the other lifts.
+     */
+    const pinching = pinch.current;
+    if (pinching !== null) {
+      const spread = spreadOf(pinching.pointers);
+      if (spread === null || spread <= 0) return;
+      const next = zoomWindow(
+        pinching.from,
+        pinching.distance / spread,
+        pinching.pivot,
+        bars.length,
+        minVisibleBars(plot),
+      );
+      moveWindow(() => next);
+      return;
+    }
 
     if (drag && event.pointerId === drag.pointerId) {
       const perBar = plot.width / Math.max(1, drag.from.last - drag.from.first);
@@ -303,12 +392,84 @@ export function CandleChart({
     setCrosshair(null);
   }
 
-  function zoomByKeyboard(factor: number) {
+  /**
+   * A zoom asked for by a control rather than by a hand on the surface.
+   *
+   * The keys and the two buttons share it because they share the one thing a
+   * gesture has and they do not: somewhere to anchor. A wheel and a pinch both
+   * name a candle by happening over it; a `+` names nothing, so it scales about
+   * the candle the keyboard has selected where there is one and about the
+   * latest where there is not. One press and one click must not be able to
+   * disagree about where the window closes.
+   */
+  function zoomFromControl(factor: number) {
     if (!bars.length) return;
     const pivot = keyboardIndex ?? Math.max(0, Math.ceil(window.last) - 1);
     const next = zoomWindow(window, factor, pivot, bars.length, minVisibleBars(plot));
     if (next.last < bars.length) setFollowing(false);
     setWindow(next);
+  }
+
+  /**
+   * A finger or a pointer landing.
+   *
+   * **The second finger turns the pan into a pinch rather than restarting it.**
+   * The drag is dropped where it stands — the window does not move on the way
+   * into the zoom — and the pinch takes the window the pan had reached as its
+   * own baseline, so a hand going from one finger to two sees one continuous
+   * chart rather than two.
+   */
+  function startPointer(event: PointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+
+    const down = [...touches.current.entries()];
+    if (down.length === 2) {
+      const [[firstId, first], [secondId, second]] = down;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const middle = (first.clientX + second.clientX) / 2 - rect.left;
+      setDrag(null);
+      pinch.current = {
+        pointers: [firstId, secondId],
+        distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
+        pivot: indexAt(middle, window, plot),
+        from: window,
+      };
+      return;
+    }
+
+    // A third finger is not a gesture this chart has, and it is not a reason to
+    // abandon the two that are already working.
+    if (down.length !== 1) return;
+    setDrag({ pointerId: event.pointerId, x: pointerPosition(event).x, from: window });
+  }
+
+  /**
+   * A finger lifting, which ends one gesture and sometimes begins another.
+   *
+   * Lifting one of two hands the chart back to the one still down, seated where
+   * that finger actually is and on the window now on screen — which, after a
+   * pinch made while following, is the one the follow clamp re-pinned rather
+   * than the one the pinch wrote. Seating it on either the gesture's start or
+   * the pinch's own last output pans the chart the moment the finger moves,
+   * and off the live edge it was still holding.
+   */
+  function endPointer(event: PointerEvent<HTMLDivElement>) {
+    touches.current.delete(event.pointerId);
+
+    const pinching = pinch.current;
+    if (pinching !== null && pinching.pointers.includes(event.pointerId)) {
+      pinch.current = null;
+      const [left] = [...touches.current.entries()];
+      if (left !== undefined) {
+        const [pointerId, at] = left;
+        const rect = event.currentTarget.getBoundingClientRect();
+        setDrag({ pointerId, x: at.clientX - rect.left, from: window });
+      }
+      return;
+    }
+
+    if (drag?.pointerId === event.pointerId) setDrag(null);
   }
 
   function onSurfaceKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -343,12 +504,12 @@ export function CandleChart({
       case '+':
       case '=':
         event.preventDefault();
-        zoomByKeyboard(1 / WHEEL_STEP);
+        zoomFromControl(1 / WHEEL_STEP);
         break;
       case '-':
       case '_':
         event.preventDefault();
-        zoomByKeyboard(WHEEL_STEP);
+        zoomFromControl(WHEEL_STEP);
         break;
       default:
         break;
@@ -417,25 +578,60 @@ export function CandleChart({
             .trim()}
           aria-describedby={`${instructionsId} ${statusId}`}
           tabIndex={0}
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture?.(event.pointerId);
-            setDrag({ pointerId: event.pointerId, x: pointerPosition(event).x, from: window });
-          }}
+          onPointerDown={startPointer}
           onPointerMove={onPointerMove}
-          onPointerUp={() => setDrag(null)}
-          onPointerCancel={() => setDrag(null)}
+          onPointerUp={endPointer}
+          onPointerCancel={endPointer}
           onPointerLeave={() => setCrosshair(null)}
           onKeyDown={onSurfaceKeyDown}
         />
 
         <p id={instructionsId} className={styles.srOnly}>
           Use left and right arrow keys to read candles. Home and End move to the first and latest
-          candle. Page Up and Page Down pan. Plus and minus zoom. Moving into history stops
-          following the latest candles.
+          candle. Page Up and Page Down pan. Plus and minus zoom, as do the two buttons above the
+          chart and a pinch with two fingers. Moving into history stops following the latest
+          candles.
         </p>
         <p id={statusId} className={styles.srOnly} aria-live="polite">
           {selectedSummary ?? visibleRange}
         </p>
+
+        {/*
+            Out and in, for a reader with neither a wheel nor a keyboard.
+
+            The wheel and the `+`/`-` keys were the whole of the way into this
+            zoom, and a phone has neither — `.surface` sets `touch-action: none`
+            (which the pinch above now needs, and which is also what suppresses
+            the browser's own), so before these there was no way in at all.
+
+            Top left, away from the price gutter on the right, the time axis
+            below and the Latest/data pair stacked in the corner opposite. The
+            shape is the one the route map and the Finance canvas already use
+            for this same cluster, at this chart's own scale, so a reader who
+            has worked either does not learn a second zoom here.
+
+            At every width rather than only the narrow ones: the gesture is what
+            a phone is short of, but the button is what a reader who does not
+            know the gesture is short of at any width.
+        */}
+        <div className={styles.zoom}>
+          <button
+            type="button"
+            className={styles.zoomButton}
+            aria-label="Zoom out"
+            onClick={() => zoomFromControl(WHEEL_STEP)}
+          >
+            &minus;
+          </button>
+          <button
+            type="button"
+            className={styles.zoomButton}
+            aria-label="Zoom in"
+            onClick={() => zoomFromControl(1 / WHEEL_STEP)}
+          >
+            +
+          </button>
+        </div>
 
         <button
           type="button"

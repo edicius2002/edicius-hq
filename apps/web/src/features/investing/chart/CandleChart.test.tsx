@@ -150,6 +150,104 @@ describe('CandleChart live-edge follow', () => {
   });
 });
 
+/**
+ * Two fingers on the chart.
+ *
+ * `fireEvent.pointerDown` with distinct `pointerId`s is not a real pinch — no
+ * browser is involved and nothing is captured — but the arithmetic and the
+ * gesture's bookkeeping are what break, and both are reachable from here. What
+ * a hand on glass actually delivers is not testable in jsdom and is not claimed
+ * to be.
+ */
+describe('CandleChart touch zoom', () => {
+  function pinchStart(target: HTMLElement, left: number, right: number) {
+    fireEvent.pointerDown(target, { pointerId: 1, clientX: left, clientY: 100 });
+    fireEvent.pointerDown(target, { pointerId: 2, clientX: right, clientY: 100 });
+  }
+
+  it('closes the window when two fingers spread apart', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+
+    expect(target).toHaveAttribute('aria-label', expect.stringContaining('Showing 120 bars'));
+
+    pinchStart(target, 300, 500);
+    fireEvent.pointerMove(target, { pointerId: 2, clientX: 700, clientY: 100 });
+
+    // 200px apart to 400px apart halves the span, the same way a wheel notch
+    // scales it: the fingers say how much, not which direction by a sign.
+    const label = target.getAttribute('aria-label') ?? '';
+    expect(label).toContain('Showing 60 bars');
+    expect(label).toContain('Following latest candles');
+  });
+
+  it('opens it back up when the two fingers come together', () => {
+    const { container } = render(<CandleChart {...chartProps({ bars: bars(600) })} />);
+    const target = surface(container);
+
+    pinchStart(target, 300, 700);
+    fireEvent.pointerMove(target, { pointerId: 2, clientX: 500, clientY: 100 });
+
+    expect(target).toHaveAttribute('aria-label', expect.stringContaining('Showing 240 bars'));
+  });
+
+  it('still pans with one finger, and never zooms with it', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+
+    fireEvent.pointerDown(target, { pointerId: 1, clientX: 300, clientY: 100 });
+    fireEvent.pointerMove(target, { pointerId: 1, clientX: 500, clientY: 100 });
+
+    // The span is the whole assertion: one finger moves the window, and a pan
+    // that quietly rescaled it would be the pinch leaking into the drag.
+    const label = target.getAttribute('aria-label') ?? '';
+    expect(label).toContain('Showing 120 bars');
+    expect(label).toContain('Viewing historical candles');
+  });
+
+  it('does not jump when one of the two fingers is lifted', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+
+    pinchStart(target, 300, 500);
+    fireEvent.pointerMove(target, { pointerId: 2, clientX: 700, clientY: 100 });
+    const afterPinch = target.getAttribute('aria-label') ?? '';
+    expect(afterPinch).toContain('Showing 60 bars');
+
+    fireEvent.pointerUp(target, { pointerId: 2, clientX: 700, clientY: 100 });
+    // The finger that is left has not moved, so neither should the window. A
+    // drag re-seated on where the gesture *began* pans by the whole width of
+    // the pinch on its first move; one seated on where the finger is does not.
+    fireEvent.pointerMove(target, { pointerId: 1, clientX: 300, clientY: 100 });
+
+    expect(target).toHaveAttribute('aria-label', afterPinch);
+  });
+
+  it('offers a zoom in and a zoom out that need neither a wheel nor a keyboard', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+
+    expect(screen.getByRole('button', { name: /zoom in/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /zoom out/i })).toBeInTheDocument();
+    expect(surface(container)).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Showing 120 bars'),
+    );
+  });
+
+  it('closes and opens the window from the buttons alone', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+
+    fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
+    const closed = Number(/Showing (\d+) bars/.exec(target.getAttribute('aria-label') ?? '')?.[1]);
+    expect(closed).toBeLessThan(120);
+
+    fireEvent.click(screen.getByRole('button', { name: /zoom out/i }));
+    const opened = Number(/Showing (\d+) bars/.exec(target.getAttribute('aria-label') ?? '')?.[1]);
+    expect(opened).toBeGreaterThan(closed);
+  });
+});
+
 describe('CandleChart position entry line', () => {
   const position: Position = { symbol: 'AAPL', quantity: 3, averageCost: 100 };
 

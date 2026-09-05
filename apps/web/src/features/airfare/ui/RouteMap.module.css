@@ -85,11 +85,11 @@
   gap: var(--space-3);
 }
 
-.zoomGroup {
-  display: inline-flex;
-  gap: var(--space-1);
-  align-items: center;
-}
+/*
+ * `.zoomGroup` was here: the toolbar slot the old plus and minus sat in, left
+ * behind when they came off and referenced by nothing since. The controls are
+ * back but they are not back here — see `.controls`, down in the stage.
+ */
 
 .switch {
   display: inline-flex;
@@ -201,7 +201,74 @@
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-surface);
+  /*
+   * Kept, and it is the reason the stage has to answer a pinch itself.
+   *
+   * This is what stops the page scrolling and the browser zooming out from
+   * under a drag, and it takes the browser's own pinch away with them — there
+   * is no fallback behind the handler, so on a touch screen the two-finger
+   * gesture in `RouteMap.tsx` is the only pinch there is. Relaxing it to
+   * `pinch-zoom` was rejected: that scales the *page*, taking the toolbar and
+   * the watchlist with it and leaving the map at whatever scale it was, which
+   * is not zooming the map at all.
+   */
   touch-action: none;
+}
+
+/*
+ * The zoom controls, in the corner of the picture they scale.
+ *
+ * Laid out the way the Finance canvas lays out its own — pinned inside the
+ * surface, hairline-separated, so two of them read as one strip of chrome
+ * rather than two loose buttons. Bottom-right rather than that canvas's
+ * bottom-left: the left of this stage is where a route's own airport labels
+ * land when the reader turns the globe west, and the right is the side a thumb
+ * is already on.
+ */
+.controls {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+/*
+ * Sized for a thumb, not for its text.
+ *
+ * The Finance canvas lets the words in its own controls decide how big they
+ * are, which is fine for "Fit" and "100%" under a mouse. A `+` is one narrow
+ * glyph, and the reader who needs these most is holding the device rather than
+ * pointing at it. At this app's 125% root — 1rem is 20px — the minimum width
+ * and the 0.5rem padding around a 1.4 line make each button 45 x 48px, past
+ * the 44px both platform guidelines ask for and well past WCAG 2.2's 24px
+ * floor. A control that exists only because a phone reader needs it must not
+ * be the one a phone reader misses.
+ */
+.control {
+  border: 0;
+  min-width: 2.25rem;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.control:hover {
+  background: var(--color-surface-soft);
+}
+
+.control:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 .grabbable {

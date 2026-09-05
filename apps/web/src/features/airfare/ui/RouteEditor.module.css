@@ -256,3 +256,54 @@
   color: var(--color-danger);
   font-size: 0.85rem;
 }
+
+/*
+ * The phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * **The airports stay on one row**, which is what the form's four tracks —
+ * label, field, label, field — exist for. What changes is what each costs.
+ *
+ * The row failed at first because the two labels took their `min-content` at
+ * 0.8rem (84px and 103px, measured) and the two `1fr` fields split the 36px
+ * that left: 22px each, narrower than the three-letter code inside them. An
+ * attempt at two tracks fixed that by giving one airport a row of its own,
+ * which worked and spent a row doing it.
+ *
+ * At 0.5rem the labels come to about 66px and 36px, so the fields share
+ * roughly 90px — 45px each, which holds a code at the size below with room
+ * over. The field is deliberately the smaller half of its pair: it never holds
+ * more than three characters, while the label is a word.
+ *
+ * The month strip goes from six tracks to four. Six is a year in two rows and
+ * reads well at a desktop width; at 360px it gives each month 56px, narrower
+ * than the three letters inside it plus its padding. Four is the same twelve
+ * months in three rows at about 52px of track, which holds a month without
+ * clipping — measured, not estimated.
+ */
+@media (max-width: 640px) {
+  /*
+   * The column gap pays for the fields before the type does. Four tracks means
+   * three gaps, and at `--space-3` that is 45px of the row spent on air — with
+   * it the fields came to 31px and clipped `LIM` by 4. At `--space-2` they get
+   * 38px, which prints a code with room to spare, and the row is no tighter to
+   * read for it.
+   */
+  .form {
+    column-gap: var(--space-2);
+  }
+
+  .form label,
+  .groupLabel {
+    font-size: 0.5rem;
+  }
+
+  .form input,
+  .form select {
+    font-size: 0.7rem;
+    padding: 2px var(--space-1);
+  }
+
+  .months {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

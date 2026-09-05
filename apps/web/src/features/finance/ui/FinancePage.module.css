@@ -223,3 +223,72 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/*
+ * The narrow branch. **640px matches `NARROW_QUERY` in `useIsNarrow.ts`** —
+ * the same width at which the shell drops its top row — because this header
+ * sits directly under the shell's padding with no container of its own to
+ * query, so the viewport is genuinely what decides it. In pixels for the
+ * reason the rest of this repo keeps writing down: `--font-size-base: 125%`
+ * makes a rem 20px, so `40rem` here would read 800px.
+ *
+ * `.header` stays `nowrap` — the note at the top of this file is still right
+ * that a wrapping header moves the canvas down a whole row. What wraps is
+ * `.toolbar` inside it, and at 360px that put nine controls into seven rows
+ * and a 304px-tall header over a 740px viewport: 41% of the screen spent
+ * before the canvas began.
+ *
+ * These numbers shrink the control, not the row count on their own — fewer
+ * rows is what falls out of each control being narrower. The canvas is the
+ * only thing on this page that benefits from the height, which is the same
+ * argument the `--space-2` gap at the top of the file was chosen on.
+ *
+ * The narrower controls also give the tab strip beside them room back: it
+ * shares a `nowrap` row with them and had been squeezed to 76px, less than one
+ * tab, showing "Principa…". Nothing here targets it — it is `min-width: 0`
+ * with `overflow-x: auto` and simply takes the slack.
+ */
+@media (max-width: 640px) {
+  .headerActions button {
+    font-size: 0.6rem;
+    padding: 3px 6px;
+  }
+
+  .headerActions {
+    gap: var(--space-2);
+  }
+
+  .toolbar {
+    gap: var(--space-2);
+  }
+
+  .toolGroup {
+    gap: var(--space-1);
+  }
+
+  /*
+   * The one place this page reverses its own rule, and it is worth spelling out
+   * why the note at the top of the file is not being contradicted.
+   *
+   * That note says wrapping put the actions under the title and moved the
+   * canvas down a whole row — a layout shift this page spent several changes
+   * removing. It is still right at desktop widths, where the row holds.
+   *
+   * At 360px the row does not hold. `.toolbar` wraps inside the `nowrap`
+   * header regardless, so the header was already seven rows and 304px tall,
+   * and the tab strip — sharing that row and `min-width: 0` — was squeezed to
+   * 76px, narrower than one tab, reading "Principa…". The choice here is not
+   * one row against several; it is several rows with an illegible tab strip
+   * against the same rows with a legible one. `order: 1` puts the strip under
+   * the actions rather than above them, so what moves down is the tabs, not
+   * the canvas.
+   */
+  .header {
+    flex-wrap: wrap;
+  }
+
+  .tabsScroll {
+    order: 1;
+    flex-basis: 100%;
+  }
+}

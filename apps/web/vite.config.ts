@@ -86,6 +86,14 @@ export default defineConfig({
         /MoneyWeekChart\.module\.css/,
         /SegmentSummary\.module\.css/,
         /GreenlightPage\.module\.css/,
+        // The tenth, and the first whose counterpart is not a stylesheet:
+        // `narrowBreakpoint.test` checks this file's phone-scale threshold
+        // against `NARROW_QUERY` in `useIsNarrow.ts`, because the shell decides
+        // in JavaScript whether to show a drawer and this page decides in CSS
+        // whether its header is at phone scale. A viewport between the two
+        // numbers gets one answer and the other layout, and jsdom evaluates
+        // neither.
+        /FinancePage\.module\.css/,
         /styles\/tokens\.css/,
       ],
     },

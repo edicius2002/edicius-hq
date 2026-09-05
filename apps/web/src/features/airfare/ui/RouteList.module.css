@@ -564,3 +564,110 @@
 .item:active {
   cursor: grabbing;
 }
+
+/*
+ * The watched rows on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
+ *
+ * The row is `nowrap` — swatch, pair, month tabs, remove — and it does not fit:
+ * measured at a 360px viewport it wants 279px against the 223px the list has,
+ * so the list scrolls sideways and the airport codes are the part that pays.
+ * `.pair` is `nowrap` with an ellipsis, so at 0.78rem it was being handed 62px
+ * for a string that needs about 84 and clipping "ARI → SCL" mid-code — the two
+ * codes are the whole identity of a row, and they are the wrong thing to
+ * shorten.
+ *
+ * Smaller type is what buys the row back. The pair keeps its ellipsis as the
+ * backstop; what changes is that it stops needing it at this width.
+ */
+@media (max-width: 640px) {
+  .pair {
+    font-size: 0.62rem;
+  }
+
+  .to {
+    font-size: 0.5rem;
+  }
+
+  /*
+   * And this is the rule that actually gives the pair its width back.
+   *
+   * Smaller type on `.pair` alone changed nothing, which is worth writing down:
+   * `.route` is `flex: 1 1 0`, so it is handed what the row has left rather
+   * than what its text asks for. `.actions` is `flex: 0 0 auto` with
+   * `min-width: auto` and measured 121px of the row's 279 — a 78px "Remove"
+   * beside a 34px icon — so it was the actions, not the codes, deciding how
+   * much of "ARI → SCL" could be printed.
+   *
+   * Shrinking the controls moves that width to the only flexible item in the
+   * row, which is the route.
+   */
+  .actions button {
+    font-size: 0.55rem;
+    padding: 3px 5px;
+  }
+
+  /*
+   * The last of it comes from the gaps. With the controls down to 84px the row
+   * still wanted 242px against 223, and a row that overflows has negative free
+   * space to share out — which `flex: 1 1 0` on `.route` absorbs, so the codes
+   * stay clipped no matter how small their type is. Two 10px gaps in the row
+   * and one inside the actions are the 15px that close it.
+   */
+  .row {
+    gap: var(--space-1);
+  }
+
+  .actions {
+    gap: var(--space-1);
+  }
+
+  /*
+   * The month tabs are the last claimant. A row watching two months spends
+   * about 62px on them and, being the only other inflexible thing beside the
+   * actions, it took that straight out of the codes — the two-month rows were
+   * printing 31px of a 64px pair while the single-month row printed 62.
+   * Smaller tabs put the row under the 223px the list has, at which point
+   * `.route` stops being handed negative space and the codes print in full.
+   */
+  .monthTab {
+    font-size: 0.55rem;
+    padding: 0 2px;
+  }
+
+  /*
+   * **The rule that decides what a narrow row gives up.**
+   *
+   * Everything above shrinks the row's other claimants, and it was still not
+   * enough: `.route` is the only flexible item, so whatever the months and the
+   * actions need comes out of it, and how much they need changes per row. A
+   * route watching one month printed its codes; one watching three was handed
+   * 14px for a 64px pair. There is no single type size that fixes that,
+   * because the thing being divided is not a constant.
+   *
+   * So the identity stops being the flexible one. `max-content` is the swatch
+   * plus the two codes in full — the least this row can be and still say which
+   * route it is. A month-heavy row now overruns the list instead, and the list
+   * already scrolls sideways; a reader can pan to a month tab, and could not
+   * recover a code that was never drawn.
+   */
+  .route {
+    /*
+     * `0 0 auto`, not the `1 1 0` it has at desktop width, and both halves
+     * matter.
+     *
+     * The `min-width` is what stops the codes being starved: `.route` is the
+     * only flexible item in the row, so whatever the months and the actions
+     * need comes out of it, and a route watching three months was handed 14px
+     * for a 64px pair. `max-content` is the swatch plus both codes in full —
+     * the least this row can be and still say which route it is.
+     *
+     * The `flex-grow: 0` is what stops the opposite problem. With the grow
+     * left on, the button also took every spare pixel in the row and printed
+     * its codes against a bordered box 23px wider than them, which read as a
+     * field with something missing from it. Hugging its content, the button is
+     * the size of what it says.
+     */
+    flex: 0 0 auto;
+    min-width: max-content;
+  }
+}

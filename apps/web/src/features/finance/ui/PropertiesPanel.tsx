@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react';
 
 import { canExecuteFlow, describeExecuteError } from '@/features/finance/lib/execute';
 import { AmountInput } from '@/features/finance/ui/AmountInput';
+import { TextInput } from '@/features/finance/ui/TextInput';
+import { useTypedText } from '@/features/finance/ui/useTypedText';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
 import { frameMembers } from '@/features/finance/lib/frames';
@@ -85,12 +87,12 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
             beside it named the same thing twice and cost a row of a panel with
             a fixed height. The accessible name moves onto the input itself,
             which is what a screen reader reads anyway. */}
-        <input
+        <TextInput
           className={`${styles.input} ${styles.nameInput}`}
           value={node.name}
           aria-label="Name"
           placeholder="Name"
-          onChange={(event) => actions.renameNode(node.id, event.target.value)}
+          onChange={(name) => actions.renameNode(node.id, name)}
         />
       </Header>
 
@@ -140,10 +142,10 @@ function FrameFields({
       </div>
 
       <Field label="Name">
-        <input
+        <TextInput
           className={styles.input}
           value={frame.name}
-          onChange={(event) => actions.renameFrame(frame.id, event.target.value)}
+          onChange={(name) => actions.renameFrame(frame.id, name)}
         />
       </Field>
 
@@ -235,13 +237,16 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
  * a scrollbar rather than costing the canvas its width.
  */
 function NotesInput({ value, onChange }: { value: string; onChange: (notes: string) => void }) {
+  const typed = useTypedText(value, onChange);
+
   return (
     <textarea
       className={styles.notes}
-      value={value}
+      value={typed.value}
       rows={3}
       placeholder="Optional"
-      onChange={(event) => onChange(event.target.value)}
+      onChange={(event) => typed.onChange(event.target.value)}
+      onBlur={typed.onBlur}
     />
   );
 }
@@ -602,11 +607,11 @@ function FlowFields({
       </div>
 
       <Field label="Label">
-        <input
+        <TextInput
           className={styles.input}
           value={flow.label}
           placeholder="Optional"
-          onChange={(event) => actions.updateFlow(flow.id, { label: event.target.value })}
+          onChange={(label) => actions.updateFlow(flow.id, { label })}
         />
       </Field>
 

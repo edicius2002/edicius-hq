@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { NARROW_QUERY } from '@/app/layout/useIsNarrow';
+import SHELL_SOURCE from '@/app/layout/AppShell.module.css?inline';
 import FINANCE_SOURCE from '@/features/finance/ui/FinancePage.module.css?inline';
 import TOKENS_SOURCE from '@/styles/tokens.css?inline';
 
@@ -31,6 +32,7 @@ function withoutComments(source: string): string {
 }
 
 const FINANCE = withoutComments(FINANCE_SOURCE);
+const SHELL = withoutComments(SHELL_SOURCE);
 const TOKENS = withoutComments(TOKENS_SOURCE);
 
 /** What one rem is worth here, taken from the token rather than assumed. */
@@ -85,6 +87,29 @@ describe('the width at which the shell hands its navigation to a drawer', () => 
     );
 
     expect(financeThresholds, 'FinancePage must scale its header somewhere').toContain(threshold);
+  });
+
+  it('is the same number the shell drops its side gutters at', () => {
+    // The third place the threshold lives. The shell cuts its inline padding
+    // for the same reader the dropdown is for, and a shell that gave up its
+    // gutters at one width while the nav gave up its row at another would put
+    // a desktop-width margin under a phone-width header.
+    const shellThresholds = [...SHELL.matchAll(/@media \(max-width:\s*(\d+)px\)/g)].map((match) =>
+      Number(match[1]),
+    );
+
+    expect(shellThresholds, 'AppShell must narrow its gutters somewhere').toContain(threshold);
+  });
+
+  it('leaves the block padding alone where the pages pull against it', () => {
+    // Airfare, Finance, Greenlight and Investing all lift their top edge with a
+    // negative margin sized against `--space-6`. The narrow rule may take the
+    // side gutters and must not take the ones those margins are pulling on.
+    const narrowBlock = /@media \(max-width:\s*640px\)\s*\{([\s\S]*?)\n\}/.exec(SHELL)?.[1] ?? '';
+
+    expect(narrowBlock, 'the 640px block must exist to be checked').not.toBe('');
+    expect(narrowBlock).toMatch(/padding-inline:/);
+    expect(narrowBlock).not.toMatch(/padding:\s|padding-block/);
   });
 
   /*

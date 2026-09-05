@@ -210,3 +210,14 @@
   display: flex;
   align-items: center;
 }
+
+/*
+ * The rule under the five links, separating going somewhere from doing
+ * something. The margin is negative so the line runs the full width of the
+ * dropdown rather than stopping short of the padding that insets the links.
+ */
+.account {
+  margin: var(--space-1) calc(var(--space-1) * -1) calc(var(--space-1) * -1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}

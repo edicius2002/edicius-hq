@@ -101,6 +101,71 @@ class TestEnrolmentCodes:
         assert client.post("/api/auth/register/options", json={"code": code}).status_code == 401
 
 
+class TestIssuingACodeFromAnEnrolledDevice:
+    """
+    The route that lets a device already holding a session authorise the next
+    one, so adding a second device no longer means walking to the PC.
+    """
+
+    def test_a_session_gets_a_code_that_starts_a_registration(self, live_token):
+        response = client.post(
+            "/api/auth/enrolment-code", headers={"Authorization": f"Bearer {live_token}"}
+        )
+
+        assert response.status_code == 200
+        issued = response.json()
+        # End to end rather than against the store: the code is worth having
+        # because the enrolment route accepts it, and that is the assertion.
+        assert (
+            client.post("/api/auth/register/options", json={"code": issued["code"]}).status_code
+            == 200
+        )
+        assert issued["expiresInSeconds"] == 600
+
+    def test_it_is_refused_without_a_session(self):
+        """
+        The one failure this route has. It is `require_session`'s 401 and not
+        `_refuse`'s, which is right: not being signed in is a gate failure and
+        answers like every other gated route, rather than reporting on a
+        ceremony this caller never started.
+        """
+        assert client.post("/api/auth/enrolment-code").status_code == 401
+
+    def test_a_new_code_kills_the_one_before_it(self, live_token):
+        """
+        One live code at a time. The second ask is what the owner does when the
+        first code got away from them — a menu they closed, a walk they
+        abandoned — and the one they gave up on must stop working then, not
+        ten minutes later.
+        """
+        auth = {"Authorization": f"Bearer {live_token}"}
+        first = client.post("/api/auth/enrolment-code", headers=auth).json()["code"]
+        second = client.post("/api/auth/enrolment-code", headers=auth).json()["code"]
+
+        assert client.post("/api/auth/register/options", json={"code": first}).status_code == 401
+        assert client.post("/api/auth/register/options", json={"code": second}).status_code == 200
+
+    def test_the_code_it_issues_enrols_a_device(self, monkeypatch, live_token):
+        """The whole point, walked once: session in, second passkey out."""
+        _registered(monkeypatch, credential_id=b"the-second-device")
+        code = client.post(
+            "/api/auth/enrolment-code", headers={"Authorization": f"Bearer {live_token}"}
+        ).json()["code"]
+
+        challenge_id = client.post("/api/auth/register/options", json={"code": code}).json()[
+            "challengeId"
+        ]
+        response = client.post(
+            "/api/auth/register/verify",
+            json={"challengeId": challenge_id, "code": code, "response": {"id": "x"}},
+        )
+
+        assert response.status_code == 200
+        assert auth_store.get_credential(b"the-second-device") is not None
+        # And the code is spent, exactly as one from the CLI would be.
+        assert client.post("/api/auth/register/options", json={"code": code}).status_code == 401
+
+
 class TestRegistration:
     def test_verify_stores_the_credential_and_returns_a_token(self, monkeypatch):
         _registered(monkeypatch)

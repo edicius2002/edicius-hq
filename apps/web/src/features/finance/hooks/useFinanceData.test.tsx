@@ -1,12 +1,12 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor, type RenderHookResult } from '@testing-library/react';
-import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createBackup } from '@/features/finance/lib/backup';
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
 import type { FinanceDocument } from '@/features/finance/model/types';
 import { WRITE_DELAY_MS } from '@/shared/storage/writeQueue';
+import { stubKvStore, type KvStoreOptions } from '@/test/kvStore';
+import { queryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
   // Unmounted before the stub goes: leaving a hook mounted would let its
@@ -15,46 +15,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Fake KV endpoint. `readFails` breaks the initial GET without blocking writes. */
-function stubApi(options: { readFails?: boolean; writeDelayMs?: number; failPutAt?: number } = {}) {
-  let stored: unknown = null;
-  const writes: FinanceDocument[] = [];
-  let puts = 0;
+/** The Finance document's KV endpoint. It starts empty: a first visit gets a 404. */
+const stubStore = (options: Omit<KvStoreOptions<FinanceDocument>, 'key'> = {}) =>
+  stubKvStore<FinanceDocument>({ key: 'finance', ...options });
 
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const method = init?.method ?? 'GET';
-
-      if (method === 'PUT') {
-        puts += 1;
-        if (puts === options.failPutAt) {
-          return Response.json({ detail: 'storage unavailable' }, { status: 500 });
-        }
-        const body = JSON.parse(String(init?.body)) as { value: FinanceDocument };
-        if (options.writeDelayMs) {
-          await new Promise((resolve) => setTimeout(resolve, options.writeDelayMs));
-        }
-        stored = body.value;
-        writes.push(structuredClone(body.value));
-        return Response.json({ key: 'finance', value: body.value });
-      }
-
-      if (options.readFails) return Response.json({ detail: 'boom' }, { status: 500 });
-      if (stored === null) return Response.json({ detail: 'Key not found' }, { status: 404 });
-      return Response.json({ key: 'finance', value: stored });
-    }),
-  );
-
-  return { writes };
-}
-
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
+const wrapper = queryWrapper();
 
 type Rendered = RenderHookResult<ReturnType<typeof useFinanceData>, unknown>;
 
@@ -88,7 +53,7 @@ function quiet(): Promise<void> {
 
 describe('useFinanceData', () => {
   it('starts from an empty diagram when storage has nothing', async () => {
-    stubApi();
+    stubStore();
     const { result } = await mounted();
 
     expect(result.current.diagram.nodeOrder).toEqual([]);
@@ -96,7 +61,7 @@ describe('useFinanceData', () => {
   });
 
   it('persists a node and reads it back on a fresh mount', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const first = await mounted();
 
     await act(async () => {
@@ -110,7 +75,7 @@ describe('useFinanceData', () => {
   });
 
   it('does not lose an edit when two are fired back to back', async () => {
-    const api = stubApi({ writeDelayMs: 20 });
+    const api = stubStore({ writeDelayMs: 20 });
     const rendered = await mounted();
 
     await act(async () => {
@@ -131,7 +96,7 @@ describe('useFinanceData', () => {
   });
 
   it('reports a refusal and spends no write on it', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const rendered = await mounted();
 
     await act(async () => {
@@ -158,7 +123,7 @@ describe('useFinanceData', () => {
   });
 
   it('judges a refusal against current state, not against what was rendered', async () => {
-    stubApi();
+    stubStore();
     const rendered = await mounted();
 
     await act(async () => {
@@ -182,7 +147,7 @@ describe('useFinanceData', () => {
   });
 
   it('refuses to write when the read failed, rather than saving an empty document', async () => {
-    const api = stubApi({ readFails: true });
+    const api = stubStore({ readFails: true });
     const { result } = renderHook(() => useFinanceData(), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -193,7 +158,7 @@ describe('useFinanceData', () => {
   });
 
   it('spends one write on a drag, not one per pointer move', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const rendered = await mounted();
 
     await act(async () => {
@@ -223,7 +188,7 @@ describe('useFinanceData', () => {
   });
 
   it('writes what it is holding when the page goes away', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const rendered = await mounted();
 
     await act(async () => {
@@ -242,7 +207,7 @@ describe('useFinanceData', () => {
   });
 
   it('does not let an edit queued before a restore undo it', async () => {
-    const api = stubApi();
+    const api = stubStore();
     const rendered = await mounted();
 
     await act(async () => {
@@ -271,7 +236,7 @@ describe('useFinanceData', () => {
   });
 
   it('keeps undo history when a backup replacement fails to persist', async () => {
-    const api = stubApi({ failPutAt: 2 });
+    const api = stubStore({ failPutAt: 2 });
     const rendered = await mounted();
 
     await act(async () => {

@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 
 import { ApiStatus } from '@/app/layout/ApiStatus';
 import { useIsNarrow } from '@/app/layout/useIsNarrow';
+import { EnrolDevice } from '@/features/auth/EnrolDevice';
 
 import styles from './TopNav.module.css';
 
@@ -222,6 +223,17 @@ export function TopNav() {
       )}
 
       {open ? (
+        /*
+         * The `nav` landmark wraps the links and stops there, so the enrolment
+         * block below is not announced as navigation — it goes nowhere. The
+         * panel itself is a plain box, which is also what `aria-controls` on
+         * the trigger has to name.
+         *
+         * Both branches carry the same two blocks. The drawer is not the
+         * dropdown minus the account: enrolling a device is the one action
+         * with no screen of its own, and a phone is the likeliest thing to be
+         * the device being enrolled.
+         */
         narrow ? (
           <>
             <div
@@ -229,14 +241,23 @@ export function TopNav() {
               data-testid="drawer-scrim"
               onClick={() => setOpen(false)}
             />
-            <nav id={menuId} className={styles.drawer} aria-label="Primary">
-              {links}
-            </nav>
+            <div id={menuId} className={styles.drawer}>
+              <nav aria-label="Primary">{links}</nav>
+              <div className={styles.account}>
+                <EnrolDevice />
+              </div>
+            </div>
           </>
         ) : (
-          <nav id={menuId} className={styles.menu} aria-label="Primary">
-            {links}
-          </nav>
+          <div id={menuId} className={styles.menu}>
+            <nav aria-label="Primary">{links}</nav>
+            {/* The app has no account or settings screen, and this is the only
+                surface that is on every page. It sits under a rule because it is
+                not a sixth place to go. */}
+            <div className={styles.account}>
+              <EnrolDevice />
+            </div>
+          </div>
         )
       ) : null}
     </header>

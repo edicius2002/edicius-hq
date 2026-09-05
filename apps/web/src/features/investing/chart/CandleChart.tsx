@@ -139,9 +139,18 @@ export function CandleChart({
   // Following stays pinned to the live edge as new bars arrive. Derived here
   // during render, from `bars` and `plot`, rather than from an effect; the
   // comparison against the current window keeps this from looping.
+  //
+  // The width is the one already on screen, not `DEFAULT_VISIBLE`: following
+  // means the right edge is held against the latest bar, not that the chart
+  // shows a fixed number of them. Re-deriving the default width here reverted
+  // every wheel zoom on the very next render, because zooming — like dragging
+  // into the right edge — is not a move into history and so does not, and
+  // should not, let follow go. `DEFAULT_VISIBLE` still sets the width the chart
+  // opens at; it just no longer outlives that first window.
   if (following && bars.length) {
+    const span = window.last - window.first;
     const liveWindow = clampWindow(
-      { first: bars.length - DEFAULT_VISIBLE, last: bars.length },
+      { first: bars.length - span, last: bars.length },
       bars.length,
       minVisibleBars(plot),
     );

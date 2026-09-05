@@ -1,9 +1,13 @@
 # Deploy plan: frontend on Vercel, private access; API stays home
 
-Decided 2026-09-03. Not implemented — this records the decision so a later session
-can act on it without re-deriving the reasoning. Supersedes the original step 7 shape
-in `IMPLEMENTATION_PLAN.md` §51 ("Cloud: Supabase Auth (magic link), RLS, deploy") for
-now: that assumed multi-user cloud auth, this is single-user personal access instead.
+Decided 2026-09-03 and built since: the Vercel deployment is live, the passkey gate is
+on every `/api` route, and both transports the API can be published on are commands in
+this repository. What is left unbuilt is listed under Open questions and nowhere else.
+This document is still the reasoning and not only the runbook, so a later session can
+change it without re-deriving why it is shaped this way. Supersedes the original step 7
+shape in `IMPLEMENTATION_PLAN.md` §51 ("Cloud: Supabase Auth (magic link), RLS,
+deploy"): that assumed multi-user cloud auth, this is single-user personal access
+instead.
 
 Revised the same day. The first draft of this document argued for Cloudflare Tunnel
 plus Cloudflare Access; that mechanism was ruled out before anything was built, and
@@ -14,8 +18,11 @@ was chosen to. The reasoning is in "Who can reach the API" and in Open questions
 
 - **`apps/web` deploys to Vercel.** It is a static/SPA build; Vercel is a good fit for
   exactly that and nothing else here needs a server process.
-- **`services/api` stays on the owner's own PC**, published to the owner's own devices
-  by Tailscale Serve, not deployed to a cloud provider and not exposed to the internet.
+- **`services/api` stays on the owner's own PC**, published by Tailscale — to the
+  owner's own devices with Serve, or to the internet with Funnel — and not deployed to
+  a cloud provider. Which of the two is a runtime setting and not a rebuild; the
+  section "Serve and Funnel are one setting" says what each costs and what has to be
+  true before the wider one is turned on.
 - **Every upstream request leaves the owner's home connection. Always.** This is the
   invariant the shape exists to hold, not a side effect of it: Yahoo, Binance, Google
   Flights and X are reached by `services/api` running on the home PC, from a
@@ -28,6 +35,8 @@ was chosen to. The reasoning is in "Who can reach the API" and in Open questions
   serves the app shell to anyone who opens it; what they get is the login screen.
   That is accepted, not overlooked: blocking the URL itself would need Vercel
   Deployment Protection on a paid plan, and there is nothing behind it to reach.
+  Under Funnel the passkey is not one of two walls but the only one, which is why
+  turning Funnel on has an ordering attached to it rather than being a preference.
 
 ## Why the API doesn't move to a datacenter
 
@@ -126,31 +135,108 @@ only the mechanism that holds it is — and it is now held twice:
 - `POST /api/fares/watch/import` (`routers/fares.py:715`) — upload a file that merges
   into the watched routes and their history.
 
-**Serve, not Funnel — and now the reason has changed.** `tailscale serve` publishes a
-service inside the tailnet; `tailscale funnel` publishes it to the entire internet. The
-distinction is one word on a command line, which is exactly why it belongs in the
-record rather than in somebody's memory.
-
-It used to be that Funnel must never be run, because it would expose an API with no
-authentication at all. **Funnel is now possible** — the passkey gate is what makes it
-so. What has replaced the prohibition is an ordering, and the ordering is the thing to
-record: the login has to be working, verified against a real enrolled device, before
-the transport is widened. Running Funnel first would publish every write endpoint
-listed above to the internet for however long it took to notice.
-
-One thing to revisit with it. The four Server-Sent Events routes accept the session
-token in a query string, because `EventSource` cannot set request headers. That is
-sound only while TLS terminates on the owner's own machine, which is true of Serve and
-of Funnel, and stops being true the moment the API is routed through Cloudflare, ngrok
-or a Vercel rewrite — any of those would put the token in someone else's logs.
-`services/api/app/auth.py` says so at the point it would have to change.
-
 `CORS_ORIGINS` is configuration, not access control — a browser policy sent in a
 response header, which `curl` never asks for. It belongs in the list of things to
 configure, not in the list of things that gate access. Neither does restricting the
 Vercel deployment help here: the browser calls the `ts.net` hostname directly
 (`VITE_API_URL`, `apps/web/src/shared/api/config.ts`), so the API is not behind Vercel
 at all.
+
+## Serve and Funnel are one setting
+
+`tailscale serve` publishes a service inside the tailnet; `tailscale funnel` publishes
+the same mapping to the entire internet. The distinction is one word on a command line,
+which is exactly why it belongs in the record rather than in somebody's memory — and
+why both words now live in `scripts/tailnet.mjs` rather than being typed from memory.
+
+It used to be that Funnel must never be run, because it would expose an API with no
+authentication at all. **Funnel is possible, and it is built.** The passkey gate is
+what makes it so. What replaced the prohibition is an ordering, and the ordering is
+still the thing to record: **the login has to be working, verified against a real
+enrolled device, before the transport is widened.** Running Funnel first would publish
+every write endpoint listed above to the internet for however long it took to notice.
+
+That ordering is now checked and not only written down. `node scripts/tailnet.mjs
+funnel` refuses while no enrolled passkey has ever signed in, and it asks the store the
+precise question rather than the convenient one: `auth_store.add_credential` writes
+`last_used_at: null` and only a verified assertion fills it in, so a credential that
+was enrolled and never used does not satisfy it. That distinction is not theoretical —
+of the two credentials enrolled on 2026-09-03, one carried a `last_used_at` and one was
+still `null`. There is no flag to skip the check; the way past it is to enrol a device
+and sign in on it, which is the thing being asked for.
+
+**What Funnel actually changes, and what it does not.** It is a narrower change than it
+sounds, and being specific about that is what makes the risk assessable:
+
+- **DNS.** Measured 2026-09-04: `pc.tail80c91b.ts.net` resolves to `100.113.213.106`
+  through MagicDNS on the home PC and answers `NXDOMAIN` on `8.8.8.8`. That is the
+  whole of "Failed to fetch" on a phone that has not joined the tailnet — the lookup
+  fails before TLS, before CORS, before the API is asked anything. Funnel publishes a
+  public record for that name, and that is the single thing standing between the
+  current state and a working phone.
+- **Who terminates TLS.** Nobody new. Funnel's ingress forwards the TLS stream to
+  `tailscaled` on the home PC, which holds the certificate and decrypts there. The
+  paragraph in "What Tailscale and Vercel can see" survives intact, and so does the SSE
+  decision below, which depends on exactly this.
+- **The hostname the browser calls.** Unchanged, so `VITE_API_URL` is unchanged, so
+  **there is no Vercel rebuild in switching transports.** The value is baked at build
+  time and it is already the right one; the deployed bundle was read on 2026-09-04 and
+  its `getApiBaseUrl` folds to `` `https://pc.tail80c91b.ts.net`.replace(/\/$/, ``) ``.
+- **`CORS_ORIGINS`.** Unchanged, and the reason is worth stating because it looks like
+  it should change: the `ts.net` name is the API's own origin, the destination of the
+  request, and never the `Origin` header on one. What the list holds is where the page
+  is served from, which is still Vercel. Verified over the tailnet on 2026-09-04:
+  `OPTIONS /api/auth/login/options` with `Origin: https://edicius-hq-web.vercel.app`
+  answered 200 with a matching `Access-Control-Allow-Origin`.
+- **`WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN`.** Unchanged, and this is the load-bearing
+  one. A passkey is bound to the origin the _page_ came from, not the one the API
+  answers on. Under Funnel the page still comes from Vercel, so both values stay
+  `edicius-hq-web.vercel.app`, and **every already-enrolled device keeps working with
+  no re-enrolment**. The alternative shape — serving the SPA from the `ts.net` host too
+  — would move them, and that is discussed under its own heading below because the
+  price is not small.
+- **Who can reach the write endpoints.** Everyone, subject to the passkey. This is the
+  cost and it is not mitigated by anything else: the inventory above answers the
+  internet, and `auth.py`'s single 401 for every failure mode is what a stranger gets.
+  `/api/auth/register/options` is one of the four routes open by necessity, so the
+  eight-character enrolment code is now guessable from anywhere rather than from the
+  tailnet — which is why `authorise_code` charging a miss, and killing the code after
+  five, stops being an implementation detail and becomes part of the perimeter.
+
+**The SSE query-string token stays sound, and this is the transport change that would
+have broken it if it were going to.** The four Server-Sent Events routes accept the
+session token in a query string because `EventSource` cannot set request headers, and
+`services/api/app/auth.py` records that this is defensible only while TLS terminates on
+the owner's own machine. Funnel does terminate there — the ingress forwards an
+undecrypted stream to `tailscaled`, which holds the cert — so the token is not written
+into anybody else's logs and the decision holds unchanged. The note in `auth.py` already
+names Funnel among the transports where it is fine and Cloudflare, ngrok and a Vercel
+rewrite as the ones where it is not; that list is correct as written and nothing here
+moves the API onto any of the three. `apps/web/src/shared/auth/streamUrl.ts` carries the
+same note at the one place every `EventSource` URL is built, and its wording — "there is
+no intermediary here: `tailscale serve --https` terminates TLS on the owner's own
+machine" — is still true under Funnel, because the sentence turns on where TLS
+terminates and not on which of the two commands published the mapping. What Funnel does
+change about those four routes is who may attempt them, which is the same thing it
+changes about every other route: a stranger can now open the URL and gets the single 401
+`auth.py` answers everything with.
+
+**Serving the SPA from the `ts.net` host instead, and why it was not chosen.** Funnel
+can carry more than one handler: the web bundle on `/` and the API under `/api` would
+collapse the two origins into one, which removes the public Vercel URL, removes CORS
+from the picture entirely, and removes the cross-origin question the first draft of
+this document spent a paragraph on. It costs three things, and the first is decisive
+for the problem actually being solved. **Every enrolled passkey stops working**: the RP
+ID would move from `edicius-hq-web.vercel.app` to `pc.tail80c91b.ts.net`, a credential
+enrolled under one RP ID is not offered under another, and both existing credentials
+would have to be re-enrolled from the PC's own keyboard — including the PC's own, and
+including a phone that cannot be enrolled until it can sign in. It is a one-way door in
+practice, because moving back refuses whatever was enrolled while it was moved. Second,
+the home PC would serve the bundle as well as the API, so the site would be down
+whenever the machine is. Third, `VITE_API_URL` would move, and being read at build time
+that is a Vercel rebuild — or the end of the Vercel deployment altogether. Funnel over
+the existing split is a one-command change that re-enrols nothing; this is a migration.
+It is written down because it is the obvious next idea, not because it is wrong.
 
 ## What the shape costs in latency
 
@@ -234,9 +320,21 @@ figure should be quoted for them until they do:
   cannot run the mode that cannot start Playwright. (`npm start` also uses `serve`,
   via `scripts/serve.mjs`, but it starts a local Vite preview alongside it that this
   shape does not need.)
-- **Tailscale has to be installed and signed in on every device that opens the site**,
-  not only on the home PC, and MagicDNS has to be on so the `ts.net` name resolves
-  there. A device without it gets the app shell and no data.
+- **Under Serve, Tailscale has to be installed and signed in on every device that
+  opens the site**, not only on the home PC, and MagicDNS has to be on so the `ts.net`
+  name resolves there. A device without it gets the app shell and no data — and it
+  reports that as `Failed to fetch`, because the failure is a DNS lookup and not an
+  HTTP status. **Under Funnel this requirement disappears** and is the only reason to
+  turn Funnel on: the name is in public DNS, so any device resolves it. Enrolling a
+  new phone is the case that forces the choice, since a phone cannot join the tailnet
+  and sign in in the same sitting without the owner standing over it twice.
+- **Funnel needs no admin-console step on this tailnet.** Checked 2026-09-04 rather
+  than assumed: `tailscale status --json` reports this node's `Self.CapMap` already
+  carrying `funnel` and
+  `https://tailscale.com/cap/funnel-ports?ports=443,8443,10000`, and HTTPS
+  certificates are already enabled — `CertDomains` lists `pc.tail80c91b.ts.net` and
+  Serve has been answering on a real certificate. So the whole of enabling it is
+  `npm run tailnet:funnel` on the home PC.
 - **This is the real cost of the shape**: no uptime beyond whenever the machine is up,
   no restart-on-crash beyond whatever the owner does by hand.
 - **The Vercel project is configured by `vercel.json` at the repository root**, which
@@ -252,17 +350,36 @@ figure should be quoted for them until they do:
 
 ## How it is run
 
-Two commands on the home PC, and two more for reading and undoing the second.
+One command for the API, and one for the transport it is published on.
 
 - `node scripts/api.mjs serve` — the API on `127.0.0.1:8000`, without the reloader
   that cannot start Playwright.
-- `tailscale serve --bg --https=443 localhost:8000` — publishes it inside the tailnet
-  over HTTPS. `--bg` is what makes it outlive the terminal; without it the command
-  holds the foreground and the service stops when the window closes.
-- `tailscale serve status` — prints the full `https://<machine>.<tailnet>.ts.net` URL.
-  That string is what `VITE_API_URL` and `CORS_ORIGINS` are set from, and it is stable
-  across restarts, which is the property a quick tunnel could not offer.
-- `tailscale serve --https=443 localhost:8000 off` — takes it back down.
+- `npm run tailnet:serve` — publishes it inside the tailnet over HTTPS
+  (`tailscale serve --bg --https=443 localhost:8000`). `--bg` is what makes it outlive
+  the terminal; without it the command holds the foreground and the service stops when
+  the window closes.
+- `npm run tailnet:funnel` — publishes the same mapping to the public internet
+  (`tailscale funnel --bg --https=443 localhost:8000`), after refusing if no enrolled
+  passkey has ever signed in. This is the one command in the repository that makes
+  something reachable from outside the house, which is why it prints what it did.
+- `npm run tailnet:status` — prints the full `https://<machine>.<tailnet>.ts.net` URL
+  and, on the same line, whether it says `(tailnet only)` or names a public one. That
+  string is what `VITE_API_URL` is set from, and it is stable across restarts and
+  across the Serve/Funnel choice — which is the property a quick tunnel could not
+  offer and the reason switching transports is not a rebuild.
+- `npm run tailnet:off` — takes it back down, from either setting
+  (`tailscale serve --https=443 off`).
+
+Everything above is `scripts/tailnet.mjs`, in the subcommand shape `scripts/api.mjs`
+already uses. It is a separate file because every mode of `api.mjs` ends in
+`spawnSync(python, args)` and `tailscale` has no interpreter to pin.
+
+**Going from Funnel back to Serve is `off` and then `serve`, in that order.** Not
+`tailscale funnel --https=443 off`, which sounds like the narrowing command and is not:
+measured 2026-09-04, run against a mapping that was tailnet-only it exited 0 and left
+`tailscale serve status` reporting `No serve config` — it removes the handler rather
+than the public flag. The two-step is the one that cannot leave anything published
+halfway through.
 
 The full first-time setup, including the admin-console steps and the order to verify
 them in, lives in the implementation plan for this work rather than here.
@@ -289,6 +406,18 @@ certificates publishes the machine's name to public **Certificate Transparency l
 The tailnet name and the machine name become public strings — permanently, and
 searchably — even though nothing they serve does. It is worth choosing a machine name
 before enabling this rather than after.
+
+**Funnel changes one line of the above and not the rest.** The traffic still terminates
+on the owner's machine: Tailscale's Funnel ingress forwards the TLS stream without
+holding a key for it, and `tailscaled` on the home PC decrypts. So "no third party sees
+request contents" survives the switch, and so does the SSE query-string token that
+depends on it. What Funnel adds is that the machine's `ts.net` name goes into public
+DNS as well as into the CT logs it was already in — the name was already a public,
+searchable string, and it becomes a resolvable one. It also adds Tailscale's ingress to
+the metadata list: connection times and traffic volumes for the requests that arrive
+from outside the tailnet, which under Serve did not exist. And the address a request
+arrives from is no longer necessarily the owner's: anyone on the internet can reach the
+listener, and what refuses them is `auth.py`'s single 401.
 
 Vercel sees the site: page loads, asset requests, the deployment's own logs. It does
 not see API traffic, because the browser calls the `ts.net` hostname directly rather
@@ -321,9 +450,18 @@ names and connection times, and nothing about what was asked for.
   keep-alives arrive on time and unbuffered. The same question applies to the fares
   collection stream (`routers/fares.py:1263`) and the tweets one
   (`routers/tweets.py:130`), which use the same framing.
-- **Does the site work from a phone?** Not tested. The shape requires Tailscale
-  installed and signed in on every viewing device, and MagicDNS resolving the `ts.net`
-  name there. It should work; it has not been run.
+- **Does the site work from a phone?** Half answered, and the half that failed has a
+  measured cause rather than a suspicion. The owner tried to enrol a phone that had not
+  joined the tailnet on 2026-09-04 and the attempt answered `Failed to fetch`. That is
+  not CORS and not the passkey — `pc.tail80c91b.ts.net`
+  answers `NXDOMAIN` on `8.8.8.8` while resolving to `100.113.213.106` through MagicDNS
+  on the home PC, so the lookup fails before a request is made. The two ways out are
+  the two this document already names: join the tailnet on the phone, or
+  `npm run tailnet:funnel`. **What is still untested is the second half** — an actual
+  passkey enrolment and sign-in completed on a phone, over either transport. The
+  ceremony is the part with the most moving pieces (the RP ID, the platform
+  authenticator, the ten-minute code) and none of it has been exercised on a device
+  that is not this PC.
 
 Four things that were open in earlier drafts are not open any more, recorded here so
 the change is visible rather than silent.

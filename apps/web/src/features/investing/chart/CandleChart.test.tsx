@@ -118,6 +118,21 @@ describe('CandleChart live-edge follow', () => {
     );
   });
 
+  it('zooms with the wheel while still following the latest candles', () => {
+    const { container } = render(<CandleChart {...chartProps()} />);
+    const target = surface(container);
+
+    expect(target).toHaveAttribute('aria-label', expect.stringContaining('Showing 120 bars'));
+
+    fireEvent.wheel(target, { deltaY: -100, clientX: 799, clientY: 100 });
+
+    // Zooming does not mean leaving the live edge: fewer bars, same last one,
+    // and the chart still following what arrives next.
+    const label = target.getAttribute('aria-label') ?? '';
+    expect(label).toContain('Showing 105 bars from bar 95 to bar 199.');
+    expect(label).toContain('Following latest candles');
+  });
+
   it('pans and zooms by keyboard without stealing the latest edge back', () => {
     const { container } = render(<CandleChart {...chartProps()} />);
     const target = surface(container);

@@ -357,12 +357,22 @@ export function anyStale(decisions: readonly ReuseDecision[]): boolean {
  * it from wherever a zoom glide ends too — `stepZoom` snapping to target on
  * its own, or `endGlide` forcing it there — and pay for only one more
  * parameter here.
+ *
+ * `pinch` degrades for the same reason `rotate` does, and it is not covered by
+ * `zoomGliding` alone. A two-finger pinch drives the scale through the very
+ * same `aimZoom`, so it re-anchors — and therefore turns the globe — on every
+ * frame the fingers move; but `zoomGliding` is `zoom.current !==
+ * zoomTarget.current`, which the easing closes within a few frames of the
+ * fingers pausing. A reader who holds a pinch still for half a second and then
+ * carries on would get a full rebuild in the middle of their own gesture, and
+ * then a second transition back down when they moved again. A held pointer is
+ * the honest signal here, exactly as it is for a drag.
  */
 export function forcesDegrade(
-  gestureKind: 'rotate' | 'pan' | undefined,
+  gestureKind: 'rotate' | 'pan' | 'pinch' | undefined,
   zoomGliding: boolean,
   now: number,
   until: number,
 ): boolean {
-  return gestureKind === 'rotate' || zoomGliding || now < until;
+  return gestureKind === 'rotate' || gestureKind === 'pinch' || zoomGliding || now < until;
 }

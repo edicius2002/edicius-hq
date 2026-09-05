@@ -206,6 +206,19 @@ const NOTHING_WANTED: readonly string[] = [];
  */
 const WHEEL_RATE = 0.002;
 
+/**
+ * How much one press of a zoom control is worth.
+ *
+ * The one number the wheel and the pinch do not need, because both of those
+ * are handed a size by the gesture itself. A key and a button are not, so they
+ * are given a rung — and it is a *rung*, not a jump: what a press asks for
+ * goes through the same eased glide a notch does, so 1.3 is where the scale
+ * ends up rather than what the next frame shows. `log(32) / log(1.3)` is 13.2,
+ * so fourteen presses cross the whole 1x–32x range — enough that the ceiling
+ * is genuinely reachable by button, and few enough that it is not a chore.
+ */
+const ZOOM_STEP = 1.3;
+
 /** For a route the watchlist has no colour for, which should not happen. */
 const DEFAULT_ARC = 'var(--arc-neutral)';
 
@@ -782,9 +795,37 @@ export function RouteMap({
         q0: [number, number, number, number];
         r0: [number, number, number];
       }
-    | { kind: 'pan'; x: number; y: number; from: { x: number; y: number } };
+    | { kind: 'pan'; x: number; y: number; from: { x: number; y: number } }
+    /**
+     * Two fingers scaling the map, holding the span between them when it was
+     * last measured.
+     *
+     * A span rather than the two points: what the scale follows is the ratio
+     * between one measurement and the next, so re-measuring on every change —
+     * a finger moving, a third landing, one of three lifting — is what keeps
+     * the gesture continuous through all of them. There is nowhere for a jump
+     * to come from if the baseline is never older than the last event.
+     */
+    | { kind: 'pinch'; span: number };
 
   const gesture = useRef<Gesture | null>(null);
+
+  /**
+   * Every finger currently down on the stage, in the stage's own coordinates.
+   *
+   * The stage used to keep one gesture and let a second `pointerdown`
+   * overwrite it, so a second finger did not make a pinch — it restarted the
+   * rotate somewhere else, and the map lurched. Keyed by `pointerId` because
+   * that is the only thing that tells two fingers apart, and an insertion-
+   * ordered `Map` because a pinch is about the *first two* down: a third
+   * finger landing must not silently re-measure the gesture against a
+   * different pair.
+   *
+   * Not restricted to `pointerType === 'touch'`. Two mice cannot both be down
+   * at once, so gating on the type would only ever exclude a pen or a
+   * touchscreen reporting itself oddly, and buy nothing.
+   */
+  const touches = useRef(new Map<number, { x: number; y: number }>());
 
   /**
    * How long past the end of a rotate drag, or a zoom glide, `forcesDegrade`
@@ -1595,14 +1636,62 @@ export function RouteMap({
    */
   const pressed = useRef<{ route: string | null; x: number; y: number } | null>(null);
 
+  /**
+   * Seat a one-finger drag at a point, whichever projection is showing.
+   *
+   * Its own function because a drag now begins in two places rather than one:
+   * a finger going down on a still map, and a pinch dropping back to a single
+   * finger. The second is the reason it takes a point rather than reading the
+   * event — what has to be re-seated there is where the surviving finger *is*,
+   * which is nowhere near where it first landed.
+   *
+   * Answers `false` when the globe cannot say what is under the point, which
+   * is a press outside the disc: there is nothing to turn, and the caller must
+   * not capture the pointer or claim the map is moving.
+   */
+  function beginDrag(at: [number, number]): boolean {
+    if (projection === 'globe') {
+      const inverted = places.globe.invert?.(at);
+      if (!inverted) return false;
+      gesture.current = {
+        kind: 'rotate',
+        v0: versor.cartesian(inverted),
+        q0: versor(rotation.current),
+        r0: [...rotation.current] as [number, number, number],
+      };
+      return true;
+    }
+    // A flat map has no rotation to speak of, so dragging moves it instead.
+    gesture.current = { kind: 'pan', x: at[0], y: at[1], from: { ...pan.current } };
+    return true;
+  }
+
+  /** The first two fingers down, in the order they landed, or nothing. */
+  function firstTwo(): [{ x: number; y: number }, { x: number; y: number }] | null {
+    const [a, b] = [...touches.current.values()];
+    return a && b ? [a, b] : null;
+  }
+
+  /**
+   * Measure the span between the first two fingers and make that the baseline.
+   *
+   * Called whenever the set of fingers changes rather than only when the
+   * second one lands, which is what makes the count changing under a live
+   * gesture free: a third finger arriving and one of three lifting both leave
+   * the ratio at exactly 1 for the frame they happen in, so neither is a jump.
+   */
+  function measurePinch(): boolean {
+    const two = firstTwo();
+    if (!two) return false;
+    const span = Math.hypot(two[1].x - two[0].x, two[1].y - two[0].y);
+    if (!(span > 0)) return false;
+    gesture.current = { kind: 'pinch', span };
+    return true;
+  }
+
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     const { offsetX, offsetY } = event.nativeEvent;
-    const target = event.target as Element | null;
-    pressed.current = {
-      route: target?.getAttribute?.('data-route') ?? null,
-      x: offsetX,
-      y: offsetY,
-    };
+    touches.current.set(event.pointerId, { x: offsetX, y: offsetY });
     // A new drag starting inside a previous gesture's settle window replaces
     // it outright: `gesture.current` being set again is already enough for
     // `forcesDegrade` to answer `true`, so the pending redraw at the old
@@ -1611,19 +1700,25 @@ export function RouteMap({
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
     }
-    if (projection === 'globe') {
-      const inverted = places.globe.invert?.([offsetX, offsetY]);
-      if (!inverted) return;
-      gesture.current = {
-        kind: 'rotate',
-        v0: versor.cartesian(inverted),
-        q0: versor(rotation.current),
-        r0: [...rotation.current] as [number, number, number],
-      };
-    } else {
-      // A flat map has no rotation to speak of, so dragging moves it instead.
-      gesture.current = { kind: 'pan', x: offsetX, y: offsetY, from: { ...pan.current } };
+
+    if (touches.current.size > 1) {
+      // A second finger is never a press. Whatever the first one landed on,
+      // the reader is scaling the map now rather than choosing a route, and
+      // clearing this is what stops the pinch ending in an opened route.
+      pressed.current = null;
+      if (!measurePinch()) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setMoving(true);
+      return;
     }
+
+    const target = event.target as Element | null;
+    pressed.current = {
+      route: target?.getAttribute?.('data-route') ?? null,
+      x: offsetX,
+      y: offsetY,
+    };
+    if (!beginDrag([offsetX, offsetY])) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     setMoving(true);
   }
@@ -1632,6 +1727,35 @@ export function RouteMap({
     const held = gesture.current;
     if (!held) return;
     const { offsetX, offsetY } = event.nativeEvent;
+
+    const finger = touches.current.get(event.pointerId);
+    if (finger) {
+      finger.x = offsetX;
+      finger.y = offsetY;
+    }
+
+    if (held.kind === 'pinch') {
+      const two = firstTwo();
+      if (!two) return;
+      const span = Math.hypot(two[1].x - two[0].x, two[1].y - two[0].y);
+      if (!(span > 0)) return;
+      /*
+       * The baseline moves whether or not the scale did. `aimZoom` refuses a
+       * factor that would leave the target where it already is — at either end
+       * of the 1x–32x range, that is every event — and a baseline left behind
+       * at the ceiling would make the whole of the reader's spread have to be
+       * un-spread before the map answered again.
+       */
+      gesture.current = { kind: 'pinch', span };
+      /*
+       * The same door the wheel goes through, aimed at the midpoint between
+       * the fingers. That is the one point on the screen a pinch genuinely
+       * holds still, and it is what makes two fingers on a country keep that
+       * country between them instead of sliding it off the frame.
+       */
+      aimZoom(span / held.span, [(two[0].x + two[1].x) / 2, (two[0].y + two[1].y) / 2]);
+      return;
+    }
 
     if (held.kind === 'pan') {
       // Free in both directions; `fit` clamps it to the map's own edges, which
@@ -1656,18 +1780,43 @@ export function RouteMap({
   const STILL = 4;
 
   function endGesture(event: React.PointerEvent<HTMLDivElement>) {
+    touches.current.delete(event.pointerId);
     const press = pressed.current;
     pressed.current = null;
     if (press?.route) {
       const { offsetX, offsetY } = event.nativeEvent;
       if (Math.hypot(offsetX - press.x, offsetY - press.y) <= STILL) onSelect(press.route);
     }
-    if (!gesture.current) return;
-    const wasRotating = gesture.current.kind === 'rotate';
-    gesture.current = null;
+    const held = gesture.current;
+    if (!held) return;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
+
+    /*
+     * A finger leaving a pinch is not the gesture ending — it is the gesture
+     * becoming a different one, and the map has to carry on from where it is.
+     * Three fingers down to two re-measures the span; two down to one seats a
+     * drag on where the surviving finger is *now*, which is the whole of what
+     * keeps the globe from lurching: a rotate seated on where that finger
+     * first landed would turn the map by everything it travelled during the
+     * pinch, in the frame after the lift.
+     */
+    if (held.kind === 'pinch') {
+      if (touches.current.size > 1 && measurePinch()) return;
+      const [surviving] = touches.current.values();
+      if (surviving && beginDrag([surviving.x, surviving.y])) return;
+    }
+
+    gesture.current = null;
     setMoving(false);
-    if (wasRotating) scheduleSettle();
+    // The fingers stop where they stop, so the scale goes where they asked
+    // rather than a hair short of it — the same debt `endGlide` settles for a
+    // wheel gesture that has run out of notches.
+    if (held.kind === 'pinch') endGlide();
+    // A pinch turned the globe as well as scaling it: `applyZoom` re-anchors
+    // the midpoint on every frame, and on a sphere that is a rotation. So it
+    // settles for the same reason a drag does, and it settles even when
+    // `endGlide` found the scale already arrived and had nothing to snap.
+    if (held.kind === 'rotate' || held.kind === 'pinch') scheduleSettle();
     draw();
     commit();
   }
@@ -1864,20 +2013,21 @@ export function RouteMap({
     };
   }, []);
 
-  /*
-   * The wheel is not the only pointer, and it is no pointer at all for someone
-   * on a keyboard. With the plus and minus buttons gone, `+` and `-` on the
-   * focused map are what keeps zoom reachable without one.
+  /**
+   * One rung of zoom about the middle of the frame, eased like a wheel notch.
+   *
+   * The middle is not a compromise, it is the only honest anchor a control
+   * that is not a pointer has: a key press and a button press say how far, not
+   * where, and picking any other point would be inventing a place the reader
+   * did not indicate. It is also what makes these two the same gesture as the
+   * wheel rather than a second mechanism: the 320ms grace and the `endGlide`
+   * that closes it are `onWheel`'s own ending, borrowed whole rather than
+   * reimplemented at a second size.
    */
-  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    const step = event.key === '+' || event.key === '=' ? 1.3 : event.key === '-' ? 1 / 1.3 : null;
-    if (step === null) return;
-    event.preventDefault();
+  function stepFromCentre(factor: number) {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return;
-    if (!aimZoom(step, [rect.width / 2, rect.height / 2])) return;
-    // Eased like the wheel, so the keyboard is the same gesture at a fixed
-    // size rather than the jump the wheel no longer makes.
+    if (!aimZoom(factor, [rect.width / 2, rect.height / 2])) return;
     setMoving(true);
     if (wheelStop.current) clearTimeout(wheelStop.current);
     wheelStop.current = setTimeout(() => {
@@ -1886,6 +2036,20 @@ export function RouteMap({
     }, 320);
     draw();
     commit();
+  }
+
+  /*
+   * The wheel is not the only pointer, and it is no pointer at all for someone
+   * on a keyboard. `+` and `-` on the focused map are what keeps zoom
+   * reachable without one, and they reach it by exactly the route the two
+   * on-screen controls do.
+   */
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const step =
+      event.key === '+' || event.key === '=' ? ZOOM_STEP : event.key === '-' ? 1 / ZOOM_STEP : null;
+    if (step === null) return;
+    event.preventDefault();
+    stepFromCentre(step);
   }
 
   function reset() {
@@ -2142,11 +2306,30 @@ export function RouteMap({
         </div>
 
         {/*
-          No plus and minus. Two buttons that step the scale by a fixed factor
-          are the mechanical feel this was asked to lose, and they zoom about
-          the middle of the frame rather than about what you are looking at.
-          The wheel does it continuously and about the cursor; `+` and `-` on
-          the focused map do it for anyone without one.
+          Plus and minus are back, and they are in the stage rather than here —
+          see `styles.controls` below for what they are and this for why.
+
+          They were taken off on two grounds. The first was feel: two buttons
+          that step the scale by a fixed factor are the mechanical map this one
+          was built away from. That ground still holds and is kept — a press
+          goes through `stepFromCentre` into the same eased glide a wheel notch
+          takes, so 1.3 is where the scale arrives, not what the next frame
+          shows. The second was that the wheel does it continuously and about
+          the cursor, and `+` and `-` on the focused map do it for anyone
+          without one. That one assumed every reader has a wheel or a keyboard,
+          and a phone has neither: since `the-five-pages-on-a-phone` the stage
+          is 260px on a narrow viewport, on a widget whose range runs to 32x,
+          and `touch-action: none` means even the browser's own pinch is gone.
+          A reader on a phone was hard-locked at 1x.
+
+          Two fingers are the answer to the gesture and these are the answer to
+          the rest of it. They are shown at every width, not only the narrow
+          ones. A pinch needs two working fingers and a screen that reports
+          them; the reader on a tablet in landscape, and the reader who can
+          bring one finger to the glass at a time, are both past 640px and
+          neither has a wheel. Hiding a control behind a viewport width is
+          guessing at what the reader's hands can do from how wide their window
+          is, and this is the one route on the map that asks nothing of them.
         */}
         {/*
           The right end of the strip: whatever the page handed over, then Reset.
@@ -2178,7 +2361,12 @@ export function RouteMap({
         onKeyDown={onKeyDown}
         tabIndex={0}
         role="application"
-        aria-label="Route map. Scroll or press plus and minus to zoom, drag to move."
+        /*
+         * What is actually here, on whatever the reader is holding. The old
+         * label promised a scroll wheel and two keys to a phone, which has
+         * neither — and named nothing a finger could do.
+         */
+        aria-label="Route map. Drag to move. Pinch, scroll, use the zoom buttons, or press plus and minus to zoom."
       >
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
@@ -2456,6 +2644,37 @@ export function RouteMap({
             }),
           )}
         </svg>
+
+        {/*
+          Chrome, not map. It sits inside the stage — the same place the
+          Finance canvas keeps its own pair — so it stays in the corner of the
+          picture the reader is zooming rather than a toolbar's width away
+          from it, and so a phone can reach it with the thumb already on the
+          globe.
+
+          It stops its own presses. Every pointer that goes down in the stage
+          turns the globe or opens a route, and a press on a control is
+          neither; without this, tapping `+` would start a rotate under the
+          button and the map would drift while the scale changed.
+        */}
+        <div className={styles.controls} onPointerDown={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            className={styles.control}
+            aria-label="Zoom out"
+            onClick={() => stepFromCentre(1 / ZOOM_STEP)}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            className={styles.control}
+            aria-label="Zoom in"
+            onClick={() => stepFromCentre(ZOOM_STEP)}
+          >
+            +
+          </button>
+        </div>
       </div>
     </div>
   );

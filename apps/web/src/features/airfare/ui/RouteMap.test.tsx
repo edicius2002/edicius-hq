@@ -250,8 +250,9 @@ function pointer(
   target: Element,
   type: 'pointerDown' | 'pointerMove' | 'pointerUp',
   at: [number, number],
+  pointerId = 1,
 ) {
-  const event = createEvent[type](target, { pointerId: 1 });
+  const event = createEvent[type](target, { pointerId, pointerType: 'touch' });
   Object.defineProperty(event, 'offsetX', { get: () => at[0] });
   Object.defineProperty(event, 'offsetY', { get: () => at[1] });
   fireEvent(target, event);
@@ -281,6 +282,28 @@ function wheel(target: Element, deltaY: number, at: [number, number]) {
   Object.defineProperty(event, 'offsetX', { get: () => at[0] });
   Object.defineProperty(event, 'offsetY', { get: () => at[1] });
   target.dispatchEvent(event);
+}
+
+/**
+ * How far apart the drawn route's two ends are, in stage pixels.
+ *
+ * The scale itself is a ref nothing renders and the canvas is never painted
+ * here, so what stands in for it is the width of a pair whose real separation
+ * cannot change: Lima and Cusco are 570 km apart, 0.0895 radians, and the gap
+ * between their dots is the globe's radius — `0.42 x 540 x zoom` on the box
+ * this suite mocks — times the sine of that. Turning the globe moves both dots
+ * together and can only ever *narrow* the gap by foreshortening, so a gap that
+ * has grown is a scale that has grown and nothing else.
+ */
+function spread(container: HTMLElement) {
+  const xs = [...container.querySelectorAll('circle')].map((dot) => Number(dot.getAttribute('cx')));
+  return Math.max(...xs) - Math.min(...xs);
+}
+
+/** Where the map has put Lima, which is the end every route on this page shares. */
+function homeDot(container: HTMLElement): [number, number] {
+  const dot = container.querySelector('circle[class*="home"]')!;
+  return [Number(dot.getAttribute('cx')), Number(dot.getAttribute('cy'))];
 }
 
 /**
@@ -1490,7 +1513,7 @@ describe('RouteMap', () => {
        * there, the two surfaces are in step.
        */
       const frames: FrameRequestCallback[] = [];
-      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
         frames.push(callback);
         return frames.length;
       });
@@ -1517,6 +1540,16 @@ describe('RouteMap', () => {
       frames.pop()?.(0);
       const insideTheFrame = lima();
       scope.IS_REACT_ACT_ENVIRONMENT = wasActEnvironment;
+      /*
+       * Handed back before the assertion, and not left to `afterEach`: nothing
+       * in this suite restores mocks between tests, so a frame loop stubbed
+       * out here stayed stubbed out for every test below it. That was harmless
+       * while the tests below only ever zoomed — a wheel notch writes the
+       * projections in the handler and the render that follows reads them — and
+       * it is not harmless for a drag, which changes no state at all and shows
+       * up only on a frame that now never came.
+       */
+      raf.mockRestore();
 
       expect(insideTheFrame).not.toBe(before);
     });
@@ -1590,22 +1623,14 @@ describe('RouteMap', () => {
   });
 
   describe('zooming', () => {
-    it('offers no zoom buttons, and refuses to reset a view nobody has moved', () => {
-      /*
-       * Two buttons stepping the scale by a fixed factor are the mechanical feel
-       * this was meant to lose, and they zoom about the middle of the frame
-       * rather than about what the reader is looking at. Reset is the only
-       * control left.
-       */
+    it('refuses to reset a view nobody has moved', () => {
       renderMap();
-      expect(screen.queryByRole('button', { name: /zoom in/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /zoom out/i })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /reset the view/i })).toBeDisabled();
     });
 
     it('keeps zoom reachable from the keyboard', async () => {
-      // With the buttons gone, a wheel is the only pointer route — and no route
-      // at all for someone who does not have one.
+      // One of three routes now, and still the only one for someone driving the
+      // map from a keyboard with no pointer at all.
       const user = userEvent.setup();
       const { container } = renderMap();
       const stage = container.querySelector('[class*="stage"]') as HTMLElement;
@@ -1731,6 +1756,214 @@ describe('RouteMap', () => {
       const firm = await spread(-200);
       expect(gentle).toBeGreaterThan(0);
       expect(firm).toBeGreaterThan(gentle * 3);
+    });
+  });
+
+  describe('zooming with two fingers', () => {
+    /*
+     * A phone has no wheel and no keyboard, and until this the map's only two
+     * doors into `aimZoom` were exactly those. `touch-action: none` on the stage
+     * also takes the browser's own pinch away, so a pinch on the globe did
+     * nothing whatsoever — on a widget built for a 32x range, at a stage PR #172
+     * shrank to 260px.
+     *
+     * Every finger below carries its own `pointerId`, which is the whole point:
+     * the stage used to keep one gesture and let a second press overwrite it, so
+     * two fingers were not a pinch but a rotate that restarted.
+     */
+    it('zooms in when two fingers spread apart', async () => {
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      const stage = container.querySelector('[class*="stage"]')!;
+      const before = spread(container);
+
+      await act(async () => {
+        pointer(stage, 'pointerDown', [440, 250], 1);
+        pointer(stage, 'pointerDown', [520, 290], 2);
+        /*
+         * Six steps rather than one big one, the way a pinch actually arrives.
+         * `aimZoom` eases — each event covers about a fifth of the way to the
+         * scale the fingers have asked for — so a single move would prove
+         * almost nothing about where the gesture ends up. The fingers finish
+         * 358px apart having started 89px apart, which is a 4x pinch.
+         */
+        for (let step = 1; step <= 6; step += 1) {
+          pointer(stage, 'pointerMove', [440 - step * 20, 250 - step * 10], 1);
+          pointer(stage, 'pointerMove', [520 + step * 20, 290 + step * 10], 2);
+        }
+      });
+      await frame();
+
+      expect(spread(container)).toBeGreaterThan(before * 1.5);
+    });
+
+    it('zooms out when two fingers come together', async () => {
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      const stage = container.querySelector('[class*="stage"]')!;
+
+      // 1x is the floor, so there is nothing to pinch out of until the map has
+      // been taken in. The wheel is used to get there because the wheel is the
+      // one route this test is not about.
+      await act(async () => {
+        for (let notch = 0; notch < 6; notch += 1) wheel(stage, -300, [480, 270]);
+      });
+      await frame();
+      const zoomedIn = spread(container);
+
+      await act(async () => {
+        pointer(stage, 'pointerDown', [320, 190], 1);
+        pointer(stage, 'pointerDown', [640, 350], 2);
+        for (let step = 1; step <= 6; step += 1) {
+          pointer(stage, 'pointerMove', [320 + step * 20, 190 + step * 10], 1);
+          pointer(stage, 'pointerMove', [640 - step * 20, 350 - step * 10], 2);
+        }
+      });
+      await frame();
+
+      expect(spread(container)).toBeLessThan(zoomedIn * 0.8);
+    });
+
+    it('turns the globe with one finger and leaves the scale where it was', async () => {
+      /*
+       * The gesture the map already had, and the one a pointer map is most
+       * likely to break: one finger still has to rotate, and rotating still has
+       * to leave the scale alone.
+       *
+       * The scale is checked by arithmetic rather than by a ref nobody can
+       * read. At 1x the globe's radius is `0.42 x 540 = 226.8px` and Lima and
+       * Cusco are 0.0895 radians apart, so no rotation whatsoever can put more
+       * than 20.3px between their dots. Anything wider is a scale that moved.
+       */
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      const stage = container.querySelector('[class*="stage"]')!;
+      const [beforeX, beforeY] = homeDot(container);
+
+      await act(async () => {
+        pointer(stage, 'pointerDown', [480, 270], 1);
+        for (let step = 1; step <= 6; step += 1) {
+          pointer(stage, 'pointerMove', [480 + step * 12, 270 + step * 4], 1);
+        }
+      });
+      await frame();
+
+      const [afterX, afterY] = homeDot(container);
+      expect(Math.hypot(afterX - beforeX, afterY - beforeY)).toBeGreaterThan(4);
+      expect(spread(container)).toBeLessThan(21);
+    });
+
+    it('carries on turning when one of two fingers lifts', async () => {
+      /*
+       * The seam between the two gestures, and the one place a pinch can leave
+       * the map somewhere the reader did not put it. Going from two fingers back
+       * to one has to re-seat the rotate on where the surviving finger *is*, not
+       * on where it first landed: it travelled 72px during the pinch, so a
+       * baseline kept from the press would turn the globe by all of that in the
+       * first frame after the lift.
+       *
+       * Both halves are asserted because each one alone is passed by a different
+       * bug. A map that simply drops the gesture on the lift moves by nothing at
+       * all, and a map that kept the stale baseline moves by far more than the
+       * 8px the finger did.
+       */
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      const stage = container.querySelector('[class*="stage"]')!;
+      const [limaX, limaY] = homeDot(container);
+
+      await act(async () => {
+        // The first finger starts on Lima itself, so what the globe does under
+        // it is measured against a dot that is right there.
+        pointer(stage, 'pointerDown', [limaX, limaY], 1);
+        pointer(stage, 'pointerDown', [limaX + 130, limaY + 50], 2);
+        pointer(stage, 'pointerMove', [limaX - 60, limaY - 40], 1);
+        pointer(stage, 'pointerMove', [limaX + 190, limaY + 90], 2);
+        pointer(stage, 'pointerUp', [limaX + 190, limaY + 90], 2);
+      });
+      await frame();
+
+      const [heldX, heldY] = homeDot(container);
+      await act(async () => {
+        pointer(stage, 'pointerMove', [limaX - 52, limaY - 37], 1);
+      });
+      await frame();
+      const [movedX, movedY] = homeDot(container);
+
+      const travelled = Math.hypot(movedX - heldX, movedY - heldY);
+      expect(travelled).toBeGreaterThan(0.5);
+      expect(travelled).toBeLessThan(40);
+    });
+  });
+
+  describe('the zoom controls', () => {
+    /*
+     * They were taken off on the ground that the wheel does it continuously and
+     * about the cursor, and that `+` and `-` on the focused map do it for anyone
+     * without one. Both halves of that assume a reader who has a wheel or a
+     * keyboard, and a phone has neither — see the comment beside them in
+     * `RouteMap.tsx` for what changed and what did not.
+     */
+    it('offers zoom controls that need neither a wheel nor a keyboard', () => {
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      const before = spread(container);
+
+      fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
+
+      expect(spread(container)).toBeGreaterThan(before);
+      expect(screen.getByRole('button', { name: /zoom out/i })).toBeInTheDocument();
+    });
+
+    it('eases a press rather than stepping the scale', () => {
+      /*
+       * The half of the objection that was about feel, and it still holds: two
+       * buttons that jump the scale by a fixed factor are the mechanical map
+       * this one was built away from. A press goes through the same eased glide
+       * a wheel notch does, so the frame it arrives in covers about a fifth of
+       * the 1.3x it asked for — never the whole of it.
+       *
+       * `fireEvent` rather than `userEvent`, deliberately: the assertion is
+       * about the *first* frame, and awaiting a real user gesture lets the frame
+       * loop run underneath it and carry the glide further.
+       */
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      const before = spread(container);
+
+      fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
+
+      const grew = spread(container) / before;
+      expect(grew).toBeGreaterThan(1.02);
+      expect(grew).toBeLessThan(1.15);
+    });
+
+    it('takes the scale back down again', async () => {
+      /*
+       * The glide is allowed to arrive before the second press, and that is
+       * not tidiness. Both controls aim at a *target* the scale is easing
+       * towards, so pressing minus while plus is still in flight quite
+       * correctly leaves the map moving in: one 16ms step covers 20.4% of the
+       * way, so three presses of plus put the target at 2.20 with the scale
+       * only at 1.40, and a press of minus takes the target to 1.69 — still
+       * above where the map has got to. What this test is about is the press,
+       * not the arithmetic of interrupting one.
+       */
+      const { container } = renderMap({ routes: [LIM_CUZ] });
+      fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
+      // Past the 320ms the map holds a zoom gesture open, so `endGlide` has
+      // put the scale exactly where the press asked for.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      });
+      const zoomedIn = spread(container);
+
+      fireEvent.click(screen.getByRole('button', { name: /zoom out/i }));
+
+      expect(spread(container)).toBeLessThan(zoomedIn);
+    });
+
+    it('tells a reader which of those routes they have', () => {
+      // The label promised a scroll wheel and two keys to a reader holding a
+      // phone, which has neither. It now names what is on the screen.
+      renderMap();
+      const stage = screen.getByRole('application');
+      expect(stage).toHaveAccessibleName(/pinch/i);
+      expect(stage).toHaveAccessibleName(/buttons/i);
     });
   });
 

@@ -221,3 +221,35 @@
   padding-top: var(--space-1);
   border-top: 1px solid var(--color-border);
 }
+
+/*
+ * The drawer is a fixed width; the dropdown is not. Everything below is that
+ * one difference, and both rules undo something the dropdown needs.
+ *
+ * `.account` pulls itself 5px wider than its box so the rule above it runs past
+ * the inset on the dropdown's links. The drawer insets by `--space-3` instead,
+ * so that -5px lines up with nothing here and only pushes the block past the
+ * content edge.
+ *
+ * The enrol block inside it carries `min-width: 15rem` — 300px at this app's
+ * 125% root, not the 240px the number reads as — which is a floor the dropdown
+ * needs because it is shrink-to-fit and would jump width when a code appeared.
+ * The drawer has no such problem and no such room: `min(17rem, 78vw)` is 304px
+ * on a 390px screen, 274px of it inside the padding, so that floor overflowed
+ * by 26px. `overflow-y: auto` on the drawer is what turned the overflow into a
+ * scrollbar rather than a spill — per CSS, an axis that is not `visible` makes
+ * the other compute to `auto`, so asking for vertical scrolling asked for
+ * horizontal scrolling too, and the drawer got a horizontal bar nobody wrote.
+ *
+ * Fixed by making the content fit rather than by hiding it: `overflow-x:
+ * hidden` here would leave the block just as wide and only stop it being
+ * reachable. `narrowBreakpoint.test` holds the arithmetic to it.
+ */
+.drawer .account {
+  margin-inline: 0;
+}
+
+.drawer .account > * {
+  min-width: 0;
+  max-width: 100%;
+}

@@ -103,6 +103,13 @@ const CSS_INCLUDE = [
   // sized against the block padding, and cutting that would pull them under the
   // top bar. jsdom evaluates neither the query nor the margin.
   /AppShell\.module\.css/,
+  // Twelfth and thirteenth, and one seam between them. `drawerFits.test` checks
+  // that what the narrow drawer holds fits across it: the drawer's width is in
+  // `TopNav.module.css` and the floor that overflowed it is in
+  // `EnrolDevice.module.css`, which the dropdown needs and the drawer cannot
+  // afford. Neither file imports the other and jsdom lays out neither.
+  /TopNav\.module\.css/,
+  /EnrolDevice\.module\.css/,
   /styles\/tokens\.css/,
 ];
 

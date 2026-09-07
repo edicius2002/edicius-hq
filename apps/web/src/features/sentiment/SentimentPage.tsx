@@ -2,13 +2,10 @@ import type { SentimentClassification, SentimentMetric } from '@/shared/api/sent
 import { useSentiment } from '@/features/sentiment/hooks/useSentiment';
 import { SentimentChart } from '@/features/sentiment/ui/SentimentChart';
 import { Button } from '@/shared/ui/Button';
-import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import styles from './SentimentPage.module.css';
 
-const CNN_SENTIMENT_URL = 'https://edition.cnn.com/markets/fear-and-greed';
-const MIRROR_DATA_URL = 'https://fearandgreedgraph.com/data';
 const timestampFormat = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   month: 'short',
@@ -45,9 +42,11 @@ function MetricPanel({
           <h2 id={titleId} className={styles.metricTitle}>
             {metric.label}
           </h2>
-          <time className={styles.metricTime} dateTime={metric.timestamp}>
-            As of {timestampFormat.format(new Date(metric.timestamp))}
-          </time>
+          {featured ? (
+            <time className={styles.metricTime} dateTime={metric.timestamp}>
+              As of {timestampFormat.format(new Date(metric.timestamp))}
+            </time>
+          ) : null}
         </div>
         <div className={styles.score} data-classification={metric.classification}>
           <strong>{scoreLabel(metric.score)}</strong>
@@ -68,16 +67,7 @@ export function SentimentPage() {
     metrics.length === 8 && metrics.every((metric) => metric.series[0]?.points.length > 0);
 
   return (
-    <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader
-        subtitle="CNN Fear & Greed Index and the seven market signals behind it."
-        actions={
-          <a href={CNN_SENTIMENT_URL} target="_blank" rel="noreferrer">
-            CNN Fear &amp; Greed Index
-          </a>
-        }
-      />
-
+    <section className={styles.page} aria-label="Sentiment">
       {query.isPending ? (
         <Panel className={styles.state} role="status">
           Loading sentiment…
@@ -93,34 +83,9 @@ export function SentimentPage() {
         </Panel>
       ) : (
         <>
-          <div className={styles.provenance}>
-            <span>
-              Source:{' '}
-              {data.source === 'cnn-mirror' ? (
-                <>
-                  CNN data via{' '}
-                  <a href={MIRROR_DATA_URL} target="_blank" rel="noreferrer">
-                    Fear &amp; Greed Graph
-                  </a>
-                </>
-              ) : (
-                'CNN'
-              )}{' '}
-              · Retrieved{' '}
-              <time dateTime={data.fetchedAt}>
-                {timestampFormat.format(new Date(data.fetchedAt))}
-              </time>
-            </span>
-            <span>
-              Snapshot as of{' '}
-              <time dateTime={data.asOf}>{timestampFormat.format(new Date(data.asOf))}</time>
-            </span>
-          </div>
-
           {data.stale ? (
             <Panel className={styles.stale} role="status" aria-label="Stale data">
-              The data providers could not be refreshed, so this is the last known snapshot. Check
-              the retrieval time before acting on it.
+              The data providers could not be refreshed, so this is the last known snapshot.
             </Panel>
           ) : null}
 

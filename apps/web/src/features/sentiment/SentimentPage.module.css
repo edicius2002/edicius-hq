@@ -6,25 +6,6 @@
   margin-inline: auto;
 }
 
-.page a {
-  color: var(--color-link);
-  font-size: 0.75rem;
-}
-
-.page a:hover {
-  color: var(--color-link-strong);
-}
-
-.provenance {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-5);
-  margin-top: calc(var(--space-3) * -1);
-  color: var(--color-muted);
-  font-size: 0.7rem;
-}
-
 .state {
   display: grid;
   justify-items: center;
@@ -129,8 +110,7 @@
 }
 
 @media (max-width: 34rem) {
-  .metricHeader,
-  .provenance {
+  .metricHeader {
     display: grid;
   }
 

@@ -82,10 +82,13 @@ describe('SentimentPage', () => {
       within(screen.getByRole('region', { name: 'Fear & Greed Index' })).getByText('61.4'),
     ).toBeInTheDocument();
     expect(screen.getAllByText('Greed').length).toBeGreaterThanOrEqual(8);
-    expect(screen.getByRole('link', { name: 'CNN Fear & Greed Index' })).toHaveAttribute(
-      'href',
-      'https://edition.cnn.com/markets/fear-and-greed',
-    );
+    const composite = screen.getByRole('region', { name: 'Fear & Greed Index' });
+    expect(within(composite).getByText(/^As of /)).toBeInTheDocument();
+    for (const [, label] of INDICATORS) {
+      expect(
+        within(screen.getByRole('region', { name: label })).queryByText(/^As of /),
+      ).not.toBeInTheDocument();
+    }
   });
 
   it('shows an honest loading state while the snapshot is pending', () => {
@@ -131,7 +134,7 @@ describe('SentimentPage', () => {
     expect(screen.getAllByRole('img')).toHaveLength(8);
   });
 
-  it('attributes the public mirror when CNN refuses direct access', async () => {
+  it('keeps provider provenance out of the page chrome', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => Response.json(response({ source: 'cnn-mirror' }))),
@@ -139,10 +142,15 @@ describe('SentimentPage', () => {
 
     renderPage();
 
-    const attribution = await screen.findByRole('link', { name: 'Fear & Greed Graph' });
-    expect(attribution).toHaveAttribute('href', 'https://fearandgreedgraph.com/data');
-    expect(screen.getByText(/CNN data via/)).toBeInTheDocument();
-    expect(screen.getAllByRole('img')).toHaveLength(8);
+    expect(await screen.findAllByRole('img')).toHaveLength(8);
+    expect(
+      screen.queryByText('CNN Fear & Greed Index and the seven market signals behind it.'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'CNN Fear & Greed Index' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Fear & Greed Graph' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Source:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Retrieved /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Snapshot as of/)).not.toBeInTheDocument();
   });
 
   it('does not invent charts when the normalized snapshot has no history', async () => {

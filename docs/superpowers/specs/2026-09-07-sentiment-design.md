@@ -102,10 +102,13 @@ wire model on success.
 
 `SentimentPage` renders:
 
-1. a page header naming CNN as the source and the observation time;
-2. an explicit stale warning when `stale` is true;
-3. a headline panel for the composite;
-4. a responsive grid containing the seven indicator panels.
+1. an explicit stale warning when `stale` is true;
+2. a headline panel for the composite, including its observation time;
+3. a responsive grid containing the seven indicator panels without repeated timestamps.
+
+The later product decision 14.10 removes the explanatory page header and the source,
+retrieval, and snapshot provenance strip so the page opens directly on the data. Source
+attribution remains in the methodology note and in the API contract.
 
 The grid is two columns where space permits and one column on narrow screens. Loading,
 empty, first-load error, and stale states have distinct copy and semantics. A Retry

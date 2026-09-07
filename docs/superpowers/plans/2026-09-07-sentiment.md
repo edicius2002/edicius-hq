@@ -12,6 +12,8 @@
 
 > **Follow-up:** Decision 14.9 later removed the collapsible data-table disclosure from
 > all eight charts while retaining the keyboard/pointer crosshair and live text readout.
+> Decision 14.10 later removed the explanatory header and provenance strip, and kept
+> the observation timestamp only on the composite chart.
 
 ## Global Constraints
 

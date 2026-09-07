@@ -8,6 +8,7 @@ import { Panel } from '@/shared/ui/Panel';
 import styles from './SentimentPage.module.css';
 
 const CNN_SENTIMENT_URL = 'https://edition.cnn.com/markets/fear-and-greed';
+const MIRROR_DATA_URL = 'https://fearandgreedgraph.com/data';
 const timestampFormat = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
   month: 'short',
@@ -83,7 +84,7 @@ export function SentimentPage() {
         </Panel>
       ) : query.isError ? (
         <Panel className={styles.state} role="alert">
-          <p>Sentiment is unavailable. CNN may be temporarily unreachable.</p>
+          <p>Sentiment is unavailable. Its data providers may be temporarily unreachable.</p>
           <Button onClick={() => void query.refetch()}>Retry</Button>
         </Panel>
       ) : !data || !hasCompleteHistory ? (
@@ -94,7 +95,18 @@ export function SentimentPage() {
         <>
           <div className={styles.provenance}>
             <span>
-              Source: CNN · Retrieved{' '}
+              Source:{' '}
+              {data.source === 'cnn-mirror' ? (
+                <>
+                  CNN data via{' '}
+                  <a href={MIRROR_DATA_URL} target="_blank" rel="noreferrer">
+                    Fear &amp; Greed Graph
+                  </a>
+                </>
+              ) : (
+                'CNN'
+              )}{' '}
+              · Retrieved{' '}
               <time dateTime={data.fetchedAt}>
                 {timestampFormat.format(new Date(data.fetchedAt))}
               </time>
@@ -107,8 +119,8 @@ export function SentimentPage() {
 
           {data.stale ? (
             <Panel className={styles.stale} role="status" aria-label="Stale data">
-              CNN could not be refreshed, so this is the last known snapshot. Check the retrieval
-              time before acting on it.
+              The data providers could not be refreshed, so this is the last known snapshot. Check
+              the retrieval time before acting on it.
             </Panel>
           ) : null}
 
@@ -120,8 +132,9 @@ export function SentimentPage() {
           </div>
 
           <p className={styles.disclaimer}>
-            Scores and classifications are supplied by CNN. Historical indicator charts show each
-            indicator's native measurement, which is not necessarily a 0–100 score.
+            The index methodology and source readings are CNN's. When CNN refuses direct server
+            access, Fear &amp; Greed Graph supplies the mirrored history. Historical indicator
+            charts show each indicator's native measurement, which is not necessarily a 0–100 score.
           </p>
         </>
       )}

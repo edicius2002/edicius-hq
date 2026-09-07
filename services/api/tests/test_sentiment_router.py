@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -50,6 +51,19 @@ def test_preserves_the_cache_stale_flag(monkeypatch):
     monkeypatch.setattr(sentiment_router.CACHE, "fetch", answer)
 
     assert client.get("/api/sentiment").json()["stale"] is True
+
+
+def test_exposes_mirror_provenance_in_the_same_normalized_contract(monkeypatch):
+    async def answer(factory):
+        return replace(a_snapshot(), source="cnn-mirror")
+
+    monkeypatch.setattr(sentiment_router.CACHE, "fetch", answer)
+
+    response = client.get("/api/sentiment")
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "cnn-mirror"
+    assert len(response.json()["indicators"]) == 7
 
 
 @pytest.mark.parametrize(

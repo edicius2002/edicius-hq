@@ -42,10 +42,11 @@ be served for at most **7 days** after a transient timeout, connection failure, 
 `stale: true`; it never turns absent data into a fabricated reading.
 
 An unauthenticated terminal probe received CNN's explicit 418 anti-bot response. The
-adapter will send only an honest JSON `Accept` header and will not imitate a browser,
-add a false `Referer`, solve challenges, or retry aggressively. Access-control responses
-are explicit provider errors. This constraint is intentionally visible as a remaining
-upstream reliability risk.
+adapter sends only an honest JSON `Accept` header and does not imitate a browser, add a
+false `Referer`, solve challenges, or retry aggressively. After a 403/418 only, it uses
+Fear & Greed Graph's public no-key JSON mirror, which publishes aligned daily aggregate
+and component histories with hourly refresh. The page attributes this transport path;
+malformed CNN data and non-refusal failures are not hidden behind it.
 
 ## API architecture
 
@@ -58,7 +59,7 @@ The normalized contract is:
 
 ```text
 SentimentSnapshot
-  source: "cnn"
+  source: "cnn" | "cnn-mirror"
   fetchedAt: ISO UTC timestamp
   asOf: ISO UTC timestamp
   stale: boolean
@@ -150,7 +151,11 @@ build. Hardware acceleration is not used; charts are DOM/SVG.
 
 - No multi-year archival collector; the provider's rolling history is shown as received.
 - No intraday polling or scheduled background job.
-- No browser impersonation or bypass for CNN's anti-bot controls.
-- No investment recommendations or derived sentiment values.
+- No browser impersonation or bypass for CNN's anti-bot controls; the attributed public
+  mirror is a separate provider dependency.
+- No investment recommendations or derived scores. The mirror's composite rating is
+  mapped from its published bands (`[0,25)`, `[25,45)`, `[45,55)`, `[55,75)`,
+  `[75,100]`) because that public JSON exposes the reading but not a top-level rating
+  field.
 - CNN can change or withdraw this undocumented resource; typed failures and stale data
   contain the blast radius but cannot make the source supported.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
@@ -56,7 +57,7 @@ class SentimentMetricModel(BaseModel):
 
 
 class SentimentResponse(BaseModel):
-    source: str
+    source: Literal["cnn", "cnn-mirror"]
     fetchedAt: datetime
     asOf: datetime
     stale: bool

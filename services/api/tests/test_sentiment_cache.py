@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -70,6 +71,19 @@ def test_snapshot_survives_a_new_cache_instance(tmp_path):
     async def must_not_run():
         raise AssertionError("a fresh disk snapshot must be reused")
 
+    assert asyncio.run(SentimentCache(tmp_path).fetch(must_not_run)) == written
+
+
+def test_a_mirror_snapshot_uses_the_same_bounded_cache_contract(tmp_path):
+    async def factory():
+        return replace(a_snapshot(), source="cnn-mirror")
+
+    written = asyncio.run(SentimentCache(tmp_path).fetch(factory))
+
+    async def must_not_run():
+        raise AssertionError("a fresh mirror snapshot must be reused")
+
+    assert written.source == "cnn-mirror"
     assert asyncio.run(SentimentCache(tmp_path).fetch(must_not_run)) == written
 
 

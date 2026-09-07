@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import httpx
 
+from app.adapters.cnn_sentiment import SentimentPayloadError, SentimentProviderError
 from app.adapters.sentiment_models import (
     SentimentClassification,
     SentimentMetric,
@@ -17,20 +18,8 @@ from app.adapters.sentiment_models import (
 )
 from app.config import UPSTREAM_TIMEOUT_SECONDS
 
-CNN_SENTIMENT_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-
-
-class SentimentProviderError(Exception):
-    def __init__(self, code: str, message: str, *, transient: bool) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.transient = transient
-
-
-class SentimentPayloadError(SentimentProviderError):
-    def __init__(self, message: str) -> None:
-        super().__init__("invalid-payload", message, transient=False)
+FEAR_GREED_GRAPH_URL = "https://fearandgreedgraph.com/api/fear-greed"
+MAX_HISTORY_POINTS = 366
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +157,18 @@ def _rating(value: object, field: str) -> SentimentClassification:
     return cast(SentimentClassification, value.casefold().strip())
 
 
+def _classification_for_score(score: float) -> SentimentClassification:
+    if score < 25:
+        return "extreme fear"
+    if score < 45:
+        return "fear"
+    if score < 55:
+        return "neutral"
+    if score < 75:
+        return "greed"
+    return "extreme greed"
+
+
 def _iso_timestamp(value: object, field: str) -> datetime:
     if not isinstance(value, str):
         raise SentimentPayloadError(f"{field} timestamp must be ISO 8601")
@@ -188,20 +189,39 @@ def _epoch_timestamp(value: object, field: str) -> datetime:
         raise SentimentPayloadError(f"{field} timestamp is invalid") from exc
 
 
-def _history(payload: dict[str, Any], spec: _SeriesSpec) -> SentimentSeries:
-    block = _object(payload.get(spec.provider_key), spec.provider_key)
-    rows = block.get("data")
-    if not isinstance(rows, list) or not rows:
-        raise SentimentPayloadError(f"{spec.provider_key} history must not be empty")
+def _date_timestamp(value: object, field: str) -> datetime:
+    if not isinstance(value, str):
+        raise SentimentPayloadError(f"{field} date must use YYYY-MM-DD")
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError as exc:
+        raise SentimentPayloadError(f"{field} date is invalid") from exc
+
+
+def _history(
+    block: dict[str, Any],
+    spec: _SeriesSpec,
+    *,
+    classify: bool = False,
+) -> SentimentSeries:
+    dates = block.get("dates")
+    values = block.get("values")
+    if not isinstance(dates, list) or not dates:
+        raise SentimentPayloadError(f"{spec.provider_key}.dates must not be empty")
+    if not isinstance(values, list) or len(values) != len(dates):
+        raise SentimentPayloadError(f"{spec.provider_key} dates and values must align")
 
     by_time: dict[datetime, SentimentPoint] = {}
-    for index, raw in enumerate(rows):
-        row = _object(raw, f"{spec.provider_key}.data[{index}]")
-        timestamp = _epoch_timestamp(row.get("x"), f"{spec.provider_key}.data[{index}]")
+    start = max(0, len(dates) - MAX_HISTORY_POINTS)
+    for index in range(start, len(dates)):
+        timestamp = _date_timestamp(dates[index], f"{spec.provider_key}.dates[{index}]")
+        value = _number(values[index], f"{spec.provider_key}.values[{index}]")
+        if classify:
+            value = _score(value, f"{spec.provider_key}.values[{index}]")
         by_time[timestamp] = SentimentPoint(
             timestamp=timestamp,
-            value=_number(row.get("y"), f"{spec.provider_key}.data[{index}].value"),
-            classification=_rating(row.get("rating"), f"{spec.provider_key}.data[{index}]"),
+            value=value,
+            classification=_classification_for_score(value) if classify else None,
         )
     return SentimentSeries(
         key=spec.key,
@@ -211,113 +231,90 @@ def _history(payload: dict[str, Any], spec: _SeriesSpec) -> SentimentSeries:
     )
 
 
-def _indicator(payload: dict[str, Any], spec: _MetricSpec) -> SentimentMetric:
-    block = _object(payload.get(spec.provider_key), spec.provider_key)
+def _indicator(indicators: dict[str, Any], spec: _MetricSpec) -> SentimentMetric:
+    block = _object(indicators.get(spec.provider_key), spec.provider_key)
+    series: list[SentimentSeries] = []
+    for series_spec in spec.series:
+        series_block = _object(indicators.get(series_spec.provider_key), series_spec.provider_key)
+        _score(series_block.get("score"), f"{series_spec.provider_key}.score")
+        _rating(series_block.get("rating"), series_spec.provider_key)
+        _epoch_timestamp(series_block.get("asOf"), series_spec.provider_key)
+        series.append(_history(series_block, series_spec))
     return SentimentMetric(
         key=spec.key,
         label=spec.label,
         score=_score(block.get("score"), f"{spec.provider_key}.score"),
         classification=_rating(block.get("rating"), spec.provider_key),
-        timestamp=_epoch_timestamp(block.get("timestamp"), spec.provider_key),
-        series=tuple(_history(payload, series) for series in spec.series),
+        timestamp=_epoch_timestamp(block.get("asOf"), spec.provider_key),
+        series=tuple(series),
     )
 
 
-def parse_sentiment(payload: object, *, fetched_at: datetime) -> SentimentSnapshot:
+def parse_feargreedgraph_sentiment(payload: object, *, fetched_at: datetime) -> SentimentSnapshot:
     root = _object(payload, "payload")
-    headline = _object(root.get("fear_and_greed"), "fear_and_greed")
-    historical = _object(root.get("fear_and_greed_historical"), "fear_and_greed_historical")
+    indicators = _object(root.get("indicators"), "indicators")
     if fetched_at.tzinfo is None:
         raise SentimentPayloadError("fetched_at needs a timezone")
 
+    composite_series = _history(
+        root,
+        _SeriesSpec("fear_and_greed", "fear_and_greed", "Fear & Greed score", "score"),
+        classify=True,
+    )
+    current_score = composite_series.points[-1].value
+    as_of = _iso_timestamp(root.get("asOf"), "asOf")
     composite = SentimentMetric(
         key="fear_and_greed",
         label="Fear & Greed Index",
-        score=_score(headline.get("score"), "fear_and_greed.score"),
-        classification=_rating(headline.get("rating"), "fear_and_greed"),
-        timestamp=_iso_timestamp(headline.get("timestamp"), "fear_and_greed"),
-        series=(
-            _history(
-                root,
-                _SeriesSpec(
-                    "fear_and_greed_historical",
-                    "fear_and_greed",
-                    "Fear & Greed score",
-                    "score",
-                ),
-            ),
-        ),
+        score=current_score,
+        classification=_classification_for_score(current_score),
+        timestamp=as_of,
+        series=(composite_series,),
     )
-    _score(historical.get("score"), "fear_and_greed_historical.score")
-    _rating(historical.get("rating"), "fear_and_greed_historical")
-    _epoch_timestamp(historical.get("timestamp"), "fear_and_greed_historical")
-
     return SentimentSnapshot(
-        source="cnn",
+        source="cnn-mirror",
         fetched_at=fetched_at.astimezone(UTC),
-        as_of=composite.timestamp,
+        as_of=as_of,
         composite=composite,
-        indicators=tuple(_indicator(root, spec) for spec in _INDICATORS),
+        indicators=tuple(_indicator(indicators, spec) for spec in _INDICATORS),
     )
 
 
-async def fetch_cnn_sentiment(
+async def fetch_feargreedgraph_sentiment(
     client: httpx.AsyncClient,
     *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> SentimentSnapshot:
     try:
         response = await client.get(
-            CNN_SENTIMENT_URL,
+            FEAR_GREED_GRAPH_URL,
             headers={"Accept": "application/json"},
             timeout=UPSTREAM_TIMEOUT_SECONDS,
         )
     except (httpx.TimeoutException, httpx.RequestError) as exc:
         raise SentimentProviderError(
-            "unreachable", "CNN sentiment data is unreachable", transient=True
+            "unreachable", "Sentiment mirror is unreachable", transient=True
         ) from exc
 
     if response.status_code in {403, 418}:
         raise SentimentProviderError(
-            "access-refused", "CNN refused the sentiment request", transient=True
+            "access-refused", "Sentiment mirror refused the request", transient=True
         )
     if response.status_code == 429:
         raise SentimentProviderError(
-            "rate-limited", "CNN rate-limited the sentiment request", transient=True
+            "rate-limited", "Sentiment mirror rate-limited the request", transient=True
         )
     if response.status_code >= 500:
-        raise SentimentProviderError(
-            "upstream-error", "CNN sentiment service failed", transient=True
-        )
+        raise SentimentProviderError("upstream-error", "Sentiment mirror failed", transient=True)
     if not response.is_success:
         raise SentimentProviderError(
             "upstream-error",
-            f"CNN sentiment service returned HTTP {response.status_code}",
+            f"Sentiment mirror returned HTTP {response.status_code}",
             transient=False,
         )
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise SentimentPayloadError("CNN sentiment response is not valid JSON") from exc
-    return parse_sentiment(payload, fetched_at=now())
-
-
-async def fetch_sentiment(
-    client: httpx.AsyncClient,
-    *,
-    now: Callable[[], datetime] = lambda: datetime.now(UTC),
-) -> SentimentSnapshot:
-    """Prefer CNN and use the public mirror only when CNN refuses access."""
-
-    try:
-        return await fetch_cnn_sentiment(client, now=now)
-    except SentimentProviderError as exc:
-        if exc.code != "access-refused":
-            raise
-
-    # Local import keeps the provider modules independent at import time while
-    # retaining the established public fetch_sentiment entry point.
-    from app.adapters.feargreedgraph_sentiment import fetch_feargreedgraph_sentiment
-
-    return await fetch_feargreedgraph_sentiment(client, now=now)
+        raise SentimentPayloadError("Sentiment mirror response is not valid JSON") from exc
+    return parse_feargreedgraph_sentiment(payload, fetched_at=now())

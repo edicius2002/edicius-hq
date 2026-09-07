@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - The feature is an independent top tab and route `/sentiment`; it does not render inside Investing.
-- Use `https://production.dataviz.cnn.io/index/fearandgreed/graphdata` without browser impersonation or access-control bypass.
+- Use `https://production.dataviz.cnn.io/index/fearandgreed/graphdata` first without browser impersonation or access-control bypass; on 403/418 only, use and attribute the public no-key Fear & Greed Graph JSON mirror.
 - Cache successful snapshots for 4 hours and allow explicitly marked stale fallback for at most 7 days.
 - Version synthetic fixtures only; never version live CNN payloads or secrets.
 - Render exactly eight accessible charts and disable crosshair easing under reduced motion.

@@ -131,6 +131,20 @@ describe('SentimentPage', () => {
     expect(screen.getAllByRole('img')).toHaveLength(8);
   });
 
+  it('attributes the public mirror when CNN refuses direct access', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(response({ source: 'cnn-mirror' }))),
+    );
+
+    renderPage();
+
+    const attribution = await screen.findByRole('link', { name: 'Fear & Greed Graph' });
+    expect(attribution).toHaveAttribute('href', 'https://fearandgreedgraph.com/data');
+    expect(screen.getByText(/CNN data via/)).toBeInTheDocument();
+    expect(screen.getAllByRole('img')).toHaveLength(8);
+  });
+
   it('does not invent charts when the normalized snapshot has no history', async () => {
     const empty = metric('fear_and_greed', 'Fear & Greed Index');
     empty.series[0].points = [];

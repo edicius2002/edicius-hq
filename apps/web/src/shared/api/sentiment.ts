@@ -26,7 +26,7 @@ export type SentimentMetric = {
 };
 
 export type SentimentResponse = {
-  source: 'cnn';
+  source: 'cnn' | 'cnn-mirror';
   fetchedAt: string;
   asOf: string;
   stale: boolean;
@@ -34,7 +34,8 @@ export type SentimentResponse = {
   indicators: SentimentMetric[];
 };
 
-const SENTIMENT_TIMEOUT_MS = 15_000;
+// CNN and the attributed mirror are sequential on an explicit 403/418.
+const SENTIMENT_TIMEOUT_MS = 30_000;
 
 export function getSentiment(signal?: AbortSignal): Promise<SentimentResponse> {
   return apiRequest<SentimentResponse>('/api/sentiment', {

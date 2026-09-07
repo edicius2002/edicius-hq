@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class SentimentCache:
-    """One coalesced, atomic disk snapshot for CNN's daily sentiment payload."""
+    """One coalesced, atomic disk snapshot for the daily sentiment payload."""
 
     def __init__(self, directory: Path | None = None) -> None:
         self._directory = directory
@@ -51,7 +51,7 @@ class SentimentCache:
     def _valid(snapshot: SentimentSnapshot) -> bool:
         metrics = (snapshot.composite, *snapshot.indicators)
         return (
-            snapshot.source == "cnn"
+            snapshot.source in {"cnn", "cnn-mirror"}
             and len(snapshot.indicators) == 7
             and all(
                 metric.key

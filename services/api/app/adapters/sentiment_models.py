@@ -11,6 +11,7 @@ SentimentClassification = Literal[
     "greed",
     "extreme greed",
 ]
+SentimentSource = Literal["cnn", "cnn-mirror"]
 
 
 def _iso(value: datetime) -> str:
@@ -125,7 +126,7 @@ class SentimentMetric:
 
 @dataclass(frozen=True, slots=True)
 class SentimentSnapshot:
-    source: str
+    source: SentimentSource
     fetched_at: datetime
     as_of: datetime
     composite: SentimentMetric
@@ -149,8 +150,11 @@ class SentimentSnapshot:
     def from_wire(cls, value: object) -> SentimentSnapshot:
         if not isinstance(value, dict) or not isinstance(value.get("indicators"), list):
             raise ValueError("snapshot must contain indicators")
+        source = value.get("source")
+        if source not in {"cnn", "cnn-mirror"}:
+            raise ValueError("snapshot source is invalid")
         return cls(
-            source=str(value.get("source", "")),
+            source=cast(SentimentSource, source),
             fetched_at=_datetime(value.get("fetchedAt"), "fetchedAt"),
             as_of=_datetime(value.get("asOf"), "asOf"),
             stale=bool(value.get("stale", False)),

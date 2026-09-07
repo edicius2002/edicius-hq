@@ -76,7 +76,7 @@ def bars_dir() -> Path:
 
 
 def sentiment_dir() -> Path:
-    """Path B: the last normalized CNN sentiment snapshot, safe to discard."""
+    """Path B: the last normalized sentiment snapshot, safe to discard."""
     return local_data_dir() / "sentiment"
 
 

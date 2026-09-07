@@ -17,3 +17,12 @@
   font-size: 0.7rem;
   text-align: right;
 }
+
+/* Airfare phone layout; desktop declarations above remain unchanged. */
+@media (max-width: 640px) {
+  .controls button {
+    min-height: 44px;
+    font-size: 0.65rem;
+    padding: 6px 10px;
+  }
+}

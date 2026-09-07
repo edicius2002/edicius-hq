@@ -81,6 +81,13 @@ const CSS_INCLUDE = [
   /RouteList\.module\.css/,
   /RouteMap\.module\.css/,
   /RouteDetail\.module\.css/,
+  // Mobile chart controls and table layout are checked by mobileLayout.test.
+  // Even ?raw CSS imports otherwise become Vitest's class-name proxy.
+  /AnalysisPanel\.module\.css/,
+  /DepartureChart\.module\.css/,
+  /PeriodSwitch\.module\.css/,
+  /PriceBandChart\.module\.css/,
+  /FlightTable\.module\.css/,
   // The month strip: six tracks and twelve children are what make it two
   // rows, and the height those two rows cost is what `routesScroll`
   // spends against the map. Neither is observable from the rendered tree.

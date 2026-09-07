@@ -258,30 +258,48 @@
   }
 }
 
-/*
- * Panel headings on a phone. `640px` is `NARROW_QUERY` in `useIsNarrow.ts`.
- *
- * 0.95rem is 19px here, and it was chosen against a panel around 1100px wide.
- * At 223px the same heading is a fifth of the panel and wraps — "Watched
- * routes" onto two lines, "Flights seen · March 2027" onto two — so each panel
- * opened with two lines of chrome before its content. The heading names the
- * panel; at this width it does not also need to be the largest thing in it.
- */
+/* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
-  .panelTitle {
-    margin-block-end: var(--space-2);
-    font-size: 0.66rem;
+  .page {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    /* Reclaim this route's shell gutter without changing the shared shell. */
+    margin-left: calc(max(4px, env(safe-area-inset-left, 0px)) - var(--space-3));
+    margin-right: calc(max(4px, env(safe-area-inset-right, 0px)) - var(--space-3));
   }
-
-  /*
-   * And the control beside it, which is what decides whether the heading gets
-   * one line or two. "Add route" at 16px is a 103px button; against a 223px
-   * panel that leaves the heading 110px for a string that needs 111, so
-   * "Watched routes" wrapped by a single pixel and cost the panel 20px of
-   * height for it.
-   */
+  .top {
+    gap: 12px;
+    --airfare-routes-cap: min(24rem, 40svh);
+  }
+  .page .panel {
+    padding: 12px 10px;
+    gap: 8px;
+    min-width: 0;
+  }
+  .page .visualPanel {
+    padding-inline: 0;
+  }
+  .panelHead {
+    gap: 8px;
+    margin-bottom: 0;
+    flex-wrap: wrap;
+  }
+  .panelTitle {
+    margin-block-end: 0;
+    font-size: 0.72rem;
+  }
   .panelHead button {
-    font-size: 0.62rem;
-    padding: var(--space-1) var(--space-2);
+    min-height: 44px;
+    font-size: 0.65rem;
+    padding: 6px 10px;
+  }
+  .note,
+  .reports {
+    font-size: 0.65rem;
+    overflow-wrap: anywhere;
+  }
+  .visualPanel > .note {
+    padding-inline: 10px;
   }
 }

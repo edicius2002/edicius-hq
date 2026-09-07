@@ -1,5 +1,6 @@
 import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
+import { useIsNarrow } from '@/app/layout/useIsNarrow';
 import type { Bucket, BucketAxis, UnsoldPeriod } from '@/features/airfare/lib/buckets';
 import { contiguousRuns, spanOf } from '@/features/airfare/lib/buckets';
 import { niceTicks } from '@/features/airfare/lib/scales';
@@ -231,7 +232,10 @@ export function PriceBandChart({
    * is what every existing test keeps seeing.
    */
   const [frame, frameSize] = useElementSize<HTMLElement>();
-  const compact = frameSize.width > 0 && frameSize.width < COMPACT_BELOW_PX;
+  // Edge-to-edge phones can now give this plot more than 400px. Keep their
+  // geometry consistent across the mobile range; retain the desktop fallback.
+  const narrow = useIsNarrow();
+  const compact = narrow || (frameSize.width > 0 && frameSize.width < COMPACT_BELOW_PX);
   const viewWidth = compact ? COMPACT_VIEW_WIDTH : VIEW.width;
   const labelMinSpacing = compact ? COMPACT_LABEL_MIN_SPACING : LABEL_MIN_SPACING;
 
@@ -524,7 +528,12 @@ export function PriceBandChart({
         aria-label={accessibleName}
         aria-describedby={`${help} ${status}`}
         onPointerMove={trackPointer}
-        onPointerLeave={() => setCursor(null)}
+        onPointerUp={(event) => {
+          if (narrow && event.pointerType === 'touch') trackPointer(event);
+        }}
+        onPointerLeave={(event) => {
+          if (!narrow || event.pointerType !== 'touch') setCursor(null);
+        }}
         onKeyDown={step}
         onBlur={() => setCursor(null)}
       >

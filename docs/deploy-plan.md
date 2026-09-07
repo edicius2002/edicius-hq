@@ -1,8 +1,8 @@
-# Deploy plan: frontend on Vercel, private access; API stays home
+# Deploy plan: frontend on Vercel; passkey-gated API stays home
 
 Decided 2026-09-03 and built since: the Vercel deployment is live, the passkey gate is
-on every `/api` route, and both transports the API can be published on are commands in
-this repository. What is left unbuilt is listed under Open questions and nowhere else.
+on every `/api` route except the four register/login ceremony endpoints, and both transports the API can be published on are commands in
+this repository. What remains unverified is listed under Operational evidence and nowhere else.
 This document is still the reasoning and not only the runbook, so a later session can
 change it without re-deriving why it is shaped this way. Supersedes the original step 7
 shape in `IMPLEMENTATION_PLAN.md` §51 ("Cloud: Supabase Auth (magic link), RLS,
@@ -12,7 +12,7 @@ instead.
 Revised the same day. The first draft of this document argued for Cloudflare Tunnel
 plus Cloudflare Access; that mechanism was ruled out before anything was built, and
 the shape it is replaced by answers more of the document's own open questions than it
-was chosen to. The reasoning is in "Who can reach the API" and in Open questions.
+was chosen to. The reasoning is in "Who can reach the API" and in Operational evidence.
 
 ## The shape
 
@@ -29,8 +29,7 @@ was chosen to. The reasoning is in "Who can reach the API" and in Open questions
   residential address, and by nothing else. The next section is the evidence; the
   section after it lists what the invariant rules out.
 - **Access control is a passkey, and the tailnet carries the traffic.** It used to be
-  the tailnet alone. Every `/api` route except `/api/auth/*` now requires a WebAuthn
-  session, so the question "who may ask" is answered by the application and no longer
+  the tailnet alone. Every `/api` route except the four register/login ceremony endpoints now requires a WebAuthn session, so the question "who may ask" is answered by the application and no longer
   only by what can route to it. The Vercel URL itself stays publicly reachable and
   serves the app shell to anyone who opens it; what they get is the login screen.
   That is accepted, not overlooked: blocking the URL itself would need Vercel
@@ -104,8 +103,10 @@ publishes is routable only from devices signed in to the owner's tailnet. That p
 unchanged and is still the outer wall.
 
 **What changed is that it is no longer the only one.** Every route under `/api` except
-`/api/auth/*` requires a live WebAuthn session, applied once where the routers are
-included (`services/api/app/main.py`, `services/api/app/auth.py`). `/api/health` is
+the four register/login ceremony endpoints requires a live WebAuthn session. The gate
+is applied once where the protected routers are included, while authenticated auth
+operations carry it on their decorators (`services/api/app/main.py`,
+`services/api/app/auth.py`, `services/api/app/routers/auth.py`). `/api/health` is
 gated with the rest, so the status indicator reads "API offline" while signed out —
 deliberate, and honest, since the API genuinely will not answer that visitor.
 
@@ -436,7 +437,7 @@ is what a second party can observe continuously rather than per-upstream. Under 
 the honest answer to that is much less than it would have been under a tunnel: device
 names and connection times, and nothing about what was asked for.
 
-## Open questions — not decided, listed so they aren't silently assumed later
+## Operational evidence still open
 
 - **Does the SSE stream survive Tailscale Serve?** `/api/market/stream` is server-sent
   events, not a WebSocket: `@router.get("/stream")` returning a `StreamingResponse`
@@ -478,9 +479,9 @@ the change is visible rather than silent.
 invariant in "The shape": it does, and it may not run anywhere else. **Whether the
 tunnel supports WebSockets** was the wrong question, answered above.
 
-**What authenticates the API** is answered by the shape rather than by code. Serve
-publishes it only inside the tailnet, and a passkey session gates every route besides,
-and no auth code is added. The first draft's client-credentials paragraph — the
+**What authenticates the API** is settled in code: a passkey session gates every
+`/api` route except the enrolment and login ceremony routes. Serve is tailnet-only;
+Funnel is public, so network membership is not authentication. The first draft's client-credentials paragraph — the
 cross-origin cookie change it wanted on `fetch` and on every `EventSource`, and the
 header key an `EventSource` cannot send — is deleted rather than deferred: no cookie
 crosses any origin under this shape, so none of it applies. (That paragraph was also

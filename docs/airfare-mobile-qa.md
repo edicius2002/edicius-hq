@@ -214,3 +214,34 @@ La reserva restante bajo el eje sostiene lecturas táctiles y avisos de colecci�
 y evita saltos entre gráficos. Los campos usan 12 px por petición del usuario;
 falta comprobar enfoque y zoom automático en iOS físico. El zoom manual sigue
 habilitado. Las demás limitaciones de la revisión anterior siguen aplicando.
+
+## Auditoría de alternativas Lima–Madrid y Madrid–Lima
+
+La primera auditoría de líneas sólo cubría las cuatro conexiones principales.
+Al revisar escalas se detectó una omisión del harness local: el export incluía
+coordenadas de aeropuertos principales, pero no pedía las de `viaPoints`.
+Se corrigió el export local y se incorporaron 24 aeropuertos usando el mismo
+catálogo IATA del backend; ninguna coordenada quedó sin resolver. No fue
+necesario modificar el código de producción ni sus contratos.
+
+Se compararon las secuencias únicas de escalas de cada mes del archivo con todos
+los segmentos SVG dibujados, en ambos sentidos y ambas proyecciones:
+
+| Sentido                          | Mayo 2027 | Junio 2027 | Julio 2027 |
+| -------------------------------- | --------- | ---------- | ---------- |
+| LIM → MAD, alternativas / tramos | 12 / 30   | 10 / 24    | 12 / 29    |
+| MAD → LIM, alternativas / tramos | 15 / 40   | 15 / 38    | 14 / 36    |
+
+Los 36 casos (seis selecciones × dos proyecciones × tres anchos: 360, 390 y
+430 px) dibujaron exactamente el número esperado de segmentos, todos con
+geometría válida y longitud positiva. Las alternativas corresponden al mes y
+sentido seleccionados, no a ambos sentidos simultáneamente. Los tramos
+compartidos pueden superponerse y las escalas próximas se agrupan visualmente
+al alejar el mapa; no equivalen a itinerarios omitidos. La ocultación del lado
+posterior del globe sigue siendo intencional.
+
+Evidencia local: `alternates-expected.json`, `alternates-results.json`,
+`alternates-audit.mjs` y doce capturas `alternates-{sentido}-{mes}-{proyección}.png`
+en `.local-data/airfare-qa/`. La vista del puerto 5175 fue recargada con las
+coordenadas completas. La auditoría previa de RouteMap, geo y arcFlow pasó
+111 pruebas. Esta corrección afecta únicamente al harness local de revisión.

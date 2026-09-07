@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Finance complete. Investing under way — the data plane is in. Airfare added; AIR-01, AIR-02 and AIR-04 in.
-> **Last updated:** 2026-08-17
-> **Review status:** INV-05, positions, in review ([#49](https://github.com/edicius2002/edicius-hq/issues/49)).
-> **Phase closure:** Delivery steps 0–5 complete, nothing deferred.
-> **Next delivery:** INV-06, Pulse. One issue per slice, written before its work.
+> **Status:** Delivery steps 0–5 and 7 are complete. Investing and Airfare are usable and remain open for their explicitly pending slices.
+> **Last updated:** 2026-09-07
+> **Review status:** No feature PR is in review; `main` is green after the 2026-09-07 dependency merges.
+> **Phase closure:** Cloud is implemented as Vercel + a passkey-gated home API on Tailscale Serve/Funnel. Cutover is still pending.
+> **Next delivery:** INV-06, Pulse. Also pending: INV-07, AIR-03, the SSE transport check, and legacy cutover.
 
 ---
 
@@ -37,19 +37,19 @@ This file is the repository’s source of truth for confirmed product decisions,
 
 ### Delivery sequence
 
-| Order | Delivery                 | Scope                                                                                                                                       |
-| ----- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | **Docs PR**              | Clean `README.md`, `NOTICE`, `.gitignore`, this plan; minimal GitHub templates if needed. No application scaffold.                          |
-| 1     | **Initial Setup**        | Tooling only: workspaces, Vite/TS skeleton, FastAPI `/api/health`, lint/format/test/CI, Docker Compose. **No AppShell / no product pages.** |
-| 2     | **Shell + placeholders** | Router, AppShell, sidebar (4 tabs), all pages as title + “Coming soon.”, NotFound, error boundaries.                                        |
-| 3     | **API client + storage** | Typed `shared/api`, local KV facade, **TanStack Query** provider.                                                                           |
-| 3b    | **UI foundation**        | Dark tokens (ediciuscorp), Berkeley Mono, shell migration, primitives `Button` / `Panel` / `PageHeader` / `Stat` (no Radix yet).            |
-| 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                 |
-| 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                         |
-| 6     | **Investing**            | Markets UI, quote bus, candle cache via API, charts; Pulse as extra panels on `/investing`.                                                 |
-| 6b    | **Airfare**              | Fare watchlist, daily collection from a scraped provider, append-only price history, `/airfare`.                                            |
-| 7     | **Cloud**                | Vercel for `apps/web`; the API stays home on Tailscale Serve. No Supabase — see `docs/deploy-plan.md` and decisions 13.1–13.4.              |
-| 8     | **Cutover**              | Archive `ediciuscorp`.                                                                                                                      |
+| Order | Delivery                 | Scope                                                                                                                                               |
+| ----- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | **Docs PR**              | Clean `README.md`, `NOTICE`, `.gitignore`, this plan; minimal GitHub templates if needed. No application scaffold.                                  |
+| 1     | **Initial Setup**        | Tooling only: workspaces, Vite/TS skeleton, FastAPI `/api/health`, lint/format/test/CI, Docker Compose. **No AppShell / no product pages.**         |
+| 2     | **Shell + placeholders** | Router, AppShell, sidebar (4 tabs), all pages as title + “Coming soon.”, NotFound, error boundaries.                                                |
+| 3     | **API client + storage** | Typed `shared/api`, local KV facade, **TanStack Query** provider.                                                                                   |
+| 3b    | **UI foundation**        | Dark tokens (ediciuscorp), Berkeley Mono, shell migration, primitives `Button` / `Panel` / `PageHeader` / `Stat` (no Radix yet).                    |
+| 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                         |
+| 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                                 |
+| 6     | **Investing**            | Markets UI, quote bus, candle cache via API, charts; Pulse as extra panels on `/investing`.                                                         |
+| 6b    | **Airfare**              | Fare watchlist, daily collection from a scraped provider, append-only price history, `/airfare`.                                                    |
+| 7     | **Cloud**                | Vercel for `apps/web`; the passkey-gated API stays home on Tailscale Serve/Funnel. No Supabase — see `docs/deploy-plan.md` and decisions 13.1–13.8. |
+| 8     | **Cutover**              | Archive `ediciuscorp`.                                                                                                                              |
 
 ---
 
@@ -73,8 +73,6 @@ edicius-hq/
 |           |-- routers/
 |           |-- services/
 |           `-- adapters/
-|-- supabase/
-|   `-- migrations/
 |-- docs/
 |   |-- IMPLEMENTATION_PLAN.md       # THIS FILE
 |   `-- ADRs/
@@ -98,22 +96,25 @@ edicius-hq/
 app/
 |-- providers/
 |-- router/
-|-- layout/                 # AppShell, Sidebar
+|-- layout/                 # AppShell, TopNav and narrow-screen drawer
 `-- App.tsx
 
 features/
+|-- auth/
+|-- airfare/
 |-- dashboard/
 |-- finance/
 |-- greenlight/
 `-- investing/
-    |-- data/               # Quote bus, WS/poll (Investing phase)
     |-- chart/              # Hand-built candle chart (canvas)
-    |-- pulse/              # Extra panels: Fear & Greed + Sentiment (not a route)
+    |-- data/               # Quote bus and streaming/poll fallback
+    |-- hooks/
+    |-- lib/
     `-- ui/
 
 shared/
 |-- api/                    # Typed FastAPI client
-|-- auth/                   # Supabase (cloud phase)
+|-- auth/                   # Passkey session and authenticated stream helpers
 |-- storage/                # User-data facade
 |-- lib/
 |-- types/
@@ -136,37 +137,38 @@ styles/
 
 ## Product Baseline
 
-Desktop-first web suite for personal finance and markets. Medium-term: cloud deploy with Supabase Auth (magic link) and RLS.
+Responsive private web suite for personal finance, markets, captured X posts and airfare. The frontend is on Vercel; the passkey-gated API stays on the owner's PC and is published through Tailscale Serve or Funnel.
 
-**Out of scope:** Status / local PC network monitoring; real brokerage; microservices; Next.js; public deploy without Auth + RLS.
+**Out of scope:** Status / local PC network monitoring; real brokerage; microservices; Next.js; moving the API or collectors to a datacenter; an unauthenticated public API.
 
 ### Tabs and routes
 
-| Path          | Page             | Shell UI               | Later                                   |
-| ------------- | ---------------- | ---------------------- | --------------------------------------- |
-| `/`           | Redirect         | → `/dashboard`         | —                                       |
-| `/dashboard`  | `DashboardPage`  | Title + “Coming soon.” | Optional hub widgets                    |
-| `/finance`    | `FinancePage`    | Title + “Coming soon.” | Flow diagram (FIN-\*) — **built**       |
-| `/greenlight` | `GreenlightPage` | Title + “Coming soon.” | CSV weekly analytics (GL-*) — **built** |
-| `/investing`  | `InvestingPage`  | Title + “Coming soon.” | Markets + Pulse panels (INV-_, PULSE-_) |
-| `/airfare`    | `AirfarePage`    | —                      | Fare watchlist + price history (AIR-\*) |
-| `*`           | `NotFoundPage`   | —                      | —                                       |
+| Path          | Page             | Current surface                                                     | Pending                      |
+| ------------- | ---------------- | ------------------------------------------------------------------- | ---------------------------- |
+| `/`           | Redirect         | → `/dashboard`                                                      | —                            |
+| `/dashboard`  | `DashboardPage`  | Captured X posts and replies timeline                               | Optional broader hub widgets |
+| `/finance`    | `FinancePage`    | Persisted cash-flow diagrams                                        | —                            |
+| `/greenlight` | `GreenlightPage` | CSV analytics and compound-interest projector                       | —                            |
+| `/investing`  | `InvestingPage`  | Chart, watchlist, TA, positions, streaming and browser price alerts | Pulse and secondary surfaces |
+| `/airfare`    | `AirfarePage`    | Watches, collection, history, route map and analysis                | Fare alerts (AIR-03)         |
+| `*`           | `NotFoundPage`   | Not-found page                                                      | —                            |
 
-Sidebar: **Dashboard · Finance · Greenlight · Investing · Airfare**.
+Top navigation and narrow-screen drawer: **Dashboard · Finance · Greenlight · Investing · Airfare**.
 
 Airfare is the fifth tab and the first addition to the four this plan fixed in phase 2. It is a tab rather than a panel on an existing page — unlike Pulse, which decision 2.6 refused a route of its own — because it shares no domain object, no provider and no store with any of them; see decision 12.1.
 
-**Pulse** is not a tab or route. Fear & Greed and Sentiment are **additional Investing panels** under `features/investing/pulse/`, rendered on `/investing` only.
+**Pulse** is not a tab or route. Once INV-06 is delivered, Fear & Greed and Sentiment will be **additional Investing panels** under `features/investing/pulse/`, rendered on `/investing` only.
 
 ### Feature outcomes (post–Coming soon)
 
-| Area                 | Outcome                                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------------------- |
-| Finance              | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore, persistence             |
-| Greenlight           | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, persistence; no real CSVs in git |
-| Investing            | Ticker, chart, TA, watchlist, heatmap, alerts, portfolio, etc.; data-plane rules apply                |
-| Pulse (on Investing) | Fear & Greed composite + components + Sentiment panels                                                |
-| Airfare              | Route watchlist, daily fare collection, append-only history, per-airline and per-departure detail     |
+| Area                 | Outcome                                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Dashboard            | Captured X posts and replies timeline                                                                            |
+| Finance              | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore, persistence                        |
+| Greenlight           | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, projector, persistence; no real CSVs in git |
+| Investing            | Built: ticker, chart, TA, watchlist, streaming, browser alerts and portfolio. Pending: INV-06 and INV-07.        |
+| Pulse (on Investing) | Pending INV-06: Fear & Greed composite and components, plus Sentiment panels                                     |
+| Airfare              | Built: route watchlist, collection, history, map and analysis. Pending AIR-03 alerts.                            |
 
 ---
 
@@ -175,22 +177,22 @@ Airfare is the fifth tab and the first addition to the four this plan fixed in p
 Do not mix these traffics.
 
 ```text
-A) User state     → Supabase (Auth + Postgres + RLS) and/or local KV
-B) Market data    → FastAPI (+ optional public WS) + client memory
+A) User state     → FastAPI local KV through shared/storage
+B) Market data    → FastAPI (HTTP polling + SSE; upstream WS stays inside FastAPI) + client memory
 ```
 
-| Kind                                                                        | Store                                                                    | Notes                                                |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------- |
-| Watchlist, prefs, portfolio, alert **rules**, finance, greenlight, drawings | Path A                                                                   | Low frequency; RLS in cloud                          |
-| Live quotes / ticks                                                         | Client quote bus (+ WS / API poll)                                       | In-memory hot path                                   |
-| OHLCV / candle history                                                      | FastAPI cache under `services/api/.local-data/` (cloud: service storage) | Upstream Yahoo (or successor); not per-user Postgres |
-| Live forming candle                                                         | Client chart memory                                                      | Ephemeral                                            |
-| Fundamentals, Fear & Greed payloads                                         | FastAPI + short TTL cache                                                | Not user tables                                      |
+| Kind                                                                        | Store                                           | Notes                                             |
+| --------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------- |
+| Watchlist, prefs, portfolio, alert **rules**, finance, greenlight, drawings | Path A                                          | Low frequency; stored on the home API             |
+| Live quotes / ticks                                                         | Client quote bus (SSE + API poll)               | In-memory hot path                                |
+| OHLCV / candle history                                                      | FastAPI cache under `services/api/.local-data/` | Upstream Yahoo (or successor); not per-user state |
+| Live forming candle                                                         | Client chart memory                             | Ephemeral                                         |
+| Fundamentals, Fear & Greed payloads                                         | FastAPI + short TTL cache                       | Not user tables                                   |
 
-**Quotes are not stored as a primary design in Supabase.**  
+**Quotes are not stored in the user-state KV.**
 **TanStack Query:** HTTP/history; quote bus for streams. Added in **API client + storage** phase.
 
-### Investing runtime (when built)
+### Investing runtime
 
 1. Load watchlist/prefs from storage facade.
 2. Poll/subscribe market data for that set.
@@ -202,18 +204,20 @@ B) Market data    → FastAPI (+ optional public WS) + client memory
 
 ## Architecture Targets
 
-### Shell (phase 2)
+### Shell
 
 ```text
 AppErrorBoundary
 `-- Router
     `-- AppShell
-        |-- Sidebar
+        |-- TopNav
+        |   `-- Narrow-screen drawer
         `-- Outlet
             |-- DashboardPage
             |-- FinancePage
             |-- GreenlightPage
             |-- InvestingPage
+            |-- AirfarePage
             `-- NotFoundPage
 ```
 
@@ -258,7 +262,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 ### Code conventions
 
 - Components `PascalCase.tsx`; hooks `useCamelCase.ts`; utils `camelCase.ts`; folders `kebab-case`.
-- Feature-specific deps (`d3-scale`, Supabase client, TanStack Query) only in their phases.
+- Feature-specific deps (`d3-scale`, TanStack Query, WebAuthn) only in their phases.
 
 ---
 
@@ -266,16 +270,16 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 | ID          | Function                                                                            |
 | ----------- | ----------------------------------------------------------------------------------- |
-| SHELL-01…05 | Nav (4 tabs), desktop layout, branding, local/cloud indicator, storage facade usage |
-| HOME-01…04  | `/` → `/dashboard`; Coming soon; richer hub later; English                          |
+| SHELL-01…05 | Initial four-tab shell; now a five-item top nav with a narrow-screen drawer         |
+| HOME-01…04  | `/` → `/dashboard`; captured X timeline; richer hub later; English                  |
 | FIN-01…10   | Finance diagram capabilities                                                        |
 | GL-01…07    | Greenlight CSV / weekly analytics                                                   |
-| INV-00      | Coming soon on Investing                                                            |
-| INV-01…07   | Full markets — one per delivery slice, expanded below                               |
+| INV-00      | Original Investing placeholder (superseded by the built slices)                     |
+| INV-01…08   | Full markets — one per delivery slice, expanded below                               |
 | PULSE-01…05 | Fear & Greed / Sentiment panels on `/investing`                                     |
 | AIR-01…04   | Fare watchlist, collector, price history, `/airfare` page                           |
 | API-01…08   | Health, Yahoo/charts/fundamentals/market, storage KV                                |
-| DATA-01…05  | Storage facade, allowlist, magic link, RLS, local without login                     |
+| DATA-01…05  | Storage facade and allowlist; original magic-link/RLS design superseded by passkeys |
 
 ---
 
@@ -292,7 +296,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 ### 1 — Initial Setup (tooling)
 
-**Status:** Implementation complete on `chore/initial-setup` — issue [#3](https://github.com/edicius2002/edicius-hq/issues/3). Awaiting PR/merge.
+**Status:** Complete — [#3](https://github.com/edicius2002/edicius-hq/issues/3) / [#4](https://github.com/edicius2002/edicius-hq/pull/4).
 
 - [x] npm workspaces + `apps/web` Vite/React/TS (Node 22)
 - [x] `services/api` FastAPI + `/api/health` (Python 3.12)
@@ -391,14 +395,19 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] INV-01 — data plane ([#34](https://github.com/edicius2002/edicius-hq/issues/34))
 - [x] INV-02 — chart ([#36](https://github.com/edicius2002/edicius-hq/issues/36))
 - [x] INV-03 — watchlist and ticker ([#39](https://github.com/edicius2002/edicius-hq/issues/39))
+- [x] INV-04 — technical analysis ([#45](https://github.com/edicius2002/edicius-hq/issues/45) / [#46](https://github.com/edicius2002/edicius-hq/pull/46))
+- [x] INV-05 — portfolio ([#49](https://github.com/edicius2002/edicius-hq/issues/49) / [#50](https://github.com/edicius2002/edicius-hq/pull/50))
+- [ ] INV-06 — Pulse
+- [ ] INV-07 — secondary surfaces
 - [x] INV-08 — live streaming ([#40](https://github.com/edicius2002/edicius-hq/issues/40))
+- [x] Follow-up — browser price alerts ([#146](https://github.com/edicius2002/edicius-hq/pull/146))
 
 The largest phase in the plan by a wide margin: the legacy carries roughly 14,000 lines of
 JavaScript across `js/investing/`, plus a Python backend of its own (`server.py`,
 `yahoo_cache.py`, `chart_history.py`, `chart_feeder.py`, `market_indicators.py`). Finance, for
 comparison, was 3,800 lines. Every surface below is in scope; nothing is being cut.
 
-It is delivered in seven slices, each with its own issue written immediately before the work and
+It is delivered in eight slices, each with its own issue written immediately before the work and
 its own PR — the rhythm Finance settled into, rather than one issue covering everything. An issue
 freezes decisions at the moment it is written, so one written now would be deciding the heatmap
 weeks before the heatmap is understood.
@@ -420,8 +429,8 @@ timeframe, caps that stop a `range=max` fetch exhausting memory, poll intervals 
 period. That is ported carefully, not reinvented. Building the chart first would mean building on
 data nobody has yet shown to arrive reliably.
 
-**Out of scope for the phase:** alerts that fire while the tab is closed, which would need a process
-running outside the browser; that is a cloud-phase question, not a markets one.
+**Out of scope for the phase:** alerts that fire while the tab is closed. Browser alerts are built;
+closed-tab delivery would need separately scoped, always-on API work.
 
 ---
 
@@ -429,6 +438,7 @@ running outside the browser; that is a cloud-phase question, not a markets one.
 
 - [x] AIR-01 — provider adapter, archive, collector, `/airfare`
 - [x] AIR-02 — continuous monitoring: cadence by horizon, write-on-change, per-flight tracking
+- [ ] AIR-03 — alerts below the route's own median
 - [x] AIR-04 — route map, and the analysis block under it
 
 Not one of the phases this plan fixed in step 2, and the reason it exists is a question the four
@@ -451,6 +461,25 @@ from the first commit and its drift is a typed error rather than an empty list (
 
 **Out of scope:** running the collector in the cloud, which needs a provider that is not a scraper
 first (12.3), and booking anything at all — this observes prices, it does not buy tickets.
+
+---
+
+### 7 — Cloud
+
+**Status:** Implementation complete for the chosen architecture. One operational transport check remains.
+
+- [x] Deploy `apps/web` to Vercel
+- [x] Keep `services/api` on the owner's PC and publish it with Tailscale Serve
+- [x] Gate API access with passkey sessions
+- [x] Support Tailscale Funnel for authenticated devices outside the tailnet
+- [ ] Record an end-to-end SSE soak through Serve/Funnel for the market, fare and tweet streams
+
+### 8 — Cutover
+
+**Status:** Pending.
+
+- [ ] Confirm any remaining legacy parity or data handoff
+- [ ] Archive `ediciuscorp`
 
 ---
 
@@ -1035,6 +1064,8 @@ A box's height follows what the node says, not what its kind could ever say
 
 ### Superseded decisions
 
+Decision 2.7's Supabase magic-link Auth + RLS design is superseded by decisions 13.1–13.8: the Vercel frontend talks directly to a passkey-gated API on the owner's PC through Tailscale Serve/Funnel, and user documents remain in the API's local KV. The cloud-datacenter premise in 8.4 and the Supabase premise in 8.9 are superseded by the same decisions. Decision 13.3's network-only access rule is likewise superseded by 13.5 and 13.8. Decision 13.5's original blanket `/api/auth/*` exception and single-router-dependency description is narrowed by the current implementation: only the four register/login ceremony endpoints are open, while `/session`, `/logout` and `/enrolment-code` each require a session at their decorator.
+
 | ID   | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | When       |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | S.1  | Status removed from product.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 2026-08-05 |
@@ -1092,6 +1123,8 @@ A box's height follows what the node says, not what its kind could ever say
 ---
 
 ## Document Changelog
+
+Current-state reconciliation (2026-09-07): FastAPI and the five green dependency PRs merged; steps 0–5 and 7 marked complete; current routes, storage, passkey/Funnel architecture and the remaining INV-06, INV-07, AIR-03, SSE and cutover work reconciled with the repository.
 
 | Date       | Summary                                                                                                             |
 | ---------- | ------------------------------------------------------------------------------------------------------------------- |

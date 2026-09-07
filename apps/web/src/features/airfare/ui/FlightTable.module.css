@@ -474,17 +474,28 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
-    gap: 8px;
+    gap: 6px;
+  }
+  .filter {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 4px;
+  }
+  .filter:has(.range) > span {
+    text-align: start;
   }
   .filter > span {
     font-size: 0.6rem;
   }
   .filter input,
   .filter select {
-    min-height: 44px;
-    font-size: 16px;
-    padding: 6px;
+    min-height: 32px;
+    font-size: 0.6rem;
+    padding: 3px 4px;
     width: 100%;
+  }
+  .range {
+    gap: 2px;
   }
   .range input {
     width: 0;
@@ -509,16 +520,16 @@
     padding: 8px;
   }
   .sort {
-    min-height: 44px;
+    min-height: 32px;
     padding: 8px;
   }
   .pager {
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
   }
   .pager button {
-    min-height: 44px;
-    padding: 6px 8px;
+    min-height: 32px;
+    padding: 3px 6px;
     font-size: 0.6rem;
   }
   .pageOf,

@@ -162,3 +162,55 @@ la validación aquí fue en motores de navegador y eventos táctiles emulados. L
 tabla mantiene scroll horizontal deliberado dentro de su contenedor. La sesión
 privada y las operaciones reales de guardado/colección no se ejercitaron; sus
 contratos y backend no cambian.
+
+## Corrección de densidad tras revisión — 2026-09-07
+
+Esta revisión sustituye los controles de 44 px descritos arriba por controles
+compactos de 32 px, siguiendo la petición posterior del usuario. Todos los cambios
+están dentro de `max-width: 640px` en CSS de Airfare.
+
+- Globe/Mercator: padding del toggle de 3 a 1 px; 2 px de padding vertical en la
+  fila con Saved/Reset. El panel pierde 12 px sin reducir el canvas.
+- Watched routes: campos, meses, tiles, acciones y transferencia de 32 px;
+  menos separación vertical. Origin y Destination quedan junto a sus campos.
+- AnalysisPanel/PeriodSwitch: toggles de 32 px y texto de 12 px; los nombres largos
+  caben en dos líneas. Metadata de 66 a 54 px. Cuerpo de `56.24cqw + 84px` a
+  `56.24cqw + 60px`, conservando la altura entre ambos gráficos.
+- DepartureChart/PriceBandChart: gaps de 10 a 4 px; lectura de departure de 60 a
+  42 px y de history de 60 a 56 px. Una reserva menor en history encogía el SVG
+  con lecturas de tres líneas; el valor final conserva todo el ancho con crosshair.
+- FlightTable: labels junto a campos, ambos a 12 px; altura de 44 a 32 px y menos
+  ancho ocupado por controles. Dos columnas de filtros y scroll local de tabla.
+- RouteDetail: labels al lado de valores. Los importes mantienen su ancho;
+  la aerolínea y el rango usan filas completas para admitir valores largos.
+
+Alturas en px, antes de esta corrección → resultado final:
+
+| Ancho | Página      | Watched routes | Flight details | Análisis      | Tabla         |
+| ----- | ----------- | -------------- | -------------- | ------------- | ------------- |
+| 360   | 2873 → 2488 | 693.0 → 588.0  | 298.1 → 226.5  | 512.2 → 446.4 | 758.6 → 627.6 |
+| 390   | 2937 → 2517 | 710.6 → 585.0  | 298.1 → 212.5  | 529.1 → 463.3 | 758.6 → 627.6 |
+| 430   | 3035 → 2580 | 745.8 → 585.0  | 298.1 → 212.5  | 551.6 → 485.8 | 758.6 → 627.6 |
+| 1440  | 2586 → 2586 | 803.4 → 803.4  | 117.7 → 117.7  | 699.6 → 699.6 | 742.4 → 742.4 |
+
+Anchos conservados: globe 348/378/418 px; gráficos 350/380/420 px. Overflow global:
+0 px. Desktop 1440×1000 conserva las dimensiones y declaraciones anteriores.
+Los móviles exactos se verificaron con Chromium sin GPU; Orca verificó además
+iframes 360×800, 390×844 y 430×932, con ancho útil 345/375/415 px por su scrollbar
+nativo, también sin overflow. La aceleración hardware permanece deshabilitada.
+
+TDD: expectativas responsive fallidas antes de implementar, luego correctas;
+16 contratos CSS (tres nuevos). Suite web: 2224 passed, 2 skipped. Format, lint,
+typecheck y build correctos, con cinco warnings preexistentes de Fast Refresh.
+Browser: periodos/chart sin salto, tap/crosshair, pinch, zoom/reset, targets de
+32 px, dt/dd en línea y ancho efectivo del dibujo con crosshair activo.
+
+Evidencia en `.local-data/airfare-qa/`: `compact-before-*`, `compact-after-*`
+(full/history, cuatro viewports), `compact-interaction-*` (tres móviles),
+`compact-before-metrics.json`, `compact-after-metrics.json`,
+`compact-interaction-results.json`, `orca-compact.json` y logs `compact-*.log`.
+
+La reserva restante bajo el eje sostiene lecturas táctiles y avisos de colección,
+y evita saltos entre gráficos. Los campos usan 12 px por petición del usuario;
+falta comprobar enfoque y zoom automático en iOS físico. El zoom manual sigue
+habilitado. Las demás limitaciones de la revisión anterior siguen aplicando.

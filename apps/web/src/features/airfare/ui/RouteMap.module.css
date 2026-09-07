@@ -596,6 +596,7 @@
 @media (max-width: 640px) {
   .toolbar {
     padding-inline: 10px;
+    padding-block: 2px;
     gap: 6px;
   }
   .tools [role='status'] {
@@ -609,6 +610,10 @@
     flex-wrap: wrap;
     gap: 4px;
   }
+  .switch {
+    padding: 1px;
+    gap: 2px;
+  }
   .tools {
     min-width: 0;
     max-width: 48%;
@@ -617,8 +622,8 @@
   }
   .switch button,
   .tools button {
-    min-height: 44px;
-    padding: 6px 8px;
+    min-height: 32px;
+    padding: 3px 6px;
     font-size: 0.65rem;
   }
   .stage {

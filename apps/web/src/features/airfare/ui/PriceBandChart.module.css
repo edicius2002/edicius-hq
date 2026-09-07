@@ -342,6 +342,9 @@
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
+  .figure {
+    gap: 4px;
+  }
   .chart {
     /* This chart reads points; it has no pan/zoom gesture to claim. */
     touch-action: pan-y pinch-zoom;
@@ -359,11 +362,12 @@
   }
   .readout {
     position: static;
-    min-height: 60px;
+    min-height: 56px;
     align-content: start;
-    padding: 4px 10px;
+    padding: 2px 10px;
     gap: 2px 8px;
     font-size: 0.6rem;
+    line-height: 1.25;
     overflow-wrap: anywhere;
   }
 }

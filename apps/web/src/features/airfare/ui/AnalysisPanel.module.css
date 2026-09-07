@@ -333,7 +333,7 @@
 @media (max-width: 640px) {
   .head {
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    gap: 6px;
     margin: 0;
     padding-inline: 10px;
   }
@@ -361,10 +361,10 @@
   }
   .switch button {
     min-width: 0;
-    min-height: 44px;
-    font-size: 0.65rem;
-    line-height: 1.3;
-    padding: 6px 8px;
+    min-height: 32px;
+    font-size: 0.6rem;
+    line-height: 1.15;
+    padding: 2px 6px;
     white-space: normal;
   }
   .names {
@@ -379,7 +379,7 @@
     grid-column: 1 / -1;
     display: flex;
     justify-content: center;
-    height: 44px;
+    height: 32px;
     visibility: hidden;
     clip-path: none;
     transition: none;
@@ -390,11 +390,10 @@
   .chartMeta {
     justify-content: start;
     align-items: start;
-    min-height: 66px;
+    min-height: 54px;
   }
   .body {
-    /* Full-width 505x284 band plot, plus readout; also fits the 760x308
-       departure plot, its readout and the reserved collection notice. */
-    height: calc(56.24cqw + 84px);
+    /* Keep both full-width plots and their compact readouts in one stable box. */
+    height: calc(56.24cqw + 60px);
   }
 }

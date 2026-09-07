@@ -43,11 +43,11 @@ describe('Airfare mobile layout contracts', () => {
   });
 
   it('reserves a full second control row and metadata row across chart switches', () => {
-    expect(rule('AnalysisPanel', '.periodFold')).toMatch(/height:\s*44px/);
+    expect(rule('AnalysisPanel', '.periodFold')).toMatch(/height:\s*32px/);
     expect(rule('AnalysisPanel', '.periodFold')).toMatch(/visibility:\s*hidden/);
     expect(rule('AnalysisPanel', '.periodOpen')).toMatch(/visibility:\s*visible/);
-    expect(rule('AnalysisPanel', '.chartMeta')).toMatch(/min-height:\s*66px/);
-    expect(rule('AnalysisPanel', '.body')).toContain('cqw');
+    expect(rule('AnalysisPanel', '.chartMeta')).toMatch(/min-height:\s*54px/);
+    expect(rule('AnalysisPanel', '.body')).toContain('calc(56.24cqw + 60px)');
   });
 
   it.each([
@@ -58,8 +58,8 @@ describe('Airfare mobile layout contracts', () => {
     ['RouteEditor', '.monthChip'],
     ['RouteEditor', '.form input'],
     ['FlightTable', '.filter select'],
-  ])('%s keeps %s at least 44px tall on phones', (file, selector) => {
-    expect(rule(file, selector)).toMatch(/min-height:\s*44px/);
+  ])('%s keeps %s compact but at least 32px tall on phones', (file, selector) => {
+    expect(rule(file, selector)).toMatch(/min-height:\s*32px/);
   });
 
   it('lets the watchlist wrap without collapsing route names or losing months', () => {
@@ -80,6 +80,30 @@ describe('Airfare mobile layout contracts', () => {
 
   it('gives band-chart crosshair readouts their own reserved space', () => {
     expect(rule('PriceBandChart', '.readout')).toMatch(/position:\s*static/);
-    expect(rule('PriceBandChart', '.readout')).toMatch(/min-height:\s*60px/);
+    expect(rule('PriceBandChart', '.readout')).toMatch(/min-height:\s*56px/);
+  });
+  it('keeps airport labels beside their fields and flight filters on compact inline tracks', () => {
+    expect(rule('RouteEditor', '.airports > div')).toMatch(
+      /grid-template-columns:\s*auto minmax\(0, 1fr\)/,
+    );
+    expect(rule('FlightTable', '.filter')).toMatch(
+      /grid-template-columns:\s*auto minmax\(0, 1fr\)/,
+    );
+    expect(rule('FlightTable', '.filter input')).toMatch(/font-size:\s*0.6rem/);
+    expect(rule('FlightTable', '.filter > span')).toMatch(/font-size:\s*0.6rem/);
+  });
+  it('reduces the globe toolbar chrome and leaves breathing room around it', () => {
+    expect(rule('RouteMap', '.switch button')).toMatch(/min-height:\s*32px/);
+    expect(rule('RouteMap', '.switch')).toMatch(/padding:\s*1px/);
+    expect(rule('RouteMap', '.toolbar')).toMatch(/padding-block:\s*2px/);
+  });
+  it('places detail labels beside values and gives long carrier and range values a full row', () => {
+    expect(rule('RouteDetail', '.figures > div')).toMatch(
+      /grid-template-columns:\s*minmax\(0, 1fr\) auto/,
+    );
+    expect(rule('RouteDetail', '.figures > div:nth-last-child(-n + 2)')).toMatch(
+      /grid-column:\s*1 \/ -1/,
+    );
+    expect(rule('RouteDetail', '.figures dt')).toMatch(/margin-bottom:\s*0/);
   });
 });

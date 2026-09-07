@@ -697,6 +697,9 @@
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
+  .figure {
+    gap: 4px;
+  }
   .head {
     width: 100%;
     gap: 4px;
@@ -713,10 +716,10 @@
   }
   .reset,
   .steps button {
-    min-width: 44px;
-    min-height: 44px;
-    width: 44px;
-    height: 44px;
+    min-width: 32px;
+    min-height: 32px;
+    width: 32px;
+    height: 32px;
     flex: none;
   }
   .steps {
@@ -739,7 +742,7 @@
   }
   .readout {
     position: static;
-    min-height: 60px;
+    min-height: 42px;
     align-content: start;
     justify-content: start;
     padding: 4px 10px;
@@ -755,7 +758,7 @@
   .readout .link {
     display: inline-flex;
     align-items: center;
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 32px;
+    min-height: 24px;
   }
 }

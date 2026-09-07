@@ -1,6 +1,5 @@
 import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 
-import { pointerInView } from '@/features/airfare/lib/crosshair';
 import { MONTHS_PER_YEAR, type ProjectedMonth } from '@/features/greenlight/lib/compound';
 import {
   CURVE_VIEW,
@@ -11,6 +10,7 @@ import {
   curveLayout,
   monthAtView,
 } from '@/features/greenlight/lib/compoundCurve';
+import { pointerInView } from '@/shared/lib/chartCrosshair';
 import { formatMoney } from '@/shared/lib/money';
 
 import styles from './CompoundCurve.module.css';
@@ -54,17 +54,14 @@ export function CompoundCurve({ rows, capital, currency }: CompoundCurveProps) {
   /**
    * Where the pointer is, in the units the drawing is drawn in.
    *
-   * `pointerInView` is `airfare/lib/crosshair.ts`'s and is imported rather than
-   * copied — the first import this repository has between two feature slices,
-   * and a deliberate one. It is pure geometry with nothing about fares in it,
+   * `pointerInView` is shared rather than copied. It is pure geometry with
+   * nothing about this feature in it,
    * it was written to close a measured bug on 2026-08-22, and the shape of that
    * bug is that a second copy looks right for years and is wrong at the edges:
    * `((clientX - box.left) / box.width) * CURVE_VIEW.width` reads the middle of
    * the plot exactly and drifts further the closer the hand gets to either end,
    * which is why nobody found it the first time. Two copies of an arithmetic
-   * nobody can eyeball is how it comes back. It belongs in `shared/lib`, and
-   * moving it means editing the airfare slice, which this branch is not allowed
-   * to do — left open in the handoff.
+   * nobody can eyeball is how it comes back.
    *
    * This chart's box does not share the viewBox's shape at any width: the
    * drawing is 640x360 and the stylesheet gives the element a full-width box of

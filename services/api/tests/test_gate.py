@@ -10,6 +10,7 @@ import re
 
 import pytest
 from fastapi import HTTPException
+from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -80,7 +81,7 @@ def test_every_non_auth_route_is_gated():
     router added later cannot quietly arrive unprotected.
     """
     checked = 0
-    for route in app.routes:
+    for route in iter_route_contexts(app.routes):
         path = getattr(route, "path", "")
         if not path.startswith("/api/") or path.startswith("/api/auth/"):
             continue
@@ -103,7 +104,7 @@ def test_every_other_auth_route_needs_a_session():
     `require_session` at its own decorator and why that has to be checked here.
     """
     checked = 0
-    for route in app.routes:
+    for route in iter_route_contexts(app.routes):
         path = getattr(route, "path", "")
         if not path.startswith("/api/auth/") or path in OPEN_AUTH_PATHS:
             continue
@@ -137,7 +138,7 @@ def test_the_stream_exception_matches_the_route_table():
     """
     in_the_app = {
         path
-        for route in app.routes
+        for route in iter_route_contexts(app.routes)
         if (path := getattr(route, "path", "")).startswith("/api/") and path.endswith("/stream")
     }
     assert in_the_app == STREAM_PATHS

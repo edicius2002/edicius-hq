@@ -11,7 +11,7 @@ websockets==17.1
 # is `app/services/webauthn_ceremony.py`, for the same reason the Yahoo and
 # Binance adapters keep their libraries at one boundary.
 webauthn==3.0.0
-pytest==9.0.3
+pytest==9.1.1
 # Lint and format for the API. Pinned like everything else: the code already
 # carried `# noqa` codes for a linter nobody had installed, which suppressed
 # nothing and told no one.

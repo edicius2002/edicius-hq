@@ -20,5 +20,5 @@ export function formatRelativeTime(value: string | Date, now = new Date()): stri
   const [unit, milliseconds] = UNITS.find(([, size]) => Math.abs(elapsed) >= size) ?? UNITS.at(-1)!;
   const amount = Math.trunc(elapsed / milliseconds);
 
-  return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(amount, unit);
+  return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(amount, unit);
 }

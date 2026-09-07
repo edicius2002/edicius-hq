@@ -117,7 +117,9 @@ def test_fetch_uses_the_public_json_resource_without_browser_impersonation(synth
 )
 def test_fetch_reports_upstream_statuses_explicitly(status_code, code, transient):
     async def run():
-        transport = httpx.MockTransport(lambda request: httpx.Response(status_code, request=request))
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(status_code, request=request)
+        )
         async with httpx.AsyncClient(transport=transport) as client:
             return await fetch_sentiment(client, now=lambda: FETCHED_AT)
 

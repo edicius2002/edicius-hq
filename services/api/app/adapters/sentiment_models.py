@@ -155,7 +155,5 @@ class SentimentSnapshot:
             as_of=_datetime(value.get("asOf"), "asOf"),
             stale=bool(value.get("stale", False)),
             composite=SentimentMetric.from_wire(value.get("composite")),
-            indicators=tuple(
-                SentimentMetric.from_wire(metric) for metric in value["indicators"]
-            ),
+            indicators=tuple(SentimentMetric.from_wire(metric) for metric in value["indicators"]),
         )

@@ -201,9 +201,7 @@ def _history(payload: dict[str, Any], spec: _SeriesSpec) -> SentimentSeries:
         by_time[timestamp] = SentimentPoint(
             timestamp=timestamp,
             value=_number(row.get("y"), f"{spec.provider_key}.data[{index}].value"),
-            classification=_rating(
-                row.get("rating"), f"{spec.provider_key}.data[{index}]"
-            ),
+            classification=_rating(row.get("rating"), f"{spec.provider_key}.data[{index}]"),
         )
     return SentimentSeries(
         key=spec.key,

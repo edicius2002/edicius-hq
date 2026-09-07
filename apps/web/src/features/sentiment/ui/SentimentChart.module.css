@@ -1,0 +1,191 @@
+.figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.72rem;
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.legendPrimary,
+.legendReference {
+  width: 1.6rem;
+  height: 0;
+  border-top: 2px solid var(--color-income);
+}
+
+.legendReference {
+  border-color: var(--color-accent);
+  border-top-style: dashed;
+}
+
+.plotWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 13rem;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.chart:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.grid {
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 1;
+}
+
+.axis,
+.axisTitle {
+  fill: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+
+.axisTitle {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.linePrimary,
+.lineReference {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.linePrimary {
+  stroke: var(--color-income);
+  stroke-width: 2.25;
+}
+
+.lineReference {
+  stroke: var(--color-accent);
+  stroke-width: 1.75;
+  stroke-dasharray: 6 4;
+}
+
+.crosshair {
+  pointer-events: none;
+  transition: transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.hair {
+  stroke: var(--color-text);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.48;
+  vector-effect: non-scaling-stroke;
+}
+
+.marker {
+  fill: var(--color-surface);
+  stroke: var(--color-income);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.tooltip {
+  margin: var(--space-2) 0 0;
+  min-height: 2.5rem;
+  color: var(--color-text);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.tableButton {
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.tableButton:hover,
+.tableButton:focus-visible {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.tableButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.tableWrap {
+  max-height: 18rem;
+  margin-top: var(--space-2);
+  overflow: auto;
+}
+
+.tableWrap table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tableWrap th,
+.tableWrap td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tableWrap th:first-child {
+  text-align: left;
+}
+
+.empty {
+  margin: var(--space-5) 0;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .chart {
+    min-height: 10rem;
+  }
+
+  .axis,
+  .axisTitle {
+    font-size: 12px;
+  }
+
+  .tooltip {
+    min-height: 3.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crosshair {
+    transition: none;
+  }
+}

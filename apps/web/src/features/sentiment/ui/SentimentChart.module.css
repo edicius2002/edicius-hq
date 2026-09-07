@@ -39,7 +39,6 @@
   display: block;
   width: 100%;
   height: auto;
-  min-height: 13rem;
   touch-action: none;
   cursor: crosshair;
 }
@@ -170,10 +169,6 @@
 }
 
 @media (max-width: 640px) {
-  .chart {
-    min-height: 10rem;
-  }
-
   .axis,
   .axisTitle {
     font-size: 12px;

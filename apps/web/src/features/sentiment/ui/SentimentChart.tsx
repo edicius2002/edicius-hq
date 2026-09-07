@@ -138,7 +138,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
               y={SENTIMENT_VIEW.height - 18}
               textAnchor="middle"
             >
-              {formatChartDate(point.timestamp).replace(', 2026', '')}
+              {formatChartDate(point.timestamp)}
             </text>
           ))}
           <text

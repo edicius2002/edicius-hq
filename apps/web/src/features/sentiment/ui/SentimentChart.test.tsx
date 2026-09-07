@@ -46,7 +46,7 @@ function chart() {
 
 describe('SentimentChart', () => {
   it('draws labelled axes, two distinguishable lines and a text legend', () => {
-    const { container } = chart();
+    const { container, svg } = chart();
 
     expect(screen.getByText('Date')).toBeInTheDocument();
     expect(screen.getByText('index points')).toBeInTheDocument();
@@ -54,6 +54,7 @@ describe('SentimentChart', () => {
       'S&P 500125-day average',
     );
     expect(container.querySelectorAll('[data-series]')).toHaveLength(2);
+    expect(within(svg).getByText('Jan 1, 2026')).toBeInTheDocument();
   });
 
   it('moves one animated crosshair to a real pointer observation', () => {

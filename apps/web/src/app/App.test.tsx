@@ -109,7 +109,7 @@ describe('Shell navigation', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('API online');
   });
 
-  it('navigates between the five sidebar tabs', async () => {
+  it('navigates between the six top-level tabs', async () => {
     const user = userEvent.setup();
     renderAt('/dashboard');
 
@@ -128,6 +128,10 @@ describe('Shell navigation', () => {
     nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Airfare' }));
     expect(await arrivesAt('Airfare')).toBeInTheDocument();
+
+    nav = await openMenu(user);
+    await user.click(within(nav).getByRole('link', { name: 'Sentiment' }));
+    expect(await arrivesAt('Sentiment')).toBeInTheDocument();
 
     nav = await openMenu(user);
     await user.click(within(nav).getByRole('link', { name: 'Dashboard' }));

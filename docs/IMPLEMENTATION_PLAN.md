@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Delivery steps 0–5 and 7 are complete. Investing and Airfare are usable and remain open for their explicitly pending slices.
+> **Status:** Delivery steps 0–5 and 7 are complete. Investing, Airfare and Sentiment are usable; Investing and Airfare remain open for their explicitly pending slices.
 > **Last updated:** 2026-09-07
-> **Review status:** No feature PR is in review; `main` is green after the 2026-09-07 dependency merges.
+> **Review status:** Sentiment is on its feature branch; `main` was green after the 2026-09-07 dependency merges.
 > **Phase closure:** Cloud is implemented as Vercel + a passkey-gated home API on Tailscale Serve/Funnel. Cutover is still pending.
-> **Next delivery:** INV-06, Pulse. Also pending: INV-07, AIR-03, the SSE transport check, and legacy cutover.
+> **Next delivery:** INV-07. Also pending: AIR-03, the SSE transport check, and legacy cutover.
 
 ---
 
@@ -46,8 +46,9 @@ This file is the repository’s source of truth for confirmed product decisions,
 | 3b    | **UI foundation**        | Dark tokens (ediciuscorp), Berkeley Mono, shell migration, primitives `Button` / `Panel` / `PageHeader` / `Stat` (no Radix yet).                    |
 | 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                         |
 | 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                                 |
-| 6     | **Investing**            | Markets UI, quote bus, candle cache via API, charts; Pulse as extra panels on `/investing`.                                                         |
+| 6     | **Investing**            | Markets UI, quote bus, candle cache via API and charts.                                                                                             |
 | 6b    | **Airfare**              | Fare watchlist, daily collection from a scraped provider, append-only price history, `/airfare`.                                                    |
+| 6c    | **Sentiment**            | Standalone `/sentiment` page with CNN Fear & Greed and its seven component indicators.                                                              |
 | 7     | **Cloud**                | Vercel for `apps/web`; the passkey-gated API stays home on Tailscale Serve/Funnel. No Supabase — see `docs/deploy-plan.md` and decisions 13.1–13.8. |
 | 8     | **Cutover**              | Archive `ediciuscorp`.                                                                                                                              |
 
@@ -105,12 +106,13 @@ features/
 |-- dashboard/
 |-- finance/
 |-- greenlight/
-`-- investing/
-    |-- chart/              # Hand-built candle chart (canvas)
-    |-- data/               # Quote bus and streaming/poll fallback
-    |-- hooks/
-    |-- lib/
-    `-- ui/
+|-- investing/
+|   |-- chart/              # Hand-built candle chart (canvas)
+|   |-- data/               # Quote bus and streaming/poll fallback
+|   |-- hooks/
+|   |-- lib/
+|   `-- ui/
+`-- sentiment/             # Standalone CNN Fear & Greed page and eight SVG charts
 
 shared/
 |-- api/                    # Typed FastAPI client
@@ -149,26 +151,25 @@ Responsive private web suite for personal finance, markets, captured X posts and
 | `/dashboard`  | `DashboardPage`  | Captured X posts and replies timeline                               | Optional broader hub widgets |
 | `/finance`    | `FinancePage`    | Persisted cash-flow diagrams                                        | —                            |
 | `/greenlight` | `GreenlightPage` | CSV analytics and compound-interest projector                       | —                            |
-| `/investing`  | `InvestingPage`  | Chart, watchlist, TA, positions, streaming and browser price alerts | Pulse and secondary surfaces |
+| `/investing`  | `InvestingPage`  | Chart, watchlist, TA, positions, streaming and browser price alerts | Secondary surfaces           |
 | `/airfare`    | `AirfarePage`    | Watches, collection, history, route map and analysis                | Fare alerts (AIR-03)         |
+| `/sentiment`  | `SentimentPage`  | CNN Fear & Greed composite and all seven component charts           | —                            |
 | `*`           | `NotFoundPage`   | Not-found page                                                      | —                            |
 
-Top navigation and narrow-screen drawer: **Dashboard · Finance · Greenlight · Investing · Airfare**.
+Top navigation and narrow-screen drawer: **Dashboard · Finance · Greenlight · Investing · Airfare · Sentiment**.
 
-Airfare is the fifth tab and the first addition to the four this plan fixed in phase 2. It is a tab rather than a panel on an existing page — unlike Pulse, which decision 2.6 refused a route of its own — because it shares no domain object, no provider and no store with any of them; see decision 12.1.
-
-**Pulse** is not a tab or route. Once INV-06 is delivered, Fear & Greed and Sentiment will be **additional Investing panels** under `features/investing/pulse/`, rendered on `/investing` only.
+Airfare was the fifth tab and the first addition to the four this plan fixed in phase 2. Sentiment is the sixth. The approved standalone Sentiment surface supersedes the earlier Pulse placement under Investing; the historical decision remains in decision 2.6 and is explicitly superseded by section 14.
 
 ### Feature outcomes (post–Coming soon)
 
-| Area                 | Outcome                                                                                                          |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Dashboard            | Captured X posts and replies timeline                                                                            |
-| Finance              | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore, persistence                        |
-| Greenlight           | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, projector, persistence; no real CSVs in git |
-| Investing            | Built: ticker, chart, TA, watchlist, streaming, browser alerts and portfolio. Pending: INV-06 and INV-07.        |
-| Pulse (on Investing) | Pending INV-06: Fear & Greed composite and components, plus Sentiment panels                                     |
-| Airfare              | Built: route watchlist, collection, history, map and analysis. Pending AIR-03 alerts.                            |
+| Area       | Outcome                                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| Dashboard  | Captured X posts and replies timeline                                                                            |
+| Finance    | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore, persistence                        |
+| Greenlight | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, projector, persistence; no real CSVs in git |
+| Investing  | Built: ticker, chart, TA, watchlist, streaming, browser alerts and portfolio. Pending: INV-07.                   |
+| Airfare    | Built: route watchlist, collection, history, map and analysis. Pending AIR-03 alerts.                            |
+| Sentiment  | Built: standalone CNN Fear & Greed composite plus all seven component charts, with accessible crosshairs.        |
 
 ---
 
@@ -187,7 +188,8 @@ B) Market data    → FastAPI (HTTP polling + SSE; upstream WS stays inside Fast
 | Live quotes / ticks                                                         | Client quote bus (SSE + API poll)               | In-memory hot path                                |
 | OHLCV / candle history                                                      | FastAPI cache under `services/api/.local-data/` | Upstream Yahoo (or successor); not per-user state |
 | Live forming candle                                                         | Client chart memory                             | Ephemeral                                         |
-| Fundamentals, Fear & Greed payloads                                         | FastAPI + short TTL cache                       | Not user tables                                   |
+| Fundamentals                                                                | FastAPI + short TTL cache                       | Not user tables                                   |
+| CNN Fear & Greed snapshot                                                   | FastAPI + 4h TTL / 7d stale-if-error cache      | One atomic payload; not user state                |
 
 **Quotes are not stored in the user-state KV.**
 **TanStack Query:** HTTP/history; quote bus for streams. Added in **API client + storage** phase.
@@ -218,6 +220,7 @@ AppErrorBoundary
             |-- GreenlightPage
             |-- InvestingPage
             |-- AirfarePage
+            |-- SentimentPage
             `-- NotFoundPage
 ```
 
@@ -270,15 +273,16 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 
 | ID          | Function                                                                            |
 | ----------- | ----------------------------------------------------------------------------------- |
-| SHELL-01…05 | Initial four-tab shell; now a five-item top nav with a narrow-screen drawer         |
+| SHELL-01…06 | Initial four-tab shell; now a six-item top nav with a narrow-screen drawer          |
 | HOME-01…04  | `/` → `/dashboard`; captured X timeline; richer hub later; English                  |
 | FIN-01…10   | Finance diagram capabilities                                                        |
 | GL-01…07    | Greenlight CSV / weekly analytics                                                   |
 | INV-00      | Original Investing placeholder (superseded by the built slices)                     |
 | INV-01…08   | Full markets — one per delivery slice, expanded below                               |
-| PULSE-01…05 | Fear & Greed / Sentiment panels on `/investing`                                     |
+| PULSE-01…05 | Historical Pulse scope, superseded by SENT-01                                       |
+| SENT-01     | CNN Fear & Greed composite and seven indicators on standalone `/sentiment`          |
 | AIR-01…04   | Fare watchlist, collector, price history, `/airfare` page                           |
-| API-01…08   | Health, Yahoo/charts/fundamentals/market, storage KV                                |
+| API-01…09   | Health, Yahoo/charts/fundamentals/market/sentiment, storage KV                      |
 | DATA-01…05  | Storage facade and allowlist; original magic-link/RLS design superseded by passkeys |
 
 ---
@@ -397,7 +401,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] INV-03 — watchlist and ticker ([#39](https://github.com/edicius2002/edicius-hq/issues/39))
 - [x] INV-04 — technical analysis ([#45](https://github.com/edicius2002/edicius-hq/issues/45) / [#46](https://github.com/edicius2002/edicius-hq/pull/46))
 - [x] INV-05 — portfolio ([#49](https://github.com/edicius2002/edicius-hq/issues/49) / [#50](https://github.com/edicius2002/edicius-hq/pull/50))
-- [ ] INV-06 — Pulse
+- [x] INV-06 — replaced by standalone Sentiment delivery SENT-01 (section 14)
 - [ ] INV-07 — secondary surfaces
 - [x] INV-08 — live streaming ([#40](https://github.com/edicius2002/edicius-hq/issues/40))
 - [x] Follow-up — browser price alerts ([#146](https://github.com/edicius2002/edicius-hq/pull/146))
@@ -419,7 +423,7 @@ weeks before the heatmap is understood.
 | INV-03 | **Watchlist and ticker** | Symbol search, watchlist persisted via `shared/storage`, ticker tape, market-status badge                                        |
 | INV-04 | **Technical analysis**   | RSI, MACD, overlays and their toggles                                                                                            |
 | INV-05 | **Portfolio**            | Positions with quantity and cost, market value and P&L against live quotes                                                       |
-| INV-06 | **Pulse**                | Fear & Greed composite and components, sentiment panels — on `/investing`, not a route (decision 2.6)                            |
+| INV-06 | **Pulse**                | Historical slice superseded by standalone SENT-01 on `/sentiment`                                                                |
 | INV-07 | **Secondary surfaces**   | Heatmap with tabs, symbol comparison, fundamentals, chart drawings and annotations                                               |
 | INV-08 | **Live streaming**       | Prices pushed over a WebSocket held by the API and relayed by SSE, with the poll reduced to a slow sweep                         |
 
@@ -461,6 +465,23 @@ from the first commit and its drift is a typed error rather than an empty list (
 
 **Out of scope:** running the collector in the cloud, which needs a provider that is not a scraper
 first (12.3), and booking anything at all — this observes prices, it does not buy tickets.
+
+---
+
+### 6c — Sentiment
+
+**Status:** Complete on 2026-09-07 as SENT-01. This delivery replaces the planned Pulse panels from INV-06 without changing the rest of Investing.
+
+- [x] Typed CNN adapter and strict normalization of the composite plus seven indicators
+- [x] One atomic disk cache with a four-hour TTL, request coalescing and seven-day stale-if-error fallback
+- [x] Passkey-gated `GET /api/sentiment` with explicit upstream, malformed-data and stale responses
+- [x] Standalone `/sentiment` route and sixth top-navigation item
+- [x] Eight responsive SVG charts with text legends, labelled axes, keyboard/pointer crosshairs, data tables and reduced-motion support
+- [x] Loading, empty, error/retry and stale states with source and retrieval timestamps
+
+The source is CNN's public JSON graph-data endpoint at `https://production.dataviz.cnn.io/index/fearandgreed/graphdata`, discovered from the live product's data flow rather than from rendered HTML. Its payload exposes a current 0–100 score for the aggregate and every component plus roughly one trading year's daily history for the underlying measurements. Observed samples were stamped near the end of the US market day (`23:59:55Z`), so the product treats it as daily data. A four-hour cache allows intraday correction without pretending this is a live feed and caps an active API process at six upstream refresh attempts a day; the web query uses the same freshness window and does not poll in the background.
+
+The API sends only `Accept: application/json`. It does not imitate a browser, add a forged origin/referrer, evade a challenge or scrape rendered HTML. CNN may answer automated clients with HTTP 418; that is surfaced as unavailable, or as a clearly labelled stale snapshot when a successful snapshot no older than seven days exists. A malformed or incomplete payload never replaces the last good cache.
 
 ---
 
@@ -1062,9 +1083,21 @@ A box's height follows what the node says, not what its kind could ever say
 | 13.7 | **Devices are enrolled with an eight-character code printed by the owner's own PC.** `node scripts/api.mjs enroll` prints it; ten minutes, one device, dead after five failed attempts; the alphabet excludes `0`/`O` and `1`/`I`/`L`. The first passkey goes through this same path, so there is no bootstrap special case — which is where this kind of system usually hides its hole. `credentials` and `revoke` ship with it, because "I have a new device" and "I have lost one" are the same problem from two sides. Recovery codes were rejected: they are a standing shared secret whose security is wherever the owner filed them, and the root of trust here is already physical access to the PC, because that is where the data lives.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 13.8 | **Funnel is built, and the ordering that replaced its prohibition is checked by the command that widens the transport.** `scripts/tailnet.mjs` holds both settings — `serve` (tailnet only) and `funnel` (public internet) — in the subcommand shape `scripts/api.mjs` uses, and a separate file because every mode of that one ends in `spawnSync(python, args)` and `tailscale` has no interpreter to pin. This **supersedes the last sentence of 13.3** ("`tailscale funnel` would undo the whole property and is never used"), which 13.5 had already made obsolete without saying so: the property Funnel would have undone was network-only access control, and that stopped being the only wall. `funnel` refuses while no enrolled passkey has ever signed in, asking for `last_used_at` rather than a credential count — enrolled and never used is not a verified login, and on 2026-09-03 one of the two enrolled credentials was exactly that. Nothing else moves: the hostname is the same under both settings, so `VITE_API_URL` needs no rebuild; `CORS_ORIGINS` is unchanged because the `ts.net` name is the API's own origin and never an `Origin` header; and `WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN` are unchanged because the page still comes from Vercel, so no device is re-enrolled. 13.6 survives intact and was re-checked rather than assumed — Funnel's ingress forwards TLS to `tailscaled` on the home PC, so the query-string token is still not in anybody else's logs. Measured cause of the failure that prompted this is DNS and the record type is the half a summary loses: with Funnel off the name has no `A` on `8.8.8.8` and only an `AAAA` the ingress will not answer for, and turning Funnel on inverts it to `A 209.177.145.192/.97`, so an IPv4-only phone resolves it only once Funnel is on. MagicDNS answers throughout, which is why none of this is visible from the home PC. Verified afterwards by forcing `curl --resolve` onto the ingress addresses: 401 through both, valid certificate, and a 200 CORS preflight carrying the Vercel origin. Serving the SPA from the `ts.net` host too was rejected: it would move the RP ID and refuse both existing passkeys, from a phone that cannot be enrolled until it can sign in. |
 
+### 14. Sentiment
+
+| ID   | Decision                                                                                                                                | Rationale                                                                                                                                                                                                                                                                 |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14.1 | **Sentiment is a sixth top-level tab at `/sentiment`, not Pulse panels inside Investing.**                                              | Approved scope change on 2026-09-07. This supersedes decision 2.6 and the placement part of INV-06 while preserving the completed Investing workspace.                                                                                                                    |
+| 14.2 | **CNN's public graph-data JSON is the sole source for v1.**                                                                             | It exposes the aggregate, all seven named indicators, current scores/classifications and daily histories without parsing rendered HTML. There is no authentication, CAPTCHA or access-control bypass.                                                                     |
+| 14.3 | **A successful normalized snapshot is fresh for four hours and usable stale for at most seven days after a transient refresh failure.** | The series is daily and observed points settle near US market close. Four hours permits corrections while limiting an active process to six refresh attempts per day; seven days keeps a temporary refusal from blanking the page without presenting old data as current. |
+| 14.4 | **The eight metrics are validated, cached and served as one atomic snapshot.**                                                          | Mixing a new aggregate with old components creates a comparison CNN never published. Missing keys, non-finite values, invalid classifications or malformed timestamps reject the refresh and never overwrite the last good file.                                          |
+| 14.5 | **Cards show CNN's current 0–100 score, while charts preserve each historical series' native unit.**                                    | The endpoint's history is raw market evidence for several indicators, not a historical series of their normalized score. Relabelling it 0–100 would invent data.                                                                                                          |
+| 14.6 | **All eight charts use the shared pointer-to-SVG geometry and the existing animated crosshair pattern.**                                | One conversion handles letterboxing correctly across features. Pointer and keyboard access share the same observation, text/table alternatives remain available, and `prefers-reduced-motion` removes movement transitions.                                               |
+| 14.7 | **A provider refusal stays a refusal.**                                                                                                 | The adapter sends an honest JSON accept header only. HTTP 403/418 becomes an explicit unavailable response or a labelled stale fallback; it is not answered with browser impersonation, forged origin/referrer headers or rendered-page scraping.                         |
+
 ### Superseded decisions
 
-Decision 2.7's Supabase magic-link Auth + RLS design is superseded by decisions 13.1–13.8: the Vercel frontend talks directly to a passkey-gated API on the owner's PC through Tailscale Serve/Funnel, and user documents remain in the API's local KV. The cloud-datacenter premise in 8.4 and the Supabase premise in 8.9 are superseded by the same decisions. Decision 13.3's network-only access rule is likewise superseded by 13.5 and 13.8. Decision 13.5's original blanket `/api/auth/*` exception and single-router-dependency description is narrowed by the current implementation: only the four register/login ceremony endpoints are open, while `/session`, `/logout` and `/enrolment-code` each require a session at their decorator.
+Decision 2.6 and the placement described by INV-06 are superseded by decision 14.1: Sentiment is a standalone top-level page, and Pulse is no longer an Investing surface. Decision 2.7's Supabase magic-link Auth + RLS design is superseded by decisions 13.1–13.8: the Vercel frontend talks directly to a passkey-gated API on the owner's PC through Tailscale Serve/Funnel, and user documents remain in the API's local KV. The cloud-datacenter premise in 8.4 and the Supabase premise in 8.9 are superseded by the same decisions. Decision 13.3's network-only access rule is likewise superseded by 13.5 and 13.8. Decision 13.5's original blanket `/api/auth/*` exception and single-router-dependency description is narrowed by the current implementation: only the four register/login ceremony endpoints are open, while `/session`, `/logout` and `/enrolment-code` each require a session at their decorator.
 
 | ID   | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | When       |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
@@ -1119,15 +1152,17 @@ Decision 2.7's Supabase magic-link Auth + RLS design is superseded by decisions 
 | S.50 | `six-hundred-is-a-day` and `12.17`'s daily request budget replaced by `a-count-nobody-measured-does-not-stop-a-pass`: there is no ceiling by default. Everything both rows argued about the _enforcement_ stands and still runs where `FARES_DAILY_REQUEST_BUDGET` is set — a day's ceiling and not a pass's (`a-day-is-what-the-budget-bounds`), one ledger shared with the calendar (`the-calendar-spends-the-same-day`), nearest kept and far dropped (12.111). What is superseded is only the claim that a number nobody has measured should be allowed to stop a pass. The 442 and the 329 both survive as figures: the first is what `--dry-run` still prints, the second is what the header still draws.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | S.51 | The press half of `a-watch-is-a-pair-and-its-months` — _a press collects every month of its route in one pass_ — replaced by `a-press-collects-the-month-on-screen`. The rest of that decision stands in full: a watch is still a pair and several months, the chart still draws every watched month's boards, and the endpoint keeps its one-city-pair bound. What was wrong was only the press: a control inside a row that collected months the row was not showing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | S.49 | 12.233 narrowed by `the-axis-states-its-own-two-ends`. Its rule stands in full and is why the two new figures are not ticks: every y-axis **tick** is still a round number inside the padded band, and the padded band's own ends are still printed nowhere. What 12.233 could not say, because it was written about a ruler, is what a reader does when the ruler is rebuilt under them on every frame — chart B rescales to whatever it draws, and a scale of round numbers is the same scale whatever it is a scale of. The frame's own cheapest and dearest fare are now stated beside it, on plates rather than at ticks, at their own heights, and a tick label within twelve view units of one gives up its word and keeps its gridline.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| S.52 | Decision 2.6 and the Pulse placement in INV-06 replaced by 14.1. Fear & Greed remains market data served by FastAPI, but the product surface is now the sixth top-level tab at `/sentiment`; no Pulse route or Investing panels are created.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 2026-09-07 |
 
 ---
 
 ## Document Changelog
 
-Current-state reconciliation (2026-09-07): FastAPI and the five green dependency PRs merged; steps 0–5 and 7 marked complete; current routes, storage, passkey/Funnel architecture and the remaining INV-06, INV-07, AIR-03, SSE and cutover work reconciled with the repository.
+Current-state reconciliation (2026-09-07): FastAPI and the five green dependency PRs merged; steps 0–5 and 7 marked complete; current routes, storage, passkey/Funnel architecture and the remaining INV-07, AIR-03, SSE and cutover work reconciled with the repository. Sentiment is complete as a standalone sixth tab and supersedes Pulse.
 
 | Date       | Summary                                                                                                             |
 | ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| 2026-09-07 | SENT-01 delivered: standalone `/sentiment`, CNN adapter/cache/API, eight accessible charts; Pulse superseded.       |
 | 2026-08-05 | Formal plan established; data plane; Pulse in Investing; delivery Q&A; clean rewrite for repository initialization. |
 | 2026-08-05 | Docs PR #1 merged to `main`; step 0 complete.                                                                       |
 | 2026-08-05 | UI foundation (#10): dark tokens, Berkeley Mono, shell primitives before Greenlight.                                |

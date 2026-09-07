@@ -114,8 +114,9 @@ button refetches after an error. No placeholders contain sample numbers.
 `SentimentChart` is one reusable SVG chart rendered eight times. It calculates an honest
 domain from all lines in the metric, draws labelled x/y axes, a text-and-stroke legend,
 and a crosshair that snaps to an observed timestamp. Pointer, touch, Arrow keys, Home,
-and End reach the same readings. An `aria-live` readout and a collapsible data table make
-the graph values available without vision or a pointer.
+and End reach the same readings. An `aria-live` readout makes the selected graph value
+available without vision or a pointer. The later product decision 14.9 removes the
+collapsible data-table disclosure from all eight charts.
 
 The crosshair reuses the project's established SVG pattern: dashed vertical/horizontal
 hairlines, a marked observation and a nearby tooltip. Its position eases with a short CSS

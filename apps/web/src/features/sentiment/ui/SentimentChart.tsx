@@ -32,12 +32,10 @@ function reading(metric: SentimentMetric, point: SentimentPoint): string {
 }
 
 export function SentimentChart({ metric }: SentimentChartProps) {
-  const tableId = useId();
   const statusId = useId();
   const [selectedIndex, setSelectedIndex] = useState(() =>
     Math.max(0, metric.series[0]?.points.length - 1),
   );
-  const [tableOpen, setTableOpen] = useState(false);
   const layout = useMemo(() => chartLayout(metric), [metric]);
   const timeline = metric.series[0]?.points ?? [];
 
@@ -196,48 +194,6 @@ export function SentimentChart({ metric }: SentimentChartProps) {
           {reading(metric, selected)}
         </p>
       </div>
-
-      <button
-        type="button"
-        className={styles.tableButton}
-        aria-expanded={tableOpen}
-        aria-controls={tableId}
-        onClick={() => setTableOpen((open) => !open)}
-      >
-        {tableOpen ? `Hide ${metric.label} data table` : `Show ${metric.label} data table`}
-      </button>
-
-      {tableOpen ? (
-        <div className={styles.tableWrap}>
-          <table id={tableId} aria-label={`${metric.label} historical data`}>
-            <thead>
-              <tr>
-                <th scope="col">Date</th>
-                {metric.series.map((series) => (
-                  <th key={series.key} scope="col">
-                    {series.label} ({series.unit})
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {timeline.map((point) => (
-                <tr key={point.timestamp}>
-                  <th scope="row">{formatChartDate(point.timestamp)}</th>
-                  {metric.series.map((series) => (
-                    <td key={series.key}>
-                      {pointAt(series, point.timestamp)?.value.toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      }) ?? '—'}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
     </figure>
   );
 }

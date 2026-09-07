@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { SentimentChart } from '@/features/sentiment/ui/SentimentChart';
@@ -80,15 +79,10 @@ describe('SentimentChart', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Jan 3, 2026');
   });
 
-  it('offers the plotted observations as a data table', async () => {
-    const user = userEvent.setup();
+  it('does not add table disclosure controls below the plot', () => {
     chart();
 
-    await user.click(screen.getByRole('button', { name: 'Show Market Momentum data table' }));
-
-    const table = screen.getByRole('table', { name: 'Market Momentum historical data' });
-    expect(within(table).getAllByRole('row')).toHaveLength(4);
-    expect(table).toHaveTextContent('6,060.00');
-    expect(table).toHaveTextContent('5,925.00');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 });

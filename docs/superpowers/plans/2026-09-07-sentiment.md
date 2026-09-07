@@ -10,6 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-07-sentiment-design.md`
 
+> **Follow-up:** Decision 14.9 later removed the collapsible data-table disclosure from
+> all eight charts while retaining the keyboard/pointer crosshair and live text readout.
+
 ## Global Constraints
 
 - The feature is an independent top tab and route `/sentiment`; it does not render inside Investing.

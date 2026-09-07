@@ -1,8 +1,8 @@
-# Deploy plan: frontend on Vercel, private access; API stays home
+# Deploy plan: frontend on Vercel; passkey-gated API stays home
 
 Decided 2026-09-03 and built since: the Vercel deployment is live, the passkey gate is
-on every `/api` route, and both transports the API can be published on are commands in
-this repository. What is left unbuilt is listed under Open questions and nowhere else.
+on every `/api` route except the four register/login ceremony endpoints, and both transports the API can be published on are commands in
+this repository. What remains unverified is listed under Operational evidence and nowhere else.
 This document is still the reasoning and not only the runbook, so a later session can
 change it without re-deriving why it is shaped this way. Supersedes the original step 7
 shape in `IMPLEMENTATION_PLAN.md` §51 ("Cloud: Supabase Auth (magic link), RLS,
@@ -12,7 +12,7 @@ instead.
 Revised the same day. The first draft of this document argued for Cloudflare Tunnel
 plus Cloudflare Access; that mechanism was ruled out before anything was built, and
 the shape it is replaced by answers more of the document's own open questions than it
-was chosen to. The reasoning is in "Who can reach the API" and in Open questions.
+was chosen to. The reasoning is in "Who can reach the API" and in Operational evidence.
 
 ## The shape
 
@@ -28,9 +28,8 @@ was chosen to. The reasoning is in "Who can reach the API" and in Open questions
   Flights and X are reached by `services/api` running on the home PC, from a
   residential address, and by nothing else. The next section is the evidence; the
   section after it lists what the invariant rules out.
-- **Access control is a passkey, and the tailnet carries the traffic.** It used to be
-  the tailnet alone. Every `/api` route except `/api/auth/*` now requires a WebAuthn
-  session, so the question "who may ask" is answered by the application and no longer
+- **Access control is a passkey, and Tailscale carries the traffic.** It used to be
+  tailnet membership alone. Every `/api` route except the four register/login ceremony endpoints now requires a WebAuthn session, so the question "who may ask" is answered by the application and no longer
   only by what can route to it. The Vercel URL itself stays publicly reachable and
   serves the app shell to anyone who opens it; what they get is the login screen.
   That is accepted, not overlooked: blocking the URL itself would need Vercel
@@ -71,8 +70,8 @@ measured from home, was **all seven surfaces answering**. It's the one deploy sh
 that doesn't need to solve the Binance block, at the cost of the API's uptime
 depending on a home PC and a home internet connection instead of a datacenter's.
 
-Airfare pins the same address independently. Decision 12.9 (`IMPLEMENTATION_PLAN.md`
-line 762) records it as a constraint and not a preference: "The collector runs
+Airfare pins the same address independently. Decision 12.9 in `IMPLEMENTATION_PLAN.md`
+records it as a constraint and not a preference: "The collector runs
 **locally, on a schedule, from a residential address**. Cloud is deferred, not merely
 unbuilt." Google fingerprints datacenter addresses — 8.4's suspicion arriving as a
 hard fact — and a Cloud Run job would meet a consent wall, so moving the schedule off
@@ -95,17 +94,21 @@ session does not rediscover them as if they were open:
 
 ## Who can reach the API
 
-**Two things now, where there was one.** The tailnet still carries the traffic, and a
-passkey session decides who may ask.
+**Tailscale carries the traffic; a passkey session decides who may ask.** Under Serve,
+tailnet membership adds a network barrier. Under Funnel, the listener is public and
+the passkey is the only access-control barrier.
 
 uvicorn binds `127.0.0.1:8000` in both modes (`scripts/api.mjs:74` and `:86`), the
-local `tailscaled` daemon proxies to that loopback address, and the hostname it
-publishes is routable only from devices signed in to the owner's tailnet. That part is
-unchanged and is still the outer wall.
+local `tailscaled` daemon proxies to that loopback address. Serve publishes the
+hostname only to devices signed in to the owner's tailnet; Funnel publishes that same
+hostname to the internet. The application gate is therefore required in both modes
+and is the only gate Funnel can rely on.
 
 **What changed is that it is no longer the only one.** Every route under `/api` except
-`/api/auth/*` requires a live WebAuthn session, applied once where the routers are
-included (`services/api/app/main.py`, `services/api/app/auth.py`). `/api/health` is
+the four register/login ceremony endpoints requires a live WebAuthn session. The gate
+is applied once where the protected routers are included, while authenticated auth
+operations carry it on their decorators (`services/api/app/main.py`,
+`services/api/app/auth.py`, `services/api/app/routers/auth.py`). `/api/health` is
 gated with the rest, so the status indicator reads "API offline" while signed out —
 deliberate, and honest, since the API genuinely will not answer that visitor.
 
@@ -117,7 +120,8 @@ an API whose only defence is that nobody can route to it cannot survive its own
 transport being widened. It now survives that.
 
 The inventory below is why any of this matters. It is unchanged from the first draft;
-only the mechanism that holds it is — and it is now held twice:
+only the mechanism that holds it is. Serve holds it behind both the tailnet and the
+passkey; Funnel holds it behind the passkey alone:
 
 - `PUT /api/kv/{key}` and `DELETE /api/kv/{key}` (`services/api/app/routers/kv.py:25`
   and `:30`) — overwrite or delete the owner's stored state. The key allowlist in
@@ -436,9 +440,10 @@ is what a second party can observe continuously rather than per-upstream. Under 
 the honest answer to that is much less than it would have been under a tunnel: device
 names and connection times, and nothing about what was asked for.
 
-## Open questions — not decided, listed so they aren't silently assumed later
+## Operational evidence still open
 
-- **Does the SSE stream survive Tailscale Serve?** `/api/market/stream` is server-sent
+- **Do all four SSE streams survive Tailscale Serve and Funnel?**
+  `/api/market/stream` is server-sent
   events, not a WebSocket: `@router.get("/stream")` returning a `StreamingResponse`
   with `media_type="text/event-stream"` (`services/api/app/routers/market.py:338`,
   `:388`). This repo's WebSockets are outbound, to Yahoo and Binance
@@ -452,10 +457,12 @@ names and connection times, and nothing about what was asked for.
   (`services/api/app/services/stream_hub.py:47`). What changed with the shape is only
   what the proxy is: a `tailscaled` running on the same machine as the API rather than
   a provider's edge in another country. That makes buffering less likely and leaves it
-  unmeasured. Hold a `curl -N` on the stream through a quiet market and confirm the
-  keep-alives arrive on time and unbuffered. The same question applies to the fares
-  collection stream (`routers/fares.py:1263`) and the tweets one
-  (`routers/tweets.py:130`), which use the same framing.
+  unmeasured. Hold a `curl -N` on each stream through both Serve and Funnel and confirm
+  the keep-alives arrive on time and unbuffered. The complete set is
+  `/api/market/stream`, `/api/fares/collect/stream`,
+  `/api/fares/calendar/collect/stream` and `/api/tweets/{handle}/stream`; the latter
+  three are implemented in `routers/fares.py` and `routers/tweets.py` and use the same
+  framing.
 - **Does the site work from a phone?** The transport is answered and measured; the
   ceremony on the phone is the owner's report rather than a measurement here. The owner
   tried to enrol a phone that had not joined the tailnet on 2026-09-04 and the attempt
@@ -478,9 +485,9 @@ the change is visible rather than silent.
 invariant in "The shape": it does, and it may not run anywhere else. **Whether the
 tunnel supports WebSockets** was the wrong question, answered above.
 
-**What authenticates the API** is answered by the shape rather than by code. Serve
-publishes it only inside the tailnet, and a passkey session gates every route besides,
-and no auth code is added. The first draft's client-credentials paragraph — the
+**What authenticates the API** is settled in code: a passkey session gates every
+`/api` route except the enrolment and login ceremony routes. Serve is tailnet-only;
+Funnel is public, so network membership is not authentication. The first draft's client-credentials paragraph — the
 cross-origin cookie change it wanted on `fetch` and on every `EventSource`, and the
 header key an `EventSource` cannot send — is deleted rather than deferred: no cookie
 crosses any origin under this shape, so none of it applies. (That paragraph was also

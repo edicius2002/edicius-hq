@@ -34,6 +34,11 @@ function rule(file: string, selector: string): string {
 }
 
 describe('Airfare mobile layout contracts', () => {
+  it('uses route emphasis instead of the native SVG tap rectangle on phones', () => {
+    expect(rule('RouteMap', '.stage')).toMatch(/-webkit-tap-highlight-color:\s*transparent/);
+    expect(rule('RouteMap', '.stage')).not.toMatch(/outline:\s*(none|0)/);
+  });
+
   it('reclaims only Airfare side gutters, respecting both safe areas', () => {
     const page = rule('AirfarePage', '.page');
     expect(page).toContain('env(safe-area-inset-left');

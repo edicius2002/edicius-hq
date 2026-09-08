@@ -632,6 +632,8 @@
     aspect-ratio: 1;
     flex: none;
     border-radius: 6px;
+    /* Route strokes show selection; avoid the native SVG hit-area rectangle. */
+    -webkit-tap-highlight-color: transparent;
   }
   .controls {
     right: 8px;

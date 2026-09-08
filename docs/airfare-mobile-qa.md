@@ -286,3 +286,23 @@ registran países, respuestas, caché y restauración de bordes.
 
 Validación final: 2227 tests web passed, 2 skipped; formato, lint, typecheck y
 build correctos. Lint mantiene cinco warnings preexistentes de Fast Refresh.
+
+### Selección táctil sin rectángulo nativo
+
+El área SVG de la ruta heredaba `-webkit-tap-highlight-color:
+rgba(51, 181, 229, 0.4)`. Al tocar, el mapa recibía foco pero no
+`:focus-visible`; por tanto no era el outline de teclado. Se desactiva el
+resaltado nativo únicamente en el stage móvil (<=640px), manteniendo los
+strokes de selección y el área táctil de 16px. No se modifica el outline.
+
+TDD: el nuevo contrato CSS falló antes y pasa con la regla. Browser en
+360×800, 390×844 y 430×932 verifica color transparente heredado por las
+rutas, selección LIM→MAD y sus 30 segmentos alternativos. El foco visible
+por teclado permanece. En 1440×1000 se conserva el color nativo anterior.
+Capturas locales: `selection-before-{pressed,selected}.png` y
+`selection-after-{360,390,430,1440}-{pressed,selected}.png` dentro de
+`.local-data/airfare-qa/`. Chromium ejecutado sin aceleración hardware.
+La captura headless no reprodujo el flash nativo; su eliminación se verifica
+por el estilo computado, además de la selección y las capturas posteriores.
+
+Validación: 2228 tests web correctos y 2 omitidos; format, lint, typecheck y build correctos. Lint conserva los cinco warnings preexistentes.

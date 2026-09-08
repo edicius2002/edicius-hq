@@ -45,8 +45,19 @@ function composeAbortSignal(external: AbortSignal | undefined, timeoutMs: number
   return controller.signal;
 }
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/** Fetch a non-JSON API response with the same bearer-session semantics. */
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const url = `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
+  const headers = new Headers(options.headers);
+  const token = readToken();
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) clearToken();
+  return response;
+}
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: HeadersInit = {};
   let body: string | undefined;
 
@@ -55,10 +66,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     body = JSON.stringify(options.body);
   }
 
-  const token = readToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const response = await fetch(url, {
+  const response = await apiFetch(path, {
     method: options.method ?? 'GET',
     headers,
     body,
@@ -74,8 +82,6 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
    * believing an empty result was the real answer, which is the silent failure
    * this codebase keeps designing against.
    */
-  if (response.status === 401) clearToken();
-
   if (response.status === 204) {
     return undefined as T;
   }

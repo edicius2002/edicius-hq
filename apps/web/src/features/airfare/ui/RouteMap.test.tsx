@@ -364,6 +364,16 @@ describe('RouteMap', () => {
     }
   });
 
+  it('keeps desktop zoom gesture-only instead of covering the globe with plus and minus', () => {
+    renderMap();
+
+    expect(screen.queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Zoom out' })).not.toBeInTheDocument();
+    expect(screen.getByRole('application')).toHaveAccessibleName(
+      'Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom.',
+    );
+  });
+
   describe('the routes it lists', () => {
     it('renders one reachable item per watched route', () => {
       renderMap();
@@ -1934,81 +1944,6 @@ describe('RouteMap', () => {
       const travelled = Math.hypot(movedX - heldX, movedY - heldY);
       expect(travelled).toBeGreaterThan(0.5);
       expect(travelled).toBeLessThan(40);
-    });
-  });
-
-  describe('the zoom controls', () => {
-    /*
-     * They were taken off on the ground that the wheel does it continuously and
-     * about the cursor, and that `+` and `-` on the focused map do it for anyone
-     * without one. Both halves of that assume a reader who has a wheel or a
-     * keyboard, and a phone has neither — see the comment beside them in
-     * `RouteMap.tsx` for what changed and what did not.
-     */
-    it('offers zoom controls that need neither a wheel nor a keyboard', () => {
-      const { container } = renderMap({ routes: [LIM_CUZ] });
-      const before = spread(container);
-
-      fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
-
-      expect(spread(container)).toBeGreaterThan(before);
-      expect(screen.getByRole('button', { name: /zoom out/i })).toBeInTheDocument();
-    });
-
-    it('eases a press rather than stepping the scale', () => {
-      /*
-       * The half of the objection that was about feel, and it still holds: two
-       * buttons that jump the scale by a fixed factor are the mechanical map
-       * this one was built away from. A press goes through the same eased glide
-       * a wheel notch does, so the frame it arrives in covers about a fifth of
-       * the 1.3x it asked for — never the whole of it.
-       *
-       * `fireEvent` rather than `userEvent`, deliberately: the assertion is
-       * about the *first* frame, and awaiting a real user gesture lets the frame
-       * loop run underneath it and carry the glide further.
-       */
-      const { container } = renderMap({ routes: [LIM_CUZ] });
-      const before = spread(container);
-
-      fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
-
-      const grew = spread(container) / before;
-      expect(grew).toBeGreaterThan(1.02);
-      expect(grew).toBeLessThan(1.15);
-    });
-
-    it('takes the scale back down again', async () => {
-      /*
-       * The glide is allowed to arrive before the second press, and that is
-       * not tidiness. Both controls aim at a *target* the scale is easing
-       * towards, so pressing minus while plus is still in flight quite
-       * correctly leaves the map moving in: one 16ms step covers 20.4% of the
-       * way, so three presses of plus put the target at 2.20 with the scale
-       * only at 1.40, and a press of minus takes the target to 1.69 — still
-       * above where the map has got to. What this test is about is the press,
-       * not the arithmetic of interrupting one.
-       */
-      const { container } = renderMap({ routes: [LIM_CUZ] });
-      fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
-      // Past the 320ms the map holds a zoom gesture open, so `endGlide` has
-      // put the scale exactly where the press asked for.
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      });
-      const zoomedIn = spread(container);
-
-      fireEvent.click(screen.getByRole('button', { name: /zoom out/i }));
-
-      expect(spread(container)).toBeLessThan(zoomedIn);
-    });
-
-    it('tells a reader which of those routes they have', () => {
-      // The label promised a scroll wheel and two keys to a reader holding a
-      // phone, which has neither. It now names what is on the screen.
-      renderMap();
-      const stage = screen.getByRole('application');
-      expect(stage).toHaveAccessibleName(/pinch/i);
-      expect(stage).toHaveAccessibleName(/buttons/i);
     });
   });
 

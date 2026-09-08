@@ -131,8 +131,8 @@ import styles from './RouteMap.module.css';
  * They arrive and leave by fading, and the fade comes from the geometry rather
  * than from a stylesheet: opacity is recomputed every frame from how far a
  * name is from the limb and how much room there is under it at this zoom. A
- * CSS transition covers only the jumps geometry does not — a zoom button, a
- * change of projection.
+ * CSS transition covers only the jumps geometry does not, such as a change of
+ * projection.
  */
 
 // 1:110m Natural Earth, bundled. 39 kB gzip, and it never touches the network.
@@ -212,12 +212,12 @@ const WHEEL_RATE = 0.002;
  * How much one press of a zoom control is worth.
  *
  * The one number the wheel and the pinch do not need, because both of those
- * are handed a size by the gesture itself. A key and a button are not, so they
- * are given a rung — and it is a *rung*, not a jump: what a press asks for
+ * are handed a size by the gesture itself. A key is not, so it is given a rung
+ * — and it is a *rung*, not a jump: what a press asks for
  * goes through the same eased glide a notch does, so 1.3 is where the scale
  * ends up rather than what the next frame shows. `log(32) / log(1.3)` is 13.2,
  * so fourteen presses cross the whole 1x–32x range — enough that the ceiling
- * is genuinely reachable by button, and few enough that it is not a chore.
+ * is genuinely reachable by keyboard, and few enough that it is not a chore.
  */
 const ZOOM_STEP = 1.3;
 
@@ -2036,13 +2036,10 @@ export function RouteMap({
   /**
    * One rung of zoom about the middle of the frame, eased like a wheel notch.
    *
-   * The middle is not a compromise, it is the only honest anchor a control
-   * that is not a pointer has: a key press and a button press say how far, not
-   * where, and picking any other point would be inventing a place the reader
-   * did not indicate. It is also what makes these two the same gesture as the
-   * wheel rather than a second mechanism: the 320ms grace and the `endGlide`
-   * that closes it are `onWheel`'s own ending, borrowed whole rather than
-   * reimplemented at a second size.
+   * The middle is the only honest anchor for a key press: it says how far, not
+   * where, and picking any other point would invent a place the reader did not
+   * indicate. The 320ms grace and `endGlide` are the wheel's own ending,
+   * borrowed whole rather than reimplemented at a second size.
    */
   function stepFromCentre(factor: number) {
     const rect = stageRef.current?.getBoundingClientRect();
@@ -2061,8 +2058,7 @@ export function RouteMap({
   /*
    * The wheel is not the only pointer, and it is no pointer at all for someone
    * on a keyboard. `+` and `-` on the focused map are what keeps zoom
-   * reachable without one, and they reach it by exactly the route the two
-   * on-screen controls do.
+   * reachable without one.
    */
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     const step =
@@ -2326,32 +2322,6 @@ export function RouteMap({
         </div>
 
         {/*
-          Plus and minus are back, and they are in the stage rather than here —
-          see `styles.controls` below for what they are and this for why.
-
-          They were taken off on two grounds. The first was feel: two buttons
-          that step the scale by a fixed factor are the mechanical map this one
-          was built away from. That ground still holds and is kept — a press
-          goes through `stepFromCentre` into the same eased glide a wheel notch
-          takes, so 1.3 is where the scale arrives, not what the next frame
-          shows. The second was that the wheel does it continuously and about
-          the cursor, and `+` and `-` on the focused map do it for anyone
-          without one. That one assumed every reader has a wheel or a keyboard,
-          and a phone has neither: since `the-five-pages-on-a-phone` the stage
-          is 260px on a narrow viewport, on a widget whose range runs to 32x,
-          and `touch-action: none` means even the browser's own pinch is gone.
-          A reader on a phone was hard-locked at 1x.
-
-          Two fingers are the answer to the gesture and these are the answer to
-          the rest of it. They are shown at every width, not only the narrow
-          ones. A pinch needs two working fingers and a screen that reports
-          them; the reader on a tablet in landscape, and the reader who can
-          bring one finger to the glass at a time, are both past 640px and
-          neither has a wheel. Hiding a control behind a viewport width is
-          guessing at what the reader's hands can do from how wide their window
-          is, and this is the one route on the map that asks nothing of them.
-        */}
-        {/*
           The right end of the strip: whatever the page handed over, then Reset.
           Grouped rather than left to `space-between`, which with three children
           would put the status in the middle of the toolbar — a status is not a
@@ -2386,11 +2356,7 @@ export function RouteMap({
          * label promised a scroll wheel and two keys to a phone, which has
          * neither — and named nothing a finger could do.
          */
-        aria-label={
-          narrow
-            ? 'Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom.'
-            : 'Route map. Drag to move. Pinch, scroll, use the zoom buttons, or press plus and minus to zoom.'
-        }
+        aria-label="Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom."
       >
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
@@ -2668,39 +2634,6 @@ export function RouteMap({
             }),
           )}
         </svg>
-
-        {/*
-          Chrome, not map. It sits inside the stage — the same place the
-          Finance canvas keeps its own pair — so it stays in the corner of the
-          picture the reader is zooming rather than a toolbar's width away
-          from it, and so a phone can reach it with the thumb already on the
-          globe.
-
-          It stops its own presses. Every pointer that goes down in the stage
-          turns the globe or opens a route, and a press on a control is
-          neither; without this, tapping `+` would start a rotate under the
-          button and the map would drift while the scale changed.
-        */}
-        {!narrow && (
-          <div className={styles.controls} onPointerDown={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              className={styles.control}
-              aria-label="Zoom out"
-              onClick={() => stepFromCentre(1 / ZOOM_STEP)}
-            >
-              −
-            </button>
-            <button
-              type="button"
-              className={styles.control}
-              aria-label="Zoom in"
-              onClick={() => stepFromCentre(ZOOM_STEP)}
-            >
-              +
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

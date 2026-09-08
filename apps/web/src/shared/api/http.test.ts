@@ -16,7 +16,7 @@ function respondWith(status: number) {
 
 function headersOf(fetchSpy: ReturnType<typeof respondWith>): Record<string, string> {
   const [, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
-  return (init.headers ?? {}) as Record<string, string>;
+  return Object.fromEntries(new Headers(init.headers).entries());
 }
 
 describe('apiRequest and the session', () => {
@@ -26,7 +26,7 @@ describe('apiRequest and the session', () => {
 
     await apiRequest('/api/health');
 
-    expect(headersOf(fetchSpy).Authorization).toBe('Bearer a-token');
+    expect(headersOf(fetchSpy).authorization).toBe('Bearer a-token');
   });
 
   it('sends no Authorization header when there is no token', async () => {
@@ -34,7 +34,7 @@ describe('apiRequest and the session', () => {
 
     await apiRequest('/api/health');
 
-    expect(headersOf(fetchSpy).Authorization).toBeUndefined();
+    expect(headersOf(fetchSpy).authorization).toBeUndefined();
   });
 
   it('clears the token on a 401', async () => {

@@ -35,6 +35,7 @@ function MetricPanel({
   return (
     <Panel
       className={featured ? `${styles.metric} ${styles.featured}` : styles.metric}
+      density={featured ? 'default' : 'compact'}
       aria-labelledby={titleId}
     >
       <header className={styles.metricHeader}>

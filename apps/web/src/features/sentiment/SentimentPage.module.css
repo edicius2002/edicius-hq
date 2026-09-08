@@ -38,6 +38,10 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
+  margin-bottom: 0;
+}
+
+.featured .metricHeader {
   margin-bottom: var(--space-4);
 }
 
@@ -67,6 +71,12 @@
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.metric:not(.featured) .score {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 
 .score strong {
@@ -110,11 +120,11 @@
 }
 
 @media (max-width: 34rem) {
-  .metricHeader {
+  .featured .metricHeader {
     display: grid;
   }
 
-  .score {
+  .featured .score {
     justify-items: start;
   }
 }

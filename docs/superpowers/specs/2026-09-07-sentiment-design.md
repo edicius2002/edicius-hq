@@ -110,6 +110,11 @@ The later product decision 14.10 removes the explanatory page header and the sou
 retrieval, and snapshot provenance strip so the page opens directly on the data. Source
 attribution remains in the methodology note and in the API contract.
 
+Decision 14.11 gives the seven indicator panels the shared compact panel density,
+places each score and classification on one line, and removes their obsolete header
+margin. The composite retains the original featured spacing. On narrow screens only
+the featured header stacks, so the secondary charts remain close to their titles.
+
 The grid is two columns where space permits and one column on narrow screens. Loading,
 empty, first-load error, and stale states have distinct copy and semantics. A Retry
 button refetches after an error. No placeholders contain sample numbers.

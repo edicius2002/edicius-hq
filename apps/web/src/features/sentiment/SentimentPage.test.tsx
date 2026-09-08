@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SentimentPage } from '@/features/sentiment/SentimentPage';
 import type { SentimentMetric, SentimentResponse } from '@/shared/api/sentiment';
+import panelStyles from '@/shared/ui/Panel.module.css';
 
 const INDICATORS = [
   ['market_momentum', 'Market Momentum'],
@@ -83,11 +84,12 @@ describe('SentimentPage', () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText('Greed').length).toBeGreaterThanOrEqual(8);
     const composite = screen.getByRole('region', { name: 'Fear & Greed Index' });
+    expect(composite).not.toHaveClass(panelStyles.compact);
     expect(within(composite).getByText(/^As of /)).toBeInTheDocument();
     for (const [, label] of INDICATORS) {
-      expect(
-        within(screen.getByRole('region', { name: label })).queryByText(/^As of /),
-      ).not.toBeInTheDocument();
+      const indicator = screen.getByRole('region', { name: label });
+      expect(indicator).toHaveClass(panelStyles.compact);
+      expect(within(indicator).queryByText(/^As of /)).not.toBeInTheDocument();
     }
   });
 

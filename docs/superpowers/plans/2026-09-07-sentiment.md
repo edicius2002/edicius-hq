@@ -14,6 +14,8 @@
 > all eight charts while retaining the keyboard/pointer crosshair and live text readout.
 > Decision 14.10 later removed the explanatory header and provenance strip, and kept
 > the observation timestamp only on the composite chart.
+> Decision 14.11 later compacted the seven indicator panels so their charts occupy
+> the space released by the removed timestamps.
 
 ## Global Constraints
 

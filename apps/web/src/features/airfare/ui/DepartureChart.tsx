@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useIsNarrow } from '@/app/layout/useIsNarrow';
 import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
 import {
   airlineSearchUrl,
@@ -868,6 +869,8 @@ export function DepartureChart({
    * store a coordinate would be paying for a frame nobody sees.
    */
   const touches = useRef(new Map<number, { clientX: number; clientY: number }>());
+  const narrow = useIsNarrow();
+  const touchTap = useRef<{ pointer: number; x: number; y: number } | null>(null);
 
   /**
    * The pinch in progress, or nothing.
@@ -1020,6 +1023,10 @@ export function DepartureChart({
 
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
+    const tap = touchTap.current;
+    if (tap && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) >= DRAG_SLOP) {
+      touchTap.current = null;
+    }
     // Before anything else, because the pinch's whole memory of where the other
     // finger is sits in this map, and a move that returned early for any reason
     // would leave it reading a coordinate the hand has left.
@@ -1159,6 +1166,12 @@ export function DepartureChart({
   const startDrag = (event: PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return;
     touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    // Only a single, stationary phone touch is a reading. A second finger
+    // cancels it for the entire pinch, including the surviving finger.
+    touchTap.current =
+      narrow && event.pointerType === 'touch' && touches.current.size === 1
+        ? { pointer: event.pointerId, x: event.clientX, y: event.clientY }
+        : null;
     event.currentTarget.setPointerCapture(event.pointerId);
 
     const down = [...touches.current.entries()];
@@ -1209,6 +1222,25 @@ export function DepartureChart({
    * partner leaves the glass should not drag the frame a pixel.
    */
   const endDrag = (event: PointerEvent<SVGSVGElement>) => {
+    const tap = touchTap.current;
+    touchTap.current = null;
+    if (
+      tap?.pointer === event.pointerId &&
+      event.type === 'pointerup' &&
+      Math.hypot(event.clientX - tap.x, event.clientY - tap.y) < DRAG_SLOP
+    ) {
+      const at = pointerInView(
+        event.currentTarget.getBoundingClientRect(),
+        VIEW,
+        event.clientX,
+        event.clientY,
+      );
+      const found = at === null ? null : readingAt(at.x, at.y);
+      if (found !== null) {
+        setCursor(found);
+        setPinned(true);
+      }
+    }
     touches.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -2263,6 +2295,9 @@ export function DepartureChart({
         read on arrival and not again in front of every fare.
       */}
       <p id={help} className={styles.srOnly}>
+        {narrow
+          ? 'Tap to pin a reading, or tap another point to read it. The pin button releases it. '
+          : ''}
         {HELP}
       </p>
       {/*

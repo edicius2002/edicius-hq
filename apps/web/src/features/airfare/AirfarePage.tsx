@@ -492,7 +492,7 @@ export function AirfarePage() {
         column growing to its own content.
       */}
       <div className={styles.top}>
-        <Panel className={styles.tall}>
+        <Panel className={`${styles.tall} ${styles.panel} ${styles.visualPanel}`}>
           <RouteMap
             routes={geometries}
             stopRoutes={stopRoutes}
@@ -520,7 +520,7 @@ export function AirfarePage() {
           ) : null}
         </Panel>
 
-        <Panel className={styles.tall}>
+        <Panel className={`${styles.tall} ${styles.panel}`}>
           <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
             {/*
@@ -727,7 +727,7 @@ export function AirfarePage() {
         width a stacked column of four numbers is mostly empty space with
         everything below it pushed down.
       */}
-      <Panel>
+      <Panel className={styles.panel}>
         <RouteDetail
           route={selected}
           month={activeMonth}
@@ -760,7 +760,7 @@ export function AirfarePage() {
         than infer it from the tree" argument exists to avoid. `Panel` spreads
         `HTMLAttributes`, so this needs no change to the component.
       */}
-      <Panel id={ANALYSIS_PANEL_ID}>
+      <Panel id={ANALYSIS_PANEL_ID} className={`${styles.panel} ${styles.visualPanel}`}>
         <AnalysisPanel
           route={selected}
           month={activeMonth}
@@ -810,7 +810,7 @@ export function AirfarePage() {
         in another. All that crosses the boundary is the departure the reader
         picked, already formatted: `FlightTable` writes the words.
       */}
-      <Panel>
+      <Panel className={styles.panel}>
         {/*
           The heading moved into the table with 12.257, onto the filter row —
           so what this page hands over is the departure in words rather than a

@@ -13,6 +13,8 @@ import { feature, mesh } from 'topojson-client';
 import versor from 'versor';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
+import { useIsNarrow } from '@/app/layout/useIsNarrow';
+
 import { flowDelay, polylineLength } from '@/features/airfare/lib/arcFlow';
 import {
   antisolarPoint,
@@ -357,6 +359,7 @@ export function RouteMap({
 }: RouteMapProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const narrow = useIsNarrow();
   const rotation = useRef<[number, number, number]>([...HOME]);
   const pan = useRef({ x: 0, y: 0 });
   const size = useRef({ width: 0, height: 0 });
@@ -1392,6 +1395,13 @@ export function RouteMap({
     }
   }, [fit, places, projection, subdivisions, coarse, boundaries, arrivalFade]);
 
+  // A phone may finish settling after another country's geometry arrives.
+  // The final paint must use those current borders, not the gesture's snapshot.
+  const latestDraw = useRef(draw);
+  useLayoutEffect(() => {
+    latestDraw.current = draw;
+  }, [draw]);
+
   useEffect(() => {
     draw();
     commit();
@@ -1612,7 +1622,14 @@ export function RouteMap({
     coarseUntil.current = performance.now() + SETTLE_MS;
     settleTimer.current = setTimeout(() => {
       settleTimer.current = null;
-      draw();
+      if (narrow) {
+        // The timer completed the wait. Sub-millisecond timer rounding must
+        // not leave the last frame coarse with no future repaint scheduled.
+        coarseUntil.current = 0;
+        latestDraw.current();
+      } else {
+        draw();
+      }
       commit();
     }, SETTLE_MS);
   }
@@ -1811,7 +1828,10 @@ export function RouteMap({
     // The fingers stop where they stop, so the scale goes where they asked
     // rather than a hair short of it — the same debt `endGlide` settles for a
     // wheel gesture that has run out of notches.
-    if (held.kind === 'pinch') endGlide();
+    // Lifting the first finger changes a pinch into a rotate/pan. The last
+    // lift must still finish its zoom on phones, or `zoomGliding` can keep
+    // the globe's internal borders suppressed after all fingers are gone.
+    if (held.kind === 'pinch' || (narrow && touches.current.size === 0)) endGlide();
     // A pinch turned the globe as well as scaling it: `applyZoom` re-anchors
     // the midpoint on every frame, and on a sphere that is a rotation. So it
     // settles for the same reason a drag does, and it settles even when
@@ -2366,7 +2386,11 @@ export function RouteMap({
          * label promised a scroll wheel and two keys to a phone, which has
          * neither — and named nothing a finger could do.
          */
-        aria-label="Route map. Drag to move. Pinch, scroll, use the zoom buttons, or press plus and minus to zoom."
+        aria-label={
+          narrow
+            ? 'Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom.'
+            : 'Route map. Drag to move. Pinch, scroll, use the zoom buttons, or press plus and minus to zoom.'
+        }
       >
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
@@ -2657,24 +2681,26 @@ export function RouteMap({
           neither; without this, tapping `+` would start a rotate under the
           button and the map would drift while the scale changed.
         */}
-        <div className={styles.controls} onPointerDown={(event) => event.stopPropagation()}>
-          <button
-            type="button"
-            className={styles.control}
-            aria-label="Zoom out"
-            onClick={() => stepFromCentre(1 / ZOOM_STEP)}
-          >
-            −
-          </button>
-          <button
-            type="button"
-            className={styles.control}
-            aria-label="Zoom in"
-            onClick={() => stepFromCentre(ZOOM_STEP)}
-          >
-            +
-          </button>
-        </div>
+        {!narrow && (
+          <div className={styles.controls} onPointerDown={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className={styles.control}
+              aria-label="Zoom out"
+              onClick={() => stepFromCentre(1 / ZOOM_STEP)}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              className={styles.control}
+              aria-label="Zoom in"
+              onClick={() => stepFromCentre(ZOOM_STEP)}
+            >
+              +
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

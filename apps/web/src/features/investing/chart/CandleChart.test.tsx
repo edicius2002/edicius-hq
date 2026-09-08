@@ -223,28 +223,15 @@ describe('CandleChart touch zoom', () => {
     expect(target).toHaveAttribute('aria-label', afterPinch);
   });
 
-  it('offers a zoom in and a zoom out that need neither a wheel nor a keyboard', () => {
+  it('keeps zoom button controls off the chart', () => {
     const { container } = render(<CandleChart {...chartProps()} />);
 
-    expect(screen.getByRole('button', { name: /zoom in/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /zoom out/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /zoom in/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /zoom out/i })).not.toBeInTheDocument();
     expect(surface(container)).toHaveAttribute(
       'aria-label',
       expect.stringContaining('Showing 120 bars'),
     );
-  });
-
-  it('closes and opens the window from the buttons alone', () => {
-    const { container } = render(<CandleChart {...chartProps()} />);
-    const target = surface(container);
-
-    fireEvent.click(screen.getByRole('button', { name: /zoom in/i }));
-    const closed = Number(/Showing (\d+) bars/.exec(target.getAttribute('aria-label') ?? '')?.[1]);
-    expect(closed).toBeLessThan(120);
-
-    fireEvent.click(screen.getByRole('button', { name: /zoom out/i }));
-    const opened = Number(/Showing (\d+) bars/.exec(target.getAttribute('aria-label') ?? '')?.[1]);
-    expect(opened).toBeGreaterThan(closed);
   });
 });
 

@@ -283,8 +283,7 @@
   outline-offset: 2px;
 }
 
-.control,
-.zoomLevel {
+.control {
   border: 0;
   padding: var(--space-1) var(--space-3);
   background: var(--color-surface);
@@ -295,21 +294,11 @@
   cursor: pointer;
 }
 
-.control:hover,
-.zoomLevel:hover {
+.control:hover {
   background: var(--color-surface-soft);
 }
 
-.control:focus-visible,
-.zoomLevel:focus-visible {
+.control:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
-}
-
-/* Reads as a value rather than a button until you need it to be one. */
-.zoomLevel {
-  min-width: 3.6rem;
-  color: var(--color-muted);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
 }

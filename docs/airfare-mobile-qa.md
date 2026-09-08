@@ -245,3 +245,44 @@ Evidencia local: `alternates-expected.json`, `alternates-results.json`,
 en `.local-data/airfare-qa/`. La vista del puerto 5175 fue recargada con las
 coordenadas completas. La auditoría previa de RouteMap, geo y arcFlow pasó
 111 pruebas. Esta corrección afecta únicamente al harness local de revisión.
+
+## Divisiones territoriales y zoom móvil
+
+Se retiraron los botones +/− del mapa únicamente en viewports de hasta 640 px.
+Reset, pinch, drag y zoom por teclado/rueda siguen disponibles; desktop conserva
+los dos botones y su texto accesible. La instrucción accesible móvil ya no promete
+botones que no están presentes.
+
+La auditoría detectó dos problemas distintos:
+
+- El harness local devolvía 404 para geografía. Ahora sirve el catálogo y las
+  respuestas originales desde `services/api/app/data/subdivisions`, sin cambiar
+  backend ni inventar geometría. Se validaron 167 archivos TopoJSON y 4085 nombres
+  con coordenadas finitas.
+- En producción, un pinch rápido móvil podía terminar al 1.285× cuando los dedos
+  habían solicitado 2×: el primer dedo levantado convertía el pinch en rotate/pan,
+  y el último levantado ya no cerraba el zoom pendiente. Globe interpretaba ese
+  zoom como activo y mantenía el terreno simplificado, sin bordes internos.
+  Ahora el último dedo cierra el zoom también tras esa transición. El repintado
+  final móvil utiliza la geometría más reciente y libera la espera al completar
+  el temporizador, evitando un último fotograma simplificado sin otro pendiente.
+
+TDD: dos casos reprodujeron el zoom incompleto en Globe y Mercator antes del
+arreglo y pasaron después. Un tercer caso verifica ausencia de +/− en mobile,
+presencia de Reset e instrucciones accesibles correctas.
+
+Browser: Perú y España, ambas proyecciones, a 360×800, 390×844 y 430×932.
+Todas las solicitudes geográficas observadas respondieron 200. Cada país y el
+catálogo se descargaron una sola vez por sesión, incluso al volver a la zona.
+Además de comprobar labels, se instrumentó el stroke de canvas para verificar
+que los bordes internos regresan al terminar el gesto; las doce combinaciones
+pasaron y sus capturas muestran el detalle. En 1440×1000 siguen los botones.
+La aceleración hardware permaneció deshabilitada.
+
+Evidencia local: `territories-*.png` conserva el estado anterior;
+`territories-after-*.png` contiene el resultado final para Perú y España;
+`territories-after-results.json` y `territories-after-spain-results.json`
+registran países, respuestas, caché y restauración de bordes.
+
+Validación final: 2227 tests web passed, 2 skipped; formato, lint, typecheck y
+build correctos. Lint mantiene cinco warnings preexistentes de Fast Refresh.

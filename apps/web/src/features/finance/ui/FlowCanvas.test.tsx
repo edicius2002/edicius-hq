@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
@@ -257,43 +256,12 @@ describe('canvas keyboard route', () => {
 });
 
 describe('camera controls', () => {
-  it('starts at 100%', () => {
+  it('offers fit without separate zoom controls', () => {
     renderCanvas(populated());
-    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('100%');
-  });
-
-  it('steps the zoom in and out', async () => {
-    const user = userEvent.setup();
-    renderCanvas(populated());
-    const level = screen.getByRole('button', { name: 'Reset zoom to 100%' });
-
-    await user.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(level).toHaveTextContent('120%');
-
-    await user.click(screen.getByRole('button', { name: 'Zoom out' }));
-    expect(level).toHaveTextContent('100%');
-  });
-
-  it('goes back to 100% from the level itself', async () => {
-    const user = userEvent.setup();
-    renderCanvas(populated());
-    const level = screen.getByRole('button', { name: 'Reset zoom to 100%' });
-
-    await user.click(screen.getByRole('button', { name: 'Zoom in' }));
-    await user.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(level).not.toHaveTextContent('100%');
-
-    await user.click(level);
-    expect(level).toHaveTextContent('100%');
-  });
-
-  it('stops at the far end of the range instead of running away', async () => {
-    const user = userEvent.setup();
-    renderCanvas(populated());
-    const zoomIn = screen.getByRole('button', { name: 'Zoom in' });
-
-    for (let press = 0; press < 12; press += 1) await user.click(zoomIn);
-    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('300%');
+    expect(screen.getByRole('button', { name: 'Fit the diagram in view' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Zoom out' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reset zoom to 100%' })).not.toBeInTheDocument();
   });
 });
 
@@ -340,28 +308,6 @@ describe('flow labels', () => {
   });
 });
 
-describe('per-diagram cameras', () => {
-  it('keeps each diagram at its own zoom', async () => {
-    const user = userEvent.setup();
-    const first = populated('d1');
-    const second = populated('d2');
-
-    const { rerender } = renderCanvas(first);
-    await user.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('120%');
-
-    const props = canvasProps();
-
-    // Switching to the other diagram shows its own camera, not the one left behind.
-    rerender(<FlowCanvas diagram={second} {...props} />);
-    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('100%');
-
-    // And coming back finds the first one where it was.
-    rerender(<FlowCanvas diagram={first} {...props} />);
-    expect(screen.getByRole('button', { name: 'Reset zoom to 100%' })).toHaveTextContent('120%');
-  });
-});
-
 /**
  * A press that starts a gesture has to claim the default, or the browser reads
  * the same drag as a text selection and the labels light up blue behind the
@@ -399,10 +345,10 @@ describe('gestures do not double as text selection', () => {
     expect(pressed(header)).toBe(true);
   });
 
-  it('leaves a press on the zoom controls alone, so they still take a click', () => {
+  it('leaves a press on the fit control alone, so it still takes a click', () => {
     renderCanvas(populated());
     // Not a gesture: the button needs its default to focus and activate.
-    expect(pressed(screen.getByRole('button', { name: 'Zoom in' }))).toBe(false);
+    expect(pressed(screen.getByRole('button', { name: 'Fit the diagram in view' }))).toBe(false);
   });
 });
 

@@ -352,11 +352,19 @@ figure should be quoted for them until they do:
   `workspaces: ["apps/*"]`), the build is `npm run build -w web` (`package.json:18`),
   and the output is `apps/web/dist`. The app uses `createBrowserRouter`
   (`apps/web/src/app/router/createAppRouter.ts:6`) over real paths — `/dashboard`,
-  `/finance`, `/greenlight`, `/investing`, `/airfare`
-  (`apps/web/src/app/router/routes.tsx:31-35`) — so a deep link or a refresh on any of
+  `/finance`, `/greenlight`, `/investing`, `/airfare`, `/sentiment`
+  (`apps/web/src/app/router/routes.tsx`) — so a deep link or a refresh on any of
   them needs a rewrite to `index.html` or it 404s at the edge. `vercel.json` supplies
   that rewrite explicitly, which is why whether Vercel's Vite preset would have
   supplied it is no longer a question this document has to answer.
+
+## Sentiment upstream and cache
+
+`GET /api/sentiment` is covered by the same passkey gate as the other data routes. The API, not the browser, first requests CNN's public JSON at `https://production.dataviz.cnn.io/index/fearandgreed/graphdata`. If and only if CNN answers 403/418, it requests the public no-key mirror at `https://fearandgreedgraph.com/api/fear-greed`. Both adapters validate the complete aggregate-plus-seven-indicator document and write the same normalized snapshot atomically to `services/api/.local-data/sentiment/snapshot.json` (or the equivalent path below `LOCAL_DATA_DIR`). That file is a disposable market-data cache, not user state or an archive. The response source is `cnn` or `cnn-mirror`, and the latter is attributed in the page.
+
+A snapshot is fresh for four hours. Concurrent misses share one upstream request. If a transient network, rate-limit, 5xx, 403 or 418 response prevents refresh, a valid snapshot younger than seven days is returned with `stale: true`; older, incomplete or malformed data is refused. No scheduled collector is needed: the first authenticated read after expiry refreshes it, and the web client does no background polling.
+
+The integration deliberately sends only `Accept: application/json`. A terminal request from the home environment returned HTTP 418 during implementation, while the public JSON resource and schema were independently observable. Do not add browser-identifying headers, forge `Origin`/`Referer`, replay cookies or scrape rendered HTML to work around that refusal. The fallback's published contract says daily history with hourly refresh; the deployment-host probe confirmed the general ISO `asOf`, epoch-millisecond indicator timestamps and all nine underlying series needed for eight charts. At most 366 points per series are returned. A malformed response, a non-refusal CNN failure, or failure of both paths returns an error (or the labelled stale snapshot while eligible).
 
 ## How it is run
 

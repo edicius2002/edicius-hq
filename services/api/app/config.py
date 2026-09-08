@@ -75,6 +75,11 @@ def bars_dir() -> Path:
     return local_data_dir() / "bars"
 
 
+def sentiment_dir() -> Path:
+    """Path B: the last normalized sentiment snapshot, safe to discard."""
+    return local_data_dir() / "sentiment"
+
+
 def fares_dir() -> Path:
     """
     Path B as well, but an archive rather than a cache.
@@ -156,6 +161,14 @@ UPSTREAM_TIMEOUT_SECONDS = 12.0
 # carries a Friday close across a long weekend without preserving old market
 # data indefinitely.
 MAX_STALE_BARS_SECONDS = 7 * 24 * 60 * 60
+
+# CNN publishes daily market observations and the captured provider timestamp
+# settles near the end of a market day. Four hours bounds an active API process
+# to six refreshes a day without leaving a newly published close hidden for a
+# full day. The same one-week stale window as bars carries a Friday value over
+# a long weekend while still refusing to fossilise the upstream indefinitely.
+SENTIMENT_TTL_SECONDS = 4 * 60 * 60
+MAX_STALE_SENTIMENT_SECONDS = 7 * 24 * 60 * 60
 
 
 # --------------------------------------------------------------- airfare ----

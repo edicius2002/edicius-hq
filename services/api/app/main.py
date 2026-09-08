@@ -14,9 +14,10 @@ from app.config import (
     tweet_watch_on_start_enabled,
 )
 from app.routers import auth as auth_router
-from app.routers import fares, geography, health, kv, market, tweets
+from app.routers import fares, geography, health, kv, market, sentiment, tweets
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
+from app.routers.sentiment import close_client as close_sentiment_client
 from app.routers.tweets import DEFAULT_HANDLE
 from app.services.calendar_job import CALENDAR_RUNNER
 from app.services.collection_job import RUNNER
@@ -70,6 +71,7 @@ async def lifespan(_app: FastAPI):
     # The shared upstream clients outlive a request but not the process.
     await close_client()
     await close_fares_client()
+    await close_sentiment_client()
 
 
 app = FastAPI(title="Edicius HQ API", version="0.0.0", lifespan=lifespan)
@@ -130,6 +132,7 @@ app.include_router(auth_router.router)
 app.include_router(health.router, dependencies=GATED)
 app.include_router(kv.router, dependencies=GATED)
 app.include_router(market.router, dependencies=GATED)
+app.include_router(sentiment.router, dependencies=GATED)
 app.include_router(fares.router, dependencies=GATED)
 app.include_router(geography.router, dependencies=GATED)
 app.include_router(tweets.router, dependencies=GATED)

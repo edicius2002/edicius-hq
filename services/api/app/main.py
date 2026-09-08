@@ -81,6 +81,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 # `GET /api/fares/history` answers with every snapshot for a city pair, and the
 # reader is usually on another device over a Tailscale path that is sometimes a

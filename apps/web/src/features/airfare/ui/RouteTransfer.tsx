@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 
-import { getApiBaseUrl } from '@/shared/api/config';
+import { apiFetch } from '@/shared/api/http';
 import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteTransfer.module.css';
@@ -26,7 +26,7 @@ function importMessage(summary: ImportSummary): string {
   );
 }
 
-async function readError(response: Response): Promise<string> {
+async function readError(response: Response, fallback: string): Promise<string> {
   try {
     const body: unknown = await response.json();
     if (
@@ -40,18 +40,45 @@ async function readError(response: Response): Promise<string> {
   } catch {
     // An empty or non-JSON error still gets an actionable message below.
   }
-  return 'Could not import the watched routes. Check the file and retry.';
+  return fallback;
 }
 
-/** Transfer the local watched-route document without materialising exports in the browser. */
+function downloadFilename(response: Response): string {
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  return match?.[1] ?? 'airfare-watch.json.gz';
+}
+
+/** Transfer the watched-route archive through the authenticated API. */
 export function RouteTransfer({ disabled, onImported }: RouteTransferProps) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  function handleExport() {
+  async function handleExport() {
     setMessage(null);
-    window.location.assign(`${getApiBaseUrl()}/api/fares/watch/export`);
+    setExporting(true);
+    try {
+      const response = await apiFetch('/api/fares/watch/export');
+      if (!response.ok) {
+        throw new Error(
+          await readError(response, 'Could not export the watched routes. Retry the download.'),
+        );
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = downloadFilename(response);
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : 'Could not export the watched routes. Retry.',
+      );
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleFile(file: File | undefined) {
@@ -62,11 +89,18 @@ export function RouteTransfer({ disabled, onImported }: RouteTransferProps) {
     try {
       const form = new FormData();
       form.append('file', file);
-      const response = await fetch(`${getApiBaseUrl()}/api/fares/watch/import`, {
+      const response = await apiFetch('/api/fares/watch/import', {
         method: 'POST',
         body: form,
       });
-      if (!response.ok) throw new Error(await readError(response));
+      if (!response.ok) {
+        throw new Error(
+          await readError(
+            response,
+            'Could not import the watched routes. Check the file and retry.',
+          ),
+        );
+      }
       const summary = (await response.json()) as ImportSummary;
       await onImported();
       setMessage(importMessage(summary));
@@ -81,12 +115,16 @@ export function RouteTransfer({ disabled, onImported }: RouteTransferProps) {
 
   return (
     <div className={styles.controls}>
-      <Button size="small" disabled={disabled || importing} onClick={handleExport}>
-        Export
+      <Button
+        size="small"
+        disabled={disabled || importing || exporting}
+        onClick={() => void handleExport()}
+      >
+        {exporting ? 'Exporting…' : 'Export'}
       </Button>
       <Button
         size="small"
-        disabled={disabled || importing}
+        disabled={disabled || importing || exporting}
         onClick={() => fileRef.current?.click()}
       >
         {importing ? 'Importing…' : 'Import'}

@@ -53,6 +53,26 @@ def _watch() -> dict[str, object]:
     }
 
 
+def test_export_exposes_its_filename_to_the_cross_origin_browser(monkeypatch, tmp_path):
+    """Without this CORS header the SPA can download bytes but cannot read the dated name."""
+    monkeypatch.setattr(fares_router, "HISTORY", FareHistory(tmp_path / "fares"))
+    monkeypatch.setattr(kv_store, "kv_dir", lambda: tmp_path / "kv")
+    kv_store.put_value("airfare-routes", _watch())
+
+    response = TestClient(app).get(
+        "/api/fares/watch/export",
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    exposed = {
+        name.strip().casefold()
+        for name in response.headers["access-control-expose-headers"].split(",")
+    }
+    assert "content-disposition" in exposed
+
+
 def test_importing_the_same_export_twice_does_not_append_duplicate_observations(
     monkeypatch, tmp_path
 ):

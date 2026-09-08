@@ -588,50 +588,12 @@ export function CandleChart({
 
         <p id={instructionsId} className={styles.srOnly}>
           Use left and right arrow keys to read candles. Home and End move to the first and latest
-          candle. Page Up and Page Down pan. Plus and minus zoom, as do the two buttons above the
-          chart and a pinch with two fingers. Moving into history stops following the latest
-          candles.
+          candle. Page Up and Page Down pan. Plus and minus zoom, as do the mouse wheel and a pinch
+          with two fingers. Moving into history stops following the latest candles.
         </p>
         <p id={statusId} className={styles.srOnly} aria-live="polite">
           {selectedSummary ?? visibleRange}
         </p>
-
-        {/*
-            Out and in, for a reader with neither a wheel nor a keyboard.
-
-            The wheel and the `+`/`-` keys were the whole of the way into this
-            zoom, and a phone has neither — `.surface` sets `touch-action: none`
-            (which the pinch above now needs, and which is also what suppresses
-            the browser's own), so before these there was no way in at all.
-
-            Top left, away from the price gutter on the right, the time axis
-            below and the Latest/data pair stacked in the corner opposite. The
-            shape is the one the route map and the Finance canvas already use
-            for this same cluster, at this chart's own scale, so a reader who
-            has worked either does not learn a second zoom here.
-
-            At every width rather than only the narrow ones: the gesture is what
-            a phone is short of, but the button is what a reader who does not
-            know the gesture is short of at any width.
-        */}
-        <div className={styles.zoom}>
-          <button
-            type="button"
-            className={styles.zoomButton}
-            aria-label="Zoom out"
-            onClick={() => zoomFromControl(WHEEL_STEP)}
-          >
-            &minus;
-          </button>
-          <button
-            type="button"
-            className={styles.zoomButton}
-            aria-label="Zoom in"
-            onClick={() => zoomFromControl(1 / WHEEL_STEP)}
-          >
-            +
-          </button>
-        </div>
 
         <button
           type="button"

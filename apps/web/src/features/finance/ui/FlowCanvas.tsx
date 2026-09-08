@@ -12,14 +12,12 @@ import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
 import { useElementSize } from '@/shared/lib/useElementSize';
 import {
   fitCamera,
-  IDENTITY_CAMERA,
   centerOn,
   screenToWorld,
   unionRect,
   visibleRect,
   zoomAt,
   WHEEL_STEP,
-  ZOOM_STEP,
   type Camera,
 } from '@/features/finance/lib/camera';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
@@ -321,12 +319,6 @@ export function FlowCanvas({
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
   }, [setCamera, viewportRef]);
-
-  function zoomFromCentre(factor: number) {
-    setCamera((current) =>
-      zoomAt(current, factor, { x: viewportSize.width / 2, y: viewportSize.height / 2 }),
-    );
-  }
 
   function startDrag(nodeId: NodeId, event: PointerEvent<HTMLElement>) {
     const node = diagram.nodes[nodeId];
@@ -883,30 +875,6 @@ export function FlowCanvas({
       {status ? <div className={styles.statusCorner}>{status}</div> : null}
 
       <div className={styles.controls}>
-        <button
-          type="button"
-          className={styles.control}
-          aria-label="Zoom out"
-          onClick={() => zoomFromCentre(1 / ZOOM_STEP)}
-        >
-          −
-        </button>
-        <button
-          type="button"
-          className={styles.zoomLevel}
-          aria-label="Reset zoom to 100%"
-          onClick={() => setCamera(IDENTITY_CAMERA)}
-        >
-          {Math.round(camera.zoom * 100)}%
-        </button>
-        <button
-          type="button"
-          className={styles.control}
-          aria-label="Zoom in"
-          onClick={() => zoomFromCentre(ZOOM_STEP)}
-        >
-          +
-        </button>
         <button
           type="button"
           className={styles.control}

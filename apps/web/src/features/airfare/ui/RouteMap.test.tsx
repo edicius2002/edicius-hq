@@ -345,6 +345,25 @@ function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {
 }
 
 describe('RouteMap', () => {
+  it('offers pinch and reset on phones without the plus and minus buttons', () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    try {
+      renderMap();
+      expect(screen.queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Zoom out' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Reset the view' })).toBeInTheDocument();
+      expect(screen.getByRole('application')).toHaveAccessibleName(
+        'Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom.',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   describe('the routes it lists', () => {
     it('renders one reachable item per watched route', () => {
       renderMap();
@@ -1760,6 +1779,32 @@ describe('RouteMap', () => {
   });
 
   describe('zooming with two fingers', () => {
+    it.each(['globe', 'mercator'] as const)(
+      'finishes a quick phone pinch at its requested scale after both fingers lift on %s',
+      (projection) => {
+        vi.stubGlobal('matchMedia', () => ({
+          matches: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }));
+        const { container } = renderMap({ routes: [LIM_CUZ], projection });
+        const stage = container.querySelector('[class*="stage"]')!;
+        const before = spread(container);
+        act(() => {
+          pointer(stage, 'pointerDown', [460, 270], 1);
+          pointer(stage, 'pointerDown', [500, 270], 2);
+          pointer(stage, 'pointerMove', [440, 270], 1);
+          pointer(stage, 'pointerMove', [520, 270], 2);
+          pointer(stage, 'pointerUp', [440, 270], 1);
+          pointer(stage, 'pointerUp', [520, 270], 2);
+        });
+        // The gap doubled from 40 to 80px. An unfinished glide leaves the
+        // globe permanently simplified, since no gesture keeps it ticking.
+        expect(spread(container) / before).toBeGreaterThan(1.9);
+        expect(spread(container) / before).toBeLessThan(2.1);
+      },
+    );
+
     /*
      * A phone has no wheel and no keyboard, and until this the map's only two
      * doors into `aimZoom` were exactly those. `touch-action: none` on the stage

@@ -667,6 +667,62 @@ describe('zooming with two fingers, and with a button', () => {
     else fireEvent.pointerUp(svg, at);
   }
 
+  it('leaves desktop touch selection unchanged', () => {
+    const { svg } = zoomable();
+    finger(svg, 'down', 1, 300);
+    finger(svg, 'up', 1, 300);
+    expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('pins a phone tap so the reading and link survive the finger lifting', () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    try {
+      const { svg } = zoomable();
+      finger(svg, 'down', 1, 300);
+      finger(svg, 'up', 1, 300);
+      fireEvent.pointerLeave(svg, { pointerType: 'touch' });
+      expect(screen.getByTestId('departure-crosshair')).toBeInTheDocument();
+      expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(['drag', 'pinch', 'cancel'] as const)(
+    'does not turn a phone %s into a pinned reading',
+    (gesture) => {
+      vi.stubGlobal('matchMedia', () => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
+      try {
+        const { svg } = zoomable();
+        finger(svg, 'down', 1, 300);
+        if (gesture === 'pinch') {
+          finger(svg, 'down', 2, 460);
+          finger(svg, 'move', 2, 500);
+          finger(svg, 'up', 2, 500);
+        } else if (gesture === 'drag') finger(svg, 'move', 1, 330);
+        else
+          fireEvent.pointerCancel(svg, {
+            pointerType: 'touch',
+            pointerId: 1,
+            clientX: 300,
+            clientY: 150,
+          });
+        finger(svg, 'up', 1, gesture === 'drag' ? 330 : 300);
+        expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'false');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it('closes the frame when two fingers spread apart', () => {
     const { svg, written } = zoomable();
     finger(svg, 'down', 1, 300);

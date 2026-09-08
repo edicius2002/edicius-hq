@@ -59,6 +59,23 @@ const OURS = [
 
 const BASELINE = [bucket('2026-08-18', '08-18', 96, 96, 96)];
 
+it('keeps compact geometry on a phone after the panel recovers more than 400px', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(max-width: 640px)',
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  try {
+    chart({ label: 'Phone history' });
+    expect(screen.getByRole('img', { name: /Phone history/ })).toHaveAttribute(
+      'viewBox',
+      '0 0 505 284',
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 function chart(props: Partial<Parameters<typeof PriceBandChart>[0]> = {}) {
   render(
     <PriceBandChart
@@ -150,6 +167,22 @@ describe('a box the drawing does not fill', () => {
 });
 
 describe('PriceBandChart crosshair', () => {
+  it('keeps a phone tap readable after pointerleave without requiring a hover', () => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    try {
+      const svg = chart();
+      fireEvent.pointerUp(svg, { pointerType: 'touch', clientX: 380, clientY: 140 });
+      fireEvent.pointerLeave(svg, { pointerType: 'touch' });
+      expect(screen.getByTestId('crosshair')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('says nothing until the reader points at it', () => {
     chart();
     expect(screen.getByRole('status')).toHaveTextContent('');

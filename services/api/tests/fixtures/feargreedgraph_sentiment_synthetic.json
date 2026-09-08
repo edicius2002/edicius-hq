@@ -1,0 +1,70 @@
+{
+  "dates": ["2026-01-01", "2026-01-02"],
+  "values": [44.0, 62.5],
+  "asOf": "2026-01-02T23:59:55Z",
+  "indicators": {
+    "market_momentum_sp500": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [5900.0, 6000.0],
+      "score": 65.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "market_momentum_sp125": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [5800.0, 5850.0],
+      "score": 65.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "stock_price_strength": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [1.2, 1.4],
+      "score": 58.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "stock_price_breadth": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [800.0, 900.0],
+      "score": 57.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "put_call_options": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [0.9, 0.8],
+      "score": 61.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "market_volatility_vix": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [18.0, 16.0],
+      "score": 64.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "market_volatility_vix_50": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [19.0, 18.0],
+      "score": 64.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    },
+    "safe_haven_demand": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [2.1, 2.4],
+      "score": 55.0,
+      "rating": "neutral",
+      "asOf": 1767398395000
+    },
+    "junk_bond_demand": {
+      "dates": ["2026-01-01", "2026-01-02"],
+      "values": [3.4, 3.2],
+      "score": 60.0,
+      "rating": "greed",
+      "asOf": 1767398395000
+    }
+  }
+}

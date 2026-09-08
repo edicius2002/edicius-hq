@@ -1,5 +1,9 @@
 import type { Bucket, BucketAxis, UnsoldPeriod } from '@/features/airfare/lib/buckets';
+import { pointerInView, type ClientBox, type PlotSize } from '@/shared/lib/chartCrosshair';
 import { NO_VALUE, formatMoney } from '@/shared/lib/money';
+
+export { pointerInView };
+export type { ClientBox, PlotSize };
 
 /**
  * The arithmetic behind the price chart's crosshair, kept out of the component.
@@ -13,12 +17,6 @@ import { NO_VALUE, formatMoney } from '@/shared/lib/money';
  */
 
 /* ------------------------------------------ the pointer, in view units -- */
-
-/** A box as `getBoundingClientRect` reports it. */
-export type ClientBox = { left: number; top: number; width: number; height: number };
-
-/** The drawing's own size — a viewBox, in the units everything is placed in. */
-export type PlotSize = { width: number; height: number };
 
 /**
  * A client coordinate in view units, honouring `preserveAspectRatio`.
@@ -51,20 +49,6 @@ export type PlotSize = { width: number; height: number };
  * what a chart in a collapsed panel reports for itself. Placing a crosshair
  * from it would divide by zero.
  */
-export function pointerInView(
-  box: ClientBox,
-  plot: PlotSize,
-  clientX: number,
-  clientY: number,
-): { x: number; y: number } | null {
-  if (box.width <= 0 || box.height <= 0) return null;
-  const scale = Math.min(box.width / plot.width, box.height / plot.height);
-  return {
-    x: (clientX - box.left - (box.width - plot.width * scale) / 2) / scale,
-    y: (clientY - box.top - (box.height - plot.height * scale) / 2) / scale,
-  };
-}
-
 /**
  * How many view units one client pixel is, for a gesture measured in pixels.
  *

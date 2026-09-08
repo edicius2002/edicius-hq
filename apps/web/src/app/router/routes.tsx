@@ -20,6 +20,11 @@ const InvestingPage = lazy(() =>
 const AirfarePage = lazy(() =>
   import('@/features/airfare/AirfarePage').then((m) => ({ default: m.AirfarePage })),
 );
+// The route owns this lazy component and exports only the route table below.
+// eslint-disable-next-line react-refresh/only-export-components
+const SentimentPage = lazy(() =>
+  import('@/features/sentiment/SentimentPage').then((m) => ({ default: m.SentimentPage })),
+);
 
 export const appRoutes: RouteObject[] = [
   {
@@ -33,6 +38,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'greenlight', element: <GreenlightPage /> },
       { path: 'investing', element: <InvestingPage /> },
       { path: 'airfare', element: <AirfarePage /> },
+      { path: 'sentiment', element: <SentimentPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

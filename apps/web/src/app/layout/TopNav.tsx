@@ -13,6 +13,7 @@ const navItems = [
   { to: '/greenlight', label: 'Greenlight' },
   { to: '/investing', label: 'Investing' },
   { to: '/airfare', label: 'Airfare' },
+  { to: '/sentiment', label: 'Sentiment' },
 ] as const;
 
 /**

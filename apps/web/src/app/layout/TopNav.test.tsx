@@ -96,7 +96,11 @@ describe('the narrow shell', () => {
 
     const nav = drawer();
     expect(nav).toBeInTheDocument();
-    expect(within(nav!).getAllByRole('link')).toHaveLength(5);
+    expect(within(nav!).getAllByRole('link')).toHaveLength(6);
+    expect(within(nav!).getByRole('link', { name: 'Sentiment' })).toHaveAttribute(
+      'href',
+      '/sentiment',
+    );
     expect(trigger()).toHaveAttribute('aria-expanded', 'true');
   });
 

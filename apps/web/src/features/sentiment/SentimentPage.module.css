@@ -1,0 +1,130 @@
+.page {
+  display: grid;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: 92rem;
+  margin-inline: auto;
+}
+
+.state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding-block: var(--space-8);
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.state p {
+  margin: 0;
+}
+
+.stale {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  font-size: 0.75rem;
+}
+
+.metric {
+  min-width: 0;
+}
+
+.featured {
+  border-color: color-mix(in srgb, var(--color-income) 40%, var(--color-border));
+}
+
+.metricHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: 0;
+}
+
+.featured .metricHeader {
+  margin-bottom: var(--space-4);
+}
+
+.metricTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.featured .metricTitle {
+  font-size: 1.15rem;
+}
+
+.metricTime {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.65rem;
+}
+
+.score {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric:not(.featured) .score {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.score strong {
+  color: var(--color-text);
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+}
+
+.featured .score strong {
+  font-size: 2rem;
+}
+
+.score[data-classification='fear'],
+.score[data-classification='extreme fear'] {
+  color: var(--color-expense);
+}
+
+.score[data-classification='greed'],
+.score[data-classification='extreme greed'] {
+  color: var(--color-income);
+}
+
+.indicators {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.disclaimer {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+@media (max-width: 52rem) {
+  .indicators {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 34rem) {
+  .featured .metricHeader {
+    display: grid;
+  }
+
+  .featured .score {
+    justify-items: start;
+  }
+}

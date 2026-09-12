@@ -35,8 +35,12 @@ import { Button } from '@/shared/ui/Button';
 import { formatMoney } from '@/shared/lib/money';
 
 import styles from './FlightTable.module.css';
+import { FareHistoryStatus } from './FareHistoryStatus';
 
 type FlightTableProps = {
+  loading?: boolean;
+  error?: Error | null;
+  onRetry?: () => void;
   snapshots: FareSnapshot[];
   /**
    * The period the chart above is drawn in. Required rather than defaulted:
@@ -346,7 +350,15 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
  * filtering the table moved the line, "cheapest" would mean something
  * different depending on which airline was selected.
  */
-export function FlightTable({ snapshots, granularity, departure, leg }: FlightTableProps) {
+export function FlightTable({
+  snapshots,
+  granularity,
+  departure,
+  leg,
+  loading = false,
+  error = null,
+  onRetry,
+}: FlightTableProps) {
   const priceLabelId = useId();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
@@ -383,7 +395,11 @@ export function FlightTable({ snapshots, granularity, departure, leg }: FlightTa
     return (
       <div className={styles.wrap}>
         <TableHeading departure={departure} />
-        <p className={styles.empty}>No itineraries observed yet.</p>
+        {loading || error ? (
+          <FareHistoryStatus loading={loading} error={error} onRetry={onRetry} />
+        ) : (
+          <p className={styles.empty}>No itineraries observed yet.</p>
+        )}
       </div>
     );
   }
@@ -397,6 +413,7 @@ export function FlightTable({ snapshots, granularity, departure, leg }: FlightTa
 
   return (
     <div className={styles.wrap}>
+      <FareHistoryStatus error={error} onRetry={onRetry} />
       {/*
         Heading, departure and every filter on one line — 12.257, where there
         is room for one line. At the panel's real 1099px a one-carrier board

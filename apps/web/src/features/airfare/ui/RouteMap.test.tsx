@@ -1852,29 +1852,42 @@ describe('RouteMap', () => {
     });
 
     it('zooms out when two fingers come together', async () => {
-      const { container } = renderMap({ routes: [LIM_CUZ] });
-      const stage = container.querySelector('[class*="stage"]')!;
+      vi.useFakeTimers();
+      const { container, unmount } = renderMap({ routes: [LIM_CUZ] });
+      try {
+        const stage = container.querySelector('[class*="stage"]')!;
 
-      // 1x is the floor, so there is nothing to pinch out of until the map has
-      // been taken in. The wheel is used to get there because the wheel is the
-      // one route this test is not about.
-      await act(async () => {
-        for (let notch = 0; notch < 6; notch += 1) wheel(stage, -300, [480, 270]);
-      });
-      await frame();
-      const zoomedIn = spread(container);
+        // 1x is the floor, so there is nothing to pinch out of until the map has
+        // been taken in. The wheel is used to get there because the wheel is the
+        // one route this test is not about.
+        await act(async () => {
+          for (let notch = 0; notch < 6; notch += 1) wheel(stage, -300, [480, 270]);
+        });
+        // Finish the wheel's 320ms glide before measuring the starting scale.
+        // One real frame leaves this baseline partway through zooming in, so
+        // the pinch result depends on how many frames the test runner delivers.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(400);
+        });
+        const zoomedIn = spread(container);
 
-      await act(async () => {
-        pointer(stage, 'pointerDown', [320, 190], 1);
-        pointer(stage, 'pointerDown', [640, 350], 2);
-        for (let step = 1; step <= 6; step += 1) {
-          pointer(stage, 'pointerMove', [320 + step * 20, 190 + step * 10], 1);
-          pointer(stage, 'pointerMove', [640 - step * 20, 350 - step * 10], 2);
-        }
-      });
-      await frame();
+        await act(async () => {
+          pointer(stage, 'pointerDown', [320, 190], 1);
+          pointer(stage, 'pointerDown', [640, 350], 2);
+          for (let step = 1; step <= 6; step += 1) {
+            pointer(stage, 'pointerMove', [320 + step * 20, 190 + step * 10], 1);
+            pointer(stage, 'pointerMove', [640 - step * 20, 350 - step * 10], 2);
+          }
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(24);
+        });
 
-      expect(spread(container)).toBeLessThan(zoomedIn * 0.8);
+        expect(spread(container)).toBeLessThan(zoomedIn * 0.8);
+      } finally {
+        unmount();
+        vi.useRealTimers();
+      }
     });
 
     it('turns the globe with one finger and leaves the scale where it was', async () => {

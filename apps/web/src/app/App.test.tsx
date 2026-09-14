@@ -27,6 +27,21 @@ const FARE_SPEND = {
   kinds: [],
 };
 
+/** A complete empty reset ledger for shell tests that do not exercise Dashboard data. */
+const CODEX_RESETS = {
+  source: 'codex-resets.com',
+  latestReset: null,
+  resets: [],
+  stats: {
+    total: 0,
+    avgIntervalDays: null,
+    longestIntervalDays: null,
+  },
+  fetchedAt: '2026-09-14T12:00:00Z',
+  generatedAt: '2026-09-14T12:00:00Z',
+  stale: false,
+};
+
 beforeEach(() => {
   // The layout tests exercise the chart shell, not canvas pixels. jsdom emits
   // a noisy "not implemented" error before returning null without this stub.
@@ -51,6 +66,9 @@ beforeEach(() => {
       // they read from it is optional.
       if (url.includes('/api/fares/spend')) {
         return Response.json(FARE_SPEND);
+      }
+      if (url.includes('/api/codex-resets')) {
+        return Response.json(CODEX_RESETS);
       }
       return Response.json({ status: 'ok' });
     }),
@@ -163,6 +181,7 @@ describe('Enrolling a second device from the menu', () => {
           return Response.json({ code: 'K7M29QX4', expiresInSeconds: 600 });
         }
         if (url.includes('/api/kv/')) return new Response(null, { status: 404 });
+        if (url.includes('/api/codex-resets')) return Response.json(CODEX_RESETS);
         return Response.json({ status: 'ok' });
       }),
     );
@@ -185,7 +204,9 @@ describe('Enrolling a second device from the menu', () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) =>
       String(input).includes('/api/kv/')
         ? new Response(null, { status: 404 })
-        : Response.json({ status: 'ok' }),
+        : String(input).includes('/api/codex-resets')
+          ? Response.json(CODEX_RESETS)
+          : Response.json({ status: 'ok' }),
     );
     vi.stubGlobal('fetch', fetchSpy);
 

@@ -82,23 +82,40 @@ export function ResetCalendar({ resets, now }: { resets: CodexReset[]; now: Date
             </div>
           </div>
         </div>
-        <div className={styles.detail} aria-live="polite">
-          {selected ? (
-            <>
-              <strong>{labelFor(selected)}</strong>
-              {selected.resets.map((reset) => (
-                <span key={reset.id}>
-                  {reset.text}{' '}
-                  <a href={reset.source.url} target="_blank" rel="noreferrer">
-                    View on X
-                  </a>
-                  <small>{formatBogotaDateTime(reset.announcedAt)}</small>
-                </span>
+        <div className={styles.detailFrame}>
+          <div className={styles.detailSizing} aria-hidden="true">
+            {calendar.weeks
+              .flat()
+              .filter((day) => day.resets.length > 0)
+              .map((day) => (
+                <div className={styles.detailContent} key={day.key}>
+                  <strong data-content={labelFor(day)} />
+                  {day.resets.map((reset) => (
+                    <span key={reset.id} data-content={`${reset.text} View on X`}>
+                      <small data-content={formatBogotaDateTime(reset.announcedAt)} />
+                    </span>
+                  ))}
+                </div>
               ))}
-            </>
-          ) : (
-            <strong>No confirmed resets in this window.</strong>
-          )}
+          </div>
+          <div className={styles.detailContent} aria-live="polite">
+            {selected ? (
+              <>
+                <strong>{labelFor(selected)}</strong>
+                {selected.resets.map((reset) => (
+                  <span key={reset.id}>
+                    {reset.text}{' '}
+                    <a href={reset.source.url} target="_blank" rel="noreferrer">
+                      View on X
+                    </a>
+                    <small>{formatBogotaDateTime(reset.announcedAt)}</small>
+                  </span>
+                ))}
+              </>
+            ) : (
+              <strong>No confirmed resets in this window.</strong>
+            )}
+          </div>
         </div>
       </div>
     </section>

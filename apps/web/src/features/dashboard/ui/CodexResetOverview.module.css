@@ -1,6 +1,6 @@
 .overview {
   display: grid;
-  gap: 1.65rem;
+  gap: 0.8rem;
   min-width: 0;
 }
 
@@ -9,9 +9,9 @@
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas: 'label type' 'figure type' 'date type';
   align-items: center;
-  gap: 0.55rem 1rem;
+  gap: 0.3rem 0.75rem;
   min-width: 0;
-  padding: 1.3rem 1.5rem 1.4rem;
+  padding: 0.7rem 1rem;
   border: 2px solid #e9ded0;
   border-radius: 0.75rem;
   background-color: #27211c;
@@ -39,7 +39,7 @@
   background: #dda835;
   color: #1b1408;
   font-family: var(--font-sans);
-  font-size: clamp(2rem, 6vw, 3.4rem);
+  font-size: clamp(1.35rem, 3vw, 1.8rem);
   font-weight: 800;
   line-height: 1.05;
   transform: rotate(-1deg);
@@ -70,12 +70,12 @@
 .stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem;
+  gap: 0.6rem;
   margin: 0;
 }
 
 .stats div {
-  padding: 0.7rem 0.9rem 0.8rem;
+  padding: 0.45rem 0.7rem;
   border: 2px solid #e9ded0;
   border-radius: 0.7rem;
   box-shadow: 4px 4px 0 #090705;
@@ -106,7 +106,7 @@
 
 .stats dd {
   margin: 0.2rem 0 0;
-  font-size: 1.35rem;
+  font-size: 1.1rem;
   font-weight: 800;
 }
 
@@ -135,33 +135,26 @@
   border-color: var(--color-accent);
 }
 
-.attribution {
-  margin: -0.65rem 0 0;
-  color: var(--color-muted);
-  font-size: 0.58rem;
-  text-align: right;
-}
-
 @media (max-width: 44rem) {
   .hero {
     grid-template-areas: 'label label' 'figure figure' 'date type';
-    padding: 1rem;
+    padding: 0.65rem 0.75rem;
   }
 
   .relative {
-    font-size: clamp(1.65rem, 10vw, 2.4rem);
+    font-size: clamp(1.25rem, 6vw, 1.6rem);
   }
   .stats {
     gap: 0.5rem;
   }
   .stats div {
-    padding: 0.55rem 0.5rem 0.65rem;
+    padding: 0.4rem 0.45rem;
   }
   .stats dt {
     font-size: 0.43rem;
     letter-spacing: 0.03em;
   }
   .stats dd {
-    font-size: 1rem;
+    font-size: 0.95rem;
   }
 }

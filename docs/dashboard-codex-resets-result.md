@@ -24,7 +24,7 @@ The adapted visual system uses the reference's heavy outlines, offset shadows, w
 - Live status: <https://codex-resets.com/api/v1/status>
 - Reset history: <https://codex-resets.com/api/v1/resets?limit=100&order=asc>
 
-Codex Resets is shown with discreet attribution as an independent tracker, not as an official OpenAI source.
+The owner requested removing the attribution footer from the Dashboard. The upstream source remains documented here.
 
 ## Verification
 
@@ -53,3 +53,9 @@ The Dashboard capture used mocked read-only tweet responses and the real reset A
 
 - Fresh reset information depends on the independent `codex-resets.com` service. During an outage the UI clearly dates and labels cached data; without any prior snapshot it shows an unavailable state while leaving Posts and Replies usable.
 - The announcement avatar is loaded from the tracker site's public asset, so it can be absent if that asset is unavailable even when cached reset data remains usable.
+
+## Owner review adjustments
+
+The owner approved smaller headings, statistic figures, and the last-reset indicator, reduced card padding and vertical gaps, and centered history title, legend, calendar, and detail text. The history card reserves the tallest daily detail at the current viewport width so selecting a day does not move subsequent panels. Hidden sizing content is excluded from accessibility and contains no interactive links. The proposed average-based height cap was not adopted.
+
+The linked screenshots precede these final spacing and height adjustments. Browser layout checks at 1440 and 390 pixels confirmed stable card heights across short and long detail selection.

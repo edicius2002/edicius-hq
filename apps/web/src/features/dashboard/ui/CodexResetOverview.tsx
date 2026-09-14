@@ -73,13 +73,6 @@ export function CodexResetOverview({
         </div>
       </dl>
       <ResetCalendar resets={data.resets} now={now} />
-      <p className={styles.attribution}>
-        Data by{' '}
-        <a href="https://codex-resets.com/" target="_blank" rel="noreferrer">
-          Codex Resets
-        </a>{' '}
-        from @thsottiaux announcements. Independent tracker; not affiliated with OpenAI.
-      </p>
     </div>
   );
 }

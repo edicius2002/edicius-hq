@@ -1,23 +1,26 @@
 .section {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.5rem;
   min-width: 0;
+  text-align: center;
 }
 
 .headingRow {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 1rem;
 }
 
 .headingRow h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1rem;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.35rem 0.8rem;
   color: var(--color-muted);
   font-size: 0.62rem;
@@ -49,7 +52,7 @@
 
 .card {
   min-width: 0;
-  padding: 0.9rem 1rem 0.8rem;
+  padding: 0.6rem 0.75rem;
   border: 2px solid #e9ded0;
   border-radius: 0.75rem;
   background: #27211c;
@@ -58,6 +61,8 @@
 
 .chart {
   display: flex;
+  width: max-content;
+  margin-inline: auto;
   max-width: 100%;
   gap: 0.4rem;
 }
@@ -74,6 +79,7 @@
 .weekdays span {
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .scroller {
@@ -128,34 +134,61 @@
   transform: scale(1.2);
 }
 
-.detail {
+.detailFrame {
   display: grid;
-  gap: 0.25rem;
   min-height: 2.3rem;
-  margin-top: 0.55rem;
-  padding-top: 0.55rem;
+  margin-top: 0.3rem;
+  padding-top: 0.35rem;
   border-top: 1px dashed #5c5146;
   color: var(--color-muted);
   font-size: 0.6rem;
 }
 
-.detail strong {
+/* All history details share one grid cell, reserving the tallest at this width. */
+.detailSizing,
+.detailFrame > .detailContent {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.detailSizing {
+  display: grid;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.detailSizing > .detailContent {
+  grid-area: 1 / 1;
+}
+
+.detailSizing [data-content]::before {
+  content: attr(data-content);
+}
+
+.detailContent {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.detailContent strong {
   color: var(--color-text);
   font-weight: 600;
 }
 
-.detail span {
+.detailContent span {
   overflow-wrap: anywhere;
 }
 
-.detail small {
+.detailContent small {
   display: block;
   margin-top: 0.1rem;
 }
 
 @media (max-width: 44rem) {
   .headingRow {
-    align-items: flex-start;
+    align-items: center;
     flex-direction: column;
     gap: 0.25rem;
   }

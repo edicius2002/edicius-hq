@@ -134,9 +134,9 @@ it('places live reset summary and calendar above the preserved tweet columns', a
   expect(screen.getByText('67.7d')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Codex reset history' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /banked reset.*2026-09-12/i })).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Codex Resets' }).closest('p')).toHaveTextContent(
-    'Data by Codex Resets',
-  );
+  expect(
+    screen.queryByText(/Independent tracker; not affiliated with OpenAI/),
+  ).not.toBeInTheDocument();
 });
 
 it('keeps tweets visible while reset data is unavailable instead of showing zero statistics', async () => {

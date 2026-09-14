@@ -14,7 +14,8 @@ from app.config import (
     tweet_watch_on_start_enabled,
 )
 from app.routers import auth as auth_router
-from app.routers import fares, geography, health, kv, market, sentiment, tweets
+from app.routers import codex_resets, fares, geography, health, kv, market, sentiment, tweets
+from app.routers.codex_resets import close_client as close_codex_resets_client
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.routers.sentiment import close_client as close_sentiment_client
@@ -72,6 +73,7 @@ async def lifespan(_app: FastAPI):
     await close_client()
     await close_fares_client()
     await close_sentiment_client()
+    await close_codex_resets_client()
 
 
 app = FastAPI(title="Edicius HQ API", version="0.0.0", lifespan=lifespan)
@@ -137,6 +139,7 @@ app.include_router(sentiment.router, dependencies=GATED)
 app.include_router(fares.router, dependencies=GATED)
 app.include_router(geography.router, dependencies=GATED)
 app.include_router(tweets.router, dependencies=GATED)
+app.include_router(codex_resets.router, dependencies=GATED)
 
 
 @app.get("/")

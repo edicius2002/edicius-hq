@@ -1,71 +1,103 @@
-# Resultado del caché de lectura de airfare
+# Airfare read-cache result
 
 Status: complete
 
-## Enfoque
+## Approach
 
-`FareHistory.read` mantiene un LRU por ruta con los snapshots decodificados. Una
-entrada solo se reutiliza cuando coinciden la identidad del archivo (`st_dev` y
-`st_ino`), su tamaño y `mtime_ns`; no hay TTL. El caché admite como máximo ocho
-rutas y 128 MiB de archivos fuente, de modo que tanto el número de objetos
-retenidos como el crecimiento asociado al tamaño de los archivos quedan
-acotados.
+`FareHistory.read` keeps an LRU of decoded snapshots by route. An entry is
+reused only while the file identity (`st_dev` and `st_ino`), size, and
+`mtime_ns` all match; there is no TTL. The cache holds at most eight routes and
+128 MiB of source files, bounding both the number of retained object graphs and
+their growth with the archive size.
 
-Cada lectura toma un lock estriado por ruta. Un miss comprueba la firma antes y
-después de decodificar y reintenta hasta tres veces si el archivo cambia. Esto
-evita reconstrucciones duplicadas dentro del proceso y evita publicar una
-lectura parcial de una escritura concurrente. Un append propio usa el mismo
-lock e invalida la entrada inmediatamente después de cerrar una escritura
-exitosa.
+Each read acquires a striped per-route lock. A miss checks the signature before
+and after decoding and retries up to three times when the file changes. This
+prevents duplicate in-process reconstructions and prevents a partial read of a
+concurrent write from becoming visible or entering the cache. A local append
+uses the same lock and invalidates the entry immediately after the successful
+write is closed.
 
-El caché conserva la ruta completa y aplica `since`/`until` al devolver cada
-respuesta. Cada respuesta recibe listas nuevas de ofertas, por lo que un caller
-no puede modificar el contenido retenido. Las líneas corruptas aisladas se
-omiten y las filas válidas se conservan; un archivo completamente ilegible
-mantiene el resultado histórico vacío y el log de error, pero ese resultado no
-se almacena en caché.
+The cache retains the complete route and applies `since` and `until` to each
+returned result. These optional bounds preserve the reader's original
+truthiness semantics: `None` and the empty string both mean that the respective
+bound is absent. Each result receives new offer lists, so callers cannot mutate
+the retained value. Individual corrupt lines are skipped while valid rows are
+preserved; a completely unreadable file keeps the historical empty result and
+error log, but that result is not cached.
 
-Los errores `PermissionError`/`OSError` de un archivo existente se propagan; el
-endpoint `/api/fares/history` los convierte en HTTP 503 sin exponer detalles
-del filesystem. Un archivo ausente sigue siendo un resultado vacío legítimo y
-se vuelve a consultar por firma en la siguiente lectura, por lo que puede
-aparecer después.
+`PermissionError` and other `OSError` failures for an existing file propagate.
+The `/api/fares/history` endpoint translates them to HTTP 503 without exposing
+filesystem details. A missing file remains a legitimate empty result and is
+checked again on the next read, allowing it to appear later.
 
-No se cambió el frontend, el formato de archivos, la separación por ruta/mes,
-ni la API o semántica de snapshots, filtros, orden, baseline y checks.
+This work did not change the frontend, file format, route/month storage layout,
+or the API and semantics of snapshots, ordinary bounds, ordering, baseline, or
+checks.
 
-## Invariantes verificadas
+## Verified invariants
 
-- Hit sin una segunda decodificación y filtros aplicados después del hit.
-- Append propio y externo, creación tras ausencia, reemplazo y truncado.
-- Estabilidad antes/después de leer, reintento y error ante cambio sostenido.
-- Error transitorio propagado y recuperación posterior; HTTP 503 en el borde.
-- Una sola reconstrucción concurrente por ruta.
-- Evicción LRU por número de rutas y por presupuesto de bytes.
-- Aislamiento frente a mutación de las listas retornadas.
-- Corrupción parcial sin pérdida de filas válidas y corrupción total no cacheada.
+- A cache hit performs no second decode, and filtering happens after the hit.
+- Empty and absent optional bounds are equivalent on cache hits; non-empty
+  bounds continue to filter inclusively.
+- Local and external appends, creation after absence, replacement, and
+  truncation are discovered.
+- Reads require stability before and after decoding; sustained changes raise an
+  error after bounded retries.
+- Transient read errors propagate and a later read recovers; the HTTP boundary
+  returns 503.
+- Concurrent readers build one cached value per route.
+- LRU eviction enforces route-count and source-byte budgets.
+- Returned offer lists cannot mutate cached snapshots.
+- Partial corruption preserves valid rows, and total corruption is not cached.
 
-## Comandos y resultados
+## Review correction
 
-Las dependencias fijadas en `services/api/requirements.txt` se instalaron en
-una venv temporal dentro del worktree; la venv y todos los directorios de
-pytest se eliminaron después de verificar.
+The initial cache implementation compared optional bounds explicitly with
+`None`. That changed established behavior for `until=""`: the empty string
+became an upper bound smaller than every timestamp and hid all existing
+history. `_copy_filtered` now uses the original truthiness checks for both
+`since` and `until`. The regression test first populates the cache with an
+absent `until`, then reads the cache with an empty `until`, verifies identical
+snapshots, verifies an ordinary bounded window, and confirms that no additional
+decode occurred.
 
-- `python -m pytest -q --basetemp .pytest-airfare-cache-full-local`: **622
-  passed**, 2 warnings de deprecación de FastAPI/Starlette, 69,91 s.
-- `python -m ruff format --check . ../../scripts`: **106 files already
-  formatted**.
-- `python -m ruff check . ../../scripts`: **All checks passed**.
-- `python -m mypy app/services/fare_history.py app/routers/fares.py`:
-  **Success: no issues found in 2 source files**.
-- `python -m mypy`: encontró un error preexistente y fuera del ownership en
-  `scripts/measure_airfare_browser.py:29` (override de variable de
-  `SimpleHTTPRequestHandler`). Los archivos modificados pasan el typecheck
-  dirigido y este worker no editó el script de medición.
+## Commands and results
 
-Una comprobación de solo lectura contra
+The initial implementation was verified in a temporary worktree-local virtual
+environment populated from `services/api/requirements.txt`; the environment
+and pytest directories were removed afterward.
+
+- Initial full API suite, `python -m pytest -q --basetemp
+  .pytest-airfare-cache-full-local`: **622 passed**, with two upstream
+  FastAPI/Starlette deprecation warnings, in 69.91 seconds.
+- Review correction red test, `python -m pytest -q --basetemp
+  .pytest-airfare-review-red
+  tests/fares/test_fare_history_cache.py::test_empty_until_matches_absent_until_on_a_cache_hit_and_bounds_still_filter`:
+  **1 failed**, observing an empty list instead of all three snapshots.
+- Review correction green suite, `python -m pytest -q --basetemp
+  .pytest-airfare-review-final tests/fares/test_fare_history_cache.py
+  tests/fares/test_fare_history_store.py`: **26 passed** in 0.97 seconds.
+- `python -m ruff format --check app/services/fare_history.py
+  tests/fares/test_fare_history_cache.py`: **2 files already formatted**.
+- `python -m ruff check app/services/fare_history.py
+  tests/fares/test_fare_history_cache.py`: **All checks passed**.
+- `python -m mypy app/services/fare_history.py`: **Success: no issues found in
+  1 source file**.
+- The initial full `python -m mypy` run found one pre-existing, out-of-scope
+  error at `scripts/measure_airfare_browser.py:29`, concerning a class-variable
+  override of `SimpleHTTPRequestHandler`. The owned production file passes the
+  targeted typecheck, and this worker did not edit the measurement script.
+
+## Read-only timing observation
+
+A read-only check against
 `D:/Work/research/edicius-hq/services/api/.local-data/fares/AQP-LIM.jsonl`
-encontró 4.524 snapshots y 91.011 ofertas en el archivo presente al medir. En
-una instancia nueva, la primera lectura tomó 3.837,02 ms y el hit inmediato
-31,68 ms, con conteos idénticos. Esta comprobación no ejecutó colectores ni
-escribió datos reales.
+observed 4,524 snapshots and 91,011 offers in the file at that time. In one new
+`FareHistory` process instance, the first reader call took 3,837.02 ms and the
+immediate cache-hit reader call took 31.68 ms, with identical counts.
+
+These timings cover `FareHistory.read` only. They exclude endpoint assembly,
+Pydantic conversion and serialization, authentication, compression, network,
+and browser work. The first value is the first read by that process, not a
+disk-cold measurement: the operating-system filesystem cache was not cleared.
+No collector ran and no real archive data was written.

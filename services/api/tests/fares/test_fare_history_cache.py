@@ -223,6 +223,43 @@ def test_filtered_read_does_not_narrow_the_cached_route(monkeypatch, tmp_path):
     assert decoded == 2
 
 
+def test_empty_until_matches_absent_until_on_a_cache_hit_and_bounds_still_filter(
+    monkeypatch, tmp_path
+):
+    history = FareHistory(tmp_path)
+    for day in ("16", "17", "18"):
+        history.append(snapshot(f"2026-08-{day}T12:00:00+00:00", prices=[125.0]))
+    real_decode = fare_history._snapshot_from
+    decoded = 0
+
+    def counting_decode(line: str):
+        nonlocal decoded
+        decoded += 1
+        return real_decode(line)
+
+    monkeypatch.setattr(fare_history, "_snapshot_from", counting_decode)
+
+    absent_until = history.read("LIM", "SCL", until=None)
+    empty_until = history.read("LIM", "SCL", until="")
+    empty_since = history.read("LIM", "SCL", since="")
+    bounded = history.read(
+        "LIM",
+        "SCL",
+        since="2026-08-17",
+        until="2026-08-17T23",
+    )
+
+    assert [item.captured_at[:10] for item in absent_until] == [
+        "2026-08-16",
+        "2026-08-17",
+        "2026-08-18",
+    ]
+    assert empty_until == absent_until
+    assert empty_since == absent_until
+    assert [item.captured_at[:10] for item in bounded] == ["2026-08-17"]
+    assert decoded == 3
+
+
 def test_fully_corrupt_archive_is_not_cached_as_an_empty_success(monkeypatch, tmp_path):
     (tmp_path / "LIM-SCL.jsonl").write_text('{"broken": true}\n', encoding="utf-8")
     history = FareHistory(tmp_path)

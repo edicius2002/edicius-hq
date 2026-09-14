@@ -843,8 +843,8 @@ def _copy_filtered(
     return [
         replace(snapshot, offers=list(snapshot.offers))
         for snapshot in snapshots
-        if (since is None or snapshot.captured_at >= since)
-        and (until is None or snapshot.captured_at <= until)
+        if (not since or snapshot.captured_at >= since)
+        and (not until or snapshot.captured_at <= until)
     ]
 
 

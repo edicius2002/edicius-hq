@@ -49,7 +49,9 @@ can ask for `2027-03` where it used to ask for `2027-03-09`.
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.adapters.fares.models import (
@@ -62,6 +64,79 @@ from app.adapters.fares.models import (
 from app.config import fares_dir
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_CACHE_MAX_ENTRIES = 8
+_DEFAULT_CACHE_MAX_BYTES = 128 * 1024 * 1024
+_READ_STABILITY_ATTEMPTS = 3
+_ROUTE_LOCK_COUNT = 64
+
+
+@dataclass(frozen=True, slots=True)
+class _FileSignature:
+    """The observable identity of one archive version."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+
+    @classmethod
+    def read(cls, path: Path) -> "_FileSignature":
+        stat = path.stat()
+        return cls(stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+@dataclass(frozen=True, slots=True)
+class _CacheEntry:
+    signature: _FileSignature
+    snapshots: tuple[FareSnapshot, ...]
+
+
+class _FareHistoryCache:
+    """A thread-safe LRU bounded by route count and source bytes."""
+
+    def __init__(self, *, max_entries: int, max_bytes: int) -> None:
+        self._max_entries = max(0, max_entries)
+        self._max_bytes = max(0, max_bytes)
+        self._entries: OrderedDict[str, _CacheEntry] = OrderedDict()
+        self._bytes = 0
+        self._lock = threading.Lock()
+
+    def get(self, key: str, signature: _FileSignature) -> tuple[FareSnapshot, ...] | None:
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            if entry.signature != signature:
+                del self._entries[key]
+                self._bytes -= entry.signature.size
+                return None
+            self._entries.move_to_end(key)
+            return entry.snapshots
+
+    def put(self, key: str, signature: _FileSignature, snapshots: tuple[FareSnapshot, ...]) -> None:
+        if self._max_entries == 0 or signature.size > self._max_bytes:
+            self.invalidate(key)
+            return
+        with self._lock:
+            previous = self._entries.pop(key, None)
+            if previous is not None:
+                self._bytes -= previous.signature.size
+            self._entries[key] = _CacheEntry(signature, snapshots)
+            self._bytes += signature.size
+            while len(self._entries) > self._max_entries or self._bytes > self._max_bytes:
+                _, evicted = self._entries.popitem(last=False)
+                self._bytes -= evicted.signature.size
+
+    def invalidate(self, key: str) -> None:
+        with self._lock:
+            previous = self._entries.pop(key, None)
+            if previous is not None:
+                self._bytes -= previous.signature.size
+
+
+class FareHistoryReadError(OSError):
+    """The archive kept changing and could not be read as one stable version."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,8 +204,21 @@ def route_stem(origin: str, destination: str) -> str:
 
 
 class FareHistory:
-    def __init__(self, directory: Path | None = None) -> None:
+    def __init__(
+        self,
+        directory: Path | None = None,
+        *,
+        cache_max_entries: int = _DEFAULT_CACHE_MAX_ENTRIES,
+        cache_max_bytes: int = _DEFAULT_CACHE_MAX_BYTES,
+    ) -> None:
         self._dir = directory
+        self._cache = _FareHistoryCache(
+            max_entries=cache_max_entries,
+            max_bytes=cache_max_bytes,
+        )
+        # A fixed stripe table bounds synchronization memory while ensuring
+        # that one route has only one in-process cache reconstruction at once.
+        self._route_locks = tuple(threading.RLock() for _ in range(_ROUTE_LOCK_COUNT))
 
     @property
     def directory(self) -> Path:
@@ -156,8 +244,12 @@ class FareHistory:
     def _state_path(self, origin: str, destination: str) -> Path:
         return self.state_directory / f"{self._stem(origin, destination)}.json"
 
+    def _route_lock(self, stem: str) -> threading.RLock:
+        return self._route_locks[hash(stem) % len(self._route_locks)]
+
     def append(self, snapshot: FareSnapshot) -> None:
         path = self._path_for(snapshot.origin, snapshot.destination)
+        stem = self._stem(snapshot.origin, snapshot.destination)
         row = {
             "capturedAt": snapshot.captured_at,
             "source": snapshot.source,
@@ -169,18 +261,22 @@ class FareHistory:
             "insights": _insights_row(snapshot.insights),
             "offers": [_offer_row(offer) for offer in snapshot.offers],
         }
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            # One `write` of one line. Short lines land atomically on every
-            # filesystem we run on, and a partial line is survivable anyway
-            # because `read` skips what it cannot parse.
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-        except OSError as error:
-            # Loud, unlike the bar cache's warning. A cache that cannot write is
-            # slow; an archive that cannot write is losing the only copy.
-            logger.error("fare history could not append %s: %s", snapshot.route, error)
-            raise
+        with self._route_lock(stem):
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # One `write` of one line. Short lines land atomically on every
+                # filesystem we run on, and a partial line is survivable anyway
+                # because `read` skips what it cannot parse.
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            except OSError as error:
+                # Loud, unlike the bar cache's warning. A cache that cannot write is
+                # slow; an archive that cannot write is losing the only copy.
+                logger.error("fare history could not append %s: %s", snapshot.route, error)
+                raise
+            # A successful local write makes the old decoded value unusable
+            # before another thread can acquire this route's lock.
+            self._cache.invalidate(stem)
 
     def read(
         self,
@@ -196,47 +292,84 @@ class FareHistory:
         `since`/`until` filter on `capturedAt` — when the price was observed,
         not when the flight leaves. Both bounds are inclusive prefixes, so a
         plain `2026-08` matches the whole month without any date parsing.
+
+        The decoded route is reused only while file identity, size and
+        nanosecond mtime are unchanged. A stable signature is required both
+        before and after decoding; a concurrently changing file is retried and
+        never installed as a partial cache value. I/O failures remain failures
+        rather than being cached or translated to an empty archive.
         """
         path = self._path_for(origin, destination)
-        if not path.exists():
-            return []
+        stem = self._stem(origin, destination)
+        with self._route_lock(stem):
+            for _ in range(_READ_STABILITY_ATTEMPTS):
+                try:
+                    before = _FileSignature.read(path)
+                except FileNotFoundError:
+                    self._cache.invalidate(stem)
+                    return []
+                except OSError as error:
+                    logger.error(
+                        "fare history could not stat %s-%s: %s", origin, destination, error
+                    )
+                    raise
 
-        snapshots: list[FareSnapshot] = []
-        skipped = 0
-        try:
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    snapshot = _snapshot_from(line)
-                    if snapshot is None:
-                        skipped += 1
-                        continue
-                    if since and snapshot.captured_at < since:
-                        continue
-                    if until and snapshot.captured_at > until:
-                        continue
-                    snapshots.append(snapshot)
-        except OSError as error:
-            logger.error("fare history could not read %s-%s: %s", origin, destination, error)
-            return []
+                cached = self._cache.get(stem, before)
+                if cached is not None:
+                    return _copy_filtered(cached, since=since, until=until)
 
-        if skipped and not snapshots:
-            # Every line unreadable is not a bad line, it is a format change,
-            # and the honest symptom of one is not an empty chart. Measured in
-            # development: renaming the offer keys made a two-line archive read
-            # as no history at all, and only a `warning` said so.
-            logger.error(
-                "fare history could not read any of the %d line(s) in %s; "
-                "the archive format has probably changed",
-                skipped,
-                path.name,
-            )
-        elif skipped:
-            logger.warning("fare history skipped %d unreadable line(s) in %s", skipped, path.name)
-        snapshots.sort(key=lambda snapshot: snapshot.captured_at)
-        return snapshots
+                snapshots: list[FareSnapshot] = []
+                skipped = 0
+                try:
+                    with path.open("r", encoding="utf-8") as handle:
+                        for line in handle:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            snapshot = _snapshot_from(line)
+                            if snapshot is None:
+                                skipped += 1
+                            else:
+                                snapshots.append(snapshot)
+                    after = _FileSignature.read(path)
+                except FileNotFoundError:
+                    # Replacement and deletion are changes, not empty reads.
+                    continue
+                except OSError as error:
+                    logger.error(
+                        "fare history could not read %s-%s: %s", origin, destination, error
+                    )
+                    raise
+
+                if before != after:
+                    continue
+
+                snapshots.sort(key=lambda snapshot: snapshot.captured_at)
+                if skipped and not snapshots:
+                    # Every line unreadable is probably a format change. Keep
+                    # the historical API result, but do not cache that failure
+                    # as a successful empty archive.
+                    logger.error(
+                        "fare history could not read any of the %d line(s) in %s; "
+                        "the archive format has probably changed",
+                        skipped,
+                        path.name,
+                    )
+                else:
+                    if skipped:
+                        logger.warning(
+                            "fare history skipped %d unreadable line(s) in %s",
+                            skipped,
+                            path.name,
+                        )
+                    self._cache.put(stem, after, tuple(snapshots))
+                return _copy_filtered(tuple(snapshots), since=since, until=until)
+
+        read_error = FareHistoryReadError(
+            f"fare history changed during {_READ_STABILITY_ATTEMPTS} reads for {origin}-{destination}"
+        )
+        logger.error("%s", read_error)
+        raise read_error
 
     def fingerprint(self, snapshot: FareSnapshot) -> str:
         """
@@ -698,6 +831,21 @@ def _insights_row(insights: FareInsights | None) -> dict[str, object] | None:
         "usualLow": insights.usual_low,
         "usualHigh": insights.usual_high,
     }
+
+
+def _copy_filtered(
+    snapshots: tuple[FareSnapshot, ...],
+    *,
+    since: str | None,
+    until: str | None,
+) -> list[FareSnapshot]:
+    """Apply the public window and detach mutable offer lists from the cache."""
+    return [
+        replace(snapshot, offers=list(snapshot.offers))
+        for snapshot in snapshots
+        if (since is None or snapshot.captured_at >= since)
+        and (until is None or snapshot.captured_at <= until)
+    ]
 
 
 def _insights_from(row: object) -> FareInsights | None:

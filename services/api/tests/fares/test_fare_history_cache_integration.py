@@ -5,6 +5,7 @@ They call the public endpoint and observe only its response plus reads of the
 temporary archive file.  Every mutation is confined to ``tmp_path``.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -84,6 +85,15 @@ def file_bytes(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+def load_script(name: str):
+    path = ROOT / f"scripts/{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture
@@ -432,3 +442,42 @@ def test_measurement_freezes_source_and_reports_each_access_phase(tmp_path):
         assert len(phase["response_sha256"]) == 64
         assert phase["archive_reads"] >= 0
         assert phase["peak_traced_bytes"] >= 0
+
+
+def test_browser_replay_metadata_prevents_wan_or_end_to_end_interpretation(tmp_path):
+    """Catch browser results reported without their local-replay boundaries."""
+    browser_measurement = load_script("measure_airfare_browser")
+    build = tmp_path / "build"
+    payloads = tmp_path / "payloads"
+    build.mkdir()
+    payloads.mkdir()
+    (build / "index.html").write_text("<main>fixture</main>", encoding="utf-8")
+    (payloads / "LIM-SCL-history.json").write_text("{}", encoding="utf-8")
+
+    metadata = browser_measurement.measurement_metadata({"commit": "abc123"}, build, payloads)
+
+    assert metadata["kind"] == "local_response_replay"
+    assert metadata["source_measurement_commit"] == "abc123"
+    assert metadata["launch"] == {
+        "browser": "chromium",
+        "headless": True,
+        "chromium_args": ["--disable-gpu", "--disable-software-rasterizer"],
+        "viewport": {"width": 1440, "height": 1000},
+        "reduced_motion": "reduce",
+    }
+    assert metadata["timing_boundaries"] == {
+        "flights_ready_ms": "navigation start through table readiness and two paint frames",
+        "moves_switch_ms": "chart-button click through two paint frames",
+        "excluded": [
+            "backend computation",
+            "production authentication",
+            "collector work",
+            "WAN transfer",
+            "application shell",
+        ],
+    }
+    assert metadata["interpretation"] == (
+        "Local loopback replay of prepared gzip responses; not WAN or end-to-end latency."
+    )
+    assert len(metadata["build_sha256"]) == 64
+    assert len(metadata["payload_sha256"]) == 64

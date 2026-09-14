@@ -2,6 +2,7 @@
 
 import argparse
 import gzip
+import hashlib
 import json
 import threading
 from functools import partial
@@ -13,6 +14,62 @@ from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+CHROMIUM_ARGS = ["--disable-gpu", "--disable-software-rasterizer"]
+VIEWPORT = {"width": 1440, "height": 1000}
+
+
+def directory_sha256(directory: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file():
+            continue
+        digest.update(path.relative_to(directory).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def measurement_metadata(report: dict, build: Path, payload_dir: Path) -> dict:
+    """Structured limits shared by the browser launch and its saved report."""
+    return {
+        "kind": "local_response_replay",
+        "source_measurement_commit": report.get("commit"),
+        "build_sha256": directory_sha256(build),
+        "payload_sha256": directory_sha256(payload_dir),
+        "launch": {
+            "browser": "chromium",
+            "headless": True,
+            "chromium_args": CHROMIUM_ARGS,
+            "viewport": VIEWPORT,
+            "reduced_motion": "reduce",
+        },
+        "timing_boundaries": {
+            "flights_ready_ms": (
+                "navigation start through table readiness and two paint frames"
+            ),
+            "moves_switch_ms": "chart-button click through two paint frames",
+            "excluded": [
+                "backend computation",
+                "production authentication",
+                "collector work",
+                "WAN transfer",
+                "application shell",
+            ],
+        },
+        "interpretation": (
+            "Local loopback replay of prepared gzip responses; not WAN or "
+            "end-to-end latency."
+        ),
+    }
+
+
+def expected_history_snapshots(route: dict) -> int:
+    history = route["history"]
+    if "count_max" in history:
+        return int(history["count_max"])
+    return int(history["phases"]["unchanged_repetitions"]["content"]["snapshots"])
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -22,8 +79,11 @@ def main():
     args = parser.parse_args()
     report = json.loads(args.report.read_text())
     payload_dir = Path(report["payload_dir"])
+    metadata = measurement_metadata(report, args.build, payload_dir)
     watches = json.loads((payload_dir / "watchlist.json").read_text())
-    payloads = {p.name: gzip.compress(p.read_bytes()) for p in payload_dir.glob("*.json")}
+    payloads = {
+        p.name: gzip.compress(p.read_bytes()) for p in payload_dir.glob("*.json")
+    }
 
     class Handler(SimpleHTTPRequestHandler):
         extensions_map: ClassVar[dict[str, str]] = {
@@ -41,9 +101,9 @@ def main():
             if not parsed.path.startswith("/api/"):
                 return super().do_GET()
             if parsed.path == "/api/kv/airfare-routes":
-                pair = parse_qs(urlparse(self.headers.get("Referer", "")).query).get("pair", [""])[
-                    0
-                ]
+                pair = parse_qs(urlparse(self.headers.get("Referer", "")).query).get(
+                    "pair", [""]
+                )[0]
                 routes = sorted(
                     watches["routes"],
                     key=lambda r: f"{r['origin']}-{r['destination']}" != pair,
@@ -73,19 +133,24 @@ def main():
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(args.build)))
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0), partial(Handler, directory=str(args.build))
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     results = []
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, args=["--disable-gpu"])
+            browser = playwright.chromium.launch(
+                headless=metadata["launch"]["headless"],
+                args=metadata["launch"]["chromium_args"],
+            )
             for row in report["routes"]:
                 samples = []
                 for _ in range(args.samples):
                     context = browser.new_context(
-                        viewport={"width": 1440, "height": 1000},
-                        reduced_motion="reduce",
+                        viewport=metadata["launch"]["viewport"],
+                        reduced_motion=metadata["launch"]["reduced_motion"],
                     )
                     page = context.new_page()
                     errors = []
@@ -105,7 +170,9 @@ def main():
                                 {
                                     "errors": errors,
                                     "body": page.locator("body").inner_text()[:1600],
-                                    "requests": page.evaluate("window.airfareMeasurement"),
+                                    "requests": page.evaluate(
+                                        "window.airfareMeasurement"
+                                    ),
                                 }
                             ),
                             flush=True,
@@ -120,15 +187,21 @@ def main():
                     ready = page.evaluate("performance.now()")
                     count = page.locator("table tbody tr").count()
                     before = page.evaluate("performance.now()")
-                    page.get_by_role("button", name="How the price moved", exact=True).click()
+                    page.get_by_role(
+                        "button", name="How the price moved", exact=True
+                    ).click()
                     page.evaluate(
                         "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
                     )
                     after = page.evaluate("performance.now()")
                     metrics = page.evaluate("window.airfareMeasurement")
                     history = [p for p in metrics["parsing"] if p["kind"] == "history"]
-                    assert history and history[-1]["pair"] == row["pair"], "Wrong route measured"
-                    assert history[-1]["count"] == row["history"]["count_max"], "Missing snapshots"
+                    assert history and history[-1]["pair"] == row["pair"], (
+                        "Wrong route measured"
+                    )
+                    assert history[-1]["count"] == expected_history_snapshots(row), (
+                        "Missing snapshots"
+                    )
                     assert not errors, errors
                     samples.append(
                         {
@@ -147,10 +220,7 @@ def main():
     finally:
         server.shutdown()
         server.server_close()
-    report["browser"] = {
-        "method": "Production build of actual AirfarePage, Chromium headless --disable-gpu, 1440x1000, reduced motion, fresh context each run; gzip endpoint responses replayed via loopback. Excludes backend computation, production auth, WAN and application shell.",
-        "routes": results,
-    }
+    report["browser"] = {**metadata, "routes": results}
     args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 

@@ -33,6 +33,49 @@ const IDLE = {
   finishedAt: null,
 };
 
+const RESETS = {
+  source: 'codex-resets.com',
+  fetchedAt: '2026-09-14T15:00:00Z',
+  generatedAt: '2026-09-14T14:59:00Z',
+  stale: false,
+  latestReset: {
+    id: 'reset-2',
+    resetType: 'banked',
+    announcedAt: '2026-09-12T08:09:17Z',
+    text: 'Banked reset landed',
+    source: {
+      type: 'x_post',
+      author: 'thsottiaux',
+      url: 'https://x.com/thsottiaux/status/reset-2',
+    },
+  },
+  stats: { total: 53, avgIntervalDays: 6.9, longestIntervalDays: 67.7 },
+  resets: [
+    {
+      id: 'reset-1',
+      resetType: 'regular',
+      announcedAt: '2026-09-01T04:30:00Z',
+      text: 'Regular reset landed',
+      source: {
+        type: 'x_post',
+        author: 'thsottiaux',
+        url: 'https://x.com/thsottiaux/status/reset-1',
+      },
+    },
+    {
+      id: 'reset-2',
+      resetType: 'banked',
+      announcedAt: '2026-09-12T08:09:17Z',
+      text: 'Banked reset landed',
+      source: {
+        type: 'x_post',
+        author: 'thsottiaux',
+        url: 'https://x.com/thsottiaux/status/reset-2',
+      },
+    },
+  ],
+};
+
 /**
  * One stub for both endpoints the page talks to.
  *
@@ -40,13 +83,17 @@ const IDLE = {
  * tweet query and the refresh poll together and the order between them is not
  * this component's promise to keep.
  */
-function stubApi(refresh: Record<string, unknown>) {
+function stubApi(refresh: Record<string, unknown>, resets: Response | object = RESETS) {
   const calls: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}`);
-      return Response.json(url.endsWith('/refresh') ? refresh : TWEETS);
+      if (url.endsWith('/refresh')) return Response.json(refresh);
+      if (url.endsWith('/api/codex-resets')) {
+        return resets instanceof Response ? resets : Response.json(resets);
+      }
+      return Response.json(TWEETS);
     }),
   );
   return calls;
@@ -71,6 +118,49 @@ it('separates captured posts and replies with links', async () => {
   expect(await screen.findByText('post anon')).toBeInTheDocument();
   expect(screen.getByText('reply anon')).toBeInTheDocument();
   expect(screen.getAllByRole('link', { name: 'Open on X' })).toHaveLength(2);
+  expect(screen.getAllByRole('img', { name: '@thsottiaux' })).toHaveLength(2);
+});
+
+it('places live reset summary and calendar above the preserved tweet columns', async () => {
+  stubApi(IDLE);
+  renderPage();
+
+  const latest = await screen.findByRole('heading', { name: 'Latest Codex limit reset' });
+  expect(latest.compareDocumentPosition(screen.getByRole('heading', { name: 'Posts' }))).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  expect(screen.getByText('53')).toBeInTheDocument();
+  expect(screen.getByText('6.9d')).toBeInTheDocument();
+  expect(screen.getByText('67.7d')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Codex reset history' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /banked reset.*2026-09-12/i })).toBeInTheDocument();
+  expect(
+    screen.queryByText(/Independent tracker; not affiliated with OpenAI/),
+  ).not.toBeInTheDocument();
+});
+
+it('keeps tweets visible while reset data is unavailable instead of showing zero statistics', async () => {
+  stubApi(IDLE, new Response('unavailable', { status: 503 }));
+  renderPage();
+
+  expect(await screen.findByText('post anon')).toBeInTheDocument();
+  expect(await screen.findByRole('alert', { name: /Codex reset data/i })).toHaveTextContent(
+    /could not refresh/i,
+  );
+  expect(screen.queryByText('0d')).not.toBeInTheDocument();
+});
+
+it('labels cached reset data with the exact age while retaining its values', async () => {
+  stubApi(IDLE, { ...RESETS, stale: true });
+  renderPage();
+
+  expect(await screen.findByText('53')).toBeInTheDocument();
+  expect(screen.getByRole('status', { name: /Codex reset data/i })).toHaveTextContent(
+    /cached data/i,
+  );
+  expect(screen.getByRole('status', { name: /Codex reset data/i })).toHaveTextContent(
+    /Sep 14, 2026/i,
+  );
 });
 
 it('shows the last completed refresh relatively, with its exact time on hover', async () => {

@@ -80,6 +80,11 @@ def sentiment_dir() -> Path:
     return local_data_dir() / "sentiment"
 
 
+def codex_resets_dir() -> Path:
+    """Path B: a disposable copy of the public Codex Resets feed."""
+    return local_data_dir() / "codex-resets"
+
+
 def fares_dir() -> Path:
     """
     Path B as well, but an archive rather than a cache.
@@ -169,6 +174,11 @@ MAX_STALE_BARS_SECONDS = 7 * 24 * 60 * 60
 # a long weekend while still refusing to fossilise the upstream indefinitely.
 SENTIMENT_TTL_SECONDS = 4 * 60 * 60
 MAX_STALE_SENTIMENT_SECONDS = 7 * 24 * 60 * 60
+
+# The upstream explicitly publishes max-age=60. Matching it means a busy
+# Dashboard does not turn into a second poller while still surfacing a reset
+# within the source's own freshness window.
+CODEX_RESETS_TTL_SECONDS = 60
 
 
 # --------------------------------------------------------------- airfare ----

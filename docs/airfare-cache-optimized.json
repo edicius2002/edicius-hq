@@ -1,0 +1,258 @@
+{
+  "schema_version": 2,
+  "commit": "c1f150a13bf66f54434d12be965f5e9c60f7de33",
+  "method": "Direct production history endpoint function and Pydantic serialization; no network, authentication, browser, collector startup, or source writes",
+  "samples_per_unchanged_phase": 15,
+  "dataset": {
+    "source": "D:\\Work\\research\\edicius-hq\\services\\api\\.local-data",
+    "frozen_copy": "C:\\Users\\krato\\AppData\\Local\\Temp\\edicius-airfare-cache-aqp-lim-frozen-a4c479a",
+    "frozen_copy_reused": true,
+    "sha256": "ec6f786fbc30419920f2062406411e35855cf28a8b96a4d62edcae3dd3e78317",
+    "bytes": 25587862,
+    "files": [
+      {
+        "path": "fares/airports.json",
+        "bytes": 1865,
+        "sha256": "58ffaa12e54ebed56aa2248f822445710c36f748c513ad71d3a0ae0eb6f62252"
+      },
+      {
+        "path": "fares/AQP-LIM.jsonl",
+        "bytes": 23785150,
+        "sha256": "0fed1c5fbea8302d13e952ab49c1b2542aa3aaf7efb061d75203fa0014b37723"
+      },
+      {
+        "path": "fares/baseline/AQP-LIM.jsonl",
+        "bytes": 901580,
+        "sha256": "ab8bcc941a704659e7364ea74b2f55df8b140dac9469bad13dd6b48169a43904"
+      },
+      {
+        "path": "fares/calendar/AQP-LIM.jsonl",
+        "bytes": 141776,
+        "sha256": "a86eb24c9936c6e4a27727428b5fd7f04cafe0a52da032b5a64df382b268da3d"
+      },
+      {
+        "path": "fares/calendar/checks/AQP-LIM.jsonl",
+        "bytes": 1939,
+        "sha256": "14639fef0962256e83db1a6605cdfe06e1ab08e9d12605d83ef1f7d1346332cf"
+      },
+      {
+        "path": "fares/checks/AQP-LIM.jsonl",
+        "bytes": 755351,
+        "sha256": "bc5ca91663557f3d1c767083f73b6c5f02266e0bef5cde8238acbf734af88552"
+      },
+      {
+        "path": "kv/airfare-routes.json",
+        "bytes": 201,
+        "sha256": "152c28932f7a283f25193ecf62aeb3b2c149738845fcea1f1facf537a4138c93"
+      }
+    ],
+    "source_sha256_before": "a901d1d6faeaf793ccf023fd7f02453d05fc931c91e79ebffae002703d3bd1f9",
+    "source_sha256_after": "a901d1d6faeaf793ccf023fd7f02453d05fc931c91e79ebffae002703d3bd1f9",
+    "source_unchanged_during_run": true
+  },
+  "payload_dir": "C:\\Users\\krato\\AppData\\Local\\Temp\\edicius-airfare-cache-aqp-lim-optimized-c1f150a\\payloads",
+  "routes": [
+    {
+      "pair": "AQP-LIM",
+      "month": "2026-11",
+      "archive_bytes": 23785150,
+      "history": {
+        "phases": {
+          "first_process_access": {
+            "timing": {
+              "first_ms": 1597.24,
+              "median_ms": 1597.24,
+              "p95_ms": 1597.24,
+              "max_ms": 1597.24
+            },
+            "samples_ms": [
+              1597.24
+            ],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [
+              1
+            ],
+            "peak_traced_bytes": 129976689,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 0,
+            "response_bytes": 21912762,
+            "gzip_bytes": 1002036,
+            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "content": {
+              "snapshots": 4909,
+              "offers": 99203,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
+                "checks": 3112,
+                "changes": 2520,
+                "errors": 21
+              }
+            }
+          },
+          "unchanged_repetitions": {
+            "timing": {
+              "first_ms": 1075.0,
+              "median_ms": 1068.16,
+              "p95_ms": 1455.49,
+              "max_ms": 1455.49
+            },
+            "samples_ms": [
+              1075.0,
+              886.36,
+              1313.32,
+              973.56,
+              951.38,
+              948.96,
+              1368.44,
+              1071.67,
+              1068.16,
+              978.69,
+              1017.65,
+              901.3,
+              1083.43,
+              1455.49,
+              1145.42
+            ],
+            "archive_reads": 0,
+            "archive_reads_per_sample": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "peak_traced_bytes": 129976841,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 0,
+            "response_bytes": 21912762,
+            "gzip_bytes": 1002036,
+            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "content": {
+              "snapshots": 4909,
+              "offers": 99203,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
+                "checks": 3112,
+                "changes": 2520,
+                "errors": 21
+              }
+            }
+          },
+          "after_append": {
+            "timing": {
+              "first_ms": 1626.87,
+              "median_ms": 1626.87,
+              "p95_ms": 1626.87,
+              "max_ms": 1626.87
+            },
+            "samples_ms": [
+              1626.87
+            ],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [
+              1
+            ],
+            "peak_traced_bytes": 130002454,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 0,
+            "response_bytes": 21917376,
+            "gzip_bytes": 1002100,
+            "response_sha256": "dadd4d2b6c2f336b45dd702e7789194b532228478bb4d3a31ed8c16dba78d4af",
+            "content": {
+              "snapshots": 4910,
+              "offers": 99224,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
+                "checks": 3112,
+                "changes": 2520,
+                "errors": 21
+              }
+            }
+          },
+          "after_replace": {
+            "timing": {
+              "first_ms": 2341.01,
+              "median_ms": 2341.01,
+              "p95_ms": 2341.01,
+              "max_ms": 2341.01
+            },
+            "samples_ms": [
+              2341.01
+            ],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [
+              1
+            ],
+            "peak_traced_bytes": 129976721,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 0,
+            "response_bytes": 21912762,
+            "gzip_bytes": 1002036,
+            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "content": {
+              "snapshots": 4909,
+              "offers": 99203,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
+                "checks": 3112,
+                "changes": 2520,
+                "errors": 21
+              }
+            }
+          },
+          "after_truncate": {
+            "timing": {
+              "first_ms": 75.32,
+              "median_ms": 75.32,
+              "p95_ms": 75.32,
+              "max_ms": 75.32
+            },
+            "samples_ms": [
+              75.32
+            ],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [
+              1
+            ],
+            "peak_traced_bytes": 8087281,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 0,
+            "response_bytes": 116640,
+            "gzip_bytes": 6054,
+            "response_sha256": "0b9cb19480b52403b32db1f0f913c5883f3cf35736056d41368148d716e887b8",
+            "content": {
+              "snapshots": 1,
+              "offers": 16,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
+                "checks": 3112,
+                "changes": 2520,
+                "errors": 21
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

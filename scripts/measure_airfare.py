@@ -16,15 +16,18 @@ import sys
 import tempfile
 import time
 import tracemalloc
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services" / "api"))
 
-from app.routers import fares
-from app.services.fare_calendar import FareCalendar
-from app.services.fare_history import FareHistory
+from app.routers import fares  # noqa: E402
+from app.services.fare_calendar import FareCalendar  # noqa: E402
+from app.services.fare_history import FareHistory  # noqa: E402
 
 
 def stats(values: list[float]) -> dict[str, float]:
@@ -40,7 +43,7 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def tree_manifest(directory: Path) -> list[dict[str, object]]:
+def tree_manifest(directory: Path) -> list[dict[str, Any]]:
     manifest = []
     for path in sorted(directory.rglob("*")):
         if path.is_file():
@@ -55,15 +58,13 @@ def tree_manifest(directory: Path) -> list[dict[str, object]]:
     return manifest
 
 
-def manifest_sha256(manifest: list[dict[str, object]]) -> str:
+def manifest_sha256(manifest: list[dict[str, Any]]) -> str:
     encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     return sha256_bytes(encoded)
 
 
-def route_rows(data_dir: Path, requested_pair: str | None) -> list[dict[str, object]]:
-    watchlist = json.loads(
-        (data_dir / "kv/airfare-routes.json").read_text(encoding="utf-8")
-    )
+def route_rows(data_dir: Path, requested_pair: str | None) -> list[dict[str, Any]]:
+    watchlist = json.loads((data_dir / "kv/airfare-routes.json").read_text(encoding="utf-8"))
     rows = [
         route
         for route in watchlist["routes"]
@@ -74,15 +75,11 @@ def route_rows(data_dir: Path, requested_pair: str | None) -> list[dict[str, obj
         available = ", ".join(
             f"{route['origin']}-{route['destination']}" for route in watchlist["routes"]
         )
-        raise ValueError(
-            f"pair {requested_pair!r} is not watched; available: {available}"
-        )
+        raise ValueError(f"pair {requested_pair!r} is not watched; available: {available}")
     return rows
 
 
-def selected_relative_paths(
-    data_dir: Path, routes: list[dict[str, object]]
-) -> list[Path]:
+def selected_relative_paths(data_dir: Path, routes: list[dict[str, Any]]) -> list[Path]:
     paths = [Path("kv/airfare-routes.json"), Path("fares/airports.json")]
     for route in routes:
         pair = f"{route['origin']}-{route['destination']}"
@@ -98,9 +95,7 @@ def selected_relative_paths(
     return sorted({path for path in paths if (data_dir / path).is_file()})
 
 
-def selected_source_manifest(
-    data_dir: Path, relative_paths: list[Path]
-) -> list[dict[str, object]]:
+def selected_source_manifest(data_dir: Path, relative_paths: list[Path]) -> list[dict[str, Any]]:
     manifest = []
     for relative in relative_paths:
         content = (data_dir / relative).read_bytes()
@@ -115,8 +110,8 @@ def selected_source_manifest(
 
 
 def create_or_reuse_frozen_copy(
-    source: Path, frozen: Path, routes: list[dict[str, object]]
-) -> tuple[list[dict[str, object]], bool]:
+    source: Path, frozen: Path, routes: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], bool]:
     if frozen.exists():
         manifest = tree_manifest(frozen)
         if not manifest or not (frozen / "kv/airfare-routes.json").is_file():
@@ -136,9 +131,7 @@ def create_or_reuse_frozen_copy(
     )
     after = selected_source_manifest(source, relative_paths)
     if before != after:
-        raise RuntimeError(
-            "source changed while the frozen copy was being created; retry"
-        )
+        raise RuntimeError("source changed while the frozen copy was being created; retry")
     return tree_manifest(frozen), False
 
 
@@ -152,14 +145,11 @@ def count_archive_reads(archive: Path):
             reads["count"] += 1
         return original_open(path, mode, *args, **kwargs)
 
-    Path.open = counted_open
-    try:
+    with patch.object(Path, "open", counted_open):
         yield reads
-    finally:
-        Path.open = original_open
 
 
-def response_content(response) -> dict[str, object]:
+def response_content(response) -> dict[str, Any]:
     return {
         "snapshots": len(response.snapshots),
         "offers": sum(len(snapshot.offers) for snapshot in response.snapshots),
@@ -169,7 +159,7 @@ def response_content(response) -> dict[str, object]:
     }
 
 
-def measure_phase(call, archive: Path, samples: int) -> dict[str, object]:
+def measure_phase(call: Callable[[], Any], archive: Path, samples: int) -> dict[str, Any]:
     times: list[float] = []
     read_samples: list[int] = []
     bodies: list[bytes] = []
@@ -194,9 +184,7 @@ def measure_phase(call, archive: Path, samples: int) -> dict[str, object]:
         tracemalloc.stop()
     digests = {sha256_bytes(body) for body in bodies}
     if len(digests) != 1:
-        raise RuntimeError(
-            "response content changed during an unchanged measurement phase"
-        )
+        raise RuntimeError("response content changed during an unchanged measurement phase")
     result = {
         "timing": stats(times),
         "samples_ms": [round(value, 2) for value in times],
@@ -225,7 +213,7 @@ def history_call(origin: str, destination: str, month: str):
     )
 
 
-def replace_archive(archive: Path, rows: list[dict[str, object]]) -> None:
+def replace_archive(archive: Path, rows: list[dict[str, Any]]) -> None:
     temporary = archive.with_suffix(".measurement.tmp")
     temporary.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
@@ -234,16 +222,14 @@ def replace_archive(archive: Path, rows: list[dict[str, object]]) -> None:
     temporary.replace(archive)
 
 
-def append_measurement_row(
-    archive: Path, original_rows: list[dict[str, object]]
-) -> None:
+def append_measurement_row(archive: Path, original_rows: list[dict[str, Any]]) -> None:
     appended = dict(original_rows[-1])
     appended["capturedAt"] = "9999-12-31T23:59:59.999999+00:00"
     with archive.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(appended, ensure_ascii=False) + "\n")
 
 
-def measure_route(data_dir: Path, route: dict[str, object], samples: int):
+def measure_route(data_dir: Path, route: dict[str, Any], samples: int):
     origin = str(route["origin"])
     destination = str(route["destination"])
     month = str(route["months"][0])
@@ -259,7 +245,9 @@ def measure_route(data_dir: Path, route: dict[str, object], samples: int):
         raise ValueError(f"cannot measure mutations on an empty archive: {archive}")
     fares.HISTORY = FareHistory(data_dir / "fares")
     fares.CALENDAR = FareCalendar(data_dir / "fares/calendar")
-    call = lambda: history_call(origin, destination, month)
+
+    def call():
+        return history_call(origin, destination, month)
 
     initial_response = call()
     phases = {"unchanged_repetitions": measure_phase(call, archive, samples)}
@@ -289,14 +277,74 @@ def git_commit() -> str:
     return result.stdout.strip()
 
 
+def phase_summary(phase: dict[str, Any]) -> dict[str, Any]:
+    timing = phase["timing"]
+    return {
+        "median_ms": timing["median_ms"],
+        "archive_reads": phase["archive_reads"],
+        "peak_traced_bytes": phase["peak_traced_bytes"],
+        "response_sha256": phase["response_sha256"],
+        "content": phase["content"],
+    }
+
+
+def compare_reports(baseline_path: Path, optimized_path: Path) -> dict[str, Any]:
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    optimized = json.loads(optimized_path.read_text(encoding="utf-8"))
+    baseline_dataset = baseline["dataset"]["sha256"]
+    if optimized["dataset"]["sha256"] != baseline_dataset:
+        raise ValueError("baseline and optimized reports use different frozen datasets")
+    baseline_routes = {row["pair"]: row for row in baseline["routes"]}
+    optimized_routes = {row["pair"]: row for row in optimized["routes"]}
+    if optimized_routes.keys() != baseline_routes.keys():
+        raise ValueError("baseline and optimized reports contain different routes")
+
+    rows = []
+    equivalent = True
+    for pair, baseline_route in baseline_routes.items():
+        optimized_route = optimized_routes[pair]
+        baseline_phases = baseline_route["history"]["phases"]
+        optimized_phases = optimized_route["history"]["phases"]
+        if optimized_phases.keys() != baseline_phases.keys():
+            raise ValueError(f"phase set differs for {pair}")
+        phases = {}
+        for name, baseline_phase in baseline_phases.items():
+            optimized_phase = optimized_phases[name]
+            phase_equivalent = (
+                baseline_phase["response_sha256"] == optimized_phase["response_sha256"]
+                and baseline_phase["content"] == optimized_phase["content"]
+            )
+            equivalent = equivalent and phase_equivalent
+            baseline_median = float(baseline_phase["timing"]["median_ms"])
+            optimized_median = float(optimized_phase["timing"]["median_ms"])
+            phases[name] = {
+                "content_equivalent": phase_equivalent,
+                "baseline": phase_summary(baseline_phase),
+                "optimized": phase_summary(optimized_phase),
+                "median_delta_ms": round(optimized_median - baseline_median, 2),
+                "median_change_percent": (
+                    round((optimized_median / baseline_median - 1) * 100, 2)
+                    if baseline_median
+                    else None
+                ),
+            }
+        rows.append({"pair": pair, "phases": phases})
+    return {
+        "schema_version": 1,
+        "baseline_commit": baseline["commit"],
+        "optimized_commit": optimized["commit"],
+        "dataset_sha256": baseline_dataset,
+        "content_equivalent": equivalent,
+        "routes": rows,
+    }
+
+
 def run_phase_worker(args: argparse.Namespace) -> None:
     data_dir = args.worker_data_dir.resolve()
     origin, destination = args.worker_pair.split("-", 1)
     fares.HISTORY = FareHistory(data_dir / "fares")
     archive = data_dir / f"fares/{args.worker_pair}.jsonl"
-    result = measure_phase(
-        lambda: history_call(origin, destination, args.worker_month), archive, 1
-    )
+    result = measure_phase(lambda: history_call(origin, destination, args.worker_month), archive, 1)
     args.worker_output.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
@@ -304,10 +352,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=15)
     parser.add_argument("--output", type=Path)
-    parser.add_argument(
-        "--data-dir", type=Path, default=ROOT / "services/api/.local-data"
-    )
+    parser.add_argument("--data-dir", type=Path, default=ROOT / "services/api/.local-data")
     parser.add_argument("--pair")
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        type=Path,
+        metavar=("BASELINE", "OPTIMIZED"),
+        help="Compare two reports and write a compact integrity/performance summary",
+    )
     parser.add_argument(
         "--frozen-copy",
         type=Path,
@@ -326,6 +379,10 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.phase_worker:
         return args
+    if args.compare:
+        if args.output is None:
+            parser.error("--output is required with --compare")
+        return args
     if args.samples < 1:
         parser.error("samples must be positive")
     if args.output is None:
@@ -337,6 +394,12 @@ def main() -> None:
     args = parse_args()
     if args.phase_worker:
         run_phase_worker(args)
+        return
+    if args.compare:
+        comparison = compare_reports(*args.compare)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(comparison, indent=2), encoding="utf-8")
+        print(json.dumps(comparison, indent=2))
         return
 
     source = args.data_dir.resolve()
@@ -399,9 +462,7 @@ def main() -> None:
         (payload_dir / f"{pair}-history.json").write_bytes(initial_body)
 
         fares.CALENDAR = FareCalendar(frozen / "fares/calendar")
-        calendar_response = fares.get_calendar(
-            str(route["origin"]), str(route["destination"])
-        )
+        calendar_response = fares.get_calendar(str(route["origin"]), str(route["destination"]))
         (payload_dir / f"{pair}-calendar.json").write_text(
             calendar_response.model_dump_json(), encoding="utf-8"
         )

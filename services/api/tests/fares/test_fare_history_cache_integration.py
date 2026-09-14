@@ -443,6 +443,45 @@ def test_measurement_freezes_source_and_reports_each_access_phase(tmp_path):
         assert phase["archive_reads"] >= 0
         assert phase["peak_traced_bytes"] >= 0
 
+    baseline_phase = report["routes"][0]["history"]["phases"]["unchanged_repetitions"]
+    baseline_phase["timing"]["median_ms"] = 20.0
+    baseline_phase["archive_reads"] = 2
+    output.write_text(json.dumps(report), encoding="utf-8")
+    optimized = json.loads(json.dumps(report))
+    optimized["commit"] = "optimized-fixture"
+    optimized_phase = optimized["routes"][0]["history"]["phases"]["unchanged_repetitions"]
+    optimized_phase["timing"]["median_ms"] = 10.0
+    optimized_phase["archive_reads"] = 0
+    optimized_phase["peak_traced_bytes"] = 1000
+    optimized_output = tmp_path / "optimized.json"
+    optimized_output.write_text(json.dumps(optimized), encoding="utf-8")
+    comparison_output = tmp_path / "comparison.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/measure_airfare.py"),
+            "--compare",
+            str(output),
+            str(optimized_output),
+            "--output",
+            str(comparison_output),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    comparison = json.loads(comparison_output.read_text(encoding="utf-8"))
+    repeated = comparison["routes"][0]["phases"]["unchanged_repetitions"]
+    assert comparison["dataset_sha256"] == report["dataset"]["sha256"]
+    assert comparison["content_equivalent"] is True
+    assert comparison["optimized_commit"] == "optimized-fixture"
+    assert repeated["optimized"]["archive_reads"] == 0
+    assert repeated["baseline"]["archive_reads"] == 2
+    assert repeated["median_change_percent"] < 0
+
 
 def test_browser_replay_metadata_prevents_wan_or_end_to_end_interpretation(tmp_path):
     """Catch browser results reported without their local-replay boundaries."""

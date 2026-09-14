@@ -8,7 +8,7 @@ import threading
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import ClassVar
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -30,7 +30,7 @@ def directory_sha256(directory: Path) -> str:
     return digest.hexdigest()
 
 
-def measurement_metadata(report: dict, build: Path, payload_dir: Path) -> dict:
+def measurement_metadata(report: dict[str, Any], build: Path, payload_dir: Path) -> dict[str, Any]:
     """Structured limits shared by the browser launch and its saved report."""
     return {
         "kind": "local_response_replay",
@@ -45,9 +45,7 @@ def measurement_metadata(report: dict, build: Path, payload_dir: Path) -> dict:
             "reduced_motion": "reduce",
         },
         "timing_boundaries": {
-            "flights_ready_ms": (
-                "navigation start through table readiness and two paint frames"
-            ),
+            "flights_ready_ms": ("navigation start through table readiness and two paint frames"),
             "moves_switch_ms": "chart-button click through two paint frames",
             "excluded": [
                 "backend computation",
@@ -58,13 +56,12 @@ def measurement_metadata(report: dict, build: Path, payload_dir: Path) -> dict:
             ],
         },
         "interpretation": (
-            "Local loopback replay of prepared gzip responses; not WAN or "
-            "end-to-end latency."
+            "Local loopback replay of prepared gzip responses; not WAN or end-to-end latency."
         ),
     }
 
 
-def expected_history_snapshots(route: dict) -> int:
+def expected_history_snapshots(route: dict[str, Any]) -> int:
     history = route["history"]
     if "count_max" in history:
         return int(history["count_max"])
@@ -81,12 +78,11 @@ def main():
     payload_dir = Path(report["payload_dir"])
     metadata = measurement_metadata(report, args.build, payload_dir)
     watches = json.loads((payload_dir / "watchlist.json").read_text())
-    payloads = {
-        p.name: gzip.compress(p.read_bytes()) for p in payload_dir.glob("*.json")
-    }
+    payloads = {p.name: gzip.compress(p.read_bytes()) for p in payload_dir.glob("*.json")}
 
     class Handler(SimpleHTTPRequestHandler):
-        extensions_map: ClassVar[dict[str, str]] = {
+        # SimpleHTTPRequestHandler consumes this as a shared MIME table.
+        extensions_map: dict[str, str] = {  # noqa: RUF012
             **SimpleHTTPRequestHandler.extensions_map,
             ".js": "application/javascript",
             ".css": "text/css",
@@ -101,9 +97,9 @@ def main():
             if not parsed.path.startswith("/api/"):
                 return super().do_GET()
             if parsed.path == "/api/kv/airfare-routes":
-                pair = parse_qs(urlparse(self.headers.get("Referer", "")).query).get(
-                    "pair", [""]
-                )[0]
+                pair = parse_qs(urlparse(self.headers.get("Referer", "")).query).get("pair", [""])[
+                    0
+                ]
                 routes = sorted(
                     watches["routes"],
                     key=lambda r: f"{r['origin']}-{r['destination']}" != pair,
@@ -133,9 +129,7 @@ def main():
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0), partial(Handler, directory=str(args.build))
-    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(args.build)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     results = []
@@ -170,9 +164,7 @@ def main():
                                 {
                                     "errors": errors,
                                     "body": page.locator("body").inner_text()[:1600],
-                                    "requests": page.evaluate(
-                                        "window.airfareMeasurement"
-                                    ),
+                                    "requests": page.evaluate("window.airfareMeasurement"),
                                 }
                             ),
                             flush=True,
@@ -187,18 +179,14 @@ def main():
                     ready = page.evaluate("performance.now()")
                     count = page.locator("table tbody tr").count()
                     before = page.evaluate("performance.now()")
-                    page.get_by_role(
-                        "button", name="How the price moved", exact=True
-                    ).click()
+                    page.get_by_role("button", name="How the price moved", exact=True).click()
                     page.evaluate(
                         "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
                     )
                     after = page.evaluate("performance.now()")
                     metrics = page.evaluate("window.airfareMeasurement")
                     history = [p for p in metrics["parsing"] if p["kind"] == "history"]
-                    assert history and history[-1]["pair"] == row["pair"], (
-                        "Wrong route measured"
-                    )
+                    assert history and history[-1]["pair"] == row["pair"], "Wrong route measured"
                     assert history[-1]["count"] == expected_history_snapshots(row), (
                         "Missing snapshots"
                     )

@@ -13,10 +13,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
 from app.main import app
 from app.routers import fares as fares_router
 from app.services.fare_history import FareHistory
-from fastapi.testclient import TestClient
 
 HISTORY_URL = "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
 ROOT = Path(__file__).resolve().parents[4]
@@ -223,8 +224,8 @@ def test_public_contract_preserves_all_content_filters_and_order(history_endpoin
     }
 
 
-def test_empty_until_remains_a_present_filter_after_warm_access(history_endpoint):
-    """Catch treating ``until=`` as though the query parameter were absent."""
+def test_empty_until_matches_absent_until_after_warm_access(history_endpoint):
+    """Preserve the endpoint's original empty-bound truthiness semantics."""
     client, history = history_endpoint
     row = snapshot_row("2026-08-01T09:00:00+00:00", 210.0)
     write_jsonl(history.directory / "LIM-SCL.jsonl", [row])
@@ -235,8 +236,8 @@ def test_empty_until_remains_a_present_filter_after_warm_access(history_endpoint
 
     assert warm.status_code == empty_until.status_code == absent_again.status_code == 200
     assert warm.json()["snapshots"] == [row]
-    assert empty_until.json()["snapshots"] == []
-    assert absent_again.json()["snapshots"] == [row]
+    assert empty_until.json() == warm.json()
+    assert absent_again.json() == warm.json()
 
 
 def test_unchanged_requests_hit_cache_and_append_invalidates(history_endpoint, monkeypatch):

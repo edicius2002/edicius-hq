@@ -114,17 +114,39 @@ do not name or import cache internals. They cover:
 - snapshots and every offer/field in order;
 - exact baseline, health, and airport content;
 - route normalization and `departure`, `since`, and `until` filtering;
-- a warm-cache regression where absent `until` returns existing history,
-  present-but-empty `until=` returns no snapshots, and absent `until` still
-  returns the history afterwards;
+- a warm-cache regression where absent `until`, present-but-empty `until=`, and
+  a later absent `until` all return the same existing history, preserving the
+  endpoint's original truthiness semantics;
 - unchanged hits and invalidation after an external append;
 - file creation after a legitimate empty response;
 - replacement and truncation without stale rows; and
 - a temporary read error as a non-success response, never a successful empty
   history, followed by recovery on the next request.
 
-The final corrective worker commit and exact post-integration checks are
-recorded below once that completed delivery is incorporated.
+Worker 1 completed the semantic correction as
+`e143e871b515e201903bf9eb6abecd5dae6f0590`; it was reviewed and cherry-picked
+as `05ad440`. Independent validation preparation is commit `74ec0f4`.
+
+## Final integrated verification
+
+An isolated worktree-local virtual environment was populated from the pinned
+`services/api/requirements.txt`; the shared root environment was not modified.
+On the integrated result:
+
+- the four focused history/cache/store/endpoint files passed **55 tests** with
+  two upstream FastAPI/Starlette deprecation warnings in 9.23 seconds;
+- the complete API collection passed **632 tests**, with the same two warnings,
+  in 55.33 seconds;
+- Ruff format checked 107 files; Ruff lint passed after the integration-test
+  imports were kept in repository order; and
+- targeted mypy passed the history service, fare router, measurement harness,
+  and endpoint integration test with no issues.
+
+The earlier `fastapi.routing.iter_route_contexts` collection error did not
+recur under the pinned dependencies, so it was an environment-version problem,
+not a repository failure. No unrelated test failure remained in this final full
+run. The isolated environment and pytest temporary directories are removed
+before handoff.
 
 ## Reproduction
 

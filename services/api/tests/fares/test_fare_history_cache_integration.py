@@ -7,6 +7,8 @@ temporary archive file.  Every mutation is confined to ``tmp_path``.
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,7 @@ from app.routers import fares as fares_router
 from app.services.fare_history import FareHistory
 
 HISTORY_URL = "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
+ROOT = Path(__file__).resolve().parents[4]
 
 
 def offer_row(
@@ -75,6 +78,14 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
+def file_bytes(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
 @pytest.fixture
 def history_endpoint(monkeypatch, tmp_path):
     history = FareHistory(tmp_path / "fares")
@@ -88,9 +99,7 @@ def test_public_contract_preserves_all_content_filters_and_order(history_endpoin
     """Catch dropped/reordered offers, fields, baselines, health, or bounds."""
     client, history = history_endpoint
     older = snapshot_row("2026-08-01T09:00:00+00:00", 210.0, second_offer=True)
-    newer = snapshot_row(
-        "2026-08-20T09:00:00+00:00", 205.0, flight_date="2027-03-10"
-    )
+    newer = snapshot_row("2026-08-20T09:00:00+00:00", 205.0, flight_date="2027-03-10")
     outside = snapshot_row("2026-09-01T09:00:00+00:00", 199.0)
     write_jsonl(history.directory / "LIM-SCL.jsonl", [outside, newer, older])
     write_jsonl(
@@ -318,3 +327,108 @@ def test_temporary_read_error_is_not_empty_and_later_request_recovers(
     assert failed.status_code >= 500
     assert recovered.status_code == 200
     assert recovered.json()["snapshots"] == [row]
+
+
+def test_measurement_freezes_source_and_reports_each_access_phase(tmp_path):
+    """Catch measuring a moving source or collapsing distinct cache phases."""
+    source = tmp_path / "source"
+    archive = source / "fares/LIM-SCL.jsonl"
+    write_jsonl(
+        archive,
+        [
+            snapshot_row("2026-08-01T09:00:00+00:00", 210.0),
+            snapshot_row("2026-08-02T09:00:00+00:00", 205.0),
+        ],
+    )
+    write_jsonl(
+        source / "fares/baseline/LIM-SCL.jsonl",
+        [
+            {
+                "flightDate": "2027-03-09",
+                "date": "2026-08-01",
+                "price": 211,
+                "currency": "USD",
+                "source": "fixture",
+            }
+        ],
+    )
+    write_jsonl(
+        source / "fares/checks/LIM-SCL.jsonl",
+        [
+            {
+                "at": "2026-08-01T10:00:00+00:00",
+                "flightDate": "2027-03-09",
+                "outcome": "changed",
+                "offers": 1,
+            }
+        ],
+    )
+    (source / "fares/airports.json").write_text("{}", encoding="utf-8")
+    watchlist = source / "kv/airfare-routes.json"
+    watchlist.parent.mkdir(parents=True)
+    watchlist.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "routes": [
+                    {
+                        "origin": "LIM",
+                        "destination": "SCL",
+                        "months": ["2027-03"],
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = file_bytes(source)
+    output = tmp_path / "measurement.json"
+    frozen = tmp_path / "frozen"
+    work = tmp_path / "work"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/measure_airfare.py"),
+            "--data-dir",
+            str(source),
+            "--frozen-copy",
+            str(frozen),
+            "--work-dir",
+            str(work),
+            "--pair",
+            "LIM-SCL",
+            "--samples",
+            "2",
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(output.read_text(encoding="utf-8"))
+    phases = report["routes"][0]["history"]["phases"]
+    assert file_bytes(source) == before
+    assert report["dataset"]["frozen_copy"] == str(frozen.resolve())
+    assert report["dataset"]["sha256"]
+    assert set(phases) == {
+        "first_process_access",
+        "unchanged_repetitions",
+        "after_append",
+        "after_replace",
+        "after_truncate",
+    }
+    assert phases["first_process_access"]["content"]["snapshots"] == 2
+    assert phases["unchanged_repetitions"]["content"]["snapshots"] == 2
+    assert len(phases["unchanged_repetitions"]["samples_ms"]) == 2
+    assert phases["after_append"]["content"]["snapshots"] == 3
+    assert phases["after_replace"]["content"]["snapshots"] == 2
+    assert phases["after_truncate"]["content"]["snapshots"] == 1
+    for phase in phases.values():
+        assert len(phase["response_sha256"]) == 64
+        assert phase["archive_reads"] >= 0
+        assert phase["peak_traced_bytes"] >= 0

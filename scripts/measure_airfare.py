@@ -29,6 +29,27 @@ from app.routers import fares  # noqa: E402
 from app.services.fare_calendar import FareCalendar  # noqa: E402
 from app.services.fare_history import FareHistory  # noqa: E402
 
+MEASUREMENT_METHOD = (
+    "Direct production history endpoint model construction only; excludes "
+    "Pydantic JSON serialization, HTTP, authentication, browser, collector "
+    "startup, and source writes"
+)
+TIMING_BOUNDARIES = {
+    "included": [
+        "production get_history function",
+        "history read or cache lookup",
+        "response-model construction",
+    ],
+    "excluded": [
+        "model_dump_json serialization",
+        "HTTP stack",
+        "authentication",
+        "browser rendering",
+        "WAN latency",
+        "collector startup and work",
+    ],
+}
+
 
 def stats(values: list[float]) -> dict[str, float]:
     return {
@@ -170,6 +191,8 @@ def measure_phase(call: Callable[[], Any], archive: Path, samples: int) -> dict[
             response = call()
             times.append((time.perf_counter() - started) * 1000)
             read_samples.append(reads["count"] - reads_before)
+            # Content hashes are computed outside the timed boundary. They prove
+            # equivalence without folding JSON serialization into endpoint time.
             bodies.append(response.model_dump_json().encode("utf-8"))
 
     # Tracing allocations materially slows this 20 MB decode, so memory is a
@@ -331,6 +354,8 @@ def compare_reports(baseline_path: Path, optimized_path: Path) -> dict[str, Any]
         rows.append({"pair": pair, "phases": phases})
     return {
         "schema_version": 1,
+        "metric": "direct_endpoint_model_construction_ms",
+        "timing_boundaries": TIMING_BOUNDARIES,
         "baseline_commit": baseline["commit"],
         "optimized_commit": optimized["commit"],
         "dataset_sha256": baseline_dataset,
@@ -473,10 +498,8 @@ def main() -> None:
     report = {
         "schema_version": 2,
         "commit": git_commit(),
-        "method": (
-            "Direct production history endpoint function and Pydantic serialization; "
-            "no network, authentication, browser, collector startup, or source writes"
-        ),
+        "method": MEASUREMENT_METHOD,
+        "timing_boundaries": TIMING_BOUNDARIES,
         "samples_per_unchanged_phase": args.samples,
         "dataset": {
             "source": str(source),

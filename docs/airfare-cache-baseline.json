@@ -1,7 +1,22 @@
 {
   "schema_version": 2,
   "commit": "ea118ce12c795616ea4532b6cd2b02db9477622b",
-  "method": "Direct production history endpoint function and Pydantic serialization; no network, authentication, browser, collector startup, or source writes",
+  "method": "Direct production history endpoint model construction only; excludes Pydantic JSON serialization, HTTP, authentication, browser, collector startup, and source writes",
+  "timing_boundaries": {
+    "included": [
+      "production get_history function",
+      "history read or cache lookup",
+      "response-model construction"
+    ],
+    "excluded": [
+      "model_dump_json serialization",
+      "HTTP stack",
+      "authentication",
+      "browser rendering",
+      "WAN latency",
+      "collector startup and work"
+    ]
+  },
   "samples_per_unchanged_phase": 15,
   "dataset": {
     "source": "D:\\Work\\research\\edicius-hq\\services\\api\\.local-data",

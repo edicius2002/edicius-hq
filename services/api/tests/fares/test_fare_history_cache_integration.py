@@ -13,11 +13,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.main import app
 from app.routers import fares as fares_router
 from app.services.fare_history import FareHistory
+from fastapi.testclient import TestClient
 
 HISTORY_URL = "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
 ROOT = Path(__file__).resolve().parents[4]
@@ -224,6 +223,22 @@ def test_public_contract_preserves_all_content_filters_and_order(history_endpoin
     }
 
 
+def test_empty_until_remains_a_present_filter_after_warm_access(history_endpoint):
+    """Catch treating ``until=`` as though the query parameter were absent."""
+    client, history = history_endpoint
+    row = snapshot_row("2026-08-01T09:00:00+00:00", 210.0)
+    write_jsonl(history.directory / "LIM-SCL.jsonl", [row])
+
+    warm = client.get(HISTORY_URL)
+    empty_until = client.get(f"{HISTORY_URL}&until=")
+    absent_again = client.get(HISTORY_URL)
+
+    assert warm.status_code == empty_until.status_code == absent_again.status_code == 200
+    assert warm.json()["snapshots"] == [row]
+    assert empty_until.json()["snapshots"] == []
+    assert absent_again.json()["snapshots"] == [row]
+
+
 def test_unchanged_requests_hit_cache_and_append_invalidates(history_endpoint, monkeypatch):
     """Catch reparsing unchanged files or serving stale content after append."""
     client, history = history_endpoint
@@ -422,6 +437,26 @@ def test_measurement_freezes_source_and_reports_each_access_phase(tmp_path):
 
     report = json.loads(output.read_text(encoding="utf-8"))
     phases = report["routes"][0]["history"]["phases"]
+    assert report["method"] == (
+        "Direct production history endpoint model construction only; excludes "
+        "Pydantic JSON serialization, HTTP, authentication, browser, collector "
+        "startup, and source writes"
+    )
+    assert report["timing_boundaries"] == {
+        "included": [
+            "production get_history function",
+            "history read or cache lookup",
+            "response-model construction",
+        ],
+        "excluded": [
+            "model_dump_json serialization",
+            "HTTP stack",
+            "authentication",
+            "browser rendering",
+            "WAN latency",
+            "collector startup and work",
+        ],
+    }
     assert file_bytes(source) == before
     assert report["dataset"]["frozen_copy"] == str(frozen.resolve())
     assert report["dataset"]["sha256"]
@@ -475,6 +510,8 @@ def test_measurement_freezes_source_and_reports_each_access_phase(tmp_path):
 
     comparison = json.loads(comparison_output.read_text(encoding="utf-8"))
     repeated = comparison["routes"][0]["phases"]["unchanged_repetitions"]
+    assert comparison["metric"] == "direct_endpoint_model_construction_ms"
+    assert comparison["timing_boundaries"] == report["timing_boundaries"]
     assert comparison["dataset_sha256"] == report["dataset"]["sha256"]
     assert comparison["content_equivalent"] is True
     assert comparison["optimized_commit"] == "optimized-fixture"

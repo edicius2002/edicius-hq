@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers.tweets import DEFAULT_HANDLE
+from app.services import airfare_supabase
 
 
 def test_lifespan_starts_default_tweet_watcher_when_enabled(monkeypatch):
@@ -28,3 +29,14 @@ def test_lifespan_does_not_start_tweet_watcher_when_disabled(monkeypatch):
         pass
 
     watch.assert_not_called()
+
+
+def test_lifespan_closes_the_configured_airfare_supabase_client_once(monkeypatch):
+    """Catches a process shutdown leaking the reusable Supabase HTTP client."""
+    client = Mock()
+    monkeypatch.setattr(airfare_supabase, "_configured_client", client)
+
+    with TestClient(app):
+        pass
+
+    client.close.assert_called_once_with()

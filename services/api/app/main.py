@@ -20,6 +20,7 @@ from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.routers.sentiment import close_client as close_sentiment_client
 from app.routers.tweets import DEFAULT_HANDLE
+from app.services.airfare_supabase import close_airfare_supabase_client
 from app.services.calendar_job import CALENDAR_RUNNER
 from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
@@ -74,6 +75,7 @@ async def lifespan(_app: FastAPI):
     await close_fares_client()
     await close_sentiment_client()
     await close_codex_resets_client()
+    close_airfare_supabase_client()
 
 
 app = FastAPI(title="Edicius HQ API", version="0.0.0", lifespan=lifespan)

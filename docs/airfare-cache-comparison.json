@@ -16,9 +16,9 @@
       "collector startup and work"
     ]
   },
-  "baseline_commit": "ea118ce12c795616ea4532b6cd2b02db9477622b",
-  "optimized_commit": "c1f150a13bf66f54434d12be965f5e9c60f7de33",
-  "dataset_sha256": "ec6f786fbc30419920f2062406411e35855cf28a8b96a4d62edcae3dd3e78317",
+  "baseline_commit": "fabcdc6ffd8902f178957c8d74bba533f4b20bac",
+  "optimized_commit": "9c13b384fc316efffd398371689d4d45f56239a4",
+  "dataset_sha256": "334409015eb34be119de608f60c053110c89cedd5d516b1f61367af2653bb5ef",
   "content_equivalent": true,
   "routes": [
     {
@@ -27,207 +27,207 @@
         "first_process_access": {
           "content_equivalent": true,
           "baseline": {
-            "median_ms": 1745.63,
+            "median_ms": 1576.14,
             "archive_reads": 1,
-            "peak_traced_bytes": 174419354,
-            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "peak_traced_bytes": 184484943,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
             "content": {
-              "snapshots": 4909,
-              "offers": 99203,
+              "snapshots": 5189,
+              "offers": 105152,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
           "optimized": {
-            "median_ms": 1597.24,
+            "median_ms": 2561.61,
             "archive_reads": 1,
-            "peak_traced_bytes": 129976689,
-            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "peak_traced_bytes": 137374810,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
             "content": {
-              "snapshots": 4909,
-              "offers": 99203,
+              "snapshots": 5189,
+              "offers": 105152,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
-          "median_delta_ms": -148.39,
-          "median_change_percent": -8.5
+          "median_delta_ms": 985.47,
+          "median_change_percent": 62.52
         },
         "unchanged_repetitions": {
           "content_equivalent": true,
           "baseline": {
-            "median_ms": 1920.24,
+            "median_ms": 1890.39,
             "archive_reads": 15,
-            "peak_traced_bytes": 174403242,
-            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "peak_traced_bytes": 184456887,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
             "content": {
-              "snapshots": 4909,
-              "offers": 99203,
+              "snapshots": 5189,
+              "offers": 105152,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
           "optimized": {
-            "median_ms": 1068.16,
+            "median_ms": 1003.37,
             "archive_reads": 0,
-            "peak_traced_bytes": 129976841,
-            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "peak_traced_bytes": 137374962,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
             "content": {
-              "snapshots": 4909,
-              "offers": 99203,
+              "snapshots": 5189,
+              "offers": 105152,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
-          "median_delta_ms": -852.08,
-          "median_change_percent": -44.37
+          "median_delta_ms": -887.02,
+          "median_change_percent": -46.92
         },
         "after_append": {
           "content_equivalent": true,
           "baseline": {
-            "median_ms": 1819.85,
+            "median_ms": 1668.61,
             "archive_reads": 1,
-            "peak_traced_bytes": 174438513,
-            "response_sha256": "dadd4d2b6c2f336b45dd702e7789194b532228478bb4d3a31ed8c16dba78d4af",
+            "peak_traced_bytes": 184492062,
+            "response_sha256": "bbee8e75889d9ee822467bc368c2a81ab90255b6d58af059517cca8220abc24c",
             "content": {
-              "snapshots": 4910,
-              "offers": 99224,
+              "snapshots": 5190,
+              "offers": 105173,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
           "optimized": {
-            "median_ms": 1626.87,
+            "median_ms": 1598.71,
             "archive_reads": 1,
-            "peak_traced_bytes": 130002454,
-            "response_sha256": "dadd4d2b6c2f336b45dd702e7789194b532228478bb4d3a31ed8c16dba78d4af",
+            "peak_traced_bytes": 137421674,
+            "response_sha256": "bbee8e75889d9ee822467bc368c2a81ab90255b6d58af059517cca8220abc24c",
             "content": {
-              "snapshots": 4910,
-              "offers": 99224,
+              "snapshots": 5190,
+              "offers": 105173,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
-          "median_delta_ms": -192.98,
-          "median_change_percent": -10.6
+          "median_delta_ms": -69.9,
+          "median_change_percent": -4.19
         },
         "after_replace": {
           "content_equivalent": true,
           "baseline": {
-            "median_ms": 2175.86,
+            "median_ms": 1484.94,
             "archive_reads": 1,
-            "peak_traced_bytes": 174403362,
-            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "peak_traced_bytes": 184484975,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
             "content": {
-              "snapshots": 4909,
-              "offers": 99203,
+              "snapshots": 5189,
+              "offers": 105152,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
           "optimized": {
-            "median_ms": 2341.01,
+            "median_ms": 1626.48,
             "archive_reads": 1,
-            "peak_traced_bytes": 129976721,
-            "response_sha256": "9107e2da24cae95d827da6eb23991b92af2f08083ff4a90872e9c447d0a6d41d",
+            "peak_traced_bytes": 137374842,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
             "content": {
-              "snapshots": 4909,
-              "offers": 99203,
+              "snapshots": 5189,
+              "offers": 105152,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
-          "median_delta_ms": 165.15,
-          "median_change_percent": 7.59
+          "median_delta_ms": 141.54,
+          "median_change_percent": 9.53
         },
         "after_truncate": {
           "content_equivalent": true,
           "baseline": {
-            "median_ms": 53.28,
+            "median_ms": 54.91,
             "archive_reads": 1,
-            "peak_traced_bytes": 8094577,
-            "response_sha256": "0b9cb19480b52403b32db1f0f913c5883f3cf35736056d41368148d716e887b8",
+            "peak_traced_bytes": 8193900,
+            "response_sha256": "dd5f490240af18fec4b2dbf1f8fc1252e8d686b616f758bffcb0f33d295de0c6",
             "content": {
               "snapshots": 1,
               "offers": 16,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
           "optimized": {
-            "median_ms": 75.32,
+            "median_ms": 71.45,
             "archive_reads": 1,
-            "peak_traced_bytes": 8087281,
-            "response_sha256": "0b9cb19480b52403b32db1f0f913c5883f3cf35736056d41368148d716e887b8",
+            "peak_traced_bytes": 8186610,
+            "response_sha256": "dd5f490240af18fec4b2dbf1f8fc1252e8d686b616f758bffcb0f33d295de0c6",
             "content": {
               "snapshots": 1,
               "offers": 16,
               "baseline": 1846,
               "airports": 2,
               "health": {
-                "lastCheckedAt": "2026-09-14T14:46:02+00:00",
-                "checks": 3112,
-                "changes": 2520,
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
                 "errors": 21
               }
             }
           },
-          "median_delta_ms": 22.04,
-          "median_change_percent": 41.37
+          "median_delta_ms": 16.54,
+          "median_change_percent": 30.12
         }
       }
     }

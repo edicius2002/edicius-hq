@@ -68,19 +68,19 @@ environment populated from `services/api/requirements.txt`; the environment
 and pytest directories were removed afterward.
 
 - Initial full API suite, `python -m pytest -q --basetemp
-  .pytest-airfare-cache-full-local`: **622 passed**, with two upstream
+.pytest-airfare-cache-full-local`: **622 passed**, with two upstream
   FastAPI/Starlette deprecation warnings, in 69.91 seconds.
 - Review correction red test, `python -m pytest -q --basetemp
-  .pytest-airfare-review-red
-  tests/fares/test_fare_history_cache.py::test_empty_until_matches_absent_until_on_a_cache_hit_and_bounds_still_filter`:
+.pytest-airfare-review-red
+tests/fares/test_fare_history_cache.py::test_empty_until_matches_absent_until_on_a_cache_hit_and_bounds_still_filter`:
   **1 failed**, observing an empty list instead of all three snapshots.
 - Review correction green suite, `python -m pytest -q --basetemp
-  .pytest-airfare-review-final tests/fares/test_fare_history_cache.py
-  tests/fares/test_fare_history_store.py`: **26 passed** in 0.97 seconds.
+.pytest-airfare-review-final tests/fares/test_fare_history_cache.py
+tests/fares/test_fare_history_store.py`: **26 passed** in 0.97 seconds.
 - `python -m ruff format --check app/services/fare_history.py
-  tests/fares/test_fare_history_cache.py`: **2 files already formatted**.
+tests/fares/test_fare_history_cache.py`: **2 files already formatted**.
 - `python -m ruff check app/services/fare_history.py
-  tests/fares/test_fare_history_cache.py`: **All checks passed**.
+tests/fares/test_fare_history_cache.py`: **All checks passed**.
 - `python -m mypy app/services/fare_history.py`: **Success: no issues found in
   1 source file**.
 - The initial full `python -m mypy` run found one pre-existing, out-of-scope

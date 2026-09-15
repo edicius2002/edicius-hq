@@ -10,6 +10,29 @@
 
 **Spec:** `docs/airfare-data-loading.md`
 
+**Status:** Completed and rebased onto `origin/main`. The published history is
+reachable from `fix/airfare-data-loading`: common base `86eea67`, baseline
+`fabcdc6`, measurement harness `17dd248`, browser guardrails `6db9673`, cache
+implementation `d7f37f2`, initial report `668e3a7`, validation preparation
+`fb473a8`, semantic correction `9a087a7`, and final endpoint regression
+`9c13b38`. The temporary worker branch described below was removed after
+integration.
+
+| Pre-rebase commit | Published commit | Purpose                                    |
+| ----------------- | ---------------- | ------------------------------------------ |
+| `a4c479a`         | `86eea67`        | Common base and original data-loading work |
+| `ea118ce`         | `fabcdc6`        | Endpoint integration contract              |
+| `d8e6b25`         | `17dd248`        | Backend measurement harness                |
+| `3ec5c45`         | `6db9673`        | Browser measurement guardrails             |
+| `c1f150a`         | `d7f37f2`        | Integrated cache implementation            |
+| `a64ade2`         | `668e3a7`        | Initial integrity and performance report   |
+| `74ec0f4`         | `fb473a8`        | Validation evidence corrections            |
+| `05ad440`         | `9a087a7`        | Empty-bound semantic correction            |
+| `d421f17`         | `9c13b38`        | Endpoint regression for empty bounds       |
+
+Worker-only commits `ca39f0c` and `e143e87` are patch-equivalent to published
+commits `d7f37f2` and `9a087a7`, respectively.
+
 ## Global Constraints
 
 - Modify only airfare data-loading validation and measurement artifacts owned by Worker 2.
@@ -20,16 +43,20 @@
 - Preserve `docs/airfare-measurements.json`; write new baseline and optimized reports separately.
 - Label first access as “first access in a new process,” not “cold disk.”
 - Do not use fragile millisecond thresholds in tests.
-- Integrate Worker 1 only after `git show edicius2002/airfare-cache:docs/airfare-cache-result.md` contains `Status: complete`, cherry-picking commits after `a4c479a900ab7a2eb45e33a94d72419caea2e4fd` in order.
+- Integrate Worker 1 only after its result document contains `Status: complete`
+  and its two implementation patches have been reviewed in chronological order.
+  This gate was satisfied before the temporary worker branch was removed.
 
 ---
 
 ### Task 1: Public Endpoint Integration Contract
 
 **Files:**
+
 - Create: `services/api/tests/fares/test_fare_history_cache_integration.py`
 
 **Interfaces:**
+
 - Consumes: `app.main.app`, `app.routers.fares.HISTORY`, and the public HTTP route `GET /api/fares/history`.
 - Produces: black-box regression coverage for content equivalence, cache hit/miss behavior, invalidation, and recoverable errors.
 
@@ -62,7 +89,7 @@ Run:
 & 'D:/Work/research/edicius-hq/services/api/.venv/Scripts/python.exe' -m pytest -q -p no:cacheprovider services/api/tests/fares/test_fare_history_cache_integration.py
 ```
 
-Expected on `a4c479a`: unchanged repeated reads are misses and an `OSError` is incorrectly returned as HTTP 200 with empty snapshots. Content-only tests may already pass.
+Expected on `86eea67`: unchanged repeated reads are misses and an `OSError` is incorrectly returned as HTTP 200 with empty snapshots. Content-only tests may already pass.
 
 - [ ] **Step 5: Commit the independent integration tests**
 
@@ -74,10 +101,12 @@ git commit -m "test(airfare): define history cache integration contract"
 ### Task 2: Reproducible Backend Measurement Harness
 
 **Files:**
+
 - Modify: `scripts/measure_airfare.py`
 - Create: `docs/airfare-cache-baseline.json`
 
 **Interfaces:**
+
 - Consumes: a read-only `--data-dir`, route selection, and a fixed commit under test.
 - Produces: a report with dataset digest/size, commit, process/access phase, archive reads, response digest/counts, timing samples, and peak traced memory.
 
@@ -115,10 +144,12 @@ git commit -m "perf(airfare): measure history cache access phases"
 ### Task 3: Browser Replay Metadata and Methodology Guardrails
 
 **Files:**
+
 - Modify: `scripts/measure_airfare_browser.py`
 - Modify: `scripts/airfare-measurement/build.mjs`
 
 **Interfaces:**
+
 - Consumes: saved measurement payloads only.
 - Produces: browser replay metrics explicitly labelled local, GPU-disabled, and excluding backend/auth/WAN.
 
@@ -148,33 +179,42 @@ git add -- scripts/measure_airfare_browser.py scripts/airfare-measurement/build.
 git commit -m "test(airfare): qualify local browser replay measurements"
 ```
 
-### Task 4: Integrate Worker 1 and Validate Before/After
+### Task 4: Integrate Worker 1 and Validate Before/After (completed record)
 
 **Files:**
+
 - Create: `docs/airfare-cache-optimized.json`
 - Create: `docs/airfare-optimization-results.md`
 
 **Interfaces:**
-- Consumes: completed commits from `edicius2002/airfare-cache` after the common base, the Task 1 contract, and the Task 2 harness.
-- Produces: independently verified integrity/performance results and a reproducible comparison.
 
-- [ ] **Step 1: Confirm the completion marker and review commit scope**
+- Consumes: the completed cache implementation commits, the Task 1 contract,
+  and the Task 2 harness.
+- Produces: independently verified integrity/performance results and a
+  checksum-controlled before/after comparison.
 
-Run:
+- [x] **Step 1: Confirm the completion marker and review commit scope**
+
+The temporary worker branch was inspected before integration. Its result marker
+and published implementation equivalents remain available at:
 
 ```powershell
-git show edicius2002/airfare-cache:docs/airfare-cache-result.md
-git log --reverse --format='%H %s' a4c479a900ab7a2eb45e33a94d72419caea2e4fd..edicius2002/airfare-cache
-git diff --stat a4c479a900ab7a2eb45e33a94d72419caea2e4fd..edicius2002/airfare-cache
+git show d7f37f2:docs/airfare-cache-result.md
+git show --stat d7f37f2
+git show --stat 9a087a7
 ```
 
-Do not proceed until the marker contains `Status: complete` and the commits stay within Worker 1's scope.
+The marker contained `Status: complete`; the two worker patches stayed within
+their implementation and correction scope.
 
-- [ ] **Step 2: Cherry-pick Worker 1 commits in chronological order**
+- [x] **Step 2: Integrate Worker 1 commits in chronological order**
 
-Cherry-pick each hash listed by the reverse log. Do not modify the parent checkout or push.
+This was completed before the rebase. The published implementation commits are
+`d7f37f2` followed by the later semantic correction `9a087a7`. The temporary
+branch no longer exists; no cherry-pick command is intentionally retained in
+this retrospective record.
 
-- [ ] **Step 3: Run integration and relevant API regression tests**
+- [x] **Step 3: Run integration and relevant API regression tests**
 
 ```powershell
 & 'D:/Work/research/edicius-hq/services/api/.venv/Scripts/python.exe' -m pytest -q -p no:cacheprovider services/api/tests/fares/test_fare_history_cache_integration.py services/api/tests/fares/test_fare_history_store.py services/api/tests/fares/test_fares_endpoint.py
@@ -182,15 +222,15 @@ Cherry-pick each hash listed by the reverse log. Do not modify the parent checko
 
 Require every cache hit/miss, content, invalidation, and recovery assertion to pass without millisecond thresholds.
 
-- [ ] **Step 4: Measure the optimized commit on the same frozen dataset copy**
+- [x] **Step 4: Measure the optimized commit on the same frozen dataset copy**
 
 Run the harness with the same selected source, pair, and samples as Task 2, saving `docs/airfare-cache-optimized.json`. Record the exact baseline and optimized commit hashes.
 
-- [ ] **Step 5: Write the results report**
+- [x] **Step 5: Write the results report**
 
 Document methodology, commit hashes, dataset digest, exact content-equivalence evidence, phase-by-phase timings/read counts/memory, limitations, browser replay caveat, and any concrete outstanding defect reproductions. Preserve `docs/airfare-measurements.json` unchanged.
 
-- [ ] **Step 6: Run final verification and commit**
+- [x] **Step 6: Run final verification and commit**
 
 ```powershell
 git diff --check

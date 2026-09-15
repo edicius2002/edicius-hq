@@ -8,6 +8,25 @@ import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
 afterEach(cleanup);
 
+it('does not claim there are no itineraries while loading or after a failed request', () => {
+  const { rerender } = render(
+    <FlightTable snapshots={[]} granularity="day" departure={null} leg={null} loading />,
+  );
+  expect(screen.getByRole('status')).toHaveTextContent('Loading saved fares');
+  expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
+  rerender(
+    <FlightTable
+      snapshots={[]}
+      granularity="day"
+      departure={null}
+      leg={null}
+      error={new Error('offline')}
+    />,
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
+  expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
+});
+
 const SNAPSHOT: FareSnapshot = {
   capturedAt: '2026-08-17T12:00:00+00:00',
   source: 'google-flights',

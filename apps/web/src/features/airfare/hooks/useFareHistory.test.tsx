@@ -1,4 +1,4 @@
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
@@ -53,6 +53,43 @@ function stubHistory() {
 const wrapper = queryWrapper();
 
 describe('useFareHistory', () => {
+  it('does not replace the current route with an older, slower response', async () => {
+    let finishFirst!: (response: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              finishFirst = resolve;
+            }),
+        )
+        .mockImplementationOnce(() =>
+          Promise.resolve(Response.json({ ...EMPTY, destination: 'SCL' })),
+        ),
+    );
+    const shared = sharedQueryWrapper();
+    const { result, rerender } = renderHook(({ route }) => useFareHistory(route, '2027-03'), {
+      wrapper: shared,
+      initialProps: { route: LIM_MAD },
+    });
+    rerender({ route: { ...LIM_MAD, destination: 'SCL' } });
+    await waitFor(() => expect(result.current.data?.destination).toBe('SCL'));
+    await act(async () => {
+      finishFirst(Response.json(EMPTY));
+    });
+    expect(result.current.data?.destination).toBe('SCL');
+    shared.client.clear();
+  });
+
+  it('waits until a reading month is selected', async () => {
+    const urls = stubHistory();
+    renderHook(() => useFareHistory(LIM_MAD, null), { wrapper });
+    await Promise.resolve();
+    expect(urls).toHaveLength(0);
+  });
+
   it('asks about the whole month, which is the whole of what a watch is', async () => {
     const urls = stubHistory();
     renderHook(() => useFareHistory(LIM_MAD, LIM_MAD.months[0]), { wrapper });

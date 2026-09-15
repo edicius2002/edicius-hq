@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { fetchFareCalendar, type FareCalendarResponse } from '@/shared/api/fares';
+import { archiveQueryOptions } from './archiveQueryOptions';
 
 /**
  * The whole booking horizon for one city pair, as last collected.
@@ -23,12 +24,12 @@ import { fetchFareCalendar, type FareCalendarResponse } from '@/shared/api/fares
  * `QueryClient` — ten of its tests broke on the provider alone. A saving that
  * small is not worth a component changing kind.
  *
- * No `refetchInterval`, for `useFareHistory`'s reason: a curve is written only
- * when something moved, and polling a file that is deliberately still is a
- * request spent watching nothing.
+ * Shares the archive refresh policy so scheduled collections and transient
+ * request failures do not leave this tab waiting for a manual reload.
  */
 export function useFareCalendar(route: FareRoute | null) {
   return useQuery<FareCalendarResponse>({
+    ...archiveQueryOptions,
     queryKey: ['fares', 'calendar', route?.origin, route?.destination],
     queryFn: ({ signal }) => fetchFareCalendar(route!.origin, route!.destination, { signal }),
     enabled: route !== null,

@@ -795,7 +795,15 @@ def get_history(
     until: str | None = Query(None, description="Inclusive capturedAt prefix"),
 ) -> HistoryResponse:
     origin, destination = normalize_code(origin), normalize_code(destination)
-    snapshots = HISTORY.read(origin, destination, since=since, until=until)
+    try:
+        snapshots = HISTORY.read(origin, destination, since=since, until=until)
+    except OSError as error:
+        # An unreadable existing archive is not an empty history. Keep it
+        # retryable for the client and avoid leaking filesystem details.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Fare history is temporarily unavailable",
+        ) from error
     # Narrowed to the same departures the baseline is: a route watched across
     # two months would otherwise report April's looks under March's heading.
     checks = HISTORY.checks(origin, destination, departure)

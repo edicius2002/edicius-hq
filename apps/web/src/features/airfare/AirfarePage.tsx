@@ -762,6 +762,10 @@ export function AirfarePage() {
       */}
       <Panel id={ANALYSIS_PANEL_ID} className={`${styles.panel} ${styles.visualPanel}`}>
         <AnalysisPanel
+          historyLoading={selected !== null && history.isPending}
+          historyError={history.error}
+          historyAvailable={history.data !== undefined}
+          onHistoryRetry={() => void history.refetch()}
           route={selected}
           month={activeMonth}
           watchedMonths={watchedMonths}
@@ -829,6 +833,9 @@ export function AirfarePage() {
           cannot disagree about which flights are reachable.
         */}
         <FlightTable
+          loading={selected !== null && history.isPending}
+          error={history.error}
+          onRetry={() => void history.refetch()}
           snapshots={snapshots}
           granularity={granularity}
           departure={activeMonth ? formatFlightMonth(activeMonth) : null}

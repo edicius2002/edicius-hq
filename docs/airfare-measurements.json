@@ -1,0 +1,2467 @@
+{
+  "method": "Direct production endpoint functions and Pydantic JSON serialization; no network/auth/browser or collector startup",
+  "samples_per_endpoint": 15,
+  "payload_dir": "C:\\Users\\krato\\AppData\\Local\\Temp\\airfare-measure-gvl_jmvi",
+  "routes": [
+    {
+      "pair": "ARI-SCL",
+      "month": "2027-03",
+      "archive_bytes": 840398,
+      "history": {
+        "endpoint": {
+          "first_ms": 102.83,
+          "median_ms": 80.53,
+          "p95_ms": 129.44,
+          "max_ms": 129.44
+        },
+        "serialization": {
+          "first_ms": 9.4,
+          "median_ms": 7.45,
+          "p95_ms": 14.27,
+          "max_ms": 14.27
+        },
+        "total": {
+          "first_ms": 112.22,
+          "median_ms": 94.8,
+          "p95_ms": 136.89,
+          "max_ms": 136.89
+        },
+        "response_bytes": 897478,
+        "gzip_bytes": 34633,
+        "count_min": 724,
+        "count_max": 724,
+        "empty_responses": 0,
+        "offers": 2934,
+        "month_snapshots": 617
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 12.27,
+          "median_ms": 9.99,
+          "p95_ms": 25.69,
+          "max_ms": 25.69
+        },
+        "serialization": {
+          "first_ms": 0.21,
+          "median_ms": 0.2,
+          "p95_ms": 0.3,
+          "max_ms": 0.3
+        },
+        "total": {
+          "first_ms": 12.48,
+          "median_ms": 10.26,
+          "p95_ms": 25.88,
+          "max_ms": 25.88
+        },
+        "response_bytes": 28517,
+        "gzip_bytes": 1510,
+        "count_min": 331,
+        "count_max": 331,
+        "empty_responses": 0
+      }
+    },
+    {
+      "pair": "SCL-ARI",
+      "month": "2027-03",
+      "archive_bytes": 1097418,
+      "history": {
+        "endpoint": {
+          "first_ms": 78.62,
+          "median_ms": 97.87,
+          "p95_ms": 170.95,
+          "max_ms": 170.95
+        },
+        "serialization": {
+          "first_ms": 8.65,
+          "median_ms": 9.55,
+          "p95_ms": 13.39,
+          "max_ms": 13.39
+        },
+        "total": {
+          "first_ms": 87.27,
+          "median_ms": 106.79,
+          "p95_ms": 184.34,
+          "max_ms": 184.34
+        },
+        "response_bytes": 1134561,
+        "gzip_bytes": 45917,
+        "count_min": 997,
+        "count_max": 997,
+        "empty_responses": 0,
+        "offers": 3761,
+        "month_snapshots": 562
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 10.54,
+          "median_ms": 10.17,
+          "p95_ms": 27.32,
+          "max_ms": 27.32
+        },
+        "serialization": {
+          "first_ms": 0.2,
+          "median_ms": 0.19,
+          "p95_ms": 0.27,
+          "max_ms": 0.27
+        },
+        "total": {
+          "first_ms": 10.74,
+          "median_ms": 10.35,
+          "p95_ms": 27.54,
+          "max_ms": 27.54
+        },
+        "response_bytes": 28111,
+        "gzip_bytes": 1559,
+        "count_min": 326,
+        "count_max": 326,
+        "empty_responses": 0
+      }
+    },
+    {
+      "pair": "SCL-AEP",
+      "month": "2027-03",
+      "archive_bytes": 2658020,
+      "history": {
+        "endpoint": {
+          "first_ms": 132.21,
+          "median_ms": 179.99,
+          "p95_ms": 214.64,
+          "max_ms": 214.64
+        },
+        "serialization": {
+          "first_ms": 17.96,
+          "median_ms": 19.43,
+          "p95_ms": 23.4,
+          "max_ms": 23.4
+        },
+        "total": {
+          "first_ms": 150.17,
+          "median_ms": 200.94,
+          "p95_ms": 232.93,
+          "max_ms": 232.93
+        },
+        "response_bytes": 2574382,
+        "gzip_bytes": 98905,
+        "count_min": 1066,
+        "count_max": 1066,
+        "empty_responses": 0,
+        "offers": 10321,
+        "month_snapshots": 630
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 12.82,
+          "median_ms": 9.84,
+          "p95_ms": 28.12,
+          "max_ms": 28.12
+        },
+        "serialization": {
+          "first_ms": 0.35,
+          "median_ms": 0.19,
+          "p95_ms": 0.35,
+          "max_ms": 0.35
+        },
+        "total": {
+          "first_ms": 13.18,
+          "median_ms": 10.03,
+          "p95_ms": 28.31,
+          "max_ms": 28.31
+        },
+        "response_bytes": 28592,
+        "gzip_bytes": 1413,
+        "count_min": 331,
+        "count_max": 331,
+        "empty_responses": 0
+      }
+    },
+    {
+      "pair": "AEP-SCL",
+      "month": "2027-03",
+      "archive_bytes": 3089863,
+      "history": {
+        "endpoint": {
+          "first_ms": 205.84,
+          "median_ms": 208.23,
+          "p95_ms": 285.88,
+          "max_ms": 285.88
+        },
+        "serialization": {
+          "first_ms": 24.42,
+          "median_ms": 23.2,
+          "p95_ms": 39.65,
+          "max_ms": 39.65
+        },
+        "total": {
+          "first_ms": 230.26,
+          "median_ms": 234.74,
+          "p95_ms": 309.82,
+          "max_ms": 309.82
+        },
+        "response_bytes": 2994355,
+        "gzip_bytes": 113489,
+        "count_min": 1171,
+        "count_max": 1171,
+        "empty_responses": 0,
+        "offers": 12143,
+        "month_snapshots": 647
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 9.95,
+          "median_ms": 10.28,
+          "p95_ms": 29.95,
+          "max_ms": 29.95
+        },
+        "serialization": {
+          "first_ms": 0.24,
+          "median_ms": 0.19,
+          "p95_ms": 0.29,
+          "max_ms": 0.29
+        },
+        "total": {
+          "first_ms": 10.19,
+          "median_ms": 10.48,
+          "p95_ms": 30.15,
+          "max_ms": 30.15
+        },
+        "response_bytes": 28936,
+        "gzip_bytes": 1382,
+        "count_min": 331,
+        "count_max": 331,
+        "empty_responses": 0
+      }
+    },
+    {
+      "pair": "LIM-MAD",
+      "month": "2027-05",
+      "archive_bytes": 3233051,
+      "history": {
+        "endpoint": {
+          "first_ms": 276.13,
+          "median_ms": 244.68,
+          "p95_ms": 276.13,
+          "max_ms": 276.13
+        },
+        "serialization": {
+          "first_ms": 27.31,
+          "median_ms": 26.49,
+          "p95_ms": 28.58,
+          "max_ms": 28.58
+        },
+        "total": {
+          "first_ms": 303.44,
+          "median_ms": 269.98,
+          "p95_ms": 303.44,
+          "max_ms": 303.44
+        },
+        "response_bytes": 3094842,
+        "gzip_bytes": 121088,
+        "count_min": 1550,
+        "count_max": 1550,
+        "empty_responses": 0,
+        "offers": 12263,
+        "month_snapshots": 541
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 8.48,
+          "median_ms": 8.05,
+          "p95_ms": 25.02,
+          "max_ms": 25.02
+        },
+        "serialization": {
+          "first_ms": 0.23,
+          "median_ms": 0.2,
+          "p95_ms": 0.25,
+          "max_ms": 0.25
+        },
+        "total": {
+          "first_ms": 8.71,
+          "median_ms": 8.24,
+          "p95_ms": 25.21,
+          "max_ms": 25.21
+        },
+        "response_bytes": 29092,
+        "gzip_bytes": 1746,
+        "count_min": 331,
+        "count_max": 331,
+        "empty_responses": 0
+      }
+    },
+    {
+      "pair": "MAD-LIM",
+      "month": "2027-05",
+      "archive_bytes": 3683958,
+      "history": {
+        "endpoint": {
+          "first_ms": 287.1,
+          "median_ms": 280.15,
+          "p95_ms": 392.14,
+          "max_ms": 392.14
+        },
+        "serialization": {
+          "first_ms": 28.78,
+          "median_ms": 28.86,
+          "p95_ms": 40.63,
+          "max_ms": 40.63
+        },
+        "total": {
+          "first_ms": 315.88,
+          "median_ms": 307.02,
+          "p95_ms": 432.76,
+          "max_ms": 432.76
+        },
+        "response_bytes": 3506039,
+        "gzip_bytes": 139330,
+        "count_min": 1537,
+        "count_max": 1537,
+        "empty_responses": 0,
+        "offers": 14187,
+        "month_snapshots": 512
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 9.84,
+          "median_ms": 9.48,
+          "p95_ms": 30.23,
+          "max_ms": 30.23
+        },
+        "serialization": {
+          "first_ms": 0.34,
+          "median_ms": 0.19,
+          "p95_ms": 0.34,
+          "max_ms": 0.34
+        },
+        "total": {
+          "first_ms": 10.18,
+          "median_ms": 9.67,
+          "p95_ms": 30.43,
+          "max_ms": 30.43
+        },
+        "response_bytes": 29039,
+        "gzip_bytes": 1596,
+        "count_min": 331,
+        "count_max": 331,
+        "empty_responses": 0
+      }
+    },
+    {
+      "pair": "AQP-LIM",
+      "month": "2026-11",
+      "archive_bytes": 21022534,
+      "history": {
+        "endpoint": {
+          "first_ms": 1470.05,
+          "median_ms": 1796.69,
+          "p95_ms": 2547.25,
+          "max_ms": 2547.25
+        },
+        "serialization": {
+          "first_ms": 149.54,
+          "median_ms": 152.46,
+          "p95_ms": 203.77,
+          "max_ms": 203.77
+        },
+        "total": {
+          "first_ms": 1619.6,
+          "median_ms": 1968.55,
+          "p95_ms": 2697.72,
+          "max_ms": 2697.72
+        },
+        "response_bytes": 19392203,
+        "gzip_bytes": 885720,
+        "count_min": 4368,
+        "count_max": 4368,
+        "empty_responses": 0,
+        "offers": 87695,
+        "month_snapshots": 2269
+      },
+      "calendar": {
+        "endpoint": {
+          "first_ms": 10.58,
+          "median_ms": 9.99,
+          "p95_ms": 13.6,
+          "max_ms": 13.6
+        },
+        "serialization": {
+          "first_ms": 0.32,
+          "median_ms": 0.21,
+          "p95_ms": 0.32,
+          "max_ms": 0.32
+        },
+        "total": {
+          "first_ms": 10.9,
+          "median_ms": 10.21,
+          "p95_ms": 13.89,
+          "max_ms": 13.89
+        },
+        "response_bytes": 28683,
+        "gzip_bytes": 1390,
+        "count_min": 330,
+        "count_max": 330,
+        "empty_responses": 0
+      }
+    }
+  ],
+  "browser": {
+    "method": "Production build of actual AirfarePage, Chromium headless --disable-gpu, 1440x1000, reduced motion, fresh context each run; gzip endpoint responses replayed via loopback. Excludes backend computation, production auth, WAN and application shell.",
+    "routes": [
+      {
+        "pair": "ARI-SCL",
+        "samples": [
+          {
+            "flights_ready_ms": 473,
+            "moves_switch_ms": 80.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "ARI-SCL",
+                "kind": "history",
+                "count": 724,
+                "duration": 3,
+                "end": 326
+              },
+              {
+                "pair": "ARI-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.10000002384185791,
+                "end": 326.2000000178814
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 79.09999999403954,
+                "duration": 63
+              },
+              {
+                "startTime": 143.40000000596046,
+                "duration": 88
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.4000000059604645,
+                "end": 287.5
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 1.9000000059604645,
+                "end": 288.2000000178814
+              },
+              {
+                "url": "/api/fares/history?origin=ARI&destination=SCL&departure=2027-03",
+                "duration": 2.5999999940395355,
+                "end": 323
+              },
+              {
+                "url": "/api/fares/calendar?origin=ARI&destination=SCL",
+                "duration": 5.5999999940395355,
+                "end": 326.09999999403954
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 452.9,
+            "moves_switch_ms": 79.8,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "ARI-SCL",
+                "kind": "history",
+                "count": 724,
+                "duration": 3.600000023841858,
+                "end": 289.2000000178814
+              },
+              {
+                "pair": "ARI-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.19999998807907104,
+                "end": 289.5
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 33.400000005960464,
+                "duration": 62
+              },
+              {
+                "startTime": 96.80000001192093,
+                "duration": 89
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.800000011920929,
+                "end": 244.2000000178814
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.800000011920929,
+                "end": 245.30000001192093
+              },
+              {
+                "url": "/api/fares/history?origin=ARI&destination=SCL&departure=2027-03",
+                "duration": 3.5999999940395355,
+                "end": 285.59999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=ARI&destination=SCL",
+                "duration": 7,
+                "end": 289.30000001192093
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 408.7,
+            "moves_switch_ms": 76.0,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "ARI-SCL",
+                "kind": "history",
+                "count": 724,
+                "duration": 3.5,
+                "end": 257.7000000178814
+              },
+              {
+                "pair": "ARI-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 258
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.30000001192093,
+                "duration": 62
+              },
+              {
+                "startTime": 93.40000000596046,
+                "duration": 81
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2,
+                "end": 223.5
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.2999999821186066,
+                "end": 224.09999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=ARI&destination=SCL&departure=2027-03",
+                "duration": 2.7000000178813934,
+                "end": 254.2000000178814
+              },
+              {
+                "url": "/api/fares/calendar?origin=ARI&destination=SCL",
+                "duration": 6.300000011920929,
+                "end": 257.90000000596046
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 450.3,
+            "moves_switch_ms": 81.1,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "ARI-SCL",
+                "kind": "history",
+                "count": 724,
+                "duration": 2.5999999940395355,
+                "end": 301.09999999403954
+              },
+              {
+                "pair": "ARI-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0,
+                "end": 301.30000001192093
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 35.900000005960464,
+                "duration": 73
+              },
+              {
+                "startTime": 109.90000000596046,
+                "duration": 99
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.2999999821186066,
+                "end": 266.59999999403954
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.5,
+                "end": 267.09999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=ARI&destination=SCL&departure=2027-03",
+                "duration": 3.5,
+                "end": 298.5
+              },
+              {
+                "url": "/api/fares/calendar?origin=ARI&destination=SCL",
+                "duration": 6.200000017881393,
+                "end": 301.30000001192093
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 417.9,
+            "moves_switch_ms": 65.3,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "ARI-SCL",
+                "kind": "history",
+                "count": 724,
+                "duration": 2.7000000178813934,
+                "end": 263.80000001192093
+              },
+              {
+                "pair": "ARI-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 264.09999999403954
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.099999994039536,
+                "duration": 61
+              },
+              {
+                "startTime": 91.09999999403954,
+                "duration": 83
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.100000023841858,
+                "end": 228.2000000178814
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.300000011920929,
+                "end": 228.7000000178814
+              },
+              {
+                "url": "/api/fares/history?origin=ARI&destination=SCL&departure=2027-03",
+                "duration": 3,
+                "end": 261.09999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=ARI&destination=SCL",
+                "duration": 5.5999999940395355,
+                "end": 264
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": "SCL-ARI",
+        "samples": [
+          {
+            "flights_ready_ms": 423.5,
+            "moves_switch_ms": 64.2,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-ARI",
+                "kind": "history",
+                "count": 997,
+                "duration": 3.300000011920929,
+                "end": 278.09999999403954
+              },
+              {
+                "pair": "SCL-ARI",
+                "kind": "calendar",
+                "count": 326,
+                "duration": 0.09999999403953552,
+                "end": 278.39999997615814
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 32.19999998807907,
+                "duration": 70
+              },
+              {
+                "startTime": 103,
+                "duration": 82
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.2000000178813934,
+                "end": 235.69999998807907
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.199999988079071,
+                "end": 236.7999999821186
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=ARI&departure=2027-03",
+                "duration": 4.4000000059604645,
+                "end": 274.59999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=ARI",
+                "duration": 7.800000011920929,
+                "end": 278.19999998807907
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 457.8,
+            "moves_switch_ms": 77.8,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-ARI",
+                "kind": "history",
+                "count": 997,
+                "duration": 3.100000023841858,
+                "end": 293.7000000178814
+              },
+              {
+                "pair": "SCL-ARI",
+                "kind": "calendar",
+                "count": 326,
+                "duration": 0.09999999403953552,
+                "end": 294
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 32.80000001192093,
+                "duration": 72
+              },
+              {
+                "startTime": 106.30000001192093,
+                "duration": 88
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.699999988079071,
+                "end": 254.40000000596046
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.199999988079071,
+                "end": 255.09999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=ARI&departure=2027-03",
+                "duration": 4.299999982118607,
+                "end": 290.59999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=ARI",
+                "duration": 7.5,
+                "end": 293.90000000596046
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 418.5,
+            "moves_switch_ms": 63.8,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-ARI",
+                "kind": "history",
+                "count": 997,
+                "duration": 3.300000011920929,
+                "end": 263.90000000596046
+              },
+              {
+                "pair": "SCL-ARI",
+                "kind": "calendar",
+                "count": 326,
+                "duration": 0.09999999403953552,
+                "end": 264.19999998807907
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29,
+                "duration": 58
+              },
+              {
+                "startTime": 88.19999998807907,
+                "duration": 87
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.9000000059604645,
+                "end": 225.90000000596046
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.300000011920929,
+                "end": 226.5
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=ARI&departure=2027-03",
+                "duration": 3.5999999940395355,
+                "end": 260.59999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=ARI",
+                "duration": 7,
+                "end": 264.09999999403954
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 409.1,
+            "moves_switch_ms": 65.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-ARI",
+                "kind": "history",
+                "count": 997,
+                "duration": 3.100000023841858,
+                "end": 260.60000002384186
+              },
+              {
+                "pair": "SCL-ARI",
+                "kind": "calendar",
+                "count": 326,
+                "duration": 0.09999999403953552,
+                "end": 260.80000001192093
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.100000023841858,
+                "duration": 61
+              },
+              {
+                "startTime": 90.90000000596046,
+                "duration": 82
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/fares/airports",
+                "duration": 1.699999988079071,
+                "end": 223.80000001192093
+              },
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.800000011920929,
+                "end": 224.10000002384186
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=ARI&departure=2027-03",
+                "duration": 3.2999999821186066,
+                "end": 257.5
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=ARI",
+                "duration": 6.4000000059604645,
+                "end": 260.7000000178814
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 470.7,
+            "moves_switch_ms": 63.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-ARI",
+                "kind": "history",
+                "count": 997,
+                "duration": 3.699999988079071,
+                "end": 304.39999997615814
+              },
+              {
+                "pair": "SCL-ARI",
+                "kind": "calendar",
+                "count": 326,
+                "duration": 0.09999999403953552,
+                "end": 304.69999998807907
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 42.5,
+                "duration": 72
+              },
+              {
+                "startTime": 116.09999999403954,
+                "duration": 94
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.899999976158142,
+                "end": 265.39999997615814
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.100000023841858,
+                "end": 266
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=ARI&departure=2027-03",
+                "duration": 4.200000017881393,
+                "end": 300.5
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=ARI",
+                "duration": 8.099999994039536,
+                "end": 304.59999999403954
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": "SCL-AEP",
+        "samples": [
+          {
+            "flights_ready_ms": 409.8,
+            "moves_switch_ms": 58.8,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-AEP",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.19999998807907104,
+                "end": 269.69999998807907
+              },
+              {
+                "pair": "SCL-AEP",
+                "kind": "history",
+                "count": 1066,
+                "duration": 6.299999982118607,
+                "end": 296.2999999821186
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.599999994039536,
+                "duration": 62
+              },
+              {
+                "startTime": 92.7999999821186,
+                "duration": 87
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2,
+                "end": 231.2999999821186
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.699999988079071,
+                "end": 232.19999998807907
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=AEP",
+                "duration": 6.4000000059604645,
+                "end": 269.5
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=AEP&departure=2027-03",
+                "duration": 27,
+                "end": 290
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 407.7,
+            "moves_switch_ms": 63.9,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-AEP",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.19999998807907104,
+                "end": 263.09999999403954
+              },
+              {
+                "pair": "SCL-AEP",
+                "kind": "history",
+                "count": 1066,
+                "duration": 6.5,
+                "end": 291.5
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.5,
+                "duration": 60
+              },
+              {
+                "startTime": 91.69999998807907,
+                "duration": 80
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.2000000178813934,
+                "end": 222
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.899999976158142,
+                "end": 222.7999999821186
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=AEP",
+                "duration": 6.600000023841858,
+                "end": 262.90000000596046
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=AEP&departure=2027-03",
+                "duration": 28.900000005960464,
+                "end": 285
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 423.3,
+            "moves_switch_ms": 62.6,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-AEP",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.20000001788139343,
+                "end": 271.40000000596046
+              },
+              {
+                "pair": "SCL-AEP",
+                "kind": "history",
+                "count": 1066,
+                "duration": 5.9000000059604645,
+                "end": 296.5
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.5,
+                "duration": 66
+              },
+              {
+                "startTime": 96.2999999821186,
+                "duration": 87
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.699999988079071,
+                "end": 232.2999999821186
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.100000023841858,
+                "end": 232.90000000596046
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=AEP",
+                "duration": 6.0999999940395355,
+                "end": 271.19999998807907
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=AEP&departure=2027-03",
+                "duration": 25.69999998807907,
+                "end": 290.59999999403954
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 428.1,
+            "moves_switch_ms": 77.9,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-AEP",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.10000002384185791,
+                "end": 265.90000000596046
+              },
+              {
+                "pair": "SCL-AEP",
+                "kind": "history",
+                "count": 1066,
+                "duration": 8,
+                "end": 298.59999999403954
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 28.099999994039536,
+                "duration": 58
+              },
+              {
+                "startTime": 87.5,
+                "duration": 86
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.5999999940395355,
+                "end": 231.09999999403954
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.199999988079071,
+                "end": 231.7999999821186
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=AEP",
+                "duration": 3.0999999940395355,
+                "end": 265.7999999821186
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=AEP&departure=2027-03",
+                "duration": 27.80000001192093,
+                "end": 290.59999999403954
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 427.4,
+            "moves_switch_ms": 62.0,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "SCL-AEP",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 265.40000000596046
+              },
+              {
+                "pair": "SCL-AEP",
+                "kind": "history",
+                "count": 1066,
+                "duration": 8.099999994039536,
+                "end": 296.5
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 31.900000005960464,
+                "duration": 61
+              },
+              {
+                "startTime": 94.09999999403954,
+                "duration": 82
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.199999988079071,
+                "end": 226
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.800000011920929,
+                "end": 226.90000000596046
+              },
+              {
+                "url": "/api/fares/calendar?origin=SCL&destination=AEP",
+                "duration": 7.4000000059604645,
+                "end": 265.30000001192093
+              },
+              {
+                "url": "/api/fares/history?origin=SCL&destination=AEP&departure=2027-03",
+                "duration": 30.69999998807907,
+                "end": 288.40000000596046
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": "AEP-SCL",
+        "samples": [
+          {
+            "flights_ready_ms": 494.4,
+            "moves_switch_ms": 79.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AEP-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 289.59999999403954
+              },
+              {
+                "pair": "AEP-SCL",
+                "kind": "history",
+                "count": 1171,
+                "duration": 9.899999976158142,
+                "end": 322.09999999403954
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 31.400000005960464,
+                "duration": 72
+              },
+              {
+                "startTime": 104.90000000596046,
+                "duration": 89
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.600000023841858,
+                "end": 247.7000000178814
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.2000000178813934,
+                "end": 248.7000000178814
+              },
+              {
+                "url": "/api/fares/calendar?origin=AEP&destination=SCL",
+                "duration": 7.5,
+                "end": 289.5
+              },
+              {
+                "url": "/api/fares/history?origin=AEP&destination=SCL&departure=2027-03",
+                "duration": 30.30000001192093,
+                "end": 312.2000000178814
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 488,
+            "moves_switch_ms": 63.5,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AEP-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 336.19999998807907
+              },
+              {
+                "pair": "AEP-SCL",
+                "kind": "history",
+                "count": 1171,
+                "duration": 10.300000011920929,
+                "end": 374.5
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 36.79999998211861,
+                "duration": 85
+              },
+              {
+                "startTime": 122.90000000596046,
+                "duration": 108
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.399999976158142,
+                "end": 293.2999999821186
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.0999999940395355,
+                "end": 294.09999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=AEP&destination=SCL",
+                "duration": 7.800000011920929,
+                "end": 336.09999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=AEP&destination=SCL&departure=2027-03",
+                "duration": 36,
+                "end": 364.19999998807907
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 442.6,
+            "moves_switch_ms": 64.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AEP-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 278.69999998807907
+              },
+              {
+                "pair": "AEP-SCL",
+                "kind": "history",
+                "count": 1171,
+                "duration": 9.099999994039536,
+                "end": 310
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 31.19999998807907,
+                "duration": 62
+              },
+              {
+                "startTime": 94,
+                "duration": 91
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.199999988079071,
+                "end": 239.09999999403954
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.5999999940395355,
+                "end": 239.69999998807907
+              },
+              {
+                "url": "/api/fares/calendar?origin=AEP&destination=SCL",
+                "duration": 8.400000005960464,
+                "end": 278.59999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=AEP&destination=SCL&departure=2027-03",
+                "duration": 30.900000005960464,
+                "end": 300.90000000596046
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 441.3,
+            "moves_switch_ms": 63.2,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AEP-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 282.2999999821186
+              },
+              {
+                "pair": "AEP-SCL",
+                "kind": "history",
+                "count": 1171,
+                "duration": 9.400000005960464,
+                "end": 313.69999998807907
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 32,
+                "duration": 67
+              },
+              {
+                "startTime": 100.19999998807907,
+                "duration": 86
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.800000011920929,
+                "end": 242.5
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.199999988079071,
+                "end": 243.09999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=AEP&destination=SCL",
+                "duration": 7.299999982118607,
+                "end": 282.19999998807907
+              },
+              {
+                "url": "/api/fares/history?origin=AEP&destination=SCL&departure=2027-03",
+                "duration": 29.599999994039536,
+                "end": 304.2999999821186
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 422.9,
+            "moves_switch_ms": 79.9,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AEP-SCL",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.10000002384185791,
+                "end": 273.60000002384186
+              },
+              {
+                "pair": "AEP-SCL",
+                "kind": "history",
+                "count": 1171,
+                "duration": 9.699999988079071,
+                "end": 306.40000000596046
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.700000017881393,
+                "duration": 72
+              },
+              {
+                "startTime": 103.2000000178814,
+                "duration": 82
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.2000000178813934,
+                "end": 233.2000000178814
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.699999988079071,
+                "end": 233.80000001192093
+              },
+              {
+                "url": "/api/fares/calendar?origin=AEP&destination=SCL",
+                "duration": 7.699999988079071,
+                "end": 273.5
+              },
+              {
+                "url": "/api/fares/history?origin=AEP&destination=SCL&departure=2027-03",
+                "duration": 31.099999994039536,
+                "end": 296.7000000178814
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": "LIM-MAD",
+        "samples": [
+          {
+            "flights_ready_ms": 478.5,
+            "moves_switch_ms": 81.0,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "LIM-MAD",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 269.69999998807907
+              },
+              {
+                "pair": "LIM-MAD",
+                "kind": "history",
+                "count": 1550,
+                "duration": 10.800000011920929,
+                "end": 302.59999999403954
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.099999994039536,
+                "duration": 68
+              },
+              {
+                "startTime": 97.7999999821186,
+                "duration": 84
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.800000011920929,
+                "end": 230.69999998807907
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.199999988079071,
+                "end": 231.2999999821186
+              },
+              {
+                "url": "/api/fares/calendar?origin=LIM&destination=MAD",
+                "duration": 7.800000011920929,
+                "end": 269.59999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=LIM&destination=MAD&departure=2027-05",
+                "duration": 30.19999998807907,
+                "end": 291.7999999821186
+              },
+              {
+                "url": "/api/fares/airports?codes=AEP&codes=BCN&codes=BOG&codes=EWR&codes=GRU&codes=IAH&codes=LIS&codes=UIO&codes=YUL&codes=YYZ",
+                "duration": 3.7999999821186066,
+                "end": 391.39999997615814
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 461.4,
+            "moves_switch_ms": 64.0,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "LIM-MAD",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 266.69999998807907
+              },
+              {
+                "pair": "LIM-MAD",
+                "kind": "history",
+                "count": 1550,
+                "duration": 10,
+                "end": 300
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29.19999998807907,
+                "duration": 59
+              },
+              {
+                "startTime": 89.09999999403954,
+                "duration": 83
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.5999999940395355,
+                "end": 222.59999999403954
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.199999988079071,
+                "end": 223.39999997615814
+              },
+              {
+                "url": "/api/fares/calendar?origin=LIM&destination=MAD",
+                "duration": 8.300000011920929,
+                "end": 266.59999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=LIM&destination=MAD&departure=2027-05",
+                "duration": 31.80000001192093,
+                "end": 290
+              },
+              {
+                "url": "/api/fares/airports?codes=AEP&codes=BCN&codes=BOG&codes=EWR&codes=GRU&codes=IAH&codes=LIS&codes=UIO&codes=YUL&codes=YYZ",
+                "duration": 3.800000011920929,
+                "end": 385.5
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 461.1,
+            "moves_switch_ms": 76.5,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "LIM-MAD",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 268.90000000596046
+              },
+              {
+                "pair": "LIM-MAD",
+                "kind": "history",
+                "count": 1550,
+                "duration": 12.799999982118607,
+                "end": 304.90000000596046
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.30000001192093,
+                "duration": 61
+              },
+              {
+                "startTime": 92.5,
+                "duration": 80
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.0999999940395355,
+                "end": 227.30000001192093
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.5,
+                "end": 227.90000000596046
+              },
+              {
+                "url": "/api/fares/calendar?origin=LIM&destination=MAD",
+                "duration": 8.199999988079071,
+                "end": 268.80000001192093
+              },
+              {
+                "url": "/api/fares/history?origin=LIM&destination=MAD&departure=2027-05",
+                "duration": 31.600000023841858,
+                "end": 292.10000002384186
+              },
+              {
+                "url": "/api/fares/airports?codes=AEP&codes=BCN&codes=BOG&codes=EWR&codes=GRU&codes=IAH&codes=LIS&codes=UIO&codes=YUL&codes=YYZ",
+                "duration": 13.600000023841858,
+                "end": 402.10000002384186
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 465.2,
+            "moves_switch_ms": 72.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "LIM-MAD",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.10000002384185791,
+                "end": 266.7000000178814
+              },
+              {
+                "pair": "LIM-MAD",
+                "kind": "history",
+                "count": 1550,
+                "duration": 8,
+                "end": 301.59999999403954
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.099999994039536,
+                "duration": 61
+              },
+              {
+                "startTime": 92,
+                "duration": 84
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.0999999940395355,
+                "end": 226.40000000596046
+              },
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.300000011920929,
+                "end": 226.80000001192093
+              },
+              {
+                "url": "/api/fares/calendar?origin=LIM&destination=MAD",
+                "duration": 8.5,
+                "end": 266.59999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=LIM&destination=MAD&departure=2027-05",
+                "duration": 35.599999994039536,
+                "end": 293.59999999403954
+              },
+              {
+                "url": "/api/fares/airports?codes=AEP&codes=BCN&codes=BOG&codes=EWR&codes=GRU&codes=IAH&codes=LIS&codes=UIO&codes=YUL&codes=YYZ",
+                "duration": 11.800000011920929,
+                "end": 397.30000001192093
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 476.6,
+            "moves_switch_ms": 81.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "LIM-MAD",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0,
+                "end": 263.90000000596046
+              },
+              {
+                "pair": "LIM-MAD",
+                "kind": "history",
+                "count": 1550,
+                "duration": 10.400000005960464,
+                "end": 295.40000000596046
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.299999982118607,
+                "duration": 61
+              },
+              {
+                "startTime": 93,
+                "duration": 86
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.699999988079071,
+                "end": 229.19999998807907
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2,
+                "end": 229.69999998807907
+              },
+              {
+                "url": "/api/fares/calendar?origin=LIM&destination=MAD",
+                "duration": 7.200000017881393,
+                "end": 263.90000000596046
+              },
+              {
+                "url": "/api/fares/history?origin=LIM&destination=MAD&departure=2027-05",
+                "duration": 28.400000005960464,
+                "end": 285
+              },
+              {
+                "url": "/api/fares/airports?codes=AEP&codes=BCN&codes=BOG&codes=EWR&codes=GRU&codes=IAH&codes=LIS&codes=UIO&codes=YUL&codes=YYZ",
+                "duration": 3.7999999821186066,
+                "end": 385.2999999821186
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": "MAD-LIM",
+        "samples": [
+          {
+            "flights_ready_ms": 465,
+            "moves_switch_ms": 76.3,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "MAD-LIM",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 273
+              },
+              {
+                "pair": "MAD-LIM",
+                "kind": "history",
+                "count": 1537,
+                "duration": 11.599999994039536,
+                "end": 308.19999998807907
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 32.79999998211861,
+                "duration": 65
+              },
+              {
+                "startTime": 98.59999999403954,
+                "duration": 83
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2,
+                "end": 232.69999998807907
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.5,
+                "end": 233.39999997615814
+              },
+              {
+                "url": "/api/fares/calendar?origin=MAD&destination=LIM",
+                "duration": 8.599999994039536,
+                "end": 272.7999999821186
+              },
+              {
+                "url": "/api/fares/history?origin=MAD&destination=LIM&departure=2027-05",
+                "duration": 32.599999994039536,
+                "end": 296.59999999403954
+              },
+              {
+                "url": "/api/fares/airports?codes=AMS&codes=BCN&codes=BOG&codes=CDG&codes=EWR&codes=GRU&codes=IAD&codes=IAH&codes=PTY&codes=YUL&codes=YYZ",
+                "duration": 4.5,
+                "end": 400.09999999403954
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 450.1,
+            "moves_switch_ms": 55.6,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "MAD-LIM",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 265.30000001192093
+              },
+              {
+                "pair": "MAD-LIM",
+                "kind": "history",
+                "count": 1537,
+                "duration": 11.600000023841858,
+                "end": 301.10000002384186
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.200000017881393,
+                "duration": 60
+              },
+              {
+                "startTime": 91.40000000596046,
+                "duration": 81
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.9000000059604645,
+                "end": 223.60000002384186
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.2000000178813934,
+                "end": 224.10000002384186
+              },
+              {
+                "url": "/api/fares/calendar?origin=MAD&destination=LIM",
+                "duration": 8.300000011920929,
+                "end": 265.2000000178814
+              },
+              {
+                "url": "/api/fares/history?origin=MAD&destination=LIM&departure=2027-05",
+                "duration": 32.79999998211861,
+                "end": 289.5
+              },
+              {
+                "url": "/api/fares/airports?codes=AMS&codes=BCN&codes=BOG&codes=CDG&codes=EWR&codes=GRU&codes=IAD&codes=IAH&codes=PTY&codes=YUL&codes=YYZ",
+                "duration": 3.5,
+                "end": 384.5
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 463.3,
+            "moves_switch_ms": 58.4,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "MAD-LIM",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.19999998807907104,
+                "end": 271.89999997615814
+              },
+              {
+                "pair": "MAD-LIM",
+                "kind": "history",
+                "count": 1537,
+                "duration": 15.099999994039536,
+                "end": 311.2999999821186
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.799999982118607,
+                "duration": 60
+              },
+              {
+                "startTime": 92.09999999403954,
+                "duration": 81
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.4000000059604645,
+                "end": 225.69999998807907
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3,
+                "end": 226.59999999403954
+              },
+              {
+                "url": "/api/fares/calendar?origin=MAD&destination=LIM",
+                "duration": 9.800000011920929,
+                "end": 271.69999998807907
+              },
+              {
+                "url": "/api/fares/history?origin=MAD&destination=LIM&departure=2027-05",
+                "duration": 34.5,
+                "end": 296.19999998807907
+              },
+              {
+                "url": "/api/fares/airports?codes=AMS&codes=BCN&codes=BOG&codes=CDG&codes=EWR&codes=GRU&codes=IAD&codes=IAH&codes=PTY&codes=YUL&codes=YYZ",
+                "duration": 3.4000000059604645,
+                "end": 402.2999999821186
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 538.3,
+            "moves_switch_ms": 62.3,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "MAD-LIM",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.10000002384185791,
+                "end": 333.7000000178814
+              },
+              {
+                "pair": "MAD-LIM",
+                "kind": "history",
+                "count": 1537,
+                "duration": 15.5,
+                "end": 378.80000001192093
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 32.400000005960464,
+                "duration": 80
+              },
+              {
+                "startTime": 113.5,
+                "duration": 106
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 3.199999988079071,
+                "end": 286
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.5,
+                "end": 286.7000000178814
+              },
+              {
+                "url": "/api/fares/calendar?origin=MAD&destination=LIM",
+                "duration": 10.699999988079071,
+                "end": 333.59999999403954
+              },
+              {
+                "url": "/api/fares/history?origin=MAD&destination=LIM&departure=2027-05",
+                "duration": 40.599999994039536,
+                "end": 363.30000001192093
+              },
+              {
+                "url": "/api/fares/airports?codes=AMS&codes=BCN&codes=BOG&codes=CDG&codes=EWR&codes=GRU&codes=IAD&codes=IAH&codes=PTY&codes=YUL&codes=YYZ",
+                "duration": 10.099999994039536,
+                "end": 493.59999999403954
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 456.3,
+            "moves_switch_ms": 63.4,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "MAD-LIM",
+                "kind": "calendar",
+                "count": 331,
+                "duration": 0.09999999403953552,
+                "end": 276.80000001192093
+              },
+              {
+                "pair": "MAD-LIM",
+                "kind": "history",
+                "count": 1537,
+                "duration": 11.300000011920929,
+                "end": 314.2000000178814
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 29,
+                "duration": 65
+              },
+              {
+                "startTime": 95.2000000178814,
+                "duration": 93
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.199999988079071,
+                "end": 238
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.7000000178813934,
+                "end": 238.7000000178814
+              },
+              {
+                "url": "/api/fares/calendar?origin=MAD&destination=LIM",
+                "duration": 10.700000017881393,
+                "end": 276.7000000178814
+              },
+              {
+                "url": "/api/fares/history?origin=MAD&destination=LIM&departure=2027-05",
+                "duration": 37.099999994039536,
+                "end": 302.90000000596046
+              },
+              {
+                "url": "/api/fares/airports?codes=AMS&codes=BCN&codes=BOG&codes=CDG&codes=EWR&codes=GRU&codes=IAD&codes=IAH&codes=PTY&codes=YUL&codes=YYZ",
+                "duration": 4.4000000059604645,
+                "end": 403.90000000596046
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": "AQP-LIM",
+        "samples": [
+          {
+            "flights_ready_ms": 684.8,
+            "moves_switch_ms": 64.4,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AQP-LIM",
+                "kind": "calendar",
+                "count": 330,
+                "duration": 0.09999999403953552,
+                "end": 291.80000001192093
+              },
+              {
+                "pair": "AQP-LIM",
+                "kind": "history",
+                "count": 4368,
+                "duration": 55.900000005960464,
+                "end": 429.30000001192093
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 28.599999994039536,
+                "duration": 58
+              },
+              {
+                "startTime": 88,
+                "duration": 80
+              },
+              {
+                "startTime": 371,
+                "duration": 62
+              },
+              {
+                "startTime": 437.7000000178814,
+                "duration": 69
+              },
+              {
+                "startTime": 603.7000000178814,
+                "duration": 57
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.9000000059604645,
+                "end": 215.90000000596046
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.199999988079071,
+                "end": 216.40000000596046
+              },
+              {
+                "url": "/api/fares/calendar?origin=AQP&destination=LIM",
+                "duration": 46.5,
+                "end": 291.7000000178814
+              },
+              {
+                "url": "/api/fares/history?origin=AQP&destination=LIM&departure=2026-11",
+                "duration": 128.30000001192093,
+                "end": 373.40000000596046
+              },
+              {
+                "url": "/api/fares/airports?codes=CUZ",
+                "duration": 9.699999988079071,
+                "end": 544.0999999940395
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 649.3,
+            "moves_switch_ms": 80.7,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AQP-LIM",
+                "kind": "calendar",
+                "count": 330,
+                "duration": 0.19999998807907104,
+                "end": 300.80000001192093
+              },
+              {
+                "pair": "AQP-LIM",
+                "kind": "history",
+                "count": 4368,
+                "duration": 52.70000001788139,
+                "end": 406.60000002384186
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30,
+                "duration": 63
+              },
+              {
+                "startTime": 94.30000001192093,
+                "duration": 83
+              },
+              {
+                "startTime": 352.30000001192093,
+                "duration": 58
+              },
+              {
+                "startTime": 430.80000001192093,
+                "duration": 67
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.5999999940395355,
+                "end": 229.5
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.2000000178813934,
+                "end": 230.2000000178814
+              },
+              {
+                "url": "/api/fares/calendar?origin=AQP&destination=LIM",
+                "duration": 38.30000001192093,
+                "end": 300.60000002384186
+              },
+              {
+                "url": "/api/fares/history?origin=AQP&destination=LIM&departure=2026-11",
+                "duration": 91.7999999821186,
+                "end": 353.90000000596046
+              },
+              {
+                "url": "/api/fares/airports?codes=CUZ",
+                "duration": 2.7000000178813934,
+                "end": 528.6000000238419
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 679.1,
+            "moves_switch_ms": 64.0,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AQP-LIM",
+                "kind": "calendar",
+                "count": 330,
+                "duration": 0.20000001788139343,
+                "end": 294
+              },
+              {
+                "pair": "AQP-LIM",
+                "kind": "history",
+                "count": 4368,
+                "duration": 61.69999998807907,
+                "end": 408.39999997615814
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 28.799999982118607,
+                "duration": 61
+              },
+              {
+                "startTime": 91.2999999821186,
+                "duration": 83
+              },
+              {
+                "startTime": 344.09999999403954,
+                "duration": 68
+              },
+              {
+                "startTime": 434.5,
+                "duration": 75
+              },
+              {
+                "startTime": 585.6999999880791,
+                "duration": 61
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2,
+                "end": 226.7999999821186
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.399999976158142,
+                "end": 227.39999997615814
+              },
+              {
+                "url": "/api/fares/calendar?origin=AQP&destination=LIM",
+                "duration": 37.19999998807907,
+                "end": 293.7999999821186
+              },
+              {
+                "url": "/api/fares/history?origin=AQP&destination=LIM&departure=2026-11",
+                "duration": 90.30000001192093,
+                "end": 346.69999998807907
+              },
+              {
+                "url": "/api/fares/airports?codes=CUZ",
+                "duration": 5.0999999940395355,
+                "end": 540.1999999880791
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 657.1,
+            "moves_switch_ms": 80.6,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AQP-LIM",
+                "kind": "calendar",
+                "count": 330,
+                "duration": 0.10000002384185791,
+                "end": 295.10000002384186
+              },
+              {
+                "pair": "AQP-LIM",
+                "kind": "history",
+                "count": 4368,
+                "duration": 56.20000001788139,
+                "end": 409.7000000178814
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 30.5,
+                "duration": 59
+              },
+              {
+                "startTime": 90.80000001192093,
+                "duration": 80
+              },
+              {
+                "startTime": 351.2000000178814,
+                "duration": 62
+              },
+              {
+                "startTime": 435.10000002384186,
+                "duration": 71
+              },
+              {
+                "startTime": 581.9000000059605,
+                "duration": 53
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 2.0999999940395355,
+                "end": 220.5
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 3.199999988079071,
+                "end": 221.80000001192093
+              },
+              {
+                "url": "/api/fares/calendar?origin=AQP&destination=LIM",
+                "duration": 41.79999998211861,
+                "end": 294.90000000596046
+              },
+              {
+                "url": "/api/fares/history?origin=AQP&destination=LIM&departure=2026-11",
+                "duration": 100.5,
+                "end": 353.40000000596046
+              },
+              {
+                "url": "/api/fares/airports?codes=CUZ",
+                "duration": 2.9000000059604645,
+                "end": 534.2000000178814
+              }
+            ]
+          },
+          {
+            "flights_ready_ms": 660.5,
+            "moves_switch_ms": 62.5,
+            "table_rows": 10,
+            "errors": [],
+            "parsing": [
+              {
+                "pair": "AQP-LIM",
+                "kind": "calendar",
+                "count": 330,
+                "duration": 0.10000002384185791,
+                "end": 257.90000000596046
+              },
+              {
+                "pair": "AQP-LIM",
+                "kind": "history",
+                "count": 4368,
+                "duration": 55.5,
+                "end": 396.7999999821186
+              }
+            ],
+            "longTasks": [
+              {
+                "startTime": 27.5,
+                "duration": 59
+              },
+              {
+                "startTime": 87.7999999821186,
+                "duration": 83
+              },
+              {
+                "startTime": 339.5,
+                "duration": 61
+              },
+              {
+                "startTime": 420.40000000596046,
+                "duration": 74
+              },
+              {
+                "startTime": 580,
+                "duration": 54
+              }
+            ],
+            "bodyReads": [
+              {
+                "url": "/api/kv/airfare-routes",
+                "duration": 1.800000011920929,
+                "end": 219.5
+              },
+              {
+                "url": "/api/fares/airports",
+                "duration": 2.100000023841858,
+                "end": 219.90000000596046
+              },
+              {
+                "url": "/api/fares/calendar?origin=AQP&destination=LIM",
+                "duration": 9.699999988079071,
+                "end": 257.69999998807907
+              },
+              {
+                "url": "/api/fares/history?origin=AQP&destination=LIM&departure=2026-11",
+                "duration": 93.2999999821186,
+                "end": 341.19999998807907
+              },
+              {
+                "url": "/api/fares/airports?codes=CUZ",
+                "duration": 6,
+                "end": 533.6999999880791
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

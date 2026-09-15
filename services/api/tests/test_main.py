@@ -1,5 +1,6 @@
 from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -40,3 +41,48 @@ def test_lifespan_closes_the_configured_airfare_supabase_client_once(monkeypatch
         pass
 
     client.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    ("backend", "sync_enabled", "missing"),
+    [
+        ("supabase", "false", "SUPABASE_URL"),
+        ("supabase", "false", "SUPABASE_SECRET_KEY"),
+        ("local", "true", "SUPABASE_URL"),
+        ("local", "true", "SUPABASE_SECRET_KEY"),
+    ],
+)
+def test_lifespan_rejects_enabled_airfare_cloud_features_without_each_required_variable(
+    monkeypatch, backend, sync_enabled, missing
+):
+    """Catches a remotely configured API claiming healthy before it can use Supabase."""
+    monkeypatch.setenv("AIRFARE_DATA_BACKEND", backend)
+    monkeypatch.setenv("AIRFARE_SYNC_ENABLED", sync_enabled)
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "test-startup-secret")
+    monkeypatch.delenv(missing, raising=False)
+
+    with pytest.raises(ValueError, match=missing), TestClient(app):
+        pass
+
+
+def test_lifespan_rejects_an_enabled_airfare_cloud_feature_with_a_bad_host(monkeypatch):
+    """Catches startup deferring project-host validation until the first sync or read."""
+    monkeypatch.setenv("AIRFARE_DATA_BACKEND", "supabase")
+    monkeypatch.setenv("AIRFARE_SYNC_ENABLED", "false")
+    monkeypatch.setenv("SUPABASE_URL", "https://not-a-project.invalid")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "test-startup-secret")
+
+    with pytest.raises(ValueError, match="Supabase URL"), TestClient(app):
+        pass
+
+
+def test_lifespan_local_airfare_mode_ignores_malformed_cloud_credentials(monkeypatch):
+    """Catches the one-restart local rollback path validating unused cloud values."""
+    monkeypatch.setenv("AIRFARE_DATA_BACKEND", "local")
+    monkeypatch.setenv("AIRFARE_SYNC_ENABLED", "false")
+    monkeypatch.setenv("SUPABASE_URL", "not even a URL")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "ignored-local-secret")
+
+    with TestClient(app):
+        pass

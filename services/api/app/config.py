@@ -1,5 +1,6 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Literal, cast
 
@@ -43,7 +44,7 @@ WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN", "http://localhost:5173")
 @dataclass(frozen=True, slots=True)
 class AirfareSupabaseConfig:
     url: str
-    secret_key: str
+    secret_key: str = field(repr=False)
     timeout_seconds: float
     batch_size: int
 
@@ -83,15 +84,15 @@ def airfare_supabase_config() -> AirfareSupabaseConfig | None:
 
     try:
         timeout_seconds = float(os.getenv("AIRFARE_SUPABASE_TIMEOUT_SECONDS", "15"))
-    except ValueError as exc:
-        raise ValueError("AIRFARE_SUPABASE_TIMEOUT_SECONDS must be positive") from exc
-    if timeout_seconds <= 0:
+    except ValueError:
+        raise ValueError("AIRFARE_SUPABASE_TIMEOUT_SECONDS must be positive") from None
+    if not isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("AIRFARE_SUPABASE_TIMEOUT_SECONDS must be positive")
 
     try:
         batch_size = int(os.getenv("AIRFARE_SUPABASE_BATCH_SIZE", "250"))
-    except ValueError as exc:
-        raise ValueError("AIRFARE_SUPABASE_BATCH_SIZE must be between 1 and 500") from exc
+    except ValueError:
+        raise ValueError("AIRFARE_SUPABASE_BATCH_SIZE must be between 1 and 500") from None
     if not 1 <= batch_size <= 500:
         raise ValueError("AIRFARE_SUPABASE_BATCH_SIZE must be between 1 and 500")
 

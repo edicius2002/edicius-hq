@@ -20,7 +20,7 @@ from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.routers.sentiment import close_client as close_sentiment_client
 from app.routers.tweets import DEFAULT_HANDLE
-from app.services.airfare_supabase import close_airfare_supabase_client
+from app.services.airfare_supabase import close_airfare_supabase_client, configured_airfare_supabase
 from app.services.calendar_job import CALENDAR_RUNNER
 from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Validate all enabled cloud configuration before this process starts any
+    # long-lived local services. Local mode returns immediately without reading
+    # credentials, preserving the one-restart rollback path.
+    configured_airfare_supabase()
     ensure_kv_dir()
     # One upstream socket for the whole process, however many tabs listen. It
     # follows nothing until someone asks, so an idle API opens no connection.

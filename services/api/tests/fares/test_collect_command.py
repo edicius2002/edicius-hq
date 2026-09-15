@@ -570,8 +570,54 @@ def test_a_sync_disabled_scheduled_pass_never_invokes_the_sync_facade(monkeypatc
     assert calls == []
 
 
-def test_a_board_success_and_calendar_refusal_share_one_scheduled_sync(tmp_path, monkeypatch):
-    """The board's completed write remains sync-worthy beside a refused curve."""
+def test_a_board_success_and_calendar_lock_refusal_share_one_scheduled_sync(tmp_path, monkeypatch):
+    """A cross-process calendar decline is a completed no-op beside the board write."""
+    script = load_collect_script()
+    calls: list[bool] = []
+    ledger = PassLedger(tmp_path / "passes")
+    (soon,) = coming_months(1)
+
+    async def fake_collect_due(watches, **kwargs):
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[RouteResult("AQP", "LIM", f"{soon}-01", None, True)],
+        )
+
+    async def fake_collect_calendars(watches, **kwargs):
+        return CalendarReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[],
+            skipped=[("AQP-LIM", "another-pass-is-running")],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append(any(ledger.directory.glob("*.jsonl")))
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "collect_calendars", fake_collect_calendars)
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=False)
+    recorder = PassRecorder(source="cron", kind="board+calendar", gap=0, ledger=ledger, now=NOW)
+
+    assert script._pass(args, recorder) == 0
+    assert calls == [True]
+
+
+def test_a_board_success_and_calendar_provider_failure_do_not_sync(tmp_path, monkeypatch):
+    """A real calendar result failure keeps the combined pass out of the replica."""
     script = load_collect_script()
     calls: list[bool] = []
     ledger = PassLedger(tmp_path / "passes")
@@ -620,4 +666,4 @@ def test_a_board_success_and_calendar_refusal_share_one_scheduled_sync(tmp_path,
     recorder = PassRecorder(source="cron", kind="board+calendar", gap=0, ledger=ledger, now=NOW)
 
     assert script._pass(args, recorder) == 0
-    assert calls == [True]
+    assert calls == []

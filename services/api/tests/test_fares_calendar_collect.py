@@ -402,6 +402,66 @@ def test_shutdown_joins_a_finished_calendar_sync_before_releasing_the_runner(mon
     asyncio.run(run())
 
 
+def test_a_cancelled_calendar_closer_keeps_the_finished_sync_tracked(monkeypatch):
+    """An interrupted shutdown leaves the worker for the next closer to join."""
+    entered = threading.Event()
+    release = threading.Event()
+    worker_finished = threading.Event()
+
+    async def complete_collect_calendars(watched, **kwargs):
+        return CalendarReport(
+            started_at="2026-09-15T12:00:00+00:00",
+            finished_at="2026-09-15T12:00:03+00:00",
+            source="google-flights",
+            results=[successful_calendar_result()],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            entered.set()
+            try:
+                assert release.wait(1), "test did not release the sync worker"
+            finally:
+                worker_finished.set()
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(calendar_job, "collect_calendars", complete_collect_calendars)
+    monkeypatch.setattr(calendar_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(calendar_job, "airfare_sync_enabled", lambda: True)
+    runner = calendar_job.CalendarRunner()
+
+    async def run():
+        started = runner.start([FareWatch("LIM", "CUZ", "2027-03")])
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            first_closer = asyncio.create_task(runner.aclose())
+            await asyncio.sleep(0)
+            tracked = runner._task
+            assert tracked is not None
+
+            first_closer.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first_closer
+            assert runner._task is tracked
+            assert not worker_finished.is_set()
+
+            second_closer = asyncio.create_task(runner.aclose())
+            await asyncio.sleep(0)
+            assert not second_closer.done()
+
+            release.set()
+            await asyncio.wait_for(second_closer, 1)
+            assert worker_finished.is_set()
+        finally:
+            release.set()
+            assert await asyncio.to_thread(worker_finished.wait, 1)
+
+        assert started.state == "finished"
+        assert runner._task is None
+
+    asyncio.run(run())
+
+
 def test_shutdown_still_cancels_a_calendar_pass_that_is_collecting(monkeypatch):
     """Only an already-finished local curve joins; an active collector stops."""
     collecting = asyncio.Event()

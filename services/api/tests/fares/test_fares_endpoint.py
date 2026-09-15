@@ -15,6 +15,7 @@ import asyncio
 import base64
 import json
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -35,6 +36,7 @@ from app.services.airfare_data import (
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_collector import CollectionReport, FareWatch, RouteResult, collect
 from app.services.fare_history import BaselinePoint, FareHistory
+from app.services.fare_passes import PASSES
 
 # --- the collector ---------------------------------------------------------
 
@@ -189,6 +191,28 @@ def wait_for_the_pass(client, timeout=5.0):
             return body
         time.sleep(0.01)
     raise AssertionError("the collection pass never finished")
+
+
+def wait_for_sync(calls, timeout=5.0):
+    """Keep the TestClient alive until the finished pass has attempted its replica sync."""
+    deadline = time.monotonic() + timeout
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert calls, "the completed local pass never attempted its incremental replica sync"
+
+
+def successful_board_result() -> RouteResult:
+    return RouteResult(
+        origin="LIM",
+        destination="SCL",
+        flight_date="2027-03-01",
+        return_date=None,
+        ok=True,
+        changed=False,
+        offers=2,
+        cheapest=123.45,
+        currency="USD",
+    )
 
 
 def test_read_routes_delegate_to_airfare_data_and_preserve_the_legacy_wire_shape(monkeypatch):
@@ -371,6 +395,113 @@ def test_a_press_is_answered_before_the_pass_it_started_has_finished(monkeypatch
     assert seen["budget"] is None
 
 
+def test_a_completed_board_pass_persists_and_publishes_before_one_incremental_sync(monkeypatch):
+    """
+    The replica is strictly downstream of the completed local pass.
+
+    A sync worker may be slow or unavailable, but it must only see a ledger line
+    and a terminal pass document. The fake facade has no remote client, so the
+    test cannot make a Google Flights or Supabase request.
+    """
+    _, fake = stub_pass(results=[successful_board_result()])
+    calls: list[tuple[str, bool, bool]] = []
+
+    class Facade:
+        def sync_incremental(self):
+            current = collection_job.RUNNER.current()
+            assert current is not None
+            calls.append(
+                (
+                    current.state,
+                    current.finished_at is not None,
+                    any(PASSES.directory.glob("*.jsonl")),
+                )
+            )
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+        wait_for_sync(calls)
+
+    assert finished["state"] == "finished"
+    assert calls == [("finished", True, True)]
+
+
+@pytest.mark.parametrize("outcome", ["failed-report", "unexpected-error"])
+def test_a_replica_failure_cannot_rewrite_a_successful_board_pass(monkeypatch, caplog, outcome):
+    """Sync observability stays bounded and does not turn a local success into a failure."""
+    _, fake = stub_pass(results=[successful_board_result()])
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            if outcome == "unexpected-error":
+                raise RuntimeError("sb_secret_board_must_not_be_logged")
+            return SimpleNamespace(
+                status="failed",
+                uploaded={"snapshots": 1},
+                error="sb_secret_board_must_not_be_logged",
+            )
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+        wait_for_sync(calls)
+
+    assert finished["state"] == "finished"
+    assert finished["error"] is None
+    assert "sb_secret_board_must_not_be_logged" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("results", "skipped"),
+    [
+        ([], []),
+        ([RouteResult("LIM", "SCL", "2027-03-01", None, False)], []),
+        ([successful_board_result()], [("LIM-SCL 2027-03-02", "over-budget")]),
+    ],
+)
+def test_a_board_noop_failed_or_partial_pass_does_not_sync(monkeypatch, results, skipped):
+    """Only a fully completed local observation pass earns a replica attempt."""
+    _, fake = stub_pass(results=results, skipped=skipped)
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "finished"
+    assert calls == []
+
+
 def test_a_running_pass_says_how_far_through_it_is(monkeypatch):
     """
     A four-minute pass that could only be described once it ended would leave
@@ -412,6 +543,7 @@ def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monk
     started = asyncio.Event()
     release = asyncio.Event()
     calls: list[list] = []
+    sync_calls: list[str] = []
 
     async def slow_collect_due(watched, **kwargs):
         calls.append(watched)
@@ -424,11 +556,18 @@ def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monk
             started_at="2026-08-19T14:00:00+00:00",
             finished_at="2026-08-19T14:00:06+00:00",
             source="google-flights",
-            results=[],
+            results=[successful_board_result()],
             skipped=[],
         )
 
+    class Facade:
+        def sync_incremental(self):
+            sync_calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
     monkeypatch.setattr(collection_job, "collect_due", slow_collect_due)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
 
     with TestClient(app) as client:
         first = client.post(
@@ -455,8 +594,10 @@ def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monk
 
         release.set()
         wait_for_the_pass(client)
+        wait_for_sync(sync_calls)
 
     assert len(calls) == 1
+    assert sync_calls == ["called"]
 
 
 def test_a_pass_that_falls_over_says_so_rather_than_running_forever(monkeypatch):

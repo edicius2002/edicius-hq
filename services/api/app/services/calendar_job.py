@@ -56,7 +56,9 @@ from datetime import UTC, datetime
 import httpx
 
 from app.adapters.fares.registry import DEFAULT_PROVIDER
-from app.config import CALENDAR_POLL_MINUTES
+from app.config import CALENDAR_POLL_MINUTES, airfare_sync_enabled
+from app.services.airfare_data import AIRFARE_DATA
+from app.services.collection_sync import sync_completed_pass
 from app.services.fare_collector import (
     REQUEST_GAP_SECONDS,
     CalendarReport,
@@ -278,6 +280,7 @@ class CalendarRunner:
         recorder = PassRecorder(
             source="ui", kind="calendar", gap=REQUEST_GAP_SECONDS, pass_id=started.pass_id
         )
+        completed_report: CalendarReport | None = None
 
         def leave_a_line() -> None:
             """The pass's line, from whichever of the three endings happened."""
@@ -332,6 +335,7 @@ class CalendarRunner:
             started.skipped = list(report.skipped)
             started.state = "finished"
             started.finished_at = _now()
+            completed_report = report
             logger.info(
                 "calendar pass finished: %d collected, %d refused, %d skipped",
                 report.collected,
@@ -343,6 +347,8 @@ class CalendarRunner:
         # is what the two-second poll it replaced was ever asking about.
         leave_a_line()
         CALENDAR_STREAM.publish()
+        if completed_report is not None and airfare_sync_enabled():
+            await asyncio.to_thread(sync_completed_pass, AIRFARE_DATA, completed_report)
 
     async def aclose(self) -> None:
         """

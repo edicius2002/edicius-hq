@@ -20,6 +20,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import NOW
@@ -27,8 +28,9 @@ from conftest import NOW
 from app.config import SCHEDULER_INTERVAL_MINUTES
 from app.services.fare_collector import (
     CollectionReport,
+    RouteResult,
 )
-from app.services.fare_passes import PassRecorder
+from app.services.fare_passes import PassLedger, PassRecorder
 
 # Four levels up from `tests/fares/`, not the three this needed as a file in
 # `tests/`. The two tests that run the real script skip themselves when they
@@ -371,3 +373,58 @@ def test_the_scheduled_command_is_given_the_window_it_has_to_fit_inside(tmp_path
     # It is the scheduler's own interval, and the boards get all of it here
     # because `--no-calendar` means there is no horizon share to subtract.
     assert seen["deadline_seconds"] == SCHEDULER_INTERVAL_MINUTES * 60
+
+
+def test_the_scheduled_command_syncs_once_only_after_its_successful_local_pass(
+    tmp_path, monkeypatch
+):
+    """The scheduler uses the same façade and never makes a second sync client."""
+    script = load_collect_script()
+    calls: list[bool] = []
+    ledger = PassLedger(tmp_path / "passes")
+    (soon,) = coming_months(1)
+
+    async def fake_collect_due(watches, **kwargs):
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[
+                RouteResult(
+                    "AQP",
+                    "LIM",
+                    f"{soon}-01",
+                    None,
+                    True,
+                    changed=False,
+                    offers=1,
+                    cheapest=123.45,
+                    currency="USD",
+                )
+            ],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append(any(ledger.directory.glob("*.jsonl")))
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "collect_calendars",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("calendar disabled")),
+    )
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=True)
+    recorder = PassRecorder(source="cron", kind="board", gap=0, ledger=ledger, now=NOW)
+
+    assert script._pass(args, recorder) == 0
+    assert calls == [True]

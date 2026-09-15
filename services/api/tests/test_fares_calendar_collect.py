@@ -29,6 +29,7 @@ import re
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -41,6 +42,7 @@ from app.services.airfare_data import AirfareData
 from app.services.fare_calendar import CalendarCurve, CalendarPrice, FareCalendar
 from app.services.fare_collector import CalendarReport, CalendarResult, FareWatch
 from app.services.fare_history import FareHistory
+from app.services.fare_passes import PASSES
 
 PAIR = {"origin": "LIM", "destination": "CUZ"}
 
@@ -121,6 +123,29 @@ def wait_for_the_pass(client, timeout=5.0):
     raise AssertionError("the calendar pass never finished")
 
 
+def wait_for_sync(calls, timeout=5.0):
+    """Keep the TestClient alive until the completed pass has attempted its sync."""
+    deadline = time.monotonic() + timeout
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert calls, "the completed local calendar pass never attempted replica sync"
+
+
+def successful_calendar_result() -> CalendarResult:
+    return CalendarResult(
+        origin="LIM",
+        destination="CUZ",
+        ok=True,
+        changed=False,
+        dates=331,
+        priced=329,
+        cheapest=40.97,
+        cheapest_on="2027-03-01",
+        currency="USD",
+        requests=2,
+    )
+
+
 # --- the slot ----------------------------------------------------------------
 
 
@@ -178,6 +203,123 @@ def test_a_press_is_answered_before_the_curve_it_asked_for_is_collected(monkeypa
     assert finished["state"] == "finished"
     assert finished["finishedAt"] is not None
     assert [(w.origin, w.destination) for w in seen["watched"]] == [("LIM", "CUZ")]
+
+
+def test_a_completed_calendar_pass_persists_and_publishes_before_one_incremental_sync(
+    monkeypatch,
+):
+    """The calendar journal becomes durable and visible before its replica is touched."""
+    _, fake = stub_pass(results=[successful_calendar_result()])
+    calls: list[tuple[str, bool, bool]] = []
+
+    class Facade:
+        def sync_incremental(self):
+            current = calendar_job.CALENDAR_RUNNER.current()
+            assert current is not None
+            calls.append(
+                (
+                    current.state,
+                    current.finished_at is not None,
+                    any(PASSES.directory.glob("*.jsonl")),
+                )
+            )
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(calendar_job, "collect_calendars", fake)
+    monkeypatch.setattr(calendar_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(calendar_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post("/api/fares/calendar/collect", json=PAIR)
+        finished = wait_for_the_pass(client)
+        wait_for_sync(calls)
+
+    assert finished["state"] == "finished"
+    assert calls == [("finished", True, True)]
+
+
+def test_a_failed_calendar_sync_leaves_the_completed_local_curve_and_heartbeat_intact(
+    monkeypatch, caplog
+):
+    """A failed cloud report is observability only, never a local rollback signal."""
+    store = FareCalendar()
+    calls: list[str] = []
+
+    async def fake_collect_calendars(watched, **kwargs):
+        store.append(
+            CalendarCurve(
+                captured_at="2026-09-15T12:00:00+00:00",
+                source="google-flights",
+                origin="LIM",
+                destination="CUZ",
+                currency="USD",
+                start="2027-03-01",
+                end="2027-03-01",
+                prices=[CalendarPrice(departure_date="2027-03-01", price=40.97)],
+            )
+        )
+        store.record_check(
+            "LIM", "CUZ", at="2026-09-15T12:00:00+00:00", outcome="unchanged", dates=1
+        )
+        return CalendarReport(
+            started_at="2026-09-15T12:00:00+00:00",
+            finished_at="2026-09-15T12:00:03+00:00",
+            source="google-flights",
+            results=[successful_calendar_result()],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(
+                status="failed",
+                uploaded={"calendar": 1},
+                error="sb_secret_calendar_must_not_be_logged",
+            )
+
+    monkeypatch.setattr(calendar_job, "collect_calendars", fake_collect_calendars)
+    monkeypatch.setattr(calendar_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(calendar_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post("/api/fares/calendar/collect", json=PAIR)
+        finished = wait_for_the_pass(client)
+        wait_for_sync(calls)
+
+    assert finished["state"] == "finished"
+    assert store.latest("LIM", "CUZ") is not None
+    assert [check["outcome"] for check in store.checks("LIM", "CUZ")] == ["unchanged"]
+    assert "sb_secret_calendar_must_not_be_logged" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("results", "skipped"),
+    [
+        ([], []),
+        ([CalendarResult("LIM", "CUZ", False)], []),
+        ([successful_calendar_result()], [("LIM-CUZ", "over-budget")]),
+    ],
+)
+def test_a_calendar_noop_failed_or_partial_pass_does_not_sync(monkeypatch, results, skipped):
+    """A declined, refused, or incomplete curve pass cannot create a competing sync."""
+    _, fake = stub_pass(results=results, skipped=skipped)
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(calendar_job, "collect_calendars", fake)
+    monkeypatch.setattr(calendar_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(calendar_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post("/api/fares/calendar/collect", json=PAIR)
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "finished"
+    assert calls == []
 
 
 def test_a_finished_pass_reports_the_curve_it_found_field_for_field(monkeypatch):
@@ -400,6 +542,7 @@ def test_a_second_press_while_a_pass_runs_is_answered_with_that_pass(monkeypatch
     started = asyncio.Event()
     release = asyncio.Event()
     calls: list[list] = []
+    sync_calls: list[str] = []
 
     async def slow_collect_calendars(watched, **kwargs):
         calls.append(watched)
@@ -409,11 +552,18 @@ def test_a_second_press_while_a_pass_runs_is_answered_with_that_pass(monkeypatch
             started_at="2026-08-19T14:00:00+00:00",
             finished_at="2026-08-19T14:00:03+00:00",
             source="google-flights",
-            results=[],
+            results=[successful_calendar_result()],
             skipped=[],
         )
 
+    class Facade:
+        def sync_incremental(self):
+            sync_calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
     monkeypatch.setattr(calendar_job, "collect_calendars", slow_collect_calendars)
+    monkeypatch.setattr(calendar_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(calendar_job, "airfare_sync_enabled", lambda: True)
 
     with TestClient(app) as client:
         first = client.post("/api/fares/calendar/collect", json=PAIR)
@@ -437,8 +587,10 @@ def test_a_second_press_while_a_pass_runs_is_answered_with_that_pass(monkeypatch
 
         release.set()
         wait_for_the_pass(client)
+        wait_for_sync(sync_calls)
 
     assert len(calls) == 1
+    assert sync_calls == ["called"]
 
 
 def test_the_codes_are_normalised_and_the_currency_defaults_before_the_pass(monkeypatch):

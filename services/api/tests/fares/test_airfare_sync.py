@@ -631,3 +631,67 @@ def test_cli_report_cannot_create_a_journal_through_an_empty_nested_alias(tmp_pa
     )
     assert run.returncode == 2
     assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    "relative", ["fares/AQP-LIM.jsonl", "fares/airports.json", "kv/airfare-routes.json"]
+)
+@pytest.mark.parametrize("target_alias", [False, True])
+def test_dangling_source_file_alias_cannot_be_populated_by_report(tmp_path, relative, target_alias):
+    source = tmp_path / "source"
+    external = tmp_path / "external"
+    external.mkdir()
+    target = external / "missing-report.json"
+    source_link = source / relative
+    source_link.parent.mkdir(parents=True)
+    source_link.symlink_to(Path(os.path.relpath(target, source_link.parent)))
+    original_link = os.readlink(source_link)
+    report_target = target
+    if target_alias:
+        _directory_alias(tmp_path / "report-directory", external)
+        report_target = tmp_path / "report-directory" / target.name
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/fares-supabase.py"),
+            "--source",
+            str(source),
+            "--report",
+            str(report_target),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert run.returncode == 2
+    assert not target.exists()
+    assert source_link.is_symlink()
+    assert os.readlink(source_link) == original_link
+    assert not (source / "fares/sync").exists()
+
+
+@pytest.mark.parametrize("existing_report", [False, True])
+def test_dangling_source_alias_does_not_block_an_unrelated_report(tmp_path, existing_report):
+    source = tmp_path / "source"
+    (source / "fares").mkdir(parents=True)
+    target = tmp_path / "external" / "missing-airports.json"
+    target.parent.mkdir()
+    source_link = source / "fares/airports.json"
+    source_link.symlink_to(target)
+    report = target.with_name("safe-report.json")
+    if existing_report:
+        report.write_text("old report", encoding="utf-8")
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/fares-supabase.py"),
+            "--source",
+            str(source),
+            "--report",
+            str(report),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert run.returncode == 0
+    assert json.loads(report.read_text())["status"] == "complete"
+    assert not target.exists() and source_link.is_symlink()

@@ -350,7 +350,7 @@ class AirfareSync:
                 self.source_root / "fares/airports.json",
                 self.source_root / "kv/airfare-routes.json",
             )
-            if path.exists()
+            if os.path.lexists(path)
         )
         return tuple(files)
 

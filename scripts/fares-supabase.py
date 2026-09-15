@@ -268,6 +268,10 @@ def _validate_report_target(source: Path, target: Path) -> None:
     roots.update(directory.resolve() for directory in sync.source_directories())
     files = sync.source_files()
     roots.update(path.parent.resolve() for path in files)
+    # A source-file link can name a missing target. Compare its prospective
+    # resolved file path without treating unrelated siblings as source data.
+    if resolved_target in {path.resolve() for path in files}:
+        raise ValueError("report target aliases an authoritative Airfare file")
     if any(
         candidate == root or root in candidate.parents
         for root in roots
@@ -277,7 +281,11 @@ def _validate_report_target(source: Path, target: Path) -> None:
     if target.exists():
         identity = target.stat()
         for path in files:
-            source_identity = path.stat()
+            try:
+                source_identity = path.stat()
+            except FileNotFoundError:
+                # A distinct dangling source link has no identity to compare.
+                continue
             if (identity.st_dev, identity.st_ino) == (
                 source_identity.st_dev,
                 source_identity.st_ino,

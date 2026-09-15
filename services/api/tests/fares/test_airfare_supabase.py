@@ -379,6 +379,35 @@ def test_malformed_url_and_redirect_errors_are_sanitized():
     assert "invalid-fixture" not in "".join(traceback.format_exception(invalid_redirect.value))
 
 
+def test_nonnumeric_redirect_port_is_rejected_before_httpx_parses_it():
+    """Catches a permanent malformed redirect being classified as retryable."""
+    secret = "test-redirect-boundary-secret"
+    location = "https://evil.example:fixture-port/path?token=redirect-fixture"
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(302, headers={"location": location})
+
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        secret,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(AirfareRemoteRejected) as invalid_redirect:
+            client.rpc("read_airfare_history", {})
+    finally:
+        client.close()
+
+    rendered = "".join(traceback.format_exception(invalid_redirect.value))
+    assert request_count == 1
+    assert secret not in rendered
+    assert location not in rendered
+    assert "fixture-port" not in rendered
+
+
 def test_cross_host_redirect_is_rejected_without_disclosing_its_location():
     """Catches a redirect exfiltrating the server credential to another host."""
 

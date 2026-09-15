@@ -29,6 +29,11 @@ _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _CONFLICT_TARGET = re.compile(r"^[a-z_][a-z0-9_,]*$")
 
 
+def _reject_redirect_response(response: httpx.Response) -> None:
+    if 300 <= response.status_code < 400:
+        raise AirfareRemoteRejected("Supabase returned an unexpected redirect")
+
+
 def _project_url(url: str) -> str:
     try:
         parsed = urlsplit(url)
@@ -84,6 +89,7 @@ class SupabaseAirfare:
             timeout=timeout_seconds,
             transport=transport,
             follow_redirects=False,
+            event_hooks={"response": [_reject_redirect_response]},
         )
 
     @property

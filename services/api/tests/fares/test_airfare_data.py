@@ -1,5 +1,6 @@
 """The deep AirfareData seam, across local and Supabase-backed reads."""
 
+import json
 import logging
 import threading
 from pathlib import Path
@@ -22,12 +23,14 @@ def snapshot(
     captured_at: str = MARCH_CAPTURE,
     flight_date: str = "2027-03-01",
     price: float | None = 100,
+    origin: str = "AQP",
+    destination: str = "LIM",
 ) -> FareSnapshot:
     return FareSnapshot(
         captured_at=captured_at,
         source="google-flights",
-        origin="AQP",
-        destination="LIM",
+        origin=origin,
+        destination=destination,
         flight_date=flight_date,
         return_date=None,
         currency="USD",
@@ -279,6 +282,110 @@ def test_empty_snapshot_month_filter_is_sent_as_sql_null(archive):
     assert remote.rpc_calls[0][1]["p_snapshot_months"] is None
 
 
+def test_remote_finite_numeric_strings_match_retained_local_payloads(tmp_path):
+    fares = tmp_path / "fares"
+    fares.mkdir()
+    snapshot_payload = snapshot_row(snapshot(price=100.5))
+    snapshot_payload["offers"][0]["price"] = "100.5"
+    baseline_payload = {
+        "flightDate": "2027-03-01",
+        "date": "2026-09-01",
+        "price": "150.5",
+        "currency": "USD",
+        "source": "google-flights",
+    }
+    calendar_payload = {
+        "capturedAt": MARCH_CAPTURE,
+        "source": "google-flights",
+        "origin": "AQP",
+        "destination": "LIM",
+        "currency": "USD",
+        "from": "2027-03-01",
+        "to": "2027-03-03",
+        "prices": {"2027-03-03": "90.25"},
+    }
+    (fares / "AQP-LIM.jsonl").write_text(json.dumps(snapshot_payload) + "\n", encoding="utf-8")
+    baseline_path = fares / "baseline" / "AQP-LIM.jsonl"
+    baseline_path.parent.mkdir()
+    baseline_path.write_text(json.dumps(baseline_payload) + "\n", encoding="utf-8")
+    calendar_path = fares / "calendar" / "AQP-LIM.jsonl"
+    calendar_path.parent.mkdir()
+    calendar_path.write_text(json.dumps(calendar_payload) + "\n", encoding="utf-8")
+    history = FareHistory(fares)
+    calendar = FareCalendar(fares / "calendar")
+    remote_history = {
+        "origin": "AQP",
+        "destination": "LIM",
+        "snapshots": [snapshot_payload],
+        "baseline": [baseline_payload],
+        "health": {"lastCheckedAt": None, "checks": 0, "changes": 0, "errors": 0},
+        "airports": [],
+        "pairReference": {"value": 100.5, "dates": 1},
+    }
+    remote_calendar = {
+        "origin": "AQP",
+        "destination": "LIM",
+        "horizon": {
+            "capturedAt": MARCH_CAPTURE,
+            "source": "google-flights",
+            "currency": "USD",
+            "fromDate": "2027-03-01",
+            "toDate": "2027-03-03",
+            "prices": [
+                {"departureDate": "2027-03-03", "price": "90.25", "observedAt": MARCH_CAPTURE}
+            ],
+        },
+        "health": {"lastCheckedAt": None, "checks": 0, "changes": 0, "errors": 0},
+    }
+    local = AirfareData(history, calendar, source_root=tmp_path)
+    hosted = AirfareData(
+        history,
+        calendar,
+        remote=FakeRemote(history=remote_history, calendar=remote_calendar),
+        backend="supabase",
+        source_root=tmp_path,
+    )
+
+    assert hosted.history(HistoryQuery("AQP", "LIM")) == local.history(HistoryQuery("AQP", "LIM"))
+    assert hosted.calendar("AQP", "LIM") == local.calendar("AQP", "LIM")
+
+
+@pytest.mark.parametrize("wire_value", [True, "NaN", "Infinity", "not-a-number"])
+@pytest.mark.parametrize("kind", ["offer", "baseline", "calendar"])
+def test_remote_rejects_invalid_wire_prices_without_local_fallback(kind, wire_value, archive):
+    root, _, _ = archive
+    remote_history = history_document()
+    remote_calendar = calendar_document()
+    if kind == "offer":
+        remote_history["snapshots"][0]["offers"][0]["price"] = wire_value
+    elif kind == "baseline":
+        remote_history["baseline"][0]["price"] = wire_value
+    else:
+        remote_calendar["horizon"]["prices"][1]["price"] = wire_value
+
+    class UnreadableHistory(FareHistory):
+        def read(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide invalid remote prices")
+
+    class UnreadableCalendar(FareCalendar):
+        def horizon(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide invalid remote prices")
+
+    data = AirfareData(
+        UnreadableHistory(root / "fares"),
+        UnreadableCalendar(root / "fares" / "calendar"),
+        remote=FakeRemote(history=remote_history, calendar=remote_calendar),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected):
+        if kind == "calendar":
+            data.calendar("AQP", "LIM")
+        else:
+            data.history(HistoryQuery("AQP", "LIM"))
+
+
 def test_unavailable_remote_history_falls_back_once_with_a_bounded_store_warning(archive, caplog):
     root, history, calendar = archive
     remote = FakeRemote(history=AirfareRemoteUnavailable("token=never-log-this"))
@@ -376,6 +483,152 @@ def test_remote_history_rejects_snapshots_outside_the_requested_months(archive):
         data.history(HistoryQuery("AQP", "LIM", snapshot_months=("2027-03",)))
 
 
+def test_remote_history_rejects_baseline_outside_the_requested_departure(archive):
+    root, _, calendar = archive
+    document = history_document()
+    document["baseline"] = [{**document["baseline"][0], "flightDate": "2027-04-01"}]
+
+    class UnreadableHistory(FareHistory):
+        def read(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide an invalid baseline")
+
+    data = AirfareData(
+        UnreadableHistory(root / "fares"),
+        calendar,
+        remote=FakeRemote(history=document),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected, match="baseline departure filter"):
+        data.history(HistoryQuery("AQP", "LIM", departure="2027-03"))
+
+
+@pytest.mark.parametrize(
+    "airports",
+    [
+        lambda document: [document["airports"][1], document["airports"][0]],
+        lambda document: [document["airports"][0], document["airports"][0]],
+        lambda document: [
+            {
+                "code": "XXX",
+                "name": None,
+                "city": None,
+                "country": None,
+                "latitude": 1,
+                "longitude": 1,
+            }
+        ],
+    ],
+)
+def test_remote_history_rejects_embedded_airports_outside_the_endpoint_subset(airports, archive):
+    root, _, calendar = archive
+    document = history_document()
+    document["airports"] = airports(document)
+
+    class UnreadableHistory(FareHistory):
+        def read(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide invalid embedded airports")
+
+    data = AirfareData(
+        UnreadableHistory(root / "fares"),
+        calendar,
+        remote=FakeRemote(history=document),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected, match="history airports"):
+        data.history(HistoryQuery("AQP", "LIM"))
+
+
+def test_remote_history_rejects_duplicate_baseline_points(archive):
+    root, _, calendar = archive
+    document = history_document()
+    document["baseline"] = [document["baseline"][0], document["baseline"][0]]
+
+    class UnreadableHistory(FareHistory):
+        def read(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide duplicate baseline points")
+
+    data = AirfareData(
+        UnreadableHistory(root / "fares"),
+        calendar,
+        remote=FakeRemote(history=document),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected, match="duplicate baseline"):
+        data.history(HistoryQuery("AQP", "LIM"))
+
+
+def test_remote_health_rejects_a_timestamp_when_there_were_no_checks(archive):
+    root, _, calendar = archive
+    document = history_document()
+    document["health"] = {"lastCheckedAt": MARCH_CAPTURE, "checks": 0, "changes": 0, "errors": 0}
+
+    class UnreadableHistory(FareHistory):
+        def read(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide an invalid health summary")
+
+    data = AirfareData(
+        UnreadableHistory(root / "fares"),
+        calendar,
+        remote=FakeRemote(history=document),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected, match="health summary"):
+        data.history(HistoryQuery("AQP", "LIM"))
+
+
+def test_remote_calendar_rejects_duplicate_departure_dates(archive):
+    root, history, _ = archive
+    document = calendar_document()
+    document["horizon"]["prices"].append(
+        {"departureDate": "2027-03-03", "price": 91, "observedAt": MARCH_CAPTURE}
+    )
+
+    class UnreadableCalendar(FareCalendar):
+        def horizon(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide duplicate calendar prices")
+
+    data = AirfareData(
+        history,
+        UnreadableCalendar(root / "fares" / "calendar"),
+        remote=FakeRemote(calendar=document),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected, match="duplicate calendar departure"):
+        data.calendar("AQP", "LIM")
+
+
+def test_remote_calendar_requires_its_summary_timestamp_to_match_freshest_price(archive):
+    root, history, _ = archive
+    document = calendar_document()
+    for price in document["horizon"]["prices"]:
+        price["observedAt"] = "2026-09-14T00:00:00+00:00"
+
+    class UnreadableCalendar(FareCalendar):
+        def horizon(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide an invalid calendar summary")
+
+    data = AirfareData(
+        history,
+        UnreadableCalendar(root / "fares" / "calendar"),
+        remote=FakeRemote(calendar=document),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected, match="calendar horizon summary"):
+        data.calendar("AQP", "LIM")
+
+
 def test_remote_airport_selection_rejects_a_payload_with_a_different_code(archive):
     root, history, calendar = archive
     remote = FakeRemote(
@@ -430,6 +683,102 @@ def test_import_snapshots_appends_only_new_watch_observations(archive):
     ]
 
 
+def test_two_data_facades_atomically_dedupe_one_watch_import(archive):
+    root, _, calendar = archive
+    first_read_started = threading.Event()
+    second_read_started = threading.Event()
+    release_first_read = threading.Event()
+    reads_lock = threading.Lock()
+
+    class PausedFirstReadHistory(FareHistory):
+        def __init__(self, directory):
+            super().__init__(directory)
+            self.reads = 0
+
+        def read(self, *args, **kwargs):
+            with reads_lock:
+                read_number = self.reads
+                self.reads += 1
+            if read_number == 0:
+                first_read_started.set()
+                release_first_read.wait(timeout=2)
+            elif read_number == 1:
+                second_read_started.set()
+            return super().read(*args, **kwargs)
+
+    history = PausedFirstReadHistory(root / "fares")
+    imported = snapshot(captured_at="2026-09-17T00:00:00+00:00", price=180.0)
+    first = AirfareData(history, calendar, source_root=root)
+    second = AirfareData(history, calendar, source_root=root)
+    results: list[object] = []
+    one = threading.Thread(target=lambda: results.append(first.import_snapshots([imported])))
+    two = threading.Thread(target=lambda: results.append(second.import_snapshots([imported])))
+
+    one.start()
+    assert first_read_started.wait(timeout=1)
+    two.start()
+    try:
+        assert not second_read_started.wait(timeout=0.2)
+    finally:
+        release_first_read.set()
+        one.join(timeout=2)
+        two.join(timeout=2)
+
+    assert not one.is_alive() and not two.is_alive()
+    assert sum(result.imported for result in results) == 1
+    assert sum(result.skipped for result in results) == 1
+    assert len(history.read("AQP", "LIM")) == 3
+
+
+def test_different_watch_routes_do_not_wait_for_each_others_import_lock(archive):
+    root, history, calendar = archive
+    first_read_started = threading.Event()
+    release_first_read = threading.Event()
+    other_route_done = threading.Event()
+
+    class BlockingRouteHistory(FareHistory):
+        def read(self, origin, destination, **kwargs):
+            if (origin, destination) == ("AQP", "LIM"):
+                first_read_started.set()
+                release_first_read.wait(timeout=2)
+            return super().read(origin, destination, **kwargs)
+
+    locked_history = BlockingRouteHistory(history.directory)
+    first = AirfareData(locked_history, calendar, source_root=root)
+    second = AirfareData(locked_history, calendar, source_root=root)
+    one = threading.Thread(
+        target=lambda: first.import_snapshots(
+            [snapshot(captured_at="2026-09-17T00:00:00+00:00", price=180.0)]
+        )
+    )
+    two = threading.Thread(
+        target=lambda: (
+            second.import_snapshots(
+                [
+                    snapshot(
+                        captured_at="2026-09-17T00:00:00+00:00",
+                        origin="LIM",
+                        destination="SCL",
+                    )
+                ]
+            ),
+            other_route_done.set(),
+        )
+    )
+
+    one.start()
+    assert first_read_started.wait(timeout=1)
+    two.start()
+    try:
+        assert other_route_done.wait(timeout=1)
+    finally:
+        release_first_read.set()
+        one.join(timeout=2)
+        two.join(timeout=2)
+
+    assert not one.is_alive() and not two.is_alive()
+
+
 def test_first_batch_sync_failure_preserves_local_source_and_cursor(archive):
     root, history, calendar = archive
 
@@ -463,6 +812,50 @@ def test_unconfigured_sync_is_a_failed_facade_report_without_secret_leakage(arch
     assert (
         report.error == "Airfare synchronization is unavailable; configure Supabase before retrying"
     )
+
+
+@pytest.mark.parametrize("failure", ["malformed_filename", "unreadable_journal"])
+def test_failed_source_scan_returns_a_total_sanitized_sync_report_without_mutation(
+    failure, archive
+):
+    root, history, calendar = archive
+    if failure == "malformed_filename":
+        (root / "fares" / "invalid.jsonl").write_text('{"bad": true}\n', encoding="utf-8")
+    else:
+        (root / "fares" / "ZZZ-YYY.jsonl").mkdir()
+    before = {
+        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }
+    remote = FakeRemote()
+    data = AirfareData(
+        history,
+        calendar,
+        remote=remote,
+        source_root=root,
+        sync=AirfareSync(root, remote),
+    )
+
+    report = data.sync_incremental()
+
+    assert report.status == "failed"
+    assert report.error == "Airfare synchronization failed; retry with the retained source journals"
+    assert all(
+        manifest.logical_unique == 0
+        for manifest in (
+            report.source.snapshots,
+            report.source.baseline,
+            report.source.calendar,
+            report.source.board_checks,
+            report.source.calendar_checks,
+            report.source.airports,
+            report.source.documents,
+        )
+    )
+    assert report.uploaded == dict.fromkeys(report.uploaded, 0)
+    assert {
+        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    } == before
+    assert not (root / "fares" / "sync" / "cursors.json").exists()
 
 
 def test_same_process_sync_calls_block_until_the_current_run_finishes(archive):

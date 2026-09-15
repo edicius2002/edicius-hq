@@ -7,6 +7,7 @@ import math
 import threading
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Literal, NoReturn
 
@@ -20,13 +21,15 @@ from app.services.airfare_supabase import (
     SupabaseAirfare,
     configured_airfare_supabase,
 )
-from app.services.airfare_sync import AirfareSync, SyncReport
+from app.services.airfare_sync import AirfareSync, DatasetManifest, SourceManifest, SyncReport
 from app.services.fare_calendar import CALENDAR, FareCalendar, Horizon, ObservedPrice
 from app.services.fare_history import HISTORY, BaselinePoint, FareHistory, route_stem
 
 logger = logging.getLogger(__name__)
 
 _SYNC_LOCK = threading.Lock()
+_IMPORT_ROUTE_LOCKS_GUARD = threading.Lock()
+_IMPORT_ROUTE_LOCKS: dict[str, threading.Lock] = {}
 _SYNC_DATASETS = (
     "snapshots",
     "baseline",
@@ -36,6 +39,7 @@ _SYNC_DATASETS = (
     "airports",
     "documents",
 )
+_EMPTY_SYNC_DIGEST = sha256(b"").hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,20 +175,21 @@ class AirfareData:
         skipped = 0
         for snapshot in snapshots:
             stem = route_stem(snapshot.origin, snapshot.destination)
-            route_known = known.get(stem)
-            if route_known is None:
-                route_known = {
-                    self._snapshot_identity(existing)
-                    for existing in self._history.read(snapshot.origin, snapshot.destination)
-                }
-                known[stem] = route_known
-            identity = self._snapshot_identity(snapshot)
-            if identity in route_known:
-                skipped += 1
-                continue
-            self._history.append(snapshot)
-            route_known.add(identity)
-            imported += 1
+            with _import_route_lock(stem):
+                route_known = known.get(stem)
+                if route_known is None:
+                    route_known = {
+                        self._snapshot_identity(existing)
+                        for existing in self._history.read(snapshot.origin, snapshot.destination)
+                    }
+                    known[stem] = route_known
+                identity = self._snapshot_identity(snapshot)
+                if identity in route_known:
+                    skipped += 1
+                    continue
+                self._history.append(snapshot)
+                route_known.add(identity)
+                imported += 1
         return ImportSnapshotsResult(imported, skipped)
 
     def sync_incremental(self) -> SyncReport:
@@ -193,7 +198,11 @@ class AirfareData:
             try:
                 return self._sync.apply("incremental")
             except (AirfareRemoteError, OSError, ValueError):
-                return self._unavailable_sync_report()
+                return self._failed_sync_report(
+                    "Airfare synchronization is unavailable; configure Supabase before retrying"
+                    if self._remote is None
+                    else "Airfare synchronization failed; retry with the retained source journals"
+                )
 
     def _local_history(self, query: HistoryQuery) -> HistoryRead:
         whole_pair = self._history.read(query.origin, query.destination)
@@ -276,13 +285,21 @@ class AirfareData:
             sorted((item.flight_date, item.date) for item in baseline)
         ):
             _reject("Supabase returned history baseline out of order")
+        if query.departure is not None and any(
+            not item.flight_date.startswith(query.departure) for item in baseline
+        ):
+            _reject("Supabase returned baseline departure filter violation")
+        if len({(item.flight_date, item.date) for item in baseline}) != len(baseline):
+            _reject("Supabase returned duplicate baseline points")
         return HistoryRead(
             origin=query.origin,
             destination=query.destination,
             snapshots=snapshots,
             baseline=baseline,
             health=_remote_health(doc.get("health")),
-            airports=tuple(_airport(row) for row in _array(doc, "airports", "history document")),
+            airports=_history_airports(
+                _array(doc, "airports", "history document"), query.origin, query.destination
+            ),
             pair_reference=_pair_reference(doc.get("pairReference")),
         )
 
@@ -334,14 +351,14 @@ class AirfareData:
         value = values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
         return PairReferenceSummary(float(value), len(values))
 
-    def _unavailable_sync_report(self) -> SyncReport:
-        source = AirfareSync(self._source_root).scan("incremental")
+    @staticmethod
+    def _failed_sync_report(error: str) -> SyncReport:
         return SyncReport(
             "incremental",
             "failed",
-            source,
+            _unavailable_source_manifest(),
             dict.fromkeys(_SYNC_DATASETS, 0),
-            "Airfare synchronization is unavailable; configure Supabase before retrying",
+            error,
         )
 
     def _remote_or_raise(self) -> SupabaseAirfare:
@@ -373,6 +390,26 @@ def _object(value: object, context: str) -> dict[str, object]:
     return value
 
 
+def _import_route_lock(stem: str) -> threading.Lock:
+    with _IMPORT_ROUTE_LOCKS_GUARD:
+        return _IMPORT_ROUTE_LOCKS.setdefault(stem, threading.Lock())
+
+
+def _unavailable_source_manifest() -> SourceManifest:
+    def empty_dataset() -> DatasetManifest:
+        return DatasetManifest(0, 0, 0, _EMPTY_SYNC_DIGEST, {})
+
+    return SourceManifest(
+        snapshots=empty_dataset(),
+        baseline=empty_dataset(),
+        calendar=empty_dataset(),
+        board_checks=empty_dataset(),
+        calendar_checks=empty_dataset(),
+        airports=empty_dataset(),
+        documents=empty_dataset(),
+    )
+
+
 def _reject(message: str) -> NoReturn:
     raise AirfareRemoteRejected(message)
 
@@ -396,10 +433,26 @@ def _optional_string(value: object, context: str) -> str | None:
     return _string(value, context)
 
 
-def _number(value: object, context: str, *, allow_none: bool = False) -> float | None:
+def _number(
+    value: object,
+    context: str,
+    *,
+    allow_none: bool = False,
+    allow_numeric_string: bool = False,
+) -> float | None:
     if value is None and allow_none:
         return None
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool):
+        _reject(f"Supabase returned an invalid {context}")
+    if isinstance(value, str) and allow_numeric_string:
+        try:
+            number = float(value)
+        except ValueError:
+            _reject(f"Supabase returned an invalid {context}")
+        if math.isfinite(number):
+            return number
+        _reject(f"Supabase returned an invalid {context}")
+    if not isinstance(value, int | float) or not math.isfinite(value):
         _reject(f"Supabase returned an invalid {context}")
     return float(value)
 
@@ -455,7 +508,7 @@ def _offer(value: object) -> FareOffer:
         arrival_at=_optional_string(row.get("arrivalAt"), "offer arrivalAt"),
         transfers=_integer(row.get("transfers"), "offer transfers"),
         duration_minutes=duration,
-        price=_number(row.get("price"), "offer price", allow_none=True),
+        price=_number(row.get("price"), "offer price", allow_none=True, allow_numeric_string=True),
         currency=_string(row.get("currency"), "offer currency"),
         via_points=via_points,
     )
@@ -472,7 +525,7 @@ def _insights(value: object) -> FareInsights:
 
 def _baseline(value: object) -> BaselinePoint:
     row = _object(value, "baseline point")
-    price = _number(row.get("price"), "baseline price")
+    price = _number(row.get("price"), "baseline price", allow_numeric_string=True)
     assert price is not None
     return BaselinePoint(
         flight_date=_string(row.get("flightDate"), "baseline flightDate"),
@@ -498,16 +551,30 @@ def _airport(value: object) -> Airport:
     )
 
 
+def _history_airports(rows: list[object], origin: str, destination: str) -> tuple[Airport, ...]:
+    airports = tuple(_airport(row) for row in rows)
+    endpoints = tuple(dict.fromkeys((origin, destination)))
+    position = -1
+    for airport in airports:
+        try:
+            current = endpoints.index(airport.code)
+        except ValueError:
+            _reject("Supabase returned history airports outside the requested endpoints")
+        if current <= position:
+            _reject("Supabase returned history airports outside the requested endpoint order")
+        position = current
+    return airports
+
+
 def _remote_health(value: object) -> WatchHealth:
     row = _object(value, "health")
     checks = _integer(row.get("checks"), "health checks")
     changes = _integer(row.get("changes"), "health changes")
     errors = _integer(row.get("errors"), "health errors")
-    if changes + errors > checks:
+    last_checked_at = _optional_string(row.get("lastCheckedAt"), "health lastCheckedAt")
+    if changes + errors > checks or (checks == 0) != (last_checked_at is None):
         _reject("Supabase returned an invalid health summary")
-    return WatchHealth(
-        _optional_string(row.get("lastCheckedAt"), "health lastCheckedAt"), checks, changes, errors
-    )
+    return WatchHealth(last_checked_at, checks, changes, errors)
 
 
 def _pair_reference(value: object) -> PairReferenceSummary | None:
@@ -535,6 +602,11 @@ def _horizon(value: object, origin: str, destination: str) -> Horizon | None:
         sorted(item.departure_date for item in prices)
     ) or any(item.departure_date < start or item.departure_date > end for item in prices):
         _reject("Supabase returned calendar horizon prices out of order")
+    if len({item.departure_date for item in prices}) != len(prices):
+        _reject("Supabase returned duplicate calendar departure dates")
+    captured_at = _string(row.get("capturedAt"), "calendar horizon capturedAt")
+    if prices and captured_at != max(item.observed_at for item in prices):
+        _reject("Supabase returned an invalid calendar horizon summary timestamp")
     return Horizon(
         origin=origin,
         destination=destination,
@@ -543,7 +615,7 @@ def _horizon(value: object, origin: str, destination: str) -> Horizon | None:
         start=start,
         end=end,
         prices=list(prices),
-        captured_at=_string(row.get("capturedAt"), "calendar horizon capturedAt"),
+        captured_at=captured_at,
     )
 
 
@@ -551,7 +623,12 @@ def _observed_price(value: object) -> ObservedPrice:
     row = _object(value, "calendar price")
     return ObservedPrice(
         departure_date=_string(row.get("departureDate"), "calendar price departureDate"),
-        price=_number(row.get("price"), "calendar price price", allow_none=True),
+        price=_number(
+            row.get("price"),
+            "calendar price price",
+            allow_none=True,
+            allow_numeric_string=True,
+        ),
         observed_at=_string(row.get("observedAt"), "calendar price observedAt"),
     )
 

@@ -480,3 +480,43 @@ def test_configured_singleton_is_shared_and_closed_once_under_concurrent_callers
     airfare_supabase.close_airfare_supabase_client()
     airfare_supabase.close_airfare_supabase_client()
     assert created[0].close_calls == 1
+
+
+def test_select_all_paginates_server_capped_pages_and_deduplicates():
+    pages = [[{"record_id": "a"}, {"record_id": "b"}], [{"record_id": "b"}, {"record_id": "c"}], []]
+    offsets = []
+
+    def handle(request):
+        assert request.method == "GET"
+        assert request.url.params["order"] == "record_id.asc"
+        offsets.append(int(request.url.params["offset"]))
+        return httpx.Response(200, json=pages.pop(0))
+
+    client = SupabaseAirfare(
+        "https://testproject.supabase.co", "sb_secret_test", transport=httpx.MockTransport(handle)
+    )
+    try:
+        assert client.select_all(
+            "fare_snapshots", ("record_id",), key="record_id", page_size=5
+        ) == [{"record_id": "a"}, {"record_id": "b"}, {"record_id": "c"}]
+        assert offsets == [0, 2, 4]
+        with pytest.raises(ValueError):
+            client.select_all("fare_snapshots", ("payload,secret",), key="record_id")
+        with pytest.raises(ValueError):
+            client.select_all("fare_snapshots", ("record_id",), key="record_id", page_size=0)
+    finally:
+        client.close()
+
+
+def test_select_errors_never_expose_response_bodies():
+    client = SupabaseAirfare(
+        "https://testproject.supabase.co",
+        "sb_secret_test",
+        transport=httpx.MockTransport(lambda request: httpx.Response(503, text="sb_secret_hidden")),
+    )
+    try:
+        with pytest.raises(AirfareRemoteUnavailable) as caught:
+            client.select_all("fare_airports", ("code", "payload"), key="code")
+        assert "sb_secret" not in str(caught.value)
+    finally:
+        client.close()

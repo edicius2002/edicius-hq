@@ -35,6 +35,10 @@ create table public.fare_baseline_points (
 );
 create index fare_baseline_route_flight_price_date_idx
   on public.fare_baseline_points (origin, destination, flight_date, price_date);
+-- The provider may revise a point in the local merged baseline. Updating this
+-- key replaces its content identity without requiring DELETE privileges.
+create unique index fare_baseline_natural_key_idx
+  on public.fare_baseline_points (origin, destination, flight_date, price_date);
 
 create table public.fare_calendar_captures (
   record_id text primary key check (record_id ~ '^[0-9a-f]{64}$'),

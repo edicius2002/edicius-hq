@@ -117,6 +117,64 @@ class SupabaseAirfare:
         name = _identifier(name, kind="RPC name")
         return self._post(f"rpc/{name}", dict(params))
 
+    def select_all(
+        self,
+        table: str,
+        columns: Sequence[str],
+        *,
+        key: str,
+        page_size: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Read replica verification fields, including server-capped pages."""
+        allowed = {
+            "fare_snapshots": {"record_id"},
+            "fare_baseline_points": {"record_id"},
+            "fare_calendar_captures": {"record_id"},
+            "fare_checks": {"record_id", "kind"},
+            "fare_airports": {"code", "payload"},
+            "airfare_documents": {"key", "value", "source_updated_at"},
+        }
+        if (
+            table not in allowed
+            or not columns
+            or not set(columns) <= allowed[table]
+            or key not in columns
+            or key not in {"record_id", "code", "key"}
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 500
+        ):
+            raise ValueError("invalid Supabase verification selection")
+        found: dict[str, dict[str, Any]] = {}
+        offset = 0
+        while True:
+            page = self._request(
+                "GET",
+                table,
+                params={
+                    "select": ",".join(columns),
+                    "order": f"{key}.asc",
+                    "offset": str(offset),
+                    "limit": str(page_size),
+                },
+            )
+            if not isinstance(page, list) or any(
+                not isinstance(row, dict)
+                or not isinstance(row.get(key), str)
+                or not set(columns) <= row.keys()
+                for row in page
+            ):
+                raise AirfareRemoteRejected("Supabase returned an invalid selection")
+            if not page:
+                return list(found.values())
+            previous = len(found)
+            for row in page:
+                if row[key] in found and found[row[key]] != row:
+                    raise AirfareRemoteRejected("Supabase selection changed during pagination")
+                found[row[key]] = row
+            if len(found) == previous:
+                raise AirfareRemoteRejected("Supabase selection pagination did not advance")
+            offset += len(page)
+
     def _post(
         self,
         path: str,
@@ -125,8 +183,19 @@ class SupabaseAirfare:
         params: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> Any:
+        return self._request("POST", path, body=body, params=params, headers=headers)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: object = None,
+        params: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
         try:
-            response = self._client.post(path, params=params, json=body, headers=headers)
+            response = self._client.request(method, path, params=params, json=body, headers=headers)
         except (httpx.TimeoutException, httpx.RequestError):
             raise AirfareRemoteUnavailable("Supabase request is unavailable") from None
 

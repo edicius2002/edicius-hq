@@ -40,7 +40,7 @@
 - `services/api/tests/fares/test_airfare_data.py` — local/cloud parity and fallback tests.
 - `scripts/fares-supabase.py` — dry-run, apply, verify, and read-parity command.
 - `docs/ADRs/0003-airfare-supabase-read-store.md` — durable architecture decision and rollback.
-- `docs/airfare-supabase-backfill-report.json` — non-secret, machine-readable migration evidence produced by the verified run.
+- `docs/airfare-supabase-evidence/*.json` and `docs/airfare-supabase-backfill-report.json` — separate, non-secret CLI reports retained as the reviewed backfill evidence set; Task 9 operations are defined only in the deployment runbook.
 - `docs/airfare-supabase-results.md` — parity and latency report.
 
 **Modify:**
@@ -84,7 +84,7 @@
 Run from the repository root:
 
 ```powershell
-supabase init
+npx --yes supabase@2.105.0 init
 ```
 
 Keep `supabase/config.toml`. Add these exact ignore entries if the CLI did not create
@@ -228,8 +228,8 @@ rollback;
 - [ ] **Step 3: Run the schema test and confirm the missing-schema failure**
 
 ```powershell
-supabase start
-supabase test db
+npx --yes supabase@2.105.0 start
+npx --yes supabase@2.105.0 test db
 ```
 
 Expected: pgTAP fails because `fare_snapshots` and the RPCs do not exist.
@@ -366,8 +366,8 @@ and revoke function execution from `public`, `anon`, and `authenticated`.
 - [ ] **Step 5: Run schema tests from a clean local database**
 
 ```powershell
-supabase db reset
-supabase test db
+npx --yes supabase@2.105.0 db reset
+npx --yes supabase@2.105.0 test db
 ```
 
 Expected: all 18 pgTAP assertions pass.
@@ -613,11 +613,11 @@ content IDs or natural-key upserts. Keep batch size from validated configuration
 Expose:
 
 ```text
-npm run fares:supabase -- --dry-run --report $env:TEMP/airfare-source.json
-npm run fares:supabase -- --apply --full --report $env:TEMP/airfare-full.json
-npm run fares:supabase -- --apply --incremental --report $env:TEMP/airfare-incremental.json
-npm run fares:supabase -- --verify --report $env:TEMP/airfare-verify.json
-npm run fares:supabase -- --compare-reads --report $env:TEMP/airfare-read-parity.json
+npm run fares:supabase -- --dry-run --source services/api/.local-data --report $env:TEMP/airfare-source.json
+npm run fares:supabase -- --apply --full --source services/api/.local-data --report $env:TEMP/airfare-full.json
+npm run fares:supabase -- --apply --incremental --source services/api/.local-data --report $env:TEMP/airfare-incremental.json
+npm run fares:supabase -- --verify --source services/api/.local-data --report $env:TEMP/airfare-verify.json
+npm run fares:supabase -- --compare-reads --source services/api/.local-data --report $env:TEMP/airfare-read-parity.json
 ```
 
 Make the modes mutually exclusive. Default to no writes: invoking the command without
@@ -629,7 +629,7 @@ headers.
 
 ```powershell
 & 'services/api/.venv/Scripts/python.exe' -m pytest -q -p no:cacheprovider services/api/tests/fares/test_airfare_sync.py
-npm run fares:supabase -- --dry-run --source .local-data --report $env:TEMP/airfare-dry-run.json
+npm run fares:supabase -- --dry-run --source services/api/.local-data --report $env:TEMP/airfare-dry-run.json
 npm run lint:api
 npm run typecheck:api
 ```
@@ -990,188 +990,34 @@ git commit -m "docs(airfare): record Supabase archive decision"
 
 ### Task 9: Apply the Schema and Run the Non-Destructive Backfill
 
-**Files:**
+**Historical planning record — not an operator procedure.** This task has a hosted
+schema/row, credential, and local-cursor checkpoint. Its executable procedure is the
+[target, schema, and credential gate](../../deploy-plan.md#target-schema-and-credential-gate)
+and [backfill, reconciliation, and idempotency gate](../../deploy-plan.md#backfill-reconciliation-and-idempotency-gate)
+in `docs/deploy-plan.md`, which is the sole operational source of truth.
 
-- Create: `docs/airfare-supabase-backfill-report.json`
-- Local ignored file: `.env` — add the secret interactively; never stage it.
+**Acceptance intent:** after explicit owner approval, apply only migration
+`20260915000000_airfare_archive.sql`; preserve the local source; reconcile a stable
+source against the destination; and retain only reviewed aggregate-only CLI reports.
+Idempotency is proved by matching normalized destination manifests from the named
+second-before and second-after verification reports, never by attempted-upsert counts.
 
-**Interfaces:**
-
-- Consumes: project `abndifkxpfppmllgxfnu`, a database password supplied interactively to the CLI, and a project-specific `sb_secret_*` key stored in `.env`.
-- Produces: applied remote schema, full idempotent dataset, initialized sync cursors, and a committed non-secret verification report.
-
-- [ ] **Step 1: Verify the exact remote target before any remote mutation**
-
-```powershell
-supabase projects list
-```
-
-Expected: `edicius-hq`, ref `abndifkxpfppmllgxfnu`, region `sa-east-1`, status
-`ACTIVE_HEALTHY`. Stop if any of those values differs.
-
-- [ ] **Step 2: Link with an interactively supplied database password**
-
-Reset the database password in the project dashboard if its creation-time value is not
-known, then run:
-
-```powershell
-supabase link --project-ref abndifkxpfppmllgxfnu
-supabase migration list
-```
-
-Do not put the database password on the command line. Expected: the CLI prompts for it
-and the project becomes linked.
-
-- [ ] **Step 3: Preview and apply only the committed migration**
-
-```powershell
-supabase db push --dry-run
-supabase db push
-supabase migration list
-```
-
-Expected: dry-run lists `20260915000000_airfare_archive.sql`; after push, local and
-remote migration lists agree. Do not use `db reset --linked`.
-
-- [ ] **Step 4: Store a dedicated backend secret outside source control**
-
-Create a named secret key for the PC backend in Supabase Settings > API Keys and add it
-to the ignored `.env` as `SUPABASE_SECRET_KEY`. Add the exact project URL as
-`SUPABASE_URL`. Confirm only the variable names, never values:
-
-```powershell
-git status --short --ignored .env
-```
-
-Expected: `.env` is ignored and absent from staged/untracked output.
-
-- [ ] **Step 5: Capture the stable source manifest without writes**
-
-```powershell
-npm run fares:supabase -- --dry-run --source .local-data --report $env:TEMP/airfare-supabase-source.json
-```
-
-Expected: valid counts match the current logical inventory or its documented growth;
-skipped records are itemized by relative file and line. Investigate any new all-invalid
-file before applying.
-
-- [ ] **Step 6: Run the full backfill and verify it**
-
-```powershell
-npm run fares:supabase -- --apply --full --source .local-data --report ../../docs/airfare-supabase-backfill-report.json
-npm run fares:supabase -- --verify --source .local-data --report ../../docs/airfare-supabase-backfill-report.json
-```
-
-Expected: every dataset/route count and ordered-record-ID digest matches. The command
-must exit nonzero on any mismatch.
-
-- [ ] **Step 7: Prove idempotency with a second full pass**
-
-```powershell
-npm run fares:supabase -- --apply --full --source .local-data --report $env:TEMP/airfare-second-pass.json
-npm run fares:supabase -- --verify --source .local-data --report ../../docs/airfare-supabase-backfill-report.json
-```
-
-Expected: the second report records zero newly inserted logical records and final
-digests still match.
-
-- [ ] **Step 8: Run one incremental catch-up and commit only the safe report**
-
-```powershell
-npm run fares:supabase -- --apply --incremental --source .local-data --report $env:TEMP/airfare-catch-up.json
-npm run fares:supabase -- --verify --source .local-data --report ../../docs/airfare-supabase-backfill-report.json
-git add -- docs/airfare-supabase-backfill-report.json
-git diff --cached
-git commit -m "docs(airfare): record verified Supabase backfill"
-```
-
-Expected: the committed JSON contains no key, URL query credentials, fare payloads, or
-local absolute user path.
+**Evidence intent:** retain the separate report set and staging rule named in the
+deployment runbook. It includes first full apply/verify, second full apply with
+before/after verify, incremental apply/final verify, and parity/canary artifacts only
+when their accepted tools exist. No single-file aggregation artifact is required.
 
 ### Task 10: Canary Supabase Reads, Measure, and Cut Over
 
-**Files:**
+**Historical planning record — not an operator procedure.** The executable preconditions,
+canary/fallback sequence, exact rollback, quality gates, and evidence retention rules
+are in [canary, read rollback, and retention](../../deploy-plan.md#canary-read-rollback-and-retention).
 
-- Create: `docs/airfare-supabase-results.md`
-- Modify: ignored `.env` only for operational flags.
-
-**Interfaces:**
-
-- Consumes: verified destination manifest, `AIRFARE_SYNC_ENABLED`, `AIRFARE_DATA_BACKEND`, existing measurement scripts, and the AQP-LIM canary.
-- Produces: evidence-backed cutover with a one-flag rollback and no local deletion.
-
-- [ ] **Step 1: Enable replication while keeping local reads**
-
-Set in ignored `.env`:
-
-```dotenv
-AIRFARE_SYNC_ENABLED=true
-AIRFARE_DATA_BACKEND=local
-```
-
-Restart FastAPI, run one normal due collection, then execute
-`npm run fares:supabase -- --verify --source .local-data`.
-Expected: the pass result is unchanged and destination catches up.
-
-- [ ] **Step 2: Compare local and Supabase answers on every watched route**
-
-Run `npm run fares:supabase -- --compare-reads --source .local-data --report
-$env:TEMP/airfare-read-parity.json` to fetch stable local and remote history/calendar
-answers for all seven watched pairs. The command canonicalizes timestamps/numbers and asserts equal
-snapshots for watched months, baselines, health, airports, horizon points, and pair
-reference. Save only aggregate equality/digest evidence.
-
-- [ ] **Step 3: Measure the AQP-LIM canary before cutover**
-
-```powershell
-& 'services/api/.venv/Scripts/python.exe' scripts/measure_airfare.py --data-dir services/api/.local-data --pair AQP-LIM --samples 15 --output $env:TEMP/airfare-local-canary.json
-```
-
-Record server construction time, gzip/plain bytes, snapshots, baseline points, and
-semantic digest. Label it local backend construction, not WAN latency.
-
-- [ ] **Step 4: Switch only the read backend and repeat the canary**
-
-Set `AIRFARE_DATA_BACKEND=supabase`, restart FastAPI, and rerun the same semantic and
-payload measurement through the authenticated endpoint. The result must preserve the
-semantic digest for watched months and pair reference while documenting the intentional
-reduction from discarded months.
-
-- [ ] **Step 5: Exercise failure and rollback before accepting cutover**
-
-Temporarily set an unreachable Supabase URL in the process environment, request history
-and calendar, and verify structured logs plus correct local fallback. Restore the URL.
-Then set `AIRFARE_DATA_BACKEND=local`, restart, and verify the local endpoint; finally
-set it back to `supabase` and restart. No database or archive mutation belongs in this
-exercise.
-
-- [ ] **Step 6: Run every repository gate**
-
-```powershell
-npm run format:check
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-npm run lint:api
-npm run typecheck:api
-npm run test:api
-supabase test db
-```
-
-Expected: every command exits zero.
-
-- [ ] **Step 7: Write and commit the final evidence**
-
-In `docs/airfare-supabase-results.md`, record project ref/region, migration ID, source
-and destination counts/digests, idempotency result, local/cloud canary measurements,
-payload reduction, failure drill, exact active flags, and rollback command. Do not
-include secrets, request headers, raw fares, or database passwords.
-
-```powershell
-git add -- docs/airfare-supabase-results.md
-git commit -m "docs(airfare): record Supabase cutover evidence"
-```
+**Acceptance intent:** enable replication while keeping local reads first; require
+bounded watched-month parity and a safe configured-backend canary before changing the
+read backend; exercise local fallback and the one-flag read rollback; and retain only
+aggregate evidence. The current direct-model measurement is historical local
+construction evidence, not a cloud-cutover instrument.
 
 ---
 

@@ -165,7 +165,9 @@ observations that share a timestamp but differ in content. Byte-identical duplic
 lines for the same route are one logical record, matching the existing watch-import
 deduplication rule. Manifests report both physical valid lines and unique logical
 records so a collapsed duplicate is visible. Table upserts use `record_id`; a second
-full backfill must add zero rows.
+full backfill must not change the destination manifest. The proof is matching
+normalized destination manifests from successful verification immediately before and
+after that replay; attempted-upsert counts are not an insertion metric.
 
 Airports and the watch document use their natural keys and deterministic upserts.
 
@@ -189,6 +191,12 @@ The command has four explicit modes:
 - `--verify`: compare count and ordered-record-ID digests per dataset and route.
 - `--compare-reads`: compare canonical local and remote history/calendar answers for
   every watched route without writing either store.
+
+Each invocation emits one aggregate-only report in its existing mode-specific schema;
+there is no synthetic single-file evidence envelope. The reviewed evidence set is the
+named collection of dry-run, apply, verification, parity, and (when an accepted tool
+exists) canary reports in [the deployment runbook](../../deploy-plan.md#backfill-reconciliation-and-idempotency-gate).
+The before/after second-full verification reports are the retained idempotency proof.
 
 The initial run is full and does not depend on cursor state. Its successful completion
 sets cursors to the corresponding source ends. Collection integration then runs an
@@ -254,7 +262,9 @@ References:
 
 ## Acceptance criteria
 
-1. A second full backfill adds zero logical records.
+1. Successful verification immediately before and after a second full backfill has
+   identical normalized destination manifests; attempted-upsert counts are not used as
+   insertion evidence.
 2. Source and destination counts plus ordered-record-ID digests match for snapshots,
    baseline points, calendar captures, and both check kinds, grouped by route.
 3. Local and Supabase readers return semantically equal history/calendar/airport
@@ -266,8 +276,9 @@ References:
 6. A Supabase outage during collection loses no observation and leaves the cursor at
    the last acknowledged batch.
 7. `AIRFARE_DATA_BACKEND=local` restores the pre-cutover read path with one restart.
-8. The canary report records server construction time, compressed/uncompressed bytes,
-   snapshot count, and semantic response digest before and after cutover.
+8. An accepted configured-backend canary records its explicit timing boundary,
+   compressed/uncompressed bytes, snapshot count, and semantic response digest before
+   and after cutover.
 
 ## Out of scope
 

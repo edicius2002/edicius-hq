@@ -36,9 +36,11 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import fares as fares_router
+from app.services.airfare_data import AirfareData
 from app.services import calendar_job, fare_collector
 from app.services.fare_calendar import CalendarCurve, CalendarPrice, FareCalendar
 from app.services.fare_collector import CalendarReport, CalendarResult, FareWatch
+from app.services.fare_history import FareHistory
 
 PAIR = {"origin": "LIM", "destination": "CUZ"}
 
@@ -251,6 +253,11 @@ def a_store_holding_one_curve(tmp_path, monkeypatch, *, with_curve=True):
         )
     monkeypatch.setattr(fare_collector, "CALENDAR", store)
     monkeypatch.setattr(fares_router, "CALENDAR", store)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(FareHistory(tmp_path / "fares"), store, source_root=tmp_path),
+    )
     return store
 
 
@@ -504,7 +511,12 @@ def test_collecting_a_curve_and_reading_one_are_two_different_endpoints(monkeypa
     parameterised route under `/calendar` the failure would be a 422 about a
     route code rather than a missing endpoint.
     """
-    monkeypatch.setattr(fares_router, "CALENDAR", FareCalendar(tmp_path))
+    calendar = FareCalendar(tmp_path)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(FareHistory(tmp_path / "fares"), calendar, source_root=tmp_path),
+    )
 
     with TestClient(app) as client:
         read = client.get("/api/fares/calendar?origin=LIM&destination=CUZ")

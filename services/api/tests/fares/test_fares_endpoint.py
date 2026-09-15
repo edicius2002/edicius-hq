@@ -21,12 +21,20 @@ import pytest
 from conftest import read_fixture
 from fastapi.testclient import TestClient
 
-from app.adapters.fares.models import FareQuery
+from app.adapters.fares.models import Airport, FareOffer, FareQuery, FareSnapshot
 from app.main import app
 from app.routers import fares as fares_router
+from app.services.airfare_data import (
+    AirfareData,
+    CalendarRead,
+    HistoryQuery,
+    HistoryRead,
+    WatchHealth,
+)
 from app.services import collection_job
+from app.services.fare_calendar import FareCalendar
 from app.services.fare_collector import CollectionReport, FareWatch, RouteResult, collect
-from app.services.fare_history import FareHistory
+from app.services.fare_history import BaselinePoint, FareHistory
 
 # --- the collector ---------------------------------------------------------
 
@@ -181,6 +189,143 @@ def wait_for_the_pass(client, timeout=5.0):
             return body
         time.sleep(0.01)
     raise AssertionError("the collection pass never finished")
+
+
+def test_read_routes_delegate_to_airfare_data_and_preserve_the_legacy_wire_shape(monkeypatch):
+    """Catch a router that rebuilds archive reads instead of asking the façade."""
+
+    class Facade:
+        def __init__(self) -> None:
+            self.history_queries: list[HistoryQuery] = []
+            self.calendar_queries: list[tuple[str, str]] = []
+            self.airport_queries: list[tuple[str, ...]] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.history_queries.append(query)
+            return HistoryRead(
+                "LIM",
+                "SCL",
+                (
+                    FareSnapshot(
+                        captured_at="2026-08-01T09:00:00+00:00",
+                        source="fixture",
+                        origin="LIM",
+                        destination="SCL",
+                        flight_date="2027-03-09",
+                        return_date=None,
+                        currency="USD",
+                        insights=None,
+                        offers=[
+                            FareOffer(
+                                airline="LA",
+                                airline_name="LATAM",
+                                flight_number="529",
+                                departure_at="2027-03-09T08:00",
+                                arrival_at="2027-03-09T12:00",
+                                transfers=0,
+                                duration_minutes=240,
+                                price=210.0,
+                                currency="USD",
+                                via_points=("AQP",),
+                            )
+                        ],
+                    ),
+                ),
+                (BaselinePoint("2027-03-09", "2026-08-01", 211.0),),
+                WatchHealth("2026-08-01T10:00:00+00:00", 1, 1, 0),
+                (Airport("LIM", "Jorge Chavez", "Lima", "Peru", -12.022, -77.114),),
+                None,
+            )
+
+        def calendar(self, origin: str, destination: str) -> CalendarRead:
+            self.calendar_queries.append((origin, destination))
+            return CalendarRead(origin, destination, None, WatchHealth(None, 0, 0, 0))
+
+        def airports(self, codes: list[str]) -> dict[str, Airport]:
+            self.airport_queries.append(tuple(codes))
+            return {"BOG": Airport("BOG", None, None, None, 4.70159, -74.1469)}
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade, raising=False)
+
+    with TestClient(app) as client:
+        history = client.get(
+            "/api/fares/history?origin=lim&destination=scl&departure=2027-03&since=2026-08"
+        )
+        calendar = client.get("/api/fares/calendar?origin=lim&destination=scl")
+        airports = client.get("/api/fares/airports?codes=bog")
+
+    assert facade.history_queries == [
+        HistoryQuery("LIM", "SCL", departure="2027-03", since="2026-08")
+    ]
+    assert facade.calendar_queries == [("LIM", "SCL")]
+    assert facade.airport_queries == [("BOG",)]
+    assert history.json() == {
+        "origin": "LIM",
+        "destination": "SCL",
+        "snapshots": [
+            {
+                "capturedAt": "2026-08-01T09:00:00+00:00",
+                "source": "fixture",
+                "origin": "LIM",
+                "destination": "SCL",
+                "flightDate": "2027-03-09",
+                "returnDate": None,
+                "currency": "USD",
+                "insights": None,
+                "offers": [
+                    {
+                        "airline": "LA",
+                        "airlineName": "LATAM",
+                        "flightNumber": "529",
+                        "departureAt": "2027-03-09T08:00",
+                        "arrivalAt": "2027-03-09T12:00",
+                        "transfers": 0,
+                        "durationMinutes": 240,
+                        "price": 210.0,
+                        "currency": "USD",
+                        "viaPoints": ["AQP"],
+                    }
+                ],
+            }
+        ],
+        "baseline": [{"flightDate": "2027-03-09", "date": "2026-08-01", "price": 211.0}],
+        "health": {
+            "lastCheckedAt": "2026-08-01T10:00:00+00:00",
+            "checks": 1,
+            "changes": 1,
+            "errors": 0,
+        },
+        "airports": [
+            {
+                "code": "LIM",
+                "name": "Jorge Chavez",
+                "city": "Lima",
+                "country": "Peru",
+                "latitude": -12.022,
+                "longitude": -77.114,
+            }
+        ],
+    }
+    assert "pairReference" not in history.json()
+    assert calendar.json() == {
+        "origin": "LIM",
+        "destination": "SCL",
+        "horizon": None,
+        "health": {"lastCheckedAt": None, "checks": 0, "changes": 0, "errors": 0},
+    }
+    assert airports.json() == {
+        "airports": [
+            {
+                "code": "BOG",
+                "name": None,
+                "city": None,
+                "country": None,
+                "latitude": 4.70159,
+                "longitude": -74.1469,
+            }
+        ]
+    }
 
 
 def test_nothing_has_been_collected_yet_is_an_answer_rather_than_a_404():
@@ -680,7 +825,12 @@ def test_airports_endpoint_resolves_requested_waypoints_from_the_reference_catal
     from the archive's endpoint catalogue.  The optional codes parameter fills
     only that gap from the bundled, worldwide IATA coordinate reference.
     """
-    monkeypatch.setattr(fares_router, "HISTORY", FareHistory(tmp_path))
+    history = FareHistory(tmp_path)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
 
     body = TestClient(app).get("/api/fares/airports?codes=BOG&codes=unknown").json()
 
@@ -709,7 +859,11 @@ def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_p
         history.merge_baseline(
             "LIM", "SCL", departure, [PricePoint("2026-08-18", price)], source="s", currency="USD"
         )
-    monkeypatch.setattr(fares_router, "HISTORY", history)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
     client = TestClient(app)
 
     march = client.get("/api/fares/history?origin=LIM&destination=SCL&departure=2027-03")
@@ -734,7 +888,11 @@ def test_a_baseline_figure_says_which_departure_it_priced(monkeypatch, tmp_path)
         history.merge_baseline(
             "LIM", "SCL", departure, [PricePoint("2026-08-18", price)], source="s", currency="USD"
         )
-    monkeypatch.setattr(fares_router, "HISTORY", history)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
 
     baseline = (
         TestClient(app)

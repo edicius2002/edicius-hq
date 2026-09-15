@@ -257,6 +257,44 @@ def test_local_and_supabase_adapters_return_the_same_domain_answers(archive):
     assert remote.select_calls == [("fare_airports", ("code", "payload"), "code")]
 
 
+def test_pair_reference_local_and_supabase_parity_counts_each_departure_once(tmp_path):
+    fares = tmp_path / "fares"
+    history = FareHistory(fares)
+    calendar = FareCalendar(fares / "calendar")
+    cheapest = snapshot(price=100)
+    later_higher_observation = snapshot(captured_at=APRIL_CAPTURE, price=300)
+    history.append(cheapest)
+    history.append(later_higher_observation)
+    remote = FakeRemote(
+        history={
+            "origin": "AQP",
+            "destination": "LIM",
+            "snapshots": [snapshot_row(cheapest), snapshot_row(later_higher_observation)],
+            "baseline": [],
+            "health": {"lastCheckedAt": None, "checks": 0, "changes": 0, "errors": 0},
+            "airports": [],
+            "pairReference": {"value": 100, "dates": 1},
+        },
+        calendar=calendar_document(),
+    )
+    query = HistoryQuery("AQP", "LIM")
+    local = AirfareData(history, calendar, backend="local", source_root=tmp_path)
+    hosted = AirfareData(
+        history,
+        calendar,
+        remote=remote,
+        backend="supabase",
+        source_root=tmp_path,
+    )
+
+    answer = local.history(query)
+
+    assert answer.pair_reference is not None
+    assert answer.pair_reference.value == 100.0
+    assert answer.pair_reference.dates == 1
+    assert hosted.history(query) == answer
+
+
 def test_local_mode_never_calls_the_remote_adapter(archive):
     root, history, calendar = archive
     remote = FakeRemote(

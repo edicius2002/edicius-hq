@@ -773,6 +773,8 @@ def get_history(
             "Snapshots ignore departure and may be bounded separately by snapshotMonth."
         ),
     ),
+    since: str | None = Query(None, description="Inclusive capturedAt prefix, e.g. 2026-08"),
+    until: str | None = Query(None, description="Inclusive capturedAt prefix"),
     snapshot_month: Annotated[
         list[str] | None,
         Query(
@@ -780,8 +782,6 @@ def get_history(
             description="Repeated watched departure months in YYYY-MM form for bounding snapshots",
         ),
     ] = None,
-    since: str | None = Query(None, description="Inclusive capturedAt prefix, e.g. 2026-08"),
-    until: str | None = Query(None, description="Inclusive capturedAt prefix"),
 ) -> HistoryResponse:
     origin, destination = normalize_code(origin), normalize_code(destination)
     snapshot_months = tuple(dict.fromkeys(snapshot_month or ()))

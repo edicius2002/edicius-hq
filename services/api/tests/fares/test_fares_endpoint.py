@@ -353,6 +353,62 @@ def test_read_routes_delegate_to_airfare_data_and_preserve_the_legacy_wire_shape
     }
 
 
+def test_history_direct_call_preserves_the_legacy_positional_filter_order(monkeypatch):
+    """The FastAPI handler remains callable by existing Python callers."""
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return HistoryRead("LIM", "SCL", (), (), WatchHealth(None, 0, 0, 0), (), None)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    fares_router.get_history("lim", "scl", None, "2026-08", "2026-08-31")
+
+    assert facade.queries == [
+        HistoryQuery("LIM", "SCL", departure=None, since="2026-08", until="2026-08-31")
+    ]
+
+
+def test_history_direct_call_accepts_the_new_snapshot_month_keyword_list(monkeypatch):
+    """Direct callers can opt into the same repeated-month shape as HTTP clients."""
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return HistoryRead("LIM", "SCL", (), (), WatchHealth(None, 0, 0, 0), (), None)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    fares_router.get_history(
+        "lim",
+        "scl",
+        departure="2027-03",
+        since="2026-08",
+        until="2026-08-31",
+        snapshot_month=["2027-04", "2027-03", "2027-04"],
+    )
+
+    assert facade.queries == [
+        HistoryQuery(
+            "LIM",
+            "SCL",
+            departure="2027-03",
+            since="2026-08",
+            until="2026-08-31",
+            snapshot_months=("2027-04", "2027-03"),
+        )
+    ]
+
+
 def test_history_endpoint_bounds_snapshots_by_watched_months_without_bounding_the_pair_reference(
     monkeypatch, tmp_path
 ):

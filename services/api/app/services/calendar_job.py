@@ -359,12 +359,26 @@ class CalendarRunner:
         read very differently in a log.
         """
         task = self._task
-        self._task = None
         if task is None or task.done():
+            self._task = None
             return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
+        if self.running():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+            if task.done():
+                self._task = None
+            return
+
+        # A completed local curve must keep its sync task tracked until it has
+        # joined the worker thread, before the lifespan closes the shared
+        # replica client. Cancellation of this closer leaves that reference for
+        # a later closer rather than detaching the worker.
+        try:
+            await asyncio.shield(task)
+        finally:
+            if task.done():
+                self._task = None
 
 
 CALENDAR_RUNNER = CalendarRunner()

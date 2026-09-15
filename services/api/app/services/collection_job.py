@@ -350,12 +350,27 @@ class CollectionRunner:
         read very differently in a log.
         """
         task = self._task
-        self._task = None
         if task is None or task.done():
+            self._task = None
             return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
+        if self.running():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+            if task.done():
+                self._task = None
+            return
+
+        # Local state is already terminal, so this task can only be waiting on
+        # the bounded replica attempt below. Shielding keeps shutdown
+        # cancellation from detaching its thread; the lifespan will not close
+        # the shared client until the task has joined it. If shutdown itself is
+        # cancelled, retain the reference so a later close can still join it.
+        try:
+            await asyncio.shield(task)
+        finally:
+            if task.done():
+                self._task = None
 
 
 RUNNER = CollectionRunner()

@@ -14,6 +14,7 @@ collector tests want the handler-per-route flavour beside `searched_for`.
 import asyncio
 import base64
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -473,6 +474,8 @@ def test_a_replica_failure_cannot_rewrite_a_successful_board_pass(monkeypatch, c
     ("results", "skipped"),
     [
         ([], []),
+        ([], [("LIM-SCL 2027-03-01", "not-due")]),
+        ([], [("LIM-SCL 2027-03-01", "another-pass-is-running")]),
         ([RouteResult("LIM", "SCL", "2027-03-01", None, False)], []),
         ([successful_board_result()], [("LIM-SCL 2027-03-02", "over-budget")]),
     ],
@@ -500,6 +503,113 @@ def test_a_board_noop_failed_or_partial_pass_does_not_sync(monkeypatch, results,
 
     assert finished["state"] == "finished"
     assert calls == []
+
+
+def test_a_sync_disabled_board_pass_never_invokes_the_facade(monkeypatch):
+    """The feature flag stops the replica attempt before its shared client is touched."""
+    _, fake = stub_pass(results=[successful_board_result()])
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "finished"
+    assert calls == []
+
+
+def test_shutdown_joins_a_finished_board_pass_sync_before_releasing_the_runner(monkeypatch):
+    """A cancellation after local finalization cannot detach a live sync thread."""
+    entered = threading.Event()
+    release = threading.Event()
+    worker_finished = threading.Event()
+
+    async def complete_collect_due(watched, **kwargs):
+        return CollectionReport(
+            started_at="2026-09-15T12:00:00+00:00",
+            finished_at="2026-09-15T12:00:03+00:00",
+            source="google-flights",
+            results=[successful_board_result()],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            entered.set()
+            try:
+                assert release.wait(1), "test did not release the sync worker"
+            finally:
+                worker_finished.set()
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", complete_collect_due)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+    runner = collection_job.CollectionRunner()
+
+    async def run():
+        started = runner.start([FareWatch("LIM", "SCL", "2027-03")])
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            assert started.state == "finished"
+
+            closing = asyncio.create_task(runner.aclose())
+            await asyncio.sleep(0)
+            assert not closing.done(), (
+                "shutdown returned while the sync worker still held the client"
+            )
+            assert runner._task is not None
+
+            release.set()
+            await asyncio.wait_for(closing, 1)
+            assert worker_finished.is_set()
+        finally:
+            release.set()
+            assert await asyncio.to_thread(worker_finished.wait, 1)
+
+        assert started.state == "finished"
+        assert started.error is None
+        assert runner._task is None
+
+    asyncio.run(run())
+
+
+def test_shutdown_still_cancels_a_board_pass_that_is_collecting(monkeypatch):
+    """Only the post-finalization sync is joined; a live collector is still stopped."""
+    collecting = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def slow_collect_due(watched, **kwargs):
+        collecting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(collection_job, "collect_due", slow_collect_due)
+    runner = collection_job.CollectionRunner()
+
+    async def run():
+        started = runner.start([FareWatch("LIM", "SCL", "2027-03")])
+        await asyncio.wait_for(collecting.wait(), 1)
+        await asyncio.wait_for(runner.aclose(), 1)
+        assert cancelled.is_set()
+        assert started.state == "failed"
+        assert runner._task is None
+
+    asyncio.run(run())
 
 
 def test_a_running_pass_says_how_far_through_it_is(monkeypatch):

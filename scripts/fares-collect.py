@@ -579,7 +579,7 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     # assumed — so the code was being reported to nothing at all. The line in
     # `fares/passes/` is where it now lands, beside the duration and the gap and
     # everything the pass skipped.
-    code = 1 if report.failed or (calendar is not None and calendar.failed) else 0
+    code = 1 if report.failed else 0
     recorder.finish(exit_code=code)
     if code == 0 and airfare_sync_enabled():
         # The ledger has its successful local terminal state before the

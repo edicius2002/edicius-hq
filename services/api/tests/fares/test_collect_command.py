@@ -27,6 +27,8 @@ from conftest import NOW
 
 from app.config import SCHEDULER_INTERVAL_MINUTES
 from app.services.fare_collector import (
+    CalendarReport,
+    CalendarResult,
     CollectionReport,
     RouteResult,
 )
@@ -425,6 +427,197 @@ def test_the_scheduled_command_syncs_once_only_after_its_successful_local_pass(
 
     args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=True)
     recorder = PassRecorder(source="cron", kind="board", gap=0, ledger=ledger, now=NOW)
+
+    assert script._pass(args, recorder) == 0
+    assert calls == [True]
+
+
+def test_a_scheduled_dry_run_never_invokes_the_sync_facade(monkeypatch):
+    """The preview returns before either collector or its shared replica client exists."""
+    script = load_collect_script()
+    calls: list[str] = []
+    (soon,) = coming_months(1)
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=True, all=False, gap=0, no_calendar=False)
+    recorder = PassRecorder(source="cron", kind="board+calendar", gap=0)
+
+    assert script._pass(args, recorder) == 0
+    assert calls == []
+
+
+def test_an_empty_scheduled_pass_never_invokes_the_sync_facade(monkeypatch):
+    """An empty watchlist records its local no-op without creating a replica attempt."""
+    script = load_collect_script()
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    monkeypatch.setattr(script, "load_routes", lambda: [])
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=True)
+    recorder = PassRecorder(source="cron", kind="board", gap=0)
+
+    assert script._pass(args, recorder) == 0
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[],
+            skipped=[],
+        ),
+        CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[],
+            skipped=[("AQP-LIM 2027-03-01", "not-due")],
+        ),
+        CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[RouteResult("AQP", "LIM", "2027-03-01", None, False)],
+            skipped=[],
+        ),
+    ],
+)
+def test_a_noop_or_refused_scheduled_pass_never_invokes_the_sync_facade(monkeypatch, report):
+    """A no-op, cadence decline, or provider refusal has no replica boundary."""
+    script = load_collect_script()
+    calls: list[str] = []
+    (soon,) = coming_months(1)
+
+    async def fake_collect_due(watches, **kwargs):
+        return report
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=True)
+    recorder = PassRecorder(source="cron", kind="board", gap=0)
+
+    assert script._pass(args, recorder) == (1 if report.failed else 0)
+    assert calls == []
+
+
+def test_a_sync_disabled_scheduled_pass_never_invokes_the_sync_facade(monkeypatch):
+    """The scheduled feature flag is checked before it enters the sync helper."""
+    script = load_collect_script()
+    calls: list[str] = []
+    (soon,) = coming_months(1)
+
+    async def fake_collect_due(watches, **kwargs):
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[RouteResult("AQP", "LIM", f"{soon}-01", None, True)],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: False)
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=True)
+    recorder = PassRecorder(source="cron", kind="board", gap=0)
+
+    assert script._pass(args, recorder) == 0
+    assert calls == []
+
+
+def test_a_board_success_and_calendar_refusal_share_one_scheduled_sync(tmp_path, monkeypatch):
+    """The board's completed write remains sync-worthy beside a refused curve."""
+    script = load_collect_script()
+    calls: list[bool] = []
+    ledger = PassLedger(tmp_path / "passes")
+    (soon,) = coming_months(1)
+
+    async def fake_collect_due(watches, **kwargs):
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[RouteResult("AQP", "LIM", f"{soon}-01", None, True)],
+        )
+
+    async def fake_collect_calendars(watches, **kwargs):
+        return CalendarReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[
+                CalendarResult(
+                    "AQP",
+                    "LIM",
+                    False,
+                    error_code="provider-refused",
+                    error_message="test fake only",
+                )
+            ],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append(any(ledger.directory.glob("*.jsonl")))
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "collect_calendars", fake_collect_calendars)
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "load_routes",
+        lambda: [{"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}],
+    )
+
+    args = argparse.Namespace(dry_run=False, all=False, gap=0, no_calendar=False)
+    recorder = PassRecorder(source="cron", kind="board+calendar", gap=0, ledger=ledger, now=NOW)
 
     assert script._pass(args, recorder) == 0
     assert calls == [True]

@@ -46,14 +46,19 @@ def sync_completed_pass(
 
 
 def _is_complete(reports: tuple[CollectionReport | CalendarReport, ...]) -> bool:
-    """A no-op, failed, or budget/window-truncated pass has no sync trigger."""
+    """A complete observation may sync even beside a separately refused calendar."""
     return (
         bool(reports)
-        and any(report.collected > 0 for report in reports)
-        and all(
-            report.failed == 0
-            and not any(reason in WANTED_AND_REFUSED for _, reason in report.skipped)
-            for report in reports
+        # A single collector's failed result is not a completed observation.
+        # The scheduled command combines two independent collectors, though:
+        # a healthy board observation still earns one sync when its calendar
+        # companion was refused. That companion's heartbeat is persisted before
+        # this boundary and rides the same incremental sync.
+        and any(report.collected > 0 and report.failed == 0 for report in reports)
+        # Budget and pass-window refusals mean a collector was deliberately
+        # truncated, so no combined report may claim the pass was complete.
+        and not any(
+            reason in WANTED_AND_REFUSED for report in reports for _, reason in report.skipped
         )
     )
 

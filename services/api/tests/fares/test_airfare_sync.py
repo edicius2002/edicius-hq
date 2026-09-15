@@ -293,12 +293,37 @@ def test_cli_defaults_to_credential_free_dry_run_and_rejects_mixed_modes(source,
     assert run.returncode == 0, run.stderr
     data = json.loads(report.read_text())
     assert data["status"] == "complete" and data["source"]["snapshots"]["logical_unique"] == 1
-    assert "duration_seconds" in data and "project_ref" in data and "source_root" in data
+    assert data["source_root"] == "<external-source>"
+    assert str(source.resolve()) not in report.read_text()
+    assert str(source.resolve()) not in run.stdout
     assert not (source / "fares/sync").exists()
     mixed = subprocess.run(
         [sys.executable, str(script), "--dry-run", "--apply"], capture_output=True, check=False
     )
     assert mixed.returncode == 2
+
+
+def test_cli_report_uses_a_repo_relative_source_label_for_the_standard_archive(tmp_path):
+    report = tmp_path / "report.json"
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/fares-supabase.py"),
+            "--source",
+            "services/api/.local-data",
+            "--report",
+            str(report),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert run.returncode == 0, run.stderr
+    data = json.loads(report.read_text())
+    assert data["source_root"] == "services/api/.local-data"
+    assert str((REPO / "services/api/.local-data").resolve()) not in report.read_text()
+    assert str((REPO / "services/api/.local-data").resolve()) not in run.stdout
 
 
 @pytest.mark.parametrize("duplicates", [False, True])

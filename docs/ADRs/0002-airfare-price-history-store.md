@@ -80,3 +80,8 @@ The volume is smaller than the boards by a wide margin, which is what makes writ
 - Two stores now exist on disk with different write models, and choosing between them is a judgement. The rule is the one above: replace what upstream can re-answer, append what only we remember.
 
 **Not decided here.** Whether the archive eventually moves to a cloud store. That question belongs with the provider question (decision 12.9) — the collector is a stateless command precisely so the answer can change without a rewrite.
+
+**Addendum, 2026-09-15.** The cloud-storage question is now decided in
+[ADR 0003](./0003-airfare-supabase-read-store.md): Supabase is an indexed read replica,
+not the collector or write authority. The local append-only archive remains retained;
+this addendum does not revise the 2026-08 decision.

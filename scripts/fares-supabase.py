@@ -293,6 +293,14 @@ def _validate_report_target(source: Path, target: Path) -> None:
                 raise ValueError("report target aliases an authoritative Airfare file")
 
 
+def _source_label(source: Path) -> str:
+    """Return a stable report label without disclosing an external filesystem path."""
+    try:
+        return source.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return "<external-source>"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
@@ -315,7 +323,11 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--report must not overlap or alias authoritative Airfare files")
     source = source.resolve()
     started = time.perf_counter()
-    report: dict[str, Any] = {"project_ref": None, "source_root": str(source), "status": "failed"}
+    report: dict[str, Any] = {
+        "project_ref": None,
+        "source_root": _source_label(source),
+        "status": "failed",
+    }
     exit_code = 1
     try:
         client = None

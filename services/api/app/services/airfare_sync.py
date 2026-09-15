@@ -333,6 +333,32 @@ class AirfareSync:
                     )
         return datasets, journals
 
+    def source_directories(self) -> tuple[Path, ...]:
+        """Authoritative scan roots, including currently empty nested journals."""
+        return tuple(self.source_root / directory for directory in (*_JOURNALS.values(), "kv"))
+
+    def source_files(self) -> tuple[Path, ...]:
+        """Every authoritative file a scan can consume, including path aliases."""
+        files = [
+            path
+            for directory in _JOURNALS.values()
+            for path in sorted((self.source_root / directory).glob("*.jsonl"))
+        ]
+        files.extend(
+            path
+            for path in (
+                self.source_root / "fares/airports.json",
+                self.source_root / "kv/airfare-routes.json",
+            )
+            if path.exists()
+        )
+        return tuple(files)
+
+    def logical_records(self) -> dict[str, list[dict[str, Any]]]:
+        """Original content identities and final source positions for read parity."""
+        datasets, _ = self._collect()
+        return {name: list(dataset.rows.values()) for name, dataset in datasets.items()}
+
     @staticmethod
     def _manifest(datasets: dict[str, _Dataset]) -> SourceManifest:
         return SourceManifest(**{name: data.manifest() for name, data in datasets.items()})

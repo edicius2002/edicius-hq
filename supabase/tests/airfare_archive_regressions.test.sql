@@ -73,12 +73,12 @@ select throws_ok(format($sql$
   from source_rows where line = 10
 $sql$, table_name), '23514', null, table_name || ' rejects a nonpositive source line')
 from unnest(array['fare_snapshots', 'fare_calendar_captures']) table_name;
-select throws_ok(format($sql$
+select lives_ok(format($sql$
   insert into public.%1$I
   select (jsonb_populate_record(null::public.%1$I,
     body || jsonb_build_object('record_id', repeat('5',64)))).*
   from source_rows where line = 10
-$sql$, table_name), '23505', null, table_name || ' rejects an ambiguous equal-time source position')
+$sql$, table_name), table_name || ' permits transient equal-time positions during replay; importer validates source ambiguity')
 from unnest(array['fare_snapshots', 'fare_calendar_captures']) table_name;
 select lives_ok(format($sql$
   insert into public.%1$I

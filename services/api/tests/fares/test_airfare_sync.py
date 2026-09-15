@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -300,7 +301,8 @@ def test_cli_defaults_to_credential_free_dry_run_and_rejects_mixed_modes(source,
     assert mixed.returncode == 2
 
 
-def test_compare_reads_uses_real_local_readers_and_reports_differences(source, remote):
+@pytest.mark.parametrize("duplicates", [False, True])
+def test_compare_reads_uses_real_local_readers_and_reports_differences(source, remote, duplicates):
     server, client = remote
     spec = importlib.util.spec_from_file_location(
         "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
@@ -332,6 +334,21 @@ def test_compare_reads_uses_real_local_readers_and_reports_differences(source, r
         },
         "health": {"lastCheckedAt": STAMP, "checks": 1, "changes": 0, "errors": 1},
     }
+    if duplicates:
+        for relative, row in (
+            ("fares/AQP-LIM.jsonl", SNAPSHOT),
+            ("fares/checks/AQP-LIM.jsonl", BOARD),
+            ("fares/calendar/checks/AQP-LIM.jsonl", CHECK),
+            ("fares/calendar/AQP-LIM.jsonl", CALENDAR),
+            ("fares/baseline/AQP-LIM.jsonl", BASELINE),
+        ):
+            write_lines(source, relative, [row, row])
+    sync = AirfareSync(source, client)
+    applied = sync.apply("full")
+    assert applied.status == "complete"
+    assert sync.verify(applied.source).matches
+    assert applied.source.snapshots.physical_valid == (2 if duplicates else 1)
+    assert applied.source.snapshots.logical_unique == 1
     result = module.compare_reads(source, client)
     assert result["matches"] and result["routes"] == 1
     assert all(item["local_digest"] == item["remote_digest"] for item in result["comparisons"])
@@ -439,3 +456,178 @@ def test_truncating_only_unacknowledged_tail_still_resets_cursor(tmp_path, remot
     with path.open("r+b") as handle:
         handle.truncate(path.read_bytes().index(b"\n") + 1)
     assert sync.apply("incremental").uploaded["snapshots"] == 1
+
+
+def _directory_alias(alias: Path, target: Path) -> None:
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "New-Item -ItemType Junction -Path $env:AIRFARE_TEST_ALIAS -Target $env:AIRFARE_TEST_TARGET | Out-Null",
+            ],
+            env={
+                **os.environ,
+                "AIRFARE_TEST_ALIAS": str(alias),
+                "AIRFARE_TEST_TARGET": str(target),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+    else:
+        alias.symlink_to(target, target_is_directory=True)
+
+
+@pytest.mark.parametrize("relative", ["fares", "kv", "fares/calendar", "fares/calendar/checks"])
+@pytest.mark.parametrize("target_style", ["lexical", "resolved", "hardlink"])
+def test_cli_report_aliases_never_overwrite_sources(tmp_path, relative, target_style):
+    source, actual = tmp_path / "source", tmp_path / "actual"
+    source.mkdir()
+    actual.mkdir()
+    filename = "airfare-routes.json" if relative == "kv" else "AQP-LIM.jsonl"
+    row = (
+        WATCH
+        if relative == "kv"
+        else CALENDAR
+        if relative == "fares/calendar"
+        else CHECK
+        if relative.endswith("checks")
+        else SNAPSHOT
+    )
+    journal = write_lines(actual, filename, [row])
+    before = journal.read_bytes()
+    _directory_alias(source / relative, actual)
+    target = source / relative / filename if target_style == "lexical" else journal
+    if target_style == "hardlink":
+        target = tmp_path / "report.json"
+        try:
+            os.link(journal, target)
+        except OSError:
+            pytest.skip("filesystem does not support hardlinks")
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/fares-supabase.py"),
+            "--source",
+            str(source),
+            "--report",
+            str(target),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert journal.read_bytes() == before
+    assert target.read_bytes() == before
+    assert not (source / "fares/sync").exists()
+
+
+def test_cli_report_existing_external_directory_alias_is_refused(tmp_path):
+    source = tmp_path / "source"
+    journal = write_lines(source, "fares/AQP-LIM.jsonl", [SNAPSHOT])
+    before = journal.read_bytes()
+    _directory_alias(tmp_path / "report-alias", source / "fares")
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/fares-supabase.py"),
+            "--source",
+            str(source),
+            "--report",
+            str(tmp_path / "report-alias/AQP-LIM.jsonl"),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert run.returncode == 2
+    assert journal.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "dataset,relative,table,row",
+    [
+        ("snapshots", "fares/AQP-LIM.jsonl", "fare_snapshots", SNAPSHOT),
+        ("calendar", "fares/calendar/AQP-LIM.jsonl", "fare_calendar_captures", CALENDAR),
+    ],
+)
+def test_source_positions_replay_shifts_swaps_and_failed_batch_retry(
+    tmp_path, remote, dataset, relative, table, row
+):
+    server, client = remote
+    second = {**row, "currency": "PEN"}
+    path = write_lines(tmp_path, relative, [row, second])
+    sync = AirfareSync(tmp_path, client, batch_size=1)
+    assert sync.apply("full").status == "complete"
+    path.write_bytes(b"\n" + path.read_bytes())
+    server.fail_table, server.fail_after = table, 1
+    assert sync.apply("incremental").status == "failed"
+    server.fail_table = None
+    assert sync.apply("incremental").status == "complete"
+    assert sorted(record["source_line"] for record in server.tables[table].values()) == [2, 3]
+    write_lines(tmp_path, relative, [second, row])
+    assert sync.apply("incremental").status == "complete"
+    positions = {
+        record["payload"]["currency"]: record["source_line"]
+        for record in server.tables[table].values()
+    }
+    assert positions == {"PEN": 1, "USD": 2}
+    assert sync.verify(sync.scan("full")).matches
+
+
+def test_compare_logical_snapshots_retain_final_occurrence_and_detect_content_order(
+    tmp_path, remote
+):
+    server, client = remote
+    second = {**SNAPSHOT, "currency": "PEN"}
+    write_lines(tmp_path, "fares/AQP-LIM.jsonl", [SNAPSHOT, second, SNAPSHOT])
+    write_lines(tmp_path, "kv/airfare-routes.json", [WATCH])
+    no_checks = {"lastCheckedAt": None, "checks": 0, "changes": 0, "errors": 0}
+    server.history = {
+        "origin": "AQP",
+        "destination": "LIM",
+        "snapshots": [second, SNAPSHOT],
+        "baseline": [],
+        "airports": [],
+        "health": no_checks,
+        "pairReference": {"value": 123, "dates": 1},
+    }
+    server.calendar = {"origin": "AQP", "destination": "LIM", "horizon": None, "health": no_checks}
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sync = AirfareSync(tmp_path, client, batch_size=1)
+    assert sync.apply("full").status == "complete"
+    assert sync.verify(sync.scan("full")).matches
+    assert module.compare_reads(tmp_path, client)["matches"]
+    server.history["snapshots"] = [SNAPSHOT, second]
+    assert not module.compare_reads(tmp_path, client)["matches"]
+    server.history["snapshots"] = [second, {**SNAPSHOT, "extra": "changed"}]
+    assert not module.compare_reads(tmp_path, client)["matches"]
+
+
+def test_cli_report_cannot_create_a_journal_through_an_empty_nested_alias(tmp_path):
+    source, actual = tmp_path / "source", tmp_path / "actual"
+    actual.mkdir()
+    _directory_alias(source / "fares/calendar", actual)
+    target = actual / "AQP-LIM.jsonl"
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts/fares-supabase.py"),
+            "--source",
+            str(source),
+            "--report",
+            str(target),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert run.returncode == 2
+    assert not target.exists()

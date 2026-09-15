@@ -22,7 +22,7 @@ from app.services.airfare_supabase import (  # noqa: E402
     close_airfare_supabase_client,
     configured_airfare_supabase,
 )
-from app.services.airfare_sync import AirfareSync, SyncMode  # noqa: E402
+from app.services.airfare_sync import AirfareSync, SyncMode, canonical_record_id  # noqa: E402
 from app.services.fare_calendar import FareCalendar  # noqa: E402
 from app.services.fare_history import FareHistory, _snapshot_from, route_stem  # noqa: E402
 
@@ -74,6 +74,7 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
     ):
         raise ValueError("invalid airfare watch document")
     history, calendar = FareHistory(source / "fares"), FareCalendar(source / "fares/calendar")
+    logical = AirfareSync(source).logical_records()
     pairs: dict[str, set[str]] = {}
     for route in document["routes"]:
         stem = route_stem(route["origin"], route["destination"])
@@ -83,7 +84,31 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
     known = history.airports()
     for stem, months in sorted(pairs.items()):
         origin, destination = stem.split("-")
-        snapshots = history.read(origin, destination)
+
+        pair_rows = {
+            dataset: [
+                row
+                for row in logical[dataset]
+                if row["origin"] == origin and row["destination"] == destination
+            ]
+            for dataset in ("snapshots", "baseline", "board_checks", "calendar_checks")
+        }
+
+        snapshot_rows = sorted(
+            pair_rows["snapshots"],
+            key=lambda row: (row["captured_at_text"], row["source_line"], row["record_id"]),
+        )
+        snapshots = [
+            snapshot
+            for row in snapshot_rows
+            if (snapshot := _snapshot_from(json.dumps(row["payload"]))) is not None
+        ]
+        baseline_rows = sorted(
+            pair_rows["baseline"],
+            key=lambda row: (row["flight_date"], row["price_date"], row["record_id"]),
+        )
+        board_checks = sorted(pair_rows["board_checks"], key=lambda row: row["payload"]["at"])
+        calendar_checks = sorted(pair_rows["calendar_checks"], key=lambda row: row["payload"]["at"])
         minima: dict[str, float] = {}
         for snapshot in snapshots:
             prices = [offer.price for offer in snapshot.offers if offer.price is not None]
@@ -95,6 +120,11 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
             {"value": median(minima.values()), "dates": len(minima)} if minima else None
         )
         for departure in [None, *sorted(months)]:
+            selected_baseline = [
+                row
+                for row in baseline_rows
+                if not departure or row["flight_date"].startswith(departure)
+            ]
             body = remote.rpc(
                 "read_airfare_history",
                 {
@@ -113,25 +143,46 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
                 "origin": origin,
                 "destination": destination,
                 "snapshots": [asdict(snapshot) for snapshot in snapshots],
+                "snapshotIdentities": [row["record_id"] for row in snapshot_rows],
                 "baseline": [
-                    asdict(point) for point in history.read_baseline(origin, destination, departure)
+                    {
+                        "flight_date": row["flight_date"],
+                        "date": row["price_date"],
+                        "price": row["price"],
+                    }
+                    for row in selected_baseline
                 ],
+                "baselineIdentities": [row["record_id"] for row in selected_baseline],
                 "airports": [
                     asdict(known[code]) for code in (origin, destination) if code in known
                 ],
-                "health": _health(history.checks(origin, destination, departure)),
+                "health": _health(
+                    [
+                        row["payload"]
+                        for row in board_checks
+                        if not departure or row["flight_date"].startswith(departure)
+                    ]
+                ),
                 "pairReference": pair_reference,
             }
             remote_answer = {
                 "origin": body["origin"],
                 "destination": body["destination"],
                 "snapshots": [asdict(snapshot) for snapshot in parsed if snapshot is not None],
+                "snapshotIdentities": [
+                    canonical_record_id("snapshot", origin, destination, row)
+                    for row in body["snapshots"]
+                ],
                 "baseline": [
                     {
                         "flight_date": str(row["flightDate"]),
                         "date": str(row["date"]),
                         "price": float(row["price"]),
                     }
+                    for row in body["baseline"]
+                ],
+                "baselineIdentities": [
+                    canonical_record_id("baseline", origin, destination, row)
                     for row in body["baseline"]
                 ],
                 "airports": [
@@ -159,7 +210,7 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
         local_calendar = {
             "origin": origin,
             "destination": destination,
-            "health": _health(calendar.checks(origin, destination)),
+            "health": _health([row["payload"] for row in calendar_checks]),
             "horizon": None
             if horizon is None
             else {
@@ -204,6 +255,36 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
     }
 
 
+def _validate_report_target(source: Path, target: Path) -> None:
+    """Refuse lexical, junction/symlink, and hardlink aliases of source data."""
+    lexical_source = Path(os.path.abspath(source))
+    lexical_target = Path(os.path.abspath(target))
+    resolved_target = target.resolve()
+    roots = {lexical_source / name for name in ("fares", "kv")}
+    roots.update(root.resolve() for root in tuple(roots))
+    # Consumed files may be below nested junctions outside either root. Their
+    # resolved parent directories remain authoritative as well.
+    sync = AirfareSync(source)
+    roots.update(directory.resolve() for directory in sync.source_directories())
+    files = sync.source_files()
+    roots.update(path.parent.resolve() for path in files)
+    if any(
+        candidate == root or root in candidate.parents
+        for root in roots
+        for candidate in (lexical_target, resolved_target)
+    ):
+        raise ValueError("report target overlaps authoritative Airfare files")
+    if target.exists():
+        identity = target.stat()
+        for path in files:
+            source_identity = path.stat()
+            if (identity.st_dev, identity.st_ino) == (
+                source_identity.st_dev,
+                source_identity.st_ino,
+            ):
+                raise ValueError("report target aliases an authoritative Airfare file")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
@@ -217,14 +298,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
-    source = (REPO_ROOT / args.source).resolve()
-    report_path = (REPO_ROOT / args.report).resolve() if args.report else None
-    # Reports must never overwrite any authoritative input or cursor file.
-    if report_path is not None and any(
-        report_path == protected or protected in report_path.parents
-        for protected in (source / "fares", source / "kv")
-    ):
-        parser.error("--report must be outside the source tree")
+    source = REPO_ROOT / args.source
+    report_path = REPO_ROOT / args.report if args.report else None
+    if report_path is not None:
+        try:
+            _validate_report_target(source, report_path)
+        except (OSError, ValueError):
+            parser.error("--report must not overlap or alias authoritative Airfare files")
+    source = source.resolve()
     started = time.perf_counter()
     report: dict[str, Any] = {"project_ref": None, "source_root": str(source), "status": "failed"}
     exit_code = 1
@@ -266,6 +347,10 @@ def main(argv: list[str] | None = None) -> int:
     report["duration_seconds"] = round(time.perf_counter() - started, 6)
     encoded = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
     if report_path is not None:
+        try:
+            _validate_report_target(source, report_path)
+        except (OSError, ValueError):
+            parser.error("--report must not overlap or alias authoritative Airfare files")
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(encoded + "\n", encoding="utf-8")
     print(encoded)

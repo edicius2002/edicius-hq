@@ -18,8 +18,9 @@ create index fare_snapshots_route_flight_capture_idx
   on public.fare_snapshots (origin, destination, flight_date, captured_at);
 create index fare_snapshots_route_capture_idx
   on public.fare_snapshots (origin, destination, captured_at);
-create unique index fare_snapshots_route_observation_source_line_idx
-  on public.fare_snapshots (origin, destination, captured_at_text, source_line);
+-- Source positions are replayable metadata, not unique database identities.
+-- A valid file replacement can shift/swap positions across independent batches.
+-- The importer rejects ambiguous positions in the complete source before writing.
 
 create table public.fare_baseline_points (
   record_id text primary key check (record_id ~ '^[0-9a-f]{64}$'),
@@ -55,10 +56,8 @@ create table public.fare_calendar_captures (
 );
 create index fare_calendar_route_capture_idx
   on public.fare_calendar_captures (origin, destination, captured_at desc);
--- Reused line numbers at different times are harmless; an equal-time duplicate
--- position is ambiguous source metadata and must be rejected by the importer.
-create unique index fare_calendar_route_observation_source_line_idx
-  on public.fare_calendar_captures (origin, destination, (payload->>'capturedAt'), source_line);
+-- As with snapshots, the importer validates source-position ambiguity. Do not
+-- enforce uniqueness here: old and new positions may overlap during replay.
 
 create table public.fare_checks (
   record_id text primary key check (record_id ~ '^[0-9a-f]{64}$'),

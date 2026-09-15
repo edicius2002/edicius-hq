@@ -1,5 +1,5 @@
 begin;
-select plan(82);
+select plan(83);
 
 select has_table('public'::name, 'fare_snapshots'::name);
 select has_table('public'::name, 'fare_baseline_points'::name);
@@ -10,20 +10,29 @@ select has_table('public'::name, 'airfare_documents'::name);
 select has_table('public'::name, 'airfare_import_runs'::name);
 
 -- Catch missing keys/indexes and accidental exposure on every archive table.
-select has_pk('public'::name, name::name) from unnest(array[
-  'fare_snapshots', 'fare_baseline_points', 'fare_calendar_captures',
-  'fare_checks', 'fare_airports', 'airfare_documents', 'airfare_import_runs'
-]) as tables(name);
-
-select has_index('public'::name, table_name::name, index_name::name)
+select col_is_pk('public'::name, table_name::name, column_name::name)
 from (values
-  ('fare_snapshots', 'fare_snapshots_route_flight_capture_idx'),
-  ('fare_snapshots', 'fare_snapshots_route_capture_idx'),
-  ('fare_baseline_points', 'fare_baseline_route_flight_price_date_idx'),
-  ('fare_calendar_captures', 'fare_calendar_route_capture_idx'),
-  ('fare_checks', 'fare_checks_board_health_idx'),
-  ('fare_checks', 'fare_checks_calendar_health_idx')
-) as indexes(table_name, index_name);
+  ('fare_snapshots', 'record_id'),
+  ('fare_baseline_points', 'record_id'),
+  ('fare_calendar_captures', 'record_id'),
+  ('fare_checks', 'record_id'),
+  ('fare_airports', 'code'),
+  ('airfare_documents', 'key'),
+  ('airfare_import_runs', 'run_id')
+) as keys(table_name, column_name);
+
+select has_index('public'::name, table_name::name, index_name::name, columns::name[])
+from (values
+  ('fare_snapshots', 'fare_snapshots_route_flight_capture_idx', array['origin','destination','flight_date','captured_at']),
+  ('fare_snapshots', 'fare_snapshots_route_capture_idx', array['origin','destination','captured_at']),
+  ('fare_baseline_points', 'fare_baseline_route_flight_price_date_idx', array['origin','destination','flight_date','price_date']),
+  ('fare_calendar_captures', 'fare_calendar_route_capture_idx', array['origin','destination','captured_at']),
+  ('fare_checks', 'fare_checks_board_health_idx', array['kind','origin','destination','flight_date','checked_at']),
+  ('fare_checks', 'fare_checks_calendar_health_idx', array['kind','origin','destination','checked_at'])
+) as indexes(table_name, index_name, columns);
+
+select is(pg_index_column_has_property('public.fare_calendar_route_capture_idx'::regclass, 3, 'desc'),
+          true, 'calendar capture index orders captured_at descending');
 
 select assertions.result
 from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -77,13 +86,13 @@ where n.nspname = 'public' and p.proname = any(array[
 set local role service_role;
 
 insert into public.fare_snapshots
-  (record_id, origin, destination, flight_date, captured_at, captured_at_text,
+  (record_id, source_line, origin, destination, flight_date, captured_at, captured_at_text,
    source, currency, cheapest_price, payload)
 values
-  (repeat('a', 64), 'AQP', 'LIM', '2027-03-01', '2026-09-01T00:00:00Z',
+  (repeat('a', 64), 1, 'AQP', 'LIM', '2027-03-01', '2026-09-01T00:00:00Z',
    '2026-09-01T00:00:00+00:00', 'google-flights', 'USD', 100,
    '{"capturedAt":"2026-09-01T00:00:00+00:00","source":"google-flights","origin":"AQP","destination":"LIM","flightDate":"2027-03-01","returnDate":null,"currency":"USD","insights":null,"offers":[{"price":150},{"price":100}]}'::jsonb),
-  (repeat('b', 64), 'AQP', 'LIM', '2027-04-01', '2026-09-02T00:00:00Z',
+  (repeat('b', 64), 2, 'AQP', 'LIM', '2027-04-01', '2026-09-02T00:00:00Z',
    '2026-09-02T00:00:00+00:00', 'google-flights', 'USD', 300,
    '{"capturedAt":"2026-09-02T00:00:00+00:00","source":"google-flights","origin":"AQP","destination":"LIM","flightDate":"2027-04-01","returnDate":null,"currency":"USD","insights":null,"offers":[{"price":300}]}'::jsonb);
 
@@ -108,12 +117,12 @@ values
    '{"code":"AQP","name":"Rodríguez Ballón","city":"Arequipa","country":"Peru","latitude":-16.3411,"longitude":-71.5831}'::jsonb);
 
 insert into public.fare_calendar_captures
-  (record_id, origin, destination, captured_at, from_date, to_date, source, currency, payload)
+  (record_id, source_line, origin, destination, captured_at, from_date, to_date, source, currency, payload)
 values
-  (repeat('e', 64), 'AQP', 'LIM', '2026-09-01T00:00:00Z', '2026-10-01',
+  (repeat('e', 64), 1, 'AQP', 'LIM', '2026-09-01T00:00:00Z', '2026-10-01',
    '2027-09-01', 'google-flights', 'USD',
    '{"capturedAt":"2026-09-01T00:00:00+00:00","source":"google-flights","origin":"AQP","destination":"LIM","currency":"USD","from":"2026-10-01","to":"2027-09-01","prices":[{"departureDate":"2026-10-01","price":90},{"departureDate":"2026-10-02","price":80},{"departureDate":"2027-09-01","price":500}]}'::jsonb),
-  (repeat('f', 64), 'AQP', 'LIM', '2026-09-02T00:00:00Z', '2026-10-02',
+  (repeat('f', 64), 2, 'AQP', 'LIM', '2026-09-02T00:00:00Z', '2026-10-02',
    '2027-03-01', 'google-flights', 'USD',
    '{"capturedAt":"2026-09-02T00:00:00+00:00","source":"google-flights","origin":"AQP","destination":"LIM","currency":"USD","from":"2026-10-02","to":"2027-03-01","prices":[{"departureDate":"2026-10-02","price":null},{"departureDate":"2027-03-01","price":400}]}'::jsonb);
 
@@ -198,9 +207,9 @@ select is(public.read_airfare_calendar('AQP', 'LIM'), (select body from calendar
           'original date-to-price object payload yields the same horizon');
 
 insert into public.fare_snapshots
-  (record_id, origin, destination, flight_date, captured_at, captured_at_text,
+  (record_id, source_line, origin, destination, flight_date, captured_at, captured_at_text,
    source, currency, cheapest_price, payload)
-select repeat('1', 64), origin, destination, flight_date, captured_at,
+select repeat('1', 64), 3, origin, destination, flight_date, captured_at,
        captured_at_text, source, currency, 900,
        jsonb_set(payload, '{offers}', '[{"price":900}]'::jsonb)
 from public.fare_snapshots where record_id = repeat('a', 64);
@@ -210,9 +219,9 @@ select is(public.read_airfare_history('AQP', 'LIM', null, null, null, null)->'pa
 
 -- A newer empty curve sets the boundary but does not claim older visible prices.
 insert into public.fare_calendar_captures
-  (record_id, origin, destination, captured_at, from_date, to_date, source, currency, payload)
+  (record_id, source_line, origin, destination, captured_at, from_date, to_date, source, currency, payload)
 values
-  (repeat('2', 64), 'AQP', 'LIM', '2026-09-03T00:00:00Z', '2026-10-03',
+  (repeat('2', 64), 3, 'AQP', 'LIM', '2026-09-03T00:00:00Z', '2026-10-03',
    '2027-03-01', 'google-flights', 'USD',
    '{"capturedAt":"2026-09-03T00:00:00+00:00","source":"google-flights","origin":"AQP","destination":"LIM","currency":"USD","from":"2026-10-03","to":"2027-03-01","prices":{}}'::jsonb);
 select is(public.read_airfare_calendar('AQP', 'LIM')->'horizon'->>'capturedAt',

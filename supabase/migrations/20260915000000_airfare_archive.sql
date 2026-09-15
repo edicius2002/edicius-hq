@@ -5,6 +5,8 @@ create table public.fare_snapshots (
   flight_date date not null,
   captured_at timestamptz not null,
   captured_at_text text not null,
+  -- One-based physical JSONL line, supplied by the importer, never arrival order.
+  source_line bigint not null check (source_line > 0),
   source text not null,
   currency text not null,
   cheapest_price numeric,
@@ -16,6 +18,8 @@ create index fare_snapshots_route_flight_capture_idx
   on public.fare_snapshots (origin, destination, flight_date, captured_at);
 create index fare_snapshots_route_capture_idx
   on public.fare_snapshots (origin, destination, captured_at);
+create unique index fare_snapshots_route_observation_source_line_idx
+  on public.fare_snapshots (origin, destination, captured_at_text, source_line);
 
 create table public.fare_baseline_points (
   record_id text primary key check (record_id ~ '^[0-9a-f]{64}$'),
@@ -37,6 +41,7 @@ create table public.fare_calendar_captures (
   origin text not null check (origin ~ '^[A-Z0-9]{3}$'),
   destination text not null check (destination ~ '^[A-Z0-9]{3}$'),
   captured_at timestamptz not null,
+  source_line bigint not null check (source_line > 0),
   from_date date not null,
   to_date date not null,
   source text not null,
@@ -46,6 +51,10 @@ create table public.fare_calendar_captures (
 );
 create index fare_calendar_route_capture_idx
   on public.fare_calendar_captures (origin, destination, captured_at desc);
+-- Reused line numbers at different times are harmless; an equal-time duplicate
+-- position is ambiguous source metadata and must be rejected by the importer.
+create unique index fare_calendar_route_observation_source_line_idx
+  on public.fare_calendar_captures (origin, destination, (payload->>'capturedAt'), source_line);
 
 create table public.fare_checks (
   record_id text primary key check (record_id ~ '^[0-9a-f]{64}$'),
@@ -109,7 +118,35 @@ create function public.read_airfare_history(
 language sql stable security invoker
 set search_path = ''
 as $$
-  with per_departure as (
+  with selected_snapshots as (
+    -- Keep the legacy whole-route path separate so a generic parameter plan
+    -- does not turn the bounded path into a route scan plus a month filter.
+    select s.payload, s.captured_at_text, s.source_line, s.record_id
+    from public.fare_snapshots s
+    where p_snapshot_months is null
+      and s.origin = p_origin and s.destination = p_destination
+      and (coalesce(p_since, '') = '' or s.captured_at_text >= p_since)
+      and (coalesce(p_until, '') = '' or s.captured_at_text <= p_until)
+    union all
+    select s.payload, s.captured_at_text, s.source_line, s.record_id
+    from (
+      select distinct (month || '-01')::date as from_date
+      from unnest(p_snapshot_months) as requested(month)
+    ) months
+    cross join lateral (
+      select s.payload, s.captured_at_text, s.source_line, s.record_id
+      from public.fare_snapshots s
+      where s.origin = p_origin and s.destination = p_destination
+        and s.flight_date >= months.from_date
+        and s.flight_date < months.from_date + interval '1 month'
+        and (coalesce(p_since, '') = '' or s.captured_at_text >= p_since)
+        and (coalesce(p_until, '') = '' or s.captured_at_text <= p_until)
+      -- Retain the correlated range-scan boundary when the planner considers
+      -- flattening this lateral subquery into a whole-route join.
+      offset 0
+    ) s
+  ),
+  per_departure as (
     select flight_date, min(cheapest_price) as price
     from public.fare_snapshots
     where origin = p_origin and destination = p_destination
@@ -138,16 +175,8 @@ as $$
     'origin', p_origin,
     'destination', p_destination,
     'snapshots', (
-      select coalesce(jsonb_agg(s.payload order by s.captured_at_text, s.record_id), '[]'::jsonb)
-      from public.fare_snapshots s
-      where s.origin = p_origin and s.destination = p_destination
-        and (coalesce(p_since, '') = '' or s.captured_at_text >= p_since)
-        and (coalesce(p_until, '') = '' or s.captured_at_text <= p_until)
-        and (p_snapshot_months is null or exists (
-          select 1 from unnest(p_snapshot_months) as months(month)
-          where s.flight_date >= (month || '-01')::date
-            and s.flight_date < (month || '-01')::date + interval '1 month'
-        ))
+      select coalesce(jsonb_agg(s.payload order by s.captured_at_text, s.source_line, s.record_id), '[]'::jsonb)
+      from selected_snapshots s
     ),
     'baseline', (
       select coalesce(jsonb_agg(b.payload order by b.flight_date, b.price_date, b.record_id), '[]'::jsonb)
@@ -171,13 +200,13 @@ language sql stable security invoker
 set search_path = ''
 as $$
   with curves as (
-    select record_id, from_date, to_date, source, currency, payload,
+    select record_id, source_line, from_date, to_date, source, currency, payload,
            payload->>'capturedAt' as captured_at_text
     from public.fare_calendar_captures
     where origin = p_origin and destination = p_destination
   ),
   newest as (
-    select * from curves order by captured_at_text desc, record_id desc limit 1
+    select * from curves order by captured_at_text desc, source_line desc, record_id desc limit 1
   ),
   bounds as (
     select newest.from_date, (select max(to_date) from curves) as to_date
@@ -186,7 +215,7 @@ as $$
   -- Original JSONL uses a date-to-price object. Accept the list form used by
   -- wire fixtures too, without changing either stored document.
   expanded as (
-    select c.record_id, c.captured_at_text, p.departure_date, p.price, p.ordinality
+    select c.record_id, c.source_line, c.captured_at_text, p.departure_date, p.price, p.ordinality
     from curves c
     cross join lateral (
       select key as departure_date, value as price, 0::bigint as ordinality
@@ -207,7 +236,7 @@ as $$
     -- older curve; dates behind the newest near boundary never return.
     select distinct on (departure_date) departure_date, price, captured_at_text
     from expanded
-    order by departure_date, captured_at_text desc, record_id desc, ordinality
+    order by departure_date, captured_at_text desc, source_line desc, record_id desc, ordinality
   ),
   horizon as (
     select jsonb_build_object(

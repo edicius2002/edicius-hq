@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { fetchFareHistory, type FareHistoryResponse } from '@/shared/api/fares';
+import { archiveQueryOptions } from './archiveQueryOptions';
 
 /**
  * The archive for one watched month: our observations, the provider's own
@@ -11,10 +12,8 @@ import { fetchFareHistory, type FareHistoryResponse } from '@/shared/api/fares';
  * what has this cost, what does it usually cost, and can this series be
  * trusted — and because splitting them would be three requests for one page.
  *
- * No `refetchInterval`. The archive changes when a collection pass finds
- * something, and a pass that finds nothing writes nothing; polling here would
- * be requests spent watching a file that is deliberately not moving. The page
- * invalidates this query after a manual collection instead.
+ * Local collections invalidate immediately; periodic reads also discover
+ * scheduled collections and recover from failed requests without a reload.
  */
 export function useFareHistory(route: FareRoute | null, month: string | null) {
   // The month being read, passed in rather than taken off the route — a watch
@@ -28,6 +27,7 @@ export function useFareHistory(route: FareRoute | null, month: string | null) {
   const departure = route ? month : null;
 
   return useQuery<FareHistoryResponse>({
+    ...archiveQueryOptions,
     queryKey: ['fares', 'history', route?.origin, route?.destination, departure],
     queryFn: ({ signal }) =>
       fetchFareHistory(route!.origin, route!.destination, {
@@ -36,6 +36,6 @@ export function useFareHistory(route: FareRoute | null, month: string | null) {
         departure: departure!,
         signal,
       }),
-    enabled: route !== null,
+    enabled: route !== null && month !== null,
   });
 }

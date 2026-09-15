@@ -193,6 +193,46 @@ function press(label: string, times = 1) {
 /** The chart switch, by the names a reader sees on it. */
 const MOVES = 'How the price moved';
 
+it('shows archive loading in both views until existing data arrives', () => {
+  const { rerender } = render(
+    <Harness historyLoading monthSnapshots={[]} watchedSnapshots={[]} baseline={[]} />,
+  );
+  expect(screen.getByText('Loading saved fares…')).toHaveAttribute('role', 'status');
+  click(MOVES);
+  expect(screen.getByText('Loading saved fares…')).toHaveAttribute('role', 'status');
+  rerender(<Harness historyLoading={false} />);
+  expect(screen.queryByText('Loading saved fares…')).not.toBeInTheDocument();
+});
+
+it('reports a failed archive request and permits retry', () => {
+  const retry = vi.fn();
+  render(
+    <Harness historyError={new Error('offline')} historyAvailable={false} onHistoryRetry={retry} />,
+  );
+  expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
+  click('Retry loading fares');
+  expect(retry).toHaveBeenCalledOnce();
+});
+
+it('keeps the independently loaded calendar visible while history is pending or unavailable', () => {
+  const { rerender } = render(
+    <Harness historyLoading historyAvailable={false} monthSnapshots={[]} watchedSnapshots={[]} />,
+  );
+  expect(screen.getByRole('img')).toHaveAccessibleName(/What each departure date costs/);
+  rerender(
+    <Harness
+      historyError={new Error('offline')}
+      historyAvailable={false}
+      monthSnapshots={[]}
+      watchedSnapshots={[]}
+    />,
+  );
+  expect(screen.getByRole('img')).toHaveAccessibleName(/What each departure date costs/);
+  expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
+  click(MOVES);
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
+});
+
 function click(name: string) {
   fireEvent.click(screen.getByRole('button', { name }));
 }

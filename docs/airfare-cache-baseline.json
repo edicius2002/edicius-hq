@@ -1,0 +1,228 @@
+{
+  "schema_version": 2,
+  "commit": "fabcdc6ffd8902f178957c8d74bba533f4b20bac",
+  "method": "Direct production history endpoint model construction only; excludes Pydantic JSON serialization, HTTP, authentication, browser, collector startup, and source writes",
+  "timing_boundaries": {
+    "included": [
+      "production get_history function",
+      "history read or cache lookup",
+      "response-model construction"
+    ],
+    "excluded": [
+      "model_dump_json serialization",
+      "HTTP stack",
+      "authentication",
+      "browser rendering",
+      "WAN latency",
+      "collector startup and work"
+    ]
+  },
+  "samples_per_unchanged_phase": 15,
+  "dataset": {
+    "source": "D:\\Work\\research\\edicius-hq\\services\\api\\.local-data",
+    "frozen_copy": "C:\\Users\\krato\\AppData\\Local\\Temp\\edicius-pr198-2cec51cabfdc49eda8c2b3394ef8bd29\\frozen",
+    "frozen_copy_reused": false,
+    "sha256": "334409015eb34be119de608f60c053110c89cedd5d516b1f61367af2653bb5ef",
+    "bytes": 27061580,
+    "files": [
+      {
+        "path": "fares/airports.json",
+        "bytes": 1865,
+        "sha256": "58ffaa12e54ebed56aa2248f822445710c36f748c513ad71d3a0ae0eb6f62252"
+      },
+      {
+        "path": "fares/AQP-LIM.jsonl",
+        "bytes": 25214123,
+        "sha256": "09843c5032878e87bfca8b74772cc05caca11cda3b4d215d507479a476791f29"
+      },
+      {
+        "path": "fares/baseline/AQP-LIM.jsonl",
+        "bytes": 901580,
+        "sha256": "ab8bcc941a704659e7364ea74b2f55df8b140dac9469bad13dd6b48169a43904"
+      },
+      {
+        "path": "fares/calendar/AQP-LIM.jsonl",
+        "bytes": 148935,
+        "sha256": "b597269157080c0d4c952ed2439f8976f73bdcf01ab2d76d5f337bc09550135f"
+      },
+      {
+        "path": "fares/calendar/checks/AQP-LIM.jsonl",
+        "bytes": 2031,
+        "sha256": "76a11b9ee0c8df4905517b7e523ebab65232562a20cefb7ef6017374d656ecb4"
+      },
+      {
+        "path": "fares/checks/AQP-LIM.jsonl",
+        "bytes": 792845,
+        "sha256": "b506af1fd1cd78da7ddf7f6aa370d367af30410ff48edf2950fe6cc48f043fc5"
+      },
+      {
+        "path": "kv/airfare-routes.json",
+        "bytes": 201,
+        "sha256": "152c28932f7a283f25193ecf62aeb3b2c149738845fcea1f1facf537a4138c93"
+      }
+    ],
+    "source_sha256_before": "2115510916bc8a459cd12b7aacd424fb897c2294ef5b3b9804fbcc1a88933f49",
+    "source_sha256_after": "2115510916bc8a459cd12b7aacd424fb897c2294ef5b3b9804fbcc1a88933f49",
+    "source_unchanged_during_run": true
+  },
+  "payload_dir": "C:\\Users\\krato\\AppData\\Local\\Temp\\edicius-pr198-2cec51cabfdc49eda8c2b3394ef8bd29\\baseline-run\\payloads",
+  "routes": [
+    {
+      "pair": "AQP-LIM",
+      "month": "2026-11",
+      "archive_bytes": 25214123,
+      "history": {
+        "phases": {
+          "first_process_access": {
+            "timing": {
+              "first_ms": 1576.14,
+              "median_ms": 1576.14,
+              "p95_ms": 1576.14,
+              "max_ms": 1576.14
+            },
+            "samples_ms": [1576.14],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [1],
+            "peak_traced_bytes": 184484943,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 1,
+            "response_bytes": 23216605,
+            "gzip_bytes": 1060625,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
+            "content": {
+              "snapshots": 5189,
+              "offers": 105152,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
+                "errors": 21
+              }
+            }
+          },
+          "unchanged_repetitions": {
+            "timing": {
+              "first_ms": 2042.71,
+              "median_ms": 1890.39,
+              "p95_ms": 2053.63,
+              "max_ms": 2053.63
+            },
+            "samples_ms": [
+              2042.71, 1983.7, 1613.02, 1890.39, 1513.18, 2023.49, 1487.57, 1933.93, 1447.7,
+              1914.42, 1961.39, 1556.76, 1507.43, 1833.67, 2053.63
+            ],
+            "archive_reads": 15,
+            "archive_reads_per_sample": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "peak_traced_bytes": 184456887,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 1,
+            "response_bytes": 23216605,
+            "gzip_bytes": 1060625,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
+            "content": {
+              "snapshots": 5189,
+              "offers": 105152,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
+                "errors": 21
+              }
+            }
+          },
+          "after_append": {
+            "timing": {
+              "first_ms": 1668.61,
+              "median_ms": 1668.61,
+              "p95_ms": 1668.61,
+              "max_ms": 1668.61
+            },
+            "samples_ms": [1668.61],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [1],
+            "peak_traced_bytes": 184492062,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 1,
+            "response_bytes": 23221215,
+            "gzip_bytes": 1060690,
+            "response_sha256": "bbee8e75889d9ee822467bc368c2a81ab90255b6d58af059517cca8220abc24c",
+            "content": {
+              "snapshots": 5190,
+              "offers": 105173,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
+                "errors": 21
+              }
+            }
+          },
+          "after_replace": {
+            "timing": {
+              "first_ms": 1484.94,
+              "median_ms": 1484.94,
+              "p95_ms": 1484.94,
+              "max_ms": 1484.94
+            },
+            "samples_ms": [1484.94],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [1],
+            "peak_traced_bytes": 184484975,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 1,
+            "response_bytes": 23216605,
+            "gzip_bytes": 1060625,
+            "response_sha256": "41f13689f19e990e49e9e60245d53d247d1eebd074182f9b0f561b786f8bae55",
+            "content": {
+              "snapshots": 5189,
+              "offers": 105152,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
+                "errors": 21
+              }
+            }
+          },
+          "after_truncate": {
+            "timing": {
+              "first_ms": 54.91,
+              "median_ms": 54.91,
+              "p95_ms": 54.91,
+              "max_ms": 54.91
+            },
+            "samples_ms": [54.91],
+            "archive_reads": 1,
+            "archive_reads_per_sample": [1],
+            "peak_traced_bytes": 8193900,
+            "memory_probe": "one additional access after the timed sample(s)",
+            "memory_probe_archive_reads": 1,
+            "response_bytes": 116640,
+            "gzip_bytes": 6052,
+            "response_sha256": "dd5f490240af18fec4b2dbf1f8fc1252e8d686b616f758bffcb0f33d295de0c6",
+            "content": {
+              "snapshots": 1,
+              "offers": 16,
+              "baseline": 1846,
+              "airports": 2,
+              "health": {
+                "lastCheckedAt": "2026-09-15T13:16:03+00:00",
+                "checks": 3269,
+                "changes": 2669,
+                "errors": 21
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

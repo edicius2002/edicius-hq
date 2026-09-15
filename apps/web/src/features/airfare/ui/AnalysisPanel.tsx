@@ -36,6 +36,7 @@ import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
 
 import styles from './AnalysisPanel.module.css';
+import { FareHistoryStatus } from './FareHistoryStatus';
 
 /**
  * **Two charts over one route, and one control each — 12.240, answering 12.201.**
@@ -119,6 +120,10 @@ const DAYS_NAMES: Record<FrameSource, string> = {
 export const ANALYSIS_PANEL_ID = 'airfare-analysis';
 
 type AnalysisPanelProps = {
+  historyLoading?: boolean;
+  historyError?: Error | null;
+  historyAvailable?: boolean;
+  onHistoryRetry?: () => void;
   route: FareRoute | null;
   /**
    * Which of the route's months is being read.
@@ -214,6 +219,10 @@ type AnalysisPanelProps = {
  * switch above name the chart after the frame it is about to draw.
  */
 export function AnalysisPanel({
+  historyLoading = false,
+  historyError = null,
+  historyAvailable = true,
+  onHistoryRetry,
   route,
   month,
   watchedMonths,
@@ -495,9 +504,11 @@ export function AnalysisPanel({
         of height and a band of letterbox to hold a switch chart A must never
         have.
       */}
+      <FareHistoryStatus loading={historyLoading} error={historyError} onRetry={onHistoryRetry} />
       <div className={styles.stage}>
         <div className={styles.body}>
-          {view === 'moves' ? (
+          {(historyLoading || (historyError && !historyAvailable)) &&
+          (view === 'moves' || curve === null) ? null : view === 'moves' ? (
             <PriceBandChart
               ours={ours}
               baseline={theirs}

@@ -2,7 +2,7 @@
 
 ## Commit
 
-`PENDING_AMEND`
+`ca616e89be297da237266158bd999b7559d13e97` (`feat(airfare): replicate completed collection passes`)
 
 ## Delivered files
 

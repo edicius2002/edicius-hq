@@ -331,8 +331,8 @@ def test_read_routes_delegate_to_airfare_data_and_preserve_the_legacy_wire_shape
                 "longitude": -77.114,
             }
         ],
+        "pairReference": None,
     }
-    assert "pairReference" not in history.json()
     assert calendar.json() == {
         "origin": "LIM",
         "destination": "SCL",
@@ -351,6 +351,216 @@ def test_read_routes_delegate_to_airfare_data_and_preserve_the_legacy_wire_shape
             }
         ]
     }
+
+
+def test_history_endpoint_bounds_snapshots_by_watched_months_without_bounding_the_pair_reference(
+    monkeypatch, tmp_path
+):
+    """The router passes its three independent filters through the AirfareData seam."""
+    from app.adapters.fares.models import PricePoint
+
+    history = FareHistory(tmp_path)
+    calendar = FareCalendar(tmp_path / "calendar")
+
+    def append_snapshot(flight_date: str, captured_at: str, price: float) -> None:
+        history.append(
+            FareSnapshot(
+                captured_at=captured_at,
+                source="fixture",
+                origin="LIM",
+                destination="SCL",
+                flight_date=flight_date,
+                return_date=None,
+                currency="USD",
+                insights=None,
+                offers=[
+                    FareOffer(
+                        airline="LA",
+                        airline_name="LATAM",
+                        flight_number="600",
+                        departure_at=f"{flight_date}T08:00",
+                        arrival_at=None,
+                        transfers=0,
+                        duration_minutes=120,
+                        price=price,
+                        currency="USD",
+                    )
+                ],
+            )
+        )
+
+    append_snapshot("2027-03-09", "2026-09-01T09:00:00+00:00", 0)
+    append_snapshot("2027-04-09", "2026-09-02T09:00:00+00:00", 200)
+    append_snapshot("2027-05-09", "2026-09-03T09:00:00+00:00", 600)
+    for departure, price in (("2027-03-09", 110), ("2027-04-09", 220), ("2027-05-09", 330)):
+        history.merge_baseline(
+            "LIM",
+            "SCL",
+            departure,
+            [PricePoint("2026-09-01", price)],
+            source="fixture",
+            currency="USD",
+        )
+        history.record_check(
+            "LIM",
+            "SCL",
+            departure,
+            at=f"2026-09-{departure[5:7]}T10:00:00+00:00",
+            outcome="changed",
+            offers=1,
+            cheapest=price,
+        )
+
+    data = AirfareData(history, calendar, source_root=tmp_path)
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return data.history(query)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    response = TestClient(app).get(
+        "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
+        "&snapshotMonth=2027-03&snapshotMonth=2027-04&snapshotMonth=2027-03"
+    )
+
+    assert response.status_code == 200
+    assert facade.queries == [
+        HistoryQuery("LIM", "SCL", departure="2027-03", snapshot_months=("2027-03", "2027-04"))
+    ]
+    body = response.json()
+    assert [snapshot["flightDate"] for snapshot in body["snapshots"]] == [
+        "2027-03-09",
+        "2027-04-09",
+    ]
+    assert [point["flightDate"] for point in body["baseline"]] == ["2027-03-09"]
+    assert body["health"] == {
+        "lastCheckedAt": "2026-09-03T10:00:00+00:00",
+        "checks": 1,
+        "changes": 1,
+        "errors": 0,
+    }
+    assert body["pairReference"] == {"value": 200.0, "dates": 3}
+
+    observation_bounded = TestClient(app).get(
+        "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
+        "&snapshotMonth=2027-03&snapshotMonth=2027-04"
+        "&since=2026-09-02&until=2026-09-02T23:59:59%2B00:00"
+    )
+
+    assert facade.queries[-1] == HistoryQuery(
+        "LIM",
+        "SCL",
+        departure="2027-03",
+        snapshot_months=("2027-03", "2027-04"),
+        since="2026-09-02",
+        until="2026-09-02T23:59:59+00:00",
+    )
+    assert [snapshot["flightDate"] for snapshot in observation_bounded.json()["snapshots"]] == [
+        "2027-04-09"
+    ]
+    assert observation_bounded.json()["pairReference"] == {"value": 200.0, "dates": 3}
+
+
+def test_history_endpoint_keeps_the_legacy_whole_pair_snapshot_read_when_months_are_omitted(
+    monkeypatch, tmp_path
+):
+    """Omitting the optional bound remains an export-compatible whole-pair read."""
+    history = FareHistory(tmp_path)
+    calendar = FareCalendar(tmp_path / "calendar")
+    for flight_date, captured_at in (
+        ("2027-03-09", "2026-09-01T09:00:00+00:00"),
+        ("2027-04-09", "2026-09-02T09:00:00+00:00"),
+    ):
+        history.append(
+            FareSnapshot(
+                captured_at=captured_at,
+                source="fixture",
+                origin="LIM",
+                destination="SCL",
+                flight_date=flight_date,
+                return_date=None,
+                currency="USD",
+                insights=None,
+                offers=[],
+            )
+        )
+
+    data = AirfareData(history, calendar, source_root=tmp_path)
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return data.history(query)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    response = TestClient(app).get("/api/fares/history?origin=LIM&destination=SCL")
+
+    assert response.status_code == 200
+    assert facade.queries == [HistoryQuery("LIM", "SCL")]
+    assert [snapshot["flightDate"] for snapshot in response.json()["snapshots"]] == [
+        "2027-03-09",
+        "2027-04-09",
+    ]
+    assert response.json()["pairReference"] is None
+
+
+@pytest.mark.parametrize("value", ["2027-3", "2027-00", "2027-13", "2027-03-09", ""])
+def test_history_endpoint_rejects_invalid_snapshot_months(value):
+    response = TestClient(app).get(
+        f"/api/fares/history?origin=LIM&destination=SCL&snapshotMonth={value}"
+    )
+
+    assert response.status_code == 422
+
+
+def test_history_endpoint_rejects_more_than_twelve_unique_snapshot_months():
+    months = "&".join(
+        f"snapshotMonth={2027 + index // 12}-{index % 12 + 1:02d}" for index in range(13)
+    )
+
+    response = TestClient(app).get(f"/api/fares/history?origin=LIM&destination=SCL&{months}")
+
+    assert response.status_code == 422
+
+
+def test_history_endpoint_accepts_twelve_unique_snapshot_months_after_deduplication(monkeypatch):
+    months = [f"{2027 + index // 12}-{index % 12 + 1:02d}" for index in range(12)]
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return HistoryRead(
+                "LIM",
+                "SCL",
+                (),
+                (),
+                WatchHealth(None, 0, 0, 0),
+                (),
+                None,
+            )
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+    query = "&".join(f"snapshotMonth={month}" for month in [*months, months[0]])
+
+    response = TestClient(app).get(f"/api/fares/history?origin=LIM&destination=SCL&{query}")
+
+    assert response.status_code == 200
+    assert facade.queries == [HistoryQuery("LIM", "SCL", snapshot_months=tuple(months))]
 
 
 def test_nothing_has_been_collected_yet_is_an_answer_rather_than_a_404():

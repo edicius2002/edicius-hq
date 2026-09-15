@@ -14,6 +14,7 @@ import asyncio
 import gzip
 import json
 import logging
+import re
 from collections import Counter, deque
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
@@ -70,6 +71,11 @@ router = APIRouter(prefix="/api/fares", tags=["fares"])
 # smaller number here would be exactly the unmeasured count that removal threw
 # out, re-entered through a door marked "months".
 MAX_MONTHS_PER_PAIR = 12
+
+# A history request is allowed to retain every month a route can be watched
+# within the provider horizon, but never an unbounded month list.
+MAX_HISTORY_SNAPSHOT_MONTHS = 12
+_SNAPSHOT_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 # There is deliberately no per-call request ceiling here any more — 12.210.
 #
@@ -193,6 +199,13 @@ class WatchHealthModel(BaseModel):
     errors: int
 
 
+class PairReferenceModel(BaseModel):
+    """The whole-pair reference computed by the AirfareData store seam."""
+
+    value: float
+    dates: int = Field(..., ge=1)
+
+
 class HistoryResponse(BaseModel):
     origin: str
     destination: str
@@ -205,6 +218,8 @@ class HistoryResponse(BaseModel):
     # Only the two ends of this route. The client draws a line between them;
     # it has no use for an atlas.
     airports: list[AirportModel]
+    # This deliberately remains whole-pair even when snapshots are bounded.
+    pairReference: PairReferenceModel | None
 
 
 class SearchResponse(BaseModel):
@@ -755,16 +770,41 @@ def get_history(
         description=(
             "Which departures the baseline and the health figures cover, as a "
             "prefix: 2027-03 for a watched month, 2027-03-09 for one day. "
-            "Snapshots come back for the whole city pair either way."
+            "Snapshots ignore departure and may be bounded separately by snapshotMonth."
         ),
     ),
+    snapshot_month: Annotated[
+        list[str] | None,
+        Query(
+            alias="snapshotMonth",
+            description="Repeated watched departure months in YYYY-MM form for bounding snapshots",
+        ),
+    ] = None,
     since: str | None = Query(None, description="Inclusive capturedAt prefix, e.g. 2026-08"),
     until: str | None = Query(None, description="Inclusive capturedAt prefix"),
 ) -> HistoryResponse:
     origin, destination = normalize_code(origin), normalize_code(destination)
+    snapshot_months = tuple(dict.fromkeys(snapshot_month or ()))
+    if any(_SNAPSHOT_MONTH.fullmatch(month) is None for month in snapshot_months):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="snapshotMonth must be YYYY-MM",
+        )
+    if len(snapshot_months) > MAX_HISTORY_SNAPSHOT_MONTHS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"At most {MAX_HISTORY_SNAPSHOT_MONTHS} unique snapshotMonth values are allowed",
+        )
     try:
         history = AIRFARE_DATA.history(
-            HistoryQuery(origin, destination, departure=departure, since=since, until=until)
+            HistoryQuery(
+                origin,
+                destination,
+                departure=departure,
+                snapshot_months=snapshot_months,
+                since=since,
+                until=until,
+            )
         )
     except OSError as error:
         # An unreadable existing archive is not an empty history. Keep it
@@ -797,6 +837,14 @@ def get_history(
             checks=history.health.checks,
             changes=history.health.changes,
             errors=history.health.errors,
+        ),
+        pairReference=(
+            PairReferenceModel(
+                value=history.pair_reference.value,
+                dates=history.pair_reference.dates,
+            )
+            if history.pair_reference is not None
+            else None
         ),
     )
 

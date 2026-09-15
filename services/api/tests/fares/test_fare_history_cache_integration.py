@@ -227,6 +227,9 @@ def test_public_contract_preserves_all_content_filters_and_order(history_endpoin
                 "longitude": -70.786,
             },
         ],
+        # This is a whole-pair summary: the September observation remains in
+        # the reference despite the response's August captured-at bounds.
+        "pairReference": {"value": 202.0, "dates": 2},
     }
 
 

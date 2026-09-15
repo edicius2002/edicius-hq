@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from app.adapters.fares.models import Airport, FareOffer, FareQuery, FareSnapshot
 from app.main import app
 from app.routers import fares as fares_router
+from app.services import collection_job
 from app.services.airfare_data import (
     AirfareData,
     CalendarRead,
@@ -31,7 +32,6 @@ from app.services.airfare_data import (
     HistoryRead,
     WatchHealth,
 )
-from app.services import collection_job
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_collector import CollectionReport, FareWatch, RouteResult, collect
 from app.services.fare_history import BaselinePoint, FareHistory

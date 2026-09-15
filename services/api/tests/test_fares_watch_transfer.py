@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from app.adapters.fares.models import FareOffer, FareSnapshot
 from app.main import app
 from app.routers import fares as fares_router
-from app.services.airfare_data import AirfareData, ImportSnapshotsResult
 from app.services import kv_store
+from app.services.airfare_data import AirfareData, ImportSnapshotsResult
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_history import FareHistory
 

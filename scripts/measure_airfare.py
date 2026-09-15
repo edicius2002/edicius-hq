@@ -25,10 +25,17 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services" / "api"))
 
-from app.routers import fares  # noqa: E402
-from app.services.airfare_data import AirfareData  # noqa: E402
-from app.services.fare_calendar import FareCalendar  # noqa: E402
-from app.services.fare_history import FareHistory  # noqa: E402
+
+def _load_airfare_modules():
+    from app.routers import fares
+    from app.services.airfare_data import AirfareData
+    from app.services.fare_calendar import FareCalendar
+    from app.services.fare_history import FareHistory
+
+    return fares, AirfareData, FareCalendar, FareHistory
+
+
+fares, AirfareData, FareCalendar, FareHistory = _load_airfare_modules()
 
 MEASUREMENT_METHOD = (
     "Direct production history endpoint model construction only; excludes "

@@ -36,8 +36,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import fares as fares_router
-from app.services.airfare_data import AirfareData
 from app.services import calendar_job, fare_collector
+from app.services.airfare_data import AirfareData
 from app.services.fare_calendar import CalendarCurve, CalendarPrice, FareCalendar
 from app.services.fare_collector import CalendarReport, CalendarResult, FareWatch
 from app.services.fare_history import FareHistory

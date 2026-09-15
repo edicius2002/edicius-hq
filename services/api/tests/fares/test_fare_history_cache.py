@@ -10,8 +10,8 @@ from conftest import snapshot
 from fastapi import HTTPException
 
 from app.routers import fares as fares_router
-from app.services.airfare_data import AirfareData
 from app.services import fare_history
+from app.services.airfare_data import AirfareData
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_history import FareHistory, FareHistoryReadError
 

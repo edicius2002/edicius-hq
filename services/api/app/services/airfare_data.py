@@ -170,26 +170,33 @@ class AirfareData:
 
     def import_snapshots(self, snapshots: Iterable[FareSnapshot]) -> ImportSnapshotsResult:
         """Append only unseen watch observations to the authoritative local journal."""
-        known: dict[str, set[tuple[str, str, str, str]]] = {}
+        # Drain generators before locking so every route has one atomic
+        # read/fingerprint/append decision. Process one sorted route at a time:
+        # separate facades still run unrelated routes concurrently without multi-lock deadlocks.
+        grouped: dict[str, list[FareSnapshot]] = {}
+        for snapshot in snapshots:
+            grouped.setdefault(route_stem(snapshot.origin, snapshot.destination), []).append(
+                snapshot
+            )
         imported = 0
         skipped = 0
-        for snapshot in snapshots:
-            stem = route_stem(snapshot.origin, snapshot.destination)
+        for stem in sorted(grouped):
+            route_snapshots = grouped[stem]
+            origin = route_snapshots[0].origin
+            destination = route_snapshots[0].destination
             with _import_route_lock(stem):
-                route_known = known.get(stem)
-                if route_known is None:
-                    route_known = {
-                        self._snapshot_identity(existing)
-                        for existing in self._history.read(snapshot.origin, snapshot.destination)
-                    }
-                    known[stem] = route_known
-                identity = self._snapshot_identity(snapshot)
-                if identity in route_known:
-                    skipped += 1
-                    continue
-                self._history.append(snapshot)
-                route_known.add(identity)
-                imported += 1
+                known = {
+                    self._snapshot_identity(existing)
+                    for existing in self._history.read(origin, destination)
+                }
+                for snapshot in route_snapshots:
+                    identity = self._snapshot_identity(snapshot)
+                    if identity in known:
+                        skipped += 1
+                        continue
+                    self._history.append(snapshot)
+                    known.add(identity)
+                    imported += 1
         return ImportSnapshotsResult(imported, skipped)
 
     def sync_incremental(self) -> SyncReport:
@@ -444,17 +451,18 @@ def _number(
         return None
     if isinstance(value, bool):
         _reject(f"Supabase returned an invalid {context}")
-    if isinstance(value, str) and allow_numeric_string:
-        try:
-            number = float(value)
-        except ValueError:
+    if isinstance(value, str):
+        if not allow_numeric_string:
             _reject(f"Supabase returned an invalid {context}")
-        if math.isfinite(number):
-            return number
+    elif not isinstance(value, int | float):
         _reject(f"Supabase returned an invalid {context}")
-    if not isinstance(value, int | float) or not math.isfinite(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
         _reject(f"Supabase returned an invalid {context}")
-    return float(value)
+    if not math.isfinite(number):
+        _reject(f"Supabase returned an invalid {context}")
+    return number
 
 
 def _integer(value: object, context: str) -> int:

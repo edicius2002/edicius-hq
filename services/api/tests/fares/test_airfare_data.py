@@ -350,7 +350,10 @@ def test_remote_finite_numeric_strings_match_retained_local_payloads(tmp_path):
     assert hosted.calendar("AQP", "LIM") == local.calendar("AQP", "LIM")
 
 
-@pytest.mark.parametrize("wire_value", [True, "NaN", "Infinity", "not-a-number"])
+@pytest.mark.parametrize(
+    "wire_value",
+    [True, "NaN", "Infinity", "not-a-number", float("nan"), float("inf"), float("-inf")],
+)
 @pytest.mark.parametrize("kind", ["offer", "baseline", "calendar"])
 def test_remote_rejects_invalid_wire_prices_without_local_fallback(kind, wire_value, archive):
     root, _, _ = archive
@@ -370,6 +373,41 @@ def test_remote_rejects_invalid_wire_prices_without_local_fallback(kind, wire_va
     class UnreadableCalendar(FareCalendar):
         def horizon(self, *args, **kwargs):
             raise AssertionError("local fallback must not hide invalid remote prices")
+
+    data = AirfareData(
+        UnreadableHistory(root / "fares"),
+        UnreadableCalendar(root / "fares" / "calendar"),
+        remote=FakeRemote(history=remote_history, calendar=remote_calendar),
+        backend="supabase",
+        source_root=root,
+    )
+
+    with pytest.raises(AirfareRemoteRejected):
+        if kind == "calendar":
+            data.calendar("AQP", "LIM")
+        else:
+            data.history(HistoryQuery("AQP", "LIM"))
+
+
+@pytest.mark.parametrize("kind", ["offer", "baseline", "calendar"])
+def test_remote_rejects_oversized_json_integer_prices_without_local_fallback(kind, archive):
+    root, _, _ = archive
+    remote_history = history_document()
+    remote_calendar = calendar_document()
+    if kind == "offer":
+        remote_history["snapshots"][0]["offers"][0]["price"] = 10**1000
+    elif kind == "baseline":
+        remote_history["baseline"][0]["price"] = 10**1000
+    else:
+        remote_calendar["horizon"]["prices"][1]["price"] = 10**1000
+
+    class UnreadableHistory(FareHistory):
+        def read(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide an oversized remote price")
+
+    class UnreadableCalendar(FareCalendar):
+        def horizon(self, *args, **kwargs):
+            raise AssertionError("local fallback must not hide an oversized remote price")
 
     data = AirfareData(
         UnreadableHistory(root / "fares"),
@@ -777,6 +815,40 @@ def test_different_watch_routes_do_not_wait_for_each_others_import_lock(archive)
         two.join(timeout=2)
 
     assert not one.is_alive() and not two.is_alive()
+
+
+def test_complete_same_route_input_is_one_atomic_import_transaction(archive):
+    root, _, calendar = archive
+    history = FareHistory(root / "isolated-fares")
+    first_snapshot = snapshot(captured_at="2026-09-17T00:00:00+00:00", price=180.0)
+    second_snapshot = snapshot(captured_at="2026-09-18T00:00:00+00:00", price=190.0)
+    first_yielded = threading.Event()
+    release_second = threading.Event()
+    first_results: list[object] = []
+    first = AirfareData(history, calendar, source_root=root)
+    second = AirfareData(history, calendar, source_root=root)
+
+    def snapshots():
+        yield first_snapshot
+        first_yielded.set()
+        assert release_second.wait(timeout=2)
+        yield second_snapshot
+
+    importing = threading.Thread(
+        target=lambda: first_results.append(first.import_snapshots(snapshots()))
+    )
+    importing.start()
+    assert first_yielded.wait(timeout=1)
+    try:
+        second_result = second.import_snapshots([second_snapshot])
+    finally:
+        release_second.set()
+        importing.join(timeout=2)
+
+    assert not importing.is_alive()
+    assert sum(result.imported for result in [*first_results, second_result]) == 2
+    assert sum(result.skipped for result in [*first_results, second_result]) == 1
+    assert len(history.read("AQP", "LIM")) == 2
 
 
 def test_first_batch_sync_failure_preserves_local_source_and_cursor(archive):

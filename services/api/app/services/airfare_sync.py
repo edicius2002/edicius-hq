@@ -4,8 +4,11 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -15,6 +18,11 @@ from uuid import uuid4
 from app.services.airfare_supabase import AirfareRemoteError, AirfareRemoteRejected, SupabaseAirfare
 from app.services.fare_calendar import _curve_from
 from app.services.fare_history import _snapshot_from, route_stem
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 type SyncMode = Literal["full", "incremental"]
 _TABLES = {
@@ -41,6 +49,36 @@ _JOURNALS = {
     "calendar_checks": "fares/calendar/checks",
 }
 _HEX = re.compile(r"^[0-9a-f]{64}$")
+_PROCESS_LOCK_PATH = Path(tempfile.gettempdir()) / "edicius-hq-airfare-replica.lock"
+
+
+@contextmanager
+def _exclusive_process_lock(path: Path) -> Iterator[None]:
+    """Serialize replica scans and writes across API and CLI processes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        if handle.seek(0, os.SEEK_END) == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        if sys.platform == "win32":
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -429,6 +467,10 @@ class AirfareSync:
 
     def apply(self, mode: SyncMode = "incremental") -> SyncReport:
         self._check_mode(mode)
+        with _exclusive_process_lock(_PROCESS_LOCK_PATH):
+            return self._apply_locked(mode)
+
+    def _apply_locked(self, mode: SyncMode) -> SyncReport:
         client = self._client()
         datasets, journals = self._collect()
         source = self._manifest(datasets)

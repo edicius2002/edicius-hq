@@ -29,6 +29,15 @@ content ID. The local baseline writer preserves the union of natural keys;
 arbitrary source-key deletion is outside the no-delete synchronization contract
 and appears as destination extras during verification.
 
+## Cross-process exclusion
+
+Every mutating synchronization takes an operating-system advisory lock before
+scanning the source and holds it through remote uploads and cursor acknowledgements.
+The API and migration CLI therefore cannot publish overlapping source snapshots;
+a waiting process scans only after the prior process finishes. The kernel releases
+the lock if its holder exits, so a crashed synchronization does not leave a stale
+lock that requires manual cleanup.
+
 ## Verification and read comparison
 
 Each dataset digest hashes its sorted unique record IDs joined by LF, without a

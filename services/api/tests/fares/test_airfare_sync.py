@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -163,6 +164,39 @@ class Destination:
         return httpx.Response(201)
 
 
+class ProcessDestination:
+    """Cross-process remote double that pauses one stale baseline write."""
+
+    def __init__(self, state, attempted, release, *, pause):
+        self.state = state
+        self.attempted = attempted
+        self.release = release
+        self.pause = pause
+
+    def upsert(self, table, rows, *, on_conflict):
+        del on_conflict
+        if table != "fare_baseline_points":
+            return
+        self.attempted.set()
+        if self.pause and not self.release.wait(10):
+            raise TimeoutError("test did not release the paused synchronization")
+        self.state["baseline_price"] = rows[0]["price"]
+
+    def rpc(self, name, params):
+        assert name == "airfare_dataset_manifest"
+        assert params == {}
+        return []
+
+
+def apply_baseline_in_process(source, state, attempted, release, ready, *, pause):
+    ready.set()
+    report = AirfareSync(
+        Path(source), ProcessDestination(state, attempted, release, pause=pause)
+    ).apply("full")
+    if report.status != "complete":
+        raise AssertionError(report.error)
+
+
 @pytest.fixture
 def remote():
     destination = Destination()
@@ -220,6 +254,51 @@ def test_full_replay_preserves_payload_and_source_positions(source, remote):
     assert server.tables["airfare_documents"]["airfare-routes"]["value"] == WATCH
     assert server.tables["airfare_documents"]["airfare-routes"]["source_updated_at"]
     assert all(row["status"] == "complete" for row in server.tables["airfare_import_runs"].values())
+
+
+def test_apply_serializes_processes_before_scanning_a_rewritten_baseline(tmp_path):
+    """Catch a stale scan finishing after a newer cross-process synchronization."""
+    baseline_path = write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    context = multiprocessing.get_context("spawn")
+    with context.Manager() as manager:
+        state = manager.dict()
+        release_first = context.Event()
+        first_attempted = context.Event()
+        second_attempted = context.Event()
+        first_ready = context.Event()
+        second_ready = context.Event()
+        first = context.Process(
+            target=apply_baseline_in_process,
+            args=(tmp_path, state, first_attempted, release_first, first_ready),
+            kwargs={"pause": True},
+        )
+        second = context.Process(
+            target=apply_baseline_in_process,
+            args=(tmp_path, state, second_attempted, release_first, second_ready),
+            kwargs={"pause": False},
+        )
+        first.start()
+        try:
+            assert first_ready.wait(10)
+            assert first_attempted.wait(10)
+            newer = {**BASELINE, "price": 175}
+            baseline_path.write_bytes(json.dumps(newer).encode() + b"\n")
+            second.start()
+            assert second_ready.wait(10)
+            overlapped = second_attempted.wait(2)
+        finally:
+            release_first.set()
+            first.join(10)
+            if second.pid is not None:
+                second.join(10)
+            if first.is_alive():
+                first.terminate()
+            if second.pid is not None and second.is_alive():
+                second.terminate()
+
+        assert overlapped is False
+        assert first.exitcode == second.exitcode == 0
+        assert state["baseline_price"] == 175
 
 
 def test_failed_batch_cursor_retry_partial_tail_and_replacement(tmp_path, remote):

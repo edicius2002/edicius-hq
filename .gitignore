@@ -25,6 +25,10 @@ coverage/
 .eslintcache
 .prettiercache
 
+# Local Supabase runtime state
+supabase/.temp/
+supabase/.branches/
+
 # Python
 __pycache__/
 *.py[cod]

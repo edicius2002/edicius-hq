@@ -59,6 +59,9 @@ import httpx
 
 from app.adapters.fares.models import FareSnapshot
 from app.adapters.fares.registry import DEFAULT_PROVIDER
+from app.config import airfare_sync_enabled
+from app.services.airfare_data import AIRFARE_DATA
+from app.services.collection_sync import sync_completed_pass
 from app.services.fare_collector import (
     REQUEST_GAP_SECONDS,
     CollectionReport,
@@ -271,6 +274,7 @@ class CollectionRunner:
         recorder = PassRecorder(
             source="ui", kind="board", gap=REQUEST_GAP_SECONDS, pass_id=started.pass_id
         )
+        completed_report: CollectionReport | None = None
 
         def leave_a_line() -> None:
             """
@@ -286,7 +290,7 @@ class CollectionRunner:
             recorder.finish(exit_code=0 if started.state == "finished" else 1)
 
         try:
-            await collect_due(
+            report = await collect_due(
                 watches,
                 provider=provider,
                 client=client,
@@ -294,6 +298,10 @@ class CollectionRunner:
                 force=force,
                 pass_id=started.pass_id,
             )
+            # The observer keeps progress live. The returned report is the
+            # final, authoritative accounting of late skips and all results.
+            started.results = list(report.results)
+            started.skipped = list(report.skipped)
         except asyncio.CancelledError:
             started.state = "failed"
             started.error = "The pass was cancelled before it finished"
@@ -317,6 +325,7 @@ class CollectionRunner:
         else:
             started.state = "finished"
             started.finished_at = _now()
+            completed_report = report
             logger.info(
                 "manual collection finished: %d looked at, %d skipped",
                 started.completed,
@@ -329,6 +338,8 @@ class CollectionRunner:
         # easily introduce.
         leave_a_line()
         COLLECTION_STREAM.publish()
+        if completed_report is not None and airfare_sync_enabled():
+            await asyncio.to_thread(sync_completed_pass, AIRFARE_DATA, completed_report)
 
     async def aclose(self) -> None:
         """
@@ -339,12 +350,27 @@ class CollectionRunner:
         read very differently in a log.
         """
         task = self._task
-        self._task = None
         if task is None or task.done():
+            self._task = None
             return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
+        if self.running():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+            if task.done():
+                self._task = None
+            return
+
+        # Local state is already terminal, so this task can only be waiting on
+        # the bounded replica attempt below. Shielding keeps shutdown
+        # cancellation from detaching its thread; the lifespan will not close
+        # the shared client until the task has joined it. If shutdown itself is
+        # cancelled, retain the reference so a later close can still join it.
+        try:
+            await asyncio.shield(task)
+        finally:
+            if task.done():
+                self._task = None
 
 
 RUNNER = CollectionRunner()

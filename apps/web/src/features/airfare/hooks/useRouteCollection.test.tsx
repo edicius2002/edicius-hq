@@ -224,6 +224,7 @@ function historyOf(route: FareRoute): FareHistoryResponse {
     baseline: [{ flightDate: `${route.months[0]}-09`, date: '2026-08-01', price: 410 }],
     health: { lastCheckedAt: '2026-08-19T13:00:00+00:00', checks: 1, changes: 1, errors: 0 },
     airports: [],
+    pairReference: { value: 147.69, dates: 31 },
   };
 }
 
@@ -636,7 +637,14 @@ describe('collecting one watched route from its own row', () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    const key = ['fares', 'history', LIM_CUZ.origin, LIM_CUZ.destination, LIM_CUZ.months[0]];
+    const key = [
+      'fares',
+      'history',
+      LIM_CUZ.origin,
+      LIM_CUZ.destination,
+      LIM_CUZ.months[0],
+      LIM_CUZ.months.join(','),
+    ];
     client.setQueryData(key, historyOf(LIM_CUZ));
 
     stubPassInProgress(passRunning(LIM_CUZ));
@@ -664,6 +672,34 @@ describe('collecting one watched route from its own row', () => {
     // And the pass is still running, so the row is still working — the point
     // appeared without the press having ended.
     expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
+  });
+
+  it('does not put an SSE snapshot into a cached history whose watched months exclude it', async () => {
+    const march = { ...LIM_CUZ, months: ['2027-03'] };
+    const april = { ...LIM_CUZ, months: ['2027-04'] };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const marchKey = ['fares', 'history', march.origin, march.destination, '2027-03', '2027-03'];
+    const aprilKey = ['fares', 'history', april.origin, april.destination, '2027-04', '2027-04'];
+    client.setQueryData(marchKey, historyOf(march));
+    client.setQueryData(aprilKey, historyOf(april));
+
+    stubPassInProgress(passRunning(march));
+    const { result } = renderHook(() => useRouteCollection(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    act(() => result.current.collect(march, '2027-03'));
+    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await act(async () => {
+      streamed().emit('snapshot', snapshotOf(march, '2026-08-19T14:00:03+00:00', 350));
+    });
+
+    expect(client.getQueryData<FareHistoryResponse>(marchKey)?.snapshots).toHaveLength(2);
+    expect(client.getQueryData<FareHistoryResponse>(aprilKey)?.snapshots).toHaveLength(1);
   });
 
   it('marks the day’s spend for a re-read when the pass it started ends', async () => {

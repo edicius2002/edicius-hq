@@ -1,5 +1,8 @@
 import os
+from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
+from typing import Literal, cast
 
 # Path A user-state keys (expand as features land).
 ALLOWED_KV_KEYS = frozenset(
@@ -36,6 +39,69 @@ CORS_ORIGINS = [
 # developer who sets nothing can still enrol.
 WEBAUTHN_RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
 WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN", "http://localhost:5173")
+
+
+@dataclass(frozen=True, slots=True)
+class AirfareSupabaseConfig:
+    url: str
+    secret_key: str = field(repr=False)
+    timeout_seconds: float
+    batch_size: int
+
+
+def airfare_data_backend() -> Literal["local", "supabase"]:
+    """The durable Airfare read store; local remains the one-restart rollback."""
+    backend = os.getenv("AIRFARE_DATA_BACKEND", "local").strip().casefold()
+    if backend not in {"local", "supabase"}:
+        raise ValueError("AIRFARE_DATA_BACKEND must be 'local' or 'supabase'")
+    return cast(Literal["local", "supabase"], backend)
+
+
+def airfare_sync_enabled() -> bool:
+    """Whether completed local Airfare passes may replicate to Supabase."""
+    raw = os.getenv("AIRFARE_SYNC_ENABLED", "false").strip().casefold()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"", "0", "false", "no", "off"}:
+        return False
+    raise ValueError("AIRFARE_SYNC_ENABLED must be a boolean")
+
+
+def airfare_supabase_config() -> AirfareSupabaseConfig | None:
+    """Return cloud configuration only when a cloud Airfare feature is enabled."""
+    if airfare_data_backend() == "local" and not airfare_sync_enabled():
+        return None
+
+    url = os.getenv("SUPABASE_URL", "").strip()
+    secret_key = os.getenv("SUPABASE_SECRET_KEY", "").strip()
+    missing = [
+        name
+        for name, value in (("SUPABASE_URL", url), ("SUPABASE_SECRET_KEY", secret_key))
+        if not value
+    ]
+    if missing:
+        raise ValueError(f"{', '.join(missing)} must be configured for cloud Airfare features")
+
+    try:
+        timeout_seconds = float(os.getenv("AIRFARE_SUPABASE_TIMEOUT_SECONDS", "15"))
+    except ValueError:
+        raise ValueError("AIRFARE_SUPABASE_TIMEOUT_SECONDS must be positive") from None
+    if not isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("AIRFARE_SUPABASE_TIMEOUT_SECONDS must be positive")
+
+    try:
+        batch_size = int(os.getenv("AIRFARE_SUPABASE_BATCH_SIZE", "250"))
+    except ValueError:
+        raise ValueError("AIRFARE_SUPABASE_BATCH_SIZE must be between 1 and 500") from None
+    if not 1 <= batch_size <= 500:
+        raise ValueError("AIRFARE_SUPABASE_BATCH_SIZE must be between 1 and 500")
+
+    return AirfareSupabaseConfig(
+        url=url,
+        secret_key=secret_key,
+        timeout_seconds=timeout_seconds,
+        batch_size=batch_size,
+    )
 
 
 def sky_official_lookup_enabled() -> bool:

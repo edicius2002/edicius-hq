@@ -231,9 +231,9 @@
  * so that -5px lines up with nothing here and only pushes the block past the
  * content edge.
  *
- * The enrol block inside it carries `min-width: 15rem` — 300px at this app's
- * 125% root, not the 240px the number reads as — which is a floor the dropdown
- * needs because it is shrink-to-fit and would jump width when a code appeared.
+ * The account controls inside it carry `min-width: 15rem` — 300px at this
+ * app's 125% root, not the 240px the number reads as — which is a floor the
+ * dropdown needs because it is shrink-to-fit.
  * The drawer has no such problem and no such room: `min(17rem, 78vw)` is 304px
  * on a 390px screen, 274px of it inside the padding, so that floor overflowed
  * by 26px. `overflow-y: auto` on the drawer is what turned the overflow into a

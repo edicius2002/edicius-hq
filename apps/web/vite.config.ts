@@ -113,10 +113,10 @@ const CSS_INCLUDE = [
   // Twelfth and thirteenth, and one seam between them. `drawerFits.test` checks
   // that what the narrow drawer holds fits across it: the drawer's width is in
   // `TopNav.module.css` and the floor that overflowed it is in
-  // `EnrolDevice.module.css`, which the dropdown needs and the drawer cannot
-  // afford. Neither file imports the other and jsdom lays out neither.
+  // `AccountControls.module.css`, which the dropdown needs and the drawer
+  // cannot afford. Neither file imports the other and jsdom lays out neither.
   /TopNav\.module\.css/,
-  /EnrolDevice\.module\.css/,
+  /AccountControls\.module\.css/,
   /styles\/tokens\.css/,
 ];
 

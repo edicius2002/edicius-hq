@@ -384,6 +384,156 @@ def test_compare_reads_uses_real_local_readers_and_reports_differences(source, r
     assert not result["matches"] and "AQP-LIM:calendar" in result["mismatches"]
 
 
+def test_compare_reads_bounds_snapshots_to_the_watched_months(source):
+    april_snapshot = {**SNAPSHOT, "flightDate": "2027-04-01"}
+    outside_watch = {**SNAPSHOT, "flightDate": "2027-05-01"}
+    april_baseline = {**BASELINE, "flightDate": "2027-04-01"}
+    april_board = {**BOARD, "flightDate": "2027-04-01"}
+    write_lines(source, "fares/AQP-LIM.jsonl", [SNAPSHOT, april_snapshot, outside_watch])
+    write_lines(source, "fares/baseline/AQP-LIM.jsonl", [BASELINE, april_baseline])
+    write_lines(source, "fares/checks/AQP-LIM.jsonl", [BOARD, april_board])
+    (source / "kv/airfare-routes.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "routes": [
+                    {
+                        "origin": "AQP",
+                        "destination": "LIM",
+                        "months": ["2027-04", "2027-03"],
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    calls = []
+
+    class BoundedRemote:
+        def rpc(self, name, params):
+            if name == "read_airfare_calendar":
+                return {
+                    "origin": "AQP",
+                    "destination": "LIM",
+                    "horizon": {
+                        "capturedAt": STAMP,
+                        "source": "google-flights",
+                        "currency": "USD",
+                        "fromDate": "2027-03-01",
+                        "toDate": "2027-03-03",
+                        "prices": [
+                            {
+                                "departureDate": "2027-03-01",
+                                "price": None,
+                                "observedAt": STAMP,
+                            },
+                            {"departureDate": "2027-03-03", "price": 90, "observedAt": STAMP},
+                        ],
+                    },
+                    "health": {
+                        "lastCheckedAt": STAMP,
+                        "checks": 1,
+                        "changes": 0,
+                        "errors": 1,
+                    },
+                }
+            calls.append(params)
+            month = params["p_departure"]
+            snapshot = SNAPSHOT if month == "2027-03" else april_snapshot
+            baseline = BASELINE if month == "2027-03" else april_baseline
+            return {
+                "origin": "AQP",
+                "destination": "LIM",
+                "snapshots": [snapshot],
+                "baseline": [baseline],
+                "airports": [AIRPORT],
+                # Pair reference stays pair-wide and includes the month outside the watch.
+                "pairReference": {"value": 123, "dates": 3},
+                "health": {
+                    "lastCheckedAt": STAMP,
+                    "checks": 1,
+                    "changes": 1,
+                    "errors": 0,
+                },
+            }
+
+    assert module.compare_reads(source, BoundedRemote())["matches"]
+    assert [call["p_departure"] for call in calls] == ["2027-03", "2027-04"]
+    assert all(call["p_snapshot_months"] == [call["p_departure"]] for call in calls)
+    assert all(call["p_departure"] is not None for call in calls)
+
+
+def test_compare_reads_rejects_more_than_twelve_months_before_remote_reads(source):
+    months = [f"{2027 + index // 12}-{index % 12 + 1:02d}" for index in range(13)]
+    (source / "kv/airfare-routes.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "routes": [
+                    {
+                        "origin": "AQP",
+                        "destination": "LIM",
+                        "months": months,
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class NoRemoteReads:
+        def rpc(self, name, params):
+            raise AssertionError(f"unexpected remote read: {name} {params}")
+
+    with pytest.raises(ValueError, match="between one and twelve months"):
+        module.compare_reads(source, NoRemoteReads())
+
+
+@pytest.mark.parametrize("month", ["2027-3", "bad", "", 2027])
+def test_compare_reads_rejects_malformed_months_before_remote_reads(source, month):
+    (source / "kv/airfare-routes.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "routes": [
+                    {
+                        "origin": "AQP",
+                        "destination": "LIM",
+                        "months": [month],
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class NoRemoteReads:
+        def rpc(self, name, params):
+            raise AssertionError(f"unexpected remote read: {name} {params}")
+
+    with pytest.raises(ValueError, match="YYYY-MM"):
+        module.compare_reads(source, NoRemoteReads())
+
+
 def test_verification_reads_all_server_capped_pages(tmp_path, remote):
     server, client = remote
     write_lines(

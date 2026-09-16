@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import asdict
@@ -25,6 +26,8 @@ from app.services.airfare_supabase import (  # noqa: E402
 from app.services.airfare_sync import AirfareSync, SyncMode, canonical_record_id  # noqa: E402
 from app.services.fare_calendar import FareCalendar  # noqa: E402
 from app.services.fare_history import FareHistory, _snapshot_from, route_stem  # noqa: E402
+
+_SNAPSHOT_MONTH = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 
 
 def _health(checks: list[dict[str, object]]) -> dict[str, Any]:
@@ -77,13 +80,22 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
     logical = AirfareSync(source).logical_records()
     pairs: dict[str, set[str]] = {}
     for route in document["routes"]:
+        route_months = route.get("months") if isinstance(route, dict) else None
+        if not isinstance(route_months, list) or any(
+            not isinstance(month, str) or _SNAPSHOT_MONTH.fullmatch(month) is None
+            for month in route_months
+        ):
+            raise ValueError("watched route months must use YYYY-MM")
         stem = route_stem(route["origin"], route["destination"])
-        pairs.setdefault(stem, set()).update(route["months"])
+        pairs.setdefault(stem, set()).update(route_months)
     mismatches = []
     comparisons = []
     known = history.airports()
     for stem, months in sorted(pairs.items()):
         origin, destination = stem.split("-")
+        snapshot_months = tuple(sorted(months))
+        if not 1 <= len(snapshot_months) <= 12:
+            raise ValueError("watched route must name between one and twelve months")
 
         pair_rows = {
             dataset: [
@@ -94,13 +106,13 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
             for dataset in ("snapshots", "baseline", "board_checks", "calendar_checks")
         }
 
-        snapshot_rows = sorted(
+        all_snapshot_rows = sorted(
             pair_rows["snapshots"],
             key=lambda row: (row["captured_at_text"], row["source_line"], row["record_id"]),
         )
-        snapshots = [
+        all_snapshots = [
             snapshot
-            for row in snapshot_rows
+            for row in all_snapshot_rows
             if (snapshot := _snapshot_from(json.dumps(row["payload"]))) is not None
         ]
         baseline_rows = sorted(
@@ -110,7 +122,7 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
         board_checks = sorted(pair_rows["board_checks"], key=lambda row: row["payload"]["at"])
         calendar_checks = sorted(pair_rows["calendar_checks"], key=lambda row: row["payload"]["at"])
         minima: dict[str, float] = {}
-        for snapshot in snapshots:
+        for snapshot in all_snapshots:
             prices = [offer.price for offer in snapshot.offers if offer.price is not None]
             if prices:
                 minima[snapshot.flight_date] = min(
@@ -119,7 +131,15 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
         pair_reference = (
             {"value": median(minima.values()), "dates": len(minima)} if minima else None
         )
-        for departure in [None, *sorted(months)]:
+        for departure in snapshot_months:
+            snapshot_rows = [
+                row for row in all_snapshot_rows if row["flight_date"].startswith(departure)
+            ]
+            snapshots = [
+                snapshot
+                for row in snapshot_rows
+                if (snapshot := _snapshot_from(json.dumps(row["payload"]))) is not None
+            ]
             selected_baseline = [
                 row
                 for row in baseline_rows
@@ -131,7 +151,7 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
                     "p_origin": origin,
                     "p_destination": destination,
                     "p_departure": departure,
-                    "p_snapshot_months": None,
+                    "p_snapshot_months": [departure],
                     "p_since": None,
                     "p_until": None,
                 },

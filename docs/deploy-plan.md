@@ -497,7 +497,11 @@ npx --yes supabase@2.105.0 migration list
 All commands run from repository root. The evidence is a reviewed set of separate,
 aggregate-only CLI reports under `docs/`; it is not a synthetic single-file envelope.
 Every current report has the shared safe fields `project_ref`, `source_root`, `status`,
-and `duration_seconds`. `source_root` must be `services/api/.local-data` here, never an
+and `duration_seconds`. `source_root` must be `services/api/.local-data` when the command
+runs from the production checkout. An isolated worktree may instead report the safe
+literal `<external-source>` only when the operator has verified that `--source` names
+the production checkout's canonical `services/api/.local-data`; record that verification
+without an absolute path in `docs/airfare-supabase-results.md`. It must never contain an
 absolute path. No report may contain payload rows, credentials, headers, passwords, or
 URL query credentials.
 
@@ -566,8 +570,11 @@ if (-not $firstVerify.matches -or -not $secondBefore.matches -or -not $secondAft
 
 Stop on a nonzero exit; any mismatch; an invalid/all-invalid source; a new or
 unexplained skipped record; an unstable source; an unexpected migration; an attempt to
-reset; or a report containing sensitive data or an absolute source path. Preserve all
-reports for review and do not retry through an unexplained mismatch.
+reset; or a report containing sensitive data or an absolute source path. A known skipped
+record is acceptable only when its dataset, repository-relative journal, line, sanitized
+failure category, and content hash are recorded in `docs/airfare-supabase-results.md`,
+and its count is unchanged across the stable-source window. Preserve all reports for
+review and do not retry through an unexplained mismatch.
 
 Keep every file in the table uncommitted until every command, the deterministic
 comparison, and human review of the exact JSON pass. Then stage the whole reviewed set,

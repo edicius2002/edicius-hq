@@ -65,3 +65,28 @@ The dedicated temporary migration key was revoked after verification and a probe
 that key returned HTTP 401. A future read cutover needs a smaller derived read model or
 pagination/downsampling, then a fresh incremental sync, parity run, configured-backend
 canary, fallback drill, and full quality gate.
+
+## Permanent replication credential and live catch-up
+
+On 2026-09-16 the owner created the dedicated `edicius_hq_replica` secret key and
+installed its value only in the ignored repository-root `.env`. The runtime remains
+configured with `AIRFARE_DATA_BACKEND=local` and `AIRFARE_SYNC_ENABLED=true`; therefore
+local reads stay active while completed collection passes replicate after this branch is
+integrated and the API is restarted.
+
+A live incremental catch-up uploaded the four new snapshots and four new logical board
+checks collected after the accepted backfill. The subsequent hosted manifest verification
+reported `matches: true`, no mismatches, and these matching source/destination counts:
+
+| Dataset         | Records |
+| --------------- | ------: |
+| snapshots       |  14,446 |
+| baseline        |  59,785 |
+| calendar        |     171 |
+| board checks    |  17,558 |
+| calendar checks |     186 |
+| airports        |      10 |
+| documents       |       1 |
+
+The one previously documented malformed board-check line remains the only skipped record.
+Neither the catch-up nor verification modified or removed the local archive.

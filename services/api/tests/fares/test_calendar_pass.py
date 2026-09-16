@@ -20,9 +20,11 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import fares as fares_router
+from app.services.airfare_data import AirfareData
 from app.services.fare_budget import RequestLedger
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_collector import FareWatch, calendar_windows, collect_calendars
+from app.services.fare_history import FareHistory
 
 # --- the pass ----------------------------------------------------------------
 
@@ -254,7 +256,11 @@ def test_the_calendar_endpoint_serves_the_horizon_and_its_health(monkeypatch, tm
         curve("2026-08-19T12:00:00+00:00", prices=[("2026-12-09", 59.87), ("2026-12-10", None)])
     )
     store.record_check("LIM", "CUZ", at="2026-08-19T12:00:00+00:00", outcome="changed", dates=2)
-    monkeypatch.setattr(fares_router, "CALENDAR", store)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(FareHistory(tmp_path / "fares"), store, source_root=tmp_path),
+    )
 
     answer = TestClient(app).get("/api/fares/calendar?origin=lim&destination=cuz").json()
     assert answer["horizon"]["capturedAt"] == "2026-08-19T12:00:00+00:00"
@@ -286,7 +292,12 @@ def test_a_city_pair_nobody_has_collected_answers_null_rather_than_a_404(monkeyp
     A route added a minute ago has no curve yet, and that is not an error: the
     client draws nothing and the health block says nothing has looked.
     """
-    monkeypatch.setattr(fares_router, "CALENDAR", FareCalendar(tmp_path))
+    calendar = FareCalendar(tmp_path)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(FareHistory(tmp_path / "fares"), calendar, source_root=tmp_path),
+    )
     answer = TestClient(app).get("/api/fares/calendar?origin=LIM&destination=MAD")
     assert answer.status_code == 200
     assert answer.json()["horizon"] is None

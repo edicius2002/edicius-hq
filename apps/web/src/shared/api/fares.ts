@@ -113,6 +113,12 @@ export type FareSnapshot = {
   offers: FareOffer[];
 };
 
+/** Server-computed whole-pair median summary, independent of snapshot bounds. */
+export type FarePairReference = {
+  value: number;
+  dates: number;
+};
+
 export type FareHistoryResponse = {
   origin: string;
   destination: string;
@@ -121,6 +127,7 @@ export type FareHistoryResponse = {
   health: WatchHealth;
   /** Only this route's two ends. The map asks for the rest separately. */
   airports: Airport[];
+  pairReference: FarePairReference | null;
 };
 
 /**
@@ -309,13 +316,19 @@ export type SearchRequest = {
 export function fetchFareHistory(
   origin: string,
   destination: string,
-  options: { departure?: string; since?: string; until?: string; signal?: AbortSignal } = {},
+  options: {
+    departure?: string;
+    snapshotMonths?: readonly string[];
+    since?: string;
+    until?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<FareHistoryResponse> {
   const query = new URLSearchParams({ origin, destination });
-  // Snapshots come back for the whole city pair; the baseline and the health
-  // figures are narrowed to `departure`, which the server matches as a prefix
-  // — `2027-03` for a watched month, `2027-03-09` for one day of it.
+  // `snapshotMonth` bounds snapshots by departure month. `departure` remains
+  // independent: it narrows only baseline and health as a prefix.
   if (options.departure) query.set('departure', options.departure);
+  for (const month of options.snapshotMonths ?? []) query.append('snapshotMonth', month);
   if (options.since) query.set('since', options.since);
   if (options.until) query.set('until', options.until);
 

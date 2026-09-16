@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
+import type { FareHistoryResponse } from '@/shared/api/fares';
 import { queryWrapper, sharedQueryWrapper } from '@/test/queryWrapper';
 
 /**
@@ -28,13 +29,14 @@ const LIM_MAD: FareRoute = {
   currency: 'USD',
 };
 
-const EMPTY = {
+const EMPTY: FareHistoryResponse = {
   origin: 'LIM',
   destination: 'MAD',
   snapshots: [],
   baseline: [],
   health: { lastCheckedAt: null, checks: 0, changes: 0, errors: 0 },
   airports: [],
+  pairReference: null,
 };
 
 /** `setup.ts` makes an unstubbed `fetch` reject, so nothing here reaches out. */
@@ -90,15 +92,18 @@ describe('useFareHistory', () => {
     expect(urls).toHaveLength(0);
   });
 
-  it('asks about the whole month, which is the whole of what a watch is', async () => {
+  it('asks for every watched snapshot month while retaining the active departure filter', async () => {
     const urls = stubHistory();
-    renderHook(() => useFareHistory(LIM_MAD, LIM_MAD.months[0]), { wrapper });
+    const route = { ...LIM_MAD, months: ['2027-03', '2027-04'] };
+    renderHook(() => useFareHistory(route, route.months[0]), { wrapper });
 
     await waitFor(() => expect(urls).toHaveLength(1));
-    expect(new URL(urls[0], 'http://x').searchParams.get('departure')).toBe('2027-03');
+    const params = new URL(urls[0], 'http://x').searchParams;
+    expect(params.get('departure')).toBe('2027-03');
+    expect(params.getAll('snapshotMonth')).toEqual(['2027-03', '2027-04']);
   });
 
-  it('asks separately about a second month of the same pair, not once about both', async () => {
+  it('refetches when the watched month set changes while the active month does not', async () => {
     /*
      * The month is in the query key as well as in the request, and it has to
      * be: two watches on LIM-MAD in different months are two different
@@ -114,16 +119,16 @@ describe('useFareHistory', () => {
     // query key said and the test would pass for the wrong reason.
     const shared = sharedQueryWrapper();
 
-    // One route read at two months, which is what this test now describes: it
-    // used to be two routes that happened to share a pair.
     const { rerender } = renderHook(
       ({ route, month }: { route: FareRoute; month: string }) => useFareHistory(route, month),
       { wrapper: shared, initialProps: { route: LIM_MAD, month: '2027-03' } },
     );
     await waitFor(() => expect(urls).toHaveLength(1));
 
-    rerender({ route: { ...LIM_MAD, months: ['2027-03', '2027-04'] }, month: '2027-04' });
+    rerender({ route: { ...LIM_MAD, months: ['2027-03', '2027-04'] }, month: '2027-03' });
     await waitFor(() => expect(urls).toHaveLength(2));
-    expect(new URL(urls[1], 'http://x').searchParams.get('departure')).toBe('2027-04');
+    const params = new URL(urls[1], 'http://x').searchParams;
+    expect(params.get('departure')).toBe('2027-03');
+    expect(params.getAll('snapshotMonth')).toEqual(['2027-03', '2027-04']);
   });
 });

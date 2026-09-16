@@ -36,6 +36,11 @@ was chosen to. The reasoning is in "Who can reach the API" and in Operational ev
   Deployment Protection on a paid plan, and there is nothing behind it to reach.
   Under Funnel the passkey is not one of two walls but the only one, which is why
   turning Funnel on has an ordering attached to it rather than being a preference.
+- **Airfare collection stays home; Supabase is only its indexed read replica.** The
+  residential PC retains Google Flights collection and the durable local archive.
+  Browser traffic still reaches only this passkey-gated API: Supabase is not a
+  collector, browser endpoint, or authentication replacement. See
+  [ADR 0003](./ADRs/0003-airfare-supabase-read-store.md).
 
 ## Why the API doesn't move to a datacenter
 
@@ -401,6 +406,283 @@ halfway through.
 
 The full first-time setup, including the admin-console steps and the order to verify
 them in, lives in the implementation plan for this work rather than here.
+
+## Airfare replica operator runbook
+
+This procedure applies the accepted read-replica design in
+[ADR 0003](./ADRs/0003-airfare-supabase-read-store.md). The importer identity,
+manifest, replay, and report-target protections are specified in
+[the synchronization contract](./airfare-sync-contract.md). It does not authorize
+collection relocation, archive/backup/ledger/state/catalog deletion, Storage upload,
+or `db reset --linked`.
+
+### Authorization and stable-source gate
+
+Task 9 changes a hosted schema and rows, creates a server credential, and may write
+local sync cursors. Stop here until the owner separately authorizes the target check,
+interactive CLI link, credential creation, scheduled-collector pause/resume, `db push`,
+and every `--apply`/`--incremental` command. Do not treat this runbook as that
+authorization.
+
+Before the first scan, identify active API, scheduled, and manual collectors; confirm
+that no pass is running; and create a stable source window only with owner approval.
+Do not resume collection or mutate the source while comparing the before/after source
+manifests below. The standard production source is literal and repository-relative:
+
+```powershell
+$source = 'services/api/.local-data'
+if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+  throw "Expected the approved Airfare source directory: $source"
+}
+```
+
+Do not substitute the worktree's empty root `.local-data` directory or an unverified
+`LOCAL_DATA_DIR`. Reports must live outside this source tree. The CLI preserves
+report-target anti-overwrite protection and serializes this standard source as
+`services/api/.local-data`; an external source is deliberately reported only as
+`<external-source>`, never as an absolute path.
+
+### Target, schema, and credential gate
+
+Use the pinned CLI for every Supabase operation. A global executable is not a
+substitute. The following target check is externally read-only, but it does not
+authorize later mutations:
+
+```powershell
+npx --yes supabase@2.105.0 projects list
+```
+
+Stop unless the human-visible target is exactly `edicius-hq`, ref
+`abndifkxpfppmllgxfnu`, region `sa-east-1`, and `ACTIVE_HEALTHY`. With the owner
+present to enter any database password only at the prompt, link and review the one
+approved migration:
+
+```powershell
+npx --yes supabase@2.105.0 link --project-ref abndifkxpfppmllgxfnu
+npx --yes supabase@2.105.0 migration list
+npx --yes supabase@2.105.0 db push --dry-run
+```
+
+Stop if the linked project/ref differs or the preview contains anything other than
+`20260915000000_airfare_archive.sql`. Do not reset a database to make the list match.
+After the owner accepts that preview, create a dedicated project-specific `sb_secret_*`
+key in the Supabase dashboard and set only these names in ignored repository-root
+`.env`; never display their values or create `services/api/.env`:
+
+```dotenv
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+AIRFARE_DATA_BACKEND=local
+AIRFARE_SYNC_ENABLED=false
+```
+
+Use only non-revealing checks:
+
+```powershell
+git check-ignore -v -- .env
+git status --short --ignored -- .env
+git diff --cached -- .env
+```
+
+The expected status form is `!! .env`; the cached diff must be empty. Then apply and
+re-list only the reviewed migration:
+
+```powershell
+npx --yes supabase@2.105.0 db push
+npx --yes supabase@2.105.0 migration list
+```
+
+### Backfill, reconciliation, and idempotency gate
+
+All commands run from repository root. The evidence is a reviewed set of separate,
+aggregate-only CLI reports under `docs/`; it is not a synthetic single-file envelope.
+Every current report has the shared safe fields `project_ref`, `source_root`, `status`,
+and `duration_seconds`. `source_root` must be `services/api/.local-data` when the command
+runs from the production checkout. An isolated worktree may instead report the safe
+literal `<external-source>` only when the operator has verified that `--source` names
+the production checkout's canonical `services/api/.local-data`; record that verification
+without an absolute path in `docs/airfare-supabase-results.md`. It must never contain an
+absolute path. No report may contain payload rows, credentials, headers, passwords, or
+URL query credentials.
+
+| File                                                | Existing CLI mode and required result fields                       |
+| --------------------------------------------------- | ------------------------------------------------------------------ |
+| `docs/airfare-supabase-evidence/source-before.json` | `--dry-run`: `mode`, `source` manifest                             |
+| `docs/airfare-supabase-evidence/first-full.json`    | `--apply --full`: `mode`, `source`, `uploaded`, `error`            |
+| `docs/airfare-supabase-evidence/first-verify.json`  | `--verify`: `matches`, `source`, `destination`, `mismatches`       |
+| `docs/airfare-supabase-evidence/second-before.json` | `--verify`: `matches`, `source`, `destination`, `mismatches`       |
+| `docs/airfare-supabase-evidence/second-full.json`   | `--apply --full`: `mode`, `source`, `uploaded`, `error`            |
+| `docs/airfare-supabase-evidence/second-after.json`  | `--verify`: `matches`, `source`, `destination`, `mismatches`       |
+| `docs/airfare-supabase-evidence/source-after.json`  | `--dry-run`: `mode`, `source` manifest                             |
+| `docs/airfare-supabase-evidence/incremental.json`   | `--apply --incremental`: `mode`, `source`, `uploaded`, `error`     |
+| `docs/airfare-supabase-backfill-report.json`        | final `--verify`: `matches`, `source`, `destination`, `mismatches` |
+
+`uploaded` is retained as the CLI's attempted-upsert count, not as an insertion or
+idempotency metric. The named verification reports and their manifests are the proof.
+Run the whole set in this order:
+
+```powershell
+npm run fares:supabase -- --dry-run --source $source --report docs/airfare-supabase-evidence/source-before.json
+npm run fares:supabase -- --apply --full --source $source --report docs/airfare-supabase-evidence/first-full.json
+npm run fares:supabase -- --verify --source $source --report docs/airfare-supabase-evidence/first-verify.json
+
+# Idempotency is destination-manifest equality before and after the replay.
+npm run fares:supabase -- --verify --source $source --report docs/airfare-supabase-evidence/second-before.json
+npm run fares:supabase -- --apply --full --source $source --report docs/airfare-supabase-evidence/second-full.json
+npm run fares:supabase -- --verify --source $source --report docs/airfare-supabase-evidence/second-after.json
+npm run fares:supabase -- --dry-run --source $source --report docs/airfare-supabase-evidence/source-after.json
+
+npm run fares:supabase -- --apply --incremental --source $source --report docs/airfare-supabase-evidence/incremental.json
+npm run fares:supabase -- --verify --source $source --report docs/airfare-supabase-backfill-report.json
+```
+
+Every command must exit zero. Compare source stability and normalized destination
+manifests deterministically; each successful verification has already checked route
+manifests through its `matches` result:
+
+```powershell
+function Get-NormalizedDestinationManifest($report) {
+  $normalized = [ordered]@{}
+  foreach ($dataset in 'snapshots', 'baseline', 'calendar', 'board_checks', 'calendar_checks', 'airports', 'documents') {
+    $entry = $report.destination.$dataset
+    if ($null -eq $entry) { throw "Missing destination dataset: $dataset" }
+    $normalized[$dataset] = [ordered]@{
+      records = [int64]$entry.records
+      digest = [string]$entry.digest
+    }
+  }
+  return ($normalized | ConvertTo-Json -Depth 4 -Compress)
+}
+
+$sourceBefore = (Get-Content -Raw docs/airfare-supabase-evidence/source-before.json | ConvertFrom-Json).source | ConvertTo-Json -Depth 12 -Compress
+$sourceAfter = (Get-Content -Raw docs/airfare-supabase-evidence/source-after.json | ConvertFrom-Json).source | ConvertTo-Json -Depth 12 -Compress
+$firstVerify = Get-Content -Raw docs/airfare-supabase-evidence/first-verify.json | ConvertFrom-Json
+$secondBefore = Get-Content -Raw docs/airfare-supabase-evidence/second-before.json | ConvertFrom-Json
+$secondAfter = Get-Content -Raw docs/airfare-supabase-evidence/second-after.json | ConvertFrom-Json
+$incremental = Get-Content -Raw docs/airfare-supabase-evidence/incremental.json | ConvertFrom-Json
+$finalVerify = Get-Content -Raw docs/airfare-supabase-backfill-report.json | ConvertFrom-Json
+$destinationBefore = Get-NormalizedDestinationManifest $secondBefore
+$destinationAfter = Get-NormalizedDestinationManifest $secondAfter
+if (-not $firstVerify.matches -or -not $secondBefore.matches -or -not $secondAfter.matches -or -not $finalVerify.matches -or $incremental.status -ne 'complete' -or $sourceBefore -ne $sourceAfter -or $destinationBefore -ne $destinationAfter) {
+  throw 'Backfill verification, source stability, or idempotency manifest equality failed.'
+}
+```
+
+Stop on a nonzero exit; any mismatch; an invalid/all-invalid source; a new or
+unexplained skipped record; an unstable source; an unexpected migration; an attempt to
+reset; or a report containing sensitive data or an absolute source path. A known skipped
+record is acceptable only when its dataset, repository-relative journal, line, sanitized
+failure category, and content hash are recorded in `docs/airfare-supabase-results.md`,
+and its count is unchanged across the stable-source window. Preserve all reports for
+review and do not retry through an unexplained mismatch.
+
+Keep every file in the table uncommitted until every command, the deterministic
+comparison, and human review of the exact JSON pass. Then stage the whole reviewed set,
+not merely the final verification report:
+
+```powershell
+$backfillEvidence = @(
+  'docs/airfare-supabase-evidence/source-before.json',
+  'docs/airfare-supabase-evidence/first-full.json',
+  'docs/airfare-supabase-evidence/first-verify.json',
+  'docs/airfare-supabase-evidence/second-before.json',
+  'docs/airfare-supabase-evidence/second-full.json',
+  'docs/airfare-supabase-evidence/second-after.json',
+  'docs/airfare-supabase-evidence/source-after.json',
+  'docs/airfare-supabase-evidence/incremental.json',
+  'docs/airfare-supabase-backfill-report.json'
+)
+git add -- $backfillEvidence
+git diff --cached --check
+git diff --cached -- $backfillEvidence
+```
+
+Resume normal collection only through the owner-approved procedure. A successful
+backfill or catch-up never permits source deletion.
+
+### Canary, read rollback, and retention
+
+Do not enable live replication or Supabase reads until Tasks 5–7 are accepted, the
+bounded watched-month parity command and safe configured-backend canary exist, and the
+Task 9 source/destination and idempotency gates above have succeeded. The older direct
+model measurement is not an authenticated cloud canary and must not be relabelled as
+one.
+
+With separate owner approval for flag edits, API restarts, real Google Flights traffic,
+and the failure drill, begin in local-read mode by setting the two ignored runtime
+values shown above to `AIRFARE_SYNC_ENABLED=true` and `AIRFARE_DATA_BACKEND=local`,
+then restart through the established production command:
+
+```powershell
+node scripts/api.mjs serve
+```
+
+`npm run fares:collect` sends real upstream requests and writes local collection,
+spend, and pass state; never use it as a harmless probe or use `--all` merely to force
+data. A post-collection verification, all-watched-route parity check, and the same
+safe canary must all pass before changing `AIRFARE_DATA_BACKEND=supabase`.
+
+Once the bounded-read comparison has been extended and accepted, its repository-root
+invocation is:
+
+```powershell
+npm run fares:supabase -- --compare-reads --source $source --report docs/airfare-supabase-evidence/read-parity.json
+```
+
+Its existing `--compare-reads` schema contains `matches`, `routes`, `mismatches`, and
+per-read aggregate `comparisons`; it must emit only route labels, equality results,
+counts, and canonical digests. Any mismatch blocks cutover. Keep this report
+uncommitted until all cutover gates pass.
+
+There is no accepted configured-backend canary producer yet. The existing direct-model
+measurement must not create or stand in for a cloud canary artifact. Once an accepted
+tool exists, retain its two aggregate-only reports as
+`docs/airfare-supabase-evidence/local-canary.json` and
+`docs/airfare-supabase-evidence/supabase-canary.json`; keep both uncommitted until the
+same canary, parity, failure, rollback, and quality gates have passed. Its tool contract
+must define the report schema before either filename is created.
+
+The outage drill must use a syntactically valid nonexistent HTTPS `*.supabase.co` host
+in that drill process's environment, exercise authenticated history and calendar reads,
+confirm the structured local-fallback event, then stop the drill process and restore
+the normal URL. It must not change committed/example configuration or run collection.
+
+After the safe canary, parity, failure drill, and read rollback have all succeeded,
+run the full repository gate before accepting a cutover:
+
+```powershell
+npm run format:check
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npm run lint:api
+npm run typecheck:api
+npm run test:api
+npx --yes supabase@2.105.0 test db
+```
+
+After all cutover gates pass, review and stage only the available aggregate evidence
+with `docs/airfare-supabase-results.md`; do not create placeholder canary files:
+
+```powershell
+$cutoverEvidence = @('docs/airfare-supabase-evidence/read-parity.json', 'docs/airfare-supabase-results.md')
+$availableCanaryEvidence = @(
+  'docs/airfare-supabase-evidence/local-canary.json',
+  'docs/airfare-supabase-evidence/supabase-canary.json'
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+$cutoverEvidence += $availableCanaryEvidence
+git add -- $cutoverEvidence
+git diff --cached --check
+git diff --cached -- $cutoverEvidence
+```
+
+The read rollback is one flag: set `AIRFARE_DATA_BACKEND=local`, restart the API, and
+verify the local endpoint. If replication must stop too, set
+`AIRFARE_SYNC_ENABLED=false` separately and restart when configuration is read only at
+startup. Preserve logs and both copies during either action. Do not delete or truncate
+local JSONL/JSON, wipe cursors, reset the linked database, delete remote rows/tables,
+or silently substitute an empty remote result for an outage.
 
 ## What Tailscale and Vercel can see
 

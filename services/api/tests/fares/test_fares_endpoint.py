@@ -14,19 +14,30 @@ collector tests want the handler-per-route flavour beside `searched_for`.
 import asyncio
 import base64
 import json
+import threading
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from conftest import read_fixture
 from fastapi.testclient import TestClient
 
-from app.adapters.fares.models import FareQuery
+from app.adapters.fares.models import Airport, FareOffer, FareQuery, FareSnapshot
 from app.main import app
 from app.routers import fares as fares_router
 from app.services import collection_job
+from app.services.airfare_data import (
+    AirfareData,
+    CalendarRead,
+    HistoryQuery,
+    HistoryRead,
+    WatchHealth,
+)
+from app.services.fare_calendar import FareCalendar
 from app.services.fare_collector import CollectionReport, FareWatch, RouteResult, collect
-from app.services.fare_history import FareHistory
+from app.services.fare_history import BaselinePoint, FareHistory
+from app.services.fare_passes import PASSES
 
 # --- the collector ---------------------------------------------------------
 
@@ -183,6 +194,431 @@ def wait_for_the_pass(client, timeout=5.0):
     raise AssertionError("the collection pass never finished")
 
 
+def wait_for_sync(calls, timeout=5.0):
+    """Keep the TestClient alive until the finished pass has attempted its replica sync."""
+    deadline = time.monotonic() + timeout
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert calls, "the completed local pass never attempted its incremental replica sync"
+
+
+def successful_board_result() -> RouteResult:
+    return RouteResult(
+        origin="LIM",
+        destination="SCL",
+        flight_date="2027-03-01",
+        return_date=None,
+        ok=True,
+        changed=False,
+        offers=2,
+        cheapest=123.45,
+        currency="USD",
+    )
+
+
+def test_read_routes_delegate_to_airfare_data_and_preserve_the_legacy_wire_shape(monkeypatch):
+    """Catch a router that rebuilds archive reads instead of asking the façade."""
+
+    class Facade:
+        def __init__(self) -> None:
+            self.history_queries: list[HistoryQuery] = []
+            self.calendar_queries: list[tuple[str, str]] = []
+            self.airport_queries: list[tuple[str, ...]] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.history_queries.append(query)
+            return HistoryRead(
+                "LIM",
+                "SCL",
+                (
+                    FareSnapshot(
+                        captured_at="2026-08-01T09:00:00+00:00",
+                        source="fixture",
+                        origin="LIM",
+                        destination="SCL",
+                        flight_date="2027-03-09",
+                        return_date=None,
+                        currency="USD",
+                        insights=None,
+                        offers=[
+                            FareOffer(
+                                airline="LA",
+                                airline_name="LATAM",
+                                flight_number="529",
+                                departure_at="2027-03-09T08:00",
+                                arrival_at="2027-03-09T12:00",
+                                transfers=0,
+                                duration_minutes=240,
+                                price=210.0,
+                                currency="USD",
+                                via_points=("AQP",),
+                            )
+                        ],
+                    ),
+                ),
+                (BaselinePoint("2027-03-09", "2026-08-01", 211.0),),
+                WatchHealth("2026-08-01T10:00:00+00:00", 1, 1, 0),
+                (Airport("LIM", "Jorge Chavez", "Lima", "Peru", -12.022, -77.114),),
+                None,
+            )
+
+        def calendar(self, origin: str, destination: str) -> CalendarRead:
+            self.calendar_queries.append((origin, destination))
+            return CalendarRead(origin, destination, None, WatchHealth(None, 0, 0, 0))
+
+        def airports(self, codes: list[str]) -> dict[str, Airport]:
+            self.airport_queries.append(tuple(codes))
+            return {"BOG": Airport("BOG", None, None, None, 4.70159, -74.1469)}
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade, raising=False)
+
+    with TestClient(app) as client:
+        history = client.get(
+            "/api/fares/history?origin=lim&destination=scl&departure=2027-03&since=2026-08"
+        )
+        calendar = client.get("/api/fares/calendar?origin=lim&destination=scl")
+        airports = client.get("/api/fares/airports?codes=bog")
+
+    assert facade.history_queries == [
+        HistoryQuery("LIM", "SCL", departure="2027-03", since="2026-08")
+    ]
+    assert facade.calendar_queries == [("LIM", "SCL")]
+    assert facade.airport_queries == [("BOG",)]
+    assert history.json() == {
+        "origin": "LIM",
+        "destination": "SCL",
+        "snapshots": [
+            {
+                "capturedAt": "2026-08-01T09:00:00+00:00",
+                "source": "fixture",
+                "origin": "LIM",
+                "destination": "SCL",
+                "flightDate": "2027-03-09",
+                "returnDate": None,
+                "currency": "USD",
+                "insights": None,
+                "offers": [
+                    {
+                        "airline": "LA",
+                        "airlineName": "LATAM",
+                        "flightNumber": "529",
+                        "departureAt": "2027-03-09T08:00",
+                        "arrivalAt": "2027-03-09T12:00",
+                        "transfers": 0,
+                        "durationMinutes": 240,
+                        "price": 210.0,
+                        "currency": "USD",
+                        "viaPoints": ["AQP"],
+                    }
+                ],
+            }
+        ],
+        "baseline": [{"flightDate": "2027-03-09", "date": "2026-08-01", "price": 211.0}],
+        "health": {
+            "lastCheckedAt": "2026-08-01T10:00:00+00:00",
+            "checks": 1,
+            "changes": 1,
+            "errors": 0,
+        },
+        "airports": [
+            {
+                "code": "LIM",
+                "name": "Jorge Chavez",
+                "city": "Lima",
+                "country": "Peru",
+                "latitude": -12.022,
+                "longitude": -77.114,
+            }
+        ],
+        "pairReference": None,
+    }
+    assert calendar.json() == {
+        "origin": "LIM",
+        "destination": "SCL",
+        "horizon": None,
+        "health": {"lastCheckedAt": None, "checks": 0, "changes": 0, "errors": 0},
+    }
+    assert airports.json() == {
+        "airports": [
+            {
+                "code": "BOG",
+                "name": None,
+                "city": None,
+                "country": None,
+                "latitude": 4.70159,
+                "longitude": -74.1469,
+            }
+        ]
+    }
+
+
+def test_history_direct_call_preserves_the_legacy_positional_filter_order(monkeypatch):
+    """The FastAPI handler remains callable by existing Python callers."""
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return HistoryRead("LIM", "SCL", (), (), WatchHealth(None, 0, 0, 0), (), None)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    fares_router.get_history("lim", "scl", None, "2026-08", "2026-08-31")
+
+    assert facade.queries == [
+        HistoryQuery("LIM", "SCL", departure=None, since="2026-08", until="2026-08-31")
+    ]
+
+
+def test_history_direct_call_accepts_the_new_snapshot_month_keyword_list(monkeypatch):
+    """Direct callers can opt into the same repeated-month shape as HTTP clients."""
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return HistoryRead("LIM", "SCL", (), (), WatchHealth(None, 0, 0, 0), (), None)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    fares_router.get_history(
+        "lim",
+        "scl",
+        departure="2027-03",
+        since="2026-08",
+        until="2026-08-31",
+        snapshot_month=["2027-04", "2027-03", "2027-04"],
+    )
+
+    assert facade.queries == [
+        HistoryQuery(
+            "LIM",
+            "SCL",
+            departure="2027-03",
+            since="2026-08",
+            until="2026-08-31",
+            snapshot_months=("2027-04", "2027-03"),
+        )
+    ]
+
+
+def test_history_endpoint_bounds_snapshots_by_watched_months_without_bounding_the_pair_reference(
+    monkeypatch, tmp_path
+):
+    """The router passes its three independent filters through the AirfareData seam."""
+    from app.adapters.fares.models import PricePoint
+
+    history = FareHistory(tmp_path)
+    calendar = FareCalendar(tmp_path / "calendar")
+
+    def append_snapshot(flight_date: str, captured_at: str, price: float) -> None:
+        history.append(
+            FareSnapshot(
+                captured_at=captured_at,
+                source="fixture",
+                origin="LIM",
+                destination="SCL",
+                flight_date=flight_date,
+                return_date=None,
+                currency="USD",
+                insights=None,
+                offers=[
+                    FareOffer(
+                        airline="LA",
+                        airline_name="LATAM",
+                        flight_number="600",
+                        departure_at=f"{flight_date}T08:00",
+                        arrival_at=None,
+                        transfers=0,
+                        duration_minutes=120,
+                        price=price,
+                        currency="USD",
+                    )
+                ],
+            )
+        )
+
+    append_snapshot("2027-03-09", "2026-09-01T09:00:00+00:00", 0)
+    append_snapshot("2027-04-09", "2026-09-02T09:00:00+00:00", 200)
+    append_snapshot("2027-05-09", "2026-09-03T09:00:00+00:00", 600)
+    for departure, price in (("2027-03-09", 110), ("2027-04-09", 220), ("2027-05-09", 330)):
+        history.merge_baseline(
+            "LIM",
+            "SCL",
+            departure,
+            [PricePoint("2026-09-01", price)],
+            source="fixture",
+            currency="USD",
+        )
+        history.record_check(
+            "LIM",
+            "SCL",
+            departure,
+            at=f"2026-09-{departure[5:7]}T10:00:00+00:00",
+            outcome="changed",
+            offers=1,
+            cheapest=price,
+        )
+
+    data = AirfareData(history, calendar, source_root=tmp_path)
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return data.history(query)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    response = TestClient(app).get(
+        "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
+        "&snapshotMonth=2027-03&snapshotMonth=2027-04&snapshotMonth=2027-03"
+    )
+
+    assert response.status_code == 200
+    assert facade.queries == [
+        HistoryQuery("LIM", "SCL", departure="2027-03", snapshot_months=("2027-03", "2027-04"))
+    ]
+    body = response.json()
+    assert [snapshot["flightDate"] for snapshot in body["snapshots"]] == [
+        "2027-03-09",
+        "2027-04-09",
+    ]
+    assert [point["flightDate"] for point in body["baseline"]] == ["2027-03-09"]
+    assert body["health"] == {
+        "lastCheckedAt": "2026-09-03T10:00:00+00:00",
+        "checks": 1,
+        "changes": 1,
+        "errors": 0,
+    }
+    assert body["pairReference"] == {"value": 200.0, "dates": 3}
+
+    observation_bounded = TestClient(app).get(
+        "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
+        "&snapshotMonth=2027-03&snapshotMonth=2027-04"
+        "&since=2026-09-02&until=2026-09-02T23:59:59%2B00:00"
+    )
+
+    assert facade.queries[-1] == HistoryQuery(
+        "LIM",
+        "SCL",
+        departure="2027-03",
+        snapshot_months=("2027-03", "2027-04"),
+        since="2026-09-02",
+        until="2026-09-02T23:59:59+00:00",
+    )
+    assert [snapshot["flightDate"] for snapshot in observation_bounded.json()["snapshots"]] == [
+        "2027-04-09"
+    ]
+    assert observation_bounded.json()["pairReference"] == {"value": 200.0, "dates": 3}
+
+
+def test_history_endpoint_keeps_the_legacy_whole_pair_snapshot_read_when_months_are_omitted(
+    monkeypatch, tmp_path
+):
+    """Omitting the optional bound remains an export-compatible whole-pair read."""
+    history = FareHistory(tmp_path)
+    calendar = FareCalendar(tmp_path / "calendar")
+    for flight_date, captured_at in (
+        ("2027-03-09", "2026-09-01T09:00:00+00:00"),
+        ("2027-04-09", "2026-09-02T09:00:00+00:00"),
+    ):
+        history.append(
+            FareSnapshot(
+                captured_at=captured_at,
+                source="fixture",
+                origin="LIM",
+                destination="SCL",
+                flight_date=flight_date,
+                return_date=None,
+                currency="USD",
+                insights=None,
+                offers=[],
+            )
+        )
+
+    data = AirfareData(history, calendar, source_root=tmp_path)
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return data.history(query)
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+
+    response = TestClient(app).get("/api/fares/history?origin=LIM&destination=SCL")
+
+    assert response.status_code == 200
+    assert facade.queries == [HistoryQuery("LIM", "SCL")]
+    assert [snapshot["flightDate"] for snapshot in response.json()["snapshots"]] == [
+        "2027-03-09",
+        "2027-04-09",
+    ]
+    assert response.json()["pairReference"] is None
+
+
+@pytest.mark.parametrize("value", ["2027-3", "2027-00", "2027-13", "2027-03-09", ""])
+def test_history_endpoint_rejects_invalid_snapshot_months(value):
+    response = TestClient(app).get(
+        f"/api/fares/history?origin=LIM&destination=SCL&snapshotMonth={value}"
+    )
+
+    assert response.status_code == 422
+
+
+def test_history_endpoint_rejects_more_than_twelve_unique_snapshot_months():
+    months = "&".join(
+        f"snapshotMonth={2027 + index // 12}-{index % 12 + 1:02d}" for index in range(13)
+    )
+
+    response = TestClient(app).get(f"/api/fares/history?origin=LIM&destination=SCL&{months}")
+
+    assert response.status_code == 422
+
+
+def test_history_endpoint_accepts_twelve_unique_snapshot_months_after_deduplication(monkeypatch):
+    months = [f"{2027 + index // 12}-{index % 12 + 1:02d}" for index in range(12)]
+
+    class Facade:
+        def __init__(self) -> None:
+            self.queries: list[HistoryQuery] = []
+
+        def history(self, query: HistoryQuery) -> HistoryRead:
+            self.queries.append(query)
+            return HistoryRead(
+                "LIM",
+                "SCL",
+                (),
+                (),
+                WatchHealth(None, 0, 0, 0),
+                (),
+                None,
+            )
+
+    facade = Facade()
+    monkeypatch.setattr(fares_router, "AIRFARE_DATA", facade)
+    query = "&".join(f"snapshotMonth={month}" for month in [*months, months[0]])
+
+    response = TestClient(app).get(f"/api/fares/history?origin=LIM&destination=SCL&{query}")
+
+    assert response.status_code == 200
+    assert facade.queries == [HistoryQuery("LIM", "SCL", snapshot_months=tuple(months))]
+
+
 def test_nothing_has_been_collected_yet_is_an_answer_rather_than_a_404():
     """
     A fresh install has never run a pass, and that is an ordinary state rather
@@ -226,6 +662,282 @@ def test_a_press_is_answered_before_the_pass_it_started_has_finished(monkeypatch
     assert seen["budget"] is None
 
 
+def test_a_completed_board_pass_persists_and_publishes_before_one_incremental_sync(monkeypatch):
+    """
+    The replica is strictly downstream of the completed local pass.
+
+    A sync worker may be slow or unavailable, but it must only see a ledger line
+    and a terminal pass document. The fake facade has no remote client, so the
+    test cannot make a Google Flights or Supabase request.
+    """
+    _, fake = stub_pass(results=[successful_board_result()])
+    calls: list[tuple[str, bool, bool]] = []
+
+    class Facade:
+        def sync_incremental(self):
+            current = collection_job.RUNNER.current()
+            assert current is not None
+            calls.append(
+                (
+                    current.state,
+                    current.finished_at is not None,
+                    any(PASSES.directory.glob("*.jsonl")),
+                )
+            )
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+        wait_for_sync(calls)
+
+    assert finished["state"] == "finished"
+    assert calls == [("finished", True, True)]
+
+
+@pytest.mark.parametrize("outcome", ["failed-report", "unexpected-error"])
+def test_a_replica_failure_cannot_rewrite_a_successful_board_pass(monkeypatch, caplog, outcome):
+    """Sync observability stays bounded and does not turn a local success into a failure."""
+    _, fake = stub_pass(results=[successful_board_result()])
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            if outcome == "unexpected-error":
+                raise RuntimeError("sb_secret_board_must_not_be_logged")
+            return SimpleNamespace(
+                status="failed",
+                uploaded={"snapshots": 1},
+                error="sb_secret_board_must_not_be_logged",
+            )
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+        wait_for_sync(calls)
+
+    assert finished["state"] == "finished"
+    assert finished["error"] is None
+    assert "sb_secret_board_must_not_be_logged" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("results", "skipped"),
+    [
+        ([], []),
+        ([], [("LIM-SCL 2027-03-01", "not-due")]),
+        ([], [("LIM-SCL 2027-03-01", "another-pass-is-running")]),
+        ([RouteResult("LIM", "SCL", "2027-03-01", None, False)], []),
+        ([successful_board_result()], [("LIM-SCL 2027-03-02", "over-budget")]),
+    ],
+)
+def test_a_board_noop_failed_or_partial_pass_does_not_sync(monkeypatch, results, skipped):
+    """Only a fully completed local observation pass earns a replica attempt."""
+    _, fake = stub_pass(results=results, skipped=skipped)
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "finished"
+    assert calls == []
+
+
+def test_a_sync_disabled_board_pass_never_invokes_the_facade(monkeypatch):
+    """The feature flag stops the replica attempt before its shared client is touched."""
+    _, fake = stub_pass(results=[successful_board_result()])
+    calls: list[str] = []
+
+    class Facade:
+        def sync_incremental(self):
+            calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", fake)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/fares/collect",
+            json={"routes": [{"origin": "LIM", "destination": "SCL", "month": "2027-03"}]},
+        )
+        finished = wait_for_the_pass(client)
+
+    assert finished["state"] == "finished"
+    assert calls == []
+
+
+def test_shutdown_joins_a_finished_board_pass_sync_before_releasing_the_runner(monkeypatch):
+    """A cancellation after local finalization cannot detach a live sync thread."""
+    entered = threading.Event()
+    release = threading.Event()
+    worker_finished = threading.Event()
+
+    async def complete_collect_due(watched, **kwargs):
+        return CollectionReport(
+            started_at="2026-09-15T12:00:00+00:00",
+            finished_at="2026-09-15T12:00:03+00:00",
+            source="google-flights",
+            results=[successful_board_result()],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            entered.set()
+            try:
+                assert release.wait(1), "test did not release the sync worker"
+            finally:
+                worker_finished.set()
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", complete_collect_due)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+    runner = collection_job.CollectionRunner()
+
+    async def run():
+        started = runner.start([FareWatch("LIM", "SCL", "2027-03")])
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            assert started.state == "finished"
+
+            closing = asyncio.create_task(runner.aclose())
+            await asyncio.sleep(0)
+            assert not closing.done(), (
+                "shutdown returned while the sync worker still held the client"
+            )
+            assert runner._task is not None
+
+            release.set()
+            await asyncio.wait_for(closing, 1)
+            assert worker_finished.is_set()
+        finally:
+            release.set()
+            assert await asyncio.to_thread(worker_finished.wait, 1)
+
+        assert started.state == "finished"
+        assert started.error is None
+        assert runner._task is None
+
+    asyncio.run(run())
+
+
+def test_a_cancelled_board_closer_keeps_the_finished_sync_tracked(monkeypatch):
+    """An interrupted shutdown leaves the worker for the next closer to join."""
+    entered = threading.Event()
+    release = threading.Event()
+    worker_finished = threading.Event()
+
+    async def complete_collect_due(watched, **kwargs):
+        return CollectionReport(
+            started_at="2026-09-15T12:00:00+00:00",
+            finished_at="2026-09-15T12:00:03+00:00",
+            source="google-flights",
+            results=[successful_board_result()],
+        )
+
+    class Facade:
+        def sync_incremental(self):
+            entered.set()
+            try:
+                assert release.wait(1), "test did not release the sync worker"
+            finally:
+                worker_finished.set()
+            return SimpleNamespace(status="complete", uploaded={})
+
+    monkeypatch.setattr(collection_job, "collect_due", complete_collect_due)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
+    runner = collection_job.CollectionRunner()
+
+    async def run():
+        started = runner.start([FareWatch("LIM", "SCL", "2027-03")])
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            first_closer = asyncio.create_task(runner.aclose())
+            await asyncio.sleep(0)
+            tracked = runner._task
+            assert tracked is not None
+
+            first_closer.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first_closer
+            assert runner._task is tracked
+            assert not worker_finished.is_set()
+
+            second_closer = asyncio.create_task(runner.aclose())
+            await asyncio.sleep(0)
+            assert not second_closer.done()
+
+            release.set()
+            await asyncio.wait_for(second_closer, 1)
+            assert worker_finished.is_set()
+        finally:
+            release.set()
+            assert await asyncio.to_thread(worker_finished.wait, 1)
+
+        assert started.state == "finished"
+        assert runner._task is None
+
+    asyncio.run(run())
+
+
+def test_shutdown_still_cancels_a_board_pass_that_is_collecting(monkeypatch):
+    """Only the post-finalization sync is joined; a live collector is still stopped."""
+    collecting = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def slow_collect_due(watched, **kwargs):
+        collecting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(collection_job, "collect_due", slow_collect_due)
+    runner = collection_job.CollectionRunner()
+
+    async def run():
+        started = runner.start([FareWatch("LIM", "SCL", "2027-03")])
+        await asyncio.wait_for(collecting.wait(), 1)
+        await asyncio.wait_for(runner.aclose(), 1)
+        assert cancelled.is_set()
+        assert started.state == "failed"
+        assert runner._task is None
+
+    asyncio.run(run())
+
+
 def test_a_running_pass_says_how_far_through_it_is(monkeypatch):
     """
     A four-minute pass that could only be described once it ended would leave
@@ -267,6 +979,7 @@ def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monk
     started = asyncio.Event()
     release = asyncio.Event()
     calls: list[list] = []
+    sync_calls: list[str] = []
 
     async def slow_collect_due(watched, **kwargs):
         calls.append(watched)
@@ -279,11 +992,18 @@ def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monk
             started_at="2026-08-19T14:00:00+00:00",
             finished_at="2026-08-19T14:00:06+00:00",
             source="google-flights",
-            results=[],
+            results=[successful_board_result()],
             skipped=[],
         )
 
+    class Facade:
+        def sync_incremental(self):
+            sync_calls.append("called")
+            return SimpleNamespace(status="complete", uploaded={})
+
     monkeypatch.setattr(collection_job, "collect_due", slow_collect_due)
+    monkeypatch.setattr(collection_job, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(collection_job, "airfare_sync_enabled", lambda: True)
 
     with TestClient(app) as client:
         first = client.post(
@@ -310,8 +1030,10 @@ def test_a_second_press_joins_the_running_pass_rather_than_starting_another(monk
 
         release.set()
         wait_for_the_pass(client)
+        wait_for_sync(sync_calls)
 
     assert len(calls) == 1
+    assert sync_calls == ["called"]
 
 
 def test_a_pass_that_falls_over_says_so_rather_than_running_forever(monkeypatch):
@@ -680,7 +1402,12 @@ def test_airports_endpoint_resolves_requested_waypoints_from_the_reference_catal
     from the archive's endpoint catalogue.  The optional codes parameter fills
     only that gap from the bundled, worldwide IATA coordinate reference.
     """
-    monkeypatch.setattr(fares_router, "HISTORY", FareHistory(tmp_path))
+    history = FareHistory(tmp_path)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
 
     body = TestClient(app).get("/api/fares/airports?codes=BOG&codes=unknown").json()
 
@@ -709,7 +1436,11 @@ def test_the_history_endpoint_narrows_a_month_or_a_single_day(monkeypatch, tmp_p
         history.merge_baseline(
             "LIM", "SCL", departure, [PricePoint("2026-08-18", price)], source="s", currency="USD"
         )
-    monkeypatch.setattr(fares_router, "HISTORY", history)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
     client = TestClient(app)
 
     march = client.get("/api/fares/history?origin=LIM&destination=SCL&departure=2027-03")
@@ -734,7 +1465,11 @@ def test_a_baseline_figure_says_which_departure_it_priced(monkeypatch, tmp_path)
         history.merge_baseline(
             "LIM", "SCL", departure, [PricePoint("2026-08-18", price)], source="s", currency="USD"
         )
-    monkeypatch.setattr(fares_router, "HISTORY", history)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
 
     baseline = (
         TestClient(app)

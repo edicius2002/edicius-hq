@@ -10,9 +10,11 @@ Wire shapes are camelCase, matching `app.routers.market` and the TypeScript
 types that mirror them.
 """
 
+import asyncio
 import gzip
 import json
 import logging
+import re
 from collections import Counter, deque
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
@@ -23,14 +25,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, 
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.adapters.fares.models import (
-    Airport,
-    FareError,
-    FareInsights,
-    FareOffer,
-    FareQuery,
-    FareSnapshot,
-)
+from app.adapters.fares.models import FareError, FareInsights, FareOffer, FareQuery, FareSnapshot
 from app.adapters.fares.registry import DEFAULT_PROVIDER, PROVIDERS, fetch_offers, normalize_code
 from app.config import (
     BUSIEST_DAY_ON_RECORD,
@@ -38,12 +33,13 @@ from app.config import (
     MAX_DEPARTURE_HORIZON_DAYS,
     UPSTREAM_TIMEOUT_SECONDS,
 )
-from app.services import airport_coordinates, airport_search, kv_store
+from app.services import airport_search, kv_store
+from app.services.airfare_data import AIRFARE_DATA, HistoryQuery
 from app.services.calendar_job import CALENDAR_RUNNER, CalendarPass
 from app.services.collection_job import RUNNER, CollectionPass
 from app.services.fare_calendar import CALENDAR
 from app.services.fare_collector import FareWatch
-from app.services.fare_history import HISTORY, _offer_row, _snapshot_from, route_stem
+from app.services.fare_history import _offer_row, _snapshot_from, route_stem
 from app.services.fare_spend import read_spend
 from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
 from app.services.sse import KEEP_ALIVE, sse
@@ -75,6 +71,11 @@ router = APIRouter(prefix="/api/fares", tags=["fares"])
 # smaller number here would be exactly the unmeasured count that removal threw
 # out, re-entered through a door marked "months".
 MAX_MONTHS_PER_PAIR = 12
+
+# A history request is allowed to retain every month a route can be watched
+# within the provider horizon, but never an unbounded month list.
+MAX_HISTORY_SNAPSHOT_MONTHS = 12
+_SNAPSHOT_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 # There is deliberately no per-call request ceiling here any more — 12.210.
 #
@@ -198,6 +199,13 @@ class WatchHealthModel(BaseModel):
     errors: int
 
 
+class PairReferenceModel(BaseModel):
+    """The whole-pair reference computed by the AirfareData store seam."""
+
+    value: float
+    dates: int = Field(..., ge=1)
+
+
 class HistoryResponse(BaseModel):
     origin: str
     destination: str
@@ -210,6 +218,8 @@ class HistoryResponse(BaseModel):
     # Only the two ends of this route. The client draws a line between them;
     # it has no use for an atlas.
     airports: list[AirportModel]
+    # This deliberately remains whole-pair even when snapshots are bounded.
+    pairReference: PairReferenceModel | None
 
 
 class SearchResponse(BaseModel):
@@ -622,26 +632,20 @@ def _gzip_watch_export(routes: list[WatchRouteModel], exported_at: str) -> Itera
             stem = route_stem(route.origin, route.destination)
             yield from write(json.dumps(stem) + ":[")
             first_snapshot = True
-            path = HISTORY.directory / f"{stem}.jsonl"
-            if path.exists():
-                try:
-                    with path.open("r", encoding="utf-8") as handle:
-                        for line in handle:
-                            snapshot = _snapshot_from(line)
-                            if snapshot is None:
-                                continue
-                            if not first_snapshot:
-                                yield from write(",")
-                            first_snapshot = False
-                            yield from write(
-                                json.dumps(
-                                    _snapshot_row(snapshot),
-                                    ensure_ascii=False,
-                                    separators=(",", ":"),
-                                )
-                            )
-                except OSError as error:
-                    logger.warning("fare watch export could not read %s: %s", path.name, error)
+            try:
+                for snapshot in AIRFARE_DATA.iter_snapshots(route.origin, route.destination):
+                    if not first_snapshot:
+                        yield from write(",")
+                    first_snapshot = False
+                    yield from write(
+                        json.dumps(
+                            _snapshot_row(snapshot),
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                    )
+            except OSError:
+                logger.warning("fare watch export could not read route %s", stem)
             yield from write("]")
         yield from write("}}")
     while sink.chunks:
@@ -735,44 +739,22 @@ async def import_watch(file: Annotated[UploadFile, File(...)]) -> WatchImportRes
             by_pair[(route.origin, route.destination)] = updated
             routes_updated += 1
 
-    observations_imported = 0
-    observations_skipped = 0
-    for stem, snapshots in imported_history.items():
-        if not snapshots:
-            continue
-        origin, destination = snapshots[0].origin, snapshots[0].destination
-        known_observations = {
-            (
-                route_stem(snapshot.origin, snapshot.destination),
-                snapshot.flight_date,
-                snapshot.captured_at,
-                HISTORY.fingerprint(snapshot),
-            )
-            for snapshot in HISTORY.read(origin, destination)
-        }
-        for snapshot in snapshots:
-            identity = (
-                stem,
-                snapshot.flight_date,
-                snapshot.captured_at,
-                HISTORY.fingerprint(snapshot),
-            )
-            if identity in known_observations:
-                observations_skipped += 1
-                continue
-            HISTORY.append(snapshot)
-            known_observations.add(identity)
-            observations_imported += 1
-
+    imported = AIRFARE_DATA.import_snapshots(
+        snapshot for snapshots in imported_history.values() for snapshot in snapshots
+    )
     kv_store.put_value(
         FARE_ROUTES_KEY,
         {"version": 1, "routes": [_route_row(route) for route in merged_routes]},
     )
+    if imported.imported:
+        report = await asyncio.to_thread(AIRFARE_DATA.sync_incremental)
+        if report.status == "failed":
+            logger.warning("Airfare watch import could not synchronize its replica")
     return WatchImportResponse(
         routesAdded=routes_added,
         routesUpdated=routes_updated,
-        observationsImported=observations_imported,
-        observationsSkipped=observations_skipped,
+        observationsImported=imported.imported,
+        observationsSkipped=imported.skipped,
         invalidRows=invalid_rows,
     )
 
@@ -788,15 +770,42 @@ def get_history(
         description=(
             "Which departures the baseline and the health figures cover, as a "
             "prefix: 2027-03 for a watched month, 2027-03-09 for one day. "
-            "Snapshots come back for the whole city pair either way."
+            "Snapshots ignore departure and may be bounded separately by snapshotMonth."
         ),
     ),
     since: str | None = Query(None, description="Inclusive capturedAt prefix, e.g. 2026-08"),
     until: str | None = Query(None, description="Inclusive capturedAt prefix"),
+    snapshot_month: Annotated[
+        list[str] | None,
+        Query(
+            alias="snapshotMonth",
+            description="Repeated watched departure months in YYYY-MM form for bounding snapshots",
+        ),
+    ] = None,
 ) -> HistoryResponse:
     origin, destination = normalize_code(origin), normalize_code(destination)
+    snapshot_months = tuple(dict.fromkeys(snapshot_month or ()))
+    if any(_SNAPSHOT_MONTH.fullmatch(month) is None for month in snapshot_months):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="snapshotMonth must be YYYY-MM",
+        )
+    if len(snapshot_months) > MAX_HISTORY_SNAPSHOT_MONTHS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"At most {MAX_HISTORY_SNAPSHOT_MONTHS} unique snapshotMonth values are allowed",
+        )
     try:
-        snapshots = HISTORY.read(origin, destination, since=since, until=until)
+        history = AIRFARE_DATA.history(
+            HistoryQuery(
+                origin,
+                destination,
+                departure=departure,
+                snapshot_months=snapshot_months,
+                since=since,
+                until=until,
+            )
+        )
     except OSError as error:
         # An unreadable existing archive is not an empty history. Keep it
         # retryable for the client and avoid leaking filesystem details.
@@ -804,17 +813,13 @@ def get_history(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Fare history is temporarily unavailable",
         ) from error
-    # Narrowed to the same departures the baseline is: a route watched across
-    # two months would otherwise report April's looks under March's heading.
-    checks = HISTORY.checks(origin, destination, departure)
-    known = HISTORY.airports()
     return HistoryResponse(
         origin=origin,
         destination=destination,
-        snapshots=[_snapshot_model(snapshot) for snapshot in snapshots],
+        snapshots=[_snapshot_model(snapshot) for snapshot in history.snapshots],
         baseline=[
             PricePointModel(flightDate=point.flight_date, date=point.date, price=point.price)
-            for point in HISTORY.read_baseline(origin, destination, departure)
+            for point in history.baseline
         ],
         airports=[
             AirportModel(
@@ -825,14 +830,21 @@ def get_history(
                 latitude=airport.latitude,
                 longitude=airport.longitude,
             )
-            for code in (origin, destination)
-            if (airport := known.get(code)) is not None
+            for airport in history.airports
         ],
         health=WatchHealthModel(
-            lastCheckedAt=str(checks[-1].get("at")) if checks else None,
-            checks=len(checks),
-            changes=sum(1 for row in checks if row.get("outcome") == "changed"),
-            errors=sum(1 for row in checks if row.get("outcome") == "error"),
+            lastCheckedAt=history.health.last_checked_at,
+            checks=history.health.checks,
+            changes=history.health.changes,
+            errors=history.health.errors,
+        ),
+        pairReference=(
+            PairReferenceModel(
+                value=history.pair_reference.value,
+                dates=history.pair_reference.dates,
+            )
+            if history.pair_reference is not None
+            else None
         ),
     )
 
@@ -928,8 +940,8 @@ def get_calendar(
     times a year of collections is not a payload to ship on speculation.
     """
     origin, destination = normalize_code(origin), normalize_code(destination)
-    horizon = CALENDAR.horizon(origin, destination)
-    checks = CALENDAR.checks(origin, destination)
+    calendar = AIRFARE_DATA.calendar(origin, destination)
+    horizon = calendar.horizon
     return CalendarResponse(
         origin=origin,
         destination=destination,
@@ -953,10 +965,10 @@ def get_calendar(
             )
         ),
         health=WatchHealthModel(
-            lastCheckedAt=str(checks[-1].get("at")) if checks else None,
-            checks=len(checks),
-            changes=sum(1 for row in checks if row.get("outcome") == "changed"),
-            errors=sum(1 for row in checks if row.get("outcome") == "error"),
+            lastCheckedAt=calendar.health.last_checked_at,
+            checks=calendar.health.checks,
+            changes=calendar.health.changes,
+            errors=calendar.health.errors,
         ),
     )
 
@@ -977,22 +989,7 @@ def get_airports(codes: Annotated[list[str] | None, Query()] = None) -> Airports
     bundled IATA coordinate reference; it never replaces provider coordinates
     already in the archive.
     """
-    known = HISTORY.airports()
-    for code in codes or []:
-        normalized = normalize_code(code)
-        if normalized in known:
-            continue
-        point = airport_coordinates.coordinates().get(normalized)
-        if point is None:
-            continue
-        known[normalized] = Airport(
-            code=normalized,
-            name=None,
-            city=None,
-            country=None,
-            latitude=point[0],
-            longitude=point[1],
-        )
+    known = AIRFARE_DATA.airports([normalize_code(code) for code in codes or []])
     return AirportsResponse(
         airports=[
             AirportModel(

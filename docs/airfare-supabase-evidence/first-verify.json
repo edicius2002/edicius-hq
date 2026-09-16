@@ -1,0 +1,374 @@
+{
+  "project_ref": "abndifkxpfppmllgxfnu",
+  "source_root": "<external-source>",
+  "status": "complete",
+  "source": {
+    "snapshots": {
+      "physical_valid": 14442,
+      "logical_unique": 14442,
+      "skipped": 0,
+      "digest": "458e6eb3951fe7411a4ad29b7ce278d7e5f70d4ec8f53ba02fb6f0dd5679c1b6",
+      "by_route": {
+        "AEP-SCL": {
+          "records": 1367,
+          "digest": "ddcd57507884bafbe725971e6b026064dc2f13e19b098df5b9460e778b9260b9"
+        },
+        "AQP-LIM": {
+          "records": 5570,
+          "digest": "e8831bc550aa36595237a4bc773a8db87945c817defa614dcbeb8bb17e9a1a93"
+        },
+        "ARI-SCL": {
+          "records": 851,
+          "digest": "19dd19a8fd2d7607f0bbf76dc9589b3c998eef56c6b66092cdaefdd22406d7ba"
+        },
+        "EZE-SCL": {
+          "records": 31,
+          "digest": "ebf62f71fbf88444fe29c725e8810a70d7b953aaf23a7bf45349eef68b64eb02"
+        },
+        "LIM-ANC": {
+          "records": 30,
+          "digest": "eb28da28e9af6aa4a807035d29420b26ab3c25be84398f9e69ddd3592e6423e4"
+        },
+        "LIM-AQP": {
+          "records": 31,
+          "digest": "4ea36beb48882a150b57fb7f8d9e039032dd2e880580c1a628bd4bb56fad23d8"
+        },
+        "LIM-MAD": {
+          "records": 1927,
+          "digest": "30c7223a33978d7f0602607e1645e7cfe745ba952163a62392082fb27a9b129c"
+        },
+        "LIM-NRT": {
+          "records": 30,
+          "digest": "ea181accaa7a38cb010eab8a854516e672b8bf3f0c2ad4b48de9cea30ccec2e1"
+        },
+        "LIM-SCL": {
+          "records": 98,
+          "digest": "2490e1781fe03a43ecd66daf0cceaa91501a086f2667f32f0fb88331a9620c06"
+        },
+        "MAD-LIM": {
+          "records": 1910,
+          "digest": "9e7ad7ab413279d9adc919f1e709be29c6b6fd0abb6f0cd4a662839e0c78718a"
+        },
+        "SCL-AEP": {
+          "records": 1331,
+          "digest": "f37436135d309bfe0b0e506cf4e3009e2fc813d6ca6034629f4d38ec76d716b8"
+        },
+        "SCL-ARI": {
+          "records": 1204,
+          "digest": "05bc9657bce0b5cb86d16874f9ba5318ee22852b0d45f78509caff0b44f7319f"
+        },
+        "SCL-EZE": {
+          "records": 31,
+          "digest": "462d28202b9b41f73c8de100133f52755dc6322fd9a2dad1acad67f2d20227bf"
+        },
+        "SCL-PMC": {
+          "records": 31,
+          "digest": "900ef2d1cbb75f032f80ed0abc067577e6d3edd193a3ae23c0275d6e3aaddb98"
+        }
+      }
+    },
+    "baseline": {
+      "physical_valid": 59785,
+      "logical_unique": 59785,
+      "skipped": 0,
+      "digest": "601d4a3993e7c294703ef2a17701d3a9475463039f91a8538245e52bfe0dcd67",
+      "by_route": {
+        "AEP-SCL": {
+          "records": 3751,
+          "digest": "77ce740eb5dc61f9c9eb159e3b66a7b03b9da3ebbaeb4b9abd03b9bbce63b9b6"
+        },
+        "AQP-LIM": {
+          "records": 7390,
+          "digest": "cc9094ab3140e0c3568979a890c5ebf03be4aee486f9e80e08471a45fb3655c8"
+        },
+        "ARI-SCL": {
+          "records": 7282,
+          "digest": "30f9be4c912bc4b0246d9ba74c5d706085187f49b91f9b1a10d3c6706d353719"
+        },
+        "EZE-SCL": {
+          "records": 1922,
+          "digest": "03266dd61664a9ab7a88e1e10cb71c6dd47ecf7e146518a965e83ec116e17aa9"
+        },
+        "LIM-ANC": {
+          "records": 1830,
+          "digest": "1e4ee210523198eeeb973169058cbf3fb4ea39138d8b59fa295c1ee54925b552"
+        },
+        "LIM-AQP": {
+          "records": 1911,
+          "digest": "7a665d6ca939ece0f6d598d1ed1e5db72cf991227e1291bf8d6c559087719652"
+        },
+        "LIM-MAD": {
+          "records": 8452,
+          "digest": "1d9ea16d01fb206093e5f90867221716478bec148be0689d73e0507b51ba7038"
+        },
+        "LIM-NRT": {
+          "records": 1830,
+          "digest": "cd4de00844ecae5c179687369d438020c00103687a48608870dfd6b0580eed84"
+        },
+        "LIM-SCL": {
+          "records": 5612,
+          "digest": "013f7764b430764003709f129a3d91522a33f5635ba65497c2182a784383a115"
+        },
+        "MAD-LIM": {
+          "records": 6817,
+          "digest": "f2599e6e8f5fa66b1cac0f43a95f3c9e68b2561c7941fb2020fa4ec7b3ebb28e"
+        },
+        "SCL-AEP": {
+          "records": 3776,
+          "digest": "e3cb6a3725ed129ede8b6e5ae99976852727e26585b094379eab7cd2d68e0345"
+        },
+        "SCL-ARI": {
+          "records": 5399,
+          "digest": "bebb63feacd0ebe28eb5bba39debd5711ad97af3c9c62f5609bb7c18f3156d9e"
+        },
+        "SCL-EZE": {
+          "records": 1922,
+          "digest": "675577b681698c3f0a01914d75b942de627f0f9faa0ce371159202180724a2ca"
+        },
+        "SCL-PMC": {
+          "records": 1891,
+          "digest": "3743e7289f5af576d9446f8b05fb082abf3d3672306bf9de0cb419aa656689d8"
+        }
+      }
+    },
+    "calendar": {
+      "physical_valid": 171,
+      "logical_unique": 171,
+      "skipped": 0,
+      "digest": "72a06e833556325e22a3589d44def302a5edf65cebcf83d5086227724b99634b",
+      "by_route": {
+        "AEP-SCL": {
+          "records": 25,
+          "digest": "e5c2b7775c3a79f4dc12cfad83e5363368dcc6d659b4fd8c877b8bc6723d030f"
+        },
+        "AQP-LIM": {
+          "records": 22,
+          "digest": "605eeb9a121bcdf756549ed99717eb3fa91365a473a77b87c799edaf3bb48e4d"
+        },
+        "ARI-SCL": {
+          "records": 25,
+          "digest": "e9c36810f3e7c56f77c3b32a9b7d302151892f9036e04ed0a269cc9e7fbdaf5e"
+        },
+        "EZE-SCL": {
+          "records": 1,
+          "digest": "8f9837fe6c305b5e379f4bbed089a79e3cb4d0f515549dbf11fe1f6839e901b4"
+        },
+        "LIM-ANC": {
+          "records": 1,
+          "digest": "9aa5dd32dcdc641b27f5894d251685c732b703b1824f4db7ccc666c8d4340945"
+        },
+        "LIM-AQP": {
+          "records": 1,
+          "digest": "77bc68968906b36861af8ff556b09faa273f5b5838646a541dab1d068e539c70"
+        },
+        "LIM-MAD": {
+          "records": 20,
+          "digest": "1e245acd4cf97f6bc134d7f00f5747b4b4492f43ad0da763226b8986163e25dd"
+        },
+        "LIM-NRT": {
+          "records": 1,
+          "digest": "da973cca1a65a7abf223788131295177374531c99e2fe642a588f862ffbc3532"
+        },
+        "LIM-SCL": {
+          "records": 1,
+          "digest": "40488ffc1a84ce1699b6bf51351c8f52d1e56a01d770c26e02217e66d7d1c4ac"
+        },
+        "MAD-LIM": {
+          "records": 21,
+          "digest": "7e963395d00b5cd1f08df770fc047547c1d534a02b6552a34213fd31999182fd"
+        },
+        "SCL-AEP": {
+          "records": 26,
+          "digest": "99b6d32931e50b9c70af69f8cc8bc0fd2d00289624401f2c008c8b6d4f308f27"
+        },
+        "SCL-ARI": {
+          "records": 25,
+          "digest": "ff000cdb0b556fc5638f13b9886d6b8eb0ed6842e8ccde7f6224bf0a3661f83e"
+        },
+        "SCL-EZE": {
+          "records": 1,
+          "digest": "008718076833856c6dac0112c55a9e27f5c25e8e9f79a0fa4cf278c09ef4cbfc"
+        },
+        "SCL-PMC": {
+          "records": 1,
+          "digest": "313b2b80e499d9d26eb2569536b6181296e90d36dbc5139a1e6a9fc2426e4206"
+        }
+      }
+    },
+    "board_checks": {
+      "physical_valid": 17560,
+      "logical_unique": 17554,
+      "skipped": 1,
+      "digest": "492ea4292e3d0012739eeeb267a470840a5e849f8e980500f3e0b10d94220783",
+      "by_route": {
+        "AEP-SCL": {
+          "records": 1712,
+          "digest": "e7a33fef68d69b67ccc371a1789699ea8a1b554fe98aa4cd3da549ad842f5b21"
+        },
+        "AQP-LIM": {
+          "records": 6997,
+          "digest": "fa7a08b79e8fc14c91f85c1155d29aee7718b5eaccf3dbea9863f831bcd5b707"
+        },
+        "ARI-SCL": {
+          "records": 1095,
+          "digest": "bfcf012d8e8902e8ef7cd7e520f2e3db6ea946995110040cb3d9296707b17637"
+        },
+        "EZE-SCL": {
+          "records": 31,
+          "digest": "115432b1c26c4327b05fcd6da2eb69ecc5bdf3fbbc65a12cb4339b7e73a9c611"
+        },
+        "LIM-ANC": {
+          "records": 30,
+          "digest": "75960fb03befb3063266c0bfdc250b757985cd1e99c129b4d1dd668541f42edf"
+        },
+        "LIM-AQP": {
+          "records": 31,
+          "digest": "79c58d550b4b1c0d1ff70c82559878b999344714429feae0d92001da6d5d868c"
+        },
+        "LIM-MAD": {
+          "records": 2345,
+          "digest": "c44b9f9418a0da007d6ec2e70b34266e9f8ed87de9c5748af673f2ad84f97af8"
+        },
+        "LIM-NRT": {
+          "records": 30,
+          "digest": "f3c21d397baf45210add5cd5f9a373e2131da07d62474ad8ebd373f1b3704894"
+        },
+        "LIM-SCL": {
+          "records": 111,
+          "digest": "c11d0a2b43de31443df60bd366de294a7ca7b684f3fd3d36772e958c909122ba"
+        },
+        "MAD-LIM": {
+          "records": 1956,
+          "digest": "3d276209fdf3b2451f0227001d90b5131f06d1b909df36dbbc536bb5164e59af"
+        },
+        "SCL-AEP": {
+          "records": 1531,
+          "digest": "d75baee9ba2403a72d6c7fba393fb0242d417d160d04035d34921b40df6f7c08"
+        },
+        "SCL-ARI": {
+          "records": 1623,
+          "digest": "37ef3d6e9ad52dd23f8424c613db43cb292188dd3ef27b41fbfb6845819f538c"
+        },
+        "SCL-EZE": {
+          "records": 31,
+          "digest": "c9e7f13f7c1b39eac3430ef72916648493d3c2afbe0944e0c06983035923cb41"
+        },
+        "SCL-PMC": {
+          "records": 31,
+          "digest": "7f12d9a7574781a8865d4e3262a204326e0595a5bd52c85f03f76018e4abf470"
+        }
+      }
+    },
+    "calendar_checks": {
+      "physical_valid": 186,
+      "logical_unique": 186,
+      "skipped": 0,
+      "digest": "6b8ecbab0856772ffaf83af89c3665ec9d257c144888d52ba36abab007001a5b",
+      "by_route": {
+        "AEP-SCL": {
+          "records": 28,
+          "digest": "ae9871d7edd6057b607f3ca197c95f053b06ec8e885cec6d8cf381cacb20877c"
+        },
+        "AQP-LIM": {
+          "records": 23,
+          "digest": "0565d8982550383d4469bd52ae92150b7aade4bed4b2a108e07b58dc836e9d93"
+        },
+        "ARI-SCL": {
+          "records": 28,
+          "digest": "528adcf2e8351fc2077abac94b2169fd088e0f41d7f8a83bf50c57dc007b76d2"
+        },
+        "EZE-SCL": {
+          "records": 1,
+          "digest": "d0c0683919cf29eb38bde5def92fc8c244c5ed40ba1f34805c33d62e43f78508"
+        },
+        "LIM-ANC": {
+          "records": 1,
+          "digest": "9e7d8e7853dd43ed619817ee13e0fba058068f1500b6d7be313831fededb9dba"
+        },
+        "LIM-AQP": {
+          "records": 1,
+          "digest": "a81dd597ea5efd1cb111c84c263295de93a713663c86cec3630c8c81de93a377"
+        },
+        "LIM-MAD": {
+          "records": 22,
+          "digest": "c521546ada052d41df1fd85a1c934487eb098fa7b019246cea4ee1e0c24925a6"
+        },
+        "LIM-NRT": {
+          "records": 1,
+          "digest": "6f433add41c51895ddc416c96ee0e702b9feedb69ed66d2948d2f4eecd7a672c"
+        },
+        "LIM-SCL": {
+          "records": 2,
+          "digest": "c03d8759cc0f8b886dd1007a2dfd56495a3af99a8350882bec2468e188a6a03e"
+        },
+        "MAD-LIM": {
+          "records": 21,
+          "digest": "a878412539c0c88d537fdf4248792b5159a81bd1e8ac4b8b23f3d5d9ba47624c"
+        },
+        "SCL-AEP": {
+          "records": 28,
+          "digest": "6de042556c0b0fbe45296cc02c512156a3c254ec7bbafb3bf59a33c98bacc434"
+        },
+        "SCL-ARI": {
+          "records": 28,
+          "digest": "173f104a0d2c6a9db78d2beb7151f6094d5b67fe3d8ce8de9d8cf26e096879fa"
+        },
+        "SCL-EZE": {
+          "records": 1,
+          "digest": "4327889d7bc723f98d0fc995ae1ffb9a4997c074fac6f7189f4dcf602dbe3b98"
+        },
+        "SCL-PMC": {
+          "records": 1,
+          "digest": "42525ff9a49a0f4b57fae2a66c9c71e14ce493e380e767fa1838b71345fa4b53"
+        }
+      }
+    },
+    "airports": {
+      "physical_valid": 10,
+      "logical_unique": 10,
+      "skipped": 0,
+      "digest": "cc1824f7133c49bd98bb3c76ae3e28eb18b6e1b87ae71f21bcedc2875bd165ea",
+      "by_route": {}
+    },
+    "documents": {
+      "physical_valid": 1,
+      "logical_unique": 1,
+      "skipped": 0,
+      "digest": "247754d6c17604b0356056f9bda5dd725b1622ae3b5d4df3e435a6d9c1caddab",
+      "by_route": {}
+    }
+  },
+  "matches": true,
+  "destination": {
+    "snapshots": {
+      "records": 14442,
+      "digest": "458e6eb3951fe7411a4ad29b7ce278d7e5f70d4ec8f53ba02fb6f0dd5679c1b6"
+    },
+    "baseline": {
+      "records": 59785,
+      "digest": "601d4a3993e7c294703ef2a17701d3a9475463039f91a8538245e52bfe0dcd67"
+    },
+    "calendar": {
+      "records": 171,
+      "digest": "72a06e833556325e22a3589d44def302a5edf65cebcf83d5086227724b99634b"
+    },
+    "board_checks": {
+      "records": 17554,
+      "digest": "492ea4292e3d0012739eeeb267a470840a5e849f8e980500f3e0b10d94220783"
+    },
+    "calendar_checks": {
+      "records": 186,
+      "digest": "6b8ecbab0856772ffaf83af89c3665ec9d257c144888d52ba36abab007001a5b"
+    },
+    "airports": {
+      "records": 10,
+      "digest": "cc1824f7133c49bd98bb3c76ae3e28eb18b6e1b87ae71f21bcedc2875bd165ea"
+    },
+    "documents": {
+      "records": 1,
+      "digest": "247754d6c17604b0356056f9bda5dd725b1622ae3b5d4df3e435a6d9c1caddab"
+    }
+  },
+  "mismatches": [],
+  "duration_seconds": 38.570675
+}

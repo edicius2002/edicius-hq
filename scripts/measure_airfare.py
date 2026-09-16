@@ -25,9 +25,17 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services" / "api"))
 
-from app.routers import fares  # noqa: E402
-from app.services.fare_calendar import FareCalendar  # noqa: E402
-from app.services.fare_history import FareHistory  # noqa: E402
+
+def _load_airfare_modules():
+    from app.routers import fares
+    from app.services.airfare_data import AirfareData
+    from app.services.fare_calendar import FareCalendar
+    from app.services.fare_history import FareHistory
+
+    return fares, AirfareData, FareCalendar, FareHistory
+
+
+fares, AirfareData, FareCalendar, FareHistory = _load_airfare_modules()
 
 MEASUREMENT_METHOD = (
     "Direct production history endpoint model construction only; excludes "
@@ -236,6 +244,14 @@ def history_call(origin: str, destination: str, month: str):
     )
 
 
+def configure_local_airfare_data(data_dir: Path) -> None:
+    fares.AIRFARE_DATA = AirfareData(
+        FareHistory(data_dir / "fares"),
+        FareCalendar(data_dir / "fares/calendar"),
+        source_root=data_dir,
+    )
+
+
 def replace_archive(archive: Path, rows: list[dict[str, Any]]) -> None:
     temporary = archive.with_suffix(".measurement.tmp")
     temporary.write_text(
@@ -266,8 +282,7 @@ def measure_route(data_dir: Path, route: dict[str, Any], samples: int):
     ]
     if not original_rows:
         raise ValueError(f"cannot measure mutations on an empty archive: {archive}")
-    fares.HISTORY = FareHistory(data_dir / "fares")
-    fares.CALENDAR = FareCalendar(data_dir / "fares/calendar")
+    configure_local_airfare_data(data_dir)
 
     def call():
         return history_call(origin, destination, month)
@@ -367,7 +382,7 @@ def compare_reports(baseline_path: Path, optimized_path: Path) -> dict[str, Any]
 def run_phase_worker(args: argparse.Namespace) -> None:
     data_dir = args.worker_data_dir.resolve()
     origin, destination = args.worker_pair.split("-", 1)
-    fares.HISTORY = FareHistory(data_dir / "fares")
+    configure_local_airfare_data(data_dir)
     archive = data_dir / f"fares/{args.worker_pair}.jsonl"
     result = measure_phase(lambda: history_call(origin, destination, args.worker_month), archive, 1)
     args.worker_output.write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -451,7 +466,7 @@ def main() -> None:
         (frozen / "kv/airfare-routes.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    fares.HISTORY = FareHistory(frozen / "fares")
+    configure_local_airfare_data(frozen)
     (payload_dir / "airports.json").write_text(
         fares.get_airports(None).model_dump_json(), encoding="utf-8"
     )
@@ -486,7 +501,6 @@ def main() -> None:
         initial_body = measured.pop("initial_response").encode("utf-8")
         (payload_dir / f"{pair}-history.json").write_bytes(initial_body)
 
-        fares.CALENDAR = FareCalendar(frozen / "fares/calendar")
         calendar_response = fares.get_calendar(str(route["origin"]), str(route["destination"]))
         (payload_dir / f"{pair}-calendar.json").write_text(
             calendar_response.model_dump_json(), encoding="utf-8"

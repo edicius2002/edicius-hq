@@ -51,6 +51,18 @@ const PROGRESS_POLL_MS = 2_000;
  */
 const STREAM_GRACE_MS = 8_000;
 
+// `useFareHistory` owns this key's construction. The stream can safely update
+// only entries that contain the incoming departure month in its month-set slot.
+const HISTORY_MONTH_SET_KEY_INDEX = 5;
+
+function cachedHistoryWatchesSnapshot(
+  queryKey: readonly unknown[],
+  snapshot: FareSnapshot,
+): boolean {
+  const months = queryKey[HISTORY_MONTH_SET_KEY_INDEX];
+  return typeof months === 'string' && months.split(',').includes(snapshot.flightDate.slice(0, 7));
+}
+
 /**
  * Collecting one watched route on its own, from the row it sits on.
  *
@@ -369,17 +381,17 @@ export function useRouteCollection(): RouteCollection {
   /**
    * A snapshot laid straight into the archive the charts are drawn from.
    *
-   * Every cached month for that city pair, because that is what the endpoint
-   * itself answers: `/history` narrows the baseline and the health counts to a
-   * departure prefix and returns `snapshots` for the whole pair. A merge into
-   * only the month that pressed would leave the other month's cache holding
-   * less than a refetch would give it, and the two would disagree.
+   * Every cached response whose watched month set contains the snapshot. The
+   * bounded endpoint no longer gives every route cache the whole city pair.
    */
   const applySnapshot = useCallback(
     (snapshot: FareSnapshot) => {
       if (!mounted.current) return;
       queryClient.setQueriesData<FareHistoryResponse>(
-        { queryKey: ['fares', 'history', snapshot.origin, snapshot.destination] },
+        {
+          queryKey: ['fares', 'history', snapshot.origin, snapshot.destination],
+          predicate: (query) => cachedHistoryWatchesSnapshot(query.queryKey, snapshot),
+        },
         (held) => (held ? withSnapshot(held, snapshot) : held),
       );
     },

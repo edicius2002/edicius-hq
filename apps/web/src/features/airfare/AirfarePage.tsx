@@ -271,36 +271,28 @@ export function AirfarePage() {
    * same question: chart A is one month's price over time and keeps `snapshots`
    * above, chart B is every watched month's departures and takes this.
    *
-   * **Not `history.data.snapshots` unfiltered.** That is the pair's whole
-   * archive — months dropped from the watch, months never watched — and a board
-   * dot on one of those dates would sit on a date the frame has already decided
-   * the curve answers for. Two archives contradicting each other in one column
-   * is exactly what `frameDays` refuses.
+   * The server normally already bounds this to watched months. The defensive
+   * client filter keeps an obsolete cache or malformed response from drawing a
+   * dropped month under the current route.
    */
   const watchedSnapshots = useMemo(
     () => (history.data ? snapshotsForMonths(history.data.snapshots, watchedMonths) : []),
     [history.data, watchedMonths],
   );
   /*
-   * What this city pair usually costs — the one figure on this page built from
-   * the archive rather than from the reading.
+   * What this city pair usually costs — a whole-pair server summary, rather
+   * than a calculation over the bounded snapshots used by the charts.
    *
-   * **Here and not in the panel, because here is the last place that still has
-   * the whole pair.** `fetchFareHistory` returns every snapshot the pair has
-   * ever had, whatever `departure` narrowing the baseline and the health counts
-   * got; `snapshotsFor` above throws all but the watched month away, and
-   * everything below this line is about that month. A reference computed after
-   * the narrowing would be a median of what is already on screen, which sits in
-   * the middle of what is on screen and tells the reader nothing —
-   * `lib/pairReference.ts` carries the argument in full.
+   * The summary stays independent of the watched snapshot months and active
+   * `departure`, so its median still describes the pair instead of the frame.
    *
    * Dated with `todayIso`, which is the same clock the add form's earliest
    * departure uses: this figure is worked out afresh every time the page is
    * read, and the date is how it admits that.
    */
   const reference = useMemo(
-    () => pairReference(history.data?.snapshots ?? [], todayIso()),
-    [history.data],
+    () => pairReference(history.data?.pairReference ?? null, today),
+    [history.data, today],
   );
 
   // The board the detail panel describes: the cheapest departure in the

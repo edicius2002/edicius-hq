@@ -8,138 +8,23 @@ import {
   referenceY,
   shortDay,
 } from '@/features/airfare/lib/pairReference';
-import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 
 /**
- * What a city pair usually costs, and where that lands on a frame drawn to its
- * own scale.
- *
- * The figures asserted here are the real ones. They were computed off the
- * owner's archive on 2026-08-22 — `services/api/.local-data/fares/*.jsonl`,
- * read-only — and three of them are the ones the decision was settled against:
- * AQP-LIM $58.20, AEP-SCL $161.30, SCL-EZE $102.13. The fixtures below are cut
- * down to the shape of that data rather than invented, so a change to the
- * definition shows up as a changed figure here.
+ * The backend owns the whole-pair calculation. This module only makes that
+ * summary displayable beside the reader's local calendar date.
  */
 
-function offer(price: number, overrides: Partial<FareOffer> = {}): FareOffer {
-  return {
-    airline: 'LA',
-    airlineName: 'LATAM',
-    flightNumber: '2075',
-    departureAt: '2027-03-09T19:55',
-    arrivalAt: '2027-03-09T21:15',
-    transfers: 0,
-    durationMinutes: 80,
-    price,
-    currency: 'USD',
-    ...overrides,
-  };
-}
-
-function snapshot(
-  flightDate: string,
-  prices: number[],
-  capturedAt = '2026-08-20T02:38',
-): FareSnapshot {
-  return {
-    capturedAt,
-    source: 'google-flights',
-    origin: 'SCL',
-    destination: 'EZE',
-    flightDate,
-    returnDate: null,
-    currency: 'USD',
-    insights: null,
-    offers: prices.map((price) => offer(price)),
-  };
-}
-
 describe('pairReference', () => {
-  it('is the median of the cheapest fare of each departure date', () => {
-    const archive = [
-      snapshot('2027-03-01', [120, 400]),
-      snapshot('2027-03-02', [90, 260]),
-      snapshot('2027-03-03', [150, 900]),
-    ];
-    // Cheapest per date: 90, 120, 150. Their median is 120.
-    expect(pairReference(archive, '2026-08-22')).toEqual({
-      value: 120,
-      dates: 3,
-      asOf: '2026-08-22',
+  it('adds the reader date to the server-owned whole-pair summary unchanged', () => {
+    expect(pairReference({ value: 147.69, dates: 31 }, '2026-09-15')).toEqual({
+      value: 147.69,
+      dates: 31,
+      asOf: '2026-09-15',
     });
   });
 
-  it('is a median and not a mean, so one glitch cannot move it', () => {
-    /*
-     * SCL-EZE's real archive holds a $1,267.82 offer and EZE-SCL a $1,788.78
-     * one. `buckets.ts` already writes the rule this keeps — "one collection
-     * during a fare glitch should not drag a whole week's middle with it" — and
-     * a mean over the three below is $434.71 against a median of $102.13.
-     */
-    const archive = [
-      snapshot('2027-03-01', [95.12]),
-      snapshot('2027-03-02', [102.13]),
-      snapshot('2027-03-03', [1106.88]),
-    ];
-    expect(pairReference(archive, '2026-08-22')?.value).toBe(102.13);
-  });
-
-  it('reads the cheapest of each board and not every offer on it', () => {
-    /*
-     * The question is "would I pay less than usual", which is about the fare a
-     * reader would actually buy. Measured on the real archive, counting every
-     * offer moves AQP-LIM from $58.20 to $71.31 and SCL-EZE from $102.13 to
-     * $131.16 — a business-class cabin folded into the middle of an answer
-     * about economy.
-     */
-    const archive = [
-      snapshot('2026-12-01', [58.51, 62.82, 300]),
-      snapshot('2026-12-02', [58.2, 61, 280]),
-      snapshot('2026-12-03', [58.2, 71.31, 410]),
-    ];
-    expect(pairReference(archive, '2026-08-22')?.value).toBe(58.2);
-  });
-
-  it('takes the cheapest a date was ever seen at, across every look', () => {
-    // A departure date is polled many times and the reference is a statement
-    // about the pair rather than about the newest pass, so all of them count.
-    const archive = [
-      snapshot('2027-03-01', [180], '2026-08-18T02:00'),
-      snapshot('2027-03-01', [161.3], '2026-08-19T02:00'),
-      snapshot('2027-03-01', [175], '2026-08-20T02:00'),
-    ];
-    expect(pairReference(archive, '2026-08-22')).toEqual({
-      value: 161.3,
-      dates: 1,
-      asOf: '2026-08-22',
-    });
-  });
-
-  it('averages the two middle dates on an even count, as a median does', () => {
-    const archive = [
-      snapshot('2027-03-01', [100]),
-      snapshot('2027-03-02', [120]),
-      snapshot('2027-03-03', [140]),
-      snapshot('2027-03-04', [160]),
-    ];
-    expect(pairReference(archive, '2026-08-22')?.value).toBe(130);
-  });
-
-  it('ignores a board that came back with nothing on it rather than scoring it zero', () => {
-    // Zero is a price and a chart would draw it as the best deal ever found —
-    // `cheapestSeries` keeps the same rule.
-    const archive = [snapshot('2027-03-01', []), snapshot('2027-03-02', [140])];
-    expect(pairReference(archive, '2026-08-22')).toEqual({
-      value: 140,
-      dates: 1,
-      asOf: '2026-08-22',
-    });
-  });
-
-  it('is nothing at all for a pair with nothing priced yet', () => {
-    expect(pairReference([], '2026-08-22')).toBeNull();
-    expect(pairReference([snapshot('2027-03-01', [])], '2026-08-22')).toBeNull();
+  it('keeps an unpriced server summary absent', () => {
+    expect(pairReference(null, '2026-09-15')).toBeNull();
   });
 });
 

@@ -1,5 +1,4 @@
-import { median } from '@/features/airfare/lib/series';
-import type { FareSnapshot } from '@/shared/api/fares';
+import type { FarePairReference } from '@/shared/api/fares';
 import { formatMoney } from '@/shared/lib/money';
 
 /**
@@ -50,57 +49,18 @@ export type PairReference = {
 };
 
 /**
- * The median of the cheapest fare per departure date, over the whole city
- * pair's archive.
+ * Turn the whole-pair summary supplied by the server into the dated display
+ * model the chart uses.
  *
- * Four choices are packed into that sentence and each was settled against this
- * archive rather than assumed.
- *
- * **Median, not mean.** The house rule, already written in `buckets.ts`: "one
- * collection during a fare glitch should not drag a whole week's middle with
- * it." EZE-SCL holds a real $1,788.78 offer and SCL-EZE a real $1,267.82 one;
- * a mean over either is a number nobody could act on.
- *
- * **The cheapest fare of each departure date, not every offer on its board.**
- * The question the line answers is "would I pay less than usual", which is about
- * the fare a reader would actually buy. Taking every offer folds business class
- * into the middle and moves it: $71.31 against $58.20 on AQP-LIM, $131.16
- * against $102.13 on SCL-EZE.
- *
- * **Cheapest ever seen for that date, not cheapest as last seen.** A departure
- * date is polled many times and the reference is a statement about the pair
- * rather than about the newest pass, so every look counts. On the two pairs
- * where it makes any difference at all it is 40 cents — SCL-AEP $84.46 against
- * $84.87 — and the version that keeps every look is the one that does not move
- * when a single pass is late.
- *
- * **The whole pair's archive, not the frame on screen.** A figure computed from
- * what is visible sits in the middle of what is visible and says nothing. This
- * is why the client is handed the whole pair by `GET /api/fares/history` — only
- * the baseline and the health counts are narrowed to a month — and why the
- * reference is assembled where that response lands rather than inside the chart,
- * which is handed one month.
- *
- * Keyed on `flightDate`, the departure the board was collected for, rather than
- * on each offer's own `departureAt`: a board is an answer about one date, and
- * an itinerary that leaves either side of midnight is still that date's answer.
- *
- * Null for an archive with nothing priced in it. A pair with no fares has no
- * typical fare, and drawing a line at zero would be the chart inventing the
- * cheapest flight ever found.
+ * The server takes the median of each departure date's cheapest non-null fare
+ * across the whole pair. It is intentionally independent of the bounded
+ * snapshot payload, so this adapter does not inspect or recompute snapshots.
  */
-export function pairReference(snapshots: FareSnapshot[], asOf: string): PairReference | null {
-  const cheapest = new Map<string, number>();
-  for (const snapshot of snapshots) {
-    for (const offer of snapshot.offers) {
-      if (offer.price === null || !Number.isFinite(offer.price)) continue;
-      const held = cheapest.get(snapshot.flightDate);
-      if (held === undefined || offer.price < held) cheapest.set(snapshot.flightDate, offer.price);
-    }
-  }
-
-  if (cheapest.size === 0) return null;
-  return { value: median([...cheapest.values()]), dates: cheapest.size, asOf };
+export function pairReference(
+  summary: FarePairReference | null,
+  asOf: string,
+): PairReference | null {
+  return summary === null ? null : { ...summary, asOf };
 }
 
 /** `2026-08-22` → `22/08`. The day and month alone: the year is not news. */

@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import fares as fares_router
+from app.services.airfare_data import AirfareData
+from app.services.fare_calendar import FareCalendar
 from app.services.fare_history import FareHistory
 
 HISTORY_URL = "/api/fares/history?origin=lim&destination=scl&departure=2027-03"
@@ -99,7 +101,11 @@ def load_script(name: str):
 @pytest.fixture
 def history_endpoint(monkeypatch, tmp_path):
     history = FareHistory(tmp_path / "fares")
-    monkeypatch.setattr(fares_router, "HISTORY", history)
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(history, FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
     client = TestClient(app, raise_server_exceptions=False)
     with client:
         yield client, history
@@ -221,6 +227,9 @@ def test_public_contract_preserves_all_content_filters_and_order(history_endpoin
                 "longitude": -70.786,
             },
         ],
+        # This is a whole-pair summary: the September observation remains in
+        # the reference despite the response's August captured-at bounds.
+        "pairReference": {"value": 202.0, "dates": 2},
     }
 
 

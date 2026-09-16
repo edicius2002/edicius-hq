@@ -32,6 +32,7 @@
     "fares:collect": "node scripts/api.mjs fares-collect",
     "fares:check": "node scripts/api.mjs fares-check",
     "fares:backfill": "node scripts/api.mjs fares-backfill",
+    "fares:supabase": "node scripts/api.mjs fares-supabase",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

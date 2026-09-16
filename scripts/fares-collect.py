@@ -110,9 +110,12 @@ from app.config import (  # noqa: E402
     CALENDAR_REQUESTS_PER_PAIR,
     MAX_DEPARTURE_HORIZON_DAYS,
     SCHEDULER_INTERVAL_MINUTES,
+    airfare_sync_enabled,
     daily_request_budget,
     kv_dir,
 )
+from app.services.airfare_data import AIRFARE_DATA  # noqa: E402
+from app.services.collection_sync import sync_completed_pass  # noqa: E402
 from app.services.fare_budget import daily_budget  # noqa: E402
 from app.services.fare_collector import (  # noqa: E402
     REQUEST_GAP_SECONDS,
@@ -504,6 +507,7 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
         )
     recorder.tally.boards(report)
 
+    calendar = None
     if not args.no_calendar:
         # After the boards, not before. A pass that runs out of goodwill with
         # the upstream should lose the cheap thing that repeats tomorrow rather
@@ -577,6 +581,14 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     # everything the pass skipped.
     code = 1 if report.failed else 0
     recorder.finish(exit_code=code)
+    if code == 0 and airfare_sync_enabled():
+        # The ledger has its successful local terminal state before the
+        # façade-locked replica attempt. A failed remote report changes neither.
+        sync_completed_pass(
+            AIRFARE_DATA,
+            report,
+            *((calendar,) if calendar is not None else ()),
+        )
     return code
 
 

@@ -11,6 +11,8 @@ from fastapi import HTTPException
 
 from app.routers import fares as fares_router
 from app.services import fare_history
+from app.services.airfare_data import AirfareData
+from app.services.fare_calendar import FareCalendar
 from app.services.fare_history import FareHistory, FareHistoryReadError
 
 
@@ -303,12 +305,16 @@ def test_continuously_changing_archive_raises_instead_of_caching_a_partial_read(
         history.read("LIM", "SCL")
 
 
-def test_history_endpoint_translates_archive_io_failure_to_503(monkeypatch):
+def test_history_endpoint_translates_archive_io_failure_to_503(monkeypatch, tmp_path):
     class UnreadableHistory:
         def read(self, *args, **kwargs):
             raise PermissionError("archive is locked")
 
-    monkeypatch.setattr(fares_router, "HISTORY", UnreadableHistory())
+    monkeypatch.setattr(
+        fares_router,
+        "AIRFARE_DATA",
+        AirfareData(UnreadableHistory(), FareCalendar(tmp_path / "calendar"), source_root=tmp_path),
+    )
 
     with pytest.raises(HTTPException) as raised:
         fares_router.get_history(

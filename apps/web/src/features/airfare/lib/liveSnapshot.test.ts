@@ -38,6 +38,7 @@ function history(snapshots: FareSnapshot[]): FareHistoryResponse {
     baseline: [{ flightDate: '2027-03-09', date: '2026-08-01', price: 410 }],
     health: { lastCheckedAt: '2026-08-21T13:00:00+00:00', checks: 12, changes: 3, errors: 0 },
     airports: [],
+    pairReference: { value: 147.69, dates: 31 },
   };
 }
 
@@ -65,6 +66,7 @@ describe('a snapshot pushed into the archive already fetched', () => {
 
     expect(next.baseline).toBe(held.baseline);
     expect(next.health).toBe(held.health);
+    expect(next.pairReference).toBe(held.pairReference);
   });
 
   it('ignores a snapshot it is already holding, without costing a render', () => {

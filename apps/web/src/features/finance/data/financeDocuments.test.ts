@@ -92,11 +92,11 @@ describe('Finance Supabase documents', () => {
     });
   });
 
-  it('turns only the database serialization conflict into the reconciliation error', async () => {
+  it('turns the non-retryable HTTP conflict into the reconciliation error', async () => {
     const api = financeClient({ data: null, error: null });
     api.rpc.mockResolvedValue({
       data: null,
-      error: { code: '40001', message: 'finance_revision_conflict' },
+      error: { code: 'PT409', message: 'finance_revision_conflict' },
     });
 
     await expect(

@@ -140,7 +140,8 @@ Only the authenticated role can execute it.
   expected revision.
 - A successful write increments the revision exactly once and returns the row's
   new revision and timestamp.
-- A mismatch returns a recognizable conflict without changing either document.
+- A mismatch returns a recognizable, non-retryable HTTP 409 conflict without changing either
+  document. It must not reuse PostgreSQL `40001`, which means a transaction should be retried.
 - The function accepts only the two known keys and object-shaped JSON.
 
 The SQL migration includes pgTAP coverage for anonymous denial, per-user read

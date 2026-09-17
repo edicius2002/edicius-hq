@@ -37,7 +37,7 @@ select is(
 );
 select throws_ok(
   $$ select public.write_finance_document('finance', '{}', 1) $$,
-  '40001', 'finance_revision_conflict', 'stale revisions are rejected'
+  'PT409', 'finance_revision_conflict', 'stale revisions are rejected without a retryable SQLSTATE'
 );
 select throws_ok(
   $$ select public.write_finance_document('unknown', '{}', 0) $$,

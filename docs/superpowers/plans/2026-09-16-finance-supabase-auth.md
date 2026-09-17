@@ -154,7 +154,7 @@ select is(
 );
 select throws_ok(
   $$ select public.write_finance_document('finance', '{}'::jsonb, 1) $$,
-  '40001', 'finance_revision_conflict', 'stale revisions are rejected'
+  'PT409', 'finance_revision_conflict', 'stale revisions are rejected without a retryable SQLSTATE'
 );
 select throws_ok(
   $$ select public.write_finance_document('unknown', '{}'::jsonb, 0) $$,
@@ -273,7 +273,7 @@ begin
   end if;
 
   if v_saved.owner_id is null then
-    raise exception using errcode = '40001', message = 'finance_revision_conflict';
+    raise exception using errcode = 'PT409', message = 'finance_revision_conflict';
   end if;
   return v_saved;
 end;
@@ -838,7 +838,7 @@ expect(rpc).toHaveBeenCalledWith('write_finance_document', {
 });
 ```
 
-Assert PostgREST code `40001` becomes `FinanceRevisionConflict`, a missing row is null,
+Assert PostgREST code `PT409` becomes `FinanceRevisionConflict`, a missing row is null,
 and all other errors retain a sanitized message without request headers or tokens.
 
 - [ ] **Step 2: Write failing hook/queue tests**

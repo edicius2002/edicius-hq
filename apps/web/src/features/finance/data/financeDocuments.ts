@@ -65,7 +65,7 @@ function requestError(error: unknown): Error {
 }
 
 function isRevisionConflict(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === '40001';
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'PT409';
 }
 
 /**

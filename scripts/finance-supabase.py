@@ -7,6 +7,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -43,6 +44,7 @@ def canonical_json(value: object) -> bytes:
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -57,22 +59,29 @@ def _owner_id(value: str) -> str:
         raise argparse.ArgumentTypeError("owner id must be a UUID") from None
 
 
+def _reject_nonstandard_json_constant(_value: str) -> NoReturn:
+    raise ValueError
+
+
 def _load_documents(source: Path) -> list[SourceDocument]:
     documents: list[SourceDocument] = []
     for key, filename in DOCUMENTS.items():
         raw = (source / filename).read_bytes()
         try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise FinanceImportError("Finance source documents must contain JSON objects") from None
-        if not isinstance(payload, dict):
-            raise FinanceImportError("Finance source documents must contain JSON objects")
+            payload = json.loads(
+                raw.decode("utf-8"), parse_constant=_reject_nonstandard_json_constant
+            )
+            if not isinstance(payload, dict):
+                raise ValueError
+            source_sha256 = _digest(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            raise FinanceImportError(f"Finance source {filename} is invalid") from None
         documents.append(
             SourceDocument(
                 key=key,
                 payload=payload,
                 source_bytes=len(raw),
-                source_sha256=_digest(payload),
+                source_sha256=source_sha256,
             )
         )
     return documents

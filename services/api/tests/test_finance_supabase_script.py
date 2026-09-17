@@ -91,6 +91,65 @@ def test_non_object_or_invalid_json_refuses_the_import(tmp_path, capsys, value):
     assert decoded_output(capsys) == []
 
 
+@pytest.mark.parametrize(
+    ("filename", "raw"),
+    [
+        ("finance.json", '{"amount":NaN,"private":"invalid-finance-payload"}'),
+        ("finance.json", '{"amount":Infinity,"private":"invalid-finance-payload"}'),
+        ("finance.json", '{"amount":-Infinity,"private":"invalid-finance-payload"}'),
+        (
+            "finance-camera-views.json",
+            '{"views":{"one":{"amount":NaN,"private":"invalid-finance-payload"}}}',
+        ),
+        ("finance.json", '{"amount":1e1000000,"private":"invalid-finance-payload"}'),
+    ],
+    ids=["nan", "infinity", "negative-infinity", "nested-nan", "overflow-infinity"],
+)
+def test_non_finite_source_values_are_rejected_without_leaking_or_mutating(
+    tmp_path, capsys, filename, raw
+):
+    """Catches dry runs accepting non-JSON/JSONB numbers from a source document."""
+    script = load_script()
+    source = write_source(tmp_path)
+    report = tmp_path / "finance-report.json"
+    source_path = source / filename
+    source_path.write_text(raw, encoding="utf-8")
+    original = {
+        source_filename: (source / source_filename).read_bytes()
+        for source_filename in ("finance.json", "finance-camera-views.json")
+    }
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500)
+
+    with pytest.raises(script.FinanceImportError) as error:
+        script._load_documents(source)
+
+    assert str(error.value) == f"Finance source {filename} is invalid"
+    assert "invalid-finance-payload" not in str(error.value)
+    assert (
+        script.main(
+            args(source, "dry-run", report),
+            environ={},
+            transport=httpx.MockTransport(handler),
+        )
+        == 1
+    )
+
+    rendered = capsys.readouterr().out + report.read_text(encoding="utf-8")
+    assert json.loads(rendered.splitlines()[0]) == []
+    assert json.loads(report.read_text(encoding="utf-8")) == []
+    assert calls == 0
+    assert "invalid-finance-payload" not in rendered
+    assert SECRET not in rendered
+    assert {
+        source_filename: (source / source_filename).read_bytes() for source_filename in original
+    } == original
+
+
 def test_canonical_digest_ignores_source_whitespace_and_key_order(tmp_path, capsys):
     """Catches a formatting-only source edit looking like a remote conflict."""
     script = load_script()

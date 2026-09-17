@@ -52,6 +52,48 @@ afterEach(() => {
 });
 
 describe('write queue', () => {
+  it('reports a successful write acknowledgement to the caller that owns its revision', async () => {
+    const acknowledgements: number[] = [];
+    const queue = createWriteQueue<string, number>({
+      write: async () => 8,
+      onWritten: (revision) => acknowledgements.push(revision),
+      onState: () => undefined,
+      delayMs: DELAY,
+    });
+
+    queue.push('the saved document');
+    await vi.advanceTimersByTimeAsync(DELAY);
+
+    expect(acknowledgements).toEqual([8]);
+  });
+
+  it('reports the failed value so a caller can reconcile a compare-and-swap conflict', async () => {
+    const conflict = new Error('finance_revision_conflict');
+    const errors: { error: unknown; value: string }[] = [];
+    const queue = createWriteQueue<string>({
+      write: async () => Promise.reject(conflict),
+      onError: (error, value) => errors.push({ error, value }),
+      onState: () => undefined,
+      delayMs: DELAY,
+    });
+
+    queue.push('the local document');
+    await vi.advanceTimersByTimeAsync(DELAY);
+
+    expect(errors).toEqual([{ error: conflict, value: 'the local document' }]);
+  });
+
+  it('drops a held failed value when a caller deliberately accepts a remote replacement', async () => {
+    const writer = pausedWriter();
+    const { queue } = queueOf(writer);
+
+    queue.push('the conflicting local document');
+    queue.discard();
+    await vi.advanceTimersByTimeAsync(DELAY * 2);
+
+    expect(writer.sent).toEqual([]);
+  });
+
   it('collapses a run of edits into a single write of the last one', async () => {
     const writer = pausedWriter();
     const { queue, states } = queueOf(writer);

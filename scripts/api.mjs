@@ -14,6 +14,7 @@ const MODES = [
   'fares-check',
   'fares-backfill',
   'fares-supabase',
+  'finance-supabase',
   'enroll',
   'credentials',
   'revoke',
@@ -107,6 +108,7 @@ const ARGS = {
   'fares-check': [['../../scripts/gflights-check.py', ...process.argv.slice(3)]],
   'fares-backfill': [['../../scripts/fares-viapoints-backfill.py', ...process.argv.slice(3)]],
   'fares-supabase': [['../../scripts/fares-supabase.py', ...process.argv.slice(3)]],
+  'finance-supabase': [['../../scripts/finance-supabase.py', ...process.argv.slice(3)]],
   /*
    * Passkey enrolment, listing and revocation. `-m` rather than a path under
    * `scripts/` because this one lives inside the package it talks to — it

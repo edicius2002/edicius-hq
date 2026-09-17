@@ -118,6 +118,104 @@ describe('openApiEventStream', () => {
     close();
   });
 
+  it('reports a clean EOF before waiting to reconnect and opening again', async () => {
+    const fetchSpy = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockResolvedValue(streamResponse([]));
+    vi.stubGlobal('fetch', fetchSpy);
+    const onError = vi.fn();
+    let opens = 0;
+    let close: () => void = () => {};
+    const onOpen = vi.fn(() => {
+      opens += 1;
+      if (opens === 2) close();
+    });
+
+    close = openApiEventStream('/api/stream', { onEvent: vi.fn(), onOpen, onError });
+    await settle();
+
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it('does not report or reconnect when closed while reading a response', async () => {
+    const fetchSpy = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockImplementation((_, init) => {
+        const signal = init?.signal;
+        if (!signal) throw new Error('stream request needs an abort signal');
+        return Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                signal.addEventListener('abort', () => controller.error(new Error('aborted')), {
+                  once: true,
+                });
+              },
+            }),
+          ),
+        );
+      });
+    vi.stubGlobal('fetch', fetchSpy);
+    const onError = vi.fn();
+
+    const close = openApiEventStream('/api/stream', { onEvent: vi.fn(), onError });
+    await settle();
+    close();
+    await settle();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('does not reconnect or report again when closed after a clean EOF', async () => {
+    const fetchSpy = vi.fn(async () => streamResponse([]));
+    vi.stubGlobal('fetch', fetchSpy);
+    const onError = vi.fn();
+
+    const close = openApiEventStream('/api/stream', { onEvent: vi.fn(), onError });
+    await settle();
+    expect(onError).toHaveBeenCalledOnce();
+
+    close();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('reports a failed body read once before reconnecting', async () => {
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new Error('stream read failed'));
+        },
+      }),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response),
+    );
+    const onError = vi.fn();
+
+    const close = openApiEventStream('/api/stream', { onEvent: vi.fn(), onError });
+    await settle();
+
+    expect(onError).toHaveBeenCalledOnce();
+    close();
+  });
+
   it('does not reconnect after it is aborted', async () => {
     const fetchSpy = vi.fn(async () => streamResponse(['data: one\n\n']));
     vi.stubGlobal('fetch', fetchSpy);

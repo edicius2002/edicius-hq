@@ -120,6 +120,8 @@ export function openApiEventStream(
         if (!response.ok) throw new Error(`SSE request failed with status ${response.status}`);
         handlers.onOpen?.();
         await consume(response);
+        if (controller.signal.aborted) return;
+        handlers.onError?.();
       } catch {
         if (controller.signal.aborted) return;
         handlers.onError?.();

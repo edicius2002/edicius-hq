@@ -124,10 +124,10 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # The gate, in one place. Every router below is included with it, so a router
 # added later is added next to a visible example and cannot arrive unprotected
-# — `tests/test_gate.py` walks this route table and insists on it. The four SSE
-# routes need the token in the query string and `require_session_gate` is what
-# decides that, for the reason its own docstring gives: a route-level
-# dependency can only add to a router-level one, never loosen it.
+# — `tests/test_gate.py` walks this route table and insists on it. Every route,
+# including Server-Sent Events, supplies its Supabase access token only through
+# the `Authorization: Bearer` header. A route-level dependency can only add to
+# this requirement; it can never create a query-string-token exception.
 #
 # `/api/health` is in here on purpose. Signed out, the status indicator reads
 # "API offline"; that is honest, it leaks nothing, and the login screen is what

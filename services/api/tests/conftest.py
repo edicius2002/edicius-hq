@@ -15,14 +15,34 @@ different directory still sets one; this only decides where "no directory was
 named" points, and it points somewhere that is thrown away afterwards.
 """
 
+from uuid import UUID
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolated_api_verifier(monkeypatch):
+    """Keep legacy test credentials out of the production JWKS verifier."""
+    from app import auth
+    from app.services import auth_store
+    from app.services.supabase_jwt import AuthenticatedUser, SupabaseTokenError
+
+    class TestSessionVerifier:
+        def verify(self, token: str) -> AuthenticatedUser:
+            if auth_store.resolve_session(token) is None:
+                raise SupabaseTokenError()
+            return AuthenticatedUser(user_id=UUID("11111111-1111-1111-1111-111111111111"))
+
+    verifier = TestSessionVerifier()
+    monkeypatch.setattr(auth, "configured_verifier", lambda: verifier)
 
 
 @pytest.fixture(autouse=True)
 def _own_data_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path / "local-data"))
     # JWT issuer validation is strict in production. Tests use the public,
-    # fixed project identity but inject a MockTransport before any JWKS fetch.
+    # fixed project identity and the suite verifier above; verifier-focused
+    # tests provide their own MockTransport and never use this fake.
     monkeypatch.setenv("SUPABASE_URL", "https://abndifkxpfppmllgxfnu.supabase.co")
     # Lifespan tests must never reach the real X profile or launch Chromium.
     # Individual lifecycle tests opt in and replace the watcher at its boundary.
@@ -52,11 +72,11 @@ def _a_session_on_every_request(request, _own_data_directory, monkeypatch):
     """
     Every route needs a session now, so every `TestClient` request carries one.
 
-    The gate is not relaxed for tests and no dependency is overridden: what
-    this does is present a real bearer token, minted by the real store, to the
-    real `require_session_gate`. A test that means to arrive unauthenticated
-    says so with `pytest.mark.unauthenticated` — `test_gate.py` is the whole of
-    that, and it is the file that would otherwise be testing nothing.
+    The production gate is strict JWT verification. This legacy opaque token
+    exists only for remaining local-auth tests, and `_isolated_api_verifier`
+    resolves it at the `configured_verifier` seam before it could reach a
+    hosted JWKS endpoint. A test that means to arrive unauthenticated says so
+    with `pytest.mark.unauthenticated`.
 
     The session is created per request rather than once per test on purpose.
     Several tests repoint `LOCAL_DATA_DIR` inside the test body (`test_kv` is

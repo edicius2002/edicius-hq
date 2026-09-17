@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { DiagramCameraPersistence } from '@/features/finance/hooks/useDiagramCamera';
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
-import { describeRestoreError } from '@/features/finance/lib/backup';
 import { formatAmount } from '@/shared/lib/money';
 import { NODE_SIZE } from '@/features/finance/lib/geometry';
 import { describeConnectError } from '@/features/finance/lib/operations';
@@ -12,7 +12,6 @@ import {
   type AssetTotal,
 } from '@/features/finance/lib/summary';
 import type { Anchor, NodeId, Point } from '@/features/finance/model/types';
-import { BackupControls } from '@/features/finance/ui/BackupControls';
 import { DiagramTabs } from '@/features/finance/ui/DiagramTabs';
 import { FlowCanvas, type Selection } from '@/features/finance/ui/FlowCanvas';
 import {
@@ -52,6 +51,29 @@ export function FinancePage() {
   const [connectFrom, setConnectFrom] = useState<{ nodeId: NodeId; anchor: Anchor } | null>(null);
   const [frameMode, setFrameMode] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [cameraPersistence, setCameraPersistence] = useState<DiagramCameraPersistence | null>(null);
+  const publishCameraPersistence = useCallback((next: DiagramCameraPersistence) => {
+    setCameraPersistence((current) => {
+      if (
+        current &&
+        current.isFetching === next.isFetching &&
+        current.isError === next.isError &&
+        current.saveState === next.saveState &&
+        current.conflict === next.conflict
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, []);
+  // A conflict is a choice, not a transient save failure: keep the document on
+  // screen but stop every edit route until that choice has been made. The same
+  // gate covers both initial fetches, whose placeholders must never be saved.
+  const cameraPending = cameraPersistence === null || cameraPersistence.isFetching;
+  const cameraBlocked =
+    cameraPending || cameraPersistence.isError || cameraPersistence.conflict !== null;
+  const editsBlocked =
+    finance.isFetching || finance.isError || finance.conflict !== null || cameraBlocked;
 
   const available = useMemo(() => selectAvailable(diagram), [diagram]);
   const inTransit = useMemo(() => selectInTransit(diagram), [diagram]);
@@ -66,6 +88,7 @@ export function FinancePage() {
   }
 
   async function handleAnchorClick(nodeId: NodeId, anchor: Anchor) {
+    if (editsBlocked) return;
     setMessage(null);
 
     if (!connectFrom) {
@@ -90,6 +113,7 @@ export function FinancePage() {
   }
 
   function handleDelete() {
+    if (editsBlocked) return;
     if (!selection) return;
     setMessage(null);
     if (selection.type === 'node') void finance.deleteNode(selection.id);
@@ -99,6 +123,7 @@ export function FinancePage() {
   }
 
   function handleUndo() {
+    if (editsBlocked) return;
     setMessage(null);
     // What a step lands on may no longer contain what was selected.
     setSelection(null);
@@ -106,19 +131,30 @@ export function FinancePage() {
   }
 
   function handleRedo() {
+    if (editsBlocked) return;
     setMessage(null);
     setSelection(null);
     void finance.redo();
   }
 
   const panelActions: PropertiesPanelActions = {
-    renameNode: (id, name) => void finance.renameNode(id, name),
-    setNotes: (id, notes) => void finance.setNotes(id, notes),
-    addJobAsset: (jobId, asset) => void finance.addJobAsset(jobId, asset),
-    setJobBalance: (jobId, asset, amount) => void finance.setJobBalance(jobId, asset, amount),
-    setJobAssetActive: (jobId, asset, active) =>
-      void finance.setJobAssetActive(jobId, asset, active),
+    renameNode: (id, name) => {
+      if (!editsBlocked) void finance.renameNode(id, name);
+    },
+    setNotes: (id, notes) => {
+      if (!editsBlocked) void finance.setNotes(id, notes);
+    },
+    addJobAsset: (jobId, asset) => {
+      if (!editsBlocked) void finance.addJobAsset(jobId, asset);
+    },
+    setJobBalance: (jobId, asset, amount) => {
+      if (!editsBlocked) void finance.setJobBalance(jobId, asset, amount);
+    },
+    setJobAssetActive: (jobId, asset, active) => {
+      if (!editsBlocked) void finance.setJobAssetActive(jobId, asset, active);
+    },
     executeFlow: (id) => {
+      if (editsBlocked) return;
       setMessage(null);
       void finance.executeFlow(id);
     },
@@ -128,6 +164,7 @@ export function FinancePage() {
      * silent. Handling both arms explicitly is what makes that impossible.
      */
     addHolding: (accountId, asset) => {
+      if (editsBlocked) return;
       setMessage(null);
       const account = diagram.nodes[accountId];
       const base = account?.position ?? { x: 0, y: 0 };
@@ -145,9 +182,15 @@ export function FinancePage() {
         })
         .catch(() => setMessage('Could not add the holding. The change was not saved.'));
     },
-    updateHolding: (id, patch) => void finance.updateHolding(id, patch),
-    updateFlow: (id, patch) => void finance.updateFlow(id, patch),
-    renameFrame: (id, name) => void finance.renameFrame(id, name),
+    updateHolding: (id, patch) => {
+      if (!editsBlocked) void finance.updateHolding(id, patch);
+    },
+    updateFlow: (id, patch) => {
+      if (!editsBlocked) void finance.updateFlow(id, patch);
+    },
+    renameFrame: (id, name) => {
+      if (!editsBlocked) void finance.renameFrame(id, name);
+    },
   };
 
   // Held in a ref so the listener is bound once instead of on every render.
@@ -158,6 +201,7 @@ export function FinancePage() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (editsBlocked) return;
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
 
       // Fields keep their own undo; taking it would be worse than not having one.
@@ -178,9 +222,37 @@ export function FinancePage() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [editsBlocked]);
 
-  const problem = message ?? (finance.isError ? 'Could not load the diagram from storage.' : null);
+  const problem =
+    message ??
+    (finance.isError
+      ? 'Could not load the diagram from Supabase.'
+      : cameraPersistence?.isError
+        ? 'Could not load the diagram view from Supabase.'
+        : null);
+  const conflictMessage =
+    "Finance changed in another session. Your unsaved version is still in this tab. Choose the Supabase version or deliberately replace it with this tab's version.";
+  const cameraConflictMessage =
+    "Diagram view changed in another session. Your unsaved view is still in this tab. Choose the Supabase version or deliberately replace it with this tab's version.";
+  const saveState =
+    finance.conflict || cameraPersistence?.conflict
+      ? 'failed'
+      : finance.isError || cameraPersistence?.isError
+        ? 'blocked'
+        : finance.isFetching || cameraPending
+          ? 'loading'
+          : finance.saveState === 'failed' || cameraPersistence.saveState === 'failed'
+            ? 'failed'
+            : finance.saveState === 'saving' || cameraPersistence.saveState === 'saving'
+              ? 'saving'
+              : finance.saveState === 'pending' || cameraPersistence.saveState === 'pending'
+                ? 'pending'
+                : finance.saveState;
+  function retrySave() {
+    if (finance.saveState === 'failed') finance.retrySave();
+    if (cameraPersistence?.saveState === 'failed') cameraPersistence.retrySave();
+  }
   /*
    * Only while a mode is waiting on you. Idle, this said "Drag nodes to arrange
    * them, the canvas to move around, and scroll to zoom" — which a user with a
@@ -199,17 +271,33 @@ export function FinancePage() {
   const toolbar = (
     <div className={styles.toolbar}>
       <div className={styles.toolGroup}>
-        <Button onClick={() => void finance.addJob(nextPosition(topLevelCount))}>Add job</Button>
-        <Button onClick={() => void finance.addAccount(nextPosition(topLevelCount))}>
+        <Button
+          disabled={editsBlocked}
+          onClick={() => void finance.addJob(nextPosition(topLevelCount))}
+        >
+          Add job
+        </Button>
+        <Button
+          disabled={editsBlocked}
+          onClick={() => void finance.addAccount(nextPosition(topLevelCount))}
+        >
           Add account
         </Button>
       </div>
 
       <div className={styles.toolGroup}>
-        <Button disabled={!finance.canUndo} title="Undo (Ctrl+Z)" onClick={handleUndo}>
+        <Button
+          disabled={editsBlocked || !finance.canUndo}
+          title="Undo (Ctrl+Z)"
+          onClick={handleUndo}
+        >
           Undo
         </Button>
-        <Button disabled={!finance.canRedo} title="Redo (Ctrl+Shift+Z)" onClick={handleRedo}>
+        <Button
+          disabled={editsBlocked || !finance.canRedo}
+          title="Redo (Ctrl+Shift+Z)"
+          onClick={handleRedo}
+        >
           Redo
         </Button>
       </div>
@@ -217,6 +305,7 @@ export function FinancePage() {
       <div className={styles.toolGroup}>
         <Button
           variant={connectMode ? 'primary' : 'secondary'}
+          disabled={editsBlocked}
           onClick={() => {
             setMessage(null);
             setFrameMode(false);
@@ -228,6 +317,7 @@ export function FinancePage() {
         </Button>
         <Button
           variant={frameMode ? 'primary' : 'secondary'}
+          disabled={editsBlocked}
           onClick={() => {
             setMessage(null);
             stopConnecting();
@@ -236,7 +326,7 @@ export function FinancePage() {
         >
           {frameMode ? 'Cancel frame' : 'Frame'}
         </Button>
-        <Button variant="danger" disabled={!selection} onClick={handleDelete}>
+        <Button variant="danger" disabled={editsBlocked || !selection} onClick={handleDelete}>
           Delete
         </Button>
       </div>
@@ -253,43 +343,35 @@ export function FinancePage() {
       <PageHeader
         className={styles.header}
         beside={
-          <div className={styles.tabsScroll}>
+          <div className={styles.tabsScroll} inert={editsBlocked || undefined}>
             <DiagramTabs
               diagrams={finance.diagrams}
               activeId={finance.activeDiagramId}
               onSelect={(id) => {
+                if (editsBlocked) return;
                 setSelection(null);
                 void finance.selectDiagram(id);
               }}
               onAdd={() => {
+                if (editsBlocked) return;
                 setSelection(null);
                 void finance.addDiagram();
               }}
-              onDuplicate={(id) => void finance.duplicateDiagram(id)}
-              onRename={(id, name) => void finance.renameDiagram(id, name)}
+              onDuplicate={(id) => {
+                if (!editsBlocked) void finance.duplicateDiagram(id);
+              }}
+              onRename={(id, name) => {
+                if (!editsBlocked) void finance.renameDiagram(id, name);
+              }}
               onDelete={(id) => {
+                if (editsBlocked) return;
                 setSelection(null);
                 void finance.deleteDiagram(id);
               }}
             />
           </div>
         }
-        actions={
-          <div className={styles.headerActions}>
-            {toolbar}
-            <BackupControls
-              document={finance.document}
-              onRestore={async (text) => {
-                setMessage(null);
-                setSelection(null);
-                stopConnecting();
-                setFrameMode(false);
-                const result = await finance.restore(text);
-                return result.ok ? null : describeRestoreError(result.error);
-              }}
-            />
-          </div>
-        }
+        actions={<div className={styles.headerActions}>{toolbar}</div>}
       />
 
       {/* Sits with the actions that caused it, and only when there is one. */}
@@ -298,14 +380,56 @@ export function FinancePage() {
           {problem}
         </p>
       ) : null}
+      {finance.conflict ? (
+        <div className={styles.error}>
+          <p role="alert">{conflictMessage}</p>
+          {finance.conflict.status === 'ready' ? (
+            <div className={styles.toolGroup}>
+              <Button onClick={finance.acceptRemote}>Use Supabase version</Button>
+              <Button
+                variant="danger"
+                onClick={() => void finance.overwriteRemote().catch(() => undefined)}
+              >
+                Replace with this tab's version
+              </Button>
+            </div>
+          ) : null}
+          {finance.conflict.status === 'load-failed' ? (
+            <Button onClick={() => void finance.refreshConflict()}>
+              Retry loading Supabase version
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {cameraPersistence?.conflict ? (
+        <div className={styles.error}>
+          <p role="alert">{cameraConflictMessage}</p>
+          {cameraPersistence.conflict.status === 'ready' ? (
+            <div className={styles.toolGroup}>
+              <Button onClick={cameraPersistence.acceptRemote}>Use Supabase view</Button>
+              <Button variant="danger" onClick={() => void cameraPersistence.overwriteRemote()}>
+                Replace with this tab's view
+              </Button>
+            </div>
+          ) : null}
+          {cameraPersistence.conflict.status === 'load-failed' ? (
+            <Button onClick={() => void cameraPersistence.refreshConflict()}>
+              Retry loading Supabase view
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Nothing between the canvas and the panel beside it: with the bar gone
           the two columns start on the same line as well as ending on it. */}
-      <div className={styles.workspace}>
+      <div className={styles.workspace} inert={editsBlocked || undefined}>
         <FlowCanvas
           status={
             <>
-              <SaveStatus state={finance.saveState} onRetry={finance.retrySave} />
+              <SaveStatus
+                state={saveState}
+                onRetry={finance.conflict || cameraPersistence?.conflict ? undefined : retrySave}
+              />
               {/* On the canvas rather than above it: a hint that comes and goes
                   with a mode would otherwise push the canvas down mid-gesture,
                   and the alignment with the panel beside it with it. */}
@@ -318,25 +442,35 @@ export function FinancePage() {
           connectFrom={connectFrom}
           frameMode={frameMode}
           onSelect={setSelection}
-          onMoveNode={(id, position) => void finance.moveNode(id, position)}
+          onMoveNode={(id, position) => {
+            if (!editsBlocked) void finance.moveNode(id, position);
+          }}
           onAnchorClick={(nodeId, anchor) => void handleAnchorClick(nodeId, anchor)}
           onCreateFrame={(rect) => {
             // One frame per press of the button, so the mode does not linger and
             // turn the next pan into another rectangle.
             setFrameMode(false);
-            void finance.addFrame(
-              { x: rect.left, y: rect.top },
-              { width: rect.width, height: rect.height },
-            );
+            if (!editsBlocked) {
+              void finance.addFrame(
+                { x: rect.left, y: rect.top },
+                { width: rect.width, height: rect.height },
+              );
+            }
           }}
-          onMoveFrame={(id, position) => void finance.moveFrame(id, position)}
-          onResizeFrame={(id, position, size) => void finance.resizeFrame(id, position, size)}
+          onMoveFrame={(id, position) => {
+            if (!editsBlocked) void finance.moveFrame(id, position);
+          }}
+          onResizeFrame={(id, position, size) => {
+            if (!editsBlocked) void finance.resizeFrame(id, position, size);
+          }}
           onConnectModeChange={(active) => {
+            if (editsBlocked) return;
             setMessage(null);
             setFrameMode(false);
             if (active) setConnectMode(true);
             else stopConnecting();
           }}
+          onCameraPersistenceChange={publishCameraPersistence}
         />
 
         <div className={styles.side}>

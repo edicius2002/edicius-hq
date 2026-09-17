@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 
 import { ApiStatus } from '@/app/layout/ApiStatus';
 import { useIsNarrow } from '@/app/layout/useIsNarrow';
-import { EnrolDevice } from '@/features/auth/EnrolDevice';
+import { AccountControls } from '@/features/auth/AccountControls';
 
 import styles from './TopNav.module.css';
 
@@ -225,15 +225,13 @@ export function TopNav() {
 
       {open ? (
         /*
-         * The `nav` landmark wraps the links and stops there, so the enrolment
-         * block below is not announced as navigation — it goes nowhere. The
+         * The `nav` landmark wraps the links and stops there, so the account
+         * controls below are not announced as navigation — they go nowhere. The
          * panel itself is a plain box, which is also what `aria-controls` on
          * the trigger has to name.
          *
-         * Both branches carry the same two blocks. The drawer is not the
-         * dropdown minus the account: enrolling a device is the one action
-         * with no screen of its own, and a phone is the likeliest thing to be
-         * the device being enrolled.
+         * Both branches carry the same account controls because neither action
+         * has a screen of its own.
          */
         narrow ? (
           <>
@@ -245,7 +243,7 @@ export function TopNav() {
             <div id={menuId} className={styles.drawer}>
               <nav aria-label="Primary">{links}</nav>
               <div className={styles.account}>
-                <EnrolDevice />
+                <AccountControls />
               </div>
             </div>
           </>
@@ -256,7 +254,7 @@ export function TopNav() {
                 surface that is on every page. It sits under a rule because it is
                 not a sixth place to go. */}
             <div className={styles.account}>
-              <EnrolDevice />
+              <AccountControls />
             </div>
           </div>
         )

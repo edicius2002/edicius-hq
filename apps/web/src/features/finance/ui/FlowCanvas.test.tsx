@@ -37,7 +37,7 @@ function TestWrapper({ children }: { children: ReactNode }) {
     });
     // The camera store is present before the canvas mounts, so these interaction
     // tests do not need an HTTP server just to exercise local camera movement.
-    next.setQueryData(['storage', 'finance-camera-views'], NO_FINANCE_CAMERA_VIEWS);
+    next.setQueryData(['finance-documents', 'finance-camera-views'], NO_FINANCE_CAMERA_VIEWS);
     return next;
   });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

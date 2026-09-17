@@ -1,57 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  collectionStreamUrl,
-  horizonStreamUrl,
-  openCollectionStream,
-  openHorizonStream,
-} from '@/features/airfare/data/collectionStream';
+vi.mock('@/shared/auth/supabaseAuth', () => ({
+  clearLocalSession: vi.fn(),
+  getAccessToken: vi.fn(),
+}));
 
-/** An `EventSource` a test can talk through, as `quoteStream.test` uses. */
-class FakeSource {
-  readonly url: string;
-  closed = false;
-  private readonly listeners = new Map<string, (event: Event) => void>();
-
-  constructor(url: string) {
-    this.url = url;
-  }
-
-  addEventListener(type: string, handler: (event: Event) => void) {
-    this.listeners.set(type, handler);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  emit(type: string, data?: string) {
-    this.listeners.get(type)?.(
-      data === undefined ? new Event(type) : new MessageEvent(type, { data }),
-    );
-  }
-}
+import { openCollectionStream, openHorizonStream } from '@/features/airfare/data/collectionStream';
+import type { EventStreamHandlers } from '@/shared/api/eventStream';
 
 function openCollection(options: Parameters<typeof openCollectionStream>[0]) {
-  let source!: FakeSource;
+  let handlers!: EventStreamHandlers;
+  const stop = vi.fn();
+  const open = vi.fn((_: string, next: EventStreamHandlers) => {
+    handlers = next;
+    return stop;
+  });
   const close = openCollectionStream({
     ...options,
-    create: (url) => {
-      source = new FakeSource(url);
-      return source as unknown as EventSource;
-    },
+    open,
   });
-  return { source, close };
+  return { handlers, close, open, stop };
 }
-
-describe('the URL a row follows a pass on', () => {
-  it('is the streaming half of the endpoint the poll already used', () => {
-    // Same path with `/stream` on it, so the two answers about one pass are
-    // findable from each other rather than living in unrelated corners.
-    expect(collectionStreamUrl()).toMatch(/\/api\/fares\/collect\/stream$/);
-    expect(horizonStreamUrl()).toMatch(/\/api\/fares\/calendar\/collect\/stream$/);
-  });
-});
 
 describe('openCollectionStream', () => {
   it('hands on the pass document unchanged', () => {
@@ -59,9 +28,13 @@ describe('openCollectionStream', () => {
     // with — so nothing here reshapes it. That is what lets the row's sentence,
     // its bar and its "whose pass is this" check stay the functions they were.
     const onPass = vi.fn();
-    const { source } = openCollection({ onPass });
+    const { handlers } = openCollection({ onPass });
 
-    source.emit('pass', JSON.stringify({ state: 'running', completed: 4, polling: 31 }));
+    handlers.onEvent({
+      type: 'pass',
+      data: JSON.stringify({ state: 'running', completed: 4, polling: 31 }),
+      id: null,
+    });
 
     expect(onPass).toHaveBeenCalledWith(
       expect.objectContaining({ state: 'running', completed: 4, polling: 31 }),
@@ -70,12 +43,13 @@ describe('openCollectionStream', () => {
 
   it('hands on a snapshot as it landed', () => {
     const onSnapshot = vi.fn();
-    const { source } = openCollection({ onPass: vi.fn(), onSnapshot });
+    const { handlers } = openCollection({ onPass: vi.fn(), onSnapshot });
 
-    source.emit(
-      'snapshot',
-      JSON.stringify({ origin: 'LIM', destination: 'SCL', flightDate: '2027-03-09' }),
-    );
+    handlers.onEvent({
+      type: 'snapshot',
+      data: JSON.stringify({ origin: 'LIM', destination: 'SCL', flightDate: '2027-03-09' }),
+      id: null,
+    });
 
     expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({ flightDate: '2027-03-09' }));
   });
@@ -85,11 +59,13 @@ describe('openCollectionStream', () => {
     // still happens when the pass ends. It must never be able to break either.
     const onPass = vi.fn();
     const onSnapshot = vi.fn();
-    const { source } = openCollection({ onPass, onSnapshot });
+    const { handlers } = openCollection({ onPass, onSnapshot });
 
-    expect(() => source.emit('pass', 'not json')).not.toThrow();
-    expect(() => source.emit('snapshot', 'not json')).not.toThrow();
-    expect(() => source.emit('pass', JSON.stringify('a string'))).not.toThrow();
+    expect(() => handlers.onEvent({ type: 'pass', data: 'not json', id: null })).not.toThrow();
+    expect(() => handlers.onEvent({ type: 'snapshot', data: 'not json', id: null })).not.toThrow();
+    expect(() =>
+      handlers.onEvent({ type: 'pass', data: JSON.stringify('a string'), id: null }),
+    ).not.toThrow();
     expect(onPass).not.toHaveBeenCalled();
     expect(onSnapshot).not.toHaveBeenCalled();
   });
@@ -99,21 +75,25 @@ describe('openCollectionStream', () => {
     // cannot be established leaves the row waiting on a frame that never comes.
     const onOpen = vi.fn();
     const onError = vi.fn();
-    const { source } = openCollection({ onPass: vi.fn(), onOpen, onError });
+    const { handlers } = openCollection({ onPass: vi.fn(), onOpen, onError });
 
-    source.emit('open');
-    source.emit('error');
+    handlers.onOpen?.();
+    handlers.onError?.();
 
     expect(onOpen).toHaveBeenCalled();
     expect(onError).toHaveBeenCalled();
   });
 
-  it('closes the connection when told to', () => {
-    const { source, close } = openCollection({ onPass: vi.fn() });
+  it('opens the board endpoint and closes the connection when told to', () => {
+    const { close, open, stop } = openCollection({ onPass: vi.fn() });
 
     close();
 
-    expect(source.closed).toBe(true);
+    expect(open).toHaveBeenCalledWith(
+      '/api/fares/collect/stream',
+      expect.objectContaining({ onEvent: expect.any(Function) }),
+    );
+    expect(stop).toHaveBeenCalledOnce();
   });
 });
 
@@ -122,19 +102,28 @@ describe('openHorizonStream', () => {
     // No `snapshot` event exists on this stream: a curve is one city pair and
     // two paced requests, so there is no halfway point one could describe.
     const onPass = vi.fn();
-    let source!: FakeSource;
+    let handlers!: EventStreamHandlers;
+    const open = vi.fn((_: string, next: EventStreamHandlers) => {
+      handlers = next;
+      return vi.fn();
+    });
     openHorizonStream({
       onPass,
-      create: (url) => {
-        source = new FakeSource(url);
-        return source as unknown as EventSource;
-      },
+      open,
     });
 
-    source.emit('pass', JSON.stringify({ state: 'finished', watching: ['LIM-SCL'] }));
-    source.emit('snapshot', JSON.stringify({ origin: 'LIM' }));
+    handlers.onEvent({
+      type: 'pass',
+      data: JSON.stringify({ state: 'finished', watching: ['LIM-SCL'] }),
+      id: null,
+    });
+    handlers.onEvent({ type: 'snapshot', data: JSON.stringify({ origin: 'LIM' }), id: null });
 
     expect(onPass).toHaveBeenCalledTimes(1);
     expect(onPass).toHaveBeenCalledWith(expect.objectContaining({ state: 'finished' }));
+    expect(open).toHaveBeenCalledWith(
+      '/api/fares/calendar/collect/stream',
+      expect.objectContaining({ onEvent: expect.any(Function) }),
+    );
   });
 });

@@ -1,12 +1,7 @@
-"""
-The test the whole feature rests on.
-
-If a route can be added without a session being required, everything else here
-is decoration, so the first test below is driven off the app's own route table
-rather than a list anybody has to remember to update.
-"""
+"""Every private route shares the same header-only Supabase JWT gate."""
 
 import re
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -16,49 +11,41 @@ from starlette.requests import Request
 
 from app import auth
 from app.main import app
-from app.services import auth_store
+from app.services.supabase_jwt import AuthenticatedUser, SupabaseTokenError
 
 client = TestClient(app)
 
-# The one file that must not be handed a session: everything here is about
-# what happens without one. `tests/conftest.py` gives every other request a
-# real token, which is what keeps the rest of the suite honest rather than
-# overriding the dependency.
 pytestmark = pytest.mark.unauthenticated
 
-# The four Server-Sent Events routes, which are the only ones allowed to carry
-# the token in the query string. Written out here as well as in `app/auth.py`
-# so the two have to agree — see `test_the_stream_exception_matches_the_route_table`.
-STREAM_PATHS = {
-    "/api/market/stream",
-    "/api/fares/collect/stream",
-    "/api/fares/calendar/collect/stream",
-    "/api/tweets/{handle}/stream",
-}
-
-# The `/api/auth/*` routes that answer without a session, because they are how
-# a session is obtained. `test_every_non_auth_route_is_gated` has to skip this
-# whole prefix on their account, which leaves the router's authenticated routes
-# — `session`, `logout` and `enrolment-code` — checked by nothing. Naming the
-# open four instead of the closed three is what makes
-# `test_every_other_auth_route_needs_a_session` fail closed: a route added to
-# that router and forgotten is refused by this list rather than skipped by it.
-OPEN_AUTH_PATHS = {
-    "/api/auth/register/options",
-    "/api/auth/register/verify",
-    "/api/auth/login/options",
-    "/api/auth/login/verify",
-}
+TOKEN = "test-supabase-access-token"
 
 
 @pytest.fixture
-def live_token():
-    return auth_store.create_session()
+def verified_user() -> AuthenticatedUser:
+    return AuthenticatedUser(user_id=UUID("11111111-1111-1111-1111-111111111111"))
+
+
+@pytest.fixture
+def configured_gate(monkeypatch, verified_user):
+    class TestVerifier:
+        def verify(self, token: str) -> AuthenticatedUser:
+            if token == TOKEN:
+                return verified_user
+            raise SupabaseTokenError()
+
+    monkeypatch.setattr(auth, "configured_verifier", lambda: TestVerifier())
 
 
 def _fill_params(path: str) -> str:
-    """Any value will do: the gate answers before a path parameter is looked at."""
     return re.sub(r"\{[^}]+\}", "placeholder", path)
+
+
+def _api_routes():
+    for route in iter_route_contexts(app.routes):
+        path = getattr(route, "path", "")
+        if not path.startswith("/api/"):
+            continue
+        yield route
 
 
 def _fake_request(headers: dict[str, str] | None = None, query: str = "") -> Request:
@@ -75,157 +62,64 @@ def _fake_request(headers: dict[str, str] | None = None, query: str = "") -> Req
     )
 
 
-def test_every_non_auth_route_is_gated():
-    """
-    Driven off the app's own route table rather than a hand-written list, so a
-    router added later cannot quietly arrive unprotected.
-    """
+def test_no_local_auth_routes_are_registered():
+    paths = {route.path for route in iter_route_contexts(app.routes)}
+
+    assert not any(path.startswith("/api/auth/") for path in paths)
+
+
+def test_every_api_route_uses_the_same_header_only_supabase_dependency():
     checked = 0
-    for route in iter_route_contexts(app.routes):
-        path = getattr(route, "path", "")
-        if not path.startswith("/api/") or path.startswith("/api/auth/"):
-            continue
-        for method in getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}:
-            response = client.request(method, _fill_params(path))
-            assert response.status_code == 401, f"{method} {path} answered without a session"
-            checked += 1
-    assert checked > 0, "the route table produced nothing to check"
+    for route in _api_routes():
+        calls = {dependency.call for dependency in route.dependant.dependencies}
+        assert auth.require_session in calls, route.path
+        checked += 1
+    assert checked > 0
 
 
-def test_every_other_auth_route_needs_a_session():
-    """
-    The other half of the route-table walk, for the prefix that one skips.
-
-    `enrolment-code` hands out a secret that authorises a new device, so it
-    being reachable without a session would undo the gate entirely: a stranger
-    could ask for a code and then enrol with it. It is on this router because
-    the routes it lives beside are the enrolment flow, and this router is
-    mounted without the gate — which is exactly why the route carries
-    `require_session` at its own decorator and why that has to be checked here.
-    """
+def test_every_api_route_refuses_a_query_string_token():
     checked = 0
-    for route in iter_route_contexts(app.routes):
-        path = getattr(route, "path", "")
-        if not path.startswith("/api/auth/") or path in OPEN_AUTH_PATHS:
-            continue
-        for method in getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}:
-            response = client.request(method, _fill_params(path))
-            assert response.status_code == 401, f"{method} {path} answered without a session"
+    for route in _api_routes():
+        for method in route.methods - {"HEAD", "OPTIONS"}:
+            response = client.request(method, f"{_fill_params(route.path)}?token={TOKEN}")
+            assert response.status_code == 401, f"{method} {route.path} accepted a query token"
             checked += 1
-    assert checked == 3, "expected session, logout and enrolment-code"
+    assert checked > 0
 
 
-def test_an_enrolment_code_is_issued_to_a_session_and_only_to_a_session(live_token):
-    """
-    Both directions in one place, because the pair is the whole feature: the
-    code is real for the owner and unreachable for anyone else.
-    """
-    assert client.post("/api/auth/enrolment-code").status_code == 401
+def test_header_token_is_accepted(configured_gate):
+    response = client.get("/api/kv/portfolio", headers={"Authorization": f"Bearer {TOKEN}"})
 
-    response = client.post(
-        "/api/auth/enrolment-code", headers={"Authorization": f"Bearer {live_token}"}
-    )
-    assert response.status_code == 200
-    assert auth_store.authorise_code(response.json()["code"]) is True
-
-
-def test_the_stream_exception_matches_the_route_table():
-    """
-    Both directions, so the exception cannot drift from the routes it describes.
-
-    A stream route added later and not registered would otherwise get the
-    header-only rule and simply never connect, with nothing failing here.
-    """
-    in_the_app = {
-        path
-        for route in iter_route_contexts(app.routes)
-        if (path := getattr(route, "path", "")).startswith("/api/") and path.endswith("/stream")
-    }
-    assert in_the_app == STREAM_PATHS
-    assert auth.STREAM_PATHS == STREAM_PATHS
-
-
-def test_header_token_is_accepted(live_token):
-    response = client.get("/api/kv/portfolio", headers={"Authorization": f"Bearer {live_token}"})
     assert response.status_code != 401
 
 
-def test_query_string_token_is_refused_outside_the_streams(live_token):
-    # The query-string shortcut exists because EventSource cannot set headers.
-    # It must not become a second, weaker way into the rest of the API.
-    response = client.get(f"/api/kv/portfolio?token={live_token}")
+def test_query_string_token_is_refused_even_on_a_stream():
+    response = client.get(f"/api/market/stream?symbols=&token={TOKEN}")
+
     assert response.status_code == 401
 
 
-def test_query_string_token_is_accepted_on_a_stream(live_token):
-    """
-    A 400, and it has to be, which is worth explaining rather than hiding.
+def test_require_session_returns_the_authenticated_user_from_the_verifier(
+    configured_gate, verified_user
+):
+    request = _fake_request(headers={"Authorization": f"Bearer {TOKEN}"})
 
-    An accepted SSE response never completes, and neither `TestClient` nor
-    httpx's ASGI transport hands back a status line before the body is done —
-    both were tried, and both hang. So the request is made in a way the
-    endpoint itself will refuse: an empty `symbols` list. Reaching that refusal
-    is the assertion. A 400 comes from `stream_quotes`' own validation, which
-    only runs once the gate has already let the request through, so it proves
-    the query-string token was accepted exactly as a 200 would.
-    """
-    response = client.get(f"/api/market/stream?symbols=&token={live_token}")
-    assert response.status_code == 400
+    assert auth.require_session(request) == verified_user
 
 
-def test_a_stream_without_any_token_is_still_refused(live_token):
-    """The other half: the shortcut is a way in with a token, not a way around one."""
-    assert client.get("/api/market/stream?symbols=").status_code == 401
-    assert client.get("/api/market/stream?symbols=&token=not-a-real-token").status_code == 401
-
-
-class TestTheTwoRulesDirectly:
-    """
-    The dependencies themselves, away from any route.
-
-    This is where the shortcut is pinned to the streams: the same request is
-    accepted by one rule and refused by the other, which is the fact the
-    routing above is arranging and not something it can demonstrate on its own.
-    """
-
-    def test_require_session_accepts_the_header(self, live_token):
-        request = _fake_request(headers={"Authorization": f"Bearer {live_token}"})
-        assert auth.require_session(request) is not None
-
-    def test_require_session_refuses_a_query_string_token(self, live_token):
-        request = _fake_request(query=f"token={live_token}")
+def test_require_session_has_one_unauthenticated_answer_for_invalid_credentials(configured_gate):
+    failures = []
+    for request in (
+        _fake_request(),
+        _fake_request(headers={"Authorization": "Basic credentials"}),
+        _fake_request(headers={"Authorization": "Bearer wrong-token"}),
+        _fake_request(query=f"token={TOKEN}"),
+    ):
         with pytest.raises(HTTPException) as raised:
             auth.require_session(request)
-        assert raised.value.status_code == 401
+        failures.append(raised.value)
 
-    def test_require_session_stream_accepts_a_query_string_token(self, live_token):
-        request = _fake_request(query=f"token={live_token}")
-        assert auth.require_session_stream(request) is not None
-
-    def test_require_session_stream_still_prefers_the_header(self, live_token):
-        request = _fake_request(
-            headers={"Authorization": f"Bearer {live_token}"}, query="token=rubbish"
-        )
-        assert auth.require_session_stream(request) is not None
-
-    def test_neither_rule_accepts_a_malformed_header(self, live_token):
-        for header in (f"Basic {live_token}", live_token, "Bearer", "Bearer "):
-            request = _fake_request(headers={"Authorization": header})
-            with pytest.raises(HTTPException):
-                auth.require_session(request)
-
-
-def test_health_is_gated():
-    """
-    Deliberate, and visible: the status indicator reads "API offline" while
-    signed out. Honest, and it leaks nothing — the login screen is what the
-    visitor sees anyway.
-    """
-    assert client.get("/api/health").status_code == 401
-
-
-def test_a_revoked_session_stops_working(live_token):
-    headers = {"Authorization": f"Bearer {live_token}"}
-    assert client.get("/api/kv/portfolio", headers=headers).status_code != 401
-    auth_store.revoke_session(live_token)
-    assert client.get("/api/kv/portfolio", headers=headers).status_code == 401
+    for error in failures:
+        assert error.status_code == 401
+        assert error.detail == "Not authenticated"
+        assert error.headers == {"WWW-Authenticate": "Bearer"}

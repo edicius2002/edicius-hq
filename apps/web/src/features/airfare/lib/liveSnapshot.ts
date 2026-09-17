@@ -47,7 +47,7 @@ export function withSnapshot(
   }
 
   const at = index(history.snapshots, snapshot);
-  // Already held. An `EventSource` replays from its last id after a reconnect,
+  // Already held. A reconnect can replay from its last id,
   // and the frame that follows a reconnect is routinely one already applied —
   // so this is the ordinary case rather than a guard against a bug. Returning
   // the same object rather than an equal one is what stops it costing a render.

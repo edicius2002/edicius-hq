@@ -7,13 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from app.adapters.streams import CompositeStream
-from app.auth import require_session_gate
+from app.auth import configured_verifier, require_session_gate
 from app.config import (
     CORS_ORIGINS,
     kv_dir,
     tweet_watch_on_start_enabled,
 )
-from app.routers import auth as auth_router
 from app.routers import codex_resets, fares, geography, health, kv, market, sentiment, tweets
 from app.routers.codex_resets import close_client as close_codex_resets_client
 from app.routers.fares import close_client as close_fares_client
@@ -45,6 +44,7 @@ async def lifespan(_app: FastAPI):
     # Validate all enabled cloud configuration before this process starts any
     # long-lived local services. Local mode returns immediately without reading
     # credentials, preserving the one-restart rollback path.
+    configured_verifier()
     configured_airfare_supabase()
     ensure_kv_dir()
     # One upstream socket for the whole process, however many tabs listen. It
@@ -123,20 +123,15 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # The gate, in one place. Every router below is included with it, so a router
 # added later is added next to a visible example and cannot arrive unprotected
-# — `tests/test_gate.py` walks this route table and insists on it. The four SSE
-# routes need the token in the query string and `require_session_gate` is what
-# decides that, for the reason its own docstring gives: a route-level
-# dependency can only add to a router-level one, never loosen it.
+# — `tests/test_gate.py` walks this route table and insists on it. Every route,
+# including Server-Sent Events, supplies its Supabase access token only through
+# the `Authorization: Bearer` header. A route-level dependency can only add to
+# this requirement; it can never create a query-string-token exception.
 #
 # `/api/health` is in here on purpose. Signed out, the status indicator reads
 # "API offline"; that is honest, it leaks nothing, and the login screen is what
 # an unauthenticated visitor sees anyway.
 GATED = [Depends(require_session_gate)]
-
-# The one router mounted open, because it is how a session is obtained in the
-# first place. Its own two authenticated routes carry `require_session` at
-# their decorators.
-app.include_router(auth_router.router)
 
 app.include_router(health.router, dependencies=GATED)
 app.include_router(kv.router, dependencies=GATED)

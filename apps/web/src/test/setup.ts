@@ -1,6 +1,15 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
+
+/*
+ * HTTP modules now obtain their bearer token from the Supabase adapter at
+ * import time. These deliberately fake public values let unit tests import
+ * those modules without ever contacting a hosted service; tests for missing
+ * configuration explicitly clear them before exercising that branch.
+ */
+vi.stubEnv('VITE_SUPABASE_URL', 'https://test-project.supabase.co');
+vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'test-publishable-key');
 
 /**
  * Testing Library unmounts between tests by itself only when Vitest's globals
@@ -80,27 +89,4 @@ if (typeof Blob !== 'undefined' && typeof Blob.prototype.text !== 'function') {
       reader.readAsText(this);
     });
   };
-}
-
-/**
- * jsdom has no `EventSource`, and the Investing page opens one for live prices
- * as soon as it mounts. A stub that never connects is the right stand-in: a
- * test that cares about the stream injects its own source, and every other test
- * only needs the page to render without reaching for the network.
- */
-if (typeof globalThis.EventSource === 'undefined') {
-  class EventSourceStub {
-    readonly url: string;
-    readonly readyState = 0;
-
-    constructor(url: string) {
-      this.url = url;
-    }
-
-    addEventListener() {}
-    removeEventListener() {}
-    close() {}
-  }
-
-  globalThis.EventSource = EventSourceStub as unknown as typeof EventSource;
 }

@@ -31,7 +31,7 @@ const PROGRESS_POLL_MS = 2_000;
  * How long a broken stream is given to come back before the row stops waiting.
  *
  * The board collection's window, for the board collection's reason: an
- * `EventSource` reconnects by itself at about three seconds, this covers two
+ * shared stream transport reconnects at about three seconds, this covers two
  * attempts, and what it protects against is a stream that cannot be
  * established at all. A row waiting on a frame that is never coming is a
  * spinner with no end — 8.8.
@@ -116,7 +116,7 @@ export function useHorizonCollection(): HorizonCollection {
    *
    * A ref rather than state: it is read by stream callbacks that outlive the
    * render which registered them. One stream serves all of them, because the
-   * server keeps one calendar slot and a second `EventSource` would carry the
+   * server keeps one calendar slot and a second stream would carry the
    * same frames twice.
    */
   const following = useRef<Map<string, FareRoute>>(new Map());

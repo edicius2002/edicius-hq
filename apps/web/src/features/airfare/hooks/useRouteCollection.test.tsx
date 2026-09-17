@@ -3,64 +3,64 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const auth = vi.hoisted(() => ({
+  clearLocalSession: vi.fn(),
+  getAccessToken: vi.fn(async () => null),
+}));
+
+vi.mock('@/shared/auth/supabaseAuth', () => auth);
+
+import type { CollectionStreamOptions } from '@/features/airfare/data/collectionStream';
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { NOTICE_LIFE_MS } from '@/features/airfare/lib/collectNotice';
-import type { FareHistoryResponse, FareSnapshot } from '@/shared/api/fares';
+import type { CollectResponse, FareHistoryResponse, FareSnapshot } from '@/shared/api/fares';
 import { queryWrapper } from '@/test/queryWrapper';
+
+type OpenedCollectionStream = {
+  options: CollectionStreamOptions;
+  closed: boolean;
+};
+
+const collectionStream = vi.hoisted(() => {
+  const opened: OpenedCollectionStream[] = [];
+  const open = vi.fn((options: CollectionStreamOptions) => {
+    const entry = { options, closed: false };
+    opened.push(entry);
+    return () => {
+      entry.closed = true;
+    };
+  });
+  return { open, opened };
+});
+
+vi.mock('@/features/airfare/data/collectionStream', () => ({
+  openCollectionStream: collectionStream.open,
+}));
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  FakeEventSource.opened = [];
+  collectionStream.open.mockClear();
+  collectionStream.opened.length = 0;
 });
 
 /**
- * The stream the rows follow a pass on — `a-pass-is-pushed-not-polled`.
- *
- * Installed as the global rather than injected through the hook's own seam,
- * because the seam a browser uses is the global and a test that bypassed it
- * would not be testing the thing that runs. `setup.ts` already puts an inert
- * `EventSource` in jsdom for pages that merely mount; this replaces it with one
- * a test can talk through.
+ * The injected collection opener makes pushed pass and snapshot frames explicit
+ * in a hook test, while transport framing stays covered by `eventStream.test`.
  */
-class FakeEventSource {
-  /** Every source opened in this test, oldest first. */
-  static opened: FakeEventSource[] = [];
-
-  readonly url: string;
-  closed = false;
-  private readonly listeners = new Map<string, (event: Event) => void>();
-
-  constructor(url: string) {
-    this.url = url;
-    FakeEventSource.opened.push(this);
-  }
-
-  addEventListener(type: string, handler: (event: Event) => void) {
-    this.listeners.set(type, handler);
-  }
-
-  removeEventListener(type: string) {
-    this.listeners.delete(type);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  /** A named frame, or a bare event where the browser sends no data. */
-  emit(type: string, data?: unknown) {
-    this.listeners.get(type)?.(
-      data === undefined ? new Event(type) : new MessageEvent(type, { data: JSON.stringify(data) }),
-    );
-  }
-}
-
-function streamed(): FakeEventSource {
-  const source = FakeEventSource.opened.at(-1);
-  if (!source) throw new Error('no stream was opened');
-  return source;
+function streamed(): OpenedCollectionStream & { emit: (type: string, data?: unknown) => void } {
+  const stream = collectionStream.opened.at(-1);
+  if (!stream) throw new Error('no stream was opened');
+  return {
+    ...stream,
+    emit(type, data) {
+      if (type === 'open') stream.options.onOpen?.();
+      if (type === 'error') stream.options.onError?.();
+      if (type === 'pass') stream.options.onPass(data as CollectResponse);
+      if (type === 'snapshot') stream.options.onSnapshot?.(data as FareSnapshot);
+    },
+  };
 }
 
 const LIM_CUZ: FareRoute = {
@@ -175,7 +175,6 @@ function stubCollect() {
  */
 function stubPassInProgress(started: unknown, progress: unknown[] = []) {
   const polls: number[] = [];
-  vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -418,7 +417,7 @@ describe('collecting one watched route from its own row', () => {
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
 
     await act(async () => {
       result.current.collect(LIM_CUZ, LIM_CUZ.months[0]);
@@ -438,7 +437,7 @@ describe('collecting one watched route from its own row', () => {
     expect(posts).toHaveLength(1);
     expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
     // And one stream, not five.
-    expect(FakeEventSource.opened).toHaveLength(1);
+    expect(collectionStream.opened).toHaveLength(1);
 
     await act(async () => {
       streamed().emit('pass', passOver(LIM_CUZ));
@@ -500,7 +499,7 @@ describe('collecting one watched route from its own row', () => {
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     // Still working, and the row says how far through rather than spinning.
     expect(result.current.collecting).toEqual([routeId(LIM_CUZ)]);
     expect(result.current.reports.get(routeId(LIM_CUZ))?.text).toContain('0 of 31');
@@ -536,7 +535,7 @@ describe('collecting one watched route from its own row', () => {
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     expect(result.current.progress.get(routeId(LIM_CUZ))).toEqual({
       completed: 0,
       polling: 31,
@@ -603,7 +602,7 @@ describe('collecting one watched route from its own row', () => {
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     await act(async () => {
       streamed().emit('pass', {
         ...passOver(LIM_CUZ),
@@ -655,7 +654,7 @@ describe('collecting one watched route from its own row', () => {
     });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     const before = client.getQueryData<FareHistoryResponse>(key)!.snapshots.length;
     const requestsBefore = vi.mocked(fetch).mock.calls.length;
 
@@ -693,7 +692,7 @@ describe('collecting one watched route from its own row', () => {
     });
 
     act(() => result.current.collect(march, '2027-03'));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     await act(async () => {
       streamed().emit('snapshot', snapshotOf(march, '2026-08-19T14:00:03+00:00', 350));
     });
@@ -724,7 +723,7 @@ describe('collecting one watched route from its own row', () => {
     });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     expect(client.getQueryState(['fares', 'spend'])?.isInvalidated).toBe(false);
 
     await act(async () => {
@@ -737,7 +736,7 @@ describe('collecting one watched route from its own row', () => {
   it('falls back to asking when the stream cannot be established', async () => {
     /*
      * The stream is an improvement on a poll that worked, so it must not be
-     * able to make a row worse than it was. An `EventSource` reconnects by
+     * able to make a row worse than it was. The shared transport reconnects by
      * itself, which covers a blip; what this covers is the other case — a
      * stream that never comes back, on a network where server-sent events do
      * not survive the trip. A row left waiting for a frame that is not coming
@@ -753,7 +752,7 @@ describe('collecting one watched route from its own row', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(FakeEventSource.opened).toHaveLength(1);
+      expect(collectionStream.opened).toHaveLength(1);
 
       await act(async () => {
         streamed().emit('error');
@@ -783,7 +782,7 @@ describe('collecting one watched route from its own row', () => {
   });
 
   it('keeps listening when a dropped connection comes back inside the grace', async () => {
-    // The reason there is a grace at all. `EventSource` reconnects by itself at
+    // The reason there is a grace at all. The shared transport reconnects at
     // about three seconds, so tearing the stream down on the first `error`
     // would give up liveness for the rest of a four-minute pass over a blip.
     vi.useFakeTimers();
@@ -823,11 +822,11 @@ describe('collecting one watched route from its own row', () => {
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
     act(() => result.current.collect(LIM_MAD, LIM_MAD.months[0]));
     await waitFor(() => expect(result.current.collecting).toHaveLength(2));
 
-    expect(FakeEventSource.opened).toHaveLength(1);
+    expect(collectionStream.opened).toHaveLength(1);
   });
 
   it('drops a row’s report when the row goes', async () => {
@@ -918,7 +917,7 @@ describe('the card a finished press leaves in the corner', () => {
     const { result } = renderHook(() => useRouteCollection(), { wrapper });
 
     act(() => result.current.collect(LIM_CUZ, LIM_CUZ.months[0]));
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(collectionStream.opened).toHaveLength(1));
 
     await act(async () => {
       streamed().emit('pass', foreign);

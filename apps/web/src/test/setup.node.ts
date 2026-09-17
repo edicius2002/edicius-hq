@@ -1,8 +1,10 @@
+import { vi } from 'vitest';
+
 /**
  * The node project's setup, and deliberately only this much of `setup.ts`.
  *
  * The rest of that file fills gaps jsdom has — `ResizeObserver`, `PointerEvent`,
- * `Blob.text`, `EventSource` — and none of it can even be evaluated here:
+ * `Blob.text` — and none of it can even be evaluated here:
  * `PointerEventStub extends MouseEvent` is a `ReferenceError` in node, because
  * the class body is evaluated inside the `typeof PointerEvent === 'undefined'`
  * branch, which node always enters. `afterEach(cleanup)` is Testing Library's
@@ -18,5 +20,8 @@
  * `setup.ts`: this becomes the value a test's own stub is restored *to*, so a
  * late write fails loudly instead of quietly succeeding against something real.
  */
+vi.stubEnv('VITE_SUPABASE_URL', 'https://test-project.supabase.co');
+vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'test-publishable-key');
+
 globalThis.fetch = () =>
   Promise.reject(new Error('fetch was called without a stub. Tests must not reach the network.'));

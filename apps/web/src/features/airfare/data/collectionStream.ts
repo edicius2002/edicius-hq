@@ -1,6 +1,5 @@
-import { getApiBaseUrl } from '@/shared/api/config';
 import type { CalendarCollectResponse, CollectResponse, FareSnapshot } from '@/shared/api/fares';
-import { withStreamToken } from '@/shared/auth/streamUrl';
+import { openApiEventStream } from '@/shared/api/eventStream';
 
 /**
  * A collection pass, pushed rather than asked for —
@@ -8,8 +7,8 @@ import { withStreamToken } from '@/shared/auth/streamUrl';
  *
  * The same arrangement as `data/quoteStream` and for the same reasons — plan
  * decision 8.19: server-sent events rather than a socket, because this
- * direction is the only one carrying anything and an `EventSource` reconnects
- * by itself. Nothing here names a provider (8.3).
+ * direction is the only one carrying anything and the shared transport
+ * reconnects it over authenticated fetch. Nothing here names a provider (8.3).
  *
  * **What it replaces.** A press starts a pass on the server and returns in
  * about seven milliseconds (12.210); the pass itself is minutes long, paced at
@@ -49,24 +48,16 @@ export type CollectionStreamOptions = {
   onSnapshot?: (snapshot: FareSnapshot) => void;
   onOpen?: () => void;
   onError?: () => void;
-  /** Injected in tests; the browser's own class otherwise. */
-  create?: (url: string) => EventSource;
+  /** Injected in tests; the shared authenticated transport otherwise. */
+  open?: typeof openApiEventStream;
 };
 
 export type HorizonStreamOptions = {
   onPass: (response: CalendarCollectResponse) => void;
   onOpen?: () => void;
   onError?: () => void;
-  create?: (url: string) => EventSource;
+  open?: typeof openApiEventStream;
 };
-
-export function collectionStreamUrl(): string {
-  return `${getApiBaseUrl()}/api/fares/collect/stream`;
-}
-
-export function horizonStreamUrl(): string {
-  return `${getApiBaseUrl()}/api/fares/calendar/collect/stream`;
-}
 
 /**
  * Reads one JSON frame, or ignores it.
@@ -76,9 +67,9 @@ export function horizonStreamUrl(): string {
  * happens when the pass ends, so it must never be able to break either — the
  * same rule `quoteStream` states about its own batches.
  */
-function readFrame<T>(event: Event, apply: (value: T) => void): void {
+function readFrame<T>(data: string, apply: (value: T) => void): void {
   try {
-    const value = JSON.parse((event as MessageEvent<string>).data) as T;
+    const value = JSON.parse(data) as T;
     if (value && typeof value === 'object') apply(value);
   } catch {
     // Deliberately silent. See above.
@@ -94,17 +85,16 @@ function readFrame<T>(event: Event, apply: (value: T) => void): void {
  * at once instead of sitting silent for twenty seconds.
  */
 export function openCollectionStream(options: CollectionStreamOptions): () => void {
-  const create = options.create ?? ((url: string) => new EventSource(url));
-  const source = create(withStreamToken(collectionStreamUrl()));
-
-  source.addEventListener('open', () => options.onOpen?.());
-  source.addEventListener('pass', (event) => readFrame<CollectResponse>(event, options.onPass));
-  source.addEventListener('snapshot', (event) =>
-    readFrame<FareSnapshot>(event, (snapshot) => options.onSnapshot?.(snapshot)),
-  );
-  source.addEventListener('error', () => options.onError?.());
-
-  return () => source.close();
+  return (options.open ?? openApiEventStream)('/api/fares/collect/stream', {
+    onOpen: options.onOpen,
+    onError: options.onError,
+    onEvent(event) {
+      if (event.type === 'pass') readFrame<CollectResponse>(event.data, options.onPass);
+      if (event.type === 'snapshot') {
+        readFrame<FareSnapshot>(event.data, (snapshot) => options.onSnapshot?.(snapshot));
+      }
+    },
+  });
 }
 
 /**
@@ -116,14 +106,11 @@ export function openCollectionStream(options: CollectionStreamOptions): () => vo
  * what the two-second poll was asking, and one `pass` frame answers it.
  */
 export function openHorizonStream(options: HorizonStreamOptions): () => void {
-  const create = options.create ?? ((url: string) => new EventSource(url));
-  const source = create(withStreamToken(horizonStreamUrl()));
-
-  source.addEventListener('open', () => options.onOpen?.());
-  source.addEventListener('pass', (event) =>
-    readFrame<CalendarCollectResponse>(event, options.onPass),
-  );
-  source.addEventListener('error', () => options.onError?.());
-
-  return () => source.close();
+  return (options.open ?? openApiEventStream)('/api/fares/calendar/collect/stream', {
+    onOpen: options.onOpen,
+    onError: options.onError,
+    onEvent(event) {
+      if (event.type === 'pass') readFrame<CalendarCollectResponse>(event.data, options.onPass);
+    },
+  });
 }

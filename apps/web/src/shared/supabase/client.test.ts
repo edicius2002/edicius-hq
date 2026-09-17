@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { clientSentinel, createClientMock } = vi.hoisted(() => ({
   clientSentinel: {},
@@ -23,6 +23,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   createClientMock.mockReset();
+});
+
+beforeEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('the browser Supabase client', () => {

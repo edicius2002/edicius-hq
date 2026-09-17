@@ -2,19 +2,25 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const auth = vi.hoisted(() => ({
+  clearLocalSession: vi.fn(),
+  getAccessToken: vi.fn(),
+}));
+
+vi.mock('@/shared/auth/supabaseAuth', () => auth);
+
 import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
-import { clearToken, writeToken } from '@/shared/auth/session';
 
 describe('RouteTransfer', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    clearToken();
+    vi.clearAllMocks();
   });
 
   it('downloads the authenticated gzip export with the server filename', async () => {
     const user = userEvent.setup();
-    writeToken('airfare-session');
+    auth.getAccessToken.mockResolvedValue('airfare-session');
     const fetch = vi.fn(
       async () =>
         new Response(new Uint8Array([0x1f, 0x8b]), {
@@ -54,7 +60,7 @@ describe('RouteTransfer', () => {
 
   it('posts the selected watch export and says how every imported row was handled', async () => {
     const user = userEvent.setup();
-    writeToken('airfare-session');
+    auth.getAccessToken.mockResolvedValue('airfare-session');
     const fetch = vi.fn(async () =>
       Response.json({
         routesAdded: 1,

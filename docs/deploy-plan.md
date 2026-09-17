@@ -218,23 +218,12 @@ sounds, and being specific about that is what makes the risk assessable:
   tailnet — which is why `authorise_code` charging a miss, and killing the code after
   five, stops being an implementation detail and becomes part of the perimeter.
 
-**The SSE query-string token stays sound, and this is the transport change that would
-have broken it if it were going to.** The four Server-Sent Events routes accept the
-session token in a query string because `EventSource` cannot set request headers, and
-`services/api/app/auth.py` records that this is defensible only while TLS terminates on
-the owner's own machine. Funnel does terminate there — the ingress forwards an
-undecrypted stream to `tailscaled`, which holds the cert — so the token is not written
-into anybody else's logs and the decision holds unchanged. The note in `auth.py` already
-names Funnel among the transports where it is fine and Cloudflare, ngrok and a Vercel
-rewrite as the ones where it is not; that list is correct as written and nothing here
-moves the API onto any of the three. `apps/web/src/shared/auth/streamUrl.ts` carries the
-same note at the one place every `EventSource` URL is built, and its wording — "there is
-no intermediary here: `tailscale serve --https` terminates TLS on the owner's own
-machine" — is still true under Funnel, because the sentence turns on where TLS
-terminates and not on which of the two commands published the mapping. What Funnel does
-change about those four routes is who may attempt them, which is the same thing it
-changes about every other route: a stranger can now open the URL and gets the single 401
-`auth.py` answers everything with.
+**Superseded SSE transport note — do not use query-token URLs.** The former
+`EventSource` design placed a session token in `?token=` because it could not set request
+headers. Current SSE uses authenticated fetch streaming: every request sends the
+Supabase access token in `Authorization: Bearer`. A JWT must never appear in a query
+string or any stream URL, regardless of whether traffic reaches the PC through Serve or
+Funnel. A caller without a valid header receives the API's uniform 401.
 
 **Serving the SPA from the `ts.net` host instead, and why it was not chosen.** Funnel
 can carry more than one handler: the web bundle on `/` and the API under `/api` would
@@ -710,8 +699,9 @@ before enabling this rather than after.
 **Funnel changes one line of the above and not the rest.** The traffic still terminates
 on the owner's machine: Tailscale's Funnel ingress forwards the TLS stream without
 holding a key for it, and `tailscaled` on the home PC decrypts. So "no third party sees
-request contents" survives the switch, and so does the SSE query-string token that
-depends on it. What Funnel adds is that the machine's `ts.net` name goes into public
+request contents" survives the switch. SSE authentication is unchanged too: authenticated
+fetch streaming sends `Authorization: Bearer`, never a JWT or `?token=` URL. What Funnel
+adds is that the machine's `ts.net` name goes into public
 DNS as well as into the CT logs it was already in — the name was already a public,
 searchable string, and it becomes a resolvable one. It also adds Tailscale's ingress to
 the metadata list: connection times and traffic volumes for the requests that arrive

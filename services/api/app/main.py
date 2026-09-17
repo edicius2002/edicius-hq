@@ -13,7 +13,6 @@ from app.config import (
     kv_dir,
     tweet_watch_on_start_enabled,
 )
-from app.routers import auth as auth_router
 from app.routers import codex_resets, fares, geography, health, kv, market, sentiment, tweets
 from app.routers.codex_resets import close_client as close_codex_resets_client
 from app.routers.fares import close_client as close_fares_client
@@ -133,11 +132,6 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 # "API offline"; that is honest, it leaks nothing, and the login screen is what
 # an unauthenticated visitor sees anyway.
 GATED = [Depends(require_session_gate)]
-
-# The one router mounted open, because it is how a session is obtained in the
-# first place. Its own two authenticated routes carry `require_session` at
-# their decorators.
-app.include_router(auth_router.router)
 
 app.include_router(health.router, dependencies=GATED)
 app.include_router(kv.router, dependencies=GATED)

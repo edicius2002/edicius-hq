@@ -17,12 +17,6 @@ client = TestClient(app)
 
 pytestmark = pytest.mark.unauthenticated
 
-OPEN_AUTH_PATHS = {
-    "/api/auth/register/options",
-    "/api/auth/register/verify",
-    "/api/auth/login/options",
-    "/api/auth/login/verify",
-}
 TOKEN = "test-supabase-access-token"
 
 
@@ -46,10 +40,10 @@ def _fill_params(path: str) -> str:
     return re.sub(r"\{[^}]+\}", "placeholder", path)
 
 
-def _private_routes():
+def _api_routes():
     for route in iter_route_contexts(app.routes):
         path = getattr(route, "path", "")
-        if not path.startswith("/api/") or path in OPEN_AUTH_PATHS:
+        if not path.startswith("/api/"):
             continue
         yield route
 
@@ -68,18 +62,24 @@ def _fake_request(headers: dict[str, str] | None = None, query: str = "") -> Req
     )
 
 
-def test_every_private_route_uses_the_same_header_only_dependency():
+def test_no_local_auth_routes_are_registered():
+    paths = {route.path for route in iter_route_contexts(app.routes)}
+
+    assert not any(path.startswith("/api/auth/") for path in paths)
+
+
+def test_every_api_route_uses_the_same_header_only_supabase_dependency():
     checked = 0
-    for route in _private_routes():
+    for route in _api_routes():
         calls = {dependency.call for dependency in route.dependant.dependencies}
         assert auth.require_session in calls, route.path
         checked += 1
     assert checked > 0
 
 
-def test_every_private_route_refuses_a_query_string_token():
+def test_every_api_route_refuses_a_query_string_token():
     checked = 0
-    for route in _private_routes():
+    for route in _api_routes():
         for method in route.methods - {"HEAD", "OPTIONS"}:
             response = client.request(method, f"{_fill_params(route.path)}?token={TOKEN}")
             assert response.status_code == 401, f"{method} {route.path} accepted a query token"

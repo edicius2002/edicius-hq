@@ -19,21 +19,22 @@ from uuid import UUID
 
 import pytest
 
+TEST_SUPABASE_TOKEN = "test-supabase-access-token"
+
 
 @pytest.fixture(autouse=True)
 def _isolated_api_verifier(monkeypatch):
-    """Keep legacy test credentials out of the production JWKS verifier."""
+    """Keep test credentials out of the production JWKS verifier."""
     from app import auth
-    from app.services import auth_store
     from app.services.supabase_jwt import AuthenticatedUser, SupabaseTokenError
 
-    class TestSessionVerifier:
+    class TestSupabaseVerifier:
         def verify(self, token: str) -> AuthenticatedUser:
-            if auth_store.resolve_session(token) is None:
+            if token != TEST_SUPABASE_TOKEN:
                 raise SupabaseTokenError()
             return AuthenticatedUser(user_id=UUID("11111111-1111-1111-1111-111111111111"))
 
-    verifier = TestSessionVerifier()
+    verifier = TestSupabaseVerifier()
     monkeypatch.setattr(auth, "configured_verifier", lambda: verifier)
 
 
@@ -68,37 +69,26 @@ def _unpaced_between_tests():
 
 
 @pytest.fixture(autouse=True)
-def _a_session_on_every_request(request, _own_data_directory, monkeypatch):
+def _a_bearer_token_on_every_request(request, _own_data_directory, monkeypatch):
     """
-    Every route needs a session now, so every `TestClient` request carries one.
+    Every route needs a Supabase bearer token now, so every `TestClient` request carries one.
 
-    The production gate is strict JWT verification. This legacy opaque token
-    exists only for remaining local-auth tests, and `_isolated_api_verifier`
-    resolves it at the `configured_verifier` seam before it could reach a
+    The production gate is strict JWT verification. The test verifier accepts
+    this fixed token at its configured-verifier seam, so no request reaches a
     hosted JWKS endpoint. A test that means to arrive unauthenticated says so
     with `pytest.mark.unauthenticated`.
-
-    The session is created per request rather than once per test on purpose.
-    Several tests repoint `LOCAL_DATA_DIR` inside the test body (`test_kv` is
-    the clearest), and a token minted before that move would be written into
-    the directory the test just stopped using — so the gate would refuse a
-    session this fixture had genuinely created, which is a confusing failure to
-    debug for no gain. Minting at request time means the token always lands in
-    whatever directory the request itself is about to read.
     """
     if request.node.get_closest_marker("unauthenticated"):
         return
 
     from starlette.testclient import TestClient
 
-    from app.services import auth_store
-
     original = TestClient.request
 
-    def request_with_a_session(self, method, url, **kwargs):
+    def request_with_a_bearer_token(self, method, url, **kwargs):
         headers = dict(kwargs.pop("headers", None) or {})
         if not any(name.lower() == "authorization" for name in headers):
-            headers["Authorization"] = f"Bearer {auth_store.create_session()}"
+            headers["Authorization"] = f"Bearer {TEST_SUPABASE_TOKEN}"
         return original(self, method, url, headers=headers, **kwargs)
 
-    monkeypatch.setattr(TestClient, "request", request_with_a_session)
+    monkeypatch.setattr(TestClient, "request", request_with_a_bearer_token)

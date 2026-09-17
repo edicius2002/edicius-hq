@@ -23,10 +23,26 @@ def test_kv_round_trip(tmp_path, monkeypatch) -> None:
     assert client.get("/api/kv/prefs").status_code == 404
 
 
-def test_kv_rejects_unknown_key(tmp_path, monkeypatch) -> None:
+def test_kv_hides_unknown_key(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
     response = client.put("/api/kv/not-allowed", json={"value": 1})
-    assert response.status_code == 400
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("key", ("finance", "finance-camera-views"))
+def test_retired_finance_documents_are_hidden_from_authenticated_requests(
+    key, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
+    document = tmp_path / "kv" / f"{key}.json"
+    document.parent.mkdir(parents=True)
+    document.write_text('{"private": true}', encoding="utf-8")
+
+    response = client.get(
+        f"/api/kv/{key}", headers={"Authorization": "Bearer test-supabase-access-token"}
+    )
+
+    assert response.status_code == 404
 
 
 class TestTheWriteIsDurable:
@@ -42,7 +58,7 @@ class TestTheWriteIsDurable:
     def test_a_failed_write_leaves_the_previous_document_whole(self, monkeypatch, tmp_path):
         monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
         kv_store.ensure_kv_dir()
-        kv_store.put_value("finance", {"diagrams": ["the real one"]})
+        kv_store.put_value("prefs", {"diagrams": ["the real one"]})
 
         # Something goes wrong after the bytes are written and before they land.
         def explode(*_args, **_kwargs):
@@ -51,20 +67,20 @@ class TestTheWriteIsDurable:
         monkeypatch.setattr(kv_store.os, "replace", explode)
 
         with pytest.raises(OSError):
-            kv_store.put_value("finance", {"diagrams": ["the replacement"]})
+            kv_store.put_value("prefs", {"diagrams": ["the replacement"]})
 
-        assert kv_store.get_value("finance") == {"diagrams": ["the real one"]}
+        assert kv_store.get_value("prefs") == {"diagrams": ["the real one"]}
 
     def test_a_failed_write_leaves_no_debris(self, monkeypatch, tmp_path):
         monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
         kv_store.ensure_kv_dir()
-        kv_store.put_value("finance", {"a": 1})
+        kv_store.put_value("prefs", {"a": 1})
 
         monkeypatch.setattr(
             kv_store.os, "replace", lambda *_a, **_k: (_ for _ in ()).throw(OSError("no"))
         )
         with pytest.raises(OSError):
-            kv_store.put_value("finance", {"a": 2})
+            kv_store.put_value("prefs", {"a": 2})
 
         assert list((tmp_path / "kv").glob("*.tmp")) == []
 
@@ -76,20 +92,20 @@ class TestTheWriteIsDurable:
         """
         monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
         kv_store.ensure_kv_dir()
-        kv_store.put_value("finance", {"nodes": 24})
+        kv_store.put_value("prefs", {"nodes": 24})
 
         seen = {}
         real_replace = kv_store.os.replace
 
         def replace_but_look_first(src, dst):
-            seen["mid_write"] = kv_store.get_value("finance")
+            seen["mid_write"] = kv_store.get_value("prefs")
             return real_replace(src, dst)
 
         monkeypatch.setattr(kv_store.os, "replace", replace_but_look_first)
-        kv_store.put_value("finance", {"nodes": 25})
+        kv_store.put_value("prefs", {"nodes": 25})
 
         assert seen["mid_write"] == {"nodes": 24}
-        assert kv_store.get_value("finance") == {"nodes": 25}
+        assert kv_store.get_value("prefs") == {"nodes": 25}
 
     def test_it_still_round_trips_normally(self, monkeypatch, tmp_path):
         monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))

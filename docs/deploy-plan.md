@@ -475,12 +475,17 @@ URLs copied into notes, and terminal output. Use an administrative process envir
 only; it must contain `SUPABASE_URL` and the existing administrative secret key.
 
 The reviewed command below keeps the generated response in memory, copies only the
-one-time action link to the local clipboard, prints only a UUID, and removes the email
-environment variable immediately. Do not open the clipboard link yet.
+one-time action link to the local clipboard, prints only a UUID, and uses `finally` to
+remove the email and bootstrap response on every path. `$ownerId` survives only a
+successful ceremony-preparation path, so later importer commands can use the UUID
+without retaining the email or action link. Do not open the clipboard link yet.
 
 ```powershell
-$env:SUPABASE_OWNER_EMAIL = Read-Host 'Owner email for the one-time bootstrap'
-$bootstrap = node --input-type=module -e @'
+$ownerId = $null
+$bootstrapSucceeded = $false
+try {
+  $env:SUPABASE_OWNER_EMAIL = Read-Host 'Owner email for the one-time bootstrap'
+  $bootstrap = node --input-type=module -e @'
 import { createClient } from '@supabase/supabase-js';
 const client = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false, experimental: { passkey: true } },
@@ -493,16 +498,30 @@ const { data, error } = await client.auth.admin.generateLink({
 if (error) throw error;
 process.stdout.write(JSON.stringify({ ownerId: data.user.id, actionLink: data.properties.action_link }));
 '@ | ConvertFrom-Json
-$bootstrap.actionLink | Set-Clipboard
-$ownerId = [guid]::Parse($bootstrap.ownerId).ToString()
-Remove-Item Env:SUPABASE_OWNER_EMAIL
-Write-Host "Owner UUID: $ownerId; bootstrap link copied to clipboard"
+  if ($LASTEXITCODE -ne 0) { throw 'One-time bootstrap link generation failed.' }
+  if (
+    $null -eq $bootstrap -or
+    [string]::IsNullOrWhiteSpace([string]$bootstrap.ownerId) -or
+    [string]::IsNullOrWhiteSpace([string]$bootstrap.actionLink)
+  ) {
+    throw 'One-time bootstrap response is incomplete.'
+  }
+  $bootstrap.actionLink | Set-Clipboard
+  $ownerId = [guid]::Parse([string]$bootstrap.ownerId).ToString()
+  Write-Host "Owner UUID: $ownerId; bootstrap link copied to clipboard"
+  $bootstrapSucceeded = $true
+} finally {
+  Remove-Item Env:SUPABASE_OWNER_EMAIL -ErrorAction SilentlyContinue
+  Remove-Variable bootstrap -ErrorAction SilentlyContinue
+  if (-not $bootstrapSucceeded) { $ownerId = $null }
+}
 ```
 
 Treat the UUID as sensitive operational metadata even though it is permitted in the
 sanitized results. Do not echo `$bootstrap`, inspect it with a formatter, or save it.
-`Remove-Item Env:` removes a process environment variable; it does not authorize local
-file deletion.
+Do not continue to the importer unless `$bootstrapSucceeded` is true and `$ownerId` is
+nonempty. `Remove-Item Env:` removes a process environment variable; it does not
+authorize local-file deletion.
 
 ### 4. Preserve source evidence and import without overwriting
 

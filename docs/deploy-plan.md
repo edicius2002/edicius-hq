@@ -1,13 +1,24 @@
-# Deploy plan: frontend on Vercel; passkey-gated API stays home
+# Deploy plan: Vercel frontend, Supabase Auth and Finance, home API
 
-Decided 2026-09-03 and built since: the Vercel deployment is live, the passkey gate is
-on every `/api` route except the four register/login ceremony endpoints, and both transports the API can be published on are commands in
-this repository. What remains unverified is listed under Operational evidence and nowhere else.
-This document is still the reasoning and not only the runbook, so a later session can
-change it without re-deriving why it is shaped this way. Supersedes the original step 7
-shape in `IMPLEMENTATION_PLAN.md` §51 ("Cloud: Supabase Auth (magic link), RLS,
-deploy"): that assumed multi-user cloud auth, this is single-user personal access
-instead.
+The current deployment model is one system, not a transition between two authentication
+systems. `apps/web` is a Vercel-hosted SPA. Supabase Auth issues the browser session;
+the signed-out UI exposes only passkey sign-in, and committed configuration disables
+both project-wide and email self-service signup. The one owner bootstrap is an
+administrator-only, one-time `auth.admin.generateLink` action, followed by passkey
+enrolment at the stable Vercel origin.
+
+`services/api` remains on the owner's PC and Tailscale carries its traffic. Every
+`/api` route, including streams and health, accepts only a Supabase-issued JWT in an
+`Authorization: Bearer` header; FastAPI validates it locally against the configured
+issuer and JWKS. There are no home-PC authentication routes, local session store,
+credential store, WebAuthn ceremony, cookie session, or query-token URL. Finance is a
+direct browser-to-Supabase store protected by RLS; the home API is not its routine
+document store. Airfare remains a home-PC service with an indexed Supabase read
+replica. What remains unverified is listed under Operational evidence and nowhere else.
+
+This document is the operational reasoning and runbook for that model, so a later
+session can change it without re-deriving why it is shaped this way. The older
+PC-authentication design is superseded, not a live fallback.
 
 Revised the same day. The first draft of this document argued for Cloudflare Tunnel
 plus Cloudflare Access; that mechanism was ruled out before anything was built, and
@@ -28,18 +39,18 @@ was chosen to. The reasoning is in "Who can reach the API" and in Operational ev
   Flights and X are reached by `services/api` running on the home PC, from a
   residential address, and by nothing else. The next section is the evidence; the
   section after it lists what the invariant rules out.
-- **Access control is a passkey, and Tailscale carries the traffic.** It used to be
-  tailnet membership alone. Every `/api` route except the four register/login ceremony endpoints now requires a WebAuthn session, so the question "who may ask" is answered by the application and no longer
-  only by what can route to it. The Vercel URL itself stays publicly reachable and
-  serves the app shell to anyone who opens it; what they get is the login screen.
-  That is accepted, not overlooked: blocking the URL itself would need Vercel
-  Deployment Protection on a paid plan, and there is nothing behind it to reach.
-  Under Funnel the passkey is not one of two walls but the only one, which is why
-  turning Funnel on has an ordering attached to it rather than being a preference.
+- **Supabase Auth decides who may use the app; Tailscale carries API traffic.** The
+  browser obtains its Supabase session through a passkey, then sends the access token
+  to the home API in an `Authorization: Bearer` header. Under Serve, tailnet membership
+  is an additional network barrier. Under Funnel, the listener is public, so the
+  header-only Supabase JWT verifier is the API's access-control barrier. The Vercel URL
+  is publicly reachable and serves the app shell, but a visitor sees only the passkey
+  sign-in screen. Blocking the URL itself would require Vercel Deployment Protection
+  on a paid plan, and there is no private application data in the shell.
 - **Airfare collection stays home; Supabase is only its indexed read replica.** The
   residential PC retains Google Flights collection and the durable local archive.
-  Browser traffic still reaches only this passkey-gated API: Supabase is not a
-  collector, browser endpoint, or authentication replacement. See
+  Browser-to-Supabase access is limited to Finance. Airfare continues to use the
+  authenticated home API; Supabase is not an Airfare collector. See
   [ADR 0003](./ADRs/0003-airfare-supabase-read-store.md).
 
 ## Why the API doesn't move to a datacenter
@@ -99,9 +110,9 @@ session does not rediscover them as if they were open:
 
 ## Who can reach the API
 
-**Tailscale carries the traffic; a passkey session decides who may ask.** Under Serve,
+**Tailscale carries the traffic; a Supabase JWT decides who may ask.** Under Serve,
 tailnet membership adds a network barrier. Under Funnel, the listener is public and
-the passkey is the only access-control barrier.
+the header-only Supabase JWT verifier is the API's access-control barrier.
 
 uvicorn binds `127.0.0.1:8000` in both modes (`scripts/api.mjs:74` and `:86`), the
 local `tailscaled` daemon proxies to that loopback address. Serve publishes the
@@ -109,29 +120,25 @@ hostname only to devices signed in to the owner's tailnet; Funnel publishes that
 hostname to the internet. The application gate is therefore required in both modes
 and is the only gate Funnel can rely on.
 
-**What changed is that it is no longer the only one.** Every route under `/api` except
-the four register/login ceremony endpoints requires a live WebAuthn session. The gate
-is applied once where the protected routers are included, while authenticated auth
-operations carry it on their decorators (`services/api/app/main.py`,
-`services/api/app/auth.py`, `services/api/app/routers/auth.py`). `/api/health` is
-gated with the rest, so the status indicator reads "API offline" while signed out —
+Every route under `/api` requires a live Supabase access token. The dependency is
+applied where the routers are included (`services/api/app/main.py`) and validates the
+configured issuer, audience and JWKS through `services/api/app/auth.py`. `/api/health`
+is gated with the rest, so the status indicator reads "API offline" while signed out —
 deliberate, and honest, since the API genuinely will not answer that visitor.
 
-**So the API is no longer safe by network alone, and that is the point.** The earlier
-version of this section argued that no authentication was correct because there was no
-anonymous caller to authenticate. That argument was sound for the shape it described
-and it is no longer the shape: the requirement changed to a link that stays public, and
-an API whose only defence is that nobody can route to it cannot survive its own
-transport being widened. It now survives that.
+**The API is not safe by network alone.** The public link requires an application-level
+identity check as well as whichever transport is selected. Supabase Auth owns the
+passkey ceremony and session lifecycle; the API receives neither a local credential nor
+a cookie. Its only credential input is the Bearer JWT.
 
-The inventory below is why any of this matters. It is unchanged from the first draft;
-only the mechanism that holds it is. Serve holds it behind both the tailnet and the
-passkey; Funnel holds it behind the passkey alone:
+The inventory below is why any of this matters. Serve holds it behind both the tailnet
+and the Supabase JWT; Funnel holds it behind the JWT alone:
 
 - `PUT /api/kv/{key}` and `DELETE /api/kv/{key}` (`services/api/app/routers/kv.py:25`
   and `:30`) — overwrite or delete the owner's stored state. The key allowlist in
   `config.py:5-20` bounds _which_ documents, not who may write them: `portfolio`,
-  `finance`, `alert-rules`, `airfare-routes`, `watchlist` and the rest.
+  `alert-rules`, `airfare-routes`, `watchlist` and the remaining legacy source keys.
+  Finance's routine browser store is Supabase, not this endpoint.
 - `POST /api/fares/collect` (`routers/fares.py:1088`) — start a collection pass, which
   drives a real Chromium on the home PC and spends requests against Google Flights
   from the residential address the whole shape exists to protect. An anonymous caller
@@ -158,21 +165,16 @@ the same mapping to the entire internet. The distinction is one word on a comman
 which is exactly why it belongs in the record rather than in somebody's memory — and
 why both words now live in `scripts/tailnet.mjs` rather than being typed from memory.
 
-It used to be that Funnel must never be run, because it would expose an API with no
-authentication at all. **Funnel is possible, and it is built.** The passkey gate is
-what makes it so. What replaced the prohibition is an ordering, and the ordering is
-still the thing to record: **the login has to be working, verified against a real
-enrolled device, before the transport is widened.** Running Funnel first would publish
-every write endpoint listed above to the internet for however long it took to notice.
+Funnel is possible because every API request is verified by the Supabase JWT gate.
+What replaces the former prohibition is an operational ordering: **the deployed
+Supabase passkey sign-in and Bearer-token API proof must succeed from a real enrolled
+device before the transport is widened.** Running Funnel first would publish every
+write endpoint listed above to the internet before that proof exists.
 
-That ordering is now checked and not only written down. `node scripts/tailnet.mjs
-funnel` refuses while no enrolled passkey has ever signed in, and it asks the store the
-precise question rather than the convenient one: `auth_store.add_credential` writes
-`last_used_at: null` and only a verified assertion fills it in, so a credential that
-was enrolled and never used does not satisfy it. That distinction is not theoretical —
-of the two credentials enrolled on 2026-09-03, one carried a `last_used_at` and one was
-still `null`. There is no flag to skip the check; the way past it is to enrol a device
-and sign in on it, which is the thing being asked for.
+`node scripts/tailnet.mjs funnel` configures Tailscale transport only. It does not read
+or maintain a PC credential/session store and it must not be treated as an
+authentication check. The Task 11 cutover runbook below records the independent
+passkey/JWT proof that authorizes widening the transport.
 
 **What Funnel actually changes, and what it does not.** It is a narrower change than it
 sounds, and being specific about that is what makes the risk assessable:
@@ -200,23 +202,21 @@ sounds, and being specific about that is what makes the risk assessable:
 - **`CORS_ORIGINS`.** Unchanged, and the reason is worth stating because it looks like
   it should change: the `ts.net` name is the API's own origin, the destination of the
   request, and never the `Origin` header on one. What the list holds is where the page
-  is served from, which is still Vercel. Verified over the tailnet on 2026-09-04:
-  `OPTIONS /api/auth/login/options` with `Origin: https://edicius-hq-web.vercel.app`
-  answered 200 with a matching `Access-Control-Allow-Origin`.
-- **`WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN`.** Unchanged, and this is the load-bearing
-  one. A passkey is bound to the origin the _page_ came from, not the one the API
-  answers on. Under Funnel the page still comes from Vercel, so both values stay
-  `edicius-hq-web.vercel.app`, and **every already-enrolled device keeps working with
-  no re-enrolment**. The alternative shape — serving the SPA from the `ts.net` host too
-  — would move them, and that is discussed under its own heading below because the
-  price is not small.
-- **Who can reach the write endpoints.** Everyone, subject to the passkey. This is the
-  cost and it is not mitigated by anything else: the inventory above answers the
-  internet, and `auth.py`'s single 401 for every failure mode is what a stranger gets.
-  `/api/auth/register/options` is one of the four routes open by necessity, so the
-  eight-character enrolment code is now guessable from anywhere rather than from the
-  tailnet — which is why `authorise_code` charging a miss, and killing the code after
-  five, stops being an implementation detail and becomes part of the perimeter.
+  is served from, which is still Vercel. Verify a preflight for a current protected API
+  route such as `/api/health` with the Vercel origin before widening transport.
+- **Supabase WebAuthn RP ID and origins.** These are load-bearing. A passkey is bound to
+  the origin the _page_ came from, not the API hostname. Under Funnel the page still
+  comes from Vercel, so `rp_id` remains `edicius-hq-web.vercel.app` and the sole origin
+  remains `https://edicius-hq-web.vercel.app`; every already-enrolled device therefore
+  keeps working without re-enrolment. The alternative shape — serving the SPA from the
+  `ts.net` host too — would move them, and that is discussed below because the price is
+  not small.
+- **Who can reach the write endpoints.** Everyone, subject to a valid Supabase JWT
+  obtained after passkey sign-in. This is the cost and it is not mitigated by anything
+  else: the inventory above answers the internet, and `auth.py`'s uniform 401 for an
+  absent or invalid Supabase JWT is what a stranger gets. Passkey enrolment occurs at
+  Supabase Auth after the owner uses the one-time administrative bootstrap link; it does
+  not expose a home-PC enrolment route.
 
 **Superseded SSE transport note — do not use query-token URLs.** The former
 `EventSource` design placed a session token in `?token=` because it could not set request
@@ -233,21 +233,20 @@ this document spent a paragraph on. It costs three things, and the first is deci
 for the problem actually being solved. **Every enrolled passkey stops working**: the RP
 ID would move from `edicius-hq-web.vercel.app` to `pc.tail80c91b.ts.net`, a credential
 enrolled under one RP ID is not offered under another, and both existing credentials
-would have to be re-enrolled from the PC's own keyboard — including the PC's own, and
-including a phone that cannot be enrolled until it can sign in. It is a one-way door in
-practice, because moving back refuses whatever was enrolled while it was moved. Second,
-the home PC would serve the bundle as well as the API, so the site would be down
+would have to be re-enrolled through a separately reviewed migration. It is a one-way
+door in practice, because moving back refuses whatever was enrolled while it was moved.
+Second, the home PC would serve the bundle as well as the API, so the site would be down
 whenever the machine is. Third, `VITE_API_URL` would move, and being read at build time
 that is a Vercel rebuild — or the end of the Vercel deployment altogether. Funnel over
-the existing split is a one-command change that re-enrols nothing; this is a migration.
-It is written down because it is the obvious next idea, not because it is wrong.
+the existing split is a one-command transport change that re-enrols nothing. It is
+written down because it is the obvious next idea, not because it is wrong.
 
 ## What the shape costs in latency
 
-Under the old shape every request went browser → localhost. Under this one it goes
-browser → Vercel edge for the bundle, then browser → tailnet → home PC → upstream and
-back the same way. The added leg is real and it is on the critical path of every API
-call, not just the first.
+For home-API data, the path is browser → Vercel edge for the bundle, then browser →
+tailnet → home PC → upstream and back the same way. The added leg is real and it is on
+the critical path of every API call, not just the first. Finance is different: its
+browser reads and writes go directly to Supabase under RLS, not through the home API.
 
 The added leg is also **variable in a way a tunnel's would not have been**, and that
 is the one thing about this shape worth understanding before any figure is quoted.
@@ -301,6 +300,17 @@ figure should be quoted for them until they do:
 
 ## What has to be true for this to work
 
+- **Supabase Auth is configured exactly for the production origin.**
+  `supabase/config.toml` keeps passkeys enabled with RP ID
+  `edicius-hq-web.vercel.app` and only
+  `https://edicius-hq-web.vercel.app` as an RP origin. It disables both global and
+  email self-service signup; the administrator-only one-time magic link is the sole
+  bootstrap exception. Run `npm run test:supabase-auth-config` before any reviewed
+  configuration push.
+- **The browser and API receive only their appropriate Supabase configuration.**
+  Vercel has `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; the home API has
+  only `SUPABASE_URL` for issuer/JWKS verification. No secret key belongs in the
+  browser, routine Finance runtime, or JWT verifier.
 - **`VITE_API_URL`** (read in `apps/web/src/shared/api/config.ts`) has to be set at
   Vercel build time to the API's `ts.net` hostname, not left to its
   `http://localhost:8000` default — that default resolves to _the visitor's own
@@ -354,7 +364,16 @@ figure should be quoted for them until they do:
 
 ## Sentiment upstream and cache
 
-`GET /api/sentiment` is covered by the same passkey gate as the other data routes. The API, not the browser, first requests CNN's public JSON at `https://production.dataviz.cnn.io/index/fearandgreed/graphdata`. If and only if CNN answers 403/418, it requests the public no-key mirror at `https://fearandgreedgraph.com/api/fear-greed`. Both adapters validate the complete aggregate-plus-seven-indicator document and write the same normalized snapshot atomically to `services/api/.local-data/sentiment/snapshot.json` (or the equivalent path below `LOCAL_DATA_DIR`). That file is a disposable market-data cache, not user state or an archive. The response source is `cnn` or `cnn-mirror`, and the latter is attributed in the page.
+`GET /api/sentiment` is covered by the same Supabase Bearer-JWT gate as the other API
+routes. The API, not the browser, first requests CNN's public JSON at
+`https://production.dataviz.cnn.io/index/fearandgreed/graphdata`. If and only if CNN
+answers 403/418, it requests the public no-key mirror at
+`https://fearandgreedgraph.com/api/fear-greed`. Both adapters validate the complete
+aggregate-plus-seven-indicator document and write the same normalized snapshot
+atomically to `services/api/.local-data/sentiment/snapshot.json` (or the equivalent
+path below `LOCAL_DATA_DIR`). That file is a disposable market-data cache, not user
+state or an archive. The response source is `cnn` or `cnn-mirror`, and the latter is
+attributed in the page.
 
 A snapshot is fresh for four hours. Concurrent misses share one upstream request. If a transient network, rate-limit, 5xx, 403 or 418 response prevents refresh, a valid snapshot younger than seven days is returned with `stale: true`; older, incomplete or malformed data is refused. No scheduled collector is needed: the first authenticated read after expiry refreshes it, and the web client does no background polling.
 
@@ -371,9 +390,10 @@ One command for the API, and one for the transport it is published on.
   the terminal; without it the command holds the foreground and the service stops when
   the window closes.
 - `npm run tailnet:funnel` — publishes the same mapping to the public internet
-  (`tailscale funnel --bg --https=443 localhost:8000`), after refusing if no enrolled
-  passkey has ever signed in. This is the one command in the repository that makes
-  something reachable from outside the house, which is why it prints what it did.
+  (`tailscale funnel --bg --https=443 localhost:8000`). Run it only after the Task 11
+  deployed passkey and Bearer-JWT proof has succeeded. This is the one command in the
+  repository that makes something reachable from outside the house, which is why it
+  prints what it did.
 - `npm run tailnet:status` — prints the full `https://<machine>.<tailnet>.ts.net` URL
   and, on the same line, whether it says `(tailnet only)` or names a public one. That
   string is what `VITE_API_URL` is set from, and it is stable across restarts and
@@ -393,8 +413,8 @@ measured 2026-09-04, run against a mapping that was tailnet-only it exited 0 and
 than the public flag. The two-step is the one that cannot leave anything published
 halfway through.
 
-The full first-time setup, including the admin-console steps and the order to verify
-them in, lives in the implementation plan for this work rather than here.
+The Finance Supabase and passkey cutover runbook below is the authoritative first-time
+setup and verification order.
 
 ## Finance Supabase and passkey cutover runbook
 
@@ -449,12 +469,15 @@ the legacy signing secret or add HS256 support to its verifier.
 
 ### 2. Push the passkey configuration and Finance schema
 
-Read the reviewed `supabase/config.toml` before mutating the project: passkeys must be
-enabled, RP display name must be `Edicius HQ`, RP ID must be
-`edicius-hq-web.vercel.app`, and the origins list must contain only
-`https://edicius-hq-web.vercel.app`. With separate owner approval, run exactly:
+Read the reviewed `supabase/config.toml` before mutating the project. Run the local
+assertion first: it must confirm that global and email self-service signup are disabled,
+passkeys are enabled, the RP display name is `Edicius HQ`, the RP ID is
+`edicius-hq-web.vercel.app`, the origins list contains only
+`https://edicius-hq-web.vercel.app`, and the Site URL is the same production origin.
+With separate owner approval, run exactly:
 
 ```powershell
+npm run test:supabase-auth-config
 npx --yes supabase@2.105.0 config push --project-ref abndifkxpfppmllgxfnu
 npx --yes supabase@2.105.0 db push
 npx --yes supabase@2.105.0 migration list
@@ -565,12 +588,12 @@ It must not receive a secret for Finance or JWT verification. The pre-existing
 the importer; it is never a Vercel value, browser value, JWT-verification input, report
 field, or ordinary Finance runtime credential.
 
-Deploy the frontend and API atomically from the paired reviewed commit. This prevents a
-new Supabase JWT from reaching the old local-session gate, and prevents an old opaque
-session from reaching the new verifier. Before anyone opens the prepared link, verify
-the public UI has no email/password or bootstrap sign-in control: signed-out visitors
-may see only `Sign in with passkey`. The temporary bootstrap is available only through
-the owner-held one-time link, not an exposed route or normal UI.
+Deploy the frontend and API atomically from the paired reviewed commit. This keeps the
+browser's Supabase-session contract and the API's issuer/JWKS verifier in sync. Before
+anyone opens the prepared link, verify the public UI has no email/password or bootstrap
+sign-in control: signed-out visitors may see only `Sign in with passkey`. The temporary
+bootstrap is available only through the owner-held one-time link, not an exposed route
+or normal UI.
 
 ### 6. Enroll and prove the production passkey
 
@@ -1002,20 +1025,13 @@ names and connection times, and nothing about what was asked for.
   `/api/fares/calendar/collect/stream` and `/api/tweets/{handle}/stream`; the latter
   three are implemented in `routers/fares.py` and `routers/tweets.py` and use the same
   framing.
-- **Does the site work from a phone?** The transport is answered and measured; the
-  ceremony on the phone is the owner's report rather than a measurement here. The owner
-  tried to enrol a phone that had not joined the tailnet on 2026-09-04 and the attempt
-  answered `Failed to fetch` — not CORS and not the passkey, but the DNS lookup
-  described above. Funnel was turned on the next day and the public path was then
-  verified from this machine, forcing `curl --resolve` onto the Funnel ingress
-  addresses so MagicDNS could not answer instead: `GET /api/auth/session` returned
-  **401 through both ingress addresses** with a valid certificate in about 1.1s, and an
-  `OPTIONS /api/auth/login/options` carrying the Vercel origin returned 200 with a
-  matching `Access-Control-Allow-Origin`. That is the phone's exact path, taken from a
-  keyboard. The owner then reported the phone working. **What is still not measured
-  here is the WebAuthn ceremony itself** — the RP ID against a real platform
-  authenticator, the ten-minute code typed on a handset — which has been exercised by
-  the owner and by nothing this document can point at.
+- **Does the site work from a phone?** A device outside the tailnet needs Funnel's
+  public DNS path. Before accepting cutover, verify the current public path with a
+  signed-out `GET /api/health` (uniform 401), a CORS preflight to that current route
+  with `Origin: https://edicius-hq-web.vercel.app`, and the real Supabase passkey
+  ceremony at that stable origin. The final check is the owner sign-in with a platform
+  authenticator, followed by an authenticated API read carrying a Bearer token; record
+  only pass/fail and never a token, credential identifier, action link, or request URL.
 
 Four things that were open in earlier drafts are not open any more, recorded here so
 the change is visible rather than silent.
@@ -1024,14 +1040,12 @@ the change is visible rather than silent.
 invariant in "The shape": it does, and it may not run anywhere else. **Whether the
 tunnel supports WebSockets** was the wrong question, answered above.
 
-**What authenticates the API** is settled in code: a passkey session gates every
-`/api` route except the enrolment and login ceremony routes. Serve is tailnet-only;
-Funnel is public, so network membership is not authentication. The first draft's client-credentials paragraph — the
-cross-origin cookie change it wanted on `fetch` and on every `EventSource`, and the
-header key an `EventSource` cannot send — is deleted rather than deferred: no cookie
-crosses any origin under this shape, so none of it applies. (That paragraph was also
-wrong on its own terms. It said "both streams" for what are four `EventSource` call
-sites in three files, missing `apps/web/src/shared/api/tweets.ts:68`.)
+**What authenticates the API** is settled in code: every `/api` route requires a valid
+Supabase JWT in an `Authorization: Bearer` header. The browser gets that session through
+Supabase passkeys; FastAPI validates it against the configured issuer and JWKS. Serve
+is tailnet-only; Funnel is public, so network membership is not authentication. No
+cookie crosses an origin, no PC-backed auth endpoint exists, and authenticated streams
+use fetch streaming with the same Bearer header rather than a query-token URL.
 
 **Cloudflare Tunnel or ngrok** is answered with neither. Cloudflare Access was the
 first choice and it cannot be built here: Access protects a hostname inside a

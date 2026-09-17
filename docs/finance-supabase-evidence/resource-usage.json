@@ -1,0 +1,23 @@
+{
+  "observedAt": "2026-09-17",
+  "databaseSize": "114 MB",
+  "financeDocuments": {
+    "rowCount": 2,
+    "tableSize": "136 KB",
+    "indexSize": "16 KB",
+    "totalSize": "152 KB"
+  },
+  "storage": {
+    "bucketCount": 0,
+    "objectBytes": 0
+  },
+  "financeReadLatency": {
+    "samples": 5,
+    "totalMs": 857.2,
+    "averageMs": 171.4,
+    "medianMs": 130.5,
+    "maximumMs": 327.8
+  },
+  "monthlyEgress": "not recorded",
+  "monthlyApiRequests": "not recorded"
+}

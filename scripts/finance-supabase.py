@@ -284,11 +284,13 @@ def main(
     environment = os.environ if environ is None else environ
     source = args.source
     report_path = args.report
+    report_target_validated = report_path is None
     entries: list[dict[str, object]] = []
     exit_code = 1
     try:
         if report_path is not None:
             _validate_report_target(source, report_path)
+            report_target_validated = True
         documents = _load_documents(source)
         if args.dry_run:
             entries = [_entry(document, None, None) for document in documents]
@@ -324,7 +326,7 @@ def main(
         # command deliberately uses its exit status rather than diagnostics.
         exit_code = 1
     finally:
-        if report_path is not None:
+        if report_path is not None and report_target_validated:
             _write_report(report_path, entries)
     print(json.dumps(entries, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
     return exit_code

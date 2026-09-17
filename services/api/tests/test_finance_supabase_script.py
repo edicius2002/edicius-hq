@@ -372,6 +372,35 @@ def test_redirect_and_remote_errors_redact_secrets_from_the_report_and_stdout(tm
     assert "evil.example" not in rendered
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "finance.json",
+        "finance-camera-views.json",
+        pytest.param(
+            "FINANCE.JSON",
+            marks=pytest.mark.skipif(sys.platform != "win32", reason="Windows path case alias"),
+            id="windows-case-alias",
+        ),
+    ],
+)
+def test_rejected_source_report_target_leaves_both_documents_unchanged(tmp_path, capsys, filename):
+    """Catches a refused report target being atomically replaced in the finally block."""
+    script = load_script()
+    source = write_source(tmp_path)
+    original = {
+        source_filename: (source / source_filename).read_bytes()
+        for source_filename in ("finance.json", "finance-camera-views.json")
+    }
+
+    assert script.main(args(source, "dry-run", source / "." / filename), environ={}) == 1
+
+    assert decoded_output(capsys) == []
+    assert {
+        source_filename: (source / source_filename).read_bytes() for source_filename in original
+    } == original
+
+
 def test_report_is_atomically_replaced_and_contains_only_sanitized_entries(tmp_path, capsys):
     """Catches a report truncation or an accidental payload diagnostic."""
     script = load_script()

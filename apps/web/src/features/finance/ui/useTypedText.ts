@@ -10,7 +10,7 @@ export type TypedText = {
 /**
  * Hold what is being typed in the field itself, and tell the document after.
  *
- * Every edit in Finance reaches storage through `useStoredDocument`, which runs
+ * Every edit in Finance reaches storage through `useRemoteDocument`, which runs
  * it on a promise chain so that two edits started together cannot each build on
  * pre-write state. That serialisation is the point, but it means the new value
  * comes back a microtask *after* the keystroke that caused it — and a

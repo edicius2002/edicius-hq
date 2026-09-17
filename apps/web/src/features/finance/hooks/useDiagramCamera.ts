@@ -10,7 +10,7 @@ import {
   type FinanceCameraViews,
 } from '@/features/finance/lib/cameraViews';
 import type { DiagramId } from '@/features/finance/model/types';
-import { useStoredDocument } from '@/shared/storage/useStoredDocument';
+import { useRemoteDocument } from '@/features/finance/hooks/useRemoteDocument';
 
 /**
  * One camera per diagram, restored independently from the financial document.
@@ -20,7 +20,7 @@ import { useStoredDocument } from '@/shared/storage/useStoredDocument';
  * keeps the canvas at the pointer rather than waiting for storage.
  */
 export function useDiagramCamera(diagramId: DiagramId) {
-  const store = useStoredDocument<FinanceCameraViews>({
+  const store = useRemoteDocument<FinanceCameraViews>({
     key: FINANCE_CAMERA_VIEWS_KEY,
     normalize: normalizeFinanceCameraViews,
     placeholder: NO_FINANCE_CAMERA_VIEWS,
@@ -57,7 +57,7 @@ export function useDiagramCamera(diagramId: DiagramId) {
         if (next === current) return current;
 
         setRemembered((prev) => new Map(prev).set(diagramId, next));
-        void store.edit((views) => setFinanceCamera(views, diagramId, next));
+        void store.edit((views) => setFinanceCamera(views, diagramId, next)).catch(() => undefined);
         return next;
       });
     },

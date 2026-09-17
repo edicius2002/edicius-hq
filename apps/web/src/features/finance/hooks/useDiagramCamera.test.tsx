@@ -1,55 +1,74 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
-import { useState, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
+import { queryWrapper } from '@/test/queryWrapper';
+
+const remote = vi.hoisted(() => {
+  class RevisionConflict extends Error {
+    constructor() {
+      super('finance_revision_conflict');
+      this.name = 'FinanceRevisionConflict';
+    }
+  }
+
+  return { read: vi.fn(), write: vi.fn(), RevisionConflict };
+});
+
+vi.mock('@/features/finance/data/financeDocuments', () => ({
+  FinanceRevisionConflict: remote.RevisionConflict,
+  readFinanceDocument: remote.read,
+  writeFinanceDocument: remote.write,
+}));
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
+  remote.read.mockReset();
+  remote.write.mockReset();
 });
 
-function TestWrapper({ children }: { children: ReactNode }) {
-  const [client] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-      }),
+function stubCameraDocument() {
+  let stored: unknown = { version: 1, cameras: { cash: { x: -120, y: 48, zoom: 1.2 } } };
+  let revision = 3;
+  const writes: { key: string; payload: unknown; expectedRevision: number }[] = [];
+
+  remote.read.mockImplementation(async (key: string) => {
+    if (key !== 'finance-camera-views') throw new Error(`Unexpected Finance document key: ${key}`);
+    return { payload: structuredClone(stored), revision, updatedAt: '2026-09-16T12:00:00.000Z' };
+  });
+  remote.write.mockImplementation(
+    async (key: string, payload: unknown, expectedRevision: number) => {
+      if (key !== 'finance-camera-views')
+        throw new Error(`Unexpected Finance document key: ${key}`);
+      if (expectedRevision !== revision) throw new remote.RevisionConflict();
+
+      stored = structuredClone(payload);
+      revision += 1;
+      writes.push({ key, payload: structuredClone(payload), expectedRevision });
+      return { payload: structuredClone(stored), revision, updatedAt: '2026-09-16T12:00:00.000Z' };
+    },
   );
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+
+  return { writes };
 }
 
 describe('useDiagramCamera', () => {
-  it('restores the last view after the canvas has unmounted', async () => {
-    let stored: unknown = { version: 1, cameras: { cash: { x: -120, y: 48, zoom: 1.2 } } };
-    const writes: unknown[] = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'PUT') {
-          const body = JSON.parse(String(init?.body)) as { value: unknown };
-          stored = body.value;
-          writes.push(body.value);
-          return Response.json({ key: 'finance-camera-views', value: stored });
-        }
-        return Response.json({ key: 'finance-camera-views', value: stored });
-      }),
-    );
-
-    const first = renderHook(() => useDiagramCamera('cash'), { wrapper: TestWrapper });
+  it('restores and saves each view through the finance-camera-views Supabase document', async () => {
+    const api = stubCameraDocument();
+    const first = renderHook(() => useDiagramCamera('cash'), { wrapper: queryWrapper() });
     await waitFor(() => expect(first.result.current.isFetching).toBe(false));
     expect(first.result.current.camera).toEqual({ x: -120, y: 48, zoom: 1.2 });
+    expect(remote.read.mock.calls[0]?.[0]).toBe('finance-camera-views');
 
     act(() => first.result.current.setCamera({ x: 70, y: -25, zoom: 0.8 }));
     expect(first.result.current.camera).toEqual({ x: 70, y: -25, zoom: 0.8 });
 
-    // Leaving Finance flushes the debounce, so a refresh cannot lose its last view.
     await act(async () => window.dispatchEvent(new Event('pagehide')));
-    await waitFor(() => expect(writes).toHaveLength(1));
+    await waitFor(() => expect(api.writes).toHaveLength(1));
+    expect(api.writes[0]).toMatchObject({ key: 'finance-camera-views', expectedRevision: 3 });
     first.unmount();
 
-    const second = renderHook(() => useDiagramCamera('cash'), { wrapper: TestWrapper });
+    const second = renderHook(() => useDiagramCamera('cash'), { wrapper: queryWrapper() });
     await waitFor(() => expect(second.result.current.isFetching).toBe(false));
     expect(second.result.current.camera).toEqual({ x: 70, y: -25, zoom: 0.8 });
   });

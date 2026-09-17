@@ -209,13 +209,17 @@ export function useRemoteDocument<T>({
   );
 
   const refreshConflict = useCallback((): Promise<void> => {
+    // Conflict choices are mutually exclusive. An overwrite owns the current
+    // ready conflict until its CAS call settles, so no refresh may begin and
+    // later repopulate state after that choice succeeds.
+    if (overwritingRemote.current) return Promise.resolve();
     const current = conflictRef.current;
     return current ? loadConflict(current.local) : Promise.resolve();
   }, [loadConflict]);
 
   const acceptRemote = useCallback(() => {
     const current = conflictRef.current;
-    if (!current || current.status !== 'ready') return;
+    if (!current || current.status !== 'ready' || overwritingRemote.current) return;
 
     const accepted = normalize(current.remote);
     // A failed CAS write is still held by the queue for a normal retry. This
@@ -225,6 +229,7 @@ export function useRemoteDocument<T>({
     localGeneration.current += 1;
     unacknowledgedLocalGeneration.current = null;
     revision.current = current.remoteRevision;
+    conflictGeneration.current += 1;
     queryClient.setQueryData(queryKey, accepted);
     setConflictRecord(null);
   }, [normalize, queryClient, queryKey, queue, setConflictRecord]);
@@ -241,6 +246,7 @@ export function useRemoteDocument<T>({
       localGeneration.current += 1;
       unacknowledgedLocalGeneration.current = null;
       revision.current = saved.revision;
+      conflictGeneration.current += 1;
       queryClient.setQueryData(queryKey, normalize(saved.payload));
       setWriteState('saved');
       setConflictRecord(null);

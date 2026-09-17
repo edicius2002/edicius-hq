@@ -414,6 +414,115 @@ describe('useRemoteDocument', () => {
     expect(rendered.result.current.data).toEqual({ count: 2 });
   });
 
+  it('does not accept a contradictory remote choice while an overwrite is still pending', async () => {
+    const overwrite = deferred<ReturnType<typeof remoteDocument>>();
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write
+      .mockRejectedValueOnce(new remote.RevisionConflict())
+      .mockReturnValueOnce(overwrite.promise);
+    const rendered = mounted();
+    await loaded(rendered);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    await debounce();
+    await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+
+    const resolving = rendered.result.current.overwriteRemote();
+    await Promise.resolve();
+    act(() => rendered.result.current.acceptRemote());
+
+    expect(rendered.result.current.data).toEqual({ count: 2 });
+    expect(rendered.result.current.conflict).toEqual({
+      status: 'ready',
+      local: { count: 2 },
+      remote: { count: 8 },
+      remoteRevision: 4,
+    });
+
+    await act(async () => {
+      overwrite.resolve(remoteDocument(2, 5));
+      await resolving;
+    });
+    expect(remote.write).toHaveBeenCalledTimes(2);
+    expect(rendered.result.current.data).toEqual({ count: 2 });
+    expect(rendered.result.current.conflict).toBeNull();
+    expect(rendered.result.current.saveState).toBe('saved');
+  });
+
+  it('does not start a conflict refresh that could restore state after an overwrite succeeds', async () => {
+    const overwrite = deferred<ReturnType<typeof remoteDocument>>();
+    const refreshed = deferred<ReturnType<typeof remoteDocument>>();
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4))
+      .mockReturnValueOnce(refreshed.promise);
+    remote.write
+      .mockRejectedValueOnce(new remote.RevisionConflict())
+      .mockReturnValueOnce(overwrite.promise);
+    try {
+      const rendered = mounted();
+      await loaded(rendered);
+
+      await act(async () => {
+        await rendered.result.current.edit(() => ({ count: 2 }));
+      });
+      await debounce();
+      await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+
+      const resolving = rendered.result.current.overwriteRemote();
+      const refreshing = rendered.result.current.refreshConflict();
+      await Promise.resolve();
+      const refreshCalls = remote.read.mock.calls.length;
+
+      await act(async () => {
+        overwrite.resolve(remoteDocument(2, 5));
+        await resolving;
+      });
+
+      await act(async () => {
+        refreshed.resolve(remoteDocument(9, 6));
+        await refreshing;
+      });
+
+      expect(refreshCalls).toBe(2);
+      expect(rendered.result.current.conflict).toBeNull();
+      expect(rendered.result.current.data).toEqual({ count: 2 });
+      expect(rendered.result.current.saveState).toBe('saved');
+    } finally {
+      // A guarded refresh leaves this deliberate one-time response unused.
+      // This suite clears calls after each test but retains queued mock values.
+      remote.read.mockReset();
+    }
+  });
+
+  it('keeps a same-turn accept remote choice when overwrite is called afterward', async () => {
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write.mockRejectedValueOnce(new remote.RevisionConflict());
+    const rendered = mounted();
+    await loaded(rendered);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    await debounce();
+    await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+
+    act(() => {
+      rendered.result.current.acceptRemote();
+      void rendered.result.current.overwriteRemote();
+    });
+
+    expect(remote.write).toHaveBeenCalledTimes(1);
+    expect(rendered.result.current.data).toEqual({ count: 8 });
+    expect(rendered.result.current.conflict).toBeNull();
+  });
+
   it('runs one concurrent remote overwrite and keeps its ready conflict after a recoverable failure', async () => {
     const overwrite = deferred<ReturnType<typeof remoteDocument>>();
     const failure = new Error('network unavailable');

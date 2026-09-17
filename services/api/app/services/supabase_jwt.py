@@ -12,7 +12,7 @@ from jwt.algorithms import AllowedPublicKeys
 from jwt.types import Options
 
 ALLOWED_ALGORITHMS = frozenset({"ES256", "RS256"})
-REQUIRED_CLAIMS = ("exp", "iat", "nbf", "iss", "aud", "sub", "role")
+REQUIRED_CLAIMS = ("exp", "iat", "iss", "aud", "sub", "role")
 JWKS_CACHE_SECONDS = 10 * 60
 
 

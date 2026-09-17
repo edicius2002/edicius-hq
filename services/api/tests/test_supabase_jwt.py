@@ -108,6 +108,20 @@ def test_verifies_an_es256_token_and_returns_its_uuid_subject(signing_key):
     assert user == AuthenticatedUser(user_id=UUID(SUBJECT))
 
 
+def test_verifies_a_supabase_access_token_without_an_optional_nbf_claim(signing_key):
+    kid = "test-key"
+    verifier = _verifier(
+        lambda _request: httpx.Response(200, json={"keys": [_jwk(signing_key, kid, "ES256")]})
+    )
+    claims = _claims()
+    del claims["nbf"]
+    token = jwt.encode(claims, signing_key, algorithm="ES256", headers={"kid": kid})
+
+    user = verifier.verify(token)
+
+    assert user == AuthenticatedUser(user_id=UUID(SUBJECT))
+
+
 def test_verifies_an_rs256_token():
     kid = "rsa-key"
     rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -172,7 +186,7 @@ def test_rejects_invalid_registered_or_role_claims(signing_key, changes):
         verifier.verify(_token(signing_key, kid, "ES256", **changes))
 
 
-@pytest.mark.parametrize("claim", ["exp", "iat", "nbf", "iss", "aud", "sub", "role"])
+@pytest.mark.parametrize("claim", ["exp", "iat", "iss", "aud", "sub", "role"])
 def test_rejects_each_missing_required_claim(signing_key, claim):
     kid = "test-key"
     claims = _claims()

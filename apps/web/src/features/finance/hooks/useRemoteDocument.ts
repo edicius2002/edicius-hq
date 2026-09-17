@@ -63,6 +63,8 @@ export function useRemoteDocument<T>({
   const unacknowledgedLocalGeneration = useRef<number | null>(null);
   const sendingLocalGeneration = useRef<number | null>(null);
   const conflictGeneration = useRef(0);
+  const queueWriteConflictGeneration = useRef<number | null>(null);
+  const ignoreStaleQueueFailureState = useRef(false);
   const overwritingRemote = useRef(false);
   const mounted = useRef(true);
   const conflictRef = useRef<DocumentConflict<T> | null>(null);
@@ -105,6 +107,7 @@ export function useRemoteDocument<T>({
     createWriteQueue<T, number>({
       write: async (payload) => {
         sendingLocalGeneration.current = unacknowledgedLocalGeneration.current;
+        queueWriteConflictGeneration.current = conflictGeneration.current;
         const saved = await writeFinanceDocument(key, payload, revision.current);
         return saved.revision;
       },
@@ -120,10 +123,22 @@ export function useRemoteDocument<T>({
       },
       onError: (error, local) => {
         sendingLocalGeneration.current = null;
+        if (queueWriteConflictGeneration.current !== conflictGeneration.current) {
+          // An explicit acceptance or overwrite has already superseded this
+          // queued pass. Its state transition must not recreate a conflict.
+          ignoreStaleQueueFailureState.current = true;
+          return;
+        }
         if (!(error instanceof FinanceRevisionConflict)) return;
         void loadConflict(local);
       },
-      onState: setWriteState,
+      onState: (state) => {
+        if (state === 'failed' && ignoreStaleQueueFailureState.current) {
+          ignoreStaleQueueFailureState.current = false;
+          return;
+        }
+        setWriteState(state);
+      },
     }),
   );
 
@@ -231,6 +246,7 @@ export function useRemoteDocument<T>({
     revision.current = current.remoteRevision;
     conflictGeneration.current += 1;
     queryClient.setQueryData(queryKey, accepted);
+    setWriteState('saved');
     setConflictRecord(null);
   }, [normalize, queryClient, queryKey, queue, setConflictRecord]);
 
@@ -259,15 +275,18 @@ export function useRemoteDocument<T>({
     }
   }, [key, loadConflict, normalize, queryClient, queryKey, queue, setConflictRecord]);
 
-  const retrySave = useCallback(() => {
+  const flushQueuedEdits = useCallback(() => {
     // Retrying a known CAS failure would be an automatic conflict choice. The
     // resolution actions above are the only paths allowed to send it again.
-    if (!conflictRef.current) void queue.flush();
+    if (conflictRef.current || overwritingRemote.current) return;
+    void queue.flush();
   }, [queue]);
+
+  const retrySave = flushQueuedEdits;
 
   useEffect(() => {
     function flushNow() {
-      void queue.flush();
+      flushQueuedEdits();
     }
 
     function onVisibilityChange() {
@@ -281,7 +300,7 @@ export function useRemoteDocument<T>({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       flushNow();
     };
-  }, [queue]);
+  }, [flushQueuedEdits]);
 
   useEffect(
     () => () => {

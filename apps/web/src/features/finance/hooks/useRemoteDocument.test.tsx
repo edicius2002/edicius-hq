@@ -587,6 +587,47 @@ describe('useRemoteDocument', () => {
     });
   });
 
+  it('does not retry a known conflict during pagehide and preserves an accepted revision', async () => {
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write
+      .mockRejectedValueOnce(new remote.RevisionConflict())
+      .mockResolvedValueOnce(remoteDocument(9, 5));
+
+    try {
+      const rendered = mounted();
+      await loaded(rendered);
+      await act(async () => {
+        await rendered.result.current.edit(() => ({ count: 2 }));
+      });
+      await debounce();
+      await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+
+      await act(async () => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+      expect(remote.write).toHaveBeenCalledTimes(1);
+
+      act(() => rendered.result.current.acceptRemote());
+      expect(rendered.result.current.data).toEqual({ count: 8 });
+      expect(rendered.result.current.conflict).toBeNull();
+      expect(rendered.result.current.saveState).toBe('saved');
+
+      await act(async () => {
+        await rendered.result.current.edit((current) => ({ count: current.count + 1 }));
+      });
+      await debounce();
+      await waitFor(() => expect(remote.write).toHaveBeenCalledTimes(2));
+      expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 9 }, 4);
+      expect(rendered.result.current.conflict).toBeNull();
+      expect(rendered.result.current.saveState).toBe('saved');
+    } finally {
+      remote.read.mockReset();
+      remote.write.mockReset();
+    }
+  });
+
   for (const lifecycle of ['pagehide', 'visibilitychange', 'unmount'] as const) {
     it(`flushes a held edit on ${lifecycle}`, async () => {
       remote.read.mockResolvedValue(remoteDocument(1, 3));

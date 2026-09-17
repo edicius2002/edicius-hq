@@ -16,10 +16,10 @@ refresh is automatic, and no second Finance-specific login exists.
 
 The current source documents are:
 
-| KV key | Local source | Current size |
-| --- | --- | ---: |
-| `finance` | `services/api/.local-data/kv/finance.json` | 19,027 bytes |
-| `finance-camera-views` | `services/api/.local-data/kv/finance-camera-views.json` | 173 bytes |
+| KV key                 | Local source                                            | Current size |
+| ---------------------- | ------------------------------------------------------- | -----------: |
+| `finance`              | `services/api/.local-data/kv/finance.json`              | 19,027 bytes |
+| `finance-camera-views` | `services/api/.local-data/kv/finance-camera-views.json` |    173 bytes |
 
 Both become remote JSONB documents. No normalized financial sub-schema is
 introduced in this change: the current graph is one consistency boundary and is

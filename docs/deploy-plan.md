@@ -396,6 +396,246 @@ halfway through.
 The full first-time setup, including the admin-console steps and the order to verify
 them in, lives in the implementation plan for this work rather than here.
 
+## Finance Supabase and passkey cutover runbook
+
+This is the operational procedure for the Finance documents and the Supabase-issued
+application session described in
+[`finance-supabase-auth-design.md`](./superpowers/specs/2026-09-16-finance-supabase-auth-design.md).
+It is deliberately separate from the Airfare replica runbook below: Finance is a
+browser-to-Supabase store protected by RLS, while Airfare remains a home-PC service
+whose secret-key access is administrative only.
+
+### Authority, safety, and stop conditions
+
+This document is not authorization to touch the hosted project, Vercel, the production
+API, or local user data. Obtain separate, contemporaneous owner approval before each
+interactive link, configuration push, schema push, owner bootstrap, importer `--apply`,
+deployment, or cleanup-issue creation. Use the pinned CLI, never an installed global
+copy, and stop on a nonzero exit, an unexpected migration/configuration value, a report
+that is not sanitized, or any failed smoke check.
+
+The target is only project `edicius-hq`, ref `abndifkxpfppmllgxfnu`, and its only real
+passkey ceremony origin is `https://edicius-hq-web.vercel.app`. Do not use a random
+Vercel preview or localhost for a production ceremony.
+
+The following actions are forbidden throughout the rollout, rollback, observation, and
+evidence period:
+
+- `supabase db reset --linked` (or any equivalent reset of the hosted project);
+- `truncate` on a Finance or other hosted table;
+- deletion, replacement, or mutation of either local Finance JSON file;
+- deletion of the retired local auth files.
+
+In particular, the local `db reset` in the developer gate below is a Docker-local
+database reset. It is not a linked-project operation and must never be given `--linked`.
+Remote rows and the local source files are rollback evidence, not disposable setup
+artifacts.
+
+### 1. Reconfirm the remote target and preview
+
+From the reviewed commit, first use the dashboard/CLI account already authorized by the
+owner to confirm that the human-visible project name is `edicius-hq`, then run exactly:
+
+```powershell
+npx --yes supabase@2.105.0 link --project-ref abndifkxpfppmllgxfnu
+npx --yes supabase@2.105.0 db push --dry-run
+```
+
+Continue only if the ref is exactly `abndifkxpfppmllgxfnu` and the preview contains only
+the approved Finance migration. Confirm that the hosted issuer's JWKS contains a public
+`ES256` or `RS256` signing key before deployment. A legacy symmetric signing setup is a
+stop condition: rotate it in Supabase and wait for JWKS propagation; never give the API
+the legacy signing secret or add HS256 support to its verifier.
+
+### 2. Push the passkey configuration and Finance schema
+
+Read the reviewed `supabase/config.toml` before mutating the project: passkeys must be
+enabled, RP display name must be `Edicius HQ`, RP ID must be
+`edicius-hq-web.vercel.app`, and the origins list must contain only
+`https://edicius-hq-web.vercel.app`. With separate owner approval, run exactly:
+
+```powershell
+npx --yes supabase@2.105.0 config push --project-ref abndifkxpfppmllgxfnu
+npx --yes supabase@2.105.0 db push
+npx --yes supabase@2.105.0 migration list
+```
+
+Read back the hosted Auth configuration and migration list. The Finance migration must
+be present and no unreviewed migration may appear. There is no reset or truncation
+remedy for a mismatch: stop, preserve the evidence, and investigate before any further
+action.
+
+### 3. Prepare the owner and one-time bootstrap
+
+The sole purpose of the bootstrap is to establish one temporary authenticated session
+for a confirmed owner so that the owner can enroll a new passkey. It is the only
+non-passkey sign-in allowed during cutover. Keep the owner's email, the generated action
+link, session material, and all keys out of source files, shell history, logs, reports,
+URLs copied into notes, and terminal output. Use an administrative process environment
+only; it must contain `SUPABASE_URL` and the existing administrative secret key.
+
+The reviewed command below keeps the generated response in memory, copies only the
+one-time action link to the local clipboard, prints only a UUID, and removes the email
+environment variable immediately. Do not open the clipboard link yet.
+
+```powershell
+$env:SUPABASE_OWNER_EMAIL = Read-Host 'Owner email for the one-time bootstrap'
+$bootstrap = node --input-type=module -e @'
+import { createClient } from '@supabase/supabase-js';
+const client = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false, experimental: { passkey: true } },
+});
+const { data, error } = await client.auth.admin.generateLink({
+  type: 'magiclink',
+  email: process.env.SUPABASE_OWNER_EMAIL,
+  options: { redirectTo: 'https://edicius-hq-web.vercel.app' },
+});
+if (error) throw error;
+process.stdout.write(JSON.stringify({ ownerId: data.user.id, actionLink: data.properties.action_link }));
+'@ | ConvertFrom-Json
+$bootstrap.actionLink | Set-Clipboard
+$ownerId = [guid]::Parse($bootstrap.ownerId).ToString()
+Remove-Item Env:SUPABASE_OWNER_EMAIL
+Write-Host "Owner UUID: $ownerId; bootstrap link copied to clipboard"
+```
+
+Treat the UUID as sensitive operational metadata even though it is permitted in the
+sanitized results. Do not echo `$bootstrap`, inspect it with a formatter, or save it.
+`Remove-Item Env:` removes a process environment variable; it does not authorize local
+file deletion.
+
+### 4. Preserve source evidence and import without overwriting
+
+Keep both source files untouched at `services/api/.local-data/kv/finance.json` and
+`services/api/.local-data/kv/finance-camera-views.json`. With the owner-approved UUID
+in `$ownerId`, use the administrative importer only against the literal
+repository-relative source. It reads the secret only from the process environment and
+does not expose it in its report. Run the complete dry-run, apply, verify, replay, and
+verify sequence:
+
+```powershell
+$source = 'services/api/.local-data/kv'
+npm run finance:supabase -- --dry-run --owner-id $ownerId --source $source --report docs/finance-supabase-evidence/source-before.json
+npm run finance:supabase -- --apply --owner-id $ownerId --source $source --report docs/finance-supabase-evidence/first-apply.json
+npm run finance:supabase -- --verify --owner-id $ownerId --source $source --report docs/finance-supabase-evidence/first-verify.json
+npm run finance:supabase -- --apply --owner-id $ownerId --source $source --report docs/finance-supabase-evidence/second-apply.json
+npm run finance:supabase -- --verify --owner-id $ownerId --source $source --report docs/finance-supabase-evidence/final-verify.json
+```
+
+Both documents must match on both verification reports. The replay must leave their
+payloads unchanged and both remote revisions at `1`; any existing remote mismatch is a
+hard stop, not permission to overwrite, update, truncate, or reset. Review every report
+for only keys, byte counts, digests, revisions, and match status before it is staged.
+
+### 5. Configure the paired deployment
+
+Set only the two public browser values in the Vercel production environment, and deploy
+from the same reviewed commit as the API:
+
+```text
+VITE_SUPABASE_URL=https://abndifkxpfppmllgxfnu.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=(the selected production publishable value)
+VITE_API_URL=(retain the already deployed value)
+```
+
+The publishable value is browser configuration, but it is still omitted from results,
+logs, and committed evidence. The API production environment receives exactly
+`SUPABASE_URL=https://abndifkxpfppmllgxfnu.supabase.co` for issuer/JWKS verification.
+It must not receive a secret for Finance or JWT verification. The pre-existing
+`SUPABASE_SECRET_KEY` contract remains administrative-only for the Airfare replica and
+the importer; it is never a Vercel value, browser value, JWT-verification input, report
+field, or ordinary Finance runtime credential.
+
+Deploy the frontend and API atomically from the paired reviewed commit. This prevents a
+new Supabase JWT from reaching the old local-session gate, and prevents an old opaque
+session from reaching the new verifier. Before anyone opens the prepared link, verify
+the public UI has no email/password or bootstrap sign-in control: signed-out visitors
+may see only `Sign in with passkey`. The temporary bootstrap is available only through
+the owner-held one-time link, not an exposed route or normal UI.
+
+### 6. Enroll and prove the production passkey
+
+Only after the paired production deployment is healthy, the owner opens the clipboard
+link at the stable production origin, chooses `Add passkey`, and completes the platform
+authenticator ceremony. The owner then signs out and, in a fresh browser session,
+selects `Sign in with passkey`. Continue only after the passkey list contains at least
+one entry and fresh passkey sign-in succeeds. Record only the pass/fail outcome and the
+production-origin confirmation; never record a credential identifier, authenticator
+metadata, action link, session, or token.
+
+Immediately after that proof, ensure the bootstrap UI remains disabled/absent in the
+deployed app. If the passkey proof fails, stop. Do not widen transport, create another
+regular login path, or weaken the production RP ID/origin to make an alternate origin
+work.
+
+### 7. Deployed smoke and resource checks
+
+At the production Vercel origin, record sanitized pass/fail observations for all of the
+following before accepting cutover:
+
+1. Signed out exposes only passkey sign-in; one passkey prompt opens the private app;
+   sign-out and reload restore no private shell.
+2. Finance loads the expected graph and camera. A Finance edit survives reload and
+   increments only `finance`; a pan/zoom survives reload and increments only
+   `finance-camera-views`.
+3. A forced stale-revision write shows conflict state and cannot overwrite the newer
+   remote document.
+4. Dashboard, Greenlight, Investing, Airfare, and Sentiment authenticated API reads
+   succeed. The API accepts the Supabase JWT only in an `Authorization: Bearer` header.
+5. Market, board collection, calendar collection, and tweet SSE each connect with an
+   Authorization header and no query-token URL. Record the four streams separately;
+   do not copy headers, URLs, frames, or payloads.
+
+Record current Supabase database size, Storage size, and monthly egress/API-request
+readings as aggregate metrics only, plus two Finance row-size measurements. Record
+Finance latency as aggregate timing (for example, count and percentile/maximum), never
+as a request trace containing headers or a credentialed URL. Use the blank sanitized
+template in [`finance-supabase-results.md`](./finance-supabase-results.md).
+
+### 8. Rollback boundary and later cleanup
+
+Until the explicit cleanup decision, rollback evidence consists of the two untouched
+local Finance files, the reviewed importer reports, the prior paired frontend/API
+release, and the remote Finance rows. If a post-deploy problem requires rollback, stop
+writes, preserve logs/evidence, and obtain owner approval to redeploy the last known
+good paired frontend/API release. Do not use a database reset, truncation, remote-row
+deletion, or local-file replacement as a rollback mechanism. A rollback is not proof
+that remote data may be discarded.
+
+The two Finance JSON files and retired local auth files remain read-only and untouched
+through a seven-day successful production observation window. Only after a fresh
+matching final verification, confirmation of an external backup, and explicit human
+confirmation may someone open the separate cleanup decision. Create the decision record
+instead of deleting anything now:
+
+```powershell
+$cleanupTargets = @(
+  'services/api/.local-data/kv/finance.json',
+  'services/api/.local-data/kv/finance-camera-views.json',
+  'services/api/.local-data/auth/credentials.json',
+  'services/api/.local-data/auth/sessions.json',
+  'services/api/.local-data/auth/challenges.json',
+  'services/api/.local-data/auth/codes.json'
+)
+$earliestDeletion = (Get-Date).AddDays(7).ToString('yyyy-MM-dd')
+$cleanupBody = @"
+Production Finance has run on Supabase for seven days. Re-run final verification,
+confirm the external backup, review the exact targets below, and obtain explicit human
+confirmation before deletion.
+
+Exact targets (review only; do not delete from this issue):
+$($cleanupTargets | ForEach-Object { "- $_" })
+
+Earliest review date: $earliestDeletion
+"@
+gh issue create --title 'Delete retired local Finance and auth files' --label ready-for-human --body $cleanupBody
+```
+
+That later issue is a review gate, not a deletion command. It must name the two Finance
+files and retired local-auth files listed above, re-check the final digest evidence, and
+receive explicit human approval before a separate, narrowly scoped cleanup action is
+considered.
+
 ## Airfare replica operator runbook
 
 This procedure applies the accepted read-replica design in

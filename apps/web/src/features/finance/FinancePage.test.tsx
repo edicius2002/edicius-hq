@@ -282,7 +282,7 @@ describe('FinancePage', () => {
         query: '?raw',
         import: 'default',
       },
-    ) as Record<string, string>;
+    );
 
     for (const [path, source] of Object.entries(production)) {
       expect(source, path).not.toMatch(

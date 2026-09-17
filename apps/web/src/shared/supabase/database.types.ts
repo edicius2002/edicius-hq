@@ -441,7 +441,9 @@ export type TablesUpdate<
     : never;
 
 export type Enums<
+  // The CLI keeps this generic helper even when the local database has no enums.
   DefaultSchemaEnumNameOrOptions extends
+    // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
     keyof DefaultSchema['Enums'] | { schema: keyof DatabaseWithoutInternals },
   EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
@@ -457,7 +459,9 @@ export type Enums<
     : never;
 
 export type CompositeTypes<
+  // The CLI keeps this generic helper even when the local database has no composite types.
   PublicCompositeTypeNameOrOptions extends
+    // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
     keyof DefaultSchema['CompositeTypes'] | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;

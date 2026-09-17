@@ -14,7 +14,11 @@ export class SupabaseConfigurationError extends Error {
 function requiredPublicConfiguration(
   variable: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_PUBLISHABLE_KEY',
 ): string {
-  const value = import.meta.env[variable]?.trim();
+  const configured: unknown =
+    variable === 'VITE_SUPABASE_URL'
+      ? import.meta.env.VITE_SUPABASE_URL
+      : import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const value = typeof configured === 'string' ? configured.trim() : undefined;
   if (!value) {
     throw new SupabaseConfigurationError(variable);
   }

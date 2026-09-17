@@ -101,10 +101,17 @@ export function useRemoteDocument<T>({
     [key, normalize, setConflictRecord],
   );
 
-  // Built once: rebuilding a queue with a value held for debounce would lose
-  // the edit. Finance document keys are fixed for a hook instance.
-  const [queue] = useState<WriteQueue<T>>(() =>
-    createWriteQueue<T, number>({
+  const queueRef = useRef<WriteQueue<T> | null>(null);
+  const loadConflictRef = useRef(loadConflict);
+
+  useEffect(() => {
+    loadConflictRef.current = loadConflict;
+  }, [loadConflict]);
+
+  // The key is fixed for a hook instance. Build the imperative queue after
+  // render, so its callbacks read live refs only when the queue actually runs.
+  useEffect(() => {
+    queueRef.current = createWriteQueue<T, number>({
       write: async (payload) => {
         sendingLocalGeneration.current = unacknowledgedLocalGeneration.current;
         queueWriteConflictGeneration.current = conflictGeneration.current;
@@ -130,7 +137,7 @@ export function useRemoteDocument<T>({
           return;
         }
         if (!(error instanceof FinanceRevisionConflict)) return;
-        void loadConflict(local);
+        void loadConflictRef.current(local);
       },
       onState: (state) => {
         if (state === 'failed' && ignoreStaleQueueFailureState.current) {
@@ -139,8 +146,8 @@ export function useRemoteDocument<T>({
         }
         setWriteState(state);
       },
-    }),
-  );
+    });
+  }, [key]);
 
   const query = useQuery({
     queryKey,
@@ -202,10 +209,12 @@ export function useRemoteDocument<T>({
         localGeneration.current += 1;
         unacknowledgedLocalGeneration.current = localGeneration.current;
         queryClient.setQueryData(queryKey, next);
+        const queue = queueRef.current;
+        if (!queue) throw new Error('Finance saving is not ready. Reload first.');
         queue.push(next);
         return next;
       }),
-    [assertEditable, queryClient, queryKey, queue, serialize],
+    [assertEditable, queryClient, queryKey, serialize],
   );
 
   const replace = useCallback(
@@ -217,10 +226,12 @@ export function useRemoteDocument<T>({
         queryClient.setQueryData(queryKey, next);
         // This is a deliberate replacement, so its promise reports the remote
         // acknowledgement rather than merely the optimistic cache update.
+        const queue = queueRef.current;
+        if (!queue) throw new Error('Finance saving is not ready. Reload first.');
         await queue.overwrite(next);
         return next;
       }),
-    [assertEditable, queryClient, queryKey, queue, serialize],
+    [assertEditable, queryClient, queryKey, serialize],
   );
 
   const refreshConflict = useCallback((): Promise<void> => {
@@ -234,7 +245,8 @@ export function useRemoteDocument<T>({
 
   const acceptRemote = useCallback(() => {
     const current = conflictRef.current;
-    if (!current || current.status !== 'ready' || overwritingRemote.current) return;
+    const queue = queueRef.current;
+    if (!current || current.status !== 'ready' || overwritingRemote.current || !queue) return;
 
     const accepted = normalize(current.remote);
     // A failed CAS write is still held by the queue for a normal retry. This
@@ -248,11 +260,12 @@ export function useRemoteDocument<T>({
     queryClient.setQueryData(queryKey, accepted);
     setWriteState('saved');
     setConflictRecord(null);
-  }, [normalize, queryClient, queryKey, queue, setConflictRecord]);
+  }, [normalize, queryClient, queryKey, setConflictRecord]);
 
   const overwriteRemote = useCallback(async (): Promise<void> => {
     const current = conflictRef.current;
-    if (!current || current.status !== 'ready' || overwritingRemote.current) return;
+    const queue = queueRef.current;
+    if (!current || current.status !== 'ready' || overwritingRemote.current || !queue) return;
 
     overwritingRemote.current = true;
     queue.discard();
@@ -273,14 +286,16 @@ export function useRemoteDocument<T>({
     } finally {
       overwritingRemote.current = false;
     }
-  }, [key, loadConflict, normalize, queryClient, queryKey, queue, setConflictRecord]);
+  }, [key, loadConflict, normalize, queryClient, queryKey, setConflictRecord]);
 
   const flushQueuedEdits = useCallback(() => {
     // Retrying a known CAS failure would be an automatic conflict choice. The
     // resolution actions above are the only paths allowed to send it again.
     if (conflictRef.current || overwritingRemote.current) return;
+    const queue = queueRef.current;
+    if (!queue) return;
     void queue.flush();
-  }, [queue]);
+  }, []);
 
   const retrySave = flushQueuedEdits;
 

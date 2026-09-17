@@ -87,8 +87,9 @@ stored here.
 - Prior stable frontend deployment retained as rollback target:
   `dpl_2LCy64uGHytCZ2hMGXt4VKyjFqEe`
 - Local Finance sources remain untouched and retained: PASS
-- Import verification report retained outside Git; sanitized results are committed under
-  `docs/finance-supabase-evidence/`
+- The five staged importer reports (`source-before`, first apply/verify, replay apply, and
+  final verify) are committed as sanitized CLI-shaped evidence under
+  `docs/finance-supabase-evidence/`; the Finance payloads remain omitted
 - Remote rows preserved; no reset, truncation, or deletion was used: PASS
 - Seven-day observation window ends: 2026-09-24
 - External backup reconfirmation: not recorded

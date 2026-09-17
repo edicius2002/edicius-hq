@@ -60,7 +60,10 @@ export function useRemoteDocument<T>({
   const queryKey = ['finance-documents', key] as const;
   const revision = useRef(0);
   const localGeneration = useRef(0);
+  const unacknowledgedLocalGeneration = useRef<number | null>(null);
+  const sendingLocalGeneration = useRef<number | null>(null);
   const conflictGeneration = useRef(0);
+  const overwritingRemote = useRef(false);
   const mounted = useRef(true);
   const conflictRef = useRef<DocumentConflict<T> | null>(null);
   const [conflict, setConflict] = useState<DocumentConflict<T> | null>(null);
@@ -101,13 +104,22 @@ export function useRemoteDocument<T>({
   const [queue] = useState<WriteQueue<T>>(() =>
     createWriteQueue<T, number>({
       write: async (payload) => {
+        sendingLocalGeneration.current = unacknowledgedLocalGeneration.current;
         const saved = await writeFinanceDocument(key, payload, revision.current);
         return saved.revision;
       },
       onWritten: (nextRevision) => {
         revision.current = nextRevision;
+        if (
+          sendingLocalGeneration.current !== null &&
+          sendingLocalGeneration.current === unacknowledgedLocalGeneration.current
+        ) {
+          unacknowledgedLocalGeneration.current = null;
+        }
+        sendingLocalGeneration.current = null;
       },
       onError: (error, local) => {
+        sendingLocalGeneration.current = null;
         if (!(error instanceof FinanceRevisionConflict)) return;
         void loadConflict(local);
       },
@@ -129,7 +141,9 @@ export function useRemoteDocument<T>({
       // React Query from painting that stale payload or revision over local UI.
       if (
         cached !== undefined &&
-        (generationAtStart !== localGeneration.current || remoteRevision < revision.current)
+        (unacknowledgedLocalGeneration.current !== null ||
+          generationAtStart !== localGeneration.current ||
+          remoteRevision < revision.current)
       ) {
         return cached;
       }
@@ -171,6 +185,7 @@ export function useRemoteDocument<T>({
           throw new Error('Resolve the Finance document conflict before editing again.');
         }
         localGeneration.current += 1;
+        unacknowledgedLocalGeneration.current = localGeneration.current;
         queryClient.setQueryData(queryKey, next);
         queue.push(next);
         return next;
@@ -183,6 +198,7 @@ export function useRemoteDocument<T>({
       serialize(async () => {
         assertEditable();
         localGeneration.current += 1;
+        unacknowledgedLocalGeneration.current = localGeneration.current;
         queryClient.setQueryData(queryKey, next);
         // This is a deliberate replacement, so its promise reports the remote
         // acknowledgement rather than merely the optimistic cache update.
@@ -207,6 +223,7 @@ export function useRemoteDocument<T>({
     // silently send the rejected local document after acceptance.
     queue.discard();
     localGeneration.current += 1;
+    unacknowledgedLocalGeneration.current = null;
     revision.current = current.remoteRevision;
     queryClient.setQueryData(queryKey, accepted);
     setConflictRecord(null);
@@ -214,13 +231,15 @@ export function useRemoteDocument<T>({
 
   const overwriteRemote = useCallback(async (): Promise<void> => {
     const current = conflictRef.current;
-    if (!current || current.status !== 'ready') return;
+    if (!current || current.status !== 'ready' || overwritingRemote.current) return;
 
+    overwritingRemote.current = true;
     queue.discard();
     setWriteState('saving');
     try {
       const saved = await writeFinanceDocument(key, current.local, current.remoteRevision);
       localGeneration.current += 1;
+      unacknowledgedLocalGeneration.current = null;
       revision.current = saved.revision;
       queryClient.setQueryData(queryKey, normalize(saved.payload));
       setWriteState('saved');
@@ -229,6 +248,8 @@ export function useRemoteDocument<T>({
       setWriteState('failed');
       if (error instanceof FinanceRevisionConflict) void loadConflict(current.local);
       throw error;
+    } finally {
+      overwritingRemote.current = false;
     }
   }, [key, loadConflict, normalize, queryClient, queryKey, queue, setConflictRecord]);
 

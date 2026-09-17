@@ -127,4 +127,59 @@ describe('Finance Supabase documents', () => {
       );
     });
   });
+
+  it('redacts colon- and equals-form credentials from a failed read', async () => {
+    const api = financeClient({
+      data: null,
+      error: {
+        code: '42501',
+        message: `The database refused this request.
+Authorization=read-auth-secret
+Cookie: read-cookie-secret
+X-Client-Info=read-client-secret
+apikey: read-api-secret
+token=read-token-secret`,
+      },
+    });
+
+    await expect(readFinanceDocument('finance', undefined, api.client)).rejects.toSatisfy(
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : '';
+        return (
+          message.includes('The database refused this request.') &&
+          !/Authorization|Cookie|X-Client-Info|apikey|token|read-(?:auth|cookie|client|api|token)-secret/i.test(
+            message,
+          )
+        );
+      },
+    );
+  });
+
+  it('redacts colon- and equals-form credentials from a failed write', async () => {
+    const api = financeClient({ data: null, error: null });
+    api.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: '42501',
+        message: `The database refused this request.
+Authorization: Bearer write-auth-secret
+Cookie=write-cookie-secret
+X-Client-Info: write-client-secret
+apikey=write-api-secret
+access_token: write-token-secret`,
+      },
+    });
+
+    await expect(
+      writeFinanceDocument('finance', { label: 'local' }, 7, api.client),
+    ).rejects.toSatisfy((error: unknown) => {
+      const message = error instanceof Error ? error.message : '';
+      return (
+        message.includes('The database refused this request.') &&
+        !/Authorization|Cookie|X-Client-Info|apikey|access_token|Bearer|write-(?:auth|cookie|client|api|token)-secret/i.test(
+          message,
+        )
+      );
+    });
+  });
 });

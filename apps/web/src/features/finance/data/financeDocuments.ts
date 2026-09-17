@@ -45,7 +45,7 @@ function sanitizedMessage(error: unknown): string {
 
   const message = raw
     .replace(
-      /(?:authorization|proxy-authorization|cookie|set-cookie|apikey|api-key|x-client-info)\s*:\s*[^\r\n]*/gi,
+      /\b(?:authorization|proxy-authorization|cookie|set-cookie|x-client-info|x-api-key|api[-_]?key|access[-_ ]?token|refresh[-_ ]?token|token)\s*[:=]\s*[^\r\n]*/gi,
       '',
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, '')

@@ -181,6 +181,43 @@ describe('useRemoteDocument', () => {
     expect(rendered.result.current.data).toEqual({ count: 2 });
   });
 
+  it('keeps an optimistic edit through a refetch that begins inside its 400 ms debounce', async () => {
+    const staleRead = deferred<ReturnType<typeof remoteDocument>>();
+    const shared = sharedQueryWrapper();
+    remote.read.mockResolvedValueOnce(remoteDocument(1, 1)).mockReturnValueOnce(staleRead.promise);
+    remote.write.mockResolvedValue(remoteDocument(2, 2));
+    const rendered = renderHook(
+      () =>
+        useRemoteDocument<CounterDocument>({
+          key: 'finance',
+          normalize: (value) =>
+            value && typeof value === 'object' ? (value as CounterDocument) : { count: 0 },
+          placeholder: { count: -1 },
+        }),
+      { wrapper: shared },
+    );
+    await loaded(rendered);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    expect(rendered.result.current.data).toEqual({ count: 2 });
+    expect(remote.write).not.toHaveBeenCalled();
+
+    const refetch = shared.client.refetchQueries({ queryKey: ['finance-documents', 'finance'] });
+    await waitFor(() => expect(remote.read).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      staleRead.resolve(remoteDocument(1, 1));
+      await refetch;
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    });
+    expect(rendered.result.current.data).toEqual({ count: 2 });
+    expect(remote.write).not.toHaveBeenCalled();
+  });
+
   it('keeps the newest local payload when a non-conflict write is retried', async () => {
     remote.read.mockResolvedValue(remoteDocument(0, 1));
     remote.write
@@ -375,6 +412,49 @@ describe('useRemoteDocument', () => {
     });
     expect(rendered.result.current.conflict).toBeNull();
     expect(rendered.result.current.data).toEqual({ count: 2 });
+  });
+
+  it('runs one concurrent remote overwrite and keeps its ready conflict after a recoverable failure', async () => {
+    const overwrite = deferred<ReturnType<typeof remoteDocument>>();
+    const failure = new Error('network unavailable');
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write
+      .mockRejectedValueOnce(new remote.RevisionConflict())
+      .mockReturnValueOnce(overwrite.promise);
+    const rendered = mounted();
+    await loaded(rendered);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    await debounce();
+    await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+
+    const first = rendered.result.current.overwriteRemote();
+    const second = rendered.result.current.overwriteRemote();
+    await Promise.resolve();
+    const writeCallsBeforeFailure = remote.write.mock.calls.length;
+
+    let outcomes: PromiseSettledResult<void>[] = [];
+    await act(async () => {
+      overwrite.reject(failure);
+      outcomes = await Promise.allSettled([first, second]);
+    });
+
+    expect(writeCallsBeforeFailure).toBe(2);
+    expect(outcomes).toEqual([
+      { status: 'rejected', reason: failure },
+      { status: 'fulfilled', value: undefined },
+    ]);
+    expect(rendered.result.current.conflict).toEqual({
+      status: 'ready',
+      local: { count: 2 },
+      remote: { count: 8 },
+      remoteRevision: 4,
+    });
+    expect(rendered.result.current.saveState).toBe('failed');
   });
 
   it('waits to resolve replace until its write acknowledgement lands', async () => {

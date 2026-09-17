@@ -8,7 +8,10 @@ import {
   type ReactNode,
 } from 'react';
 
-import { useDiagramCamera } from '@/features/finance/hooks/useDiagramCamera';
+import {
+  useDiagramCamera,
+  type DiagramCameraPersistence,
+} from '@/features/finance/hooks/useDiagramCamera';
 import { useElementSize } from '@/shared/lib/useElementSize';
 import {
   fitCamera,
@@ -86,6 +89,8 @@ type FlowCanvasProps = {
   onResizeFrame: (id: FrameId, position: Point, size: Size) => void;
   /** Keeps keyboard connect/cancel on the same state as the toolbar and pointer anchors. */
   onConnectModeChange?: (active: boolean) => void;
+  /** Lets the page reconcile the separate remote camera document. */
+  onCameraPersistenceChange?: (persistence: DiagramCameraPersistence) => void;
   /**
    * Chrome pinned to the top-left of the window. A readout about the diagram
    * belongs over the diagram, where the eye already is — in the toolbar it was
@@ -157,11 +162,23 @@ export function FlowCanvas({
   onMoveFrame,
   onResizeFrame,
   onConnectModeChange = () => undefined,
+  onCameraPersistenceChange,
   status,
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
-  const { camera, setCamera, isFetching: isRestoringCamera } = useDiagramCamera(diagram.id);
+  const {
+    camera,
+    setCamera,
+    isFetching: isRestoringCamera,
+    isError: isCameraError,
+    saveState: cameraSaveState,
+    retrySave: retryCameraSave,
+    conflict: cameraConflict,
+    refreshConflict: refreshCameraConflict,
+    acceptRemote: acceptCameraRemote,
+    overwriteRemote: overwriteCameraRemote,
+  } = useDiagramCamera(diagram.id);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [pan, setPan] = useState<Pan | null>(null);
   const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
@@ -182,6 +199,29 @@ export function FlowCanvas({
   const [announcement, setAnnouncement] = useState('Canvas ready. Press ? for keyboard shortcuts.');
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const wasConnecting = useRef(connectMode);
+
+  useEffect(() => {
+    onCameraPersistenceChange?.({
+      isFetching: isRestoringCamera,
+      isError: isCameraError,
+      saveState: cameraSaveState,
+      retrySave: retryCameraSave,
+      conflict: cameraConflict,
+      refreshConflict: refreshCameraConflict,
+      acceptRemote: acceptCameraRemote,
+      overwriteRemote: overwriteCameraRemote,
+    });
+  }, [
+    acceptCameraRemote,
+    cameraConflict,
+    cameraSaveState,
+    isCameraError,
+    isRestoringCamera,
+    onCameraPersistenceChange,
+    overwriteCameraRemote,
+    refreshCameraConflict,
+    retryCameraSave,
+  ]);
 
   // A switched diagram leaves no keyboard-drag override behind. Adjusted
   // during render, as soon as the new diagram is known, rather than from an

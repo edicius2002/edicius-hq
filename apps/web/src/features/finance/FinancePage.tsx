@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { DiagramCameraPersistence } from '@/features/finance/hooks/useDiagramCamera';
 import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
 import { formatAmount } from '@/shared/lib/money';
 import { NODE_SIZE } from '@/features/finance/lib/geometry';
@@ -50,10 +51,29 @@ export function FinancePage() {
   const [connectFrom, setConnectFrom] = useState<{ nodeId: NodeId; anchor: Anchor } | null>(null);
   const [frameMode, setFrameMode] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [cameraPersistence, setCameraPersistence] = useState<DiagramCameraPersistence | null>(null);
+  const publishCameraPersistence = useCallback((next: DiagramCameraPersistence) => {
+    setCameraPersistence((current) => {
+      if (
+        current &&
+        current.isFetching === next.isFetching &&
+        current.isError === next.isError &&
+        current.saveState === next.saveState &&
+        current.conflict === next.conflict
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, []);
   // A conflict is a choice, not a transient save failure: keep the document on
   // screen but stop every edit route until that choice has been made. The same
-  // gate covers the initial fetch, whose placeholder must never be saved.
-  const editsBlocked = finance.isFetching || finance.isError || finance.conflict !== null;
+  // gate covers both initial fetches, whose placeholders must never be saved.
+  const cameraPending = cameraPersistence === null || cameraPersistence.isFetching;
+  const cameraBlocked =
+    cameraPending || cameraPersistence.isError || cameraPersistence.conflict !== null;
+  const editsBlocked =
+    finance.isFetching || finance.isError || finance.conflict !== null || cameraBlocked;
 
   const available = useMemo(() => selectAvailable(diagram), [diagram]);
   const inTransit = useMemo(() => selectInTransit(diagram), [diagram]);
@@ -204,9 +224,35 @@ export function FinancePage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [editsBlocked]);
 
-  const problem = message ?? (finance.isError ? 'Could not load the diagram from Supabase.' : null);
+  const problem =
+    message ??
+    (finance.isError
+      ? 'Could not load the diagram from Supabase.'
+      : cameraPersistence?.isError
+        ? 'Could not load the diagram view from Supabase.'
+        : null);
   const conflictMessage =
     "Finance changed in another session. Your unsaved version is still in this tab. Choose the Supabase version or deliberately replace it with this tab's version.";
+  const cameraConflictMessage =
+    "Diagram view changed in another session. Your unsaved view is still in this tab. Choose the Supabase version or deliberately replace it with this tab's version.";
+  const saveState =
+    finance.conflict || cameraPersistence?.conflict
+      ? 'failed'
+      : finance.isError || cameraPersistence?.isError
+        ? 'blocked'
+        : finance.isFetching || cameraPending
+          ? 'loading'
+          : finance.saveState === 'failed' || cameraPersistence.saveState === 'failed'
+            ? 'failed'
+            : finance.saveState === 'saving' || cameraPersistence.saveState === 'saving'
+              ? 'saving'
+              : finance.saveState === 'pending' || cameraPersistence.saveState === 'pending'
+                ? 'pending'
+                : finance.saveState;
+  function retrySave() {
+    if (finance.saveState === 'failed') finance.retrySave();
+    if (cameraPersistence?.saveState === 'failed') cameraPersistence.retrySave();
+  }
   /*
    * Only while a mode is waiting on you. Idle, this said "Drag nodes to arrange
    * them, the canvas to move around, and scroll to zoom" — which a user with a
@@ -355,6 +401,24 @@ export function FinancePage() {
           ) : null}
         </div>
       ) : null}
+      {cameraPersistence?.conflict ? (
+        <div className={styles.error}>
+          <p role="alert">{cameraConflictMessage}</p>
+          {cameraPersistence.conflict.status === 'ready' ? (
+            <div className={styles.toolGroup}>
+              <Button onClick={cameraPersistence.acceptRemote}>Use Supabase view</Button>
+              <Button variant="danger" onClick={() => void cameraPersistence.overwriteRemote()}>
+                Replace with this tab's view
+              </Button>
+            </div>
+          ) : null}
+          {cameraPersistence.conflict.status === 'load-failed' ? (
+            <Button onClick={() => void cameraPersistence.refreshConflict()}>
+              Retry loading Supabase view
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Nothing between the canvas and the panel beside it: with the bar gone
           the two columns start on the same line as well as ending on it. */}
@@ -363,8 +427,8 @@ export function FinancePage() {
           status={
             <>
               <SaveStatus
-                state={finance.conflict ? 'failed' : finance.saveState}
-                onRetry={finance.conflict ? undefined : finance.retrySave}
+                state={saveState}
+                onRetry={finance.conflict || cameraPersistence?.conflict ? undefined : retrySave}
               />
               {/* On the canvas rather than above it: a hint that comes and goes
                   with a mode would otherwise push the canvas down mid-gesture,
@@ -406,6 +470,7 @@ export function FinancePage() {
             if (active) setConnectMode(true);
             else stopConnecting();
           }}
+          onCameraPersistenceChange={publishCameraPersistence}
         />
 
         <div className={styles.side}>

@@ -151,6 +151,80 @@ describe('useRemoteDocument', () => {
     expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 2 }, 2);
   });
 
+  it('retains queued B when in-flight A conflicts and overwrites the fetched revision with B', async () => {
+    const first = deferred<ReturnType<typeof remoteDocument>>();
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write.mockReturnValueOnce(first.promise).mockResolvedValueOnce(remoteDocument(3, 5));
+    const rendered = mounted();
+    await loaded(rendered);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    await debounce();
+    expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 2 }, 3);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 3 }));
+    });
+    expect(rendered.result.current.data).toEqual({ count: 3 });
+
+    await act(async () => {
+      first.reject(new remote.RevisionConflict());
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+    expect(rendered.result.current.conflict).toEqual({
+      status: 'ready',
+      local: { count: 3 },
+      remote: { count: 8 },
+      remoteRevision: 4,
+    });
+
+    await act(async () => {
+      await rendered.result.current.overwriteRemote();
+    });
+    expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 3 }, 4);
+    expect(rendered.result.current.data).toEqual({ count: 3 });
+    expect(rendered.result.current.conflict).toBeNull();
+  });
+
+  it('allows accept remote to deliberately discard queued B after in-flight A conflicts', async () => {
+    const first = deferred<ReturnType<typeof remoteDocument>>();
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write.mockReturnValueOnce(first.promise);
+    const rendered = mounted();
+    await loaded(rendered);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    await debounce();
+    expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 2 }, 3);
+
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 3 }));
+    });
+    expect(rendered.result.current.data).toEqual({ count: 3 });
+
+    await act(async () => {
+      first.reject(new remote.RevisionConflict());
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+    expect(rendered.result.current.conflict?.local).toEqual({ count: 3 });
+
+    act(() => rendered.result.current.acceptRemote());
+    expect(rendered.result.current.data).toEqual({ count: 8 });
+    expect(rendered.result.current.conflict).toBeNull();
+    expect(rendered.result.current.saveState).toBe('saved');
+    expect(remote.write).toHaveBeenCalledTimes(1);
+  });
+
   it('does not let a read that began before an edit replace the newer acknowledged document', async () => {
     const staleRead = deferred<ReturnType<typeof remoteDocument>>();
     const shared = sharedQueryWrapper();

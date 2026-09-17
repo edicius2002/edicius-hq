@@ -137,7 +137,8 @@ export function useRemoteDocument<T>({
           return;
         }
         if (!(error instanceof FinanceRevisionConflict)) return;
-        void loadConflictRef.current(local);
+        const current = queryClient.getQueryData<T>(queryKey);
+        void loadConflictRef.current(current === undefined ? local : normalize(current));
       },
       onState: (state) => {
         if (state === 'failed' && ignoreStaleQueueFailureState.current) {

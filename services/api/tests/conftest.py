@@ -21,6 +21,9 @@ import pytest
 @pytest.fixture(autouse=True)
 def _own_data_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path / "local-data"))
+    # JWT issuer validation is strict in production. Tests use the public,
+    # fixed project identity but inject a MockTransport before any JWKS fetch.
+    monkeypatch.setenv("SUPABASE_URL", "https://abndifkxpfppmllgxfnu.supabase.co")
     # Lifespan tests must never reach the real X profile or launch Chromium.
     # Individual lifecycle tests opt in and replace the watcher at its boundary.
     monkeypatch.setenv("X_TWEET_WATCH_ON_START", "false")

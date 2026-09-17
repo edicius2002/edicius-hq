@@ -49,6 +49,29 @@ class AirfareSupabaseConfig:
     batch_size: int
 
 
+@dataclass(frozen=True, slots=True)
+class SupabaseJwtConfig:
+    issuer: str
+    jwks_url: str
+    audience: str
+
+
+def supabase_jwt_config() -> SupabaseJwtConfig:
+    """Return the one Supabase issuer FastAPI is allowed to trust."""
+    try:
+        url = os.environ["SUPABASE_URL"].rstrip("/")
+    except KeyError:
+        raise ValueError("SUPABASE_URL must be configured for Supabase JWT verification") from None
+    if url != "https://abndifkxpfppmllgxfnu.supabase.co":
+        raise ValueError("SUPABASE_URL must name the edicius-hq HTTPS project host")
+    issuer = f"{url}/auth/v1"
+    return SupabaseJwtConfig(
+        issuer=issuer,
+        jwks_url=f"{issuer}/.well-known/jwks.json",
+        audience="authenticated",
+    )
+
+
 def airfare_data_backend() -> Literal["local", "supabase"]:
     """The durable Airfare read store; local remains the one-restart rollback."""
     backend = os.getenv("AIRFARE_DATA_BACKEND", "local").strip().casefold()

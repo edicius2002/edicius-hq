@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from app.adapters.streams import CompositeStream
-from app.auth import require_session_gate
+from app.auth import configured_verifier, require_session_gate
 from app.config import (
     CORS_ORIGINS,
     kv_dir,
@@ -45,6 +45,7 @@ async def lifespan(_app: FastAPI):
     # Validate all enabled cloud configuration before this process starts any
     # long-lived local services. Local mode returns immediately without reading
     # credentials, preserving the one-restart rollback path.
+    configured_verifier()
     configured_airfare_supabase()
     ensure_kv_dir()
     # One upstream socket for the whole process, however many tabs listen. It

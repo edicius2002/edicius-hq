@@ -113,6 +113,7 @@ export function openApiEventStream(
 
   async function run(): Promise<void> {
     while (!controller.signal.aborted) {
+      let completedNormally = false;
       try {
         const headers = new Headers({ Accept: 'text/event-stream' });
         if (lastEventId) headers.set('Last-Event-ID', lastEventId);
@@ -120,13 +121,14 @@ export function openApiEventStream(
         if (!response.ok) throw new Error(`SSE request failed with status ${response.status}`);
         handlers.onOpen?.();
         await consume(response);
-        if (controller.signal.aborted) return;
-        handlers.onError?.();
+        completedNormally = true;
       } catch {
         if (controller.signal.aborted) return;
         handlers.onError?.();
       }
 
+      if (controller.signal.aborted) return;
+      if (completedNormally) handlers.onError?.();
       if (controller.signal.aborted) return;
       await waitForReconnect(controller.signal);
     }

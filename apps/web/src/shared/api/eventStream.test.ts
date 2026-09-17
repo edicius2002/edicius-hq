@@ -147,6 +147,32 @@ describe('openApiEventStream', () => {
     expect(onError).toHaveBeenCalledOnce();
   });
 
+  it('does not re-enter a throwing error callback after a clean EOF', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([])),
+    );
+    const failure = new Error('consumer error callback failed');
+    const onError = vi.fn(() => {
+      throw failure;
+    });
+    const thrown = new Promise<unknown>((resolve) => {
+      (
+        globalThis as typeof globalThis & {
+          process: {
+            once: (event: 'unhandledRejection', listener: (reason: unknown) => void) => void;
+          };
+        }
+      ).process.once('unhandledRejection', resolve);
+    });
+
+    const close = openApiEventStream('/api/stream', { onEvent: vi.fn(), onError });
+
+    await expect(thrown).resolves.toBe(failure);
+    expect(onError).toHaveBeenCalledOnce();
+    close();
+  });
+
   it('does not report or reconnect when closed while reading a response', async () => {
     const fetchSpy = vi
       .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()

@@ -41,8 +41,7 @@ const PROGRESS_POLL_MS = 2_000;
  * How long a broken stream is given to come back before the row stops waiting
  * for it.
  *
- * An `EventSource` reconnects by itself — most of why it was chosen over a
- * socket — and its default retry is about three seconds, so a blip costs one
+ * The shared stream transport reconnects at about three seconds, so a blip costs one
  * attempt and this window covers two. What it protects against is the other
  * case: a stream that cannot be established at all, or one whose server has
  * gone for good. Without a deadline that row waits for a frame that is never
@@ -103,8 +102,8 @@ function cachedHistoryWatchesSnapshot(
  * nobody asking for anything.
  *
  * **One stream, however many rows are watching.** The server keeps one pass
- * slot, so every watching row is watching the same pass and a second
- * `EventSource` would carry the same frames twice. The rows live in a ref keyed
+ * slot, so every watching row is watching the same pass and a second stream
+ * would carry the same frames twice. The rows live in a ref keyed
  * by `routeId` and each frame is applied to all of them — which is also what
  * keeps `watching` honest: each row asks `isOurPass` of the same document and
  * answers for itself.
@@ -480,7 +479,7 @@ export function useRouteCollection(): RouteCollection {
    * Follow a pass the press has already started.
    *
    * The stream is opened once and shared: the server keeps one slot, so every
-   * following row is following the same pass and a second `EventSource` would
+   * following row is following the same pass and a second stream would
    * carry identical frames.
    */
   const follow = useCallback(

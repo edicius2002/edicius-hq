@@ -1,9 +1,7 @@
 import { clampZoom, IDENTITY_CAMERA, type Camera } from '@/features/finance/lib/camera';
 import type { DiagramId } from '@/features/finance/model/types';
-import type { StorageKey } from '@/shared/storage/keys';
-
-/** View state stays apart from the financial document and its backups. */
-export const FINANCE_CAMERA_VIEWS_KEY: StorageKey = 'finance-camera-views';
+/** View state stays apart from the financial document. */
+export const FINANCE_CAMERA_VIEWS_KEY = 'finance-camera-views' as const;
 
 export type FinanceCameraViews = {
   version: 1;

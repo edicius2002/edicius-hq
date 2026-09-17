@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { readBackup, type RestoreError } from '@/features/finance/lib/backup';
 import {
   addDiagram,
   createEmptyDocument,
@@ -36,7 +35,7 @@ import type {
   Point,
   Size,
 } from '@/features/finance/model/types';
-import { useStoredDocument } from '@/shared/storage/useStoredDocument';
+import { useRemoteDocument } from '@/features/finance/hooks/useRemoteDocument';
 
 /**
  * Names the diagram created when storage is empty. A constant rather than a
@@ -60,7 +59,7 @@ type DiagramChange = (current: Diagram) => Diagram;
 type Edit = { change: DiagramChange; coalesceKey?: string };
 
 export function useFinanceData() {
-  const store = useStoredDocument<FinanceDocument>({
+  const store = useRemoteDocument<FinanceDocument>({
     key: 'finance',
     normalize,
     placeholder: EMPTY_DOCUMENT,
@@ -149,29 +148,6 @@ export function useFinanceData() {
   }, []);
 
   /**
-   * Replace the whole document with one read from a file.
-   *
-   * Every stack is dropped: they belong to diagrams that are being swapped out,
-   * and a step back into a diagram the document no longer has would be worse
-   * than having no step at all. That is also why this is not itself undoable —
-   * the confirmation in front of it is what stands in for undo.
-   */
-  const restore = useCallback(
-    async (text: string): Promise<Result<void, RestoreError>> => {
-      const parsed = readBackup(text, DEFAULT_DIAGRAM_ID);
-      if (!parsed.ok) return parsed;
-
-      await store.replace(parsed.value);
-      // Restore is deliberately not undoable, but a failed write must not erase
-      // the undo stack for the document the user still has on disk.
-      histories.current.clear();
-      setSteps({ canUndo: false, canRedo: false });
-      return ok(undefined);
-    },
-    [store],
-  );
-
-  /**
    * Run a transition that may refuse. The refusal is captured from inside the
    * write, so it is judged against current state rather than what was rendered,
    * and a refused change leaves the diagram — and storage — untouched.
@@ -200,6 +176,10 @@ export function useFinanceData() {
     isError: store.isError,
     saveState: store.saveState,
     retrySave: store.retrySave,
+    conflict: store.conflict,
+    refreshConflict: store.refreshConflict,
+    acceptRemote: store.acceptRemote,
+    overwriteRemote: store.overwriteRemote,
 
     canUndo: steps.canUndo,
     canRedo: steps.canRedo,
@@ -208,7 +188,6 @@ export function useFinanceData() {
 
     diagrams: document.diagrams,
     activeDiagramId: document.activeDiagramId,
-    restore,
     addDiagram: () => editDocument((doc) => addDiagram(doc, newId())),
     duplicateDiagram: (id: DiagramId) => editDocument((doc) => duplicateDiagram(doc, id, newId())),
     renameDiagram: (id: DiagramId, name: string) =>

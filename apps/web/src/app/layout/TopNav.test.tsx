@@ -4,6 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const auth = vi.hoisted(() => ({
+  registerPasskey: vi.fn(),
+  signOut: vi.fn(),
+}));
+
+vi.mock('@/shared/auth/supabaseAuth', () => auth);
+
 import { TopNav } from '@/app/layout/TopNav';
 import { EDGE_ZONE, SWIPE_THRESHOLD } from '@/app/layout/TopNav';
 
@@ -58,9 +65,17 @@ const drawer = () => screen.queryByRole('navigation', { name: 'Primary' });
 
 beforeEach(() => {
   stubNarrow(true);
+  auth.registerPasskey.mockResolvedValue({
+    id: 'pk-1',
+    friendlyName: 'Windows Hello',
+    createdAt: '2026-09-16T00:00:00Z',
+    lastUsedAt: null,
+  });
+  auth.signOut.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -101,6 +116,8 @@ describe('the narrow shell', () => {
       'href',
       '/sentiment',
     );
+    expect(screen.getByRole('button', { name: 'Add passkey' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     expect(trigger()).toHaveAttribute('aria-expanded', 'true');
   });
 

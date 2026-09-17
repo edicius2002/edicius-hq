@@ -1,5 +1,5 @@
 import { getApiBaseUrl } from '@/shared/api/config';
-import { clearToken, readToken } from '@/shared/auth/session';
+import { clearLocalSession, getAccessToken } from '@/shared/auth/supabaseAuth';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -49,11 +49,11 @@ function composeAbortSignal(external: AbortSignal | undefined, timeoutMs: number
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const url = `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
   const headers = new Headers(options.headers);
-  const token = readToken();
+  const token = await getAccessToken();
   if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
 
   const response = await fetch(url, { ...options, headers });
-  if (response.status === 401) clearToken();
+  if (response.status === 401) await clearLocalSession();
   return response;
 }
 

@@ -1,9 +1,39 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const auth = vi.hoisted(() => ({
+  clearLocalSession: vi.fn(),
+  getAccessToken: vi.fn(async () => null),
+}));
+
+vi.mock('@/shared/auth/supabaseAuth', () => auth);
+
+import type { HorizonStreamOptions } from '@/features/airfare/data/collectionStream';
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
+import type { CalendarCollectResponse } from '@/shared/api/fares';
 import { queryWrapper } from '@/test/queryWrapper';
+
+type OpenedHorizonStream = {
+  options: HorizonStreamOptions;
+  closed: boolean;
+};
+
+const horizonStream = vi.hoisted(() => {
+  const opened: OpenedHorizonStream[] = [];
+  const open = vi.fn((options: HorizonStreamOptions) => {
+    const entry = { options, closed: false };
+    opened.push(entry);
+    return () => {
+      entry.closed = true;
+    };
+  });
+  return { open, opened };
+});
+
+vi.mock('@/features/airfare/data/collectionStream', () => ({
+  openHorizonStream: horizonStream.open,
+}));
 
 /**
  * The collection that adding a route fires by itself.
@@ -17,52 +47,27 @@ import { queryWrapper } from '@/test/queryWrapper';
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  FakeEventSource.opened = [];
+  horizonStream.open.mockClear();
+  horizonStream.opened.length = 0;
 });
 
 /**
- * The stream the row follows a curve pass on — `a-pass-is-pushed-not-polled`.
+ * The injected opener lets this hook drive its pass callbacks directly.
  *
- * Installed as the global rather than injected, because the global is the seam
- * a browser uses. It carries only `pass` frames: a curve is one city pair and
- * two paced requests, so there is no halfway point for a `snapshot` event to
- * describe.
+ * It carries only `pass` frames: a curve is one city pair and two paced
+ * requests, so there is no halfway point for a `snapshot` event to describe.
  */
-class FakeEventSource {
-  static opened: FakeEventSource[] = [];
-
-  readonly url: string;
-  closed = false;
-  private readonly listeners = new Map<string, (event: Event) => void>();
-
-  constructor(url: string) {
-    this.url = url;
-    FakeEventSource.opened.push(this);
-  }
-
-  addEventListener(type: string, handler: (event: Event) => void) {
-    this.listeners.set(type, handler);
-  }
-
-  removeEventListener(type: string) {
-    this.listeners.delete(type);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  emit(type: string, data?: unknown) {
-    this.listeners.get(type)?.(
-      data === undefined ? new Event(type) : new MessageEvent(type, { data: JSON.stringify(data) }),
-    );
-  }
-}
-
-function streamed(): FakeEventSource {
-  const source = FakeEventSource.opened.at(-1);
-  if (!source) throw new Error('no stream was opened');
-  return source;
+function streamed(): OpenedHorizonStream & { emit: (type: string, data?: unknown) => void } {
+  const stream = horizonStream.opened.at(-1);
+  if (!stream) throw new Error('no stream was opened');
+  return {
+    ...stream,
+    emit(type, data) {
+      if (type === 'open') stream.options.onOpen?.();
+      if (type === 'error') stream.options.onError?.();
+      if (type === 'pass') stream.options.onPass(data as CalendarCollectResponse);
+    },
+  };
 }
 
 const LIM_SCL: FareRoute = {
@@ -123,7 +128,6 @@ function horizonPass(overrides: Record<string, unknown> = {}) {
 function stubHorizon(started: unknown, progress: unknown[] = []) {
   const posted: unknown[] = [];
   const polls: number[] = [];
-  vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -241,7 +245,7 @@ describe('collecting a route’s booking horizon when the route is added', () =>
     expect(result.current.reports.get(routeId(LIM_SCL))!.text).toContain(
       'Collecting the booking horizon for LIM → SCL',
     );
-    await waitFor(() => expect(FakeEventSource.opened).toHaveLength(1));
+    await waitFor(() => expect(horizonStream.opened).toHaveLength(1));
 
     /*
      * A frame for a pass still running used to say nothing at all, on the
@@ -308,7 +312,7 @@ describe('collecting a route’s booking horizon when the route is added', () =>
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(FakeEventSource.opened).toHaveLength(1);
+      expect(horizonStream.opened).toHaveLength(1);
 
       await act(async () => {
         streamed().emit('error');

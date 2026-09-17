@@ -24,7 +24,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import auth_store
 
 client = TestClient(app)
 
@@ -80,14 +79,14 @@ async def first_frames(path: str, count: int) -> list[dict]:
         "raw_path": path.encode(),
         "query_string": b"",
         "root_path": "",
-        # Built by hand, so the conftest fixture that puts a session on every
-        # `TestClient` request never sees this one. The gate is not relaxed for
-        # it either: a real token from the real store is presented, the same way
-        # that fixture does it.
+        # Built by hand, so the conftest fixture that puts a bearer token on
+        # every `TestClient` request never sees this one. The gate is not
+        # relaxed for it either: the fixed token accepted by the test verifier
+        # is presented, the same way that fixture does it.
         "headers": [
             (b"host", b"testserver"),
             (b"accept-encoding", b"gzip"),
-            (b"authorization", f"Bearer {auth_store.create_session()}".encode()),
+            (b"authorization", b"Bearer test-supabase-access-token"),
         ],
         "client": ("127.0.0.1", 51234),
         "server": ("testserver", 80),

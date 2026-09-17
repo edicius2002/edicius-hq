@@ -3,11 +3,9 @@ export const STORAGE_KEYS = [
   'watchlist',
   'portfolio',
   'alert-rules',
-  'finance',
   'greenlight',
   'drawings',
   'indicators',
-  'finance-camera-views',
   'airfare-routes',
   'greenlight-projector',
 ] as const;

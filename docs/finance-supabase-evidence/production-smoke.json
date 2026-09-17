@@ -1,0 +1,27 @@
+{
+  "observedAt": "2026-09-17",
+  "stableOrigin": "https://edicius-hq-web.vercel.app",
+  "signedOutGate": "PASS",
+  "passkeyRegistration": "PASS",
+  "freshPasskeySignIn": "PASS",
+  "routes": {
+    "dashboard": "PASS",
+    "finance": "PASS",
+    "greenlight": "PASS",
+    "investing": "PASS",
+    "airfare": "PASS",
+    "sentiment": "PASS"
+  },
+  "financeEditReload": "PASS",
+  "cameraReload": "PASS",
+  "staleConflict": "PASS",
+  "apiJwt": "PASS",
+  "sse": {
+    "market": "PASS",
+    "boardCollection": "PASS",
+    "calendarCollection": "PASS",
+    "tweets": "PASS",
+    "bearerHeaderNoQueryToken": "PASS"
+  },
+  "signOutReload": "PASS"
+}

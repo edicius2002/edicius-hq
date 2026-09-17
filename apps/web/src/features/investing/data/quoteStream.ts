@@ -1,14 +1,12 @@
-import { getApiBaseUrl } from '@/shared/api/config';
 import type { Quote } from '@/shared/api/market';
-import { withStreamToken } from '@/shared/auth/streamUrl';
+import { openApiEventStream } from '@/shared/api/eventStream';
 
 /**
  * Live prices, pushed rather than asked for.
  *
  * The API holds the upstream socket and relays here over server-sent events —
- * see plan decision 8.19. Nothing in this file names a provider, and an
- * `EventSource` reconnects by itself, which is most of why it was chosen over a
- * socket in the browser.
+ * see plan decision 8.19. Nothing in this file names a provider, and the
+ * shared stream transport reconnects it over the authenticated fetch channel.
  *
  * **This does not replace polling.** A tick is a trade, so a symbol that does
  * not trade says nothing, and a tick never carries a previous close. The sweep
@@ -64,7 +62,7 @@ export function applyTicks(quotes: Map<string, Quote>, ticks: Tick[]): Map<strin
 
   // A reconnect can replay an older frame after a newer one. Keep one reading
   // per symbol and let its exchange timestamp decide which is current; when an
-  // upstream has no timestamp, EventSource arrival order is the best ordering
+  // upstream has no timestamp, stream arrival order is the best ordering
   // it gave us.
   const latest = new Map<string, Tick>();
   for (const tick of ticks) {
@@ -98,17 +96,12 @@ function sameReading(quote: Quote, tick: Tick): boolean {
   );
 }
 
-export function streamUrl(symbols: string[]): string {
-  const query = new URLSearchParams({ symbols: symbols.join(',') });
-  return `${getApiBaseUrl()}/api/market/stream?${query}`;
-}
-
 export type QuoteStreamOptions = {
   onTicks: (ticks: Tick[]) => void;
   onOpen?: () => void;
   onError?: () => void;
-  /** Injected in tests; the browser's own class otherwise. */
-  create?: (url: string) => EventSource;
+  /** Injected in tests; the shared authenticated transport otherwise. */
+  open?: typeof openApiEventStream;
 };
 
 /**
@@ -120,20 +113,19 @@ export type QuoteStreamOptions = {
 export function openQuoteStream(symbols: string[], options: QuoteStreamOptions): () => void {
   if (!symbols.length) return () => {};
 
-  const create = options.create ?? ((url: string) => new EventSource(url));
-  const source = create(withStreamToken(streamUrl(symbols)));
-
-  source.addEventListener('open', () => options.onOpen?.());
-  source.addEventListener('quotes', (event) => {
-    try {
-      const ticks = JSON.parse((event as MessageEvent<string>).data) as Tick[];
-      if (Array.isArray(ticks) && ticks.length) options.onTicks(ticks);
-    } catch {
-      // A frame we cannot read is a reason to ignore that frame. The stream is
-      // an optimisation over the sweep; it must never be able to break it.
-    }
+  const query = new URLSearchParams({ symbols: symbols.join(',') });
+  return (options.open ?? openApiEventStream)(`/api/market/stream?${query}`, {
+    onOpen: options.onOpen,
+    onError: options.onError,
+    onEvent(event) {
+      if (event.type !== 'quotes') return;
+      try {
+        const ticks = JSON.parse(event.data) as Tick[];
+        if (Array.isArray(ticks) && ticks.length) options.onTicks(ticks);
+      } catch {
+        // A frame we cannot read is a reason to ignore that frame. The stream is
+        // an optimisation over the sweep; it must never be able to break it.
+      }
+    },
   });
-  source.addEventListener('error', () => options.onError?.());
-
-  return () => source.close();
 }

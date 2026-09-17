@@ -84,7 +84,7 @@ export function useStoredDocument<T>({
   // Built once and never rebuilt: a queue replaced mid-flight would drop
   // whatever it was holding, which is the one thing it exists to keep.
   const [queue] = useState<WriteQueue<T>>(() =>
-    createWriteQueue<T>({
+    createWriteQueue<T, T>({
       write: (value) => writeStorage(key, value),
       onState: setWriteState,
     }),

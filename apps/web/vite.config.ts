@@ -7,18 +7,14 @@ import { defineConfig } from 'vitest/config';
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 /*
- * Three `.test.ts` files that look like pure logic and are not: they reach for
+ * One `.test.ts` file looks like pure logic and is not: it reaches for
  * something only a browser environment has, so they run in the `dom` project
  * with the `.tsx` files rather than in `node` with their own extension.
- * `streamUrl` and `http` read `localStorage`/`sessionStorage`; `alertSound`
- * constructs an `AudioContext`. Listing them here rather than renaming them to
- * `.tsx` keeps the extension meaning what it says — no JSX in the file.
+ * `alertSound` constructs an `AudioContext`. Listing it here rather than
+ * renaming it to `.tsx` keeps the extension meaning what it says — no JSX in
+ * the file.
  */
-const BROWSER_TESTS = [
-  'src/shared/auth/streamUrl.test.ts',
-  'src/shared/api/http.test.ts',
-  'src/features/investing/lib/alertSound.test.ts',
-];
+const BROWSER_TESTS = ['src/features/investing/lib/alertSound.test.ts'];
 
 /*
  * A few stylesheets are compiled for real; every other one is still
@@ -113,10 +109,10 @@ const CSS_INCLUDE = [
   // Twelfth and thirteenth, and one seam between them. `drawerFits.test` checks
   // that what the narrow drawer holds fits across it: the drawer's width is in
   // `TopNav.module.css` and the floor that overflowed it is in
-  // `EnrolDevice.module.css`, which the dropdown needs and the drawer cannot
-  // afford. Neither file imports the other and jsdom lays out neither.
+  // `AccountControls.module.css`, which the dropdown needs and the drawer
+  // cannot afford. Neither file imports the other and jsdom lays out neither.
   /TopNav\.module\.css/,
-  /EnrolDevice\.module\.css/,
+  /AccountControls\.module\.css/,
   /styles\/tokens\.css/,
 ];
 

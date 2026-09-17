@@ -15,6 +15,8 @@ export type WriteState = 'idle' | 'pending' | 'saving' | 'saved' | 'failed';
 export type WriteQueue<T> = {
   /** Hold an edit, and write it once the edits stop arriving. */
   push: (value: T) => void;
+  /** Drop a value which must not be retried after an explicit replacement. */
+  discard: () => void;
   /**
    * Supersede whatever is held and write it as soon as the queue is free.
    * Rejects if the write does not land, because the caller asked for this one
@@ -29,9 +31,13 @@ export type WriteQueue<T> = {
   flush: () => Promise<void>;
 };
 
-export type WriteQueueOptions<T> = {
+export type WriteQueueOptions<T, A = void> = {
   /** Performs the write. Rejecting means the value did not land. */
-  write: (value: T) => Promise<unknown>;
+  write: (value: T) => Promise<A>;
+  /** Receives the successful acknowledgement before the queue reports Saved. */
+  onWritten?: (acknowledgement: A) => void;
+  /** Receives the value that failed so a caller can reconcile it. */
+  onError?: (error: unknown, value: T) => void;
   /** Called on a change of state, never on a repeat of the same one. */
   onState: (state: WriteState) => void;
   delayMs?: number;
@@ -54,11 +60,13 @@ export type WriteQueueOptions<T> = {
  *   the page goes away, and a value queued before a restore would be written
  *   after it and quietly undo it.
  */
-export function createWriteQueue<T>({
+export function createWriteQueue<T, A = void>({
   write,
+  onWritten,
+  onError,
   onState,
   delayMs = WRITE_DELAY_MS,
-}: WriteQueueOptions<T>): WriteQueue<T> {
+}: WriteQueueOptions<T, A>): WriteQueue<T> {
   let held: { value: T } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let state: WriteState = 'idle';
@@ -97,8 +105,10 @@ export function createWriteQueue<T>({
         moveTo('saving');
 
         try {
-          await write(value);
+          const acknowledgement = await write(value);
+          onWritten?.(acknowledgement);
         } catch (error) {
+          onError?.(error, value);
           // Keep it so a retry has something to send — unless a newer edit has
           // already taken its place, in which case that one supersedes it.
           if (held === null && sent === generation) held = { value };
@@ -137,6 +147,13 @@ export function createWriteQueue<T>({
         timer = null;
         void drain();
       }, delayMs);
+    },
+
+    discard() {
+      stopTimer();
+      held = null;
+      generation += 1;
+      if (!draining) moveTo('idle');
     },
 
     overwrite(value: T) {

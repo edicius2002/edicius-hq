@@ -1,0 +1,21 @@
+{
+  "observedAt": "2026-09-17",
+  "documents": [
+    {
+      "key": "finance",
+      "sourceBytes": 19028,
+      "sourceSha256": "50a8cf44af6e92017c60662a4b080050c258de9f091e9f65d524c36927d1852f",
+      "destinationRevision": 16,
+      "destinationSha256": "50a8cf44af6e92017c60662a4b080050c258de9f091e9f65d524c36927d1852f",
+      "matches": true
+    },
+    {
+      "key": "finance-camera-views",
+      "sourceBytes": 173,
+      "sourceSha256": "21453149f4376e4d607afe80aa5dd16dd97e706749fcb9879e44656ebc7f7221",
+      "destinationRevision": 11,
+      "destinationSha256": "21453149f4376e4d607afe80aa5dd16dd97e706749fcb9879e44656ebc7f7221",
+      "matches": true
+    }
+  ]
+}

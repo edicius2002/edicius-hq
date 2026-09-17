@@ -44,7 +44,7 @@ function TestWrapper({ children }: { children: ReactNode }) {
     const next = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     });
-    next.setQueryData(['storage', 'finance-camera-views'], NO_FINANCE_CAMERA_VIEWS);
+    next.setQueryData(['finance-documents', 'finance-camera-views'], NO_FINANCE_CAMERA_VIEWS);
     return next;
   });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

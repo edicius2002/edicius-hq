@@ -2,16 +2,38 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { type ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const auth = vi.hoisted(() => ({
+  getAccessToken: vi.fn(),
+  registerPasskey: vi.fn(),
+  signInWithPasskey: vi.fn(),
+  signOut: vi.fn(),
+  subscribeToAuth: vi.fn(),
+}));
+
+vi.mock('@/shared/auth/supabaseAuth', () => auth);
 
 import { App } from '@/app/App';
 import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
 import { AppProviders } from '@/app/providers/AppProviders';
 import { createAppMemoryRouter } from '@/app/router/createAppRouter';
-import { clearToken, writeToken } from '@/shared/auth/session';
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+const signedInSession = { access_token: 'jwt-one' } as Session;
+let emitAuth: (event: AuthChangeEvent, session: Session | null) => void;
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -43,6 +65,21 @@ const CODEX_RESETS = {
 };
 
 beforeEach(() => {
+  auth.getAccessToken.mockResolvedValue(null);
+  auth.registerPasskey.mockResolvedValue({
+    id: 'pk-1',
+    friendlyName: 'Windows Hello',
+    createdAt: '2026-09-16T00:00:00Z',
+    lastUsedAt: null,
+  });
+  auth.signInWithPasskey.mockResolvedValue(undefined);
+  auth.signOut.mockResolvedValue(undefined);
+  auth.subscribeToAuth.mockImplementation(
+    (callback: (event: AuthChangeEvent, session: Session | null) => void) => {
+      emitAuth = callback;
+      return vi.fn();
+    },
+  );
   // The layout tests exercise the chart shell, not canvas pixels. jsdom emits
   // a noisy "not implemented" error before returning null without this stub.
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
@@ -162,61 +199,19 @@ describe('Shell navigation', () => {
   });
 });
 
-/**
- * The menu is the app's only surface that is not a page, which is why the way
- * to enrol a second device hangs off it. These go through the shell rather
- * than rendering `EnrolDevice` alone — that its own file already does — because
- * what can only be wrong here is the wiring: whether the block reaches the
- * dropdown at all, and whether using it survives the menu's own dismissal
- * rules.
- */
-describe('Enrolling a second device from the menu', () => {
-  it('issues a code into the menu without navigating away', async () => {
+describe('Account controls in the wide menu', () => {
+  it('offers passkey registration and sign-out without leaving the current page', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes('/api/auth/enrolment-code')) {
-          return Response.json({ code: 'K7M29QX4', expiresInSeconds: 600 });
-        }
-        if (url.includes('/api/kv/')) return new Response(null, { status: 404 });
-        if (url.includes('/api/codex-resets')) return Response.json(CODEX_RESETS);
-        return Response.json({ status: 'ok' });
-      }),
-    );
 
     renderAt('/dashboard');
     await arrivesAt('Dashboard');
 
     const nav = await openMenu(user);
-    await user.click(screen.getByRole('button', { name: 'Enrol a device' }));
+    expect(screen.getByRole('button', { name: 'Add passkey' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
-    expect(await screen.findByText('K7M2-9QX4')).toBeInTheDocument();
-    // The menu closes on an outside click and on navigation. A button inside
-    // it is neither, and a dropdown that shut on the click that produced the
-    // code would take the code with it.
     expect(nav).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-  });
-
-  it('does not offer the block, or issue anything, while the menu is shut', async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) =>
-      String(input).includes('/api/kv/')
-        ? new Response(null, { status: 404 })
-        : String(input).includes('/api/codex-resets')
-          ? Response.json(CODEX_RESETS)
-          : Response.json({ status: 'ok' }),
-    );
-    vi.stubGlobal('fetch', fetchSpy);
-
-    renderAt('/dashboard');
-    await arrivesAt('Dashboard');
-
-    expect(screen.queryByRole('button', { name: 'Enrol a device' })).not.toBeInTheDocument();
-    expect(
-      fetchSpy.mock.calls.some(([url]) => String(url).includes('/api/auth/enrolment-code')),
-    ).toBe(false);
   });
 });
 
@@ -415,35 +410,29 @@ describe('AppErrorBoundary', () => {
  * `RouterProvider`, because it is testing navigation rather than access.
  */
 describe('The session gate', () => {
-  afterEach(() => {
-    clearToken();
-  });
-
-  it('renders the login screen when there is no session', () => {
-    clearToken();
+  it('waits for the initial Supabase session before rendering either gate', async () => {
+    const session = deferred<string | null>();
+    auth.getAccessToken.mockReturnValue(session.promise);
     render(<App />);
 
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.queryByText('Sign in with passkey')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument();
+
+    session.resolve(null);
+    expect(await screen.findByText('Sign in with passkey')).toBeInTheDocument();
   });
 
-  it('renders the app when a session exists', async () => {
-    writeToken('a-token');
+  it('opens the app from a SIGNED_IN event and closes it from SIGNED_OUT', async () => {
+    const session = deferred<string | null>();
+    auth.getAccessToken.mockReturnValue(session.promise);
+    const user = userEvent.setup();
     render(<App />);
 
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument(),
-    );
-  });
+    emitAuth('SIGNED_IN', signedInSession);
+    await user.click(await screen.findByRole('button', { name: 'Menu' }));
+    expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
 
-  it('falls back to the login screen when the stored token is refused', async () => {
-    writeToken('a-stale-token');
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ detail: 'Not authenticated' }, { status: 401 })),
-    );
-
-    render(<App />);
-
-    expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    emitAuth('SIGNED_OUT', null);
+    expect(await screen.findByText('Sign in with passkey')).toBeInTheDocument();
   });
 });

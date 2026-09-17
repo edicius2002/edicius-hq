@@ -2,6 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
+const auth = vi.hoisted(() => ({
+  clearLocalSession: vi.fn(),
+  getAccessToken: vi.fn(async () => null),
+}));
+
+vi.mock('@/shared/auth/supabaseAuth', () => auth);
+
 import { DashboardPage } from './DashboardPage';
 
 const TWEETS = {

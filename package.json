@@ -25,6 +25,7 @@
     "test:api": "npm run api:test",
     "api:dev": "node scripts/api.mjs dev",
     "api:test": "node scripts/api.mjs test",
+    "test:supabase-auth-config": "node scripts/assert-supabase-auth-config.mjs",
     "tailnet:serve": "node scripts/tailnet.mjs serve",
     "tailnet:funnel": "node scripts/tailnet.mjs funnel",
     "tailnet:status": "node scripts/tailnet.mjs status",
@@ -33,6 +34,7 @@
     "fares:check": "node scripts/api.mjs fares-check",
     "fares:backfill": "node scripts/api.mjs fares-backfill",
     "fares:supabase": "node scripts/api.mjs fares-supabase",
+    "finance:supabase": "node scripts/api.mjs finance-supabase",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

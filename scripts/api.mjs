@@ -14,9 +14,7 @@ const MODES = [
   'fares-check',
   'fares-backfill',
   'fares-supabase',
-  'enroll',
-  'credentials',
-  'revoke',
+  'finance-supabase',
 ];
 
 const mode = process.argv[2];
@@ -107,19 +105,7 @@ const ARGS = {
   'fares-check': [['../../scripts/gflights-check.py', ...process.argv.slice(3)]],
   'fares-backfill': [['../../scripts/fares-viapoints-backfill.py', ...process.argv.slice(3)]],
   'fares-supabase': [['../../scripts/fares-supabase.py', ...process.argv.slice(3)]],
-  /*
-   * Passkey enrolment, listing and revocation. `-m` rather than a path under
-   * `scripts/` because this one lives inside the package it talks to — it
-   * reads `app.services.auth_store` and nothing else — and `-m` is how every
-   * other in-package entry point above is reached.
-   *
-   * These are the root of trust for the whole login: authorising a new device
-   * means running a command on the machine the data is already on. There is
-   * deliberately no way to do it from the web client.
-   */
-  enroll: [['-m', 'app.cli.auth_cli', 'enroll']],
-  credentials: [['-m', 'app.cli.auth_cli', 'credentials']],
-  revoke: [['-m', 'app.cli.auth_cli', 'revoke', ...process.argv.slice(3)]],
+  'finance-supabase': [['../../scripts/finance-supabase.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

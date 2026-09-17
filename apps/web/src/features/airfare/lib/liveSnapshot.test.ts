@@ -70,7 +70,7 @@ describe('a snapshot pushed into the archive already fetched', () => {
   });
 
   it('ignores a snapshot it is already holding, without costing a render', () => {
-    // A reconnecting `EventSource` replays from its last id, so the frame after
+    // A reconnect can replay from its last id, so the frame after
     // a reconnect is routinely one already applied. Returning the same object
     // rather than an equal one is what stops that being a repaint.
     const landed = snapshot();

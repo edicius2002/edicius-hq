@@ -10,17 +10,35 @@ import {
   type FinanceCameraViews,
 } from '@/features/finance/lib/cameraViews';
 import type { DiagramId } from '@/features/finance/model/types';
-import { useStoredDocument } from '@/shared/storage/useStoredDocument';
+import {
+  useRemoteDocument,
+  type RemoteStoredDocument,
+} from '@/features/finance/hooks/useRemoteDocument';
+
+/** The remote lifecycle that the canvas reports to the Finance page. */
+export type DiagramCameraPersistence = Pick<
+  RemoteStoredDocument<FinanceCameraViews>,
+  | 'isError'
+  | 'saveState'
+  | 'retrySave'
+  | 'conflict'
+  | 'refreshConflict'
+  | 'acceptRemote'
+  | 'overwriteRemote'
+> & {
+  /** Includes the local restoration paint as well as the remote fetch. */
+  isFetching: boolean;
+};
 
 /**
  * One camera per diagram, restored independently from the financial document.
  *
- * The view still does not become money data or backup content. The shared write
- * queue coalesces a pan or wheel run to one durable write, while local state
- * keeps the canvas at the pointer rather than waiting for storage.
+ * The view still does not become money data. The shared write queue coalesces
+ * a pan or wheel run to one durable write, while local state keeps the canvas
+ * at the pointer rather than waiting for storage.
  */
 export function useDiagramCamera(diagramId: DiagramId) {
-  const store = useStoredDocument<FinanceCameraViews>({
+  const store = useRemoteDocument<FinanceCameraViews>({
     key: FINANCE_CAMERA_VIEWS_KEY,
     normalize: normalizeFinanceCameraViews,
     placeholder: NO_FINANCE_CAMERA_VIEWS,
@@ -50,8 +68,15 @@ export function useDiagramCamera(diagramId: DiagramId) {
     setCamera(remembered.get(diagramId) ?? cameraFor(store.data, diagramId));
   }
 
+  const isFetching = store.isFetching || !hydrated;
+
   const updateCamera = useCallback(
     (nextOrChange: SetStateAction<Camera>) => {
+      // The page makes this unavailable to people, and this guard gives the
+      // same protection to an in-flight native gesture. A placeholder or a
+      // conflicted local view must never be queued as a new remote edit.
+      if (isFetching || store.isError || store.conflict) return;
+
       setCamera((current) => {
         const next = typeof nextOrChange === 'function' ? nextOrChange(current) : nextOrChange;
         if (next === current) return current;
@@ -61,8 +86,38 @@ export function useDiagramCamera(diagramId: DiagramId) {
         return next;
       });
     },
-    [diagramId, store],
+    [diagramId, isFetching, store],
   );
 
-  return { camera, setCamera: updateCamera, isFetching: store.isFetching || !hydrated };
+  const acceptRemote = useCallback(() => {
+    const conflict = store.conflict;
+    if (conflict?.status === 'ready') {
+      const accepted = conflict.remote;
+      const restored = cameraFor(accepted, diagramId);
+      // Every remembered tab belongs to the accepted whole document. Leaving
+      // an old tab in the map would resurrect the discarded local conflict on
+      // the next diagram switch.
+      setRemembered((current) => {
+        const next = new Map(current);
+        for (const id of next.keys()) next.set(id, cameraFor(accepted, id));
+        next.set(diagramId, restored);
+        return next;
+      });
+      setCamera(restored);
+    }
+    store.acceptRemote();
+  }, [diagramId, store]);
+
+  return {
+    camera,
+    setCamera: updateCamera,
+    isFetching,
+    isError: store.isError,
+    saveState: store.saveState,
+    retrySave: store.retrySave,
+    conflict: store.conflict,
+    refreshConflict: store.refreshConflict,
+    acceptRemote,
+    overwriteRemote: store.overwriteRemote,
+  };
 }

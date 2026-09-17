@@ -6,7 +6,7 @@
  * a command line, and the second one is the difference between "a phone that
  * has joined the tailnet can sign in" and "every write endpoint in
  * `docs/deploy-plan.md`'s inventory answers the public internet, gated by a
- * passkey and nothing else". That is too large a difference to leave in
+ * Supabase JWT and nothing else". That is too large a difference to leave in
  * somebody's shell history, so both settings live here, spelled out, beside
  * the check that says which of them is allowed yet.
  *
@@ -20,10 +20,6 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 const MODES = ['serve', 'funnel', 'status', 'off'];
 
 const mode = process.argv[2];
@@ -31,16 +27,6 @@ if (!MODES.includes(mode)) {
   console.error(`Usage: node scripts/tailnet.mjs <${MODES.join('|')}>`);
   process.exit(1);
 }
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const apiRoot = path.join(repoRoot, 'services', 'api');
-
-// Read the same way `scripts/api.mjs` reads it, and for the same reason: the
-// credential store below moves with `LOCAL_DATA_DIR`, and a `.env` that the
-// API obeys but this script does not would make the safety check answer about
-// a directory nobody uses.
-const envFile = path.join(repoRoot, '.env');
-if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 /*
  * Both numbers are pinned rather than configurable, and neither is arbitrary.
@@ -61,32 +47,6 @@ const API_PORT = 8000;
 const HTTPS_PORT = 443;
 
 const TARGET = `localhost:${API_PORT}`;
-
-/*
- * `LOCAL_DATA_DIR` is resolved by `config.local_data_dir()` against the
- * process's working directory, and `api.mjs` runs the API from
- * `services/api` — so the relative default `.local-data` means
- * `services/api/.local-data`, not one at the repo root.
- */
-const dataDir = path.resolve(apiRoot, process.env.LOCAL_DATA_DIR ?? '.local-data');
-const credentialsFile = path.join(dataDir, 'auth', 'credentials.json');
-
-/**
- * How many enrolled passkeys have actually signed in at least once.
- *
- * Enrolled is not the question. `auth_store.add_credential` writes
- * `last_used_at: null` and only `touch_credential` — reached from a verified
- * assertion — ever fills it in, and nothing clears it afterwards. So this
- * counts devices that have completed a login, which is the condition
- * `docs/deploy-plan.md` actually records, and it is not a distinction without
- * a difference: of the two credentials enrolled on 2026-09-03, one had signed
- * in and one had never been used since the ceremony that created it.
- */
-function signedInCredentials() {
-  if (!existsSync(credentialsFile)) return 0;
-  const records = JSON.parse(readFileSync(credentialsFile, 'utf8'));
-  return records.filter((record) => record.last_used_at).length;
-}
 
 /**
  * Whether uvicorn is answering on the loopback address Serve and Funnel proxy to.
@@ -167,45 +127,14 @@ if (mode === 'serve') {
 /*
  * Funnel from here down.
  *
- * `docs/deploy-plan.md` does not prohibit this any more — the passkey gate is
- * what changed that — but it records an ordering in its place: the login has
- * to be working, verified against a real enrolled device, before the transport
- * is widened. That ordering is the whole of the safety argument, so it is
- * checked here rather than only written down. Publishing first and enrolling
- * afterwards would put `PUT /api/kv/{key}`, `POST /api/fares/collect` and
- * `POST /api/tweets/{handle}/refresh` on the public internet with no
- * credential in existence that could refuse anyone, for however long it took
- * to notice.
- *
- * There is no flag to skip this. The way past it is `node scripts/api.mjs
- * enroll` and then signing in on the device it enrols, which is the thing the
- * check is asking for.
+ * Every API route is verified by the Supabase JWT gate before a handler runs.
+ * Funnel changes the transport's audience, not the API authorization contract,
+ * so it no longer reads a PC-backed credential store before widening access.
  */
-let verified;
-try {
-  verified = signedInCredentials();
-} catch (error) {
-  console.error(`Could not read ${credentialsFile}: ${error.message}`);
-  console.error('Funnel is refused while the passkey store cannot be read.');
-  process.exit(1);
-}
-
-if (verified === 0) {
-  console.error('\nRefusing to enable Funnel: no enrolled passkey has ever signed in.');
-  console.error(`Looked in ${credentialsFile}`);
-  console.error('\nFunnel publishes every /api route to the internet, where the passkey session');
-  console.error('is the only thing between a stranger and the stored state, the fare');
-  console.error('collector and logged-in X profile. Verify the login first:');
-  console.error('\n  node scripts/api.mjs enroll     # prints an enrolment code');
-  console.error('  # enrol a device, then sign in on it');
-  console.error('  node scripts/api.mjs credentials # LAST USED must not read "never"\n');
-  process.exit(1);
-}
-
 tailscale(['funnel', '--bg', `--https=${HTTPS_PORT}`, TARGET]);
 
 console.log(`\nThe API is now on the public internet, on port ${HTTPS_PORT}.`);
-console.log('Every /api route answers anyone who asks; the passkey session is what refuses');
+console.log('Every /api route answers anyone who asks; the Supabase JWT gate is what refuses');
 console.log('them. Enabling this also publishes the ts.net name of this machine to public');
 console.log('DNS, which is what lets a phone that has never joined the tailnet resolve it.');
 console.log('\nTake it back down with: node scripts/tailnet.mjs off\n');

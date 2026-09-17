@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/shared/auth/supabaseAuth', () => ({
+  clearLocalSession: vi.fn(),
+  getAccessToken: vi.fn(),
+}));
+
 import {
   applyTicks,
   mergeTick,
   openQuoteStream,
-  streamUrl,
   type Tick,
 } from '@/features/investing/data/quoteStream';
 import type { Quote } from '@/shared/api/market';
+import type { EventStreamHandlers } from '@/shared/api/eventStream';
 
 function quote(over: Partial<Quote> = {}): Quote {
   return {
@@ -131,50 +136,25 @@ describe('applyTicks', () => {
   });
 });
 
-describe('streamUrl', () => {
-  it('asks for every symbol in one connection', () => {
-    // Ten symbols must cost one socket, for the same reason quotes are batched.
-    expect(streamUrl(['AAPL', 'MSFT'])).toContain('symbols=AAPL%2CMSFT');
-  });
-});
-
-class FakeSource {
-  listeners = new Map<string, (event: Event) => void>();
-  closed = false;
-  readonly url: string;
-  constructor(url: string) {
-    this.url = url;
-  }
-  addEventListener(type: string, handler: (event: Event) => void) {
-    this.listeners.set(type, handler);
-  }
-  close() {
-    this.closed = true;
-  }
-  emit(type: string, data?: string) {
-    this.listeners.get(type)?.(
-      data === undefined ? new Event(type) : new MessageEvent(type, { data }),
-    );
-  }
-}
-
 describe('openQuoteStream', () => {
   function open(onTicks = vi.fn()) {
-    let source!: FakeSource;
+    let handlers!: EventStreamHandlers;
+    const stop = vi.fn();
+    const openStream = vi.fn((_: string, next: EventStreamHandlers) => {
+      handlers = next;
+      return stop;
+    });
     const close = openQuoteStream(['AAPL'], {
       onTicks,
-      create: (url) => {
-        source = new FakeSource(url);
-        return source as unknown as EventSource;
-      },
+      open: openStream,
     });
-    return { source, close, onTicks };
+    return { handlers, close, onTicks, openStream, stop };
   }
 
   it('hands on the batch it was sent', () => {
-    const { source, onTicks } = open();
+    const { handlers, onTicks } = open();
 
-    source.emit('quotes', JSON.stringify([tick({ price: 500 })]));
+    handlers.onEvent({ type: 'quotes', data: JSON.stringify([tick({ price: 500 })]), id: null });
 
     expect(onTicks).toHaveBeenCalledWith([expect.objectContaining({ price: 500 })]);
   });
@@ -182,26 +162,32 @@ describe('openQuoteStream', () => {
   it('ignores a frame it cannot read rather than throwing', () => {
     // The stream is an optimisation over the sweep. It must never be able to
     // break the thing it is optimising.
-    const { source, onTicks } = open();
+    const { handlers, onTicks } = open();
 
-    expect(() => source.emit('quotes', 'not json')).not.toThrow();
-    expect(() => source.emit('quotes', JSON.stringify({ nope: true }))).not.toThrow();
+    expect(() => handlers.onEvent({ type: 'quotes', data: 'not json', id: null })).not.toThrow();
+    expect(() =>
+      handlers.onEvent({ type: 'quotes', data: JSON.stringify({ nope: true }), id: null }),
+    ).not.toThrow();
     expect(onTicks).not.toHaveBeenCalled();
   });
 
   it('opens nothing when there is nothing to follow', () => {
-    const create = vi.fn();
+    const openStream = vi.fn();
 
-    openQuoteStream([], { onTicks: vi.fn(), create });
+    openQuoteStream([], { onTicks: vi.fn(), open: openStream });
 
-    expect(create).not.toHaveBeenCalled();
+    expect(openStream).not.toHaveBeenCalled();
   });
 
-  it('closes the connection when told to', () => {
-    const { source, close } = open();
+  it('uses one encoded path and closes the connection when told to', () => {
+    const { close, openStream, stop } = open();
 
     close();
 
-    expect(source.closed).toBe(true);
+    expect(openStream).toHaveBeenCalledWith(
+      '/api/market/stream?symbols=AAPL',
+      expect.objectContaining({ onEvent: expect.any(Function) }),
+    );
+    expect(stop).toHaveBeenCalledOnce();
   });
 });

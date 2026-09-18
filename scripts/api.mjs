@@ -18,6 +18,7 @@ const MODES = [
   'app-documents-supabase',
   'sentiment-collect',
   'tweets-watch',
+  'market-worker',
 ];
 
 const mode = process.argv[2];
@@ -112,6 +113,7 @@ const ARGS = {
   'app-documents-supabase': [['../../scripts/app-documents-supabase.py', ...process.argv.slice(3)]],
   'sentiment-collect': [['../../scripts/sentiment-collect.py', ...process.argv.slice(3)]],
   'tweets-watch': [['../../scripts/tweets-watch.py', ...process.argv.slice(3)]],
+  'market-worker': [['../../scripts/market-worker.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

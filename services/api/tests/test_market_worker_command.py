@@ -8,6 +8,8 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import AsyncMock, Mock
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "market-worker.py"
 
@@ -33,6 +35,21 @@ def test_run_worker_closes_cloud_after_the_stop_signal():
     assert asyncio.run(load_script().run_worker(cloud, worker, stopped)) == 0
 
     worker.run.assert_awaited_once_with(stopped)
+    cloud.begin_run.assert_called_once_with("market")
+    cloud.finish_run.assert_called_once_with(
+        cloud.begin_run.return_value, {"seen": 0, "written": 0, "failed": 0}
+    )
+    cloud.close.assert_called_once_with()
+
+
+def test_run_worker_marks_an_unexpected_worker_failure_before_closing_cloud():
+    cloud = Mock()
+    worker = Mock(run=AsyncMock(side_effect=RuntimeError("private provider detail")))
+
+    with pytest.raises(RuntimeError, match="private provider detail"):
+        asyncio.run(load_script().run_worker(cloud, worker, asyncio.Event()))
+
+    cloud.fail_run.assert_called_once_with(cloud.begin_run.return_value, "worker-failed")
     cloud.close.assert_called_once_with()
 
 

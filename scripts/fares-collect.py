@@ -97,6 +97,7 @@ a word. `--dry-run` writes no line: it reaches nothing, so it records nothing.
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from collections import Counter
 from datetime import UTC, date, datetime
@@ -144,6 +145,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 ROUTES_KEY = "airfare-routes"
+LOGGER = logging.getLogger(__name__)
 
 
 def load_routes(watch_source: str = "supabase") -> list[dict[str, object]]:
@@ -357,7 +359,7 @@ def main() -> int:
         gap=args.gap if args.gap is not None else REQUEST_GAP_SECONDS,
     )
     try:
-        return _pass(args, recorder)
+        return run_pass(args, recorder)
     except BaseException:
         # **A pass that fell over is still a pass, and it still leaves a line.**
         # Before this the only trace was a non-zero exit code, and the comment
@@ -369,6 +371,42 @@ def main() -> int:
         # behaviour of the command untouched.
         recorder.finish(exit_code=1)
         raise
+
+
+def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
+    """Run a real cloud pass inside one collector-run lifecycle."""
+    if args.dry_run or getattr(args, "watch_source", "supabase") == "local":
+        return _pass(args, recorder)
+
+    cloud = configured_collector_cloud()
+    run_id = None
+    terminal_attempted = False
+    try:
+        run_id = cloud.begin_run("airfare")
+        code = _pass(args, recorder)
+        if code:
+            terminal_attempted = True
+            cloud.fail_run(run_id, "pass-failed")
+        else:
+            terminal_attempted = True
+            cloud.finish_run(
+                run_id,
+                {
+                    "seen": recorder.tally.due,
+                    "written": max(0, recorder.tally.sent - recorder.tally.failed),
+                    "failed": recorder.tally.failed,
+                },
+            )
+        return code
+    except BaseException:
+        if run_id is not None and not terminal_attempted:
+            try:
+                cloud.fail_run(run_id, "pass-failed")
+            except Exception:  # noqa: BLE001 - preserve the pass failure
+                LOGGER.error("airfare collector could not mark its run failed")
+        raise
+    finally:
+        cloud.close()
 
 
 def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:

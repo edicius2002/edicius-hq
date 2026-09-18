@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import signal
 import sys
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 from app.config import collector_config  # noqa: E402
 from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
 from app.services.market_worker import MarketWorker  # noqa: E402
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -102,14 +105,26 @@ async def maintain_request_subscription(
 
 
 async def run_worker(cloud: Any, worker: MarketWorker, stopped: asyncio.Event) -> int:
-    realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
+    realtime: asyncio.Task[None] | None = None
+    run_id = None
     try:
+        run_id = cloud.begin_run("market")
+        realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
         await worker.run(stopped)
+        cloud.finish_run(run_id, {"seen": 0, "written": 0, "failed": 0})
         return 0
+    except BaseException:
+        if run_id is not None:
+            try:
+                cloud.fail_run(run_id, "worker-failed")
+            except Exception:  # noqa: BLE001 - preserve the worker failure
+                LOGGER.error("market worker could not mark its run failed")
+        raise
     finally:
-        realtime.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await realtime
+        if realtime is not None:
+            realtime.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await realtime
         cloud.close()
 
 

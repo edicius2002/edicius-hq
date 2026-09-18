@@ -21,6 +21,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from conftest import NOW
@@ -71,6 +72,83 @@ def test_load_routes_defaults_to_the_cloud_watch(monkeypatch, tmp_path):
     monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
     assert script.load_routes() == []
     assert seen == ["airfare-routes"]
+
+
+def test_real_cloud_pass_finishes_a_run_and_closes_the_client(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    recorder = PassRecorder(source="cron", kind="board", gap=0)
+    recorder.tally.due = 4
+    recorder.tally.sent = 3
+    recorder.tally.failed = 1
+    args = argparse.Namespace(dry_run=False, watch_source="supabase")
+
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
+
+    assert script.run_pass(args, recorder) == 0
+
+    cloud.begin_run.assert_called_once_with("airfare")
+    cloud.finish_run.assert_called_once_with(
+        "run-id", {"seen": 4, "written": 2, "failed": 1}
+    )
+    cloud.close.assert_called_once_with()
+
+
+def test_dry_run_and_local_rollback_do_not_create_a_cloud_client(monkeypatch):
+    script = load_collect_script()
+    configured = Mock()
+    monkeypatch.setattr(script, "configured_collector_cloud", configured)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
+
+    for args in (
+        argparse.Namespace(dry_run=True, watch_source="supabase"),
+        argparse.Namespace(dry_run=False, watch_source="local"),
+    ):
+        assert script.run_pass(args, PassRecorder(source="cron", kind="board", gap=0)) == 0
+
+    configured.assert_not_called()
+
+
+def test_real_cloud_pass_marks_failure_with_a_stable_code_and_closes(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 1)
+
+    assert (
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 1
+    )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
+
+
+def test_real_cloud_pass_exception_marks_failure_and_closes(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+
+    def fail(_args, _recorder):
+        raise RuntimeError("provider detail must not reach Supabase")
+
+    monkeypatch.setattr(script, "_pass", fail)
+
+    with pytest.raises(RuntimeError, match="provider detail"):
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
 
 
 def test_a_stored_route_still_naming_a_focus_becomes_a_watch(tmp_path):

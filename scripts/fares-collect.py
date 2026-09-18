@@ -384,27 +384,37 @@ def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
 
     cloud = configured_collector_cloud()
     run_id = None
-    completed = False
-    failure_terminalization_attempted = False
     try:
-        run_id = cloud.begin_run("airfare")
+        try:
+            run_id = cloud.begin_run("airfare")
+        except Exception:  # noqa: BLE001 - local durable collection survives cloud loss
+            LOGGER.error("airfare collector could not initialize its cloud run")
         code = _pass(args, recorder)
         if code:
-            failure_terminalization_attempted = True
-            cloud.fail_run(run_id, "pass-failed")
-        else:
-            cloud.finish_run(
-                run_id,
-                {
-                    "seen": recorder.tally.due,
-                    "written": recorder.tally.written,
-                    "failed": recorder.tally.failed,
-                },
-            )
-            completed = True
+            if run_id is not None:
+                try:
+                    cloud.fail_run(run_id, "pass-failed")
+                except Exception:  # noqa: BLE001 - preserve the local pass outcome
+                    LOGGER.error("airfare collector could not mark its run failed")
+        elif run_id is not None:
+            try:
+                cloud.finish_run(
+                    run_id,
+                    {
+                        "seen": recorder.tally.due,
+                        "written": recorder.tally.written,
+                        "failed": recorder.tally.failed,
+                    },
+                )
+            except Exception:  # noqa: BLE001 - retain observations for later replay
+                LOGGER.error("airfare collector could not finish its cloud run")
+                try:
+                    cloud.fail_run(run_id, "pass-failed")
+                except Exception:  # noqa: BLE001 - one terminalization attempt is enough
+                    LOGGER.error("airfare collector could not mark its run failed")
         return code
     except BaseException:
-        if run_id is not None and not completed and not failure_terminalization_attempted:
+        if run_id is not None:
             try:
                 cloud.fail_run(run_id, "pass-failed")
             except Exception:  # noqa: BLE001 - preserve the pass failure

@@ -148,6 +148,31 @@ def test_real_cloud_pass_marks_failure_with_a_stable_code_and_closes(monkeypatch
     cloud.close.assert_called_once_with()
 
 
+def test_begin_run_outage_keeps_the_local_pass_running(monkeypatch, caplog):
+    """Run telemetry is optional; _pass owns cache fallback and durable collection."""
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.side_effect = RuntimeError("https://secret.example.invalid/telemetry")
+    local_pass = Mock(return_value=0)
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", local_pass)
+
+    assert (
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 0
+    )
+
+    local_pass.assert_called_once()
+    cloud.finish_run.assert_not_called()
+    cloud.fail_run.assert_not_called()
+    cloud.close.assert_called_once_with()
+    assert "secret.example.invalid" not in caplog.text
+    assert "could not initialize its cloud run" in caplog.text
+
+
 def test_real_cloud_pass_exception_marks_failure_and_closes(monkeypatch):
     script = load_collect_script()
     cloud = Mock()
@@ -169,7 +194,7 @@ def test_real_cloud_pass_exception_marks_failure_and_closes(monkeypatch):
     cloud.close.assert_called_once_with()
 
 
-def test_finish_failure_marks_the_running_cloud_pass_failed_before_closing(monkeypatch):
+def test_finish_failure_keeps_a_successful_local_pass_successful(monkeypatch, caplog):
     script = load_collect_script()
     cloud = Mock()
     cloud.begin_run.return_value = "run-id"
@@ -177,17 +202,21 @@ def test_finish_failure_marks_the_running_cloud_pass_failed_before_closing(monke
     monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
     monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
 
-    with pytest.raises(RuntimeError, match="cloud detail"):
+    assert (
         script.run_pass(
             argparse.Namespace(dry_run=False, watch_source="supabase"),
             PassRecorder(source="cron", kind="board", gap=0),
         )
+        == 0
+    )
 
     cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
     cloud.close.assert_called_once_with()
+    assert "cloud detail" not in caplog.text
+    assert "could not finish its cloud run" in caplog.text
 
 
-def test_failed_terminal_failure_is_not_retried_before_cloud_close(monkeypatch):
+def test_failed_terminal_failure_keeps_the_local_failure_and_is_not_retried(monkeypatch, caplog):
     script = load_collect_script()
     cloud = Mock()
     cloud.begin_run.return_value = "run-id"
@@ -195,14 +224,18 @@ def test_failed_terminal_failure_is_not_retried_before_cloud_close(monkeypatch):
     monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
     monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 1)
 
-    with pytest.raises(RuntimeError, match="cloud detail"):
+    assert (
         script.run_pass(
             argparse.Namespace(dry_run=False, watch_source="supabase"),
             PassRecorder(source="cron", kind="board", gap=0),
         )
+        == 1
+    )
 
     cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
     cloud.close.assert_called_once_with()
+    assert "cloud detail" not in caplog.text
+    assert "could not mark its run failed" in caplog.text
 
 
 def test_a_stored_route_still_naming_a_focus_becomes_a_watch(tmp_path):

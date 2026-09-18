@@ -650,6 +650,10 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      delete_app_document: {
+        Args: { p_document_key: string; p_expected_revision: number };
+        Returns: undefined;
+      };
       fail_collector_request: {
         Args: { p_error_code: string; p_request_id: string };
         Returns: {

@@ -33,3 +33,12 @@
 ## Concern
 
 The full web suite needs its remaining bespoke PC-KV fetch stubs migrated to Supabase document/RPC fixtures. This task updated the reusable fixture and its directly scoped tests; the legacy failures are documented above rather than masked.
+
+## Review fix evidence
+
+- Added the owner-scoped `delete_app_document(text,bigint)` security-definer RPC to the unreleased collector migration. It validates the authenticated owner, key, and positive expected revision; atomically deletes only that revision; and reports an absent/stale row as `PT409`. Authenticated alone can execute it.
+- Regenerated `database.types.ts` locally after reset; it now contains `delete_app_document`.
+- RED/GREEN: delete boundary test initially failed because the function was absent; it now passes. Importer tests initially failed for empty `201` and non-JSON source files; both now pass.
+- `npx supabase test db supabase/tests/collector_data_plane.sql` passed 77/77; `npx supabase test db` passed 217 tests across 6 files.
+- Focused browser storage/component suite passed 42/42, including migrated projector, Greenlight, alerts, and App fixtures.
+- A post-fix full `npm test` was launched with output redirected to the ignored temp log as requested; it had not reached a Vitest completion summary within the available command window. Its focused replacement suite is recorded above.

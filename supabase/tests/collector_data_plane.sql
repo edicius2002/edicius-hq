@@ -1,5 +1,5 @@
 begin;
-select plan(71);
+select plan(77);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -17,6 +17,7 @@ select col_is_pk('public', 'market_bars', array['owner_id', 'symbol', 'timeframe
 select col_is_pk('public', 'collector_requests', array['request_id']);
 
 select has_function('public', 'write_app_document', array['text','jsonb','bigint']);
+select has_function('public', 'delete_app_document', array['text','bigint']);
 select has_function('public', 'claim_collector_request', array['uuid']);
 select has_function('public', 'complete_collector_request', array['uuid','jsonb']);
 select has_function('public', 'fail_collector_request', array['uuid','text']);
@@ -40,6 +41,9 @@ select ok(has_table_privilege('authenticated', 'public.app_documents', 'select')
           'authenticated reads owner documents only through RLS');
 select ok(not has_table_privilege('authenticated', 'public.app_documents', 'insert,update,delete'),
           'authenticated cannot write owner documents directly');
+select ok(has_function_privilege('authenticated', 'public.delete_app_document(text,bigint)', 'execute')
+          and not has_function_privilege('anon', 'public.delete_app_document(text,bigint)', 'execute'),
+          'only authenticated callers can delete owner documents through the revision RPC');
 select ok(has_table_privilege('authenticated', 'public.collector_requests', 'insert,select'),
           'authenticated can queue and read requests through RLS');
 select ok(not has_table_privilege('authenticated', 'public.collector_requests', 'update,delete'),
@@ -121,6 +125,14 @@ select throws_ok($$ select public.write_app_document('unknown', '{}', 0) $$,
                  '22023', 'invalid_app_document_key', 'unknown app document keys are rejected');
 select throws_ok($$ select public.write_app_document('watchlist', '[]', 1) $$,
                  '22023', 'app_payload_must_be_object', 'non-object app document payloads are rejected');
+select lives_ok($$ select public.delete_app_document('watchlist', 1) $$,
+               'owner deletes an exact revision through the RPC');
+select is((select count(*) from public.app_documents), 0::bigint,
+          'exact revision delete removes the owner document');
+select throws_ok($$ select public.delete_app_document('watchlist', 1) $$,
+                 'PT409', 'app_revision_conflict', 'missing document delete is a safe revision conflict');
+select is((public.write_app_document('watchlist', '{"symbols":[]}'::jsonb, 0)).revision,
+          1::bigint, 'owner can recreate a deleted document at revision one');
 insert into public.collector_requests (operation, payload) values ('market-search', '{"query":"AAPL"}');
 select is((select count(*) from public.collector_requests), 1::bigint,
           'owner can queue a request for itself');

@@ -9,11 +9,11 @@ export interface KvStoreStub<T> {
 }
 
 export interface KvStoreOptions<T> {
-  /** The KV key the endpoint answers under; it comes back in every response. */
+  /** The allowlisted application-document key the Supabase boundary reads. */
   key: string;
   /**
-   * What a GET finds before anything has been written. Left out, the store is
-   * empty and answers 404 until the first PUT, which is what a page opened for
+   * What a document read finds before anything has been written. Left out, the store is
+   * empty and answers no row until the first RPC write, which is what a page opened for
    * the first time sees. `stored` is typed `T` for the callers that seed one —
    * an unseeded store has nothing there to read, and none of them read it.
    */

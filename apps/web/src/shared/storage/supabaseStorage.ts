@@ -79,3 +79,16 @@ export async function writeRemoteDocument<T>(
   if (!data) throw new Error('Application document write did not return an acknowledgement.');
   return fromRow<T>(data);
 }
+
+/** Deletes a whole document through the owner-scoped revision RPC. */
+export async function deleteRemoteDocument(
+  key: StorageKey,
+  expectedRevision: number,
+  client: AppDocumentsClient = supabase,
+): Promise<void> {
+  const { error } = await client.rpc('delete_app_document', {
+    p_document_key: key,
+    p_expected_revision: expectedRevision,
+  });
+  if (error) throw mapStorageError(error);
+}

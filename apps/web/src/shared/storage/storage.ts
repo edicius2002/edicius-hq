@@ -1,5 +1,9 @@
 import { isStorageKey, type StorageKey } from '@/shared/storage/keys';
-import { readRemoteDocument, writeRemoteDocument } from '@/shared/storage/supabaseStorage';
+import {
+  deleteRemoteDocument,
+  readRemoteDocument,
+  writeRemoteDocument,
+} from '@/shared/storage/supabaseStorage';
 
 function assertStorageKey(key: string): asserts key is StorageKey {
   if (!isStorageKey(key)) {
@@ -23,5 +27,5 @@ export async function writeStorage<T>(key: StorageKey, value: T, signal?: AbortS
 export async function removeStorage(key: StorageKey, signal?: AbortSignal): Promise<void> {
   assertStorageKey(key);
   const current = await readRemoteDocument(key, signal);
-  if (current) await writeRemoteDocument(key, null, current.revision);
+  if (current) await deleteRemoteDocument(key, current.revision);
 }

@@ -22,6 +22,7 @@ const { rpc, maybeSingle, abortSignal, eq, select, from } = vi.hoisted(() => {
 vi.mock('@/shared/supabase/client', () => ({ supabase: { from, rpc } }));
 
 import {
+  deleteRemoteDocument,
   RemoteDocumentConflict,
   readRemoteDocument,
   writeRemoteDocument,
@@ -78,5 +79,15 @@ describe('Supabase application documents', () => {
     await expect(writeRemoteDocument('watchlist', { version: 2 }, 1)).rejects.toBeInstanceOf(
       RemoteDocumentConflict,
     );
+  });
+
+  it('removes through the revision RPC', async () => {
+    rpc.mockResolvedValue({ data: null, error: null });
+
+    await expect(deleteRemoteDocument('watchlist', 2)).resolves.toBeUndefined();
+    expect(rpc).toHaveBeenCalledWith('delete_app_document', {
+      p_document_key: 'watchlist',
+      p_expected_revision: 2,
+    });
   });
 });

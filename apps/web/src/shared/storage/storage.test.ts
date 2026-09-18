@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { readRemoteDocument, writeRemoteDocument } = vi.hoisted(() => ({
+const { deleteRemoteDocument, readRemoteDocument, writeRemoteDocument } = vi.hoisted(() => ({
+  deleteRemoteDocument: vi.fn(),
   readRemoteDocument: vi.fn(),
   writeRemoteDocument: vi.fn(),
 }));
 
-vi.mock('@/shared/storage/supabaseStorage', () => ({ readRemoteDocument, writeRemoteDocument }));
+vi.mock('@/shared/storage/supabaseStorage', () => ({
+  deleteRemoteDocument,
+  readRemoteDocument,
+  writeRemoteDocument,
+}));
 
 import { readStorage, removeStorage, writeStorage } from '@/shared/storage/storage';
 
@@ -31,7 +36,7 @@ describe('storage facade', () => {
     await expect(readStorage('prefs')).resolves.toEqual({ theme: 'light' });
     await expect(removeStorage('prefs')).resolves.toBeUndefined();
     expect(writeRemoteDocument).toHaveBeenNthCalledWith(1, 'prefs', { theme: 'light' }, 0);
-    expect(writeRemoteDocument).toHaveBeenNthCalledWith(2, 'prefs', null, 1);
+    expect(deleteRemoteDocument).toHaveBeenCalledWith('prefs', 1);
   });
 
   it('rejects unknown keys before calling Supabase', async () => {

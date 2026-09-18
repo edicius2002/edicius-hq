@@ -92,3 +92,49 @@ def test_repeated_apply_inserts_only_absent_documents(tmp_path, capsys):
     )
     assert writes == 0
     assert json.loads(capsys.readouterr().out) == [{"key": "watchlist", "sourceBytes": 19}]
+
+
+def test_apply_accepts_an_empty_created_response_and_is_idempotent(tmp_path, capsys):
+    script = load_script()
+    source = tmp_path / "kv"
+    source.mkdir()
+    (source / "watchlist.json").write_text('{"symbols":["ABC"]}', encoding="utf-8")
+    remote: dict[str, object] | None = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal remote
+        if request.method == "GET":
+            return httpx.Response(200, json=[] if remote is None else [{"document_key": "watchlist"}])
+        remote = json.loads(request.content)
+        return httpx.Response(201)
+
+    arguments = ["--owner-id", OWNER_ID, "--source", str(source), "--apply"]
+    environment = {"SUPABASE_URL": PROJECT_URL, "SUPABASE_SECRET_KEY": SECRET}
+    assert script.main(arguments, environ=environment, transport=httpx.MockTransport(handler)) == 0
+    assert remote is not None
+    assert script.main(arguments, environ=environment, transport=httpx.MockTransport(handler)) == 0
+    assert json.loads(capsys.readouterr().out.splitlines()[-1]) == [{"key": "watchlist", "sourceBytes": 19}]
+
+
+def test_non_json_file_refuses_before_creating_a_client(tmp_path, capsys):
+    script = load_script()
+    source = tmp_path / "kv"
+    source.mkdir()
+    (source / "watchlist.json").write_text('{"symbols":[]}', encoding="utf-8")
+    (source / "notes.txt").write_text("private payload", encoding="utf-8")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500)
+
+    assert script.main(
+        ["--owner-id", OWNER_ID, "--source", str(source), "--apply"],
+        environ={"SUPABASE_URL": PROJECT_URL, "SUPABASE_SECRET_KEY": SECRET},
+        transport=httpx.MockTransport(handler),
+    ) == 1
+    rendered = capsys.readouterr()
+    assert calls == 0
+    assert "notes.txt" in rendered.err
+    assert "private payload" not in rendered.err + rendered.out

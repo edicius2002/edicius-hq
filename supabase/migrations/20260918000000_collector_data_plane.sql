@@ -144,6 +144,40 @@ begin
 end;
 $$;
 
+create function public.delete_app_document(
+  p_document_key text,
+  p_expected_revision bigint
+) returns void
+language plpgsql security definer
+set search_path = ''
+as $$
+declare
+  v_owner uuid := auth.uid();
+begin
+  if v_owner is null then
+    raise exception using errcode = '42501', message = 'not_authenticated';
+  end if;
+  if not exists (select 1 from public.edicius_owners where owner_id = v_owner) then
+    raise exception using errcode = '42501', message = 'not_edicius_owner';
+  end if;
+  if p_document_key not in (
+    'prefs','watchlist','portfolio','alert-rules','greenlight','drawings',
+    'indicators','chart-views','airfare-routes','greenlight-projector'
+  ) then
+    raise exception using errcode = '22023', message = 'invalid_app_document_key';
+  end if;
+  if p_expected_revision <= 0 then
+    raise exception using errcode = '22023', message = 'invalid_app_document_revision';
+  end if;
+
+  delete from public.app_documents
+   where owner_id = v_owner and document_key = p_document_key and revision = p_expected_revision;
+  if not found then
+    raise exception using errcode = 'PT409', message = 'app_revision_conflict';
+  end if;
+end;
+$$;
+
 create function public.claim_collector_request(p_owner_id uuid)
 returns public.collector_requests
 language plpgsql security definer
@@ -303,12 +337,12 @@ grant select, insert on public.app_documents to service_role;
 grant select, insert, update on public.collector_runs, public.tweet_posts, public.sentiment_snapshots,
   public.market_quotes, public.market_bars, public.collector_requests to service_role;
 
-revoke all on function public.write_app_document(text, jsonb, bigint),
+revoke all on function public.write_app_document(text, jsonb, bigint), public.delete_app_document(text, bigint),
   public.claim_collector_request(uuid), public.complete_collector_request(uuid, jsonb),
   public.fail_collector_request(uuid, text), public.read_owner_airfare_history(text, text, text, text[], text, text),
   public.read_owner_airfare_calendar(text, text), public.search_owner_airports(text, integer)
   from public, anon, authenticated, service_role;
-grant execute on function public.write_app_document(text, jsonb, bigint),
+grant execute on function public.write_app_document(text, jsonb, bigint), public.delete_app_document(text, bigint),
   public.read_owner_airfare_history(text, text, text, text[], text, text),
   public.read_owner_airfare_calendar(text, text), public.search_owner_airports(text, integer)
   to authenticated;

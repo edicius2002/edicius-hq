@@ -40,11 +40,13 @@ def _reject_nonstandard_json_constant(_value: str) -> None:
 
 def _load_documents(kv_dir: Path) -> list[SourceDocument]:
     try:
-        paths = sorted(kv_dir.glob("*.json"))
+        paths = sorted(path for path in kv_dir.iterdir() if path.is_file())
     except OSError:
         raise AppDocumentsImportError("Local KV source is unavailable") from None
 
-    unknown = [path.name for path in paths if path.stem not in ALLOWED_KV_KEYS]
+    unknown = [
+        path.name for path in paths if path.suffix != ".json" or path.stem not in ALLOWED_KV_KEYS
+    ]
     if unknown:
         raise AppDocumentsImportError(f"Unknown local KV document: {unknown[0]}")
 
@@ -135,7 +137,7 @@ class SupabaseAppDocuments:
             },
             headers={"Prefer": "return=minimal"},
         )
-        if body is not None:
+        if body not in (None, ""):
             raise AppDocumentsImportError("Supabase response is invalid")
 
     def _request(
@@ -155,7 +157,7 @@ class SupabaseAppDocuments:
             raise AppDocumentsImportError("Supabase returned an unexpected redirect")
         if response.status_code >= 400:
             raise AppDocumentsImportError("Supabase rejected the request")
-        if response.status_code == 204:
+        if response.status_code in {201, 204} and not response.content:
             return None
         try:
             return response.json()

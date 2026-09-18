@@ -28,3 +28,7 @@
 ## Review follow-up round 2
 
 - Added explicit tests for quote/bars RLS normalization, insert and request-select failures, exact `expired` handling, expired and malformed cache misses, and completed-result replacement. The full focused Investing subset is now 59 tests.
+
+## Review follow-up round 3
+
+- The expired-cache test now fixes system time and asserts the exact strict `gt('expires_at', nowIso)` predicate before proving enqueue and normalized completed replacement.

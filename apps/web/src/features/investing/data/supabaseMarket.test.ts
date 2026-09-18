@@ -112,6 +112,8 @@ describe('Supabase Investing market boundary', () => {
   });
 
   it('treats an expired cache row as a miss and replaces it with the completed result', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T16:00:00.000Z'));
     state.maybeSingle.mockResolvedValue({ data: null, error: null });
     state.single.mockResolvedValue({ data: { request_id: 'request-expired-cache' }, error: null });
     state.subscribe.mockImplementation((callback: (status: string) => void) => {
@@ -124,9 +126,11 @@ describe('Supabase Investing market boundary', () => {
     });
 
     await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
+    expect(state.gt).toHaveBeenCalledWith('expires_at', '2026-09-18T16:00:00.000Z');
     expect(state.insert).toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'market-bars' }),
     );
+    vi.useRealTimers();
   });
 
   it('treats a malformed fresh cache row as a miss and returns only a normalized completed result', async () => {

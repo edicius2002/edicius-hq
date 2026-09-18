@@ -8,6 +8,7 @@ CUTOVER = PI_ROOT / "cutover.ps1"
 ROLLBACK = PI_ROOT / "rollback.ps1"
 IMPORT_X_PROFILE = PI_ROOT / "import-x-profile.sh"
 CHECK_RUN = PI_ROOT / "check-collector-run.py"
+STAGED_TRANSFER = PI_ROOT / "install-staged-transfer.sh"
 RUNBOOK = PI_ROOT.parents[1] / "docs" / "pi-collectors-runbook.md"
 
 
@@ -42,9 +43,16 @@ def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_log
     assert "--require-complete" in text
     assert "foreach ($unit in $Units)" not in text
     assert "grep -q ." not in text
-    assert "grep -Eiq 'success|healthy|completed|synced|upsert'" in text
+    assert "JournalMarker" in text
+    for marker in (
+        "Finished Edicius Airfare collector pass.",
+        "Finished Edicius sentiment collector pass.",
+        "Started Edicius X post collector.",
+        "Started Edicius market collector worker.",
+    ):
+        assert marker in text
     assert "grep -Eiq 'error|fatal|failed|failure'" in text
-    assert text.index("success|healthy|completed|synced|upsert") < text.index("error|fatal|failed|failure")
+    assert text.index("JournalMarker") < text.index("error|fatal|failed|failure")
 
 
 def test_rollback_stops_pi_before_reenabling_exact_windows_task() -> None:
@@ -81,11 +89,22 @@ def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secret
     assert "--wait-seconds" in text
     assert "started_at" in text
     assert "--secret" not in text
-    assert "stat().st_uid != 0" in text
-    assert "stat().st_mode & 0o777 != 0o600" in text
+    assert "metadata = ENV_FILE.stat()" in text
+    assert "metadata.st_uid != 0" in text
+    assert "metadata.st_gid != 0" in text
+    assert "metadata.st_mode & 0o777 != 0o600" in text
     assert "ENV_FILE.is_symlink()" in text
     assert "ALLOWED_ENV_NAMES" in text
     assert "trust_env=False" in text
+
+
+def test_staged_transfer_is_fixed_destination_and_removes_only_validated_tmp_stage() -> None:
+    text = STAGED_TRANSFER.read_text(encoding="utf-8")
+    assert "set -euo pipefail" in text
+    assert "case \"$kind\"" in text
+    assert '[[ "$stage_real" == /tmp/edicius-transfer.* ]]' in text
+    assert "install -d -o edicius -g edicius -m 0750" in text
+    assert "rm -rf -- \"$stage_real\"" in text
 
 
 def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints() -> None:
@@ -108,7 +127,8 @@ def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints()
         "supabase link",
         "db push",
         "sha256sum",
-        "--rsync-path='sudo rsync'",
+        "scp -r",
+        "Docker",
         "python3 -m venv",
     ):
         assert required.lower() in text.lower()

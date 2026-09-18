@@ -36,9 +36,12 @@ def fail(message: str) -> None:
 def load_env() -> None:
     if ENV_FILE.is_symlink() or not ENV_FILE.is_file():
         fail("collector environment file must be a regular file")
-    if ENV_FILE.stat().st_uid != 0:
+    metadata = ENV_FILE.stat()
+    if metadata.st_uid != 0:
         fail("collector environment file must be owned by root")
-    if ENV_FILE.stat().st_mode & 0o777 != 0o600:
+    if metadata.st_gid != 0:
+        fail("collector environment file must be owned by root group")
+    if metadata.st_mode & 0o777 != 0o600:
         fail("collector environment file must have mode 0600")
     try:
         lines = ENV_FILE.read_text(encoding="utf-8").splitlines()

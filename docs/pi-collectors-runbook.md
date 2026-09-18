@@ -30,7 +30,7 @@ git status --porcelain
 
 A credential-injecting operator environment supplies `SUPABASE_ACCESS_TOKEN`
 and `SUPABASE_DB_URL`; neither belongs in a command argument, transcript, or
-repository file. From that exact checkout, apply and verify schema/RLS and
+repository file. Docker supplies the available `psql` client. From that exact checkout, apply and verify schema/RLS and
 perform idempotent owner bootstrap:
 
 ```sh
@@ -38,9 +38,9 @@ cd '<pinned-checkout>'
 npx supabase link --project-ref '<supabase-project-ref>'
 npx supabase db push --linked
 npx supabase migration list --linked
-psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -v owner_id='<owner-uuid>' \
-  -c "insert into public.edicius_owners(owner_id) values (:'owner_id'::uuid) on conflict do nothing;" \
-  -c "select owner_id from public.edicius_owners where owner_id = :'owner_id'::uuid;"
+test -n "${SUPABASE_DB_URL:-}"
+export EDICIUS_OWNER_BOOTSTRAP_ID='<owner-uuid>'
+docker run --rm --env SUPABASE_DB_URL --env EDICIUS_OWNER_BOOTSTRAP_ID postgres:16 sh -ceu "psql \"\$SUPABASE_DB_URL\" -X -v ON_ERROR_STOP=1 -v owner_id=\"\$EDICIUS_OWNER_BOOTSTRAP_ID\" -c \"insert into public.edicius_owners(owner_id) values (:'owner_id'::uuid) on conflict do nothing;\" -c \"select owner_id from public.edicius_owners where owner_id = :'owner_id'::uuid;\""
 npx supabase test db supabase/tests/collector_data_plane.sql
 ```
 
@@ -78,18 +78,21 @@ activates a moving branch.
 ## Checkpoint C: durable imports and profile
 
 Every `/var/lib/edicius-hq` destination is created `0750 edicius:edicius`.
-Transfers use the remote privileged `rsync` process because an ordinary SSH
-operator must not be able to write or traverse collector state. The source PC
-is never deleted or overwritten.
+Run the shell blocks below in Git Bash on the Windows operator PC; it provides
+`ssh`, `scp`, `sha256sum`, and POSIX shell syntax. They do not require `rsync`
+or local `psql`. Each upload first lands in a direct-child `mktemp` directory
+owned by the unprivileged SSH account; the Pi helper validates and removes only
+that path while installing the fixed private destination. The source PC is
+never deleted or overwritten.
 
 Perform app-document import dry-run, apply, then apply again to prove
 idempotency; the transient Pi process reads its service-role secret only from
 the protected local file:
 
 ```sh
-ssh '<pi-host>' 'sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/kv'
-rsync -a --checksum --protect-args --rsync-path='sudo rsync' '<pc-kv-directory>/' '<pi-host>:/var/lib/edicius-hq/migration-input/kv/'
-ssh '<pi-host>' 'sudo chown -R edicius:edicius /var/lib/edicius-hq/migration-input/kv && sudo find /var/lib/edicius-hq/migration-input/kv -type d -exec chmod 0750 {} +'
+STAGE="$(ssh '<pi-host>' 'mktemp -d /tmp/edicius-transfer.XXXXXXXX')"
+scp -r '<pc-kv-directory>/.' "<pi-host>:$STAGE/"
+ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/install-staged-transfer.sh kv '$STAGE'"
 ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>'"
 ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
 ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
@@ -101,12 +104,12 @@ checksums without printing rows, then make the verified copy durable:
 
 ```sh
 (cd '<pc-local-data>/tweets' && find . -type f -print0 | sort -z | xargs -0 sha256sum) > '<pc-x-manifest>'
-ssh '<pi-host>' 'sudo test ! -e /var/lib/edicius-hq/tweets && sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/tweets'
-rsync -a --checksum --protect-args --rsync-path='sudo rsync' '<pc-local-data>/tweets/' '<pi-host>:/var/lib/edicius-hq/migration-input/tweets/'
-ssh '<pi-host>' "sudo sh -c 'cd /var/lib/edicius-hq/migration-input/tweets && find . -type f -print0 | sort -z | xargs -0 sha256sum'" > '<pi-x-manifest>'
+STAGE="$(ssh '<pi-host>' 'mktemp -d /tmp/edicius-transfer.XXXXXXXX')"
+scp -r '<pc-local-data>/tweets/.' "<pi-host>:$STAGE/"
+ssh '<pi-host>' "sudo sh -c 'cd \"$STAGE\" && find . -type f -print0 | sort -z | xargs -0 sha256sum'" > '<pi-x-manifest>'
 wc -l '<pc-x-manifest>' '<pi-x-manifest>'
 diff -u '<pc-x-manifest>' '<pi-x-manifest>'
-ssh '<pi-host>' 'sudo chown -R edicius:edicius /var/lib/edicius-hq/migration-input/tweets && sudo find /var/lib/edicius-hq/migration-input/tweets -type d -exec chmod 0750 {} + && sudo mv /var/lib/edicius-hq/migration-input/tweets /var/lib/edicius-hq/tweets'
+ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/install-staged-transfer.sh tweets '$STAGE' && sudo mv /var/lib/edicius-hq/migration-input/tweets /var/lib/edicius-hq/tweets"
 ```
 
 Transfer the Airfare archive, sync cursor, and journals together. It refuses an
@@ -115,12 +118,12 @@ Supabase, the Pi journal, or the PC source:
 
 ```sh
 (cd '<pc-local-data>/fares' && find . -type f -print0 | sort -z | xargs -0 sha256sum) > '<pc-airfare-manifest>'
-ssh '<pi-host>' 'sudo test ! -e /var/lib/edicius-hq/fares && sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/fares'
-rsync -a --checksum --protect-args --rsync-path='sudo rsync' '<pc-local-data>/fares/' '<pi-host>:/var/lib/edicius-hq/migration-input/fares/'
-ssh '<pi-host>' "sudo sh -c 'cd /var/lib/edicius-hq/migration-input/fares && find . -type f -print0 | sort -z | xargs -0 sha256sum'" > '<pi-airfare-manifest>'
+STAGE="$(ssh '<pi-host>' 'mktemp -d /tmp/edicius-transfer.XXXXXXXX')"
+scp -r '<pc-local-data>/fares/.' "<pi-host>:$STAGE/"
+ssh '<pi-host>' "sudo sh -c 'cd \"$STAGE\" && find . -type f -print0 | sort -z | xargs -0 sha256sum'" > '<pi-airfare-manifest>'
 wc -l '<pc-airfare-manifest>' '<pi-airfare-manifest>'
 diff -u '<pc-airfare-manifest>' '<pi-airfare-manifest>'
-ssh '<pi-host>' 'sudo chown -R edicius:edicius /var/lib/edicius-hq/migration-input/fares && sudo find /var/lib/edicius-hq/migration-input/fares -type d -exec chmod 0750 {} + && sudo mv /var/lib/edicius-hq/migration-input/fares /var/lib/edicius-hq/fares'
+ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/install-staged-transfer.sh fares '$STAGE' && sudo mv /var/lib/edicius-hq/migration-input/fares /var/lib/edicius-hq/fares"
 ```
 
 Transfer a private profile staging directory with the same privileged path,
@@ -129,9 +132,9 @@ then invoke its importer. The importer allows the empty target created by
 backup/replace decision:
 
 ```sh
-ssh '<pi-host>' 'sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/x-profile'
-rsync -a --checksum --protect-args --rsync-path='sudo rsync' '<pc-profile-staging-directory>/' '<pi-host>:/var/lib/edicius-hq/migration-input/x-profile/'
-ssh '<pi-host>' 'sudo chown -R edicius:edicius /var/lib/edicius-hq/migration-input/x-profile && sudo find /var/lib/edicius-hq/migration-input/x-profile -type d -exec chmod 0750 {} +'
+STAGE="$(ssh '<pi-host>' 'mktemp -d /tmp/edicius-transfer.XXXXXXXX')"
+scp -r '<pc-profile-staging-directory>/.' "<pi-host>:$STAGE/"
+ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/install-staged-transfer.sh x-profile '$STAGE'"
 ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/import-x-profile.sh --dry-run /var/lib/edicius-hq/migration-input/x-profile'
 ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/import-x-profile.sh /var/lib/edicius-hq/migration-input/x-profile'
 ```

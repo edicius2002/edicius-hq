@@ -9,10 +9,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $TaskName = 'Edicius airfare'
 $Collectors = @(
-    [pscustomobject]@{ Name = 'airfare'; Unit = 'edicius-airfare.timer'; Service = 'edicius-airfare.service'; RequireComplete = $true },
-    [pscustomobject]@{ Name = 'sentiment'; Unit = 'edicius-sentiment.timer'; Service = 'edicius-sentiment.service'; RequireComplete = $true },
-    [pscustomobject]@{ Name = 'x-posts'; Unit = 'edicius-tweets.service'; Service = 'edicius-tweets.service'; RequireComplete = $false },
-    [pscustomobject]@{ Name = 'market'; Unit = 'edicius-market.service'; Service = 'edicius-market.service'; RequireComplete = $false }
+    [pscustomobject]@{ Name = 'airfare'; Unit = 'edicius-airfare.timer'; Service = 'edicius-airfare.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius Airfare collector pass.' },
+    [pscustomobject]@{ Name = 'sentiment'; Unit = 'edicius-sentiment.timer'; Service = 'edicius-sentiment.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius sentiment collector pass.' },
+    [pscustomobject]@{ Name = 'x-posts'; Unit = 'edicius-tweets.service'; Service = 'edicius-tweets.service'; RequireComplete = $false; JournalMarker = 'Started Edicius X post collector.' },
+    [pscustomobject]@{ Name = 'market'; Unit = 'edicius-market.service'; Service = 'edicius-market.service'; RequireComplete = $false; JournalMarker = 'Started Edicius market collector worker.' }
 )
 
 function Invoke-PiChecked([string]$Command) {
@@ -61,7 +61,7 @@ function Start-And-GatePiCollector($Collector) {
         Invoke-PiChecked "sudo systemctl is-active --quiet $($Collector.Service)"
         Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py $($Collector.Name) --cutoff '$cutoff'"
     }
-    Invoke-PiChecked "sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Eiq 'success|healthy|completed|synced|upsert'"
+    Invoke-PiChecked "sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Fq '$($Collector.JournalMarker)'"
     Invoke-PiChecked "! sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Eiq 'error|fatal|failed|failure'"
 }
 

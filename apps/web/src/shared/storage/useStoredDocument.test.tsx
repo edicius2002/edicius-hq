@@ -5,7 +5,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { readRemoteDocument, writeRemoteDocument } = vi.hoisted(() => ({
   readRemoteDocument: vi.fn(),
-  writeRemoteDocument: vi.fn(),
+  writeRemoteDocument: vi.fn<
+    (
+      key: string,
+      payload: { count: number },
+      expectedRevision: number,
+    ) => Promise<{
+      key: 'watchlist';
+      payload: { count: number };
+      revision: number;
+      updatedAt: string;
+    }>
+  >(),
 }));
 
 vi.mock('@/shared/storage/supabaseStorage', () => ({ readRemoteDocument, writeRemoteDocument }));
@@ -52,13 +63,17 @@ describe('useStoredDocument', () => {
 
     await act(async () => {
       await result.current.edit((current) => ({ count: current.count + 1 }));
-      await new Promise((resolve) => setTimeout(resolve, WRITE_DELAY_MS + 10));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, WRITE_DELAY_MS + 10);
+      });
     });
     await waitFor(() => expect(writeRemoteDocument).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await result.current.edit((current) => ({ count: current.count + 1 }));
-      await new Promise((resolve) => setTimeout(resolve, WRITE_DELAY_MS + 10));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, WRITE_DELAY_MS + 10);
+      });
     });
     await waitFor(() => expect(writeRemoteDocument).toHaveBeenCalledTimes(2));
 

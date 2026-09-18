@@ -7,11 +7,8 @@ import pytest
 from app.services.collector_cloud import CollectorCloudUnavailable
 from app.services.watch_document import CloudWatchDocument, InvalidWatchDocument
 
-
 ROUTES = {
-    "routes": [
-        {"origin": "AQP", "destination": "LIM", "months": ["2026-10"], "currency": "USD"}
-    ]
+    "routes": [{"origin": "AQP", "destination": "LIM", "months": ["2026-10"], "currency": "USD"}]
 }
 
 

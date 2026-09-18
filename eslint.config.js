@@ -85,5 +85,12 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'off',
     },
   },
+  {
+    // Supabase generates these conditional generic defaults; edit the schema, not this output.
+    files: ['apps/web/src/shared/supabase/database.types.ts'],
+    rules: {
+      '@typescript-eslint/no-redundant-type-constituents': 'off',
+    },
+  },
   eslintConfigPrettier,
 );

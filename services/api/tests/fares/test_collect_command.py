@@ -272,7 +272,13 @@ def test_the_scheduled_command_runs_a_whole_dry_pass_over_a_route_with_two_month
     )
 
     finished = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py"), "--dry-run", "--watch-source", "local"],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "fares-collect.py"),
+            "--dry-run",
+            "--watch-source",
+            "local",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "LOCAL_DATA_DIR": str(data)},
@@ -327,7 +333,13 @@ def test_the_scheduled_command_runs_a_whole_dry_pass(tmp_path):
     )
 
     finished = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py"), "--dry-run", "--watch-source", "local"],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "fares-collect.py"),
+            "--dry-run",
+            "--watch-source",
+            "local",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "LOCAL_DATA_DIR": str(data)},

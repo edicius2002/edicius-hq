@@ -15,10 +15,10 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.adapters.cnn_sentiment import SentimentProviderError, fetch_sentiment
-from app.adapters.sentiment_models import SentimentSnapshot
-from app.config import UPSTREAM_TIMEOUT_SECONDS
-from app.services.collector_cloud import CollectorCloud, configured_collector_cloud
+from app.adapters.cnn_sentiment import SentimentProviderError, fetch_sentiment  # noqa: E402
+from app.adapters.sentiment_models import SentimentSnapshot  # noqa: E402
+from app.config import UPSTREAM_TIMEOUT_SECONDS  # noqa: E402
+from app.services.collector_cloud import CollectorCloud, configured_collector_cloud  # noqa: E402
 
 FetchSentiment = Callable[[httpx.AsyncClient], Awaitable[SentimentSnapshot]]
 LOGGER = logging.getLogger(__name__)
@@ -44,9 +44,7 @@ def sentiment_error_code(error: Exception) -> str:
     return "cloud-upsert-failed"
 
 
-async def collect_once(
-    cloud: CollectorCloud, *, fetch: FetchSentiment = fetch_sentiment
-) -> int:
+async def collect_once(cloud: CollectorCloud, *, fetch: FetchSentiment = fetch_sentiment) -> int:
     """Return success only after the snapshot and its collector run are acknowledged."""
     try:
         run_id = cloud.begin_run("sentiment")

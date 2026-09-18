@@ -41,8 +41,8 @@ def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
     module = load_script()
     worker = Mock()
     stopped = asyncio.Event()
-    first = Mock(wait_closed=AsyncMock(), close=Mock())
-    second = Mock(wait_closed=AsyncMock(), close=Mock())
+    first = Mock(wait_closed=AsyncMock(), close=AsyncMock())
+    second = Mock(wait_closed=AsyncMock(), close=AsyncMock())
     first.wait_closed.side_effect = RuntimeError("dropped")
     attempts = [RuntimeError("offline"), first, second]
     delays: list[float] = []
@@ -64,8 +64,8 @@ def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
     asyncio.run(module.maintain_request_subscription(worker, stopped, connect=connect, sleep=sleep))
 
     assert delays == [1, 1]
-    first.close.assert_called_once_with()
-    second.close.assert_called_once_with()
+    first.close.assert_awaited_once_with()
+    second.close.assert_awaited_once_with()
 
 
 def test_realtime_monitor_recreates_client_when_joined_channel_becomes_errored():
@@ -75,8 +75,8 @@ def test_realtime_monitor_recreates_client_when_joined_channel_becomes_errored()
     worker = Mock()
     first_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
     second_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
-    first_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=Mock())
-    second_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=Mock())
+    first_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=AsyncMock())
+    second_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=AsyncMock())
     first = module.RequestSubscription(first_client, first_channel)
     second = module.RequestSubscription(second_client, second_channel)
     attempts = [first, second]
@@ -99,5 +99,15 @@ def test_realtime_monitor_recreates_client_when_joined_channel_becomes_errored()
     )
 
     assert sleeps == [1, 1, 1]
-    first_client.remove_all_channels.assert_called_once_with()
-    second_client.remove_all_channels.assert_called_once_with()
+    first_client.remove_all_channels.assert_awaited_once_with()
+    second_client.remove_all_channels.assert_awaited_once_with()
+
+
+def test_subscription_close_awaits_the_sdk_channel_cleanup():
+    """Dropping this await leaks a coroutine and fails shutdown after reconnect exhaustion."""
+    module = load_script()
+    client = Mock(remove_all_channels=AsyncMock())
+
+    asyncio.run(module.RequestSubscription(client, Mock()).close())
+
+    client.remove_all_channels.assert_awaited_once_with()

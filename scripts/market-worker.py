@@ -39,10 +39,10 @@ class RequestSubscription:
                 return
             await sleep(poll_seconds)
 
-    def close(self) -> None:
+    async def close(self) -> None:
         # The AsyncClient owns every channel's socket lifetime; this is the
         # verified 2.31.0 cleanup API (there is no AsyncClient.aclose()).
-        self.client.remove_all_channels()
+        await self.client.remove_all_channels()
 
 
 async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None:
@@ -95,7 +95,7 @@ async def maintain_request_subscription(
         finally:
             if subscription is not None:
                 with contextlib.suppress(Exception):
-                    subscription.close()
+                    await subscription.close()
         if not stopped.is_set():
             await sleep(backoff)
             backoff = min(backoff * 2, 60.0)

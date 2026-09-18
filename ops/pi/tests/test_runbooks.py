@@ -41,6 +41,10 @@ def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_log
     assert "--since" in text
     assert "--require-complete" in text
     assert "foreach ($unit in $Units)" not in text
+    assert "grep -q ." not in text
+    assert "grep -Eiq 'success|healthy|completed|synced|upsert'" in text
+    assert "grep -Eiq 'error|fatal|failed|failure'" in text
+    assert text.index("success|healthy|completed|synced|upsert") < text.index("error|fatal|failed|failure")
 
 
 def test_rollback_stops_pi_before_reenabling_exact_windows_task() -> None:
@@ -77,6 +81,11 @@ def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secret
     assert "--wait-seconds" in text
     assert "started_at" in text
     assert "--secret" not in text
+    assert "stat().st_uid != 0" in text
+    assert "stat().st_mode & 0o777 != 0o600" in text
+    assert "ENV_FILE.is_symlink()" in text
+    assert "ALLOWED_ENV_NAMES" in text
+    assert "trust_env=False" in text
 
 
 def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints() -> None:
@@ -99,5 +108,7 @@ def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints()
         "supabase link",
         "db push",
         "sha256sum",
+        "--rsync-path='sudo rsync'",
+        "python3 -m venv",
     ):
         assert required.lower() in text.lower()

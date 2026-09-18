@@ -61,7 +61,8 @@ function Start-And-GatePiCollector($Collector) {
         Invoke-PiChecked "sudo systemctl is-active --quiet $($Collector.Service)"
         Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py $($Collector.Name) --cutoff '$cutoff'"
     }
-    Invoke-PiChecked "sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -q ."
+    Invoke-PiChecked "sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Eiq 'success|healthy|completed|synced|upsert'"
+    Invoke-PiChecked "! sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Eiq 'error|fatal|failed|failure'"
 }
 
 $task = Get-ExactTask

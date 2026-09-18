@@ -39,7 +39,7 @@ validate_release() {
   active="$(readlink -f -- "$CURRENT_LINK")" || fail "cannot resolve active release"
   [[ "$active" == "$expected" ]] || fail "active release is not this exact tested commit"
   [[ -x "$RELEASE_DIR/services/api/.venv/bin/python" ]] || fail "release Python virtualenv is missing"
-  "$RELEASE_DIR/services/api/.venv/bin/python" -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))' || fail "Python 3.12 is required"
+  "$RELEASE_DIR/services/api/.venv/bin/python" -c 'import sys; raise SystemExit(sys.version_info[:2] not in ((3, 12), (3, 13)))' || fail "Python 3.12 or 3.13 is required"
 }
 
 validate_env() {

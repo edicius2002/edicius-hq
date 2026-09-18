@@ -116,6 +116,12 @@ def test_installer_refuses_unpinned_releases_and_never_enables_or_starts_units()
     assert "systemctl start" not in text
 
 
+def test_installer_accepts_debian_native_python_313_without_dropping_312_compatibility() -> None:
+    text = INSTALL.read_text(encoding="utf-8")
+    assert "(3, 12), (3, 13)" in text
+    assert "Python 3.12 or 3.13 is required" in text
+
+
 def test_installer_rejects_symlinked_or_non_root_secret_files() -> None:
     text = INSTALL.read_text(encoding="utf-8")
     assert '[[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]]' in text

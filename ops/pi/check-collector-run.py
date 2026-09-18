@@ -15,6 +15,16 @@ import httpx
 
 ENV_FILE = Path("/etc/edicius-hq/collectors.env")
 COLLECTORS = frozenset({"airfare", "sentiment", "x-posts", "market"})
+ALLOWED_ENV_NAMES = frozenset(
+    {
+        "SUPABASE_URL",
+        "SUPABASE_SECRET_KEY",
+        "EDICIUS_OWNER_ID",
+        "COLLECTOR_SUPABASE_TIMEOUT_SECONDS",
+        "AIRFARE_DATA_BACKEND",
+        "AIRFARE_SYNC_ENABLED",
+    }
+)
 # collector_config validates the locally loaded SUPABASE_SECRET_KEY; it is never printed or parsed as an argument.
 
 
@@ -24,17 +34,28 @@ def fail(message: str) -> None:
 
 
 def load_env() -> None:
+    if ENV_FILE.is_symlink() or not ENV_FILE.is_file():
+        fail("collector environment file must be a regular file")
+    if ENV_FILE.stat().st_uid != 0:
+        fail("collector environment file must be owned by root")
+    if ENV_FILE.stat().st_mode & 0o777 != 0o600:
+        fail("collector environment file must have mode 0600")
     try:
         lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
     except OSError:
         fail("collector environment file is unavailable")
+    values: dict[str, str] = {}
     for line in lines:
         if not line or line.startswith("#"):
             continue
         name, separator, value = line.partition("=")
-        if not separator or not name.isidentifier() or not name.isupper() or not value:
+        if not separator or name not in ALLOWED_ENV_NAMES or not value or name in values:
             fail("collector environment file is invalid")
-        os.environ[name] = value
+        values[name] = value
+    if set(values) != ALLOWED_ENV_NAMES:
+        fail("collector environment file is missing a required variable")
+    for name in ALLOWED_ENV_NAMES:
+        os.environ[name] = values[name]
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,20 +83,19 @@ def main() -> int:
         config = collector_config()
         deadline = time.monotonic() + args.wait_seconds
         while True:
-            response = httpx.get(
-                f"{config.url}/rest/v1/collector_runs",
-                headers={"apikey": config.secret_key, "Authorization": f"Bearer {config.secret_key}"},
-                params={
-                    "select": "run_id,status,started_at,completed_at",
-                    "owner_id": f"eq.{config.owner_id}",
-                    "collector": f"eq.{args.collector}",
-                    "started_at": f"gte.{cutoff.isoformat()}",
-                    "order": "started_at.desc",
-                    "limit": "1",
-                },
-                timeout=config.timeout_seconds,
-                follow_redirects=False,
-            )
+            with httpx.Client(trust_env=False, timeout=config.timeout_seconds, follow_redirects=False) as client:
+                response = client.get(
+                    f"{config.url}/rest/v1/collector_runs",
+                    headers={"apikey": config.secret_key, "Authorization": f"Bearer {config.secret_key}"},
+                    params={
+                        "select": "run_id,status,started_at,completed_at",
+                        "owner_id": f"eq.{config.owner_id}",
+                        "collector": f"eq.{args.collector}",
+                        "started_at": f"gte.{cutoff.isoformat()}",
+                        "order": "started_at.desc",
+                        "limit": "1",
+                    },
+                )
             response.raise_for_status()
             rows = response.json()
             if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):

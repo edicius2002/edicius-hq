@@ -117,7 +117,11 @@ class SupabaseAppDocuments:
         body = self._request(
             "GET",
             "app_documents",
-            params={"select": "document_key", "owner_id": f"eq.{owner_id}", "document_key": f"eq.{key}"},
+            params={
+                "select": "document_key",
+                "owner_id": f"eq.{owner_id}",
+                "document_key": f"eq.{key}",
+            },
         )
         if not isinstance(body, list) or len(body) > 1:
             raise AppDocumentsImportError("Supabase response is invalid")
@@ -184,10 +188,14 @@ def main(
     environment = os.environ if environ is None else environ
     try:
         documents = _load_documents(args.source)
-        entries = [{"key": document.key, "sourceBytes": document.source_bytes} for document in documents]
+        entries = [
+            {"key": document.key, "sourceBytes": document.source_bytes} for document in documents
+        ]
         if args.apply:
             client = SupabaseAppDocuments(
-                environment.get("SUPABASE_URL"), environment.get("SUPABASE_SECRET_KEY"), transport=transport
+                environment.get("SUPABASE_URL"),
+                environment.get("SUPABASE_SECRET_KEY"),
+                transport=transport,
             )
             try:
                 for document in documents:

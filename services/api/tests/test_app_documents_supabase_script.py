@@ -104,7 +104,9 @@ def test_apply_accepts_an_empty_created_response_and_is_idempotent(tmp_path, cap
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal remote
         if request.method == "GET":
-            return httpx.Response(200, json=[] if remote is None else [{"document_key": "watchlist"}])
+            return httpx.Response(
+                200, json=[] if remote is None else [{"document_key": "watchlist"}]
+            )
         remote = json.loads(request.content)
         return httpx.Response(201)
 
@@ -113,7 +115,9 @@ def test_apply_accepts_an_empty_created_response_and_is_idempotent(tmp_path, cap
     assert script.main(arguments, environ=environment, transport=httpx.MockTransport(handler)) == 0
     assert remote is not None
     assert script.main(arguments, environ=environment, transport=httpx.MockTransport(handler)) == 0
-    assert json.loads(capsys.readouterr().out.splitlines()[-1]) == [{"key": "watchlist", "sourceBytes": 19}]
+    assert json.loads(capsys.readouterr().out.splitlines()[-1]) == [
+        {"key": "watchlist", "sourceBytes": 19}
+    ]
 
 
 def test_non_json_file_refuses_before_creating_a_client(tmp_path, capsys):
@@ -129,11 +133,14 @@ def test_non_json_file_refuses_before_creating_a_client(tmp_path, capsys):
         calls += 1
         return httpx.Response(500)
 
-    assert script.main(
-        ["--owner-id", OWNER_ID, "--source", str(source), "--apply"],
-        environ={"SUPABASE_URL": PROJECT_URL, "SUPABASE_SECRET_KEY": SECRET},
-        transport=httpx.MockTransport(handler),
-    ) == 1
+    assert (
+        script.main(
+            ["--owner-id", OWNER_ID, "--source", str(source), "--apply"],
+            environ={"SUPABASE_URL": PROJECT_URL, "SUPABASE_SECRET_KEY": SECRET},
+            transport=httpx.MockTransport(handler),
+        )
+        == 1
+    )
     rendered = capsys.readouterr()
     assert calls == 0
     assert "notes.txt" in rendered.err

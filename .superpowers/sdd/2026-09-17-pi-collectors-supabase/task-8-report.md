@@ -19,3 +19,8 @@
 - `git diff --check` passed.
 - Active `/api/market` URL grep is clean; remaining `api/market` matches are module import paths, not endpoint URLs.
 - Full `npm test -w web` was started twice but the harness returned at its 30-second process limit before a completion summary; the targeted full Investing boundary set passed.
+
+## Review follow-up
+
+- Realtime now forwards subscription status, opens the page stream only after `SUBSCRIBED`, and lowers it for error, timeout, close, and unknown terminal statuses. Disposal ignores later callbacks and removes the channel once.
+- Added request boundary coverage for invalid failure-code sanitization, malformed completed results, and the 20-second timeout cleanup path. The focused suite is now 52 passing tests.

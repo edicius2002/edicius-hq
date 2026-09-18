@@ -1,5 +1,8 @@
 import type { Quote } from '@/shared/api/market';
-import { subscribeQuotes } from '@/features/investing/data/supabaseMarket';
+import {
+  subscribeQuotes,
+  type QuoteSubscriptionStatus,
+} from '@/features/investing/data/supabaseMarket';
 import { quoteBus } from '@/features/investing/data/quoteBus';
 
 /**
@@ -101,7 +104,10 @@ export type QuoteStreamOptions = {
   onOpen?: () => void;
   onError?: () => void;
   /** Injected in tests; Supabase Realtime otherwise. */
-  subscribe?: typeof subscribeQuotes;
+  subscribe?: (
+    onQuotes: (quotes: Quote[]) => void,
+    onStatus: (status: QuoteSubscriptionStatus) => void,
+  ) => () => void;
 };
 
 /**
@@ -112,25 +118,58 @@ export type QuoteStreamOptions = {
  */
 export function openQuoteStream(symbols: string[], options: QuoteStreamOptions): () => void {
   if (!symbols.length) return () => {};
+  let terminated = false;
+  let close: (() => void) | undefined;
+  let closeWhenReady = false;
+  const stop = () => {
+    if (terminated) return;
+    terminated = true;
+    if (close) close();
+    else closeWhenReady = true;
+  };
   try {
-    const close = (options.subscribe ?? subscribeQuotes)((quotes) => {
-      quoteBus.ingest(quotes);
-      const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
-      const ticks = quotes
-        .filter((quote) => wanted.has(quote.symbol))
-        .map(({ symbol, price, marketState, extended, changePercent, time }) => ({
-          symbol,
-          price,
-          marketState,
-          extended,
-          changePercent,
-          time,
-        }));
-      if (ticks.length) options.onTicks(ticks);
-    });
-    options.onOpen?.();
-    return close;
+    close = (options.subscribe ?? subscribeQuotes)(
+      (quotes) => {
+        if (terminated) return;
+        quoteBus.ingest(quotes);
+        const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
+        const ticks = quotes
+          .filter((quote) => wanted.has(quote.symbol))
+          .map(({ symbol, price, marketState, extended, changePercent, time }) => ({
+            symbol,
+            price,
+            marketState,
+            extended,
+            changePercent,
+            time,
+          }));
+        if (ticks.length) options.onTicks(ticks);
+      },
+      (status) => {
+        if (terminated) return;
+        if (status === 'SUBSCRIBED') {
+          options.onOpen?.();
+          return;
+        }
+        // Realtime's terminal values are strings; unknown terminal values are
+        // treated as a dead stream rather than leaking a provider object upward.
+        if (
+          status === 'CHANNEL_ERROR' ||
+          status === 'TIMED_OUT' ||
+          status === 'CLOSED' ||
+          status !== 'SUBSCRIBED'
+        ) {
+          stop();
+          options.onError?.();
+        }
+      },
+    );
+    if (closeWhenReady) close();
+    return () => {
+      stop();
+    };
   } catch {
+    terminated = true;
     options.onError?.();
     return () => {};
   }

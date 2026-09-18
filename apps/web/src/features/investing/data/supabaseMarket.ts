@@ -25,7 +25,7 @@ export async function getQuotes(symbols: string[], signal?: AbortSignal): Promis
     .from('market_quotes')
     .select('symbol, provider, market_time, payload')
     .in('symbol', wanted);
-  if (error) throw error;
+  if (error) throw new CollectorRequestError('quotes_unavailable');
   return { quotes: (data ?? []).flatMap(quoteFromRow), failed: [] };
 }
 
@@ -43,7 +43,7 @@ export async function getBars(
     .eq('extended', extended)
     .gt('expires_at', new Date().toISOString())
     .maybeSingle();
-  if (error) throw error;
+  if (error) throw new CollectorRequestError('bars_unavailable');
   if (data) {
     const cached = barsFromJson(data.payload);
     if (cached) return { ...cached, provider: data.provider };
@@ -70,7 +70,7 @@ async function enqueue<T>(
     .insert({ operation, payload })
     .select('request_id')
     .single();
-  if (error) throw error;
+  if (error) throw new CollectorRequestError('request_unavailable');
   return waitForCollectorResult(data.request_id, decode, signal);
 }
 
@@ -141,8 +141,21 @@ function waitForCollectorResult<T>(
   });
 }
 
-export function subscribeQuotes(onQuotes: (quotes: Quote[]) => void): () => void {
-  const channel = supabase
+export type QuoteSubscriptionStatus =
+  'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED' | string;
+
+export function subscribeQuotes(
+  onQuotes: (quotes: Quote[]) => void,
+  onStatus?: (status: QuoteSubscriptionStatus) => void,
+): () => void {
+  let disposed = false;
+  let channel: ReturnType<typeof supabase.channel> | undefined;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (channel) void supabase.removeChannel(channel);
+  };
+  channel = supabase
     .channel('market-quotes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'market_quotes' }, (event) => {
       const quote = quoteFromRow(
@@ -153,12 +166,14 @@ export function subscribeQuotes(onQuotes: (quotes: Quote[]) => void): () => void
           payload: Json;
         },
       );
-      if (quote.length) onQuotes(quote);
+      if (!disposed && quote.length) onQuotes(quote);
     })
-    .subscribe();
-  return () => {
-    void supabase.removeChannel(channel);
-  };
+    .subscribe((status) => {
+      if (!disposed) onStatus?.(status);
+      if (status !== 'SUBSCRIBED') dispose();
+    });
+  if (disposed) void supabase.removeChannel(channel);
+  return dispose;
 }
 
 function quoteFromRow(row: {

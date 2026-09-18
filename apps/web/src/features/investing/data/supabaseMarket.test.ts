@@ -131,6 +131,50 @@ describe('Supabase Investing market boundary', () => {
     await expect(searchSymbols('apple')).rejects.toThrow('provider_down');
   });
 
+  it('sanitizes untrusted failure codes and expired requests', async () => {
+    state.single.mockResolvedValue({ data: { request_id: 'request-3' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'failed', result: null, error_code: 'provider says: secret' },
+      error: null,
+    });
+
+    await expect(searchSymbols('apple')).rejects.toThrow('request_failed');
+  });
+
+  it('rejects malformed completed results and tears down its request channel once', async () => {
+    state.single.mockResolvedValue({ data: { request_id: 'request-4' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'complete', result: { result: 'not-bars' }, error_code: null },
+      error: null,
+    });
+
+    await expect(getBars('AAPL', '1d')).rejects.toThrow('malformed_result');
+    expect(state.removeChannel).toHaveBeenCalledOnce();
+  });
+
+  it('times out at twenty seconds and removes its channel exactly once', async () => {
+    vi.useFakeTimers();
+    state.maybeSingle.mockResolvedValue({ data: null, error: null });
+    state.single.mockResolvedValue({ data: { request_id: 'request-5' }, error: null });
+    state.subscribe.mockReturnValue({ id: 'request' });
+
+    const pending = getBars('AAPL', '1d');
+    const rejection = expect(pending).rejects.toThrow('request_timeout');
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await rejection;
+    expect(state.removeChannel).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
   it('maps owner-visible quote updates and removes the Realtime channel', () => {
     const receive = vi.fn();
     let handler!: (event: { new: unknown }) => void;

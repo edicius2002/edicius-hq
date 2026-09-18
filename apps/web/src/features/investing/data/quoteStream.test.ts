@@ -139,15 +139,19 @@ describe('openQuoteStream', () => {
   function open(onTicks = vi.fn()) {
     const stop = vi.fn();
     let receive!: (quotes: Quote[]) => void;
-    const subscribe = vi.fn((next: (quotes: Quote[]) => void) => {
-      receive = next;
-      return stop;
-    });
+    let status!: (status: string) => void;
+    const subscribe = vi.fn(
+      (next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+        receive = next;
+        status = nextStatus;
+        return stop;
+      },
+    );
     const close = openQuoteStream(['AAPL'], {
       onTicks,
       subscribe,
     });
-    return { receive, close, onTicks, subscribe, stop };
+    return { receive, status, close, onTicks, subscribe, stop };
   }
 
   it('hands on the batch it was sent', () => {
@@ -174,5 +178,41 @@ describe('openQuoteStream', () => {
 
     expect(onTicks).not.toHaveBeenCalled();
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not report live until Supabase confirms the subscription', () => {
+    const onOpen = vi.fn();
+    let status!: (value: string) => void;
+    openQuoteStream(['AAPL'], {
+      onTicks: vi.fn(),
+      onOpen,
+      subscribe: ((_: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+        status = nextStatus;
+        return () => {};
+      }) as never,
+    });
+
+    expect(onOpen).not.toHaveBeenCalled();
+    status('SUBSCRIBED');
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('lowers the live latch on a terminal Realtime status and ignores later quote callbacks', () => {
+    const onError = vi.fn();
+    let receive!: (quotes: Quote[]) => void;
+    let status!: (value: string) => void;
+    openQuoteStream(['AAPL'], {
+      onTicks: vi.fn(),
+      onError,
+      subscribe: ((next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+        receive = next;
+        status = nextStatus;
+        return () => {};
+      }) as never,
+    });
+
+    status('CHANNEL_ERROR');
+    receive([quote()]);
+    expect(onError).toHaveBeenCalledOnce();
   });
 });

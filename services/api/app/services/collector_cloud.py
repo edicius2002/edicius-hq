@@ -135,6 +135,11 @@ class CollectorCloud:
             return None
         return _object(rows[0].get("payload"), "document payload")
 
+    @property
+    def owner_id(self) -> UUID:
+        """The configured owner for rows emitted through this boundary."""
+        return self._owner_id
+
     def documents(self, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
         return {key: value for key in keys if (value := self.document(key)) is not None}
 

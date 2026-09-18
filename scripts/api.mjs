@@ -16,6 +16,7 @@ const MODES = [
   'fares-supabase',
   'finance-supabase',
   'app-documents-supabase',
+  'sentiment-collect',
 ];
 
 const mode = process.argv[2];
@@ -108,6 +109,7 @@ const ARGS = {
   'fares-supabase': [['../../scripts/fares-supabase.py', ...process.argv.slice(3)]],
   'finance-supabase': [['../../scripts/finance-supabase.py', ...process.argv.slice(3)]],
   'app-documents-supabase': [['../../scripts/app-documents-supabase.py', ...process.argv.slice(3)]],
+  'sentiment-collect': [['../../scripts/sentiment-collect.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

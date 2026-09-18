@@ -75,17 +75,10 @@ export function AirfarePage() {
   const [projection, setProjection] = useState<Projection>('globe');
 
   const watchlist = useFareRoutes();
-  // Per-row collection is its own hook, not more state on this page: the
-  // in-flight set, the reports and the mutation that keeps them in step are one
-  // mechanism, and the page's job is to hand it to the list.
+  // Compatibility state is empty: automatic Pi collection is represented once
+  // below by the global collector status.
   const rowCollection = useRouteCollection();
-  /*
-   * Adding a route collects its booking horizon — 12.247. Its own hook rather
-   * than a branch of `useRouteCollection`, because it is a different pass over
-   * a different unit: that one polls up to thirty-one boards for one month,
-   * this one fetches one curve across every month, and the server keeps them in
-   * separate slots for the same reason.
-   */
+  /* Pi-scheduled collection has no browser-triggered horizon pass. */
   const horizon = useHorizonCollection();
   const collectorStatus = useAirfareCollectorStatus();
 
@@ -630,15 +623,7 @@ export function AirfarePage() {
               horizon.forget(id);
               void watchlist.remove(id);
             }}
-            /*
-              The add lands first and the horizon collection follows it, never
-              the other way round — 12.247. The add is a write to the reader's
-              own document and this is a request to somebody else's server; a
-              route that failed to save because a fare lookup failed would let
-              an upstream veto a watchlist edit, and the reader would have no
-              row left to retry from. So the route is watched either way and the
-              collection reports itself below.
-            */
+            /* Adding edits only the owner watch document; the Pi timer collects it. */
             onAdd={(route) => {
               void watchlist.add(route);
             }}
@@ -650,7 +635,7 @@ export function AirfarePage() {
               : airfaresStatusText(collectorStatus.data)}
           </p>
           {/*
-            The horizon reports, coloured by what they say.
+            Retained compatibility markup is empty under Pi-scheduled collection.
 
             This list was `styles.failures`, and that class paints every line in
             `--color-expense` unconditionally — so a horizon collected perfectly,

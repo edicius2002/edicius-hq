@@ -23,6 +23,7 @@ from typing import Any
 
 from app.config import tweets_dir
 from app.services.pass_stream import PassBroadcast
+from app.services.tweet_replica import TweetReplica
 
 DEFAULT_INTERVAL_SECONDS = int(os.getenv("X_TWEET_WATCH_INTERVAL_SECONDS", "120"))
 MAX_SCROLLS = 80
@@ -167,11 +168,13 @@ class TweetWatcher:
         *,
         data_dir: Path | None = None,
         cycle: Cycle | None = None,
+        replica: TweetReplica | None = None,
         interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
         jitter: Callable[[float, float], float] = random.uniform,
     ) -> None:
         self.data_dir = data_dir or tweets_dir()
         self._cycle = cycle or self._capture
+        self.replica = replica
         self.interval_seconds = interval_seconds
         self.jitter = jitter
         self.delay_seconds = interval_seconds
@@ -218,6 +221,12 @@ class TweetWatcher:
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     async def record(self, handle: str, rows: list[dict[str, Any]]) -> int:
+        if self.replica is not None:
+            fresh = self.replica.fresh_rows(handle, rows)
+            await asyncio.to_thread(self.replica.append_and_sync, handle, rows)
+            for row in fresh:
+                self.stream.write(row)
+            return len(fresh)
         known = self.recent_ids(handle)
         fresh = [row for row in rows if str(row.get("id", "")) and str(row["id"]) not in known]
         self._write(handle, fresh)

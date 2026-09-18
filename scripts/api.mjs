@@ -17,6 +17,7 @@ const MODES = [
   'finance-supabase',
   'app-documents-supabase',
   'sentiment-collect',
+  'tweets-watch',
 ];
 
 const mode = process.argv[2];
@@ -110,6 +111,7 @@ const ARGS = {
   'finance-supabase': [['../../scripts/finance-supabase.py', ...process.argv.slice(3)]],
   'app-documents-supabase': [['../../scripts/app-documents-supabase.py', ...process.argv.slice(3)]],
   'sentiment-collect': [['../../scripts/sentiment-collect.py', ...process.argv.slice(3)]],
+  'tweets-watch': [['../../scripts/tweets-watch.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

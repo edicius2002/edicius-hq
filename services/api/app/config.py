@@ -169,8 +169,8 @@ def sky_official_lookup_enabled() -> bool:
 
 
 def tweet_watch_on_start_enabled() -> bool:
-    """Whether API startup owns the default X watcher; absent and empty mean enabled."""
-    return os.getenv("X_TWEET_WATCH_ON_START", "").strip().casefold() not in {
+    """Legacy API watcher switch; absent and empty deliberately leave X to the worker."""
+    return os.getenv("X_TWEET_WATCH_ON_START", "false").strip().casefold() not in {
         "0",
         "false",
         "no",

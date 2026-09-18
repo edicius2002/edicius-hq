@@ -186,6 +186,24 @@ def test_finish_failure_marks_the_running_cloud_pass_failed_before_closing(monke
     cloud.close.assert_called_once_with()
 
 
+def test_failed_terminal_failure_is_not_retried_before_cloud_close(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    cloud.fail_run.side_effect = RuntimeError("cloud detail")
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 1)
+
+    with pytest.raises(RuntimeError, match="cloud detail"):
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
+
+
 def test_a_stored_route_still_naming_a_focus_becomes_a_watch(tmp_path):
     """
     The crash, in one line.

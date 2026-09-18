@@ -205,6 +205,7 @@ class MarketWorker:
             return
         self._run_stats.seen += len(quotes) + len(failures)
         if failures:
+            self._run_stats.failed += len(failures)
             LOGGER.warning("market quote recovery had %d failed symbols", len(failures))
         if quotes:
             try:

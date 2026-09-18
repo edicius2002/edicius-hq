@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 from app.adapters.models import Quote, Tick
+from app.adapters import registry
 from app.services.collector_cloud import CollectorRequest
 from app.services.market_worker import MarketWorker
 
@@ -138,6 +139,22 @@ def test_request_completion_and_failure_are_counted_in_the_service_run():
     assert worker.run_records == {"seen": 2, "written": 1, "failed": 1}
     remote.complete_request.assert_called_once_with(request.id, {"results": []})
     remote.fail_request.assert_called_once_with(request.id, "invalid-request")
+
+
+def test_quote_recovery_counts_returned_provider_failures(monkeypatch):
+    remote = cloud()
+    remote.documents.return_value = {"watchlist": {"entries": [{"symbol": "AAPL"}, {"symbol": "BAD"}]}}
+    worker = MarketWorker(remote, clock=Clock())
+
+    async def fetch_quotes(_client, _symbols):
+        return [quote(101)], [("BAD", RuntimeError("private detail"))]
+
+    monkeypatch.setattr(registry, "fetch_quotes", fetch_quotes)
+
+    asyncio.run(worker.recover_quotes())
+
+    assert worker.run_records == {"seen": 2, "written": 1, "failed": 1}
+    remote.upsert_quotes.assert_called_once()
 
 
 def test_stop_event_interrupts_reconciliation_wait_without_waiting_thirty_seconds():

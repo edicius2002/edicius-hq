@@ -146,7 +146,7 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 ROUTES_KEY = "airfare-routes"
 
 
-def load_routes(watch_source: str = "local") -> list[dict[str, object]]:
+def load_routes(watch_source: str = "supabase") -> list[dict[str, object]]:
     """
     The cloud-owned watch, refreshed into its local last-known-good cache.
 

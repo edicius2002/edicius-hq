@@ -58,6 +58,21 @@ def load_collect_script():
     return module
 
 
+def test_load_routes_defaults_to_the_cloud_watch(monkeypatch, tmp_path):
+    script = load_collect_script()
+    seen = []
+
+    class Cloud:
+        def document(self, key):
+            seen.append(key)
+            return {"routes": []}
+
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: Cloud())
+    monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
+    assert script.load_routes() == []
+    assert seen == ["airfare-routes"]
+
+
 def test_a_stored_route_still_naming_a_focus_becomes_a_watch(tmp_path):
     """
     The crash, in one line.

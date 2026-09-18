@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Edicius Airfare collector passes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+RandomizedDelaySec=30
+Unit=edicius-airfare.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=Edicius market collector worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=edicius
+Group=edicius
+WorkingDirectory=/opt/edicius-hq/current
+EnvironmentFile=/etc/edicius-hq/collectors.env
+Environment=HOME=/var/lib/edicius-hq
+Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq
+ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/market-worker.py
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/edicius-hq
+UMask=0077

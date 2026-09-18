@@ -1,0 +1,20 @@
+[Unit]
+Description=Edicius Airfare collector pass
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=edicius
+Group=edicius
+WorkingDirectory=/opt/edicius-hq/current
+EnvironmentFile=/etc/edicius-hq/collectors.env
+Environment=HOME=/var/lib/edicius-hq
+Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq
+ExecStart=/usr/bin/flock -n /var/lib/edicius-hq/locks/airfare.lock /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/fares-collect.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/edicius-hq
+UMask=0077

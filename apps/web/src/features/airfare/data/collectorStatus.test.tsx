@@ -54,13 +54,18 @@ describe('useAirfareCollectorStatus', () => {
     expect(limit).toHaveBeenCalledWith(1);
     expect(subscribe).toHaveBeenCalled();
     const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const afterInitial = maybeSingle.mock.calls.length;
     await act(async () => callback());
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['collector-runs', 'airfare'] });
-    const before = maybeSingle.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(maybeSingle.mock.calls.length).toBeGreaterThan(afterInitial);
+    const afterRealtime = maybeSingle.mock.calls.length;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
-    expect(maybeSingle.mock.calls.length).toBeGreaterThan(before);
+    expect(maybeSingle.mock.calls.length).toBeGreaterThan(afterRealtime);
     unmount();
     expect(removeChannel).toHaveBeenCalledWith({ id: 'channel' });
     vi.useRealTimers();

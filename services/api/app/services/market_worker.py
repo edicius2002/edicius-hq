@@ -7,6 +7,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -23,6 +24,18 @@ QUOTE_FLUSH_SECONDS = 5.0
 QUOTE_RECOVERY_SECONDS = 60.0
 RECONCILE_SECONDS = 30.0
 _DOCUMENT_KEYS = ("watchlist", "portfolio", "alert-rules")
+
+
+@dataclass
+class MarketRunStats:
+    """Work durably observed by one worker process."""
+
+    seen: int = 0
+    written: int = 0
+    failed: int = 0
+
+    def records(self) -> dict[str, int]:
+        return {"seen": self.seen, "written": self.written, "failed": self.failed}
 
 
 def _symbol(value: object) -> str | None:
@@ -137,6 +150,11 @@ class MarketWorker:
         self._last_write: dict[str, float] = {}
         self._last_recovery = float("-inf")
         self._wake = asyncio.Event()
+        self._run_stats = MarketRunStats()
+
+    @property
+    def run_records(self) -> dict[str, int]:
+        return self._run_stats.records()
 
     def desired_symbols(self) -> tuple[str, ...]:
         return desired_symbols(self.cloud.documents(_DOCUMENT_KEYS))
@@ -159,7 +177,13 @@ class MarketWorker:
         if rows:
             # Do not throw away the latest ticks if Supabase is temporarily
             # unavailable: leaving them pending lets the next window retry.
-            self.cloud.upsert_quotes(rows)
+            self._run_stats.seen += len(rows)
+            try:
+                self.cloud.upsert_quotes(rows)
+            except Exception:
+                self._run_stats.failed += len(rows)
+                raise
+            self._run_stats.written += len(rows)
             for row in rows:
                 self._last_write[row["symbol"]] = now
                 self._pending.pop(row["symbol"], None)
@@ -175,44 +199,62 @@ class MarketWorker:
         try:
             quotes, failures = await registry.fetch_quotes(self.client, symbols)
         except ProviderError as error:
+            self._run_stats.seen += len(symbols)
+            self._run_stats.failed += len(symbols)
             LOGGER.warning("market quote recovery failed: %s", error.code)
             return
+        self._run_stats.seen += len(quotes) + len(failures)
         if failures:
             LOGGER.warning("market quote recovery had %d failed symbols", len(failures))
         if quotes:
-            self.cloud.upsert_quotes([self._quote_row(quote) for quote in quotes])
+            try:
+                self.cloud.upsert_quotes([self._quote_row(quote) for quote in quotes])
+            except Exception:
+                self._run_stats.failed += len(quotes)
+                raise
+            self._run_stats.written += len(quotes)
 
     async def serve_request(self, request: CollectorRequest) -> None:
         """Terminally settle a claimed request once, with no provider text leaked."""
+        self._run_stats.seen += 1
         if request.operation == "market-bars":
             try:
                 row, result = await self._bars(request.payload)
                 self.cloud.upsert_bars(row)
             except ProviderError as error:
+                self._run_stats.failed += 1
                 self._fail(request, error.code)
                 return
             except (TypeError, ValueError):
+                self._run_stats.failed += 1
                 self._fail(request, "invalid-request")
                 return
             except Exception:  # noqa: BLE001 - terminal cloud/provider boundary is sanitized
+                self._run_stats.failed += 1
                 self._fail(request, "market-unavailable")
                 return
             self._complete(request, result)
+            self._run_stats.written += 1
             return
         if request.operation == "market-search":
             try:
                 result = await self._search(request.payload)
             except ProviderError as error:
+                self._run_stats.failed += 1
                 self._fail(request, error.code)
                 return
             except (TypeError, ValueError):
+                self._run_stats.failed += 1
                 self._fail(request, "invalid-request")
                 return
             except Exception:  # noqa: BLE001 - terminal cloud/provider boundary is sanitized
+                self._run_stats.failed += 1
                 self._fail(request, "market-unavailable")
                 return
             self._complete(request, result)
+            self._run_stats.written += 1
             return
+        self._run_stats.failed += 1
         self._fail(request, "invalid-request")
 
     async def claim_until_empty(self) -> int:

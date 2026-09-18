@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from unittest.mock import Mock
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 from app.adapters.models import Quote, Tick
+from app.services.collector_cloud import CollectorRequest
 from app.services.market_worker import MarketWorker
 
 OWNER = UUID("11111111-1111-1111-1111-111111111111")
@@ -85,6 +87,7 @@ def test_many_ticks_flush_one_latest_quote_per_window():
     row = remote.upsert_quotes.call_args.args[0][0]
     assert row["symbol"] == "AAPL"
     assert row["payload"]["price"] == 101
+    assert worker.run_records == {"seen": 1, "written": 1, "failed": 0}
 
 
 def test_tick_market_time_is_an_integer_for_the_database_column():
@@ -113,6 +116,28 @@ def test_failed_quote_flush_keeps_the_latest_tick_for_a_later_retry():
 
     assert remote.upsert_quotes.call_count == 2
     assert remote.upsert_quotes.call_args.args[0][0]["payload"]["price"] == 101
+    assert worker.run_records == {"seen": 2, "written": 1, "failed": 1}
+
+
+def test_request_completion_and_failure_are_counted_in_the_service_run():
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock())
+    request = CollectorRequest(
+        UUID("22222222-2222-2222-2222-222222222222"),
+        OWNER,
+        "market-search",
+        {"query": "apple"},
+        datetime.now(UTC),
+    )
+    worker._search = AsyncMock(return_value={"results": []})
+
+    asyncio.run(worker.serve_request(request))
+    worker._search = AsyncMock(side_effect=ValueError("bad request"))
+    asyncio.run(worker.serve_request(request))
+
+    assert worker.run_records == {"seen": 2, "written": 1, "failed": 1}
+    remote.complete_request.assert_called_once_with(request.id, {"results": []})
+    remote.fail_request.assert_called_once_with(request.id, "invalid-request")
 
 
 def test_stop_event_interrupts_reconciliation_wait_without_waiting_thirty_seconds():

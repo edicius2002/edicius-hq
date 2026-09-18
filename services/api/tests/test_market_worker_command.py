@@ -29,6 +29,7 @@ def test_run_worker_closes_cloud_after_the_stop_signal():
     cloud = Mock()
     cloud.owner_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     worker = Mock(run=AsyncMock())
+    worker.run_records = {"seen": 3, "written": 2, "failed": 1}
     stopped = asyncio.Event()
     stopped.set()
 
@@ -37,7 +38,7 @@ def test_run_worker_closes_cloud_after_the_stop_signal():
     worker.run.assert_awaited_once_with(stopped)
     cloud.begin_run.assert_called_once_with("market")
     cloud.finish_run.assert_called_once_with(
-        cloud.begin_run.return_value, {"seen": 0, "written": 0, "failed": 0}
+        cloud.begin_run.return_value, {"seen": 3, "written": 2, "failed": 1}
     )
     cloud.close.assert_called_once_with()
 

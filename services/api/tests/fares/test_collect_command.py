@@ -82,6 +82,7 @@ def test_real_cloud_pass_finishes_a_run_and_closes_the_client(monkeypatch):
     recorder.tally.due = 4
     recorder.tally.sent = 3
     recorder.tally.failed = 1
+    recorder.tally.written = 2
     args = argparse.Namespace(dry_run=False, watch_source="supabase")
 
     monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
@@ -107,6 +108,22 @@ def test_dry_run_and_local_rollback_do_not_create_a_cloud_client(monkeypatch):
         argparse.Namespace(dry_run=False, watch_source="local"),
     ):
         assert script.run_pass(args, PassRecorder(source="cron", kind="board", gap=0)) == 0
+
+    configured.assert_not_called()
+
+
+def test_real_dry_run_uses_the_local_cache_without_constructing_cloud(monkeypatch, tmp_path):
+    script = load_collect_script()
+    configured = Mock()
+    monkeypatch.setattr(script, "configured_collector_cloud", configured)
+    monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
+
+    assert script.run_pass(
+        argparse.Namespace(
+            dry_run=True, watch_source="supabase", all=False, gap=0, no_calendar=True
+        ),
+        PassRecorder(source="cron", kind="board", gap=0),
+    ) == 0
 
     configured.assert_not_called()
 
@@ -142,6 +159,24 @@ def test_real_cloud_pass_exception_marks_failure_and_closes(monkeypatch):
     monkeypatch.setattr(script, "_pass", fail)
 
     with pytest.raises(RuntimeError, match="provider detail"):
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
+
+
+def test_finish_failure_marks_the_running_cloud_pass_failed_before_closing(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    cloud.finish_run.side_effect = RuntimeError("cloud detail")
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
+
+    with pytest.raises(RuntimeError, match="cloud detail"):
         script.run_pass(
             argparse.Namespace(dry_run=False, watch_source="supabase"),
             PassRecorder(source="cron", kind="board", gap=0),

@@ -375,31 +375,34 @@ def main() -> int:
 
 def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     """Run a real cloud pass inside one collector-run lifecycle."""
-    if args.dry_run or getattr(args, "watch_source", "supabase") == "local":
+    if args.dry_run:
+        # A dry run still gives the operator the normal estimate, but it must
+        # remain usable before Supabase credentials or network are available.
+        return _pass(argparse.Namespace(**{**vars(args), "watch_source": "local"}), recorder)
+    if getattr(args, "watch_source", "supabase") == "local":
         return _pass(args, recorder)
 
     cloud = configured_collector_cloud()
     run_id = None
-    terminal_attempted = False
+    completed = False
     try:
         run_id = cloud.begin_run("airfare")
         code = _pass(args, recorder)
         if code:
-            terminal_attempted = True
             cloud.fail_run(run_id, "pass-failed")
         else:
-            terminal_attempted = True
             cloud.finish_run(
                 run_id,
                 {
                     "seen": recorder.tally.due,
-                    "written": max(0, recorder.tally.sent - recorder.tally.failed),
+                    "written": recorder.tally.written,
                     "failed": recorder.tally.failed,
                 },
             )
+            completed = True
         return code
     except BaseException:
-        if run_id is not None and not terminal_attempted:
+        if run_id is not None and not completed:
             try:
                 cloud.fail_run(run_id, "pass-failed")
             except Exception:  # noqa: BLE001 - preserve the pass failure

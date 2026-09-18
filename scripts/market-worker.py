@@ -111,7 +111,7 @@ async def run_worker(cloud: Any, worker: MarketWorker, stopped: asyncio.Event) -
         run_id = cloud.begin_run("market")
         realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
         await worker.run(stopped)
-        cloud.finish_run(run_id, {"seen": 0, "written": 0, "failed": 0})
+        cloud.finish_run(run_id, worker.run_records)
         return 0
     except BaseException:
         if run_id is not None:

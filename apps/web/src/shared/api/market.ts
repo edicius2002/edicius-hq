@@ -2,6 +2,7 @@ export { getBars, getQuotes, searchSymbols } from '@/features/investing/data/sup
 
 /** The browser owns the supported chart choices; no provider route is needed. */
 export function getTimeframes(_signal?: AbortSignal): Promise<{ timeframes: string[] }> {
+  void _signal;
   return Promise.resolve({ timeframes: ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] });
 }
 

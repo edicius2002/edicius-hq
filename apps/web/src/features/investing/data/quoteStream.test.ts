@@ -186,10 +186,10 @@ describe('openQuoteStream', () => {
     openQuoteStream(['AAPL'], {
       onTicks: vi.fn(),
       onOpen,
-      subscribe: ((_: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+      subscribe: (_: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
         status = nextStatus;
         return () => {};
-      }) as never,
+      },
     });
 
     expect(onOpen).not.toHaveBeenCalled();
@@ -204,11 +204,11 @@ describe('openQuoteStream', () => {
     openQuoteStream(['AAPL'], {
       onTicks: vi.fn(),
       onError,
-      subscribe: ((next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+      subscribe: (next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
         receive = next;
         status = nextStatus;
         return () => {};
-      }) as never,
+      },
     });
 
     status('CHANNEL_ERROR');

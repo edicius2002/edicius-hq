@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
-from app.adapters.models import Quote, Tick
 from app.adapters import registry
+from app.adapters.models import Quote, Tick
 from app.services.collector_cloud import CollectorRequest
 from app.services.market_worker import MarketWorker
 
@@ -143,7 +143,9 @@ def test_request_completion_and_failure_are_counted_in_the_service_run():
 
 def test_quote_recovery_counts_returned_provider_failures(monkeypatch):
     remote = cloud()
-    remote.documents.return_value = {"watchlist": {"entries": [{"symbol": "AAPL"}, {"symbol": "BAD"}]}}
+    remote.documents.return_value = {
+        "watchlist": {"entries": [{"symbol": "AAPL"}, {"symbol": "BAD"}]}
+    }
     worker = MarketWorker(remote, clock=Clock())
 
     async def fetch_quotes(_client, _symbols):

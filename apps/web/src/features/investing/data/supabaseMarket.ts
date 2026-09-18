@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
+import { REALTIME_SUBSCRIBE_STATES } from '@supabase/realtime-js';
 import type { Json } from '@/shared/supabase/database.types';
 import type { BarsResponse, Quote, QuotesResponse, SymbolHit } from '@/shared/api/market';
 
@@ -81,14 +82,16 @@ function waitForCollectorResult<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let closed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let channel: ReturnType<typeof supabase.channel> | undefined;
+    const timer = setTimeout(() => fail('request_timeout'), REQUEST_TIMEOUT_MS);
+    const subscription: { channel: ReturnType<typeof supabase.channel> | undefined } = {
+      channel: undefined,
+    };
     const close = () => {
       if (closed) return;
       closed = true;
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
-      if (channel) void supabase.removeChannel(channel);
+      if (subscription.channel) void supabase.removeChannel(subscription.channel);
     };
     const fail = (code: string) => {
       close();
@@ -122,8 +125,7 @@ function waitForCollectorResult<T>(
       return;
     }
     signal?.addEventListener('abort', abort, { once: true });
-    timer = setTimeout(() => fail('request_timeout'), REQUEST_TIMEOUT_MS);
-    channel = supabase
+    subscription.channel = supabase
       .channel(`collector-request:${requestId}`)
       .on(
         'postgres_changes',
@@ -136,26 +138,27 @@ function waitForCollectorResult<T>(
         (event) => accept(event.new as RequestRow),
       )
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') void reconcile();
+        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) void reconcile();
       });
   });
 }
 
-export type QuoteSubscriptionStatus =
-  'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED' | string;
+export type QuoteSubscriptionStatus = string;
 
 export function subscribeQuotes(
   onQuotes: (quotes: Quote[]) => void,
   onStatus?: (status: QuoteSubscriptionStatus) => void,
 ): () => void {
   let disposed = false;
-  let channel: ReturnType<typeof supabase.channel> | undefined;
+  const subscription: { channel: ReturnType<typeof supabase.channel> | undefined } = {
+    channel: undefined,
+  };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (channel) void supabase.removeChannel(channel);
+    if (subscription.channel) void supabase.removeChannel(subscription.channel);
   };
-  channel = supabase
+  subscription.channel = supabase
     .channel('market-quotes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'market_quotes' }, (event) => {
       const quote = quoteFromRow(
@@ -170,9 +173,9 @@ export function subscribeQuotes(
     })
     .subscribe((status) => {
       if (!disposed) onStatus?.(status);
-      if (status !== 'SUBSCRIBED') dispose();
+      if (status !== REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) dispose();
     });
-  if (disposed) void supabase.removeChannel(channel);
+  if (disposed) void supabase.removeChannel(subscription.channel);
   return dispose;
 }
 

@@ -13,6 +13,10 @@ import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
+import {
+  airfaresStatusText,
+  useAirfareCollectorStatus,
+} from '@/features/airfare/data/collectorStatus';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { airportPoint, legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
@@ -83,6 +87,7 @@ export function AirfarePage() {
    * separate slots for the same reason.
    */
   const horizon = useHorizonCollection();
+  const collectorStatus = useAirfareCollectorStatus();
 
   /*
    * Which way each pair's arc flows, and which watch collected most recently.
@@ -625,7 +630,6 @@ export function AirfarePage() {
               horizon.forget(id);
               void watchlist.remove(id);
             }}
-            onCollect={rowCollection.collect}
             /*
               The add lands first and the horizon collection follows it, never
               the other way round — 12.247. The add is a write to the reader's
@@ -636,10 +640,15 @@ export function AirfarePage() {
               collection reports itself below.
             */
             onAdd={(route) => {
-              void watchlist.add(route).then(() => horizon.collect(route));
+              void watchlist.add(route);
             }}
             onMove={(from, to) => void watchlist.move(from, to)}
           />
+          <p role="status" data-testid="airfare-collector-status">
+            {collectorStatus.isError
+              ? 'Airfare collector status is unavailable.'
+              : airfaresStatusText(collectorStatus.data)}
+          </p>
           {/*
             The horizon reports, coloured by what they say.
 

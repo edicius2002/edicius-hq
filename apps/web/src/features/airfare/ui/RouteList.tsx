@@ -60,7 +60,7 @@ type RouteListProps = {
    * which one it is reading — `a-press-collects-the-month-on-screen`. The open
    * tab where this is the open row; the month it would open on where it is not.
    */
-  onCollect: (route: FareRoute, month: string) => void;
+  onCollect?: (route: FareRoute, month: string) => void;
   onAdd: (route: FareRoute) => void;
   onSave: (id: string, route: FareRoute) => void;
   /**
@@ -422,7 +422,7 @@ export function RouteList({
                     would only make the reader wonder what would happen.
                   */}
                     <div className={styles.actions}>
-                      {departed ? null : (
+                      {departed || !onCollect ? null : (
                         <Button
                           variant="ghost"
                           size="small"

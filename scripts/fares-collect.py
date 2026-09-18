@@ -116,6 +116,7 @@ from app.config import (  # noqa: E402
 )
 from app.services.airfare_data import AIRFARE_DATA  # noqa: E402
 from app.services.collection_sync import sync_completed_pass  # noqa: E402
+from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
 from app.services.fare_budget import daily_budget  # noqa: E402
 from app.services.fare_collector import (  # noqa: E402
     REQUEST_GAP_SECONDS,
@@ -129,6 +130,7 @@ from app.services.fare_collector import (  # noqa: E402
 from app.services.fare_history import HISTORY  # noqa: E402
 from app.services.fare_passes import PassRecorder  # noqa: E402
 from app.services.fare_schedule import days_until, month_dates, poll_minutes  # noqa: E402
+from app.services.watch_document import CloudWatchDocument  # noqa: E402
 
 # Windows consoles default to cp1252, which cannot encode an arrow or an
 # accented airline name — and a scheduled task that dies on its own summary
@@ -144,14 +146,18 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 ROUTES_KEY = "airfare-routes"
 
 
-def load_routes() -> list[dict[str, object]]:
+def load_routes(watch_source: str = "local") -> list[dict[str, object]]:
     """
-    The watchlist, read straight off disk.
+    The cloud-owned watch, refreshed into its local last-known-good cache.
 
-    The KV document is written by the browser through the API; here we only
-    read it, so there is no allowlist to consult and no server to ask.
+    ``local`` is the explicit rollback switch. It intentionally retains the
+    old tolerant read path so an operator can run a collector without cloud
+    configuration while restoring service.
     """
     path = kv_dir() / f"{ROUTES_KEY}.json"
+    if watch_source == "supabase":
+        document = CloudWatchDocument(configured_collector_cloud(), path).load()
+        return [route for route in document["routes"] if isinstance(route, dict)]
     if not path.exists():
         return []
     try:
@@ -306,6 +312,12 @@ def main() -> int:
         help="List what is due and reach nothing.",
     )
     parser.add_argument(
+        "--watch-source",
+        choices=("supabase", "local"),
+        default="supabase",
+        help="Read the owner watch from Supabase (default) or use the local rollback cache.",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help=(
@@ -369,7 +381,8 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     spend lines can be traced back to the pass that sent them.
     """
     today = datetime.now(UTC).date()
-    routes = load_routes()
+    watch_source = getattr(args, "watch_source", None)
+    routes = load_routes() if watch_source is None else load_routes(watch_source)
     watches, dropped = to_watches(routes)
 
     print(f"watchlist: {len(routes)} route(s), {len(watches)} watchable, {len(dropped)} dropped")

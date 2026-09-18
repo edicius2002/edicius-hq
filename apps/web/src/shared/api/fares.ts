@@ -1,4 +1,9 @@
 import { apiRequest } from '@/shared/api/http';
+import {
+  fetchFareCalendar as fetchSupabaseFareCalendar,
+  fetchFareHistory as fetchSupabaseFareHistory,
+  searchAirports as searchSupabaseAirports,
+} from '@/features/airfare/data/supabaseAirfare';
 
 /**
  * Airfare prices — Path B, and the same rule as `market.ts`: which upstream
@@ -324,17 +329,7 @@ export function fetchFareHistory(
     signal?: AbortSignal;
   } = {},
 ): Promise<FareHistoryResponse> {
-  const query = new URLSearchParams({ origin, destination });
-  // `snapshotMonth` bounds snapshots by departure month. `departure` remains
-  // independent: it narrows only baseline and health as a prefix.
-  if (options.departure) query.set('departure', options.departure);
-  for (const month of options.snapshotMonths ?? []) query.append('snapshotMonth', month);
-  if (options.since) query.set('since', options.since);
-  if (options.until) query.set('until', options.until);
-
-  return apiRequest<FareHistoryResponse>(`/api/fares/history?${query}`, {
-    signal: options.signal,
-  });
+  return fetchSupabaseFareHistory(origin, destination, options);
 }
 
 /**
@@ -351,10 +346,9 @@ export function fetchFareCalendar(
   destination: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<FareCalendarResponse> {
-  const query = new URLSearchParams({ origin, destination });
-  return apiRequest<FareCalendarResponse>(`/api/fares/calendar?${query}`, {
-    signal: options.signal,
-  });
+  // Supabase RPC does not expose the fetch AbortSignal seam used by the legacy API.
+  void options;
+  return fetchSupabaseFareCalendar(origin, destination);
 }
 
 /**
@@ -398,12 +392,7 @@ export function searchAirports(
   query: string,
   options: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<{ query: string; matches: AirportMatch[] }> {
-  const params = new URLSearchParams({ q: query });
-  if (options.limit) params.set('limit', String(options.limit));
-  return apiRequest<{ query: string; matches: AirportMatch[] }>(
-    `/api/fares/airports/search?${params}`,
-    { signal: options.signal },
-  );
+  return searchSupabaseAirports(query, options);
 }
 
 export function searchFares(

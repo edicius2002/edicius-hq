@@ -27,6 +27,7 @@ import pytest
 from conftest import NOW
 
 from app.config import SCHEDULER_INTERVAL_MINUTES
+from app.services.collector_cloud import CollectorCloudUnavailable
 from app.services.fare_collector import (
     CalendarReport,
     CalendarResult,
@@ -148,24 +149,83 @@ def test_real_cloud_pass_marks_failure_with_a_stable_code_and_closes(monkeypatch
     cloud.close.assert_called_once_with()
 
 
-def test_begin_run_outage_keeps_the_local_pass_running(monkeypatch, caplog):
-    """Run telemetry is optional; _pass owns cache fallback and durable collection."""
+def test_begin_run_outage_uses_cached_watch_and_keeps_the_local_pass_durable(
+    monkeypatch, tmp_path, caplog
+):
+    """An unavailable cloud leaves the cached watch and completed local pass replayable."""
     script = load_collect_script()
     cloud = Mock()
-    cloud.begin_run.side_effect = RuntimeError("https://secret.example.invalid/telemetry")
-    local_pass = Mock(return_value=0)
-    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
-    monkeypatch.setattr(script, "_pass", local_pass)
-
-    assert (
-        script.run_pass(
-            argparse.Namespace(dry_run=False, watch_source="supabase"),
-            PassRecorder(source="cron", kind="board", gap=0),
-        )
-        == 0
+    cloud.begin_run.side_effect = CollectorCloudUnavailable(
+        "https://secret.example.invalid/telemetry"
     )
+    cloud.document.side_effect = CollectorCloudUnavailable("https://secret.example.invalid/watch")
+    (soon,) = coming_months(1)
+    cache = tmp_path / "kv" / "airfare-routes.json"
+    cache.parent.mkdir()
+    cache.write_text(
+        json.dumps(
+            {
+                "routes": [
+                    {"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = PassLedger(tmp_path / "passes")
+    collected: list[object] = []
+    synced_after_local_record: list[bool] = []
 
-    local_pass.assert_called_once()
+    async def fake_collect_due(watches, **_kwargs):
+        collected.extend(watches)
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[RouteResult("AQP", "LIM", f"{soon}-01", None, True)],
+        )
+
+    class Budget:
+        day = NOW.date()
+        ledger = SimpleNamespace(path_for=lambda _day: tmp_path / "spend.jsonl")
+
+        def remaining(self):
+            return None
+
+        def spent(self):
+            return 0
+
+    class Facade:
+        def sync_incremental(self):
+            synced_after_local_record.append(any(ledger.directory.glob("*.jsonl")))
+            return SimpleNamespace(status="failed", uploaded={})
+
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "daily_budget", lambda **_kwargs: Budget())
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    args = argparse.Namespace(
+        dry_run=False, watch_source="supabase", all=False, gap=0, no_calendar=True
+    )
+    recorder = PassRecorder(source="cron", kind="board", gap=0, ledger=ledger, now=NOW)
+
+    assert script.run_pass(args, recorder) == 0
+
+    assert [(watch.origin, watch.destination, watch.month) for watch in collected] == [
+        ("AQP", "LIM", soon)
+    ]
+    assert json.loads(cache.read_text(encoding="utf-8"))["routes"][0]["origin"] == "AQP"
+    lines = [
+        json.loads(line)
+        for path in ledger.directory.glob("*.jsonl")
+        for line in path.read_text().splitlines()
+    ]
+    assert [line["exit"] for line in lines] == [0]
+    assert synced_after_local_record == [True]
+    cloud.begin_run.assert_called_once_with("airfare")
+    cloud.document.assert_called_once_with("airfare-routes")
     cloud.finish_run.assert_not_called()
     cloud.fail_run.assert_not_called()
     cloud.close.assert_called_once_with()
@@ -210,7 +270,7 @@ def test_finish_failure_keeps_a_successful_local_pass_successful(monkeypatch, ca
         == 0
     )
 
-    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.fail_run.assert_not_called()
     cloud.close.assert_called_once_with()
     assert "cloud detail" not in caplog.text
     assert "could not finish its cloud run" in caplog.text

@@ -384,6 +384,7 @@ def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
 
     cloud = configured_collector_cloud()
     run_id = None
+    terminalization_attempted = False
     try:
         try:
             run_id = cloud.begin_run("airfare")
@@ -392,11 +393,13 @@ def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
         code = _pass(args, recorder)
         if code:
             if run_id is not None:
+                terminalization_attempted = True
                 try:
                     cloud.fail_run(run_id, "pass-failed")
                 except Exception:  # noqa: BLE001 - preserve the local pass outcome
                     LOGGER.error("airfare collector could not mark its run failed")
         elif run_id is not None:
+            terminalization_attempted = True
             try:
                 cloud.finish_run(
                     run_id,
@@ -408,13 +411,10 @@ def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
                 )
             except Exception:  # noqa: BLE001 - retain observations for later replay
                 LOGGER.error("airfare collector could not finish its cloud run")
-                try:
-                    cloud.fail_run(run_id, "pass-failed")
-                except Exception:  # noqa: BLE001 - one terminalization attempt is enough
-                    LOGGER.error("airfare collector could not mark its run failed")
         return code
     except BaseException:
-        if run_id is not None:
+        if run_id is not None and not terminalization_attempted:
+            terminalization_attempted = True
             try:
                 cloud.fail_run(run_id, "pass-failed")
             except Exception:  # noqa: BLE001 - preserve the pass failure

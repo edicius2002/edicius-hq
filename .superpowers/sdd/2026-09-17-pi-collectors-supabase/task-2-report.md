@@ -42,3 +42,9 @@ The full web suite needs its remaining bespoke PC-KV fetch stubs migrated to Sup
 - `npx supabase test db supabase/tests/collector_data_plane.sql` passed 77/77; `npx supabase test db` passed 217 tests across 6 files.
 - Focused browser storage/component suite passed 42/42, including migrated projector, Greenlight, alerts, and App fixtures.
 - A post-fix full `npm test` was launched with output redirected to the ignored temp log as requested; it had not reached a Vitest completion summary within the available command window. Its focused replacement suite is recorded above.
+
+## Review fix round 2
+
+- Added an explicit owner-B deletion attempt against owner-A's `watchlist` revision. pgTAP proves it returns the safe `PT409` conflict, reveals no row to owner B, and leaves owner A's revision unchanged.
+- Added a separate authenticated non-owner fixture for the existing Airfare authorization assertion, so the two valid owner fixtures do not weaken that test.
+- `npx supabase test db supabase/tests/collector_data_plane.sql` passed 80/80; full `npx supabase test db` passed 220 tests across 6 files.

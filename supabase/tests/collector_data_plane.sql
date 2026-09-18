@@ -1,5 +1,5 @@
 begin;
-select plan(77);
+select plan(80);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -113,8 +113,12 @@ values
   ('11111111-1111-1111-1111-111111111111', 'authenticated', 'authenticated',
    'owner-one@example.invalid', now(), now(), now()),
   ('22222222-2222-2222-2222-222222222222', 'authenticated', 'authenticated',
-   'owner-two@example.invalid', now(), now(), now());
-insert into public.edicius_owners(owner_id) values ('11111111-1111-1111-1111-111111111111');
+   'owner-two@example.invalid', now(), now(), now()),
+  ('33333333-3333-3333-3333-333333333333', 'authenticated', 'authenticated',
+   'non-owner@example.invalid', now(), now(), now());
+insert into public.edicius_owners(owner_id) values
+  ('11111111-1111-1111-1111-111111111111'),
+  ('22222222-2222-2222-2222-222222222222');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
@@ -142,10 +146,19 @@ select is((select count(*) from public.app_documents), 0::bigint,
           'RLS hides documents from a non-owner');
 select is((select count(*) from public.collector_requests), 0::bigint,
           'RLS hides requests from a non-owner');
+select throws_ok($$ select public.delete_app_document('watchlist', 1) $$,
+                 'PT409', 'app_revision_conflict', 'non-owner cannot delete another owner document');
+select is((select count(*) from public.app_documents), 0::bigint,
+          'cross-owner delete does not reveal the target document');
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+select is((select revision from public.app_documents where document_key = 'watchlist'), 1::bigint,
+          'cross-owner delete leaves the owner document unchanged');
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', true);
 select throws_ok(
   $$ insert into public.collector_requests (owner_id, operation, payload)
        values ('11111111-1111-1111-1111-111111111111', 'market-search', '{}') $$,
   '42501', NULL, 'request insert policy forbids selecting another owner');
+select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', true);
 select throws_ok($$ select public.read_owner_airfare_calendar('AQP', 'LIM') $$,
                  '42501', 'not_edicius_owner', 'non-owner cannot call Airfare wrapper');
 

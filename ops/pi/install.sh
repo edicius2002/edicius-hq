@@ -43,9 +43,9 @@ validate_release() {
 }
 
 validate_env() {
-  [[ -f "$ENV_FILE" ]] || fail "collector environment file is required"
+  [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail "collector environment file must be a regular file"
   [[ "$(stat -c '%a' -- "$ENV_FILE")" == 600 ]] || fail "collector environment file must have mode 0600"
-  [[ "$(stat -c '%U' -- "$ENV_FILE")" == root ]] || fail "collector environment file must be owned by root"
+  [[ "$(stat -c '%u' -- "$ENV_FILE")" == 0 ]] || fail "collector environment file must be owned by root"
   local -A required=([SUPABASE_URL]=1 [SUPABASE_SECRET_KEY]=1 [EDICIUS_OWNER_ID]=1 [COLLECTOR_SUPABASE_TIMEOUT_SECONDS]=1 [AIRFARE_DATA_BACKEND]=1 [AIRFARE_SYNC_ENABLED]=1)
   local line name value
   while IFS= read -r line || [[ -n "$line" ]]; do

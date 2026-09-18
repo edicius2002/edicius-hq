@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Read-only Pi verification.  Set the documented EDICIUS_VERIFY_RUN_* flags
-# only when an operator intentionally wants live provider/remote test runs.
+# Read-only Pi verification.  Only the explicit --live invocation runs the
+# sentiment provider/upsert check; the default never starts a collector.
 set -euo pipefail
 
 readonly APP_ROOT=/opt/edicius-hq
@@ -11,6 +11,8 @@ readonly ENV_FILE=/etc/edicius-hq/collectors.env
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly RELEASE_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 readonly PYTHON="$CURRENT_LINK/services/api/.venv/bin/python"
+readonly LIVE="${1:-}"
+readonly REQUIRED_ENV_NAMES=(SUPABASE_URL SUPABASE_SECRET_KEY EDICIUS_OWNER_ID COLLECTOR_SUPABASE_TIMEOUT_SECONDS AIRFARE_DATA_BACKEND AIRFARE_SYNC_ENABLED)
 
 fail() {
   printf '%s\n' "edicius Pi verify: $1" >&2
@@ -34,8 +36,37 @@ validate_active_release() {
   printf '%s\n' "active commit: ${commit:0:12}"
 }
 
+validate_env() {
+  [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail "collector environment file must be a regular file"
+  [[ "$(stat -c '%u' -- "$ENV_FILE")" == 0 ]] || fail "collector environment file must be owned by root"
+  [[ "$(stat -c '%a' -- "$ENV_FILE")" == 600 ]] || fail "collector environment file must have mode 0600"
+  local -A required=([SUPABASE_URL]=1 [SUPABASE_SECRET_KEY]=1 [EDICIUS_OWNER_ID]=1 [COLLECTOR_SUPABASE_TIMEOUT_SECONDS]=1 [AIRFARE_DATA_BACKEND]=1 [AIRFARE_SYNC_ENABLED]=1)
+  local line name value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == *=* ]] || fail "collector environment file has an invalid variable declaration"
+    name="${line%%=*}"
+    value="${line#*=}"
+    [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ && "${required[$name]-}" == 1 ]] || fail "collector environment file has an unexpected variable name"
+    [[ -n "$value" ]] || fail "collector environment file has an empty required value"
+    required["$name"]=0
+  done < "$ENV_FILE"
+  for name in "${REQUIRED_ENV_NAMES[@]}"; do
+    [[ "${required[$name]}" == 0 ]] || fail "collector environment file is missing a required variable"
+  done
+}
+
+load_env() {
+  local line name value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    name="${line%%=*}"
+    value="${line#*=}"
+    export "$name=$value"
+  done < "$ENV_FILE"
+}
+
 validate_local_safety() {
-  [[ -f "$ENV_FILE" && "$(stat -c '%a' -- "$ENV_FILE")" == 600 ]] || fail "collector environment permissions are unsafe"
   [[ -d "$STATE_ROOT/x-profile" ]] || fail "X profile directory is missing"
   local cookie_file
   cookie_file="$(find "$STATE_ROOT/x-profile" -type f -name Cookies -size +0c -print -quit)"
@@ -50,10 +81,6 @@ run_airfare_dry_run() {
 }
 
 run_sentiment_test() {
-  if [[ "${EDICIUS_VERIFY_RUN_SENTIMENT:-0}" != 1 ]]; then
-    printf '%s\n' 'sentiment live test skipped (set EDICIUS_VERIFY_RUN_SENTIMENT=1 to run it)'
-    return
-  fi
   set +e
   "$PYTHON" "$CURRENT_LINK/scripts/sentiment-collect.py" 2>&1 | sanitize
   local status=${PIPESTATUS[0]}
@@ -62,10 +89,6 @@ run_sentiment_test() {
 }
 
 run_market_document_discovery() {
-  if [[ "${EDICIUS_VERIFY_RUN_MARKET:-0}" != 1 ]]; then
-    printf '%s\n' 'market document discovery skipped (set EDICIUS_VERIFY_RUN_MARKET=1 to query owner documents)'
-    return
-  fi
   set +e
   "$PYTHON" -c 'import sys; sys.path.insert(0, "services/api"); from app.services.collector_cloud import configured_collector_cloud; from app.services.market_worker import desired_symbols; cloud = configured_collector_cloud(); docs = cloud.documents(("watchlist", "portfolio", "alert-rules")); cloud.close(); print(f"market documents: {len(docs)}; symbols: {len(desired_symbols(docs))}")' 2>&1 | sanitize
   local status=${PIPESTATUS[0]}
@@ -73,9 +96,18 @@ run_market_document_discovery() {
   [[ "$status" -eq 0 ]] || fail "market document discovery failed"
 }
 
+[[ $# -le 1 && ( -z "$LIVE" || "$LIVE" == --live ) ]] || fail "usage: verify.sh [--live]"
 validate_active_release
+validate_env
+load_env
+export LOCAL_DATA_DIR="$STATE_ROOT"
+cd -- "$CURRENT_LINK"
 validate_local_safety
 run_airfare_dry_run
-run_sentiment_test
 run_market_document_discovery
+if [[ "$LIVE" == --live ]]; then
+  run_sentiment_test
+else
+  printf '%s\n' 'sentiment live test skipped (rerun with --live to run it)'
+fi
 printf '%s\n' 'verification completed without enabling or starting systemd units.'

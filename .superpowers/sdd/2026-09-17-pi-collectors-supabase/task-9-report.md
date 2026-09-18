@@ -36,3 +36,16 @@
   is introduced.
 - Installer/systemd execution and live verification were intentionally not run
   on Windows or against a Pi.
+
+## Review follow-up
+
+- `verify.sh` now validates and safely exports only the required environment
+  names from a regular, non-symlink, root-owned `0600` file before changing to
+  the active release. It sets `LOCAL_DATA_DIR=/var/lib/edicius-hq` explicitly.
+- Default verification remains non-writing: it performs the local Airfare dry
+  run and read-only market document discovery. `--live` is the unmistakable
+  opt-in for the sentiment provider/upsert test.
+- Both timers now use persistent calendar schedules (15 minutes for Airfare,
+  four hours for sentiment), avoiding boot-relative cadence gaps.
+- Static coverage expanded to 23 checks for secret-file handling, fixed paths,
+  live gating, installer no-start behavior, pinning, and calendar persistence.

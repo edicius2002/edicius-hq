@@ -2,8 +2,7 @@
 Description=Schedule Edicius Airfare collector passes
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=15min
+OnCalendar=*-*-* *:0/15:00
 Persistent=true
 RandomizedDelaySec=30
 Unit=edicius-airfare.service

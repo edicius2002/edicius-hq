@@ -79,7 +79,7 @@ rollback;
 
 - [ ] **Step 2: Run the database test and verify it fails**
 
-Run: `npx supabase db start && npx supabase db reset && npx supabase test db supabase/tests/collector_data_plane.sql`  
+Run: `npx supabase db start && npx supabase db reset && npx supabase test db supabase/tests/collector_data_plane.sql`
 Expected: FAIL because `app_documents` and collector tables do not exist.
 
 - [ ] **Step 3: Add ADR 0004 with explicit supersession**
@@ -223,7 +223,7 @@ Also test missing documents, `AbortSignal`, and HTTP 409 revision conflicts.
 
 - [ ] **Step 2: Run the focused test and verify it fails**
 
-Run: `npm test -w web -- src/shared/storage/supabaseStorage.test.ts`  
+Run: `npm test -w web -- src/shared/storage/supabaseStorage.test.ts`
 Expected: FAIL because the module does not exist.
 
 - [ ] **Step 3: Implement the typed Supabase storage boundary**
@@ -309,7 +309,7 @@ Also test redirect rejection, sanitized errors, document 404, request claim RPC,
 
 - [ ] **Step 2: Run the focused API test and verify it fails**
 
-Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_collector_cloud.py -q`  
+Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_collector_cloud.py -q`
 Expected: FAIL because `collector_cloud` does not exist.
 
 - [ ] **Step 3: Implement the deep HTTP boundary**
@@ -411,7 +411,7 @@ def test_invalid_remote_does_not_replace_cache(tmp_path, cloud):
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
-Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/fares/test_watch_document.py -q`  
+Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/fares/test_watch_document.py -q`
 Expected: FAIL because `CloudWatchDocument` does not exist.
 
 - [ ] **Step 3: Implement the watch seam and connect the existing command**
@@ -481,7 +481,7 @@ Test provider failure, invalid payload, and cloud failure; all must mark a sanit
 
 - [ ] **Step 2: Verify red, implement one-pass command, and verify green**
 
-Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_sentiment_collect_command.py -q`  
+Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_sentiment_collect_command.py -q`
 Expected initially: FAIL.
 
 ```python
@@ -550,7 +550,7 @@ Also test retry deduplication, partial final line, archive replacement, batching
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
-Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_tweet_replica.py -q`  
+Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_tweet_replica.py -q`
 Expected: FAIL because `TweetReplica` does not exist.
 
 - [ ] **Step 3: Implement local-first record and standalone lifecycle**
@@ -634,7 +634,7 @@ def test_many_ticks_flush_one_latest_quote_per_window(worker, cloud, clock):
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
-Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_market_worker.py -q`  
+Run: `cd services/api && .venv/Scripts/python.exe -m pytest tests/test_market_worker.py -q`
 Expected: FAIL because `MarketWorker` does not exist.
 
 - [ ] **Step 3: Implement market worker using existing provider adapters**
@@ -708,7 +708,7 @@ Test owner RLS errors, timeout cleanup, stale cache replacement, quote update ma
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
-Run: `npm test -w web -- src/features/investing/data/supabaseMarket.test.ts`  
+Run: `npm test -w web -- src/features/investing/data/supabaseMarket.test.ts`
 Expected: FAIL because `supabaseMarket` does not exist.
 
 - [ ] **Step 3: Implement the Supabase market boundary**
@@ -781,7 +781,7 @@ def test_units_run_as_edicius_and_wait_for_network(unit):
 
 - [ ] **Step 2: Run the unit test and verify failure**
 
-Run: `cd services/api && .venv/Scripts/python.exe -m pytest ../../ops/pi/tests/test_units.py -q`  
+Run: `cd services/api && .venv/Scripts/python.exe -m pytest ../../ops/pi/tests/test_units.py -q`
 Expected: FAIL because the units do not exist.
 
 - [ ] **Step 3: Add hardened units and timers**

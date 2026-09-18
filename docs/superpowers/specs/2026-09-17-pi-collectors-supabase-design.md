@@ -1,7 +1,7 @@
 # Raspberry Pi Collectors and Supabase Data Plane Design
 
-**Status:** Approved for implementation planning  
-**Date:** 2026-09-17  
+**Status:** Approved for implementation planning
+**Date:** 2026-09-17
 **Scope:** Airfare, X posts, market/Investing data, sentiment, their required owner documents, and Raspberry Pi operations.
 
 ## Objective

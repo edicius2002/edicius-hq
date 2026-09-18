@@ -284,6 +284,14 @@ class TestMemoryCache:
 
 
 class TestBarCache:
+    def test_nonpositive_ttl_is_always_a_cache_miss(self, tmp_path):
+        """A zero TTL must not depend on filesystem timestamp resolution."""
+        cache = BarCache(tmp_path)
+        expected = binance.parse_bars([[1700000000000, "1", "2", "0.5", "1.5", "3"]])
+        cache.write("BTCUSDT", "1d", expected)
+
+        assert cache.read("BTCUSDT", "1d", 0) is None
+
     def test_survives_a_restart(self, tmp_path):
         calls = 0
 

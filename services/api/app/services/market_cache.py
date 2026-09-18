@@ -135,6 +135,11 @@ class BarCache:
         return self.directory / f"{safe_symbol}.{safe_tf}.json"
 
     def read(self, symbol: str, timeframe: str, ttl: float) -> list[Bar] | None:
+        # `st_mtime` is rounded on some filesystems.  Without this semantic
+        # boundary a just-written file can look younger than zero and a caller
+        # explicitly asking for no cache occasionally receives it on Windows.
+        if ttl <= 0:
+            return None
         path = self._path_for(symbol, timeframe)
         try:
             if not path.exists() or time.time() - path.stat().st_mtime >= ttl:

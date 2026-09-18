@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import signal
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -17,38 +18,54 @@ from app.services.collector_cloud import configured_collector_cloud  # noqa: E40
 from app.services.market_worker import MarketWorker  # noqa: E402
 
 
-async def subscribe_requests(worker: MarketWorker) -> Any | None:
+@dataclass
+class RequestSubscription:
+    """The small real-SDK surface a reconnect supervisor needs."""
+
+    client: Any
+    channel: Any
+
+    async def wait_closed(
+        self, stopped: asyncio.Event, *, sleep=asyncio.sleep, poll_seconds: float = 1.0
+    ) -> None:
+        while not stopped.is_set():
+            realtime = self.client.realtime
+            if (
+                self.channel.is_closed
+                or self.channel.is_errored
+                or not self.channel.is_joined
+                or not realtime.is_connected
+            ):
+                return
+            await sleep(poll_seconds)
+
+    def close(self) -> None:
+        # The AsyncClient owns every channel's socket lifetime; this is the
+        # verified 2.31.0 cleanup API (there is no AsyncClient.aclose()).
+        self.client.remove_all_channels()
+
+
+async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None:
     """Subscribe only to this owner's inserts; claim RPC remains the authority."""
     try:
+        from realtime import RealtimePostgresChangesListenEvent
         from supabase import create_async_client
 
         config = collector_config()
         client = await create_async_client(config.url, config.secret_key)
         channel = client.channel("market-worker-requests")
         channel.on_postgres_changes(
-            "INSERT",
-            schema="public",
-            table="collector_requests",
-            filter=f"owner_id=eq.{worker.owner_id}",
-            callback=lambda _payload: worker.wake_requests(),
+            RealtimePostgresChangesListenEvent.Insert,
+            lambda _payload: worker.wake_requests(),
+            "collector_requests",
+            "public",
+            f"owner_id=eq.{worker.owner_id}",
         )
-        disconnected = asyncio.Event()
-
-        def status(status: str, _error: object | None = None) -> None:
-            if status in {"CLOSED", "CHANNEL_ERROR", "TIMED_OUT"}:
-                disconnected.set()
-
-        await channel.subscribe(status)
-
-        class Subscription:
-            async def wait_closed(self) -> None:
-                await disconnected.wait()
-
-            async def close(self) -> None:
-                await client.remove_channel(channel)
-                await client.aclose()
-
-        return Subscription()
+        # `subscribe`'s callback reports only join outcomes.  Channel/client
+        # health below owns the lifetime signal, after the SDK reconnects have
+        # exhausted their own bounded retries.
+        await channel.subscribe()
+        return RequestSubscription(client, channel)
     except Exception:  # noqa: BLE001 - 30-second reconciliation heals a dropped wakeup
         return None
 
@@ -59,6 +76,7 @@ async def maintain_request_subscription(
     *,
     connect=subscribe_requests,
     sleep=asyncio.sleep,
+    poll_seconds: float = 1.0,
 ) -> None:
     """Reconnect push wakeups with bounded backoff; polling remains reconciliation."""
     backoff = 1.0
@@ -69,7 +87,7 @@ async def maintain_request_subscription(
             if subscription is None:
                 raise RuntimeError("realtime unavailable")
             backoff = 1.0
-            await subscription.wait_closed()
+            await subscription.wait_closed(stopped, sleep=sleep, poll_seconds=poll_seconds)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - Realtime errors are healed by reconnect and claim RPC
@@ -77,7 +95,7 @@ async def maintain_request_subscription(
         finally:
             if subscription is not None:
                 with contextlib.suppress(Exception):
-                    await subscription.close()
+                    subscription.close()
         if not stopped.is_set():
             await sleep(backoff)
             backoff = min(backoff * 2, 60.0)

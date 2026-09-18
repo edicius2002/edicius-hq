@@ -41,8 +41,8 @@ def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
     module = load_script()
     worker = Mock()
     stopped = asyncio.Event()
-    first = Mock(wait_closed=AsyncMock(), close=AsyncMock())
-    second = Mock(wait_closed=AsyncMock(), close=AsyncMock())
+    first = Mock(wait_closed=AsyncMock(), close=Mock())
+    second = Mock(wait_closed=AsyncMock(), close=Mock())
     first.wait_closed.side_effect = RuntimeError("dropped")
     attempts = [RuntimeError("offline"), first, second]
     delays: list[float] = []
@@ -56,7 +56,7 @@ def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
     async def sleep(seconds: float):
         delays.append(seconds)
 
-    async def stop_after_reconnect():
+    async def stop_after_reconnect(*_args, **_kwargs):
         stopped.set()
 
     second.wait_closed.side_effect = stop_after_reconnect
@@ -64,5 +64,40 @@ def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
     asyncio.run(module.maintain_request_subscription(worker, stopped, connect=connect, sleep=sleep))
 
     assert delays == [1, 1]
-    first.close.assert_awaited_once_with()
-    second.close.assert_awaited_once_with()
+    first.close.assert_called_once_with()
+    second.close.assert_called_once_with()
+
+
+def test_realtime_monitor_recreates_client_when_joined_channel_becomes_errored():
+    """Join callbacks are one-shot; a later SDK error must drive reconnection."""
+    module = load_script()
+    stopped = asyncio.Event()
+    worker = Mock()
+    first_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
+    second_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
+    first_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=Mock())
+    second_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=Mock())
+    first = module.RequestSubscription(first_client, first_channel)
+    second = module.RequestSubscription(second_client, second_channel)
+    attempts = [first, second]
+    sleeps: list[float] = []
+
+    async def connect(_worker):
+        return attempts.pop(0)
+
+    async def sleep(seconds: float):
+        sleeps.append(seconds)
+        if len(sleeps) == 1:
+            first_channel.is_errored = True
+        elif len(sleeps) == 3:
+            stopped.set()
+
+    asyncio.run(
+        module.maintain_request_subscription(
+            worker, stopped, connect=connect, sleep=sleep, poll_seconds=1
+        )
+    )
+
+    assert sleeps == [1, 1, 1]
+    first_client.remove_all_channels.assert_called_once_with()
+    second_client.remove_all_channels.assert_called_once_with()

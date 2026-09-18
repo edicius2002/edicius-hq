@@ -224,8 +224,12 @@ class MarketWorker:
 
     async def run(self, stop_event: asyncio.Event) -> None:
         """Run stream/recovery work; callers may set wake on a Realtime insert."""
+        if stop_event.is_set():
+            return
         ticks = asyncio.create_task(self._consume_ticks(stop_event))
         try:
+            if stop_event.is_set():
+                return
             await self.refresh_symbols()
             while not stop_event.is_set():
                 await self.claim_until_empty()

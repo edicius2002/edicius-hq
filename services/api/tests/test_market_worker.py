@@ -138,3 +138,19 @@ def test_stop_event_interrupts_reconciliation_wait_without_waiting_thirty_second
         await asyncio.wait_for(task, timeout=0.1)
 
     asyncio.run(run())
+
+
+def test_pre_set_stop_does_not_fetch_documents_or_open_provider_work():
+    """A service stopped during boot must not start a provider connection anyway."""
+
+    async def run() -> None:
+        remote = cloud()
+        stopped = asyncio.Event()
+        stopped.set()
+        worker = MarketWorker(remote, client=Mock())
+
+        await worker.run(stopped)
+
+        remote.documents.assert_not_called()
+
+    asyncio.run(run())

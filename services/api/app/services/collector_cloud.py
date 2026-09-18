@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from math import isfinite
 from threading import RLock
 from types import MappingProxyType
@@ -86,6 +87,19 @@ def _object(value: object, kind: str) -> dict[str, Any]:
     return value
 
 
+def _freeze(value: Any) -> Any:
+    """Preserve JSON-shaped read access without allowing request mutation."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(child) for key, child in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(child) for child in value)
+    return value
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 class CollectorCloud:
     """Allowlisted, owner-scoped operations used by the Pi collectors only."""
 
@@ -142,12 +156,16 @@ class CollectorCloud:
         self._update(
             "collector_runs",
             run_id,
-            {"status": "complete", **values},
+            {"status": "complete", "completed_at": _utc_timestamp(), **values},
         )
 
     def fail_run(self, run_id: UUID, code: str) -> None:
         self._validate_error_code(code)
-        self._update("collector_runs", run_id, {"status": "failed", "error_code": code})
+        self._update(
+            "collector_runs",
+            run_id,
+            {"status": "failed", "error_code": code, "completed_at": _utc_timestamp()},
+        )
 
     def upsert_tweets(self, rows: Sequence[dict[str, Any]]) -> int:
         return self._upsert("tweet_posts", rows, "owner_id,handle,post_id")
@@ -172,7 +190,7 @@ class CollectorCloud:
                 id=UUID(str(row["request_id"])),
                 owner_id=owner_id,
                 operation=str(row["operation"]),
-                payload=MappingProxyType(_object(row["payload"], "collector request payload")),
+                payload=_freeze(_object(row["payload"], "collector request payload")),
                 expires_at=datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")),
             )
         except (KeyError, TypeError, ValueError):
@@ -187,7 +205,7 @@ class CollectorCloud:
     def complete_request(self, request_id: UUID, result: Mapping[str, Any]) -> None:
         self._rpc(
             "complete_collector_request",
-            {"p_request_id": str(self._uuid(request_id)), "p_result": dict(result)},
+            {"p_request_id": str(self._uuid(request_id)), "p_result": self._result(result)},
         )
 
     def fail_request(self, request_id: UUID, code: str) -> None:
@@ -315,6 +333,17 @@ class CollectorCloud:
     def _validate_error_code(code: str) -> None:
         if not isinstance(code, str) or not _ERROR_CODE.fullmatch(code):
             raise CollectorCloudRejected("invalid collector error code")
+
+    @staticmethod
+    def _result(result: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(result, Mapping) or not all(isinstance(key, str) for key in result):
+            raise CollectorCloudRejected("invalid collector result")
+        try:
+            copied = dict(result)
+            json.dumps(copied)
+        except (TypeError, ValueError):
+            raise CollectorCloudRejected("invalid collector result") from None
+        return copied
 
 
 _configured_cloud: CollectorCloud | None = None

@@ -114,6 +114,26 @@ def test_claim_request_calls_the_owner_scoped_rpc_and_returns_immutable_request(
         claimed.operation = "market-search"
 
 
+def test_claimed_request_payload_is_deeply_immutable(secret_config):
+    """A worker must not mutate a claimed request before recording its result."""
+    body = {
+        "request_id": "22222222-2222-2222-2222-222222222222",
+        "owner_id": str(OWNER_ID),
+        "operation": "market-search",
+        "payload": {"query": {"symbols": ["AAPL"]}},
+        "expires_at": "2026-09-17T00:05:00+00:00",
+    }
+    cloud = CollectorCloud(
+        secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    )
+    claimed = cloud.claim_request()
+
+    assert claimed is not None
+    assert claimed.payload["query"]["symbols"][0] == "AAPL"
+    with pytest.raises((AttributeError, TypeError)):
+        claimed.payload["query"]["symbols"].append("MSFT")
+
+
 def test_run_transitions_are_compare_and_set(secret_config):
     """A retry must not finish or fail a run that is no longer running."""
     run_id = "33333333-3333-3333-3333-333333333333"
@@ -132,17 +152,33 @@ def test_run_transitions_are_compare_and_set(secret_config):
 
     assert requests[1].url.params["status"] == "eq.running"
     assert requests[1].url.params["run_id"] == f"eq.{run_id}"
-    assert json.loads(requests[1].content) == {
+    completed = json.loads(requests[1].content)
+    assert {key: value for key, value in completed.items() if key != "completed_at"} == {
         "status": "complete",
         "records_seen": 3,
         "records_written": 2,
         "records_failed": 1,
     }
     assert requests[2].url.params["status"] == "eq.running"
-    assert json.loads(requests[2].content) == {
+    failed = json.loads(requests[2].content)
+    assert {key: value for key, value in failed.items() if key != "completed_at"} == {
         "status": "failed",
         "error_code": "provider_unavailable",
     }
+    for transition in (completed, failed):
+        timestamp = transition["completed_at"]
+        assert datetime.fromisoformat(timestamp).tzinfo == UTC
+
+
+def test_invalid_request_result_is_rejected_without_payload_details(secret_config):
+    """Malformed caller results must not escape raw mapping-conversion exceptions."""
+    cloud = CollectorCloud(
+        secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200))
+    )
+    with pytest.raises(CollectorCloudRejected) as raised:
+        cloud.complete_request(UUID("33333333-3333-3333-3333-333333333333"), None)  # type: ignore[arg-type]
+
+    assert "None" not in str(raised.value)
 
 
 def test_network_failure_is_unavailable_without_request_details(secret_config):

@@ -38,8 +38,10 @@ describe('Supabase Airfare reads', () => {
   });
 
   it('surfaces owner RPC errors', async () => {
-    rpc.mockResolvedValue({ data: null, error: new Error('not_edicius_owner') });
+    rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'not_edicius_owner' } });
 
-    await expect(fetchFareCalendar('AQP', 'LIM')).rejects.toThrow('not_edicius_owner');
+    await expect(fetchFareCalendar('AQP', 'LIM')).rejects.toThrow(
+      'Airfare data request failed (42501).',
+    );
   });
 });

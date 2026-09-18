@@ -11,7 +11,16 @@ type HistoryOptions = {
 };
 
 function rpcResult<T>(data: unknown, error: unknown): T {
-  if (error) throw error;
+  if (error) {
+    const code =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof error.code === 'string'
+        ? ` (${error.code})`
+        : '';
+    throw new Error(`Airfare data request failed${code}.`);
+  }
   return data as T;
 }
 

@@ -1,6 +1,6 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Delivery steps 0–7 are implemented. Raspberry Pi collector/data-plane Tasks 1–10 are implemented; production cutover (Task 11) and post-observation PC-route retirement (Task 12) remain pending. Investing and Airfare remain open for their explicitly pending product slices.
+> **Status:** Delivery steps 0–5 and 7 are implemented; Step 6 Investing remains under way with INV-07 pending. Raspberry Pi collector/data-plane Tasks 1–10 are implemented; production cutover (Task 11) and post-observation PC-route retirement (Task 12) remain pending. Airfare remains open for its explicitly pending product slice.
 > **Last updated:** 2026-09-18
 > **Review status:** The approved Pi/Supabase design and ADR 0004 are implemented in this change set. This records repository state, not a production deployment or observation result.
 > **Phase closure:** Supabase Auth remains the browser identity boundary. Finance documents and the owner-document/collector data plane are implemented in Supabase; provider acquisition is implemented for Raspberry Pi collectors. The Pi cutover has not been executed.

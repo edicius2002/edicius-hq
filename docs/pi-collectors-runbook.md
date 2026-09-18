@@ -78,6 +78,11 @@ ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare.timer edicius-sentime
 Each result must be `disabled`. There is no `git pull` at boot and no command
 activates a moving branch.
 
+Both one-shot timers also run `OnBootSec=2min`, retain their calendar schedule,
+persistent catch-up, and 30-second jitter. Airfare is bounded with
+`TimeoutStartSec=20min`: this permits its 15-minute scheduled pass plus small
+startup/teardown overhead, while preventing an unbounded one-shot.
+
 ## Checkpoint C: durable imports and profile
 
 Every `/var/lib/edicius-hq` destination is created `0750 edicius:edicius`.
@@ -164,16 +169,22 @@ health before cutover. Save the result outside the repository without secrets.
 ```powershell
 Set-Location '<pinned-checkout>\ops\pi'
 .\cutover.ps1 -PiHost '<pi-dns-name>' -WhatIf
-.\cutover.ps1 -PiHost '<pi-dns-name>'
+.\cutover.ps1 -PiHost '<pi-dns-name>' -LegacyApiBase 'http://127.0.0.1:8000'
 ```
 
-The script confirms full disabled Pi preflight before disabling exactly
-`Edicius airfare`, then gates Airfare, sentiment, X, and market in that order.
+The script confirms full disabled Pi preflight and proves it can control the
+local, loopback-only PC API watcher at
+`DELETE /api/tweets/thsottiaux/watch` (required HTTP `202`, expected handle,
+and `idle` state) before disabling exactly `Edicius airfare`. At the X gate it
+issues that exact DELETE again and verifies the idle response before enabling
+Pi X, so the two Chromium-owning watchers cannot run together. It then gates
+Airfare, sentiment, X, and market in that order.
 Each UTC-bounded gate requires a fresh owner-scoped `collector_runs` row
 (`complete` for one-shots; `running` or `complete` for workers), service/timer
 health, a known sanitized success signal, and no post-cutoff error/fatal/failure
 journal output. On a failure it stops that collector and leaves later units
-disabled.
+disabled; the PC X watcher remains stopped until a full rollback, including if
+the Pi X or market gate fails.
 
 Observe rows, collector health, timers/services, and journal errors for seven
 days. Retain unchanged PC data and the rollback path for the full seven-day PC
@@ -182,9 +193,14 @@ retention window. If rollback is required, it never deletes or truncates data:
 ```powershell
 Set-Location '<pinned-checkout>\ops\pi'
 .\rollback.ps1 -PiHost '<pi-dns-name>' -WhatIf
-.\rollback.ps1 -PiHost '<pi-dns-name>'
+.\rollback.ps1 -PiHost '<pi-dns-name>' -LegacyApiBase 'http://127.0.0.1:8000'
 ```
 
-Rollback stops/disables Pi units before enabling the exact Windows task. A
-failed Pi stop reports partial rollback and leaves Windows disabled to avoid
-double collection; reconcile later through normal idempotent sync.
+Rollback stops/disables every Pi timer and service and confirms all are
+inactive before it restarts the legacy PC X watcher with
+`POST /api/tweets/thsottiaux/watch` (required HTTP `202` and expected handle).
+Only then does it enable the exact Windows airfare task. A failed Pi stop or
+PC X restart reports partial rollback and leaves Windows airfare disabled; the
+PC X watcher is not restarted until all Pi collectors are confirmed stopped.
+Both scripts validate the loopback API base and `-WhatIf` performs no API,
+remote, or scheduler mutation.

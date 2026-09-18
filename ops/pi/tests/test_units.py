@@ -59,6 +59,21 @@ def test_sentiment_timer_runs_every_four_hours() -> None:
     assert "OnCalendar=*-*-* 0/4:00:00" in (SYSTEMD / "edicius-sentiment.timer").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("unit", TIMERS)
+def test_timers_run_two_minutes_after_boot_without_losing_calendar_jitter_or_persistence(unit: Path) -> None:
+    text = unit.read_text(encoding="utf-8")
+    assert "OnBootSec=2min" in text
+    assert "OnCalendar=" in text
+    assert "Persistent=true" in text
+    assert "RandomizedDelaySec=30" in text
+
+
+def test_airfare_oneshot_has_a_bounded_twenty_minute_start_timeout() -> None:
+    text = (SYSTEMD / "edicius-airfare.service").read_text(encoding="utf-8")
+    assert "Type=oneshot" in text
+    assert "TimeoutStartSec=20min" in text
+
+
 @pytest.mark.parametrize("unit", (SYSTEMD / "edicius-airfare.service", SYSTEMD / "edicius-sentiment.service"))
 def test_oneshots_use_nonblocking_flock(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")

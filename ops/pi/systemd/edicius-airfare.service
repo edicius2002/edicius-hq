@@ -5,6 +5,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=20min
 User=edicius
 Group=edicius
 WorkingDirectory=/opt/edicius-hq/current

@@ -2,12 +2,16 @@
 param(
     [Parameter(Mandatory)]
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]*$')]
-    [string]$PiHost
+    [string]$PiHost,
+
+    [ValidatePattern('^http://127\.0\.0\.1(?::[1-9][0-9]{0,4})?$')]
+    [string]$LegacyApiBase = 'http://127.0.0.1:8000'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $TaskName = 'Edicius airfare'
+$LegacyWatchEndpoint = "$LegacyApiBase/api/tweets/thsottiaux/watch"
 $Collectors = @(
     [pscustomobject]@{ Name = 'airfare'; Unit = 'edicius-airfare.timer'; Service = 'edicius-airfare.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius Airfare collector pass.' },
     [pscustomobject]@{ Name = 'sentiment'; Unit = 'edicius-sentiment.timer'; Service = 'edicius-sentiment.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius sentiment collector pass.' },
@@ -19,6 +23,23 @@ function Invoke-PiChecked([string]$Command) {
     # Every caller supplies a fixed command assembled from the fixed mappings above.
     & ssh -- $PiHost $Command
     if ($LASTEXITCODE -ne 0) { throw "Pi command failed: $Command" }
+}
+
+function Invoke-LegacyWatchRequest([ValidateSet('Delete', 'Post')][string]$Method) {
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $LegacyWatchEndpoint -Method $Method
+    if ($response.StatusCode -ne 202) { throw "Legacy X watcher $Method did not return 202." }
+    $body = $response.Content | ConvertFrom-Json
+    if ($body.handle -ne 'thsottiaux') { throw 'Legacy X watcher response did not confirm the expected handle.' }
+    return $body
+}
+
+function Assert-LegacyWatchStopped() {
+    $watch = Invoke-LegacyWatchRequest -Method Delete
+    if ($watch.state -ne 'idle') { throw "Legacy X watcher did not stop; reported state '$($watch.state)'." }
+}
+
+function Assert-LegacyWatchControl() {
+    Assert-LegacyWatchStopped
 }
 
 function Get-ExactTask() {
@@ -68,6 +89,7 @@ function Start-And-GatePiCollector($Collector) {
 $task = Get-ExactTask
 if ($WhatIfPreference) { Write-Verbose 'WhatIf: exact task validated; no remote or scheduler mutation performed.'; return }
 Assert-PiPreflight
+Assert-LegacyWatchControl
 if ($PSCmdlet.ShouldProcess($TaskName, 'disable Windows airfare collector after full Pi preflight')) {
     Disable-ScheduledTask -InputObject $task | Out-Null
 }
@@ -76,6 +98,9 @@ $activeCollector = $null
 try {
     foreach ($collector in $Collectors) {
         $activeCollector = $collector
+        if ($collector.Name -eq 'x-posts') {
+            Assert-LegacyWatchStopped
+        }
         Start-And-GatePiCollector $collector
         $activeCollector = $null
     }
@@ -83,7 +108,7 @@ try {
     if ($null -ne $activeCollector) {
         try { Stop-PiCollector $activeCollector } catch { Write-Error "Could not stop failed Pi collector: $($_.Exception.Message)" }
     }
-    throw "Cutover stopped; later Pi collectors remain disabled and Windows task remains disabled. $($_.Exception.Message)"
+    throw "Cutover stopped; later Pi collectors remain disabled, Windows task remains disabled, and the PC X watcher remains stopped until full rollback. $($_.Exception.Message)"
 }
 
 Write-Output 'Cutover completed after a fresh collector_runs row and cutoff-bounded journal health check for each collector.'

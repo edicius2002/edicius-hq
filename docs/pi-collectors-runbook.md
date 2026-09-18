@@ -4,6 +4,9 @@ Use only angle-bracket placeholders in these commands. An exact pinned commit,
 not a branch name or `latest`, is activated. No command accepts a secret or
 cookie as an argument or prints either.
 
+Every `sh` block in this runbook runs in Git Bash on the Windows operator PC;
+PowerShell is used only for the explicitly fenced cutover/rollback commands.
+
 ## The only manual actions
 
 All steps are agent/operator executable except the following two actions.

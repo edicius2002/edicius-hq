@@ -104,6 +104,12 @@ def test_staged_transfer_is_fixed_destination_and_removes_only_validated_tmp_sta
     assert "case \"$kind\"" in text
     assert '[[ "$stage_real" == /tmp/edicius-transfer.* ]]' in text
     assert "install -d -o edicius -g edicius -m 0750" in text
+    assert '[[ -d "$STATE_ROOT" && ! -L "$STATE_ROOT" ]]' in text
+    assert '[[ -d "$MIGRATION_ROOT" && ! -L "$MIGRATION_ROOT" ]]' in text
+    assert 'state_root_real="$(readlink -f -- "$STATE_ROOT")"' in text
+    assert 'migration_root_real="$(readlink -f -- "$MIGRATION_ROOT")"' in text
+    assert '[[ "$migration_root_real" == "$state_root_real/migration-input" ]]' in text
+    assert "find \"$target_real\" -type f -exec chmod 0600 {} +" in text
     assert "rm -rf -- \"$stage_real\"" in text
 
 

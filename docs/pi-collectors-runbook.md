@@ -2,8 +2,8 @@
 
 This runbook moves collectors to a Debian 13 ARM64 Pi without making a
 branch tip or the Windows PC an authority. Substitute only angle-bracketed
-placeholders; commands never accept secrets, cookies, or owner IDs as CLI
-arguments. Record the exact pinned commit in the change ticket before start.
+placeholders; commands never accept secrets or cookies as CLI arguments.
+Record the exact pinned commit in the change ticket before start.
 
 ## Roles and two required manual steps
 
@@ -29,29 +29,65 @@ test "$COMMIT" = "$(git rev-parse "$COMMIT")"
 git status --porcelain
 ```
 
-Apply the reviewed schema from the pinned checkout with the project’s
-approved Supabase migration command, then run the SQL data-plane tests. Owner bootstrap
-on a fresh project adds the application owner in `edicius_owners` before any
-import; use the approved migration/administration session, with
-`'<owner-uuid>'` only as a placeholder. Verify the owner is unique and that
-RLS grants browser reads only to that owner and service-role writes only to
-collectors. Do not put the service role in a browser or command history.
-
-Run the additive app-document import from PC documents without overwriting remote documents:
+Use a credential-injecting operator environment for `SUPABASE_ACCESS_TOKEN`
+and `SUPABASE_DB_URL`; neither value is an argument, transcript value, or
+repository file. From the exact pinned checkout, apply and verify schema/RLS,
+then bootstrap the owner on a fresh project:
 
 ```sh
-cd /opt/edicius-hq/releases/$COMMIT
-services/api/.venv/bin/python scripts/app-documents-supabase.py \
-  --source '<pc-kv-directory>' --owner-id '<owner-uuid>' --apply
+cd '<pinned-checkout>'
+npx supabase link --project-ref '<supabase-project-ref>'
+npx supabase db push --linked
+npx supabase migration list --linked
+psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -v owner_id='<owner-uuid>' \
+  -c "insert into public.edicius_owners(owner_id) values (:'owner_id'::uuid) on conflict do nothing;" \
+  -c "select owner_id from public.edicius_owners where owner_id = :'owner_id'::uuid;"
+npx supabase test db supabase/tests/collector_data_plane.sql
 ```
 
-Use the pinned migration/import tooling for existing X JSONL/history; it must
-be additive and idempotent. Compare the source and Supabase counts by owner,
-handle, and timestamp range. Transfer the Airfare durable archive and sync
-state as a copied, checksummed archive into `/var/lib/edicius-hq`; preserve
-its journal and cursor together, then set `edicius:edicius`, mode `0750` for
-directories and restrictive file modes. Never replace or truncate either the
-PC archive, Pi journal, or Supabase rows.
+The migration list must show the pinned checkout and linked project at the
+same version. The `psql` query is idempotent and its one-row result is the
+owner bootstrap checkpoint; RLS tests must pass before collector deployment.
+
+Copy the PC input to the Pi without a secret on an argument, then perform an
+app-document import dry-run, apply, and repeated-apply idempotency checks through a
+transient Pi process that reads the protected env file locally:
+
+```sh
+ssh '<pi-host>' 'sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/kv'
+rsync -a --checksum --protect-args '<pc-kv-directory>/' '<pi-host>:/var/lib/edicius-hq/migration-input/kv/'
+ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>'"
+ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
+ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
+```
+
+For X JSONL/history, copy the existing outbox before X is enabled. The worker's
+first start replays this durable outbox before opening Chromium; preserve its
+cursor alongside the JSONL and prove transfer equality without printing rows:
+
+```sh
+(cd '<pc-local-data>/tweets' && find . -type f -print0 | sort -z | xargs -0 sha256sum) > '<pc-x-manifest>'
+ssh '<pi-host>' 'sudo test ! -e /var/lib/edicius-hq/tweets && sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/tweets'
+rsync -a --checksum --protect-args '<pc-local-data>/tweets/' '<pi-host>:/var/lib/edicius-hq/migration-input/tweets/'
+ssh '<pi-host>' 'cd /var/lib/edicius-hq/migration-input/tweets && find . -type f -print0 | sort -z | xargs -0 sha256sum' > '<pi-x-manifest>'
+wc -l '<pc-x-manifest>' '<pi-x-manifest>'
+diff -u '<pc-x-manifest>' '<pi-x-manifest>'
+ssh '<pi-host>' 'sudo chown -R edicius:edicius /var/lib/edicius-hq/migration-input/tweets && sudo mv /var/lib/edicius-hq/migration-input/tweets /var/lib/edicius-hq/tweets'
+```
+
+Transfer the Airfare archive, sync cursor, and journals together. These
+commands refuse an existing Pi archive and never delete or overwrite the PC
+source; keep the source manifest with the change record:
+
+```sh
+(cd '<pc-local-data>/fares' && find . -type f -print0 | sort -z | xargs -0 sha256sum) > '<pc-airfare-manifest>'
+ssh '<pi-host>' 'sudo test ! -e /var/lib/edicius-hq/fares && sudo install -d -o edicius -g edicius -m 0750 /var/lib/edicius-hq/migration-input/fares'
+rsync -a --checksum --protect-args '<pc-local-data>/fares/' '<pi-host>:/var/lib/edicius-hq/migration-input/fares/'
+ssh '<pi-host>' 'cd /var/lib/edicius-hq/migration-input/fares && find . -type f -print0 | sort -z | xargs -0 sha256sum' > '<pi-airfare-manifest>'
+wc -l '<pc-airfare-manifest>' '<pi-airfare-manifest>'
+diff -u '<pc-airfare-manifest>' '<pi-airfare-manifest>'
+ssh '<pi-host>' 'sudo chown -R edicius:edicius /var/lib/edicius-hq/migration-input/fares && sudo mv /var/lib/edicius-hq/migration-input/fares /var/lib/edicius-hq/fares'
+```
 
 Checkpoint A passes only when schema/RLS tests pass, the owner has been
 bootstrapped, imports have recorded row counts, and the Airfare archive/state
@@ -121,13 +157,15 @@ Set-Location '<pinned-checkout>\ops\pi'
 .\cutover.ps1 -PiHost '<pi-dns-name>'
 ```
 
-After each unit is enabled, compare new Supabase rows and latest successful
-collector health to the baseline; check Pi journald for a sanitized successful
-run. The required order is Airfare, sentiment, X, then market. Do not disable
-any additional PC component until its equivalent Pi collector has passed its
-comparison. Observe continuous service/timer status, collector health, rows,
-and journal errors for seven days. Retain the unchanged PC data and rollback
-path throughout that seven-day PC retention window.
+The script captures a UTC cutoff separately for Airfare, sentiment, X, and
+market. For each collector it starts only that mapping, requires a fresh
+owner-scoped `collector_runs` row after its cutoff (`complete` for one-shot
+Airfare/sentiment; `running` or `complete` for X/market), checks its
+service/timer health, and searches only journald entries since that cutoff.
+It stops a failed collector and leaves later mappings disabled. Observe
+continuous service/timer status, collector health, rows, and journal errors
+for seven days. Retain the unchanged PC data and rollback path throughout that
+seven-day PC retention window.
 
 ## Rollback
 

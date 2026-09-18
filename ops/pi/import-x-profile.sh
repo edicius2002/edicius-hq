@@ -33,19 +33,27 @@ target_parent_real="$(readlink -f -- "$TARGET_PARENT")" || fail 'cannot resolve 
 [[ "$target_parent_real" == "$STATE_ROOT" ]] || fail 'durable state root escaped its required path'
 [[ "$source_real" != "$TARGET" && "$source_real" != "$TARGET/"* ]] || fail 'source must not be the live target'
 [[ -z "$(find "$source_real" -xdev -type l -print -quit)" ]] || fail 'source contains a symlink'
+[[ ! -L "$BACKUP_ROOT" ]] || fail 'backup root must not be a symlink'
+if [[ -e "$BACKUP_ROOT" ]]; then
+  [[ -d "$BACKUP_ROOT" ]] || fail 'backup root must be a directory'
+fi
 
 if systemctl is-active --quiet edicius-tweets.service; then
   fail 'stop the X collector before importing its profile'
 fi
 
+target_is_empty=false
 if [[ -e "$TARGET" || -L "$TARGET" ]]; then
   [[ ! -L "$TARGET" && -d "$TARGET" ]] || fail 'existing target is unsafe'
   [[ -z "$(find "$TARGET" -xdev -type l -print -quit)" ]] || fail 'existing target contains a symlink'
-  if diff -qr --no-dereference -- "$source_real" "$TARGET" >/dev/null; then
+  if [[ -z "$(find "$TARGET" -mindepth 1 -print -quit)" ]]; then
+    target_is_empty=true
+  elif diff -qr --no-dereference -- "$source_real" "$TARGET" >/dev/null; then
     printf '%s\n' 'X profile is already imported; no change was made.'
     exit 0
+  else
+    [[ "$replace" == true ]] || fail 'live target exists; rerun with --replace-with-backup after making a backup decision'
   fi
-  [[ "$replace" == true ]] || fail 'live target exists; rerun with --replace-with-backup after making a backup decision'
 fi
 
 if [[ "$dry_run" == true ]]; then
@@ -54,6 +62,9 @@ if [[ "$dry_run" == true ]]; then
 fi
 
 install -d -o edicius -g edicius -m 0750 "$BACKUP_ROOT"
+backup_root_real="$(readlink -f -- "$BACKUP_ROOT")" || fail 'cannot resolve backup root'
+[[ "$backup_root_real" == "$target_parent_real/"* ]] || fail 'backup root escaped durable state'
+[[ "$backup_root_real" != "$target_parent_real" ]] || fail 'backup root must not be durable state root'
 stage="$(mktemp -d "$TARGET_PARENT/.x-profile-stage.XXXXXXXX")" || fail 'cannot create staging directory'
 trap 'rmdir -- "$stage" 2>/dev/null || true' EXIT
 cp -a -- "$source_real/." "$stage/"
@@ -61,7 +72,9 @@ cp -a -- "$source_real/." "$stage/"
 chown -R edicius:edicius "$stage"
 chmod -R go-rwx "$stage"
 
-if [[ -d "$TARGET" ]]; then
+if [[ "$target_is_empty" == true ]]; then
+  rmdir -- "$TARGET"
+elif [[ -d "$TARGET" ]]; then
   backup="$BACKUP_ROOT/x-profile.$(date -u +%Y%m%dT%H%M%SZ)"
   [[ ! -e "$backup" && ! -L "$backup" ]] || fail 'backup name already exists'
   mv -- "$TARGET" "$backup"

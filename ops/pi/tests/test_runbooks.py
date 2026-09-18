@@ -7,6 +7,7 @@ PI_ROOT = Path(__file__).resolve().parents[1]
 CUTOVER = PI_ROOT / "cutover.ps1"
 ROLLBACK = PI_ROOT / "rollback.ps1"
 IMPORT_X_PROFILE = PI_ROOT / "import-x-profile.sh"
+CHECK_RUN = PI_ROOT / "check-collector-run.py"
 RUNBOOK = PI_ROOT.parents[1] / "docs" / "pi-collectors-runbook.md"
 
 
@@ -28,6 +29,20 @@ def test_cutover_requires_disabled_pi_units_before_windows_change() -> None:
     assert "SupportsShouldProcess" in text
 
 
+def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_logs() -> None:
+    text = CUTOVER.read_text(encoding="utf-8")
+    assert "edicius-airfare.timer" in text
+    assert "edicius-sentiment.timer" in text
+    assert "edicius-tweets.service" in text
+    assert "edicius-market.service" in text
+    assert text.index("edicius-airfare.timer") < text.index("edicius-sentiment.timer") < text.index("edicius-tweets.service") < text.index("edicius-market.service")
+    assert "Get-Date).ToUniversalTime()" in text
+    assert "check-collector-run.py" in text
+    assert "--since" in text
+    assert "--require-complete" in text
+    assert "foreach ($unit in $Units)" not in text
+
+
 def test_rollback_stops_pi_before_reenabling_exact_windows_task() -> None:
     text = ROLLBACK.read_text(encoding="utf-8")
     assert text.index("systemctl disable --now") < text.index("Enable-ScheduledTask")
@@ -42,6 +57,9 @@ def test_x_profile_import_refuses_unsafe_paths_and_live_replacement() -> None:
     assert "set -euo pipefail" in text
     assert "--replace-with-backup" in text
     assert "diff -qr --no-dereference" in text
+    assert '[[ -z "$(find "$TARGET" -mindepth 1 -print -quit)" ]]' in text
+    assert '[[ ! -L "$BACKUP_ROOT" ]]' in text
+    assert 'backup_root_real="$(readlink -f -- "$BACKUP_ROOT")"' in text
     assert "readlink -f" in text
     assert "-L" in text
     assert "find" in text and "-type l" in text
@@ -49,6 +67,16 @@ def test_x_profile_import_refuses_unsafe_paths_and_live_replacement() -> None:
     assert "chmod -R go-rwx" in text
     assert "rm -rf" not in text
     assert "Cookies" not in text
+
+
+def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secrets() -> None:
+    text = CHECK_RUN.read_text(encoding="utf-8")
+    assert "/etc/edicius-hq/collectors.env" in text
+    assert "SUPABASE_SECRET_KEY" in text
+    assert "--cutoff" in text
+    assert "--wait-seconds" in text
+    assert "started_at" in text
+    assert "--secret" not in text
 
 
 def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints() -> None:
@@ -68,5 +96,8 @@ def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints()
         "one-shot",
         "seven-day",
         "rollback",
+        "supabase link",
+        "db push",
+        "sha256sum",
     ):
         assert required.lower() in text.lower()

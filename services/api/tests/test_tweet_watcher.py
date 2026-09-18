@@ -49,6 +49,18 @@ def test_cycle_persists_only_unknown_ids_from_the_entire_archive(tmp_path):
     asyncio.run(scenario())
 
 
+def test_stop_marks_an_active_watcher_stopped_without_opening_a_browser(tmp_path):
+    async def scenario():
+        watcher = TweetWatcher(data_dir=tmp_path, cycle=lambda _handle: None)
+        watcher.pass_ = tweet_watcher.Refresh(handle="thsottiaux", state="watching")
+
+        await watcher.stop(close_browser=False)
+
+        assert watcher.current("thsottiaux").state == "stopped"
+
+    asyncio.run(scenario())
+
+
 def test_pagination_stops_as_soon_as_it_reaches_a_known_id():
     assert should_stop_scrolling(reached_known=True, idle_windows=0) is True
     assert should_stop_scrolling(reached_known=False, idle_windows=0) is False

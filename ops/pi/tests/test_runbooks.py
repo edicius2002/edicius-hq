@@ -90,6 +90,18 @@ def test_x_cutover_stops_and_verifies_pc_watcher_before_starting_pi_x() -> None:
     assert "PC X watcher remains stopped" in text
 
 
+def test_x_cutover_failure_state_marks_delete_attempt_before_its_outcome_is_confirmed() -> None:
+    text = CUTOVER.read_text(encoding="utf-8")
+    x_cutover = text.index("if ($collector.Name -eq 'x-posts')")
+    attempted = text.index("$legacyWatcherStopState = 'attempted-unconfirmed'", x_cutover)
+    delete = text.index("Assert-LegacyWatchStopped", x_cutover)
+    confirmed = text.index("$legacyWatcherStopState = 'confirmed-stopped'", x_cutover)
+    assert attempted < delete < confirmed
+    assert "$legacyWatcherStopState = 'not-attempted'" in text
+    assert "PC X watcher stop was attempted but its outcome is unconfirmed" in text
+    assert "PC X watcher was not changed" in text
+
+
 def test_rollback_stops_and_confirms_every_pi_collector_before_restarting_pc_x() -> None:
     text = ROLLBACK.read_text(encoding="utf-8")
     assert "LegacyApiBase" in text

@@ -99,13 +99,14 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'disable Windows airfare collector after 
 }
 
 $activeCollector = $null
-$legacyWatcherStopped = $false
+$legacyWatcherStopState = 'not-attempted'
 try {
     foreach ($collector in $Collectors) {
         $activeCollector = $collector
         if ($collector.Name -eq 'x-posts') {
+            $legacyWatcherStopState = 'attempted-unconfirmed'
             Assert-LegacyWatchStopped
-            $legacyWatcherStopped = $true
+            $legacyWatcherStopState = 'confirmed-stopped'
         }
         Start-And-GatePiCollector $collector
         $activeCollector = $null
@@ -114,7 +115,11 @@ try {
     if ($null -ne $activeCollector) {
         try { Stop-PiCollector $activeCollector } catch { Write-Error "Could not stop failed Pi collector: $($_.Exception.Message)" }
     }
-    $watcherState = if ($legacyWatcherStopped) { ' The PC X watcher remains stopped until full rollback.' } else { ' The PC X watcher was not changed.' }
+    $watcherState = switch ($legacyWatcherStopState) {
+        'confirmed-stopped' { ' The PC X watcher remains stopped until full rollback.' }
+        'attempted-unconfirmed' { ' PC X watcher stop was attempted but its outcome is unconfirmed; do not start another PC or Pi X watcher until it is reconciled.' }
+        default { ' The PC X watcher was not changed.' }
+    }
     throw "Cutover stopped; later Pi collectors remain disabled and Windows task remains disabled.$watcherState $($_.Exception.Message)"
 }
 

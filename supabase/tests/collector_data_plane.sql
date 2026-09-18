@@ -1,5 +1,5 @@
 begin;
-select plan(62);
+select plan(71);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -54,8 +54,28 @@ select ok(not has_function_privilege('authenticated', 'public.read_airfare_histo
           'authenticated cannot call the underlying Airfare history RPC');
 select ok(has_function_privilege('authenticated', 'public.read_owner_airfare_history(text,text,text,text[],text,text)', 'execute'),
           'authenticated can call the owner-gated Airfare history RPC');
+select ok(has_function_privilege('authenticated', 'public.read_owner_airfare_calendar(text,text)', 'execute'),
+          'authenticated can call the owner-gated Airfare calendar RPC');
+select ok(has_function_privilege('authenticated', 'public.search_owner_airports(text,integer)', 'execute'),
+          'authenticated can call the owner-gated airport-search RPC');
 select ok(has_function_privilege('service_role', 'public.claim_collector_request(uuid)', 'execute'),
           'only the service role can claim collector requests');
+select ok(has_function_privilege('service_role', 'public.complete_collector_request(uuid,jsonb)', 'execute'),
+          'service role can complete collector requests');
+select ok(has_function_privilege('service_role', 'public.fail_collector_request(uuid,text)', 'execute'),
+          'service role can fail collector requests');
+select ok(not has_function_privilege('authenticated', 'public.complete_collector_request(uuid,jsonb)', 'execute'),
+          'authenticated cannot complete collector requests');
+select ok(not has_function_privilege('authenticated', 'public.fail_collector_request(uuid,text)', 'execute'),
+          'authenticated cannot fail collector requests');
+select ok(not has_function_privilege('authenticated', 'public.read_airfare_calendar(text,text)', 'execute')
+          and has_function_privilege('service_role', 'public.read_airfare_calendar(text,text)', 'execute'),
+          'original Airfare calendar RPC remains service-role-only');
+select ok(not has_function_privilege('authenticated', 'public.airfare_dataset_manifest()', 'execute')
+          and has_function_privilege('service_role', 'public.airfare_dataset_manifest()', 'execute'),
+          'original Airfare manifest RPC remains service-role-only');
+select ok(has_function_privilege('service_role', 'public.read_airfare_history(text,text,text,text[],text,text)', 'execute'),
+          'service role retains original Airfare history RPC execution');
 
 select results_eq(
   $$select document_key from public.app_documents where false$$,

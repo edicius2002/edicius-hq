@@ -91,9 +91,7 @@ def test_real_cloud_pass_finishes_a_run_and_closes_the_client(monkeypatch):
     assert script.run_pass(args, recorder) == 0
 
     cloud.begin_run.assert_called_once_with("airfare")
-    cloud.finish_run.assert_called_once_with(
-        "run-id", {"seen": 4, "written": 2, "failed": 1}
-    )
+    cloud.finish_run.assert_called_once_with("run-id", {"seen": 4, "written": 2, "failed": 1})
     cloud.close.assert_called_once_with()
 
 
@@ -118,12 +116,15 @@ def test_real_dry_run_uses_the_local_cache_without_constructing_cloud(monkeypatc
     monkeypatch.setattr(script, "configured_collector_cloud", configured)
     monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
 
-    assert script.run_pass(
-        argparse.Namespace(
-            dry_run=True, watch_source="supabase", all=False, gap=0, no_calendar=True
-        ),
-        PassRecorder(source="cron", kind="board", gap=0),
-    ) == 0
+    assert (
+        script.run_pass(
+            argparse.Namespace(
+                dry_run=True, watch_source="supabase", all=False, gap=0, no_calendar=True
+            ),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 0
+    )
 
     configured.assert_not_called()
 

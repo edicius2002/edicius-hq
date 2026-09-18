@@ -435,6 +435,7 @@ describe('The session gate', () => {
     render(<App />);
 
     emitAuth('SIGNED_IN', signedInSession);
+    await arrivesAt('Dashboard');
     await user.click(await screen.findByRole('button', { name: 'Menu' }));
     expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
 

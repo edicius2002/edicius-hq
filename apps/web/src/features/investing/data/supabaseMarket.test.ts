@@ -88,6 +88,12 @@ describe('Supabase Investing market boundary', () => {
     });
   });
 
+  it('normalizes owner RLS quote-read errors without leaking the database body', async () => {
+    state.quotesIn.mockResolvedValue({ data: null, error: { message: 'policy detail: owner-42' } });
+
+    await expect(getQuotes(['AAPL'])).rejects.toMatchObject({ code: 'quotes_unavailable' });
+  });
+
   it('returns a fresh cached bars result without creating a collector request', async () => {
     state.maybeSingle.mockResolvedValue({
       data: { provider: 'worker', payload: BARS },
@@ -96,6 +102,53 @@ describe('Supabase Investing market boundary', () => {
 
     await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
     expect(state.insert).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a bars RLS read error and enqueues nothing', async () => {
+    state.maybeSingle.mockResolvedValue({ data: null, error: { message: 'owner-id leaked' } });
+
+    await expect(getBars('AAPL', '1d')).rejects.toMatchObject({ code: 'bars_unavailable' });
+    expect(state.insert).not.toHaveBeenCalled();
+  });
+
+  it('treats an expired cache row as a miss and replaces it with the completed result', async () => {
+    state.maybeSingle.mockResolvedValue({ data: null, error: null });
+    state.single.mockResolvedValue({ data: { request_id: 'request-expired-cache' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'complete', result: BARS, error_code: null },
+      error: null,
+    });
+
+    await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
+    expect(state.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'market-bars' }),
+    );
+  });
+
+  it('treats a malformed fresh cache row as a miss and returns only a normalized completed result', async () => {
+    state.maybeSingle.mockResolvedValue({
+      data: { provider: 'worker', payload: { bad: true } },
+      error: null,
+    });
+    state.single.mockResolvedValue({
+      data: { request_id: 'request-malformed-cache' },
+      error: null,
+    });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'complete', result: BARS, error_code: null },
+      error: null,
+    });
+
+    await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
+    expect(state.insert).toHaveBeenCalledOnce();
   });
 
   it('enqueues a stale bar request and resolves its completed result', async () => {
@@ -129,6 +182,39 @@ describe('Supabase Investing market boundary', () => {
     });
 
     await expect(searchSymbols('apple')).rejects.toThrow('provider_down');
+  });
+
+  it('rejects an expired request with the stable sanitized error', async () => {
+    state.single.mockResolvedValue({ data: { request_id: 'request-expired' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'expired', result: null, error_code: 'internal provider detail' },
+      error: null,
+    });
+
+    await expect(searchSymbols('apple')).rejects.toMatchObject({ code: 'request_expired' });
+  });
+
+  it('normalizes an insert error without opening a wait channel', async () => {
+    state.single.mockResolvedValue({ data: null, error: { message: 'auth header body' } });
+
+    await expect(searchSymbols('apple')).rejects.toMatchObject({ code: 'request_unavailable' });
+    expect(state.channel).not.toHaveBeenCalled();
+  });
+
+  it('cleans its wait channel when collector request reconciliation cannot be selected', async () => {
+    state.single.mockResolvedValue({ data: { request_id: 'request-select-error' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({ data: null, error: { message: 'RLS body' } });
+
+    await expect(searchSymbols('apple')).rejects.toMatchObject({ code: 'request_unavailable' });
+    expect(state.removeChannel).toHaveBeenCalledOnce();
   });
 
   it('sanitizes untrusted failure codes and expired requests', async () => {

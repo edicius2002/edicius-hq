@@ -24,3 +24,7 @@
 
 - Realtime now forwards subscription status, opens the page stream only after `SUBSCRIBED`, and lowers it for error, timeout, close, and unknown terminal statuses. Disposal ignores later callbacks and removes the channel once.
 - Added request boundary coverage for invalid failure-code sanitization, malformed completed results, and the 20-second timeout cleanup path. The focused suite is now 52 passing tests.
+
+## Review follow-up round 2
+
+- Added explicit tests for quote/bars RLS normalization, insert and request-select failures, exact `expired` handling, expired and malformed cache misses, and completed-result replacement. The full focused Investing subset is now 59 tests.

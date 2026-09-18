@@ -66,7 +66,7 @@ try {
 
 if ($PSCmdlet.ShouldProcess($LegacyWatchEndpoint, 'restart the legacy PC X watcher after all Pi collectors are stopped')) {
     $watch = Invoke-LegacyWatchRequest -Method Post
-    if ($watch.state -eq 'idle') { throw 'Legacy X watcher restart returned idle state.' }
+    if ($watch.state -ne 'watching') { throw "Legacy X watcher restart did not enter watching state; reported '$($watch.state)'." }
 }
 if ($PSCmdlet.ShouldProcess($TaskName, 'enable Windows airfare collector after Pi stop')) {
     Enable-ScheduledTask -InputObject $task | Out-Null

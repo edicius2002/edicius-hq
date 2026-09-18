@@ -58,3 +58,31 @@ def test_watch_endpoint_starts_one_owner(monkeypatch):
     response = client.post("/api/tweets/sample/watch")
     assert response.status_code == 202
     assert response.json()["state"] == "watching"
+
+
+def test_watch_stop_reports_stopped_when_it_owns_an_existing_watcher(monkeypatch):
+    async def stop() -> None:
+        return None
+
+    monkeypatch.setattr(RUNNER, "stop", stop)
+    monkeypatch.setattr(RUNNER, "current", lambda handle: Refresh(handle=handle, state="stopped"))
+
+    response = client.delete("/api/tweets/thsottiaux/watch")
+
+    assert response.status_code == 202
+    assert response.json()["handle"] == "thsottiaux"
+    assert response.json()["state"] == "stopped"
+
+
+def test_watch_stop_reports_idle_when_no_watcher_exists(monkeypatch):
+    async def stop() -> None:
+        return None
+
+    monkeypatch.setattr(RUNNER, "stop", stop)
+    monkeypatch.setattr(RUNNER, "current", lambda handle: None)
+
+    response = client.delete("/api/tweets/thsottiaux/watch")
+
+    assert response.status_code == 202
+    assert response.json()["handle"] == "thsottiaux"
+    assert response.json()["state"] == "idle"

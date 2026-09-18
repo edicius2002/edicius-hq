@@ -172,12 +172,14 @@ Set-Location '<pinned-checkout>\ops\pi'
 .\cutover.ps1 -PiHost '<pi-dns-name>' -LegacyApiBase 'http://127.0.0.1:8000'
 ```
 
-The script confirms full disabled Pi preflight and proves it can control the
-local, loopback-only PC API watcher at
-`DELETE /api/tweets/thsottiaux/watch` (required HTTP `202`, expected handle,
-and `idle` state) before disabling exactly `Edicius airfare`. At the X gate it
-issues that exact DELETE again and verifies the idle response before enabling
-Pi X, so the two Chromium-owning watchers cannot run together. It then gates
+The script confirms full disabled Pi preflight and uses read-only
+`GET /api/tweets/thsottiaux/refresh` (required HTTP `200` and expected handle)
+to prove the local, loopback-only PC API is reachable before disabling exactly
+`Edicius airfare`. At the X gate it issues the exact
+`DELETE /api/tweets/thsottiaux/watch` and accepts only its `stopped` or `idle`
+HTTP `202` response before enabling Pi X, so the two Chromium-owning watchers
+cannot run together. The PC X watcher therefore stays active if Airfare or
+sentiment gating fails earlier. It then gates
 Airfare, sentiment, X, and market in that order.
 Each UTC-bounded gate requires a fresh owner-scoped `collector_runs` row
 (`complete` for one-shots; `running` or `complete` for workers), service/timer
@@ -198,7 +200,8 @@ Set-Location '<pinned-checkout>\ops\pi'
 
 Rollback stops/disables every Pi timer and service and confirms all are
 inactive before it restarts the legacy PC X watcher with
-`POST /api/tweets/thsottiaux/watch` (required HTTP `202` and expected handle).
+`POST /api/tweets/thsottiaux/watch` (required HTTP `202`, expected handle, and
+exactly `watching` state).
 Only then does it enable the exact Windows airfare task. A failed Pi stop or
 PC X restart reports partial rollback and leaves Windows airfare disabled; the
 PC X watcher is not restarted until all Pi collectors are confirmed stopped.

@@ -30,15 +30,18 @@ def test_cutover_requires_disabled_pi_units_before_windows_change() -> None:
     assert "SupportsShouldProcess" in text
 
 
-def test_cutover_proves_loopback_legacy_watcher_control_before_windows_airfare_is_disabled() -> None:
+def test_cutover_uses_a_read_only_loopback_watcher_probe_before_windows_airfare_is_disabled() -> None:
     text = CUTOVER.read_text(encoding="utf-8")
     assert "LegacyApiBase" in text
     assert "127\\.0\\.0\\.1" in text
-    assert '"$LegacyApiBase/api/tweets/thsottiaux/watch"' in text
-    assert "Invoke-LegacyWatchRequest -Method Delete" in text
-    assert "StatusCode -ne 202" in text
-    assert "state -ne 'idle'" in text
-    assert text.index("Assert-LegacyWatchControl") < text.index("Disable-ScheduledTask")
+    assert '"$LegacyApiBase/api/tweets/thsottiaux/refresh"' in text
+    assert "Invoke-LegacyRefreshProbe" in text
+    assert "-Method Get" in text
+    assert "StatusCode -ne 200" in text
+    preflight = text.index("Assert-PiPreflight")
+    windows_disable = text.index("Disable-ScheduledTask")
+    assert text.index("Invoke-LegacyRefreshProbe", preflight) < windows_disable
+    assert "Invoke-LegacyWatchRequest -Method Delete" not in text[preflight:windows_disable]
 
 
 def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_logs() -> None:
@@ -82,6 +85,7 @@ def test_x_cutover_stops_and_verifies_pc_watcher_before_starting_pi_x() -> None:
     x_start = text.index('Start-And-GatePiCollector $collector', x_cutover)
     assert stop < x_start
     assert "Invoke-LegacyWatchRequest -Method Delete" in text
+    assert "@('stopped', 'idle')" in text
     assert "edicius-tweets.service" in text
     assert "PC X watcher remains stopped" in text
 
@@ -93,6 +97,7 @@ def test_rollback_stops_and_confirms_every_pi_collector_before_restarting_pc_x()
     assert "Assert-AllPiCollectorsStopped" in text
     assert "Invoke-LegacyWatchRequest -Method Post" in text
     assert "StatusCode -ne 202" in text
+    assert "state -ne 'watching'" in text
     rollback = text.index("try {")
     all_stopped = text.index("Assert-AllPiCollectorsStopped", rollback)
     restart = text.index("Invoke-LegacyWatchRequest -Method Post", all_stopped)

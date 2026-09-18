@@ -11,6 +11,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $TaskName = 'Edicius airfare'
+$LegacyRefreshEndpoint = "$LegacyApiBase/api/tweets/thsottiaux/refresh"
 $LegacyWatchEndpoint = "$LegacyApiBase/api/tweets/thsottiaux/watch"
 $Collectors = @(
     [pscustomobject]@{ Name = 'airfare'; Unit = 'edicius-airfare.timer'; Service = 'edicius-airfare.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius Airfare collector pass.' },
@@ -33,13 +34,16 @@ function Invoke-LegacyWatchRequest([ValidateSet('Delete', 'Post')][string]$Metho
     return $body
 }
 
-function Assert-LegacyWatchStopped() {
-    $watch = Invoke-LegacyWatchRequest -Method Delete
-    if ($watch.state -ne 'idle') { throw "Legacy X watcher did not stop; reported state '$($watch.state)'." }
+function Invoke-LegacyRefreshProbe() {
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $LegacyRefreshEndpoint -Method Get
+    if ($response.StatusCode -ne 200) { throw 'Legacy X refresh probe did not return 200.' }
+    $body = $response.Content | ConvertFrom-Json
+    if ($body.handle -ne 'thsottiaux') { throw 'Legacy X refresh probe did not confirm the expected handle.' }
 }
 
-function Assert-LegacyWatchControl() {
-    Assert-LegacyWatchStopped
+function Assert-LegacyWatchStopped() {
+    $watch = Invoke-LegacyWatchRequest -Method Delete
+    if ($watch.state -notin @('stopped', 'idle')) { throw "Legacy X watcher did not stop; reported state '$($watch.state)'." }
 }
 
 function Get-ExactTask() {
@@ -89,17 +93,19 @@ function Start-And-GatePiCollector($Collector) {
 $task = Get-ExactTask
 if ($WhatIfPreference) { Write-Verbose 'WhatIf: exact task validated; no remote or scheduler mutation performed.'; return }
 Assert-PiPreflight
-Assert-LegacyWatchControl
+Invoke-LegacyRefreshProbe
 if ($PSCmdlet.ShouldProcess($TaskName, 'disable Windows airfare collector after full Pi preflight')) {
     Disable-ScheduledTask -InputObject $task | Out-Null
 }
 
 $activeCollector = $null
+$legacyWatcherStopped = $false
 try {
     foreach ($collector in $Collectors) {
         $activeCollector = $collector
         if ($collector.Name -eq 'x-posts') {
             Assert-LegacyWatchStopped
+            $legacyWatcherStopped = $true
         }
         Start-And-GatePiCollector $collector
         $activeCollector = $null
@@ -108,7 +114,8 @@ try {
     if ($null -ne $activeCollector) {
         try { Stop-PiCollector $activeCollector } catch { Write-Error "Could not stop failed Pi collector: $($_.Exception.Message)" }
     }
-    throw "Cutover stopped; later Pi collectors remain disabled, Windows task remains disabled, and the PC X watcher remains stopped until full rollback. $($_.Exception.Message)"
+    $watcherState = if ($legacyWatcherStopped) { ' The PC X watcher remains stopped until full rollback.' } else { ' The PC X watcher was not changed.' }
+    throw "Cutover stopped; later Pi collectors remain disabled and Windows task remains disabled.$watcherState $($_.Exception.Message)"
 }
 
 Write-Output 'Cutover completed after a fresh collector_runs row and cutoff-bounded journal health check for each collector.'

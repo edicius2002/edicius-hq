@@ -1,6 +1,5 @@
-import { ApiError } from '@/shared/api/http';
-import { deleteKv, getKv, putKv } from '@/shared/api/kv';
 import { isStorageKey, type StorageKey } from '@/shared/storage/keys';
+import { readRemoteDocument, writeRemoteDocument } from '@/shared/storage/supabaseStorage';
 
 function assertStorageKey(key: string): asserts key is StorageKey {
   if (!isStorageKey(key)) {
@@ -10,31 +9,19 @@ function assertStorageKey(key: string): asserts key is StorageKey {
 
 export async function readStorage<T>(key: StorageKey, signal?: AbortSignal): Promise<T | null> {
   assertStorageKey(key);
-  try {
-    const result = await getKv<T>(key, signal);
-    return result.value;
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
+  const document = await readRemoteDocument<T>(key, signal);
+  return document?.payload ?? null;
 }
 
 export async function writeStorage<T>(key: StorageKey, value: T, signal?: AbortSignal): Promise<T> {
   assertStorageKey(key);
-  const result = await putKv<T>(key, value, signal);
-  return result.value;
+  const current = await readRemoteDocument(key, signal);
+  const document = await writeRemoteDocument(key, value, current?.revision ?? 0);
+  return document.payload;
 }
 
 export async function removeStorage(key: StorageKey, signal?: AbortSignal): Promise<void> {
   assertStorageKey(key);
-  try {
-    await deleteKv(key, signal);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return;
-    }
-    throw error;
-  }
+  const current = await readRemoteDocument(key, signal);
+  if (current) await writeRemoteDocument(key, null, current.revision);
 }

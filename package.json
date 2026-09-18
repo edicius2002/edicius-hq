@@ -35,6 +35,7 @@
     "fares:backfill": "node scripts/api.mjs fares-backfill",
     "fares:supabase": "node scripts/api.mjs fares-supabase",
     "finance:supabase": "node scripts/api.mjs finance-supabase",
+    "app-documents:supabase": "node scripts/api.mjs app-documents-supabase",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

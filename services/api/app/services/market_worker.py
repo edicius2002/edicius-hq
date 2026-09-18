@@ -53,16 +53,10 @@ def desired_symbols(documents: Mapping[str, object]) -> tuple[str, ...]:
     for entry in _entries(documents.get("watchlist"), "entries"):
         add(entry.get("symbol"))
     for position in _entries(documents.get("portfolio"), "positions"):
-        quantity, cost = position.get("quantity"), position.get("averageCost")
-        if (
-            isinstance(quantity, (int, float))
-            and not isinstance(quantity, bool)
-            and quantity > 0
-            and isinstance(cost, (int, float))
-            and not isinstance(cost, bool)
-            and cost >= 0
-        ):
-            add(position.get("symbol"))
+        # Portfolio documents predate the valuation fields in some backups.
+        # Quote ownership needs only the symbol; refusing an old row would
+        # leave a legitimate holding permanently without a price.
+        add(position.get("symbol"))
     alert_ids: set[str] = set()
     for alert in _entries(documents.get("alert-rules"), "alerts"):
         identifier, kind, price, active = (
@@ -162,13 +156,12 @@ class MarketWorker:
             if now - self._last_write.get(symbol, float("-inf")) < QUOTE_FLUSH_SECONDS:
                 continue
             rows.append(self._tick_row(tick))
-            self._last_write[symbol] = now
-            del self._pending[symbol]
         if rows:
             # Do not throw away the latest ticks if Supabase is temporarily
             # unavailable: leaving them pending lets the next window retry.
             self.cloud.upsert_quotes(rows)
             for row in rows:
+                self._last_write[row["symbol"]] = now
                 self._pending.pop(row["symbol"], None)
         return len(rows)
 
@@ -238,11 +231,7 @@ class MarketWorker:
                 await self.claim_until_empty()
                 await self.recover_quotes()
                 self.flush_quotes()
-                try:
-                    await asyncio.wait_for(self._wake.wait(), RECONCILE_SECONDS)
-                    self._wake.clear()
-                except TimeoutError:
-                    pass
+                await self._wait_for_wake_or_stop(stop_event)
                 await self.refresh_symbols()
         finally:
             ticks.cancel()
@@ -260,6 +249,21 @@ class MarketWorker:
             if stop_event.is_set():
                 return
             self.accept(tick)
+
+    async def _wait_for_wake_or_stop(self, stop_event: asyncio.Event) -> None:
+        wake = asyncio.create_task(self._wake.wait())
+        stopped = asyncio.create_task(stop_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {wake, stopped}, timeout=RECONCILE_SECONDS, return_when=asyncio.FIRST_COMPLETED
+            )
+            if wake in done:
+                self._wake.clear()
+        finally:
+            for task in (wake, stopped):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(wake, stopped, return_exceptions=True)
 
     def _tick_row(self, tick: Tick) -> dict[str, Any]:
         return {

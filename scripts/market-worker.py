@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import sys
 from pathlib import Path
@@ -31,20 +32,66 @@ async def subscribe_requests(worker: MarketWorker) -> Any | None:
             filter=f"owner_id=eq.{worker.owner_id}",
             callback=lambda _payload: worker.wake_requests(),
         )
-        await channel.subscribe()
-        return client
+        disconnected = asyncio.Event()
+
+        def status(status: str, _error: object | None = None) -> None:
+            if status in {"CLOSED", "CHANNEL_ERROR", "TIMED_OUT"}:
+                disconnected.set()
+
+        await channel.subscribe(status)
+
+        class Subscription:
+            async def wait_closed(self) -> None:
+                await disconnected.wait()
+
+            async def close(self) -> None:
+                await client.remove_channel(channel)
+                await client.aclose()
+
+        return Subscription()
     except Exception:  # noqa: BLE001 - 30-second reconciliation heals a dropped wakeup
         return None
 
 
+async def maintain_request_subscription(
+    worker: MarketWorker,
+    stopped: asyncio.Event,
+    *,
+    connect=subscribe_requests,
+    sleep=asyncio.sleep,
+) -> None:
+    """Reconnect push wakeups with bounded backoff; polling remains reconciliation."""
+    backoff = 1.0
+    while not stopped.is_set():
+        subscription = None
+        try:
+            subscription = await connect(worker)
+            if subscription is None:
+                raise RuntimeError("realtime unavailable")
+            backoff = 1.0
+            await subscription.wait_closed()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - Realtime errors are healed by reconnect and claim RPC
+            pass
+        finally:
+            if subscription is not None:
+                with contextlib.suppress(Exception):
+                    await subscription.close()
+        if not stopped.is_set():
+            await sleep(backoff)
+            backoff = min(backoff * 2, 60.0)
+
+
 async def run_worker(cloud: Any, worker: MarketWorker, stopped: asyncio.Event) -> int:
-    realtime = await subscribe_requests(worker)
+    realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
     try:
         await worker.run(stopped)
         return 0
     finally:
-        if realtime is not None:
-            await realtime.remove_all_channels()
+        realtime.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await realtime
         cloud.close()
 
 

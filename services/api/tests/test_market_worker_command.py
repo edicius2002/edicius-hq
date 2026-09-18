@@ -34,3 +34,35 @@ def test_run_worker_closes_cloud_after_the_stop_signal():
 
     worker.run.assert_awaited_once_with(stopped)
     cloud.close.assert_called_once_with()
+
+
+def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
+    """A transient Realtime outage must return to push wakeups instead of polling forever."""
+    module = load_script()
+    worker = Mock()
+    stopped = asyncio.Event()
+    first = Mock(wait_closed=AsyncMock(), close=AsyncMock())
+    second = Mock(wait_closed=AsyncMock(), close=AsyncMock())
+    first.wait_closed.side_effect = RuntimeError("dropped")
+    attempts = [RuntimeError("offline"), first, second]
+    delays: list[float] = []
+
+    async def connect(_worker):
+        outcome = attempts.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    async def sleep(seconds: float):
+        delays.append(seconds)
+
+    async def stop_after_reconnect():
+        stopped.set()
+
+    second.wait_closed.side_effect = stop_after_reconnect
+
+    asyncio.run(module.maintain_request_subscription(worker, stopped, connect=connect, sleep=sleep))
+
+    assert delays == [1, 1]
+    first.close.assert_awaited_once_with()
+    second.close.assert_awaited_once_with()

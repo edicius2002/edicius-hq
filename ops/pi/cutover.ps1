@@ -7,7 +7,9 @@ param(
     [ValidatePattern('^http://127\.0\.0\.1(?::[1-9][0-9]{0,4})?$')]
     [string]$LegacyApiBase = 'http://127.0.0.1:8000',
 
-    [switch]$LegacyCollectorsAbsent
+    [switch]$LegacyXAbsent,
+
+    [switch]$LegacyAirfareAbsent
 )
 
 Set-StrictMode -Version Latest
@@ -49,18 +51,21 @@ function Assert-LegacyWatchStopped() {
 }
 
 function Get-ExactTask() {
-    $matches = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
+    $matches = @(Get-ScheduledTask -ErrorAction Stop |
         Where-Object { $_.TaskName -eq $TaskName })
     if ($matches.Count -ne 1) { throw "Expected exactly one scheduled task named '$TaskName'; found $($matches.Count)." }
     return $matches[0]
 }
 
-function Assert-LegacyCollectorsAbsent() {
-    $matches = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
-        Where-Object { $_.TaskName -eq $TaskName })
-    if ($matches.Count -ne 0) { throw "Legacy-absent mode requires zero tasks named '$TaskName'; found $($matches.Count)." }
+function Assert-LegacyXAbsent() {
     $response = Invoke-WebRequest -UseBasicParsing -Uri $LegacyRefreshEndpoint -Method Get -SkipHttpErrorCheck
-    if ($response.StatusCode -ne 404) { throw "Legacy-absent mode requires the X watcher endpoint to return 404; received $($response.StatusCode)." }
+    if ($response.StatusCode -ne 404) { throw "Legacy-X-absent mode requires the watcher endpoint to return 404; received $($response.StatusCode)." }
+}
+
+function Assert-LegacyAirfareAbsent() {
+    $matches = @(Get-ScheduledTask -ErrorAction Stop |
+        Where-Object { $_.TaskName -eq $TaskName })
+    if ($matches.Count -ne 0) { throw "Legacy-Airfare-absent mode requires zero tasks named '$TaskName'; found $($matches.Count)." }
 }
 
 function Stop-WindowsAirfare() {
@@ -141,10 +146,11 @@ function Start-And-GatePiCollector($Collector) {
 }
 
 $task = $null
-if ($LegacyCollectorsAbsent) { Assert-LegacyCollectorsAbsent } else { $task = Get-ExactTask }
+if ($LegacyAirfareAbsent) { Assert-LegacyAirfareAbsent } else { $task = Get-ExactTask }
+if ($LegacyXAbsent) { Assert-LegacyXAbsent }
 if ($WhatIfPreference) { Write-Verbose 'WhatIf: exact task validated; no remote or scheduler mutation performed.'; return }
 Assert-PiPreflight
-if (-not $LegacyCollectorsAbsent) { Invoke-LegacyRefreshProbe }
+if (-not $LegacyXAbsent) { Invoke-LegacyRefreshProbe }
 
 $activeCollector = $null
 $legacyWatcherStopState = 'not-attempted'
@@ -153,7 +159,7 @@ try {
     foreach ($collector in $Collectors) {
         $activeCollector = $collector
         if ($collector.Name -eq 'x-posts') {
-            if ($LegacyCollectorsAbsent) {
+            if ($LegacyXAbsent) {
                 $legacyWatcherStopState = 'confirmed-absent'
             } else {
                 $legacyWatcherStopState = 'attempted-unconfirmed'
@@ -162,7 +168,8 @@ try {
             }
         }
         if ($collector.Name -eq 'airfare') {
-            if ($LegacyCollectorsAbsent) {
+            if ($LegacyAirfareAbsent) {
+                Assert-LegacyAirfareAbsent
                 $windowsAirfareState = 'confirmed-absent'
             } elseif ($PSCmdlet.ShouldProcess($TaskName, 'stop and disable Windows airfare immediately before Pi Airfare')) {
                 $windowsAirfareState = 'stop-attempted-unconfirmed'

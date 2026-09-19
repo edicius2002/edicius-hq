@@ -18,7 +18,7 @@ def test_cutover_checks_pi_before_disabling_windows_task() -> None:
     preflight = text.index("Assert-PiPreflight", text.index("$task = Get-ExactTask"))
     assert text.index("verify.sh") < text.index("Stop-WindowsAirfare", preflight)
     assert "Edicius airfare" in text
-    assert "Get-ScheduledTask -TaskName $TaskName" in text
+    assert "Get-ScheduledTask -ErrorAction Stop" in text
     assert "Where-Object { $_.TaskName -eq $TaskName }" in text
     assert "Remove-Item" not in text
     assert "Invoke-Expression" not in text
@@ -33,16 +33,19 @@ def test_cutover_requires_disabled_pi_units_before_windows_change() -> None:
     assert "SupportsShouldProcess" in text
 
 
-def test_cutover_and_rollback_support_only_explicitly_verified_legacy_absence() -> None:
+def test_cutover_and_rollback_support_independently_verified_legacy_absence() -> None:
     for script in (CUTOVER, ROLLBACK):
         text = script.read_text(encoding="utf-8")
-        assert "[switch]$LegacyCollectorsAbsent" in text
-        assert "Assert-LegacyCollectorsAbsent" in text
+        assert "[switch]$LegacyXAbsent" in text
+        assert "[switch]$LegacyAirfareAbsent" in text
+        assert "Assert-LegacyXAbsent" in text
+        assert "Assert-LegacyAirfareAbsent" in text
+        assert "requires the watcher endpoint to return 404" in text
         assert "requires zero tasks" in text
-        assert "endpoint to return 404" in text
         assert "-SkipHttpErrorCheck" in text
+        assert "Get-ScheduledTask -ErrorAction Stop" in text
     cutover = CUTOVER.read_text(encoding="utf-8")
-    assert "if (-not $LegacyCollectorsAbsent) { Invoke-LegacyRefreshProbe }" in cutover
+    assert "if (-not $LegacyXAbsent) { Invoke-LegacyRefreshProbe }" in cutover
     assert "$legacyWatcherStopState = 'confirmed-absent'" in cutover
     assert "$windowsAirfareState = 'confirmed-absent'" in cutover
 

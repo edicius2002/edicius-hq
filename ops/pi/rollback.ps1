@@ -7,7 +7,9 @@ param(
     [ValidatePattern('^http://127\.0\.0\.1(?::[1-9][0-9]{0,4})?$')]
     [string]$LegacyApiBase = 'http://127.0.0.1:8000',
 
-    [switch]$LegacyCollectorsAbsent
+    [switch]$LegacyXAbsent,
+
+    [switch]$LegacyAirfareAbsent
 )
 
 Set-StrictMode -Version Latest
@@ -42,22 +44,26 @@ function Assert-AllPiCollectorsStopped() {
 }
 
 function Get-ExactTask() {
-    $matches = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
+    $matches = @(Get-ScheduledTask -ErrorAction Stop |
         Where-Object { $_.TaskName -eq $TaskName })
     if ($matches.Count -ne 1) { throw "Expected exactly one scheduled task named '$TaskName'; found $($matches.Count)." }
     return $matches[0]
 }
 
-function Assert-LegacyCollectorsAbsent() {
-    $matches = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
-        Where-Object { $_.TaskName -eq $TaskName })
-    if ($matches.Count -ne 0) { throw "Legacy-absent mode requires zero tasks named '$TaskName'; found $($matches.Count)." }
+function Assert-LegacyXAbsent() {
     $response = Invoke-WebRequest -UseBasicParsing -Uri $LegacyWatchEndpoint -Method Get -SkipHttpErrorCheck
-    if ($response.StatusCode -ne 404) { throw "Legacy-absent mode requires the X watcher endpoint to return 404; received $($response.StatusCode)." }
+    if ($response.StatusCode -ne 404) { throw "Legacy-X-absent mode requires the watcher endpoint to return 404; received $($response.StatusCode)." }
+}
+
+function Assert-LegacyAirfareAbsent() {
+    $matches = @(Get-ScheduledTask -ErrorAction Stop |
+        Where-Object { $_.TaskName -eq $TaskName })
+    if ($matches.Count -ne 0) { throw "Legacy-Airfare-absent mode requires zero tasks named '$TaskName'; found $($matches.Count)." }
 }
 
 $task = $null
-if ($LegacyCollectorsAbsent) { Assert-LegacyCollectorsAbsent } else { $task = Get-ExactTask }
+if ($LegacyAirfareAbsent) { Assert-LegacyAirfareAbsent } else { $task = Get-ExactTask }
+if ($LegacyXAbsent) { Assert-LegacyXAbsent }
 if ($WhatIfPreference) { Write-Verbose 'WhatIf: exact task validated; no remote or scheduler mutation performed.'; return }
 
 try {
@@ -75,17 +81,15 @@ try {
     throw "Partial rollback: Pi units may still be active; Windows task and PC X watcher were not enabled. $($_.Exception.Message)"
 }
 
-if ($LegacyCollectorsAbsent) {
-    Assert-LegacyCollectorsAbsent
-    Write-Output 'Rollback completed with legacy collectors confirmed absent and without deleting or truncating Pi or Supabase data.'
-    return
-}
-
-if ($PSCmdlet.ShouldProcess($LegacyWatchEndpoint, 'restart the legacy PC X watcher after all Pi collectors are stopped')) {
+if ($LegacyXAbsent) {
+    Assert-LegacyXAbsent
+} elseif ($PSCmdlet.ShouldProcess($LegacyWatchEndpoint, 'restart the legacy PC X watcher after all Pi collectors are stopped')) {
     $watch = Invoke-LegacyWatchRequest -Method Post
     if ($watch.state -ne 'watching') { throw "Legacy X watcher restart did not enter watching state; reported '$($watch.state)'." }
 }
-if ($PSCmdlet.ShouldProcess($TaskName, 'enable Windows airfare collector after Pi stop')) {
+if ($LegacyAirfareAbsent) {
+    Assert-LegacyAirfareAbsent
+} elseif ($PSCmdlet.ShouldProcess($TaskName, 'enable Windows airfare collector after Pi stop')) {
     Enable-ScheduledTask -InputObject $task | Out-Null
 }
 Write-Output 'Rollback completed without deleting or truncating Pi or Supabase data.'

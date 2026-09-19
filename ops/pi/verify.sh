@@ -110,7 +110,7 @@ validate_target_unit_disabled() {
     market) unit=edicius-market.service ;;
     *) fail "unknown live collector" ;;
   esac
-  systemctl is-enabled "$unit" | grep -qx disabled || fail "$unit must remain disabled during one-shot verification"
+  [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == disabled ]] || fail "$unit must remain disabled during one-shot verification"
   ! systemctl is-active --quiet "$unit" || fail "$unit must remain inactive during one-shot verification"
 }
 

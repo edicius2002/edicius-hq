@@ -234,6 +234,11 @@ def test_live_smoke_uses_local_secret_file_and_bounded_one_shots() -> None:
     assert "smoke-collector.py" in verify
     assert "/etc/edicius-hq/collectors.env" in verify
     assert "systemctl is-enabled" in verify
+    assert (
+        '[[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == disabled ]]'
+        in verify
+    )
+    assert 'systemctl is-enabled "$unit" | grep' not in verify
     assert "systemctl is-active" in verify
 
 

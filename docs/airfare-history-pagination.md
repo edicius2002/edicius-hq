@@ -68,6 +68,28 @@ in the printed isolated test database. It measures key selection, bounded RPCs a
 250-row service-role upserts against an equally indexed trigger-free temporary
 control table. It never disables the revision guard or flushes production caches.
 
+## Python reads and parity
+
+`SupabaseAirfare.read_history` assembles snapshot pages, then baseline pages, and
+revalidates metadata before returning the legacy document. Counts and source-line
+values are parsed exactly; duplicate identities, nonincreasing order, changed
+bindings, incomplete counts and malformed terminal cursors reject the entire read.
+Original payload objects are preserved. Zero-count datasets skip pages, not the
+final metadata check.
+
+Only the exact revision conflict restarts a read: three attempts maximum with
+100/250-ms backoffs. A scoped async HTTP client allows cancellation/deadline to stop
+active I/O without closing the shared replication client. A 60-second total budget
+includes requests and backoffs; configured per-request timeouts do not increase.
+The synchronous entry point also works when the caller already has an event loop.
+
+Temporary failures and exhausted revision churn remain logged local fallback in
+`AirfareData`. Permission/protocol/size failures do not fall back. The parity CLI
+calls the strict remote reader directly and compares both monthly queries and each
+departure with the complete watched-month snapshot set. A failed remote read cannot
+be disguised as parity with local data. Calendar and airport-search reads do not
+use this pagination protocol.
+
 ## Deployment boundary
 
 Do not deploy intermediate implementation commits. The complete migration must

@@ -23,9 +23,17 @@ from app.services.airfare_supabase import (  # noqa: E402
     close_airfare_supabase_client,
     configured_airfare_supabase,
 )
-from app.services.airfare_sync import AirfareSync, SyncMode, canonical_record_id  # noqa: E402
+from app.services.airfare_sync import (  # noqa: E402
+    AirfareSync,
+    SyncMode,
+    canonical_record_id,
+)
 from app.services.fare_calendar import FareCalendar  # noqa: E402
-from app.services.fare_history import FareHistory, _snapshot_from, route_stem  # noqa: E402
+from app.services.fare_history import (  # noqa: E402
+    FareHistory,
+    _snapshot_from,
+    route_stem,
+)
 
 _SNAPSHOT_MONTH = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 
@@ -76,7 +84,10 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
         or not isinstance(document.get("routes"), list)
     ):
         raise ValueError("invalid airfare watch document")
-    history, calendar = FareHistory(source / "fares"), FareCalendar(source / "fares/calendar")
+    history, calendar = (
+        FareHistory(source / "fares"),
+        FareCalendar(source / "fares/calendar"),
+    )
     logical = AirfareSync(source).logical_records()
     pairs: dict[str, set[str]] = {}
     for route in document["routes"]:
@@ -108,7 +119,11 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
 
         all_snapshot_rows = sorted(
             pair_rows["snapshots"],
-            key=lambda row: (row["captured_at_text"], row["source_line"], row["record_id"]),
+            key=lambda row: (
+                row["captured_at_text"],
+                row["source_line"],
+                row["record_id"],
+            ),
         )
         all_snapshots = [
             snapshot
@@ -131,9 +146,16 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
         pair_reference = (
             {"value": median(minima.values()), "dates": len(minima)} if minima else None
         )
-        for departure in snapshot_months:
+        cases = list(
+            dict.fromkeys(
+                (departure, selected)
+                for departure in snapshot_months
+                for selected in ((departure,), snapshot_months)
+            )
+        )
+        for departure, requested_months in cases:
             snapshot_rows = [
-                row for row in all_snapshot_rows if row["flight_date"].startswith(departure)
+                row for row in all_snapshot_rows if row["flight_date"][:7] in requested_months
             ]
             snapshots = [
                 snapshot
@@ -145,13 +167,12 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
                 for row in baseline_rows
                 if not departure or row["flight_date"].startswith(departure)
             ]
-            body = remote.rpc(
-                "read_airfare_history",
+            body = remote.read_history(
                 {
                     "p_origin": origin,
                     "p_destination": destination,
                     "p_departure": departure,
-                    "p_snapshot_months": [departure],
+                    "p_snapshot_months": list(requested_months),
                     "p_since": None,
                     "p_until": None,
                 },
@@ -208,14 +229,21 @@ def compare_reads(source: Path, remote: SupabaseAirfare) -> dict[str, Any]:
                 "airports": [
                     {
                         key: row.get(key)
-                        for key in ("code", "name", "city", "country", "latitude", "longitude")
+                        for key in (
+                            "code",
+                            "name",
+                            "city",
+                            "country",
+                            "latitude",
+                            "longitude",
+                        )
                     }
                     for row in body["airports"]
                 ],
                 "health": body["health"],
                 "pairReference": body["pairReference"],
             }
-            label = f"{stem}:history" + (f":{departure}" if departure else "")
+            label = f"{stem}:history:{departure}:snapshots={','.join(requested_months)}"
             if local_answer != remote_answer:
                 mismatches.append(label)
             comparisons.append(

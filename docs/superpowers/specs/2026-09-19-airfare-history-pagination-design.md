@@ -2,7 +2,8 @@
 
 Date: 2026-09-19
 
-Status: written specification awaiting user review; conversational design approved.
+Status: written specification approved by the user on 2026-09-19; implementation
+plan and execution method awaiting review.
 
 Baseline: `6d9173888fe9cd071c5e557bbacc79ccf9868d55`, PR #203.
 
@@ -322,8 +323,8 @@ periods have not started, and approving this spec does not claim they have.
 
 ## Review status and next artifact
 
-The conversational design is approved. This document is the review artifact, not an
-implementation plan or evidence that pagination exists. On written-spec approval,
-prepare an implementation plan and agree its execution method before product edits.
+The conversational design and written specification are approved. This document is
+not an implementation plan or evidence that pagination exists. Review the
+implementation plan and agree its execution method before product edits.
 The handoff, bootstrap wizard, private diagnostic artifacts and existing untracked
 evidence remain outside this specification's commit.

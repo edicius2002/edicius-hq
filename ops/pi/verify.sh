@@ -30,6 +30,7 @@ validate_active_release() {
   active="$(readlink -f -- "$CURRENT_LINK")" || fail "cannot resolve active release"
   [[ -d "$active/.git" || -f "$active/.git" ]] || fail "active release is not a Git checkout"
   commit="$(git -C "$active" rev-parse HEAD)" || fail "cannot resolve active commit"
+  [[ -z "$(git -C "$active" status --porcelain --untracked-files=all)" ]] || fail "release checkout is not clean"
   expected="$RELEASES_ROOT/$commit"
   [[ "$active" == "$expected" ]] || fail "active release directory does not match its exact commit"
   [[ "$RELEASE_DIR" == "$active" ]] || fail "verify script is not running from the active release"

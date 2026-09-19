@@ -33,6 +33,7 @@ validate_release() {
   [[ -d "$RELEASE_DIR/.git" || -f "$RELEASE_DIR/.git" ]] || fail "release must be a tested Git checkout"
   local commit expected active
   commit="$(git -C "$RELEASE_DIR" rev-parse HEAD)" || fail "cannot resolve release commit"
+  [[ -z "$(git -C "$RELEASE_DIR" status --porcelain --untracked-files=all)" ]] || fail "release checkout is not clean"
   expected="$RELEASES_ROOT/$commit"
   [[ "$RELEASE_DIR" == "$expected" ]] || fail "release directory does not match its exact commit"
   [[ -L "$CURRENT_LINK" ]] || fail "active release symlink is required"

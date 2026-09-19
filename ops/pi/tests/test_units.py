@@ -89,6 +89,19 @@ def test_workers_restart_with_bounded_systemd_backoff(unit: Path) -> None:
     assert "TimeoutStopSec=60" in text
 
 
+@pytest.mark.parametrize(
+    "unit,lock_name",
+    (
+        (SYSTEMD / "edicius-tweets.service", "tweets.lock"),
+        (SYSTEMD / "edicius-market.service", "market.lock"),
+    ),
+)
+def test_long_running_workers_use_distinct_nonblocking_locks(unit: Path, lock_name: str) -> None:
+    text = unit.read_text(encoding="utf-8")
+    assert "/usr/bin/flock -n" in text
+    assert f"/var/lib/edicius-hq/locks/{lock_name}" in text
+
+
 def test_verify_uses_fixed_state_and_active_release_working_directory() -> None:
     text = VERIFY.read_text(encoding="utf-8")
     assert 'export LOCAL_DATA_DIR="$STATE_ROOT"' in text
@@ -129,6 +142,14 @@ def test_installer_refuses_unpinned_releases_and_never_enables_or_starts_units()
     assert "systemctl daemon-reload" in text
     assert "systemctl enable" not in text
     assert "systemctl start" not in text
+
+
+def test_install_and_verify_reject_dirty_or_untracked_release_files() -> None:
+    for script in (INSTALL, VERIFY):
+        text = script.read_text(encoding="utf-8")
+        assert "git -C" in text
+        assert "status --porcelain --untracked-files=all" in text
+        assert "release checkout is not clean" in text
 
 
 def test_installer_accepts_debian_native_python_313_without_dropping_312_compatibility() -> None:

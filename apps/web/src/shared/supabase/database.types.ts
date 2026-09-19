@@ -695,6 +695,41 @@ export type Database = {
         Args: { p_destination: string; p_origin: string };
         Returns: Json;
       };
+      read_airfare_history_meta: {
+        Args: {
+          p_departure: string;
+          p_destination: string;
+          p_origin: string;
+          p_since: string;
+          p_snapshot_months: string[];
+          p_until: string;
+          p_expected_revision?: string;
+        };
+        Returns: Json;
+      };
+      read_airfare_history_page: {
+        Args: {
+          p_departure: string;
+          p_destination: string;
+          p_origin: string;
+          p_since: string;
+          p_snapshot_months: string[];
+          p_until: string;
+          p_revision: string;
+          p_dataset: string;
+          p_cursor?: Json;
+          p_page_size?: number;
+        };
+        Returns: Json;
+      };
+      read_owner_airfare_history_meta: {
+        Args: Database['public']['Functions']['read_airfare_history_meta']['Args'];
+        Returns: Json;
+      };
+      read_owner_airfare_history_page: {
+        Args: Database['public']['Functions']['read_airfare_history_page']['Args'];
+        Returns: Json;
+      };
       read_owner_airfare_history: {
         Args: {
           p_departure: string;

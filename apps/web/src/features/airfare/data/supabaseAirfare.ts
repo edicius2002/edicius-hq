@@ -2,12 +2,14 @@
 
 import type { AirportMatch, FareCalendarResponse, FareHistoryResponse } from '@/shared/api/fares';
 import { supabase } from '@/shared/supabase/client';
+import { assembleHistory, HistoryRevisionChanged } from './airfareHistoryPages';
 
 type HistoryOptions = {
   departure?: string;
   snapshotMonths?: readonly string[];
   since?: string;
   until?: string;
+  signal?: AbortSignal;
 };
 
 function rpcResult<T>(data: unknown, error: unknown): T {
@@ -29,15 +31,25 @@ export async function fetchFareHistory(
   destination: string,
   options: HistoryOptions = {},
 ): Promise<FareHistoryResponse> {
-  const { data, error } = await supabase.rpc('read_owner_airfare_history', {
-    p_origin: origin,
-    p_destination: destination,
-    p_departure: options.departure ?? '',
-    p_snapshot_months: [...(options.snapshotMonths ?? [])],
-    p_since: options.since ?? '',
-    p_until: options.until ?? '',
-  });
-  return rpcResult<FareHistoryResponse>(data, error);
+  return assembleHistory(
+    async (name, params, signal) => {
+      const { data, error } = await supabase.rpc(name, params).abortSignal(signal);
+      signal.throwIfAborted();
+      if (error?.code === '40001' && error.message === 'airfare_history_revision_changed') {
+        throw new HistoryRevisionChanged();
+      }
+      return rpcResult<unknown>(data, error);
+    },
+    {
+      p_origin: origin,
+      p_destination: destination,
+      p_departure: options.departure ?? '',
+      p_snapshot_months: [...(options.snapshotMonths ?? [])],
+      p_since: options.since ?? '',
+      p_until: options.until ?? '',
+    },
+    options.signal,
+  );
 }
 
 export async function fetchFareCalendar(

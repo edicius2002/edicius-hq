@@ -98,6 +98,10 @@ $ownerAirports = Join-Path $repoRoot 'supabase/migrations/20260919020100_airfare
 if (Test-Path -LiteralPath $ownerAirports) {
     $null = Invoke-LocalSql $Database ("begin;`n" + [IO.File]::ReadAllText($ownerAirports) + "`ncommit;")
 }
+$linearPagePack = Join-Path $repoRoot 'supabase/migrations/20260919020200_airfare_history_linear_page_pack.sql'
+if (Test-Path -LiteralPath $linearPagePack) {
+    $null = Invoke-LocalSql $Database ("begin;`n" + [IO.File]::ReadAllText($linearPagePack) + "`ncommit;")
+}
 if (-not $Tests) {
     $Tests = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'supabase/tests') -Filter '*.sql' | Sort-Object Name | ForEach-Object FullName)
 }

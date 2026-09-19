@@ -206,9 +206,7 @@ class CollectorCloud:
         row = self._one_row(result, "collector request")
         if row.get("request_id") is None:
             if any(value is not None for value in row.values()):
-                raise CollectorCloudRejected(
-                    "Supabase returned an invalid collector request"
-                )
+                raise CollectorCloudRejected("Supabase returned an invalid collector request")
             return None
         try:
             owner_id = UUID(str(row["owner_id"]))

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import rawFixture from '../../../../../../fixtures/airfare-history-pagination/v1.json?raw';
+import rawSqlSession from '../../../../../../fixtures/airfare-history-pagination/sql-session.json?raw';
 import type { FareHistoryResponse } from '@/shared/api/fares';
 import { assembleHistory, HistoryRevisionChanged } from './airfareHistoryPages';
 
@@ -42,6 +43,22 @@ function change(value: unknown, path: (string | number)[], replacement: unknown)
 afterEach(() => vi.useRealTimers());
 
 describe('complete revision-checked Airfare history', () => {
+  it('assembles captured real SQL pages and discards them after a concurrent final conflict', async () => {
+    vi.useFakeTimers();
+    const captured: unknown = JSON.parse(rawSqlSession);
+    expect(captured).toHaveProperty('wire.length', 5);
+    const data = captured as {
+      filters: Parameters<typeof assembleHistory>[1];
+      wire: unknown[];
+      expected: FareHistoryResponse;
+    };
+    const rpc = queued([...data.wire.slice(0, -1), new HistoryRevisionChanged(), ...data.wire]);
+    const assertion = expect(assembleHistory(rpc, data.filters)).resolves.toEqual(data.expected);
+    await vi.advanceTimersByTimeAsync(100);
+    await assertion;
+    expect(rpc).toHaveBeenCalledTimes(10);
+  });
+
   it('preserves the shared document, tied observations and bigint source lines', async () => {
     const data = fixture();
     const rpc = queued(replies(data));

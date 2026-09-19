@@ -216,7 +216,9 @@ enabling its timer.
 Each UTC-bounded gate requires a fresh owner-scoped `collector_runs` row
 (`complete` for one-shots; a post-cutoff heartbeat for workers), service/timer
 health, a known sanitized success signal, and no post-cutoff error/fatal/failure
-journal output. On a failure it stops that collector and leaves later units
+journal output. Success markers use Debian 13's systemd message format, which
+includes the unit name (for example, `Started edicius-tweets.service - Edicius X
+post collector.`). On a failure it stops that collector and leaves later units
 disabled; the PC X watcher remains stopped until a full rollback, including if
 the Pi X or market gate fails.
 The Airfare journal gate normalizes its successful `, 0 failed,` summary counter

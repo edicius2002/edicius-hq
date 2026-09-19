@@ -91,10 +91,10 @@ def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_log
     assert "grep -q ." not in text
     assert "JournalMarker" in text
     for marker in (
-        "Finished Edicius Airfare collector pass.",
-        "Finished Edicius sentiment collector pass.",
-        "Started Edicius X post collector.",
-        "Started Edicius market collector worker.",
+        "Finished edicius-airfare.service - Edicius Airfare collector pass.",
+        "Finished edicius-sentiment.service - Edicius sentiment collector pass.",
+        "Started edicius-tweets.service - Edicius X post collector.",
+        "Started edicius-market.service - Edicius market collector worker.",
     ):
         assert marker in text
     assert "grep -Eiq 'error|fatal|failed|failure'" in text

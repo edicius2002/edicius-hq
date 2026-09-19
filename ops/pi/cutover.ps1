@@ -18,10 +18,10 @@ $TaskName = 'Edicius airfare'
 $LegacyRefreshEndpoint = "$LegacyApiBase/api/tweets/thsottiaux/refresh"
 $LegacyWatchEndpoint = "$LegacyApiBase/api/tweets/thsottiaux/watch"
 $Collectors = @(
-    [pscustomobject]@{ Name = 'sentiment'; Unit = 'edicius-sentiment.timer'; Service = 'edicius-sentiment.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius sentiment collector pass.' },
-    [pscustomobject]@{ Name = 'x-posts'; Unit = 'edicius-tweets.service'; Service = 'edicius-tweets.service'; RequireComplete = $false; JournalMarker = 'Started Edicius X post collector.' },
-    [pscustomobject]@{ Name = 'market'; Unit = 'edicius-market.service'; Service = 'edicius-market.service'; RequireComplete = $false; JournalMarker = 'Started Edicius market collector worker.' },
-    [pscustomobject]@{ Name = 'airfare'; Unit = 'edicius-airfare.timer'; Service = 'edicius-airfare.service'; RequireComplete = $true; JournalMarker = 'Finished Edicius Airfare collector pass.' }
+    [pscustomobject]@{ Name = 'sentiment'; Unit = 'edicius-sentiment.timer'; Service = 'edicius-sentiment.service'; RequireComplete = $true; JournalMarker = 'Finished edicius-sentiment.service - Edicius sentiment collector pass.' },
+    [pscustomobject]@{ Name = 'x-posts'; Unit = 'edicius-tweets.service'; Service = 'edicius-tweets.service'; RequireComplete = $false; JournalMarker = 'Started edicius-tweets.service - Edicius X post collector.' },
+    [pscustomobject]@{ Name = 'market'; Unit = 'edicius-market.service'; Service = 'edicius-market.service'; RequireComplete = $false; JournalMarker = 'Started edicius-market.service - Edicius market collector worker.' },
+    [pscustomobject]@{ Name = 'airfare'; Unit = 'edicius-airfare.timer'; Service = 'edicius-airfare.service'; RequireComplete = $true; JournalMarker = 'Finished edicius-airfare.service - Edicius Airfare collector pass.' }
 )
 
 function Invoke-PiChecked([string]$Command) {
@@ -118,7 +118,7 @@ function Invoke-PiDisabledSmoke($Collector) {
             Invoke-PiChecked '! sudo systemctl is-failed --quiet edicius-airfare.service'
             Invoke-PiChecked 'sudo systemctl show --property=Result --value edicius-airfare.service | grep -qx success'
             Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py airfare --cutoff '$cutoff' --require-complete"
-            Invoke-PiChecked "sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | grep -Fq 'Finished Edicius Airfare collector pass.'"
+            Invoke-PiChecked "sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | grep -Fq 'Finished edicius-airfare.service - Edicius Airfare collector pass.'"
             # Normalize only the successful summary counter; keep all other text
             # on the same line so a real failure cannot be hidden by that counter.
             Invoke-PiChecked "! sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | sed 's/, 0 failed,/,/g' | grep -Eiq 'error|fatal|failed|failure'"

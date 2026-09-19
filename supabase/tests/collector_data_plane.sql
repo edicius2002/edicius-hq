@@ -1,5 +1,5 @@
 begin;
-select plan(86);
+select plan(111);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -17,10 +17,16 @@ select col_is_pk('public', 'market_bars', array['owner_id', 'symbol', 'timeframe
 select col_is_pk('public', 'collector_requests', array['request_id']);
 select has_column('public', 'collector_runs', 'heartbeat_at',
                   'collector runs expose a heartbeat timestamp');
+select has_column('public', 'collector_requests', 'progress',
+                  'collector requests expose structured progress');
+select has_column('public', 'collector_requests', 'updated_at',
+                  'collector requests expose their latest transition time');
 
 select has_function('public', 'write_app_document', array['text','jsonb','bigint']);
 select has_function('public', 'delete_app_document', array['text','bigint']);
-select has_function('public', 'claim_collector_request', array['uuid']);
+select has_function('public', 'enqueue_airfare_route_request', array['text','text','text','text']);
+select has_function('public', 'claim_collector_request', array['uuid','text[]']);
+select has_function('public', 'update_collector_request_progress', array['uuid','jsonb']);
 select has_function('public', 'complete_collector_request', array['uuid','jsonb']);
 select has_function('public', 'fail_collector_request', array['uuid','text']);
 select has_function('public', 'read_owner_airfare_history', array['text','text','text','text[]','text','text']);
@@ -64,8 +70,16 @@ select ok(has_function_privilege('authenticated', 'public.read_owner_airfare_cal
           'authenticated can call the owner-gated Airfare calendar RPC');
 select ok(has_function_privilege('authenticated', 'public.search_owner_airports(text,integer)', 'execute'),
           'authenticated can call the owner-gated airport-search RPC');
-select ok(has_function_privilege('service_role', 'public.claim_collector_request(uuid)', 'execute'),
+select ok(has_function_privilege('authenticated', 'public.enqueue_airfare_route_request(text,text,text,text)', 'execute'),
+          'authenticated owners can enqueue validated Airfare requests');
+select ok(not has_function_privilege('anon', 'public.enqueue_airfare_route_request(text,text,text,text)', 'execute'),
+          'anonymous callers cannot enqueue Airfare requests');
+select ok(has_function_privilege('service_role', 'public.claim_collector_request(uuid,text[])', 'execute'),
           'only the service role can claim collector requests');
+select ok(has_function_privilege('service_role', 'public.update_collector_request_progress(uuid,jsonb)', 'execute'),
+          'service role can publish Airfare request progress');
+select ok(not has_function_privilege('authenticated', 'public.update_collector_request_progress(uuid,jsonb)', 'execute'),
+          'authenticated callers cannot publish request progress');
 select ok(has_function_privilege('service_role', 'public.complete_collector_request(uuid,jsonb)', 'execute'),
           'service role can complete collector requests');
 select ok(has_function_privilege('service_role', 'public.fail_collector_request(uuid,text)', 'execute'),
@@ -94,6 +108,8 @@ select ok(exists (select 1 from pg_constraint where conrelid = 'public.app_docum
                   and pg_get_constraintdef(oid) like '%jsonb_typeof(payload)%'), 'app document payload must be an object');
 select ok(exists (select 1 from pg_constraint where conrelid = 'public.collector_requests'::regclass
                   and pg_get_constraintdef(oid) like '%market-bars%'), 'request operation is constrained');
+select ok(exists (select 1 from pg_constraint where conrelid = 'public.collector_requests'::regclass
+                  and pg_get_constraintdef(oid) like '%airfare-route%'), 'Airfare request operation is constrained');
 select ok(exists (select 1 from pg_constraint where conrelid = 'public.collector_requests'::regclass
                   and pg_get_constraintdef(oid) like '%queued%'), 'request status is constrained');
 select ok(exists (select 1 from pg_constraint where conrelid = 'public.collector_runs'::regclass
@@ -142,6 +158,45 @@ select is((public.write_app_document('watchlist', '{"symbols":[]}'::jsonb, 0)).r
 insert into public.collector_requests (operation, payload) values ('market-search', '{"query":"AAPL"}');
 select is((select count(*) from public.collector_requests), 1::bigint,
           'owner can queue a request for itself');
+select lives_ok(
+  $$ select public.enqueue_airfare_route_request('lim', 'cuz', '2026-11', 'usd') $$,
+  'owner can enqueue a normalized Airfare request'
+);
+select lives_ok(
+  $$ select public.enqueue_airfare_route_request('LIM', 'CUZ', '2026-11', 'USD') $$,
+  'duplicate Airfare enqueue returns the active request'
+);
+select is(
+  (select count(*) from public.collector_requests where operation = 'airfare-route'),
+  1::bigint,
+  'duplicate Airfare enqueue creates one active request'
+);
+select ok(
+  (select expires_at - created_at = interval '30 minutes'
+     from public.collector_requests where operation = 'airfare-route'),
+  'Airfare requests receive a thirty-minute expiry'
+);
+select throws_ok(
+  $$ insert into public.collector_requests (operation, payload)
+       values ('airfare-route', '{"origin":"LIM","destination":"CUZ","month":"2026-12","currency":"USD"}') $$,
+  '42501', NULL, 'authenticated callers cannot insert Airfare requests directly'
+);
+select throws_ok(
+  $$ select public.enqueue_airfare_route_request('LI', 'CUZ', '2026-11', 'USD') $$,
+  '22023', 'invalid_airfare_request', 'Airfare enqueue rejects invalid origin'
+);
+select throws_ok(
+  $$ select public.enqueue_airfare_route_request('LIM', 'LIM', '2026-11', 'USD') $$,
+  '22023', 'invalid_airfare_request', 'Airfare enqueue rejects identical airports'
+);
+select throws_ok(
+  $$ select public.enqueue_airfare_route_request('LIM', 'CUZ', '2026-13', 'USD') $$,
+  '22023', 'invalid_airfare_request', 'Airfare enqueue rejects invalid month'
+);
+select throws_ok(
+  $$ select public.enqueue_airfare_route_request('LIM', 'CUZ', '2026-11', 'US') $$,
+  '22023', 'invalid_airfare_request', 'Airfare enqueue rejects invalid currency'
+);
 
 select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', true);
 select is((select count(*) from public.app_documents), 0::bigint,
@@ -168,13 +223,19 @@ reset role;
 set local role service_role;
 insert into public.collector_runs (owner_id, collector, status)
 values ('11111111-1111-1111-1111-111111111111', 'market', 'running');
+insert into public.collector_runs (owner_id, collector, status)
+values ('11111111-1111-1111-1111-111111111111', 'airfare-requests', 'running');
+select is((select status from public.collector_runs where collector = 'airfare-requests'), 'running',
+          'manual Airfare worker has its own health identity');
 select is(
   (select heartbeat_at from public.collector_runs where collector = 'market'),
   (select started_at from public.collector_runs where collector = 'market'),
   'collector run heartbeat starts at the run start time'
 );
 select is(
-  (public.claim_collector_request('11111111-1111-1111-1111-111111111111')).status,
+  (public.claim_collector_request(
+    '11111111-1111-1111-1111-111111111111', array['market-bars','market-search']
+  )).status,
   'running', 'service role atomically claims an unexpired queued request'
 );
 select is(
@@ -183,17 +244,73 @@ select is(
   )).status,
   'complete', 'service role completes a claimed request exactly once'
 );
+select is(
+  (public.claim_collector_request(
+    '11111111-1111-1111-1111-111111111111', array['market-bars','market-search']
+  )).request_id,
+  null::uuid,
+  'Market cannot claim the queued Airfare request'
+);
+select is(
+  (public.claim_collector_request(
+    '11111111-1111-1111-1111-111111111111', array['airfare-route']
+  )).status,
+  'running',
+  'Airfare claims only its own request operation'
+);
+select is(
+  (public.update_collector_request_progress(
+    (select request_id from public.collector_requests where operation = 'airfare-route' and status = 'running'),
+    '{"stage":"collecting","completed":3,"total":30}'::jsonb
+  )).progress->>'completed',
+  '3',
+  'service role publishes valid Airfare progress'
+);
+select throws_ok(
+  $$ select public.update_collector_request_progress(
+       (select request_id from public.collector_requests where operation = 'airfare-route' and status = 'running'),
+       '{"stage":"collecting","completed":2,"total":30}'::jsonb
+     ) $$,
+  '22023', 'invalid_collector_progress', 'Airfare progress cannot move backwards'
+);
+select is(
+  (public.complete_collector_request(
+    (select request_id from public.collector_requests where operation = 'airfare-route' and status = 'running'),
+    '{"origin":"LIM","destination":"CUZ","month":"2026-11","lookedAt":3,"changed":1,"failed":0,"skipped":0,"synced":true}'::jsonb
+  )).status,
+  'complete',
+  'Airfare request completes after worker synchronization'
+);
+insert into public.collector_requests (owner_id, operation, payload, expires_at)
+values (
+  '11111111-1111-1111-1111-111111111111', 'airfare-route',
+  '{"origin":"LIM","destination":"CUZ","month":"2026-12","currency":"USD"}',
+  now() + interval '30 minutes'
+);
+select throws_ok(
+  $$ insert into public.collector_requests (owner_id, operation, payload, expires_at)
+     values (
+       '11111111-1111-1111-1111-111111111111', 'airfare-route',
+       '{"origin":"LIM","destination":"CUZ","month":"2026-12","currency":"USD"}',
+       now() + interval '30 minutes'
+     ) $$,
+  '23505', NULL, 'active duplicate Airfare rows are forbidden'
+);
 insert into public.collector_requests (owner_id, operation, payload)
 values ('11111111-1111-1111-1111-111111111111', 'market-bars', '{}');
 select is(
   (public.fail_collector_request(
-    (public.claim_collector_request('11111111-1111-1111-1111-111111111111')).request_id, 'provider_unavailable'
+    (public.claim_collector_request(
+      '11111111-1111-1111-1111-111111111111', array['market-bars','market-search']
+    )).request_id, 'provider_unavailable'
   )).status,
   'failed', 'service role records a sanitized failure for a claimed request'
 );
 insert into public.collector_requests (owner_id, operation, payload, created_at, expires_at)
 values ('11111111-1111-1111-1111-111111111111', 'market-bars', '{}', now() - interval '10 minutes', now() - interval '5 minutes');
-select is((public.claim_collector_request('11111111-1111-1111-1111-111111111111')).request_id, null::uuid,
+select is((public.claim_collector_request(
+  '11111111-1111-1111-1111-111111111111', array['market-bars','market-search']
+)).request_id, null::uuid,
           'claim returns no row after consuming the queue');
 select is((select status from public.collector_requests order by created_at limit 1), 'expired',
           'claiming expires stale queued requests after five minutes');
@@ -217,7 +334,9 @@ insert into public.collector_requests (
   'market-search', '{"query":"AAPL"}', 'running',
   now() - interval '10 minutes', now() - interval '9 minutes', now() - interval '5 minutes'
 );
-select is((public.claim_collector_request('11111111-1111-1111-1111-111111111111')).request_id, null::uuid,
+select is((public.claim_collector_request(
+  '11111111-1111-1111-1111-111111111111', array['market-bars','market-search']
+)).request_id, null::uuid,
           'claim returns no row while expiring stale running work');
 select is((select status from public.collector_requests where request_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
           'expired', 'claiming expires stale running requests after five minutes');

@@ -142,9 +142,11 @@ export type Database = {
           operation: string;
           owner_id: string;
           payload: Json;
+          progress: Json;
           request_id: string;
           result: Json | null;
           status: string;
+          updated_at: string;
         };
         Insert: {
           claimed_at?: string | null;
@@ -155,9 +157,11 @@ export type Database = {
           operation: string;
           owner_id?: string;
           payload: Json;
+          progress?: Json;
           request_id?: string;
           result?: Json | null;
           status?: string;
+          updated_at?: string;
         };
         Update: {
           claimed_at?: string | null;
@@ -168,9 +172,11 @@ export type Database = {
           operation?: string;
           owner_id?: string;
           payload?: Json;
+          progress?: Json;
           request_id?: string;
           result?: Json | null;
           status?: string;
+          updated_at?: string;
         };
         Relationships: [
           {
@@ -187,6 +193,7 @@ export type Database = {
           collector: string;
           completed_at: string | null;
           error_code: string | null;
+          heartbeat_at: string;
           owner_id: string;
           records_failed: number;
           records_seen: number;
@@ -199,6 +206,7 @@ export type Database = {
           collector: string;
           completed_at?: string | null;
           error_code?: string | null;
+          heartbeat_at?: string;
           owner_id: string;
           records_failed?: number;
           records_seen?: number;
@@ -211,6 +219,7 @@ export type Database = {
           collector?: string;
           completed_at?: string | null;
           error_code?: string | null;
+          heartbeat_at?: string;
           owner_id?: string;
           records_failed?: number;
           records_seen?: number;
@@ -625,7 +634,7 @@ export type Database = {
     Functions: {
       airfare_dataset_manifest: { Args: never; Returns: Json };
       claim_collector_request: {
-        Args: { p_owner_id: string };
+        Args: { p_operations: string[]; p_owner_id: string };
         Returns: {
           claimed_at: string | null;
           completed_at: string | null;
@@ -635,9 +644,40 @@ export type Database = {
           operation: string;
           owner_id: string;
           payload: Json;
+          progress: Json;
           request_id: string;
           result: Json | null;
           status: string;
+          updated_at: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'collector_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      enqueue_airfare_route_request: {
+        Args: {
+          p_currency: string;
+          p_destination: string;
+          p_month: string;
+          p_origin: string;
+        };
+        Returns: {
+          claimed_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          expires_at: string;
+          operation: string;
+          owner_id: string;
+          payload: Json;
+          progress: Json;
+          request_id: string;
+          result: Json | null;
+          status: string;
+          updated_at: string;
         };
         SetofOptions: {
           from: '*';
@@ -657,9 +697,11 @@ export type Database = {
           operation: string;
           owner_id: string;
           payload: Json;
+          progress: Json;
           request_id: string;
           result: Json | null;
           status: string;
+          updated_at: string;
         };
         SetofOptions: {
           from: '*';
@@ -683,9 +725,35 @@ export type Database = {
           operation: string;
           owner_id: string;
           payload: Json;
+          progress: Json;
           request_id: string;
           result: Json | null;
           status: string;
+          updated_at: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'collector_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      update_collector_request_progress: {
+        Args: { p_progress: Json; p_request_id: string };
+        Returns: {
+          claimed_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          expires_at: string;
+          operation: string;
+          owner_id: string;
+          payload: Json;
+          progress: Json;
+          request_id: string;
+          result: Json | null;
+          status: string;
+          updated_at: string;
         };
         SetofOptions: {
           from: '*';

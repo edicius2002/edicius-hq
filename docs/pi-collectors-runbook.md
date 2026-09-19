@@ -152,7 +152,9 @@ one-shot tests; no unit is enabled here:
 
 ```sh
 ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/verify.sh'
-ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live'
+ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live sentiment'
+ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live x-posts'
+ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live market'
 ssh '<pi-host>' 'sudo systemctl start edicius-airfare.service && sudo systemctl start edicius-sentiment.service'
 ssh '<pi-host>' "sudo journalctl -u edicius-airfare.service -u edicius-sentiment.service --since '-15 minutes' --no-pager"
 ```
@@ -174,15 +176,16 @@ Set-Location '<pinned-checkout>\ops\pi'
 
 The script confirms full disabled Pi preflight and uses read-only
 `GET /api/tweets/thsottiaux/refresh` (required HTTP `200` and expected handle)
-to prove the local, loopback-only PC API is reachable before disabling exactly
-`Edicius airfare`. At the X gate it issues the exact
+to prove the local, loopback-only PC API is reachable before changing either PC
+collector. At the X gate it issues the exact
 `DELETE /api/tweets/thsottiaux/watch` and accepts only its `stopped` or `idle`
 HTTP `202` response before enabling Pi X, so the two Chromium-owning watchers
-cannot run together. The PC X watcher therefore stays active if Airfare or
-sentiment gating fails earlier. It then gates
-Airfare, sentiment, X, and market in that order.
+cannot run together. It gates Sentiment, X, Market, and Airfare in that order.
+Immediately before the final Airfare gate it stops the exact Windows task,
+waits with a finite deadline until it is no longer running, disables it, and
+rechecks both states before starting Pi Airfare.
 Each UTC-bounded gate requires a fresh owner-scoped `collector_runs` row
-(`complete` for one-shots; `running` or `complete` for workers), service/timer
+(`complete` for one-shots; a post-cutoff heartbeat for workers), service/timer
 health, a known sanitized success signal, and no post-cutoff error/fatal/failure
 journal output. On a failure it stops that collector and leaves later units
 disabled; the PC X watcher remains stopped until a full rollback, including if

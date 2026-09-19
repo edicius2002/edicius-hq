@@ -15,7 +15,8 @@ RUNBOOK = PI_ROOT.parents[1] / "docs" / "pi-collectors-runbook.md"
 
 def test_cutover_checks_pi_before_disabling_windows_task() -> None:
     text = CUTOVER.read_text(encoding="utf-8")
-    assert text.index("verify.sh") < text.index("Disable-ScheduledTask")
+    preflight = text.index("Assert-PiPreflight", text.index("$task = Get-ExactTask"))
+    assert text.index("verify.sh") < text.index("Stop-WindowsAirfare", preflight)
     assert "Edicius airfare" in text
     assert "Get-ScheduledTask -TaskName $TaskName" in text
     assert "Where-Object { $_.TaskName -eq $TaskName }" in text
@@ -27,7 +28,8 @@ def test_cutover_requires_disabled_pi_units_before_windows_change() -> None:
     text = CUTOVER.read_text(encoding="utf-8")
     assert "is-enabled" in text
     assert "is-active" in text
-    assert text.index("Assert-PiPreflight") < text.index("Disable-ScheduledTask")
+    preflight = text.index("Assert-PiPreflight", text.index("$task = Get-ExactTask"))
+    assert preflight < text.index("Stop-WindowsAirfare", preflight)
     assert "SupportsShouldProcess" in text
 
 
@@ -42,7 +44,7 @@ def test_cutover_uses_a_read_only_loopback_watcher_probe_before_windows_airfare_
     assert "-Method Get" in text
     assert "StatusCode -ne 200" in text
     preflight = text.index("Assert-PiPreflight")
-    windows_disable = text.index("Disable-ScheduledTask")
+    windows_disable = text.index("Stop-WindowsAirfare", preflight)
     assert text.index("Invoke-LegacyRefreshProbe", preflight) < windows_disable
     assert (
         "Invoke-LegacyWatchRequest -Method Delete"
@@ -59,10 +61,10 @@ def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_log
     assert "edicius-tweets.service" in text
     assert "edicius-market.service" in text
     assert (
-        text.index("edicius-airfare.timer")
-        < text.index("edicius-sentiment.timer")
+        text.index("edicius-sentiment.timer")
         < text.index("edicius-tweets.service")
         < text.index("edicius-market.service")
+        < text.index("edicius-airfare.timer")
     )
     assert "Get-Date).ToUniversalTime()" in text
     assert "check-collector-run.py" in text
@@ -80,6 +82,23 @@ def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_log
         assert marker in text
     assert "grep -Eiq 'error|fatal|failed|failure'" in text
     assert text.index("JournalMarker") < text.index("error|fatal|failed|failure")
+
+
+def test_airfare_cutover_stops_waits_disables_and_rechecks_windows_task_last() -> None:
+    text = CUTOVER.read_text(encoding="utf-8")
+    airfare_branch = text.index("if ($collector.Name -eq 'airfare')")
+    handoff = text.index("Stop-WindowsAirfare", airfare_branch)
+    pi_start = text.index("Start-And-GatePiCollector $collector", airfare_branch)
+    function = text.index("function Stop-WindowsAirfare")
+    stop = text.index("Stop-ScheduledTask", function)
+    deadline = text.index("AddSeconds", function)
+    wait = text.index("Start-Sleep", function)
+    disable = text.index("Disable-ScheduledTask", function)
+    recheck = text.index("Get-ExactTask", disable)
+    assert stop < deadline < wait < disable < recheck
+    assert handoff < pi_start
+    assert "State -eq 'Running'" in text
+    assert "State -ne 'Disabled'" in text
 
 
 def test_rollback_stops_pi_before_reenabling_exact_windows_task() -> None:

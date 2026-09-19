@@ -9,6 +9,7 @@ readonly CURRENT_LINK="$APP_ROOT/current"
 readonly STATE_ROOT=/var/lib/edicius-hq
 readonly ENV_FILE=/etc/edicius-hq/collectors.env
 readonly UNIT_DIR=/etc/systemd/system
+readonly SERVICE_USER=edicius-collector
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly RELEASE_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 
@@ -64,29 +65,29 @@ validate_env() {
 }
 
 ensure_runtime() {
-  if ! getent passwd edicius >/dev/null; then
-    useradd --system --user-group --home-dir "$STATE_ROOT" --shell /usr/sbin/nologin edicius
+  if ! getent passwd "$SERVICE_USER" >/dev/null; then
+    useradd --system --user-group --home-dir "$STATE_ROOT" --shell /usr/sbin/nologin "$SERVICE_USER"
   fi
   local shell
-  shell="$(getent passwd edicius | awk -F: '{print $7}')"
-  [[ "$shell" == /usr/sbin/nologin || "$shell" == /sbin/nologin ]] || fail "edicius must be a non-login account"
+  shell="$(getent passwd "$SERVICE_USER" | awk -F: '{print $7}')"
+  [[ "$shell" == /usr/sbin/nologin || "$shell" == /sbin/nologin ]] || fail "$SERVICE_USER must be a non-login account"
   command -v chromium >/dev/null || fail "Chromium must be installed"
-  install -d -o edicius -g edicius -m 0750 "$STATE_ROOT" "$STATE_ROOT/x-profile"
+  install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$STATE_ROOT" "$STATE_ROOT/x-profile"
   [[ ! -L "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must not be a symlink"
   [[ ! -e "$STATE_ROOT/locks" || -d "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must be a directory"
-  install -d -o root -g edicius -m 0750 "$STATE_ROOT/locks"
-  [[ "$(stat -c '%U:%G:%a' -- "$STATE_ROOT/locks")" == root:edicius:750 ]] || fail "lock directory owner or mode is invalid"
+  install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/locks"
+  [[ "$(stat -c '%U:%G:%a' -- "$STATE_ROOT/locks")" == root:$SERVICE_USER:750 ]] || fail "lock directory owner or mode is invalid"
   local lock_name lock_path
   for lock_name in airfare sentiment tweets market; do
     lock_path="$STATE_ROOT/locks/$lock_name.lock"
     [[ ! -L "$lock_path" ]] || fail "$lock_path must not be a symlink"
     if [[ ! -e "$lock_path" ]]; then
-      install -o edicius -g edicius -m 0600 /dev/null "$lock_path"
+      install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0600 /dev/null "$lock_path"
     fi
     [[ -f "$lock_path" && ! -L "$lock_path" ]] || fail "$lock_path must be a regular file"
-    [[ "$(stat -c '%U:%G:%a' -- "$lock_path")" == edicius:edicius:600 ]] || fail "$lock_path owner or mode is invalid"
+    [[ "$(stat -c '%U:%G:%a' -- "$lock_path")" == $SERVICE_USER:$SERVICE_USER:600 ]] || fail "$lock_path owner or mode is invalid"
   done
-  runuser -u edicius -- test -w "$STATE_ROOT" || fail "durable state is not writable by edicius"
+  runuser -u "$SERVICE_USER" -- test -w "$STATE_ROOT" || fail "durable state is not writable by $SERVICE_USER"
 }
 
 install_units() {

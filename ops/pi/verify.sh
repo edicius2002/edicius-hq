@@ -8,6 +8,7 @@ readonly RELEASES_ROOT="$APP_ROOT/releases"
 readonly CURRENT_LINK="$APP_ROOT/current"
 readonly STATE_ROOT=/var/lib/edicius-hq
 readonly ENV_FILE=/etc/edicius-hq/collectors.env
+readonly SERVICE_USER=edicius-collector
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly RELEASE_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 readonly PYTHON="$CURRENT_LINK/services/api/.venv/bin/python"
@@ -22,6 +23,10 @@ fail() {
 
 sanitize() {
   sed -E 's/(sb_secret|eyJ)[[:alnum:]_.-]+/[redacted]/g; s#https://[^[:space:]]+#https://[redacted]#g'
+}
+
+run_as_service() {
+  runuser -u "$SERVICE_USER" --preserve-environment -- "$@"
 }
 
 validate_active_release() {
@@ -79,12 +84,12 @@ validate_local_safety() {
 run_airfare_dry_run() {
   # The local rollback cache makes this a true dry run: no provider or remote
   # data-plane request is made by a command whose purpose is only inspection.
-  "$PYTHON" "$CURRENT_LINK/scripts/fares-collect.py" --watch-source local --dry-run 2>&1 | sanitize
+  run_as_service "$PYTHON" "$CURRENT_LINK/scripts/fares-collect.py" --watch-source local --dry-run 2>&1 | sanitize
 }
 
 run_sentiment_test() {
   set +e
-  "$PYTHON" "$CURRENT_LINK/scripts/sentiment-collect.py" 2>&1 | sanitize
+  run_as_service "$PYTHON" "$CURRENT_LINK/scripts/sentiment-collect.py" 2>&1 | sanitize
   local status=${PIPESTATUS[0]}
   set -e
   [[ "$status" -eq 0 ]] || fail "sentiment live test failed"
@@ -106,7 +111,7 @@ run_collector_smoke() {
   local cutoff
   cutoff="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   set +e
-  "$PYTHON" "$CURRENT_LINK/ops/pi/smoke-collector.py" "$LIVE_COLLECTOR" --cutoff "$cutoff" 2>&1 | sanitize
+  run_as_service "$PYTHON" "$CURRENT_LINK/ops/pi/smoke-collector.py" "$LIVE_COLLECTOR" --cutoff "$cutoff" 2>&1 | sanitize
   local status=${PIPESTATUS[0]}
   set -e
   [[ "$status" -eq 0 ]] || fail "$LIVE_COLLECTOR live smoke failed"
@@ -114,7 +119,7 @@ run_collector_smoke() {
 
 run_market_document_discovery() {
   set +e
-  "$PYTHON" -c 'import sys; sys.path.insert(0, "services/api"); from app.services.collector_cloud import configured_collector_cloud; from app.services.market_worker import desired_symbols; cloud = configured_collector_cloud(); docs = cloud.documents(("watchlist", "portfolio", "alert-rules")); cloud.close(); print(f"market documents: {len(docs)}; symbols: {len(desired_symbols(docs))}")' 2>&1 | sanitize
+  run_as_service "$PYTHON" -c 'import sys; sys.path.insert(0, "services/api"); from app.services.collector_cloud import configured_collector_cloud; from app.services.market_worker import desired_symbols; cloud = configured_collector_cloud(); docs = cloud.documents(("watchlist", "portfolio", "alert-rules")); cloud.close(); print(f"market documents: {len(docs)}; symbols: {len(desired_symbols(docs))}")' 2>&1 | sanitize
   local status=${PIPESTATUS[0]}
   set -e
   [[ "$status" -eq 0 ]] || fail "market document discovery failed"

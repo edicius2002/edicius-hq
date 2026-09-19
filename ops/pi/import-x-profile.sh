@@ -6,6 +6,7 @@ readonly STATE_ROOT=/var/lib/edicius-hq
 readonly TARGET="$STATE_ROOT/x-profile"
 readonly TARGET_PARENT="$STATE_ROOT"
 readonly BACKUP_ROOT="$STATE_ROOT/x-profile-backups"
+readonly SERVICE_USER=edicius-collector
 
 fail() { printf '%s\n' "edicius X profile import: $1" >&2; exit 1; }
 usage() { printf '%s\n' 'usage: import-x-profile.sh [--dry-run] [--replace-with-backup] SOURCE_DIRECTORY' >&2; exit 2; }
@@ -61,7 +62,7 @@ if [[ "$dry_run" == true ]]; then
   exit 0
 fi
 
-install -d -o edicius -g edicius -m 0750 "$BACKUP_ROOT"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$BACKUP_ROOT"
 backup_root_real="$(readlink -f -- "$BACKUP_ROOT")" || fail 'cannot resolve backup root'
 [[ "$backup_root_real" == "$target_parent_real/"* ]] || fail 'backup root escaped durable state'
 [[ "$backup_root_real" != "$target_parent_real" ]] || fail 'backup root must not be durable state root'
@@ -69,7 +70,7 @@ stage="$(mktemp -d "$TARGET_PARENT/.x-profile-stage.XXXXXXXX")" || fail 'cannot 
 trap 'rmdir -- "$stage" 2>/dev/null || true' EXIT
 cp -a -- "$source_real/." "$stage/"
 [[ -z "$(find "$stage" -xdev -type l -print -quit)" ]] || fail 'copied profile contains a symlink'
-chown -R edicius:edicius "$stage"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$stage"
 chmod -R go-rwx "$stage"
 
 if [[ "$target_is_empty" == true ]]; then

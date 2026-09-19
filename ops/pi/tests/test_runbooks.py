@@ -187,7 +187,8 @@ def test_x_profile_import_refuses_unsafe_paths_and_live_replacement() -> None:
     assert "readlink -f" in text
     assert "-L" in text
     assert "find" in text and "-type l" in text
-    assert "chown -R edicius:edicius" in text
+    assert "readonly SERVICE_USER=edicius-collector" in text
+    assert 'chown -R "$SERVICE_USER:$SERVICE_USER"' in text
     assert "chmod -R go-rwx" in text
     assert "rm -rf" not in text
     assert "Cookies" not in text
@@ -237,7 +238,8 @@ def test_staged_transfer_is_fixed_destination_and_removes_only_validated_tmp_sta
     assert "set -euo pipefail" in text
     assert 'case "$kind"' in text
     assert '[[ "$stage_real" == /tmp/edicius-transfer.* ]]' in text
-    assert "install -d -o edicius -g edicius -m 0750" in text
+    assert "readonly SERVICE_USER=edicius-collector" in text
+    assert 'install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750' in text
     assert '[[ -d "$STATE_ROOT" && ! -L "$STATE_ROOT" ]]' in text
     assert '[[ -d "$MIGRATION_ROOT" && ! -L "$MIGRATION_ROOT" ]]' in text
     assert 'state_root_real="$(readlink -f -- "$STATE_ROOT")"' in text

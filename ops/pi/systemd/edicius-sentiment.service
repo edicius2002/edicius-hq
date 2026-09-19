@@ -5,8 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=edicius
-Group=edicius
+User=edicius-collector
+Group=edicius-collector
 WorkingDirectory=/opt/edicius-hq/current
 EnvironmentFile=/etc/edicius-hq/collectors.env
 Environment=HOME=/var/lib/edicius-hq

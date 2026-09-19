@@ -22,7 +22,9 @@ TIMERS = tuple(SYSTEMD / f"edicius-{name}.timer" for name in ("airfare", "sentim
 @pytest.mark.parametrize("unit", SERVICES)
 def test_services_are_unprivileged_network_aware_and_secret_file_backed(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")
-    assert "User=edicius" in text
+    assert "User=edicius-collector" in text
+    assert "Group=edicius-collector" in text
+    assert "User=edicius\n" not in text
     assert "After=network-online.target" in text
     assert "Wants=network-online.target" in text
     assert "EnvironmentFile=/etc/edicius-hq/collectors.env" in text
@@ -167,18 +169,36 @@ def test_installer_precreates_private_edicius_owned_entrypoint_locks() -> None:
     text = INSTALL.read_text(encoding="utf-8")
     for lock_name in ("airfare", "sentiment", "tweets", "market"):
         assert lock_name in text
-    assert 'install -o edicius -g edicius -m 0600 /dev/null "$lock_path"' in text
+    assert "readonly SERVICE_USER=edicius-collector" in text
+    assert 'install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0600 /dev/null "$lock_path"' in text
     reject_directory_symlink = text.index('[[ ! -L "$STATE_ROOT/locks" ]]')
-    create_directory = text.index('install -d -o root -g edicius -m 0750 "$STATE_ROOT/locks"')
+    create_directory = text.index(
+        'install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/locks"'
+    )
     assert reject_directory_symlink < create_directory
-    assert 'install -d -o root -g edicius -m 0750 "$STATE_ROOT/locks"' in text
-    assert "root:edicius:750" in text
+    assert 'install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/locks"' in text
+    assert 'root:$SERVICE_USER:750' in text
     reject_symlink = text.index('[[ ! -L "$lock_path" ]]')
-    create = text.index('install -o edicius -g edicius -m 0600 /dev/null "$lock_path"')
+    create = text.index(
+        'install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0600 /dev/null "$lock_path"'
+    )
     assert reject_symlink < create
     assert '[[ -f "$lock_path" && ! -L "$lock_path" ]]' in text
     assert "stat -c '%U:%G:%a'" in text
-    assert "edicius:edicius:600" in text
+    assert '$SERVICE_USER:$SERVICE_USER:600' in text
+
+
+def test_installer_never_repairs_or_reuses_the_interactive_edicius_login() -> None:
+    text = INSTALL.read_text(encoding="utf-8")
+    assert "getent passwd edicius-collector" not in text
+    assert 'getent passwd "$SERVICE_USER"' in text
+    assert 'useradd --system --user-group --home-dir "$STATE_ROOT"' in text
+
+
+def test_live_verification_runs_collectors_as_the_service_identity() -> None:
+    text = VERIFY.read_text(encoding="utf-8")
+    assert "readonly SERVICE_USER=edicius-collector" in text
+    assert 'runuser -u "$SERVICE_USER" --preserve-environment --' in text
 
 
 def test_install_and_verify_reject_dirty_or_untracked_release_files() -> None:

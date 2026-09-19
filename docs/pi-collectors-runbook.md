@@ -85,7 +85,8 @@ startup/teardown overhead, while preventing an unbounded one-shot.
 
 ## Checkpoint C: durable imports and profile
 
-Every `/var/lib/edicius-hq` destination is created `0750 edicius:edicius`.
+Every `/var/lib/edicius-hq` destination is created
+`0750 edicius-collector:edicius-collector`.
 Run the shell blocks below in Git Bash on the Windows operator PC; it provides
 `ssh`, `scp`, `sha256sum`, and POSIX shell syntax. They do not require `rsync`
 or local `psql`. Each upload first lands in a direct-child `mktemp` directory
@@ -109,9 +110,9 @@ done
 STAGE="$(ssh '<pi-host>' 'mktemp -d /tmp/edicius-transfer.XXXXXXXX')"
 scp -r "$KV_STAGE/." "<pi-host>:$STAGE/"
 ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/install-staged-transfer.sh kv '$STAGE'"
-ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>'"
-ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
-ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
+ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius-collector --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>'"
+ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius-collector --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
+ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius-collector --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"
 ```
 
 Transfer X JSONL/history and its cursor before X is enabled. First start of the

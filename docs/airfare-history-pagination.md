@@ -47,6 +47,27 @@ Null snapshot months mean whole-route history; an empty array means no snapshots
 Departure scopes baseline/health independently. Duplicate months and equivalent
 empty optional filters share a query key. The key is not an authorization token.
 
+## Bounded pages
+
+`read_airfare_history_page` and `read_owner_airfare_history_page` accept the six
+filters, decimal-string `p_revision`, `p_dataset` (`snapshots` or `baseline`),
+optional JSON `p_cursor`, and `p_page_size` (default 100, range 1–250).
+The cursor binds version, query key, revision, dataset and the last ordering tuple.
+Snapshots order by captured text, bigint source line and content ID; baseline by
+flight date, price date and content ID. Bigints are decimal strings on the wire.
+
+Selection limits key-only candidates before joining original payloads. Each complete
+page is at most 1 MiB; byte-limited pages can contain fewer than the requested rows.
+Only a null next cursor signals exhaustion. A single oversized item fails with
+`22023/airfare_history_item_too_large`; stale revisions fail with
+`40001/airfare_history_revision_changed`. Neither error means an empty dataset.
+
+The opt-in `supabase/benchmarks/airfare_history_pagination.sql` seeds synthetic data
+inside a transaction and rolls back both fixtures and candidate indexes. Run it only
+in the printed isolated test database. It measures key selection, bounded RPCs and
+250-row service-role upserts against an equally indexed trigger-free temporary
+control table. It never disables the revision guard or flushes production caches.
+
 ## Deployment boundary
 
 Do not deploy intermediate implementation commits. The complete migration must

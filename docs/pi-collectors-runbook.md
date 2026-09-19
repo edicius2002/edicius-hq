@@ -95,11 +95,19 @@ never deleted or overwritten.
 
 Perform app-document import dry-run, apply, then apply again to prove
 idempotency; the transient Pi process reads its service-role secret only from
-the protected local file:
+the protected local file. Build a private local staging directory containing
+only the allowlisted collector-era documents. Do not copy `.bak` files or the
+legacy `finance`/`finance-camera-views` documents: those remain untouched on
+the PC and are owned by the earlier Finance migration.
 
 ```sh
+KV_STAGE="$(mktemp -d)"
+for key in prefs watchlist portfolio alert-rules greenlight drawings indicators chart-views airfare-routes greenlight-projector; do
+  source_file='<pc-kv-directory>/'"$key.json"
+  if test -f "$source_file"; then cp -p "$source_file" "$KV_STAGE/"; fi
+done
 STAGE="$(ssh '<pi-host>' 'mktemp -d /tmp/edicius-transfer.XXXXXXXX')"
-scp -r '<pc-kv-directory>/.' "<pi-host>:$STAGE/"
+scp -r "$KV_STAGE/." "<pi-host>:$STAGE/"
 ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/install-staged-transfer.sh kv '$STAGE'"
 ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>'"
 ssh '<pi-host>' "sudo systemd-run --quiet --wait --collect --uid=edicius --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=WorkingDirectory=/opt/edicius-hq/current /opt/edicius-hq/current/services/api/.venv/bin/python scripts/app-documents-supabase.py --source /var/lib/edicius-hq/migration-input/kv --owner-id '<owner-uuid>' --apply"

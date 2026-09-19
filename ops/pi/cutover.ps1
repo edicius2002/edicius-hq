@@ -119,7 +119,9 @@ function Invoke-PiDisabledSmoke($Collector) {
             Invoke-PiChecked 'sudo systemctl show --property=Result --value edicius-airfare.service | grep -qx success'
             Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py airfare --cutoff '$cutoff' --require-complete"
             Invoke-PiChecked "sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | grep -Fq 'Finished Edicius Airfare collector pass.'"
-            Invoke-PiChecked "! sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | grep -Eiq 'error|fatal|failed|failure'"
+            # Normalize only the successful summary counter; keep all other text
+            # on the same line so a real failure cannot be hidden by that counter.
+            Invoke-PiChecked "! sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | sed 's/, 0 failed,/,/g' | grep -Eiq 'error|fatal|failed|failure'"
         }
         default { throw "No disabled-unit smoke is defined for '$($Collector.Name)'." }
     }

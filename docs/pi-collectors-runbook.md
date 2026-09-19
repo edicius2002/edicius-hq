@@ -219,6 +219,9 @@ health, a known sanitized success signal, and no post-cutoff error/fatal/failure
 journal output. On a failure it stops that collector and leaves later units
 disabled; the PC X watcher remains stopped until a full rollback, including if
 the Pi X or market gate fails.
+The Airfare journal gate normalizes its successful `, 0 failed,` summary counter
+before checking error words. Nonzero failure counts and other errors, including
+errors on that same summary line, still fail the gate.
 
 Observe rows, collector health, timers/services, and journal errors for seven
 days. Retain unchanged PC data and the rollback path for the full seven-day PC

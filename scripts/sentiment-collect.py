@@ -19,6 +19,10 @@ from app.adapters.cnn_sentiment import SentimentProviderError, fetch_sentiment  
 from app.adapters.sentiment_models import SentimentSnapshot  # noqa: E402
 from app.config import UPSTREAM_TIMEOUT_SECONDS  # noqa: E402
 from app.services.collector_cloud import CollectorCloud, configured_collector_cloud  # noqa: E402
+from app.services.process_lock import (  # noqa: E402
+    ProcessLockUnavailable,
+    exclusive_process_lock,
+)
 
 FetchSentiment = Callable[[httpx.AsyncClient], Awaitable[SentimentSnapshot]]
 LOGGER = logging.getLogger(__name__)
@@ -67,7 +71,12 @@ async def collect_once(cloud: CollectorCloud, *, fetch: FetchSentiment = fetch_s
 
 
 def main() -> int:
-    return asyncio.run(collect_once(configured_collector_cloud()))
+    try:
+        with exclusive_process_lock("sentiment"):
+            return asyncio.run(collect_once(configured_collector_cloud()))
+    except ProcessLockUnavailable:
+        LOGGER.error("sentiment collector is already running")
+        return 1
 
 
 if __name__ == "__main__":

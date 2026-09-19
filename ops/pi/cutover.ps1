@@ -85,6 +85,33 @@ function Stop-PiCollector($Collector) {
     }
 }
 
+function Invoke-PiDisabledSmoke($Collector) {
+    $cutoff = (Get-Date).ToUniversalTime().ToString('o')
+    switch ($Collector.Name) {
+        'sentiment' {
+            Invoke-PiChecked 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live sentiment'
+            Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py sentiment --cutoff '$cutoff' --require-complete"
+        }
+        'x-posts' {
+            Invoke-PiChecked 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live x-posts'
+        }
+        'market' {
+            Invoke-PiChecked 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live market'
+        }
+        'airfare' {
+            Invoke-PiChecked 'sudo systemctl start edicius-airfare.service'
+            Invoke-PiChecked '! sudo systemctl is-failed --quiet edicius-airfare.service'
+            Invoke-PiChecked 'sudo systemctl show --property=Result --value edicius-airfare.service | grep -qx success'
+            Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py airfare --cutoff '$cutoff' --require-complete"
+            Invoke-PiChecked "sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | grep -Fq 'Finished Edicius Airfare collector pass.'"
+            Invoke-PiChecked "! sudo journalctl -u edicius-airfare.service --since '$cutoff' --no-pager | grep -Eiq 'error|fatal|failed|failure'"
+        }
+        default { throw "No disabled-unit smoke is defined for '$($Collector.Name)'." }
+    }
+    Invoke-PiChecked "sudo systemctl is-enabled $($Collector.Unit) | grep -qx disabled"
+    Invoke-PiChecked "! sudo systemctl is-active --quiet $($Collector.Unit)"
+}
+
 function Start-And-GatePiCollector($Collector) {
     $cutoff = (Get-Date).ToUniversalTime().ToString('o')
     if (-not $PSCmdlet.ShouldProcess("${PiHost}:$($Collector.Name)", 'enable, start, and gate Pi collector')) { return }
@@ -92,17 +119,15 @@ function Start-And-GatePiCollector($Collector) {
     if ($Collector.RequireComplete) {
         Invoke-PiChecked "sudo systemctl enable --now $($Collector.Unit)"
         Invoke-PiChecked "sudo systemctl is-active --quiet $($Collector.Unit)"
-        Invoke-PiChecked "sudo systemctl start $($Collector.Service)"
-        Invoke-PiChecked "! sudo systemctl is-failed --quiet $($Collector.Service)"
-        Invoke-PiChecked "sudo systemctl show --property=Result --value $($Collector.Service) | grep -qx success"
-        Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py $($Collector.Name) --cutoff '$cutoff' --require-complete"
     } else {
         Invoke-PiChecked "sudo systemctl enable --now $($Collector.Unit)"
         Invoke-PiChecked "sudo systemctl is-active --quiet $($Collector.Service)"
         Invoke-PiChecked "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py $($Collector.Name) --cutoff '$cutoff'"
     }
-    Invoke-PiChecked "sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Fq '$($Collector.JournalMarker)'"
-    Invoke-PiChecked "! sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Eiq 'error|fatal|failed|failure'"
+    if (-not $Collector.RequireComplete) {
+        Invoke-PiChecked "sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Fq '$($Collector.JournalMarker)'"
+        Invoke-PiChecked "! sudo journalctl -u $($Collector.Service) --since '$cutoff' --no-pager | grep -Eiq 'error|fatal|failed|failure'"
+    }
 }
 
 $task = Get-ExactTask
@@ -128,6 +153,7 @@ try {
                 $windowsAirfareState = 'confirmed-disabled'
             }
         }
+        Invoke-PiDisabledSmoke $collector
         Start-And-GatePiCollector $collector
         $activeCollector = $null
     }

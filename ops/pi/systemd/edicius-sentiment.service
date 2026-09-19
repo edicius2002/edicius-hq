@@ -11,7 +11,7 @@ WorkingDirectory=/opt/edicius-hq/current
 EnvironmentFile=/etc/edicius-hq/collectors.env
 Environment=HOME=/var/lib/edicius-hq
 Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq
-ExecStart=/usr/bin/flock -n /var/lib/edicius-hq/locks/sentiment.lock /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/sentiment-collect.py
+ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/sentiment-collect.py
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

@@ -153,9 +153,11 @@ def test_quote_recovery_counts_returned_provider_failures(monkeypatch):
 
     monkeypatch.setattr(registry, "fetch_quotes", fetch_quotes)
 
+    before = worker.run_records["failed"]
     asyncio.run(worker.recover_quotes())
 
     assert worker.run_records == {"seen": 2, "written": 1, "failed": 1}
+    assert worker.run_records["failed"] > before
     remote.upsert_quotes.assert_called_once()
 
 
@@ -208,6 +210,16 @@ def test_one_reconciliation_drains_requests_recovers_and_flushes_in_order():
     worker.recover_quotes = AsyncMock(side_effect=lambda: calls.append("recovery"))
     worker.flush_quotes = Mock(side_effect=lambda: calls.append("flush"))
 
-    asyncio.run(worker.reconcile_once())
+    assert asyncio.run(worker.reconcile_once()) is True
 
     assert calls == ["documents", "requests", "recovery", "flush"]
+
+
+def test_reconciliation_is_unhealthy_when_provider_work_failed():
+    worker = MarketWorker(cloud(), client=Mock())
+    worker.refresh_symbols = AsyncMock()
+    worker.claim_until_empty = AsyncMock()
+    worker.recover_quotes = AsyncMock(side_effect=lambda: setattr(worker._run_stats, "failed", 1))
+    worker.flush_quotes = Mock()
+
+    assert asyncio.run(worker.reconcile_once()) is False

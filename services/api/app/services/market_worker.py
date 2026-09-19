@@ -276,8 +276,8 @@ class MarketWorker:
         ticks = asyncio.create_task(self._consume_ticks(stop_event))
         try:
             while not stop_event.is_set():
-                await self.reconcile_once()
-                if cycle_completed is not None:
+                healthy = await self.reconcile_once()
+                if healthy and cycle_completed is not None:
                     cycle_completed(self.run_records)
                 await self._wait_for_wake_or_stop(stop_event)
         finally:
@@ -288,12 +288,14 @@ class MarketWorker:
             if self._owns_client:
                 await self.client.aclose()
 
-    async def reconcile_once(self) -> None:
+    async def reconcile_once(self) -> bool:
         """Complete one bounded document, request, and quote reconciliation."""
+        failures_before = self._run_stats.failed
         await self.refresh_symbols()
         await self.claim_until_empty()
         await self.recover_quotes()
         self.flush_quotes()
+        return self._run_stats.failed == failures_before
 
     def wake_requests(self) -> None:
         self._wake.set()

@@ -131,6 +131,10 @@ from app.services.fare_collector import (  # noqa: E402
 from app.services.fare_history import HISTORY  # noqa: E402
 from app.services.fare_passes import PassRecorder  # noqa: E402
 from app.services.fare_schedule import days_until, month_dates, poll_minutes  # noqa: E402
+from app.services.process_lock import (  # noqa: E402
+    ProcessLockUnavailable,
+    exclusive_process_lock,
+)
 from app.services.watch_document import CloudWatchDocument  # noqa: E402
 
 # Windows consoles default to cp1252, which cannot encode an arrow or an
@@ -306,7 +310,7 @@ def per_day(watch: FareWatch, today: date) -> tuple[int, int]:
     return collectable, requests
 
 
-def main() -> int:
+def collect_main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run",
@@ -656,6 +660,15 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
             *((calendar,) if calendar is not None else ()),
         )
     return code
+
+
+def main() -> int:
+    try:
+        with exclusive_process_lock("airfare"):
+            return collect_main()
+    except ProcessLockUnavailable:
+        LOGGER.error("Airfare collector is already running")
+        return 1
 
 
 if __name__ == "__main__":

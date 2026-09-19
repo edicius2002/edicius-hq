@@ -179,11 +179,14 @@ The script confirms full disabled Pi preflight and uses read-only
 to prove the local, loopback-only PC API is reachable before changing either PC
 collector. At the X gate it issues the exact
 `DELETE /api/tweets/thsottiaux/watch` and accepts only its `stopped` or `idle`
-HTTP `202` response before enabling Pi X, so the two Chromium-owning watchers
-cannot run together. It gates Sentiment, X, Market, and Airfare in that order.
+HTTP `202` response before repeating the disabled-unit X smoke and enabling Pi
+X, so the two Chromium-owning watchers cannot run together. It repeats and
+consumes a disabled-unit live smoke immediately before every enable operation,
+and gates Sentiment, X, Market, and Airfare in that order.
 Immediately before the final Airfare gate it stops the exact Windows task,
 waits with a finite deadline until it is no longer running, disables it, and
-rechecks both states before starting Pi Airfare.
+rechecks both states before running the disabled Airfare service once and then
+enabling its timer.
 Each UTC-bounded gate requires a fresh owner-scoped `collector_runs` row
 (`complete` for one-shots; a post-cutoff heartbeat for workers), service/timer
 health, a known sanitized success signal, and no post-cutoff error/fatal/failure

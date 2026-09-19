@@ -242,7 +242,7 @@ begin
   end if;
   update public.collector_requests
      set status = 'failed', error_code = p_error_code, completed_at = now()
-   where request_id = p_request_id and status = 'running'
+   where request_id = p_request_id and status = 'running' and expires_at > now()
   returning * into v_failed;
   if v_failed.request_id is null then
     raise exception using errcode = 'P0002', message = 'collector_request_not_running';

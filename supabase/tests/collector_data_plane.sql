@@ -1,5 +1,5 @@
 begin;
-select plan(85);
+select plan(86);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -197,6 +197,18 @@ select is((public.claim_collector_request('11111111-1111-1111-1111-111111111111'
           'claim returns no row after consuming the queue');
 select is((select status from public.collector_requests order by created_at limit 1), 'expired',
           'claiming expires stale queued requests after five minutes');
+insert into public.collector_requests (
+  request_id, owner_id, operation, payload, status, created_at, claimed_at, expires_at
+) values (
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  '11111111-1111-1111-1111-111111111111',
+  'market-search', '{"query":"AAPL"}', 'running',
+  now() - interval '10 minutes', now() - interval '9 minutes', now() - interval '5 minutes'
+);
+select throws_ok(
+  $$ select public.fail_collector_request('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'provider_unavailable') $$,
+  'P0002', 'collector_request_not_running', 'late provider failure cannot override request expiry'
+);
 insert into public.collector_requests (
   request_id, owner_id, operation, payload, status, created_at, claimed_at, expires_at
 ) values (

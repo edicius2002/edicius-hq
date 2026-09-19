@@ -18,6 +18,10 @@ sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 from app.config import collector_config  # noqa: E402
 from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
 from app.services.market_worker import MarketWorker  # noqa: E402
+from app.services.process_lock import (  # noqa: E402
+    ProcessLockUnavailable,
+    exclusive_process_lock,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -113,7 +117,10 @@ async def run_worker(
     try:
         run_id = cloud.begin_run("market")
         if once:
-            await worker.reconcile_once()
+            healthy = await worker.reconcile_once()
+            if not healthy:
+                cloud.fail_run(run_id, "provider-failed")
+                return 1
             cloud.heartbeat_run(run_id, worker.run_records)
         else:
             realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
@@ -158,7 +165,12 @@ async def main_async() -> int:
 
 
 def main() -> int:
-    return asyncio.run(main_async())
+    try:
+        with exclusive_process_lock("market"):
+            return asyncio.run(main_async())
+    except ProcessLockUnavailable:
+        LOGGER.error("market collector is already running")
+        return 1
 
 
 if __name__ == "__main__":

@@ -122,6 +122,25 @@ def test_x_cutover_stops_and_verifies_pc_watcher_before_starting_pi_x() -> None:
     assert "PC X watcher remains stopped" in text
 
 
+def test_cutover_consumes_disabled_unit_live_smokes_before_enabling_each_collector() -> None:
+    text = CUTOVER.read_text(encoding="utf-8")
+    smoke_function = text.index("function Invoke-PiDisabledSmoke")
+    for command in (
+        "--live sentiment",
+        "--live x-posts",
+        "--live market",
+        "systemctl start edicius-airfare.service",
+    ):
+        assert text.index(command, smoke_function) < text.index("function Start-And-GatePiCollector")
+    loop = text.index("foreach ($collector in $Collectors)")
+    x_stop = text.index("Assert-LegacyWatchStopped", loop)
+    airfare_stop = text.index("Stop-WindowsAirfare", loop)
+    smoke = text.index("Invoke-PiDisabledSmoke $collector", loop)
+    enable = text.index("Start-And-GatePiCollector $collector", loop)
+    assert x_stop < smoke < enable
+    assert airfare_stop < smoke < enable
+
+
 def test_x_cutover_failure_state_marks_delete_attempt_before_its_outcome_is_confirmed() -> (
     None
 ):

@@ -70,6 +70,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def run_query_params(
+    owner_id: object, collector: str, cutoff: datetime, *, require_complete: bool
+) -> dict[str, str]:
+    params = {
+        "select": "run_id,status,started_at,heartbeat_at,completed_at",
+        "owner_id": f"eq.{owner_id}",
+        "collector": f"eq.{collector}",
+        "order": "started_at.desc",
+        "limit": "1",
+    }
+    freshness_column = "started_at" if require_complete else "heartbeat_at"
+    params[freshness_column] = f"gte.{cutoff.isoformat()}"
+    return params
+
+
+def is_healthy_status(status: object, *, require_complete: bool) -> bool:
+    return status == ("complete" if require_complete else "running")
+
+
 def main() -> int:
     args = parse_args()
     if not 1 <= args.wait_seconds <= 300:
@@ -90,15 +109,12 @@ def main() -> int:
                 response = client.get(
                     f"{config.url}/rest/v1/collector_runs",
                     headers={"apikey": config.secret_key, "Authorization": f"Bearer {config.secret_key}"},
-                    params={
-                        "select": "run_id,status,started_at,heartbeat_at,completed_at",
-                        "owner_id": f"eq.{config.owner_id}",
-                        "collector": f"eq.{args.collector}",
-                        "started_at": f"gte.{cutoff.isoformat()}",
-                        "heartbeat_at": f"gte.{cutoff.isoformat()}",
-                        "order": "started_at.desc",
-                        "limit": "1",
-                    },
+                    params=run_query_params(
+                        config.owner_id,
+                        args.collector,
+                        cutoff,
+                        require_complete=args.require_complete,
+                    ),
                 )
             response.raise_for_status()
             rows = response.json()
@@ -106,7 +122,7 @@ def main() -> int:
                 status = rows[0].get("status")
                 if status == "failed":
                     fail("fresh collector run failed")
-                if status in {"running", "complete"} and (not args.require_complete or status == "complete"):
+                if is_healthy_status(status, require_complete=args.require_complete):
                     print(f"fresh collector run: {args.collector} {status}")
                     return 0
             if time.monotonic() >= deadline:

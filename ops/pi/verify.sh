@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Read-only Pi verification.  Only the explicit --live invocation runs the
-# sentiment provider/upsert check; the default never starts a collector.
+# Read-only Pi verification. Only an explicit --live invocation runs a
+# bounded provider/upsert smoke; the default never starts a collector.
 set -euo pipefail
 
 readonly APP_ROOT=/opt/edicius-hq
@@ -90,12 +90,16 @@ run_sentiment_test() {
   [[ "$status" -eq 0 ]] || fail "sentiment live test failed"
 }
 
-validate_units_disabled() {
+validate_target_unit_disabled() {
   local unit
-  for unit in edicius-airfare.timer edicius-sentiment.timer edicius-tweets.service edicius-market.service; do
-    systemctl is-enabled "$unit" | grep -qx disabled || fail "$unit must remain disabled during one-shot verification"
-    ! systemctl is-active --quiet "$unit" || fail "$unit must remain inactive during one-shot verification"
-  done
+  case "$LIVE_COLLECTOR" in
+    sentiment) unit=edicius-sentiment.timer ;;
+    x-posts) unit=edicius-tweets.service ;;
+    market) unit=edicius-market.service ;;
+    *) fail "unknown live collector" ;;
+  esac
+  systemctl is-enabled "$unit" | grep -qx disabled || fail "$unit must remain disabled during one-shot verification"
+  ! systemctl is-active --quiet "$unit" || fail "$unit must remain inactive during one-shot verification"
 }
 
 run_collector_smoke() {
@@ -127,13 +131,13 @@ validate_local_safety
 run_airfare_dry_run
 run_market_document_discovery
 if [[ "$LIVE" == --live ]]; then
-  validate_units_disabled
+  validate_target_unit_disabled
   if [[ "$LIVE_COLLECTOR" == sentiment ]]; then
     run_sentiment_test
   else
     run_collector_smoke
   fi
 else
-  printf '%s\n' 'sentiment live test skipped (rerun with --live to run it)'
+  printf '%s\n' 'live collector test skipped (rerun with --live to run one)'
 fi
 printf '%s\n' 'verification completed without enabling or starting systemd units.'

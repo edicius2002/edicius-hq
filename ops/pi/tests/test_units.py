@@ -75,10 +75,10 @@ def test_airfare_oneshot_has_a_bounded_twenty_minute_start_timeout() -> None:
 
 
 @pytest.mark.parametrize("unit", (SYSTEMD / "edicius-airfare.service", SYSTEMD / "edicius-sentiment.service"))
-def test_oneshots_use_nonblocking_flock(unit: Path) -> None:
+def test_oneshots_delegate_process_locking_to_the_entrypoint(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")
     assert "Type=oneshot" in text
-    assert "/usr/bin/flock -n" in text
+    assert "/usr/bin/flock" not in text
 
 
 @pytest.mark.parametrize("unit", (SYSTEMD / "edicius-tweets.service", SYSTEMD / "edicius-market.service"))
@@ -90,16 +90,35 @@ def test_workers_restart_with_bounded_systemd_backoff(unit: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "unit,lock_name",
+    "unit,script_name",
     (
-        (SYSTEMD / "edicius-tweets.service", "tweets.lock"),
-        (SYSTEMD / "edicius-market.service", "market.lock"),
+        (SYSTEMD / "edicius-tweets.service", "tweets-watch.py"),
+        (SYSTEMD / "edicius-market.service", "market-worker.py"),
     ),
 )
-def test_long_running_workers_use_distinct_nonblocking_locks(unit: Path, lock_name: str) -> None:
+def test_long_running_workers_delegate_process_locking_to_the_entrypoint(
+    unit: Path, script_name: str
+) -> None:
     text = unit.read_text(encoding="utf-8")
-    assert "/usr/bin/flock -n" in text
-    assert f"/var/lib/edicius-hq/locks/{lock_name}" in text
+    assert "/usr/bin/flock" not in text
+    assert script_name in text
+
+
+@pytest.mark.parametrize(
+    "script_name,lock_name",
+    (
+        ("fares-collect.py", "airfare"),
+        ("sentiment-collect.py", "sentiment"),
+        ("tweets-watch.py", "tweets"),
+        ("market-worker.py", "market"),
+    ),
+)
+def test_each_entrypoint_owns_a_distinct_nonblocking_process_lock(
+    script_name: str, lock_name: str
+) -> None:
+    text = (PI_ROOT.parents[1] / "scripts" / script_name).read_text(encoding="utf-8")
+    assert "exclusive_process_lock" in text
+    assert f'exclusive_process_lock("{lock_name}")' in text
 
 
 def test_verify_uses_fixed_state_and_active_release_working_directory() -> None:
@@ -120,12 +139,12 @@ def test_verify_validates_then_loads_a_non_symlink_root_owned_secret_file() -> N
     assert '. "$ENV_FILE"' not in text
 
 
-def test_verify_only_runs_sentiment_after_an_explicit_live_gate() -> None:
+def test_verify_only_runs_a_collector_after_an_explicit_live_gate() -> None:
     text = VERIFY.read_text(encoding="utf-8")
     assert 'readonly LIVE="${1:-}"' in text
     assert '[[ "$LIVE" == --live ]]' in text
     assert text.index('[[ "$LIVE" == --live ]]') < text.rindex("run_sentiment_test")
-    assert "sentiment live test skipped (rerun with --live to run it)" in text
+    assert "live collector test skipped (rerun with --live to run one)" in text
 
 
 def test_verify_market_discovery_is_read_only_and_never_starts_the_worker() -> None:

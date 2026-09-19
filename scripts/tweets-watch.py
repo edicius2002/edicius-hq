@@ -14,6 +14,10 @@ sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
 from app.config import tweets_dir  # noqa: E402
 from app.services.collector_cloud import CollectorCloud, configured_collector_cloud  # noqa: E402
+from app.services.process_lock import (  # noqa: E402
+    ProcessLockUnavailable,
+    exclusive_process_lock,
+)
 from app.services.tweet_replica import TweetReplica  # noqa: E402
 from app.services.tweet_watcher import TweetWatcher  # noqa: E402
 
@@ -105,7 +109,12 @@ async def main_async() -> int:
 
 
 def main() -> int:
-    return asyncio.run(main_async())
+    try:
+        with exclusive_process_lock("tweets"):
+            return asyncio.run(main_async())
+    except ProcessLockUnavailable:
+        LOGGER.error("X collector is already running")
+        return 1
 
 
 if __name__ == "__main__":

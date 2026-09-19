@@ -163,6 +163,16 @@ def test_installer_refuses_unpinned_releases_and_never_enables_or_starts_units()
     assert "systemctl start" not in text
 
 
+def test_installer_precreates_private_edicius_owned_entrypoint_locks() -> None:
+    text = INSTALL.read_text(encoding="utf-8")
+    for lock_name in ("airfare", "sentiment", "tweets", "market"):
+        assert lock_name in text
+    assert 'install -o edicius -g edicius -m 0600 /dev/null "$lock_path"' in text
+    assert '[[ -f "$lock_path" && ! -L "$lock_path" ]]' in text
+    assert "stat -c '%U:%G:%a'" in text
+    assert "edicius:edicius:600" in text
+
+
 def test_install_and_verify_reject_dirty_or_untracked_release_files() -> None:
     for script in (INSTALL, VERIFY):
         text = script.read_text(encoding="utf-8")

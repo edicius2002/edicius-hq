@@ -99,6 +99,9 @@ def test_airfare_cutover_stops_waits_disables_and_rechecks_windows_task_last() -
     assert handoff < pi_start
     assert "State -eq 'Running'" in text
     assert "State -ne 'Disabled'" in text
+    declined = text.index("Windows Airfare stop was declined", airfare_branch)
+    smoke = text.index("Invoke-PiDisabledSmoke $collector", airfare_branch)
+    assert declined < smoke
 
 
 def test_rollback_stops_pi_before_reenabling_exact_windows_task() -> None:

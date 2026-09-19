@@ -151,6 +151,8 @@ try {
                 $windowsAirfareState = 'stop-attempted-unconfirmed'
                 Stop-WindowsAirfare
                 $windowsAirfareState = 'confirmed-disabled'
+            } else {
+                throw 'Windows Airfare stop was declined; refusing to start Pi Airfare.'
             }
         }
         Invoke-PiDisabledSmoke $collector

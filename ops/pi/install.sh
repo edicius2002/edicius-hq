@@ -72,6 +72,15 @@ ensure_runtime() {
   [[ "$shell" == /usr/sbin/nologin || "$shell" == /sbin/nologin ]] || fail "edicius must be a non-login account"
   command -v chromium >/dev/null || fail "Chromium must be installed"
   install -d -o edicius -g edicius -m 0750 "$STATE_ROOT" "$STATE_ROOT/locks" "$STATE_ROOT/x-profile"
+  local lock_name lock_path
+  for lock_name in airfare sentiment tweets market; do
+    lock_path="$STATE_ROOT/locks/$lock_name.lock"
+    if [[ ! -e "$lock_path" ]]; then
+      install -o edicius -g edicius -m 0600 /dev/null "$lock_path"
+    fi
+    [[ -f "$lock_path" && ! -L "$lock_path" ]] || fail "$lock_path must be a regular file"
+    [[ "$(stat -c '%U:%G:%a' -- "$lock_path")" == edicius:edicius:600 ]] || fail "$lock_path owner or mode is invalid"
+  done
   runuser -u edicius -- test -w "$STATE_ROOT" || fail "durable state is not writable by edicius"
 }
 

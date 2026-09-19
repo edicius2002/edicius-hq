@@ -8,6 +8,7 @@ CUTOVER = PI_ROOT / "cutover.ps1"
 ROLLBACK = PI_ROOT / "rollback.ps1"
 IMPORT_X_PROFILE = PI_ROOT / "import-x-profile.sh"
 CHECK_RUN = PI_ROOT / "check-collector-run.py"
+SMOKE_COLLECTOR = PI_ROOT / "smoke-collector.py"
 STAGED_TRANSFER = PI_ROOT / "install-staged-transfer.sh"
 RUNBOOK = PI_ROOT.parents[1] / "docs" / "pi-collectors-runbook.md"
 
@@ -15,9 +16,9 @@ RUNBOOK = PI_ROOT.parents[1] / "docs" / "pi-collectors-runbook.md"
 def test_cutover_checks_pi_before_disabling_windows_task() -> None:
     text = CUTOVER.read_text(encoding="utf-8")
     assert text.index("verify.sh") < text.index("Disable-ScheduledTask")
-    assert 'Edicius airfare' in text
-    assert 'Get-ScheduledTask -TaskName $TaskName' in text
-    assert 'Where-Object { $_.TaskName -eq $TaskName }' in text
+    assert "Edicius airfare" in text
+    assert "Get-ScheduledTask -TaskName $TaskName" in text
+    assert "Where-Object { $_.TaskName -eq $TaskName }" in text
     assert "Remove-Item" not in text
     assert "Invoke-Expression" not in text
 
@@ -30,7 +31,9 @@ def test_cutover_requires_disabled_pi_units_before_windows_change() -> None:
     assert "SupportsShouldProcess" in text
 
 
-def test_cutover_uses_a_read_only_loopback_watcher_probe_before_windows_airfare_is_disabled() -> None:
+def test_cutover_uses_a_read_only_loopback_watcher_probe_before_windows_airfare_is_disabled() -> (
+    None
+):
     text = CUTOVER.read_text(encoding="utf-8")
     assert "LegacyApiBase" in text
     assert "127\\.0\\.0\\.1" in text
@@ -41,16 +44,26 @@ def test_cutover_uses_a_read_only_loopback_watcher_probe_before_windows_airfare_
     preflight = text.index("Assert-PiPreflight")
     windows_disable = text.index("Disable-ScheduledTask")
     assert text.index("Invoke-LegacyRefreshProbe", preflight) < windows_disable
-    assert "Invoke-LegacyWatchRequest -Method Delete" not in text[preflight:windows_disable]
+    assert (
+        "Invoke-LegacyWatchRequest -Method Delete"
+        not in text[preflight:windows_disable]
+    )
 
 
-def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_logs() -> None:
+def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_logs() -> (
+    None
+):
     text = CUTOVER.read_text(encoding="utf-8")
     assert "edicius-airfare.timer" in text
     assert "edicius-sentiment.timer" in text
     assert "edicius-tweets.service" in text
     assert "edicius-market.service" in text
-    assert text.index("edicius-airfare.timer") < text.index("edicius-sentiment.timer") < text.index("edicius-tweets.service") < text.index("edicius-market.service")
+    assert (
+        text.index("edicius-airfare.timer")
+        < text.index("edicius-sentiment.timer")
+        < text.index("edicius-tweets.service")
+        < text.index("edicius-market.service")
+    )
     assert "Get-Date).ToUniversalTime()" in text
     assert "check-collector-run.py" in text
     assert "--since" in text
@@ -72,7 +85,7 @@ def test_cutover_gates_exact_collector_mappings_in_order_with_fresh_rows_and_log
 def test_rollback_stops_pi_before_reenabling_exact_windows_task() -> None:
     text = ROLLBACK.read_text(encoding="utf-8")
     assert text.index("systemctl disable --now") < text.index("Enable-ScheduledTask")
-    assert 'Edicius airfare' in text
+    assert "Edicius airfare" in text
     assert "Remove-Item" not in text
     assert "truncate" not in text.lower()
     assert "SupportsShouldProcess" in text
@@ -82,7 +95,7 @@ def test_x_cutover_stops_and_verifies_pc_watcher_before_starting_pi_x() -> None:
     text = CUTOVER.read_text(encoding="utf-8")
     x_cutover = text.index("if ($collector.Name -eq 'x-posts')")
     stop = text.index("Assert-LegacyWatchStopped", x_cutover)
-    x_start = text.index('Start-And-GatePiCollector $collector', x_cutover)
+    x_start = text.index("Start-And-GatePiCollector $collector", x_cutover)
     assert stop < x_start
     assert "Invoke-LegacyWatchRequest -Method Delete" in text
     assert "@('stopped', 'idle')" in text
@@ -90,10 +103,14 @@ def test_x_cutover_stops_and_verifies_pc_watcher_before_starting_pi_x() -> None:
     assert "PC X watcher remains stopped" in text
 
 
-def test_x_cutover_failure_state_marks_delete_attempt_before_its_outcome_is_confirmed() -> None:
+def test_x_cutover_failure_state_marks_delete_attempt_before_its_outcome_is_confirmed() -> (
+    None
+):
     text = CUTOVER.read_text(encoding="utf-8")
     x_cutover = text.index("if ($collector.Name -eq 'x-posts')")
-    attempted = text.index("$legacyWatcherStopState = 'attempted-unconfirmed'", x_cutover)
+    attempted = text.index(
+        "$legacyWatcherStopState = 'attempted-unconfirmed'", x_cutover
+    )
     delete = text.index("Assert-LegacyWatchStopped", x_cutover)
     confirmed = text.index("$legacyWatcherStopState = 'confirmed-stopped'", x_cutover)
     assert attempted < delete < confirmed
@@ -102,7 +119,9 @@ def test_x_cutover_failure_state_marks_delete_attempt_before_its_outcome_is_conf
     assert "PC X watcher was not changed" in text
 
 
-def test_rollback_stops_and_confirms_every_pi_collector_before_restarting_pc_x() -> None:
+def test_rollback_stops_and_confirms_every_pi_collector_before_restarting_pc_x() -> (
+    None
+):
     text = ROLLBACK.read_text(encoding="utf-8")
     assert "LegacyApiBase" in text
     assert '"$LegacyApiBase/api/tweets/thsottiaux/watch"' in text
@@ -133,7 +152,9 @@ def test_x_profile_import_refuses_unsafe_paths_and_live_replacement() -> None:
     assert "Cookies" not in text
 
 
-def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secrets() -> None:
+def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secrets() -> (
+    None
+):
     text = CHECK_RUN.read_text(encoding="utf-8")
     assert "/etc/edicius-hq/collectors.env" in text
     assert "SUPABASE_SECRET_KEY" in text
@@ -150,10 +171,30 @@ def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secret
     assert "trust_env=False" in text
 
 
-def test_staged_transfer_is_fixed_destination_and_removes_only_validated_tmp_stage() -> None:
+def test_live_smoke_uses_local_secret_file_and_bounded_one_shots() -> None:
+    smoke = SMOKE_COLLECTOR.read_text(encoding="utf-8")
+    verify = (PI_ROOT / "verify.sh").read_text(encoding="utf-8")
+    assert "/etc/edicius-hq/collectors.env" in smoke
+    assert "metadata.st_uid != 0" in smoke
+    assert "metadata.st_gid != 0" in smoke
+    assert "metadata.st_mode & 0o777 != 0o600" in smoke
+    assert "trust_env=False" in smoke
+    assert "SUPABASE_SECRET_KEY" in smoke
+    assert "--secret" not in smoke
+    assert '"--once"' in smoke
+    assert "tweets-watch.py" in smoke
+    assert "market-worker.py" in smoke
+    assert "smoke-collector.py" in verify
+    assert "systemctl is-enabled" in verify
+    assert "systemctl is-active" in verify
+
+
+def test_staged_transfer_is_fixed_destination_and_removes_only_validated_tmp_stage() -> (
+    None
+):
     text = STAGED_TRANSFER.read_text(encoding="utf-8")
     assert "set -euo pipefail" in text
-    assert "case \"$kind\"" in text
+    assert 'case "$kind"' in text
     assert '[[ "$stage_real" == /tmp/edicius-transfer.* ]]' in text
     assert "install -d -o edicius -g edicius -m 0750" in text
     assert '[[ -d "$STATE_ROOT" && ! -L "$STATE_ROOT" ]]' in text
@@ -161,11 +202,13 @@ def test_staged_transfer_is_fixed_destination_and_removes_only_validated_tmp_sta
     assert 'state_root_real="$(readlink -f -- "$STATE_ROOT")"' in text
     assert 'migration_root_real="$(readlink -f -- "$MIGRATION_ROOT")"' in text
     assert '[[ "$migration_root_real" == "$state_root_real/migration-input" ]]' in text
-    assert "find \"$target_real\" -type f -exec chmod 0600 {} +" in text
-    assert "rm -rf -- \"$stage_real\"" in text
+    assert 'find "$target_real" -type f -exec chmod 0600 {} +' in text
+    assert 'rm -rf -- "$stage_real"' in text
 
 
-def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints() -> None:
+def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints() -> (
+    None
+):
     text = RUNBOOK.read_text(encoding="utf-8")
     assert text.count("HUMAN-ONLY") == 2
     for required in (

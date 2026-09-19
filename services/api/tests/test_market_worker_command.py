@@ -62,6 +62,19 @@ def test_run_worker_marks_an_unexpected_worker_failure_before_closing_cloud():
     cloud.close.assert_called_once_with()
 
 
+def test_once_reconciles_without_starting_realtime_or_long_running_loop():
+    cloud = Mock()
+    worker = Mock(reconcile_once=AsyncMock())
+    worker.run_records = {"seen": 2, "written": 2, "failed": 0}
+
+    assert asyncio.run(load_script().run_worker(cloud, worker, asyncio.Event(), once=True)) == 0
+
+    worker.reconcile_once.assert_awaited_once_with()
+    worker.run.assert_not_called()
+    cloud.heartbeat_run.assert_called_once_with(cloud.begin_run.return_value, worker.run_records)
+    cloud.finish_run.assert_called_once_with(cloud.begin_run.return_value, worker.run_records)
+
+
 def test_realtime_subscription_retries_after_initial_failure_and_disconnect():
     """A transient Realtime outage must return to push wakeups instead of polling forever."""
     module = load_script()

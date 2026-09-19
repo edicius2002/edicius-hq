@@ -96,3 +96,24 @@ def test_worker_keeps_watching_when_the_initial_outbox_replay_is_offline():
     )
 
     watcher.watch.assert_called_once_with("thsottiaux")
+
+
+def test_once_captures_replays_and_exits_without_starting_watch_loop():
+    cloud = Mock()
+    replica = Mock(replay=Mock(return_value=0))
+    watcher = Mock(run_once=AsyncMock())
+    watcher.stop = AsyncMock()
+    watcher.current.return_value = type("Refresh", (), {"state": "finished", "new": 0})()
+
+    assert (
+        asyncio.run(
+            load_script().run_worker(
+                "thsottiaux", cloud, watcher, replica, asyncio.Event(), once=True
+            )
+        )
+        == 0
+    )
+
+    watcher.run_once.assert_awaited_once_with("thsottiaux")
+    watcher.watch.assert_not_called()
+    watcher.stop.assert_awaited_once_with()

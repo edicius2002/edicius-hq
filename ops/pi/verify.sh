@@ -12,6 +12,7 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly RELEASE_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 readonly PYTHON="$CURRENT_LINK/services/api/.venv/bin/python"
 readonly LIVE="${1:-}"
+readonly LIVE_COLLECTOR="${2:-sentiment}"
 readonly REQUIRED_ENV_NAMES=(SUPABASE_URL SUPABASE_SECRET_KEY EDICIUS_OWNER_ID COLLECTOR_SUPABASE_TIMEOUT_SECONDS AIRFARE_DATA_BACKEND AIRFARE_SYNC_ENABLED)
 
 fail() {
@@ -88,6 +89,24 @@ run_sentiment_test() {
   [[ "$status" -eq 0 ]] || fail "sentiment live test failed"
 }
 
+validate_units_disabled() {
+  local unit
+  for unit in edicius-airfare.timer edicius-sentiment.timer edicius-tweets.service edicius-market.service; do
+    systemctl is-enabled "$unit" | grep -qx disabled || fail "$unit must remain disabled during one-shot verification"
+    ! systemctl is-active --quiet "$unit" || fail "$unit must remain inactive during one-shot verification"
+  done
+}
+
+run_collector_smoke() {
+  local cutoff
+  cutoff="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  set +e
+  "$PYTHON" "$CURRENT_LINK/ops/pi/smoke-collector.py" "$LIVE_COLLECTOR" --cutoff "$cutoff" 2>&1 | sanitize
+  local status=${PIPESTATUS[0]}
+  set -e
+  [[ "$status" -eq 0 ]] || fail "$LIVE_COLLECTOR live smoke failed"
+}
+
 run_market_document_discovery() {
   set +e
   "$PYTHON" -c 'import sys; sys.path.insert(0, "services/api"); from app.services.collector_cloud import configured_collector_cloud; from app.services.market_worker import desired_symbols; cloud = configured_collector_cloud(); docs = cloud.documents(("watchlist", "portfolio", "alert-rules")); cloud.close(); print(f"market documents: {len(docs)}; symbols: {len(desired_symbols(docs))}")' 2>&1 | sanitize
@@ -96,7 +115,8 @@ run_market_document_discovery() {
   [[ "$status" -eq 0 ]] || fail "market document discovery failed"
 }
 
-[[ $# -le 1 && ( -z "$LIVE" || "$LIVE" == --live ) ]] || fail "usage: verify.sh [--live]"
+[[ $# -le 2 && ( -z "$LIVE" || "$LIVE" == --live ) ]] || fail "usage: verify.sh [--live [sentiment|x-posts|market]]"
+[[ "$LIVE_COLLECTOR" == sentiment || "$LIVE_COLLECTOR" == x-posts || "$LIVE_COLLECTOR" == market ]] || fail "unknown live collector"
 validate_active_release
 validate_env
 load_env
@@ -106,7 +126,12 @@ validate_local_safety
 run_airfare_dry_run
 run_market_document_discovery
 if [[ "$LIVE" == --live ]]; then
-  run_sentiment_test
+  validate_units_disabled
+  if [[ "$LIVE_COLLECTOR" == sentiment ]]; then
+    run_sentiment_test
+  else
+    run_collector_smoke
+  fi
 else
   printf '%s\n' 'sentiment live test skipped (rerun with --live to run it)'
 fi

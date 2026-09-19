@@ -198,3 +198,16 @@ def test_pre_set_stop_does_not_fetch_documents_or_open_provider_work():
         remote.documents.assert_not_called()
 
     asyncio.run(run())
+
+
+def test_one_reconciliation_drains_requests_recovers_and_flushes_in_order():
+    worker = MarketWorker(cloud(), client=Mock())
+    calls: list[str] = []
+    worker.refresh_symbols = AsyncMock(side_effect=lambda: calls.append("documents"))
+    worker.claim_until_empty = AsyncMock(side_effect=lambda: calls.append("requests"))
+    worker.recover_quotes = AsyncMock(side_effect=lambda: calls.append("recovery"))
+    worker.flush_quotes = Mock(side_effect=lambda: calls.append("flush"))
+
+    asyncio.run(worker.reconcile_once())
+
+    assert calls == ["documents", "requests", "recovery", "flush"]

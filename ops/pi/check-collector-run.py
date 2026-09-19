@@ -91,10 +91,11 @@ def main() -> int:
                     f"{config.url}/rest/v1/collector_runs",
                     headers={"apikey": config.secret_key, "Authorization": f"Bearer {config.secret_key}"},
                     params={
-                        "select": "run_id,status,started_at,completed_at",
+                        "select": "run_id,status,started_at,heartbeat_at,completed_at",
                         "owner_id": f"eq.{config.owner_id}",
                         "collector": f"eq.{args.collector}",
                         "started_at": f"gte.{cutoff.isoformat()}",
+                        "heartbeat_at": f"gte.{cutoff.isoformat()}",
                         "order": "started_at.desc",
                         "limit": "1",
                     },

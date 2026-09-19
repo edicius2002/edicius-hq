@@ -275,17 +275,11 @@ class MarketWorker:
             return
         ticks = asyncio.create_task(self._consume_ticks(stop_event))
         try:
-            if stop_event.is_set():
-                return
-            await self.refresh_symbols()
             while not stop_event.is_set():
-                await self.claim_until_empty()
-                await self.recover_quotes()
-                self.flush_quotes()
+                await self.reconcile_once()
                 if cycle_completed is not None:
                     cycle_completed(self.run_records)
                 await self._wait_for_wake_or_stop(stop_event)
-                await self.refresh_symbols()
         finally:
             ticks.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -293,6 +287,13 @@ class MarketWorker:
             self.flush_quotes()
             if self._owns_client:
                 await self.client.aclose()
+
+    async def reconcile_once(self) -> None:
+        """Complete one bounded document, request, and quote reconciliation."""
+        await self.refresh_symbols()
+        await self.claim_until_empty()
+        await self.recover_quotes()
+        self.flush_quotes()
 
     def wake_requests(self) -> None:
         self._wake.set()

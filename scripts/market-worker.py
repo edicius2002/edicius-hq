@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import contextlib
 import logging
@@ -104,16 +105,22 @@ async def maintain_request_subscription(
             backoff = min(backoff * 2, 60.0)
 
 
-async def run_worker(cloud: Any, worker: MarketWorker, stopped: asyncio.Event) -> int:
+async def run_worker(
+    cloud: Any, worker: MarketWorker, stopped: asyncio.Event, *, once: bool = False
+) -> int:
     realtime: asyncio.Task[None] | None = None
     run_id = None
     try:
         run_id = cloud.begin_run("market")
-        realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
-        await worker.run(
-            stopped,
-            lambda records: cloud.heartbeat_run(run_id, records),
-        )
+        if once:
+            await worker.reconcile_once()
+            cloud.heartbeat_run(run_id, worker.run_records)
+        else:
+            realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
+            await worker.run(
+                stopped,
+                lambda records: cloud.heartbeat_run(run_id, records),
+            )
         cloud.finish_run(run_id, worker.run_records)
         return 0
     except BaseException:
@@ -131,7 +138,14 @@ async def run_worker(cloud: Any, worker: MarketWorker, stopped: asyncio.Event) -
         cloud.close()
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--once", action="store_true", help="run one bounded reconciliation")
+    return parser.parse_args()
+
+
 async def main_async() -> int:
+    args = parse_args()
     cloud = configured_collector_cloud()
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -140,7 +154,7 @@ async def main_async() -> int:
             loop.add_signal_handler(signum, stopped.set)
         except NotImplementedError:
             signal.signal(signum, lambda *_args: loop.call_soon_threadsafe(stopped.set))
-    return await run_worker(cloud, MarketWorker(cloud), stopped)
+    return await run_worker(cloud, MarketWorker(cloud), stopped, once=args.once)
 
 
 def main() -> int:

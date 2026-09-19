@@ -265,7 +265,11 @@ class MarketWorker:
             await self.serve_request(request)
         return claimed
 
-    async def run(self, stop_event: asyncio.Event) -> None:
+    async def run(
+        self,
+        stop_event: asyncio.Event,
+        cycle_completed: Callable[[Mapping[str, int]], None] | None = None,
+    ) -> None:
         """Run stream/recovery work; callers may set wake on a Realtime insert."""
         if stop_event.is_set():
             return
@@ -278,6 +282,8 @@ class MarketWorker:
                 await self.claim_until_empty()
                 await self.recover_quotes()
                 self.flush_quotes()
+                if cycle_completed is not None:
+                    cycle_completed(self.run_records)
                 await self._wait_for_wake_or_stop(stop_event)
                 await self.refresh_symbols()
         finally:

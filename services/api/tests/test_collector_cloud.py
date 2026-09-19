@@ -147,27 +147,42 @@ def test_run_transitions_are_compare_and_set(secret_config):
 
     cloud = CollectorCloud(secret_config, transport=httpx.MockTransport(handle))
     assert cloud.begin_run("market") == UUID(run_id)
+    cloud.heartbeat_run(UUID(run_id), {"seen": 3, "written": 2, "failed": 1})
     cloud.finish_run(UUID(run_id), {"seen": 3, "written": 2, "failed": 1})
     cloud.fail_run(UUID(run_id), "provider_unavailable")
 
     assert requests[1].url.params["status"] == "eq.running"
     assert requests[1].url.params["run_id"] == f"eq.{run_id}"
-    completed = json.loads(requests[1].content)
-    assert {key: value for key, value in completed.items() if key != "completed_at"} == {
+    assert requests[1].url.params["owner_id"] == f"eq.{OWNER_ID}"
+    heartbeat = json.loads(requests[1].content)
+    assert {key: value for key, value in heartbeat.items() if key != "heartbeat_at"} == {
+        "records_seen": 3,
+        "records_written": 2,
+        "records_failed": 1,
+    }
+    assert datetime.fromisoformat(heartbeat["heartbeat_at"]).tzinfo == UTC
+    completed = json.loads(requests[2].content)
+    assert {
+        key: value
+        for key, value in completed.items()
+        if key not in {"heartbeat_at", "completed_at"}
+    } == {
         "status": "complete",
         "records_seen": 3,
         "records_written": 2,
         "records_failed": 1,
     }
-    assert requests[2].url.params["status"] == "eq.running"
-    failed = json.loads(requests[2].content)
-    assert {key: value for key, value in failed.items() if key != "completed_at"} == {
+    assert requests[3].url.params["status"] == "eq.running"
+    failed = json.loads(requests[3].content)
+    assert {
+        key: value for key, value in failed.items() if key not in {"heartbeat_at", "completed_at"}
+    } == {
         "status": "failed",
         "error_code": "provider_unavailable",
     }
     for transition in (completed, failed):
-        timestamp = transition["completed_at"]
-        assert datetime.fromisoformat(timestamp).tzinfo == UTC
+        assert transition["heartbeat_at"] == transition["completed_at"]
+        assert datetime.fromisoformat(transition["completed_at"]).tzinfo == UTC
 
 
 def test_invalid_request_result_is_rejected_without_payload_details(secret_config):

@@ -158,18 +158,33 @@ class CollectorCloud:
 
     def finish_run(self, run_id: UUID, records: Mapping[str, int]) -> None:
         values = self._record_values(records)
+        timestamp = _utc_timestamp()
         self._update(
             "collector_runs",
             run_id,
-            {"status": "complete", "completed_at": _utc_timestamp(), **values},
+            {"status": "complete", "heartbeat_at": timestamp, "completed_at": timestamp, **values},
+        )
+
+    def heartbeat_run(self, run_id: UUID, records: Mapping[str, int]) -> None:
+        """Advance useful-work health without changing the active run state."""
+        self._update(
+            "collector_runs",
+            run_id,
+            {"heartbeat_at": _utc_timestamp(), **self._record_values(records)},
         )
 
     def fail_run(self, run_id: UUID, code: str) -> None:
         self._validate_error_code(code)
+        timestamp = _utc_timestamp()
         self._update(
             "collector_runs",
             run_id,
-            {"status": "failed", "error_code": code, "completed_at": _utc_timestamp()},
+            {
+                "status": "failed",
+                "error_code": code,
+                "heartbeat_at": timestamp,
+                "completed_at": timestamp,
+            },
         )
 
     def upsert_tweets(self, rows: Sequence[dict[str, Any]]) -> int:

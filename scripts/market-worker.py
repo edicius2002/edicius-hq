@@ -110,7 +110,10 @@ async def run_worker(cloud: Any, worker: MarketWorker, stopped: asyncio.Event) -
     try:
         run_id = cloud.begin_run("market")
         realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
-        await worker.run(stopped)
+        await worker.run(
+            stopped,
+            lambda records: cloud.heartbeat_run(run_id, records),
+        )
         cloud.finish_run(run_id, worker.run_records)
         return 0
     except BaseException:

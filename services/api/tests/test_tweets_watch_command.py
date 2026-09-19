@@ -26,9 +26,24 @@ def test_worker_replays_before_opening_the_browser_and_closes_on_stop():
     events: list[str] = []
     stopped = asyncio.Event()
     replica = Mock()
+    replica.replay.return_value = 0
     watcher = Mock()
     watcher.stop = AsyncMock()
-    watcher.watch.side_effect = lambda _handle: (events.append("watch"), stopped.set())
+    observer = None
+
+    def set_observer(callback):
+        nonlocal observer
+        observer = callback
+
+    watcher.set_run_observer.side_effect = set_observer
+
+    def watch(_handle):
+        events.append("watch")
+        assert observer is not None
+        observer(type("Refresh", (), {"new": 0})())
+        stopped.set()
+
+    watcher.watch.side_effect = watch
     cloud = Mock()
     cloud.begin_run.return_value = uuid.UUID("22222222-2222-2222-2222-222222222222")
 
@@ -39,6 +54,9 @@ def test_worker_replays_before_opening_the_browser_and_closes_on_stop():
     replica.replay.assert_called_once_with("thsottiaux")
     assert events == ["watch"]
     watcher.stop.assert_awaited_once_with()
+    cloud.heartbeat_run.assert_called_once_with(
+        cloud.begin_run.return_value, {"seen": 0, "written": 0, "failed": 0}
+    )
     cloud.finish_run.assert_called_once_with(
         cloud.begin_run.return_value, {"seen": 0, "written": 0, "failed": 0}
     )

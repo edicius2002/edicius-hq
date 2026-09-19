@@ -28,8 +28,9 @@ async def run_worker(
     stopped: asyncio.Event,
 ) -> int:
     """Replay before Chromium starts, then keep its profile in one process."""
+    replayed = 0
     try:
-        await asyncio.to_thread(replica.replay, handle)
+        replayed = await asyncio.to_thread(replica.replay, handle)
     except Exception:  # noqa: BLE001 - the retained outbox is retried by later captures
         LOGGER.error("X worker could not replay its local outbox")
     try:
@@ -38,6 +39,15 @@ async def run_worker(
         LOGGER.error("X worker could not initialize its cloud run")
         run_id = None
     try:
+        records = {"seen": replayed, "written": replayed, "failed": 0}
+
+        def heartbeat(refresh) -> None:
+            records["seen"] += refresh.new
+            records["written"] += refresh.new
+            if run_id is not None:
+                cloud.heartbeat_run(run_id, records)
+
+        watcher.set_run_observer(heartbeat)
         watcher.watch(handle)
         stop_wait = asyncio.create_task(stopped.wait())
         watch_task = getattr(watcher, "_loop_task", None)

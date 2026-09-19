@@ -79,6 +79,30 @@ def test_a_failed_cycle_increases_backoff(tmp_path):
     asyncio.run(scenario())
 
 
+def test_run_observer_receives_only_durably_successful_passes(tmp_path):
+    async def scenario():
+        observed = []
+
+        async def successful(_handle):
+            return []
+
+        success = TweetWatcher(data_dir=tmp_path, cycle=successful)
+        success.set_run_observer(observed.append)
+        await success.run_once("sample")
+
+        async def broken(_handle):
+            raise RuntimeError("offline")
+
+        failure = TweetWatcher(data_dir=tmp_path, cycle=broken)
+        failure.set_run_observer(observed.append)
+        await failure.run_once("sample")
+
+        assert len(observed) == 1
+        assert observed[0].state == "finished"
+
+    asyncio.run(scenario())
+
+
 def test_manual_refresh_uses_the_watchers_single_running_cycle(tmp_path):
     async def scenario():
         started = asyncio.Event()

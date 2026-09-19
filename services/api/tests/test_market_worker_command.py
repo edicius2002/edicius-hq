@@ -28,15 +28,23 @@ def test_run_worker_closes_cloud_after_the_stop_signal():
     """A stopped service must release both the HTTP cloud and provider sessions."""
     cloud = Mock()
     cloud.owner_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
-    worker = Mock(run=AsyncMock())
+
+    async def run(_stopped, cycle_completed):
+        cycle_completed({"seen": 3, "written": 2, "failed": 1})
+
+    worker = Mock(run=AsyncMock(side_effect=run))
     worker.run_records = {"seen": 3, "written": 2, "failed": 1}
     stopped = asyncio.Event()
     stopped.set()
 
     assert asyncio.run(load_script().run_worker(cloud, worker, stopped)) == 0
 
-    worker.run.assert_awaited_once_with(stopped)
+    worker.run.assert_awaited_once()
+    assert worker.run.await_args.args[0] is stopped
     cloud.begin_run.assert_called_once_with("market")
+    cloud.heartbeat_run.assert_called_once_with(
+        cloud.begin_run.return_value, {"seen": 3, "written": 2, "failed": 1}
+    )
     cloud.finish_run.assert_called_once_with(
         cloud.begin_run.return_value, {"seen": 3, "written": 2, "failed": 1}
     )

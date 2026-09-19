@@ -187,7 +187,12 @@ class TweetWatcher:
         self._playwright: Any | None = None
         self._page: Any | None = None
         self._browser_loop: BrowserLoop | None = None
+        self._run_observer: Callable[[Refresh], None] | None = None
         self.stream: PassBroadcast[dict[str, Any]] = PassBroadcast()
+
+    def set_run_observer(self, observer: Callable[[Refresh], None] | None) -> None:
+        """Observe only passes whose capture and durable replica both succeeded."""
+        self._run_observer = observer
 
     def current(self, handle: str | None = None) -> Refresh | None:
         if handle is None or self.pass_ is None or self.pass_.handle == handle:
@@ -292,6 +297,8 @@ class TweetWatcher:
             self.pass_.state = "finished"
             self.pass_.finishedAt = datetime.now(UTC).isoformat()
             self.delay_seconds = self.interval_seconds
+            if self._run_observer is not None:
+                self._run_observer(self.pass_)
         except Exception as error:  # noqa: BLE001 - anything the browser or the
             # session can raise has to be named for the reader rather than escape
             # into a loop that would then retry it every two minutes.

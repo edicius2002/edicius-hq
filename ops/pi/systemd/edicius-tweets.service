@@ -12,6 +12,7 @@ EnvironmentFile=/etc/edicius-hq/collectors.env
 Environment=HOME=/var/lib/edicius-hq
 Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq
 Environment=X_SCRAPER_PROFILE=/var/lib/edicius-hq/x-profile
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/cache/edicius-hq/playwright
 ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/tweets-watch.py --handle thsottiaux
 Restart=on-failure
 RestartSec=15

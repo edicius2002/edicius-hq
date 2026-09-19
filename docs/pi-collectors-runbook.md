@@ -83,6 +83,9 @@ ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/install.sh'
 ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare.timer edicius-sentiment.timer edicius-tweets.service edicius-market.service'
 ```
 
+The installer also downloads the Playwright-pinned Chromium build into the
+private shared cache used by the X unit and disabled-unit smoke tests.
+
 Each result must be `disabled`. There is no `git pull` at boot and no command
 activates a moving branch.
 

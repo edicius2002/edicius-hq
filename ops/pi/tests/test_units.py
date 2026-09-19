@@ -211,7 +211,20 @@ def test_live_verification_runs_collectors_as_the_service_identity() -> None:
     assert 'Environment=HOME=$STATE_ROOT' in text
     assert 'Environment=LOCAL_DATA_DIR=$STATE_ROOT' in text
     assert 'Environment=X_SCRAPER_PROFILE=$STATE_ROOT/x-profile' in text
+    assert 'Environment=PLAYWRIGHT_BROWSERS_PATH=$BROWSER_ROOT' in text
     assert "--preserve-environment" not in text
+
+
+def test_installer_provisions_the_pinned_playwright_browser_for_x() -> None:
+    install = INSTALL.read_text(encoding="utf-8")
+    tweets = (SYSTEMD / "edicius-tweets.service").read_text(encoding="utf-8")
+    browser_root = "/var/cache/edicius-hq/playwright"
+    assert f"readonly BROWSER_ROOT={browser_root}" in install
+    assert 'install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$BROWSER_ROOT"' in install
+    assert 'runuser -u "$SERVICE_USER" -- env HOME="$STATE_ROOT" PLAYWRIGHT_BROWSERS_PATH="$BROWSER_ROOT"' in install
+    assert '"$PYTHON" -m playwright install chromium' in install
+    assert f"Environment=PLAYWRIGHT_BROWSERS_PATH={browser_root}" in tweets
+    assert browser_root in VERIFY.read_text(encoding="utf-8")
 
 
 def test_installer_normalizes_existing_symlink_free_durable_state() -> None:

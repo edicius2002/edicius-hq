@@ -7,11 +7,13 @@ readonly APP_ROOT=/opt/edicius-hq
 readonly RELEASES_ROOT="$APP_ROOT/releases"
 readonly CURRENT_LINK="$APP_ROOT/current"
 readonly STATE_ROOT=/var/lib/edicius-hq
+readonly BROWSER_ROOT=/var/cache/edicius-hq/playwright
 readonly ENV_FILE=/etc/edicius-hq/collectors.env
 readonly UNIT_DIR=/etc/systemd/system
 readonly SERVICE_USER=edicius-collector
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly RELEASE_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
+readonly PYTHON="$CURRENT_LINK/services/api/.venv/bin/python"
 
 fail() {
   printf '%s\n' "edicius Pi install: $1" >&2
@@ -100,6 +102,15 @@ ensure_runtime() {
     [[ "$(stat -c '%U:%G:%a' -- "$lock_path")" == $SERVICE_USER:$SERVICE_USER:600 ]] || fail "$lock_path owner or mode is invalid"
   done
   runuser -u "$SERVICE_USER" -- test -w "$STATE_ROOT/x-profile" || fail "durable state is not writable by $SERVICE_USER"
+  [[ ! -L /var/cache/edicius-hq ]] || fail "browser cache parent must not be a symlink"
+  [[ ! -e /var/cache/edicius-hq || -d /var/cache/edicius-hq ]] || fail "browser cache parent must be a directory"
+  install -d -o root -g root -m 0755 /var/cache/edicius-hq
+  [[ ! -L "$BROWSER_ROOT" ]] || fail "Playwright browser cache must not be a symlink"
+  [[ ! -e "$BROWSER_ROOT" || -d "$BROWSER_ROOT" ]] || fail "Playwright browser cache must be a directory"
+  install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$BROWSER_ROOT"
+  runuser -u "$SERVICE_USER" -- env HOME="$STATE_ROOT" PLAYWRIGHT_BROWSERS_PATH="$BROWSER_ROOT" \
+    "$PYTHON" -m playwright install chromium \
+    || fail "Playwright Chromium installation failed"
 }
 
 install_units() {

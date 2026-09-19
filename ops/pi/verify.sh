@@ -7,6 +7,7 @@ readonly APP_ROOT=/opt/edicius-hq
 readonly RELEASES_ROOT="$APP_ROOT/releases"
 readonly CURRENT_LINK="$APP_ROOT/current"
 readonly STATE_ROOT=/var/lib/edicius-hq
+readonly BROWSER_ROOT=/var/cache/edicius-hq/playwright
 readonly ENV_FILE=/etc/edicius-hq/collectors.env
 readonly SERVICE_USER=edicius-collector
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -32,6 +33,7 @@ run_as_service() {
     --property="Environment=HOME=$STATE_ROOT" \
     --property="Environment=LOCAL_DATA_DIR=$STATE_ROOT" \
     --property="Environment=X_SCRAPER_PROFILE=$STATE_ROOT/x-profile" \
+    --property="Environment=PLAYWRIGHT_BROWSERS_PATH=$BROWSER_ROOT" \
     --property="WorkingDirectory=$CURRENT_LINK" \
     -- "$@"
 }

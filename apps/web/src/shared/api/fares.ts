@@ -1,5 +1,6 @@
 import { apiRequest } from '@/shared/api/http';
 import {
+  fetchAirports as fetchSupabaseAirports,
   fetchFareCalendar as fetchSupabaseFareCalendar,
   fetchFareHistory as fetchSupabaseFareHistory,
   searchAirports as searchSupabaseAirports,
@@ -352,7 +353,8 @@ export function fetchFareCalendar(
 }
 
 /**
- * Every airport the archive knows, for drawing every watched route at once.
+ * Every airport the archive knows, plus requested waypoint fallbacks, for
+ * drawing every watched route at once.
  *
  * Separate from the history call because that one only knows about its own two
  * ends, and the map needs both ends of all of them.
@@ -361,12 +363,7 @@ export function fetchAirports(
   codes: readonly string[] = [],
   options: { signal?: AbortSignal } = {},
 ): Promise<{ airports: Airport[] }> {
-  const query = new URLSearchParams();
-  for (const code of codes) query.append('codes', code);
-  const suffix = query.size ? `?${query}` : '';
-  return apiRequest<{ airports: Airport[] }>(`/api/fares/airports${suffix}`, {
-    signal: options.signal,
-  });
+  return fetchSupabaseAirports(codes, options);
 }
 
 /** One airport a search box can offer. */
@@ -380,9 +377,10 @@ export type AirportMatch = {
 /**
  * Airports matching what is being typed, best match first.
  *
- * Distinct from `fetchAirports`, which lists only what the archive has
- * actually collected. This one searches every airport with scheduled service,
- * so a route can be added to somewhere nobody has watched yet.
+ * Distinct from `fetchAirports`, which lists the collected coordinate map and
+ * resolves only explicitly requested missing waypoints. This one searches
+ * every airport with scheduled service, so a route can be added to somewhere
+ * nobody has watched yet.
  *
  * The table lives on the server: 4,162 airports is 71 kB gzipped, which would
  * have roughly doubled this page's download for a feature most visits never

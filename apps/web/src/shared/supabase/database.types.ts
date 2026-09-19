@@ -82,6 +82,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      airport_coordinate_reference: {
+        Row: {
+          code: string;
+          latitude: number;
+          longitude: number;
+        };
+        Insert: {
+          code: string;
+          latitude: number;
+          longitude: number;
+        };
+        Update: {
+          code?: string;
+          latitude?: number;
+          longitude?: number;
+        };
+        Relationships: [];
+      };
       app_documents: {
         Row: {
           document_key: string;
@@ -693,6 +711,10 @@ export type Database = {
       };
       read_owner_airfare_calendar: {
         Args: { p_destination: string; p_origin: string };
+        Returns: Json;
+      };
+      read_owner_fare_airports: {
+        Args: { p_codes: string[] };
         Returns: Json;
       };
       read_airfare_history_meta: {

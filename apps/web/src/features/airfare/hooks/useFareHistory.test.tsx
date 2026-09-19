@@ -73,12 +73,15 @@ describe('useFareHistory complete reads', () => {
     });
     expect(client.getQueryState(key)?.status).toBe('error');
     expect(client.getQueryData(key)).toEqual(previous);
-    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(
+      rpc.mock.calls.filter(([name]) => name === 'read_owner_airfare_history_meta'),
+    ).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledTimes(4);
     unmount();
     client.clear();
   });
 
-  it('forwards unmount cancellation to the active RPC and starts no subsequent page', async () => {
+  it('forwards unmount cancellation to both active RPCs and starts no subsequent page', async () => {
     const fixture = JSON.parse(rawFixture);
     const signals: AbortSignal[] = [];
     rpc.mockImplementation(() => ({
@@ -94,14 +97,15 @@ describe('useFareHistory complete reads', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(signals).toHaveLength(2);
+    expect(signals).toHaveLength(3);
     unmount();
     await act(async () => {
       await Promise.resolve();
     });
     expect(signals[1].aborted).toBe(true);
+    expect(signals[2].aborted).toBe(true);
     expect(client.getQueryData(key)).toBeUndefined();
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledTimes(3);
     client.clear();
   });
 });

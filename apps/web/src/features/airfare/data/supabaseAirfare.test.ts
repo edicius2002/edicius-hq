@@ -5,6 +5,7 @@ const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
 vi.mock('@/shared/supabase/client', () => ({ supabase: { rpc } }));
 
 import {
+  fetchAirports,
   fetchFareCalendar,
   fetchFareHistory,
   searchAirports,
@@ -14,11 +15,18 @@ afterEach(() => vi.clearAllMocks());
 
 describe('Supabase Airfare reads', () => {
   it('reads history through the owner-gated RPC with the existing filter shape', async () => {
-    const history = JSON.parse(rawFixture);
+    const history = JSON.parse(rawFixture) as {
+      meta: unknown;
+      snapshotPages: unknown[];
+      baselinePages: unknown[];
+      expected: unknown;
+    };
     const responses = [
       history.meta,
-      ...history.snapshotPages,
-      ...history.baselinePages,
+      history.snapshotPages[0],
+      history.baselinePages[0],
+      ...history.snapshotPages.slice(1),
+      ...history.baselinePages.slice(1),
       history.meta,
     ];
     const signals: AbortSignal[] = [];
@@ -46,7 +54,9 @@ describe('Supabase Airfare reads', () => {
       p_until: '',
     });
     expect(signals).toHaveLength(5);
-    expect(new Set(signals).size).toBe(1);
+    expect(new Set(signals).size).toBe(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    expect(new Set(signals.slice(1, 4)).size).toBe(1);
     expect(signals[0]).toBeInstanceOf(AbortSignal);
   });
 
@@ -70,6 +80,27 @@ describe('Supabase Airfare reads', () => {
 
     await expect(searchAirports('lima', { limit: 8 })).resolves.toBe(result);
     expect(rpc).toHaveBeenCalledWith('search_owner_airports', { p_query: 'lima', p_limit: 8 });
+  });
+
+  it('reads map coordinates through the owner-gated Supabase RPC', async () => {
+    const result = {
+      airports: [
+        {
+          code: 'AQP',
+          name: 'Rodriguez Ballon',
+          city: 'Arequipa',
+          country: 'Peru',
+          latitude: -16.341,
+          longitude: -71.583,
+        },
+      ],
+    };
+    rpc.mockResolvedValue({ data: result, error: null });
+
+    await expect(fetchAirports(['AQP', 'LIM'])).resolves.toBe(result);
+    expect(rpc).toHaveBeenCalledWith('read_owner_fare_airports', {
+      p_codes: ['AQP', 'LIM'],
+    });
   });
 
   it('surfaces owner RPC errors', async () => {

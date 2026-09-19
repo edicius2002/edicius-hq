@@ -90,6 +90,14 @@ $pagination = Join-Path $repoRoot 'supabase/migrations/20260919010000_airfare_hi
 if (Test-Path -LiteralPath $pagination) {
     $null = Invoke-LocalSql $Database ("begin;`n" + [IO.File]::ReadAllText($pagination) + "`ncommit;")
 }
+$coordinateReference = Join-Path $repoRoot 'supabase/migrations/20260919020000_airport_coordinate_reference.sql'
+if (Test-Path -LiteralPath $coordinateReference) {
+    $null = Invoke-LocalSql $Database ("begin;`n" + [IO.File]::ReadAllText($coordinateReference) + "`ncommit;")
+}
+$ownerAirports = Join-Path $repoRoot 'supabase/migrations/20260919020100_airfare_owner_airports.sql'
+if (Test-Path -LiteralPath $ownerAirports) {
+    $null = Invoke-LocalSql $Database ("begin;`n" + [IO.File]::ReadAllText($ownerAirports) + "`ncommit;")
+}
 if (-not $Tests) {
     $Tests = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'supabase/tests') -Filter '*.sql' | Sort-Object Name | ForEach-Object FullName)
 }

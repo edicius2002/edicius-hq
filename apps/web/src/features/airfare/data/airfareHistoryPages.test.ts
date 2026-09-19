@@ -21,9 +21,14 @@ function fixture(): Fixture {
 }
 
 function replies(data: Fixture): unknown[] {
-  return [data.meta, ...data.snapshotPages, ...data.baselinePages, data.meta].map((value) =>
-    structuredClone(value),
-  );
+  return [
+    data.meta,
+    data.snapshotPages[0],
+    data.baselinePages[0],
+    ...data.snapshotPages.slice(1),
+    ...data.baselinePages.slice(1),
+    data.meta,
+  ].map((value) => structuredClone(value));
 }
 
 function queued(values: unknown[]) {
@@ -40,6 +45,14 @@ function change(value: unknown, path: (string | number)[], replacement: unknown)
   target[path.at(-1)!] = replacement;
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 afterEach(() => vi.useRealTimers());
 
 describe('complete revision-checked Airfare history', () => {
@@ -52,7 +65,8 @@ describe('complete revision-checked Airfare history', () => {
       wire: unknown[];
       expected: FareHistoryResponse;
     };
-    const rpc = queued([...data.wire.slice(0, -1), new HistoryRevisionChanged(), ...data.wire]);
+    const pass = [data.wire[0], data.wire[1], data.wire[3], data.wire[2], data.wire[4]];
+    const rpc = queued([...pass.slice(0, -1), new HistoryRevisionChanged(), ...pass]);
     const assertion = expect(assembleHistory(rpc, data.filters)).resolves.toEqual(data.expected);
     await vi.advanceTimersByTimeAsync(100);
     await assertion;
@@ -65,10 +79,44 @@ describe('complete revision-checked Airfare history', () => {
     await expect(assembleHistory(rpc, data.filters)).resolves.toEqual(data.expected);
     expect(rpc).toHaveBeenCalledTimes(5);
     expect(rpc.mock.calls[4][1]).toMatchObject({ p_expected_revision: data.meta.revision });
-    expect(rpc.mock.calls[2][1]).toHaveProperty('p_cursor', data.snapshotPages[0].nextCursor);
+    expect(rpc.mock.calls[3][1]).toHaveProperty('p_cursor', data.snapshotPages[0].nextCursor);
     expect(rpc.mock.calls.every(([name]) => name.startsWith('read_owner_airfare_history_'))).toBe(
       true,
     );
+  });
+
+  it('uses the largest bounded page and reads both datasets concurrently', async () => {
+    const data = fixture();
+    const snapshots = data.snapshotPages.map((page) => structuredClone(page));
+    const baseline = data.baselinePages.map((page) => structuredClone(page));
+    const firstSnapshot = deferred<unknown>();
+    const baselineStarted = deferred<void>();
+    const startedBeforeSnapshotLanded: string[] = [];
+    let snapshotCalls = 0;
+    let snapshotLanded = false;
+    const rpc = vi.fn<Parameters<typeof assembleHistory>[0]>(async (name, params) => {
+      if (name.endsWith('_meta')) return structuredClone(data.meta);
+      if (!('p_dataset' in params)) throw new Error('expected a page request');
+      expect(params).toHaveProperty('p_page_size', 250);
+      const dataset = params.p_dataset as 'snapshots' | 'baseline';
+      if (!snapshotLanded) startedBeforeSnapshotLanded.push(dataset);
+      if (dataset === 'snapshots') {
+        snapshotCalls += 1;
+        if (snapshotCalls === 1) return firstSnapshot.promise;
+        return snapshots.shift();
+      }
+      baselineStarted.resolve();
+      return baseline.shift();
+    });
+
+    const result = assembleHistory(rpc, data.filters);
+    await baselineStarted.promise;
+    const beforeRelease = [...startedBeforeSnapshotLanded];
+    snapshotLanded = true;
+    firstSnapshot.resolve(snapshots.shift());
+
+    await expect(result).resolves.toEqual(data.expected);
+    expect(beforeRelease).toEqual(expect.arrayContaining(['snapshots', 'baseline']));
   });
 
   const malformed: [number, (string | number)[], unknown][] = [
@@ -94,7 +142,7 @@ describe('complete revision-checked Airfare history', () => {
     [2, ['items', 0, 'order', 1], '1'],
     [2, ['items', 0, 'recordId'], '1'.repeat(64)],
     [2, ['nextCursor'], {}],
-    [3, ['items', 0, 'order', 0], '2026-02-30'],
+    [2, ['items', 0, 'order', 0], '2026-02-30'],
     [4, ['health', 'checks'], 99],
     [4, ['counts', 'snapshots'], '5'],
   ];
@@ -166,7 +214,8 @@ describe('complete revision-checked Airfare history', () => {
     wire[2] = new Error('unavailable');
     const rpc = queued(wire);
     await expect(assembleHistory(rpc, data.filters)).rejects.toThrow('unavailable');
-    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc.mock.calls.filter(([name]) => name.endsWith('_meta'))).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledTimes(4);
   });
 
   it.each([0, 1, 2, 4, 5])(

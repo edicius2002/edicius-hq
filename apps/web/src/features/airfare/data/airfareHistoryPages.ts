@@ -177,7 +177,7 @@ function parsePage(
     page.dataset !== dataset
   )
     reject();
-  if (!Array.isArray(page.items) || page.items.length > 100 || !Object.hasOwn(page, 'nextCursor'))
+  if (!Array.isArray(page.items) || page.items.length > 250 || !Object.hasOwn(page, 'nextCursor'))
     reject();
   let last = previous ? position(previous.after, dataset) : null;
   for (const value of page.items) {
@@ -261,20 +261,31 @@ async function readAttempt(
     return result;
   };
   const meta = parseMeta(await request('read_owner_airfare_history_meta', params), params);
-  const assembled: Record<Dataset, Record<string, unknown>[]> = { snapshots: [], baseline: [] };
-  for (const dataset of ['snapshots', 'baseline'] as const) {
+  const datasetController = new AbortController();
+  const abortDatasets = () => datasetController.abort(signal.reason);
+  signal.addEventListener('abort', abortDatasets, { once: true });
+  if (signal.aborted) abortDatasets();
+  const datasetSignal = datasetController.signal;
+  const datasetRequest = async (name: Parameters<HistoryRpc>[0], values: HistoryArguments) => {
+    datasetSignal.throwIfAborted();
+    const result = await abortable(rpc(name, values, datasetSignal), datasetSignal);
+    datasetSignal.throwIfAborted();
+    return result;
+  };
+  const readDataset = async (dataset: Dataset): Promise<Record<string, unknown>[]> => {
+    const assembled: Record<string, unknown>[] = [];
     const expected = decimal(meta.counts[dataset]);
     const identities = new Set<string>();
     let cursor: HistoryCursor | null = null;
     let received = 0n;
     while (expected > 0n) {
       const page = parsePage(
-        await request('read_owner_airfare_history_page', {
+        await datasetRequest('read_owner_airfare_history_page', {
           ...params,
           p_revision: meta.revision,
           p_dataset: dataset,
           p_cursor: cursor,
-          p_page_size: 100,
+          p_page_size: 250,
         }),
         meta,
         dataset,
@@ -283,7 +294,7 @@ async function readAttempt(
       for (const item of page.items) {
         if (identities.has(item.recordId)) reject();
         identities.add(item.recordId);
-        assembled[dataset].push(item.payload);
+        assembled.push(item.payload);
         received += 1n;
       }
       cursor = page.nextCursor;
@@ -291,7 +302,26 @@ async function readAttempt(
       if (cursor === null) break;
     }
     if (received !== expected) reject();
-  }
+    return assembled;
+  };
+  const guardedRead = async (dataset: Dataset) => {
+    try {
+      return await readDataset(dataset);
+    } catch (error) {
+      if (!datasetSignal.aborted) datasetController.abort(error);
+      throw error;
+    }
+  };
+  const reads = [guardedRead('snapshots'), guardedRead('baseline')] as const;
+  const settled = await Promise.allSettled(reads);
+  signal.removeEventListener('abort', abortDatasets);
+  signal.throwIfAborted();
+  const failure = settled.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  if (failure) throw failure.reason;
+  const snapshots = (settled[0] as PromiseFulfilledResult<Record<string, unknown>[]>).value;
+  const baseline = (settled[1] as PromiseFulfilledResult<Record<string, unknown>[]>).value;
   const final = parseMeta(
     await request('read_owner_airfare_history_meta', {
       ...params,
@@ -307,8 +337,8 @@ async function readAttempt(
     health: meta.health,
     airports: meta.airports,
     pairReference: meta.pairReference,
-    snapshots: assembled.snapshots as FareHistoryResponse['snapshots'],
-    baseline: assembled.baseline as FareHistoryResponse['baseline'],
+    snapshots: snapshots as FareHistoryResponse['snapshots'],
+    baseline: baseline as FareHistoryResponse['baseline'],
   };
 }
 

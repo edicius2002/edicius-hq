@@ -1,6 +1,11 @@
 /** Authenticated browser reads for the Pi-owned Airfare archive replica. */
 
-import type { AirportMatch, FareCalendarResponse, FareHistoryResponse } from '@/shared/api/fares';
+import type {
+  Airport,
+  AirportMatch,
+  FareCalendarResponse,
+  FareHistoryResponse,
+} from '@/shared/api/fares';
 import { supabase } from '@/shared/supabase/client';
 import { assembleHistory, HistoryRevisionChanged } from './airfareHistoryPages';
 
@@ -61,6 +66,18 @@ export async function fetchFareCalendar(
     p_destination: destination,
   });
   return rpcResult<FareCalendarResponse>(data, error);
+}
+
+export async function fetchAirports(
+  codes: readonly string[] = [],
+  options: { signal?: AbortSignal } = {},
+): Promise<{ airports: Airport[] }> {
+  const request = supabase.rpc('read_owner_fare_airports', { p_codes: [...codes] });
+  const { data, error } = options.signal
+    ? await request.abortSignal(options.signal)
+    : await request;
+  options.signal?.throwIfAborted();
+  return rpcResult<{ airports: Airport[] }>(data, error);
 }
 
 export async function searchAirports(

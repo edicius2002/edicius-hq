@@ -5,7 +5,9 @@ param(
     [string]$PiHost,
 
     [ValidatePattern('^http://127\.0\.0\.1(?::[1-9][0-9]{0,4})?$')]
-    [string]$LegacyApiBase = 'http://127.0.0.1:8000'
+    [string]$LegacyApiBase = 'http://127.0.0.1:8000',
+
+    [switch]$LegacyCollectorsAbsent
 )
 
 Set-StrictMode -Version Latest
@@ -51,6 +53,14 @@ function Get-ExactTask() {
         Where-Object { $_.TaskName -eq $TaskName })
     if ($matches.Count -ne 1) { throw "Expected exactly one scheduled task named '$TaskName'; found $($matches.Count)." }
     return $matches[0]
+}
+
+function Assert-LegacyCollectorsAbsent() {
+    $matches = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
+        Where-Object { $_.TaskName -eq $TaskName })
+    if ($matches.Count -ne 0) { throw "Legacy-absent mode requires zero tasks named '$TaskName'; found $($matches.Count)." }
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $LegacyRefreshEndpoint -Method Get -SkipHttpErrorCheck
+    if ($response.StatusCode -ne 404) { throw "Legacy-absent mode requires the X watcher endpoint to return 404; received $($response.StatusCode)." }
 }
 
 function Stop-WindowsAirfare() {
@@ -130,10 +140,11 @@ function Start-And-GatePiCollector($Collector) {
     }
 }
 
-$task = Get-ExactTask
+$task = $null
+if ($LegacyCollectorsAbsent) { Assert-LegacyCollectorsAbsent } else { $task = Get-ExactTask }
 if ($WhatIfPreference) { Write-Verbose 'WhatIf: exact task validated; no remote or scheduler mutation performed.'; return }
 Assert-PiPreflight
-Invoke-LegacyRefreshProbe
+if (-not $LegacyCollectorsAbsent) { Invoke-LegacyRefreshProbe }
 
 $activeCollector = $null
 $legacyWatcherStopState = 'not-attempted'
@@ -142,12 +153,18 @@ try {
     foreach ($collector in $Collectors) {
         $activeCollector = $collector
         if ($collector.Name -eq 'x-posts') {
-            $legacyWatcherStopState = 'attempted-unconfirmed'
-            Assert-LegacyWatchStopped
-            $legacyWatcherStopState = 'confirmed-stopped'
+            if ($LegacyCollectorsAbsent) {
+                $legacyWatcherStopState = 'confirmed-absent'
+            } else {
+                $legacyWatcherStopState = 'attempted-unconfirmed'
+                Assert-LegacyWatchStopped
+                $legacyWatcherStopState = 'confirmed-stopped'
+            }
         }
         if ($collector.Name -eq 'airfare') {
-            if ($PSCmdlet.ShouldProcess($TaskName, 'stop and disable Windows airfare immediately before Pi Airfare')) {
+            if ($LegacyCollectorsAbsent) {
+                $windowsAirfareState = 'confirmed-absent'
+            } elseif ($PSCmdlet.ShouldProcess($TaskName, 'stop and disable Windows airfare immediately before Pi Airfare')) {
                 $windowsAirfareState = 'stop-attempted-unconfirmed'
                 Stop-WindowsAirfare
                 $windowsAirfareState = 'confirmed-disabled'
@@ -164,11 +181,13 @@ try {
         try { Stop-PiCollector $activeCollector } catch { Write-Error "Could not stop failed Pi collector: $($_.Exception.Message)" }
     }
     $watcherState = switch ($legacyWatcherStopState) {
+        'confirmed-absent' { ' The PC X watcher was confirmed absent.' }
         'confirmed-stopped' { ' The PC X watcher remains stopped until full rollback.' }
         'attempted-unconfirmed' { ' PC X watcher stop was attempted but its outcome is unconfirmed; do not start another PC or Pi X watcher until it is reconciled.' }
         default { ' The PC X watcher was not changed.' }
     }
     $airfareState = switch ($windowsAirfareState) {
+        'confirmed-absent' { ' Windows Airfare was confirmed absent.' }
         'confirmed-disabled' { ' Windows Airfare is confirmed disabled.' }
         'stop-attempted-unconfirmed' { ' Windows Airfare stop was attempted but its state is unconfirmed; do not start Pi Airfare.' }
         default { ' Windows Airfare was not changed.' }

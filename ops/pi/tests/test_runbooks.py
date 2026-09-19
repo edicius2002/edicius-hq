@@ -33,6 +33,20 @@ def test_cutover_requires_disabled_pi_units_before_windows_change() -> None:
     assert "SupportsShouldProcess" in text
 
 
+def test_cutover_and_rollback_support_only_explicitly_verified_legacy_absence() -> None:
+    for script in (CUTOVER, ROLLBACK):
+        text = script.read_text(encoding="utf-8")
+        assert "[switch]$LegacyCollectorsAbsent" in text
+        assert "Assert-LegacyCollectorsAbsent" in text
+        assert "requires zero tasks" in text
+        assert "endpoint to return 404" in text
+        assert "-SkipHttpErrorCheck" in text
+    cutover = CUTOVER.read_text(encoding="utf-8")
+    assert "if (-not $LegacyCollectorsAbsent) { Invoke-LegacyRefreshProbe }" in cutover
+    assert "$legacyWatcherStopState = 'confirmed-absent'" in cutover
+    assert "$windowsAirfareState = 'confirmed-absent'" in cutover
+
+
 def test_cutover_uses_a_read_only_loopback_watcher_probe_before_windows_airfare_is_disabled() -> (
     None
 ):

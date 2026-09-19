@@ -5,7 +5,9 @@ param(
     [string]$PiHost,
 
     [ValidatePattern('^http://127\.0\.0\.1(?::[1-9][0-9]{0,4})?$')]
-    [string]$LegacyApiBase = 'http://127.0.0.1:8000'
+    [string]$LegacyApiBase = 'http://127.0.0.1:8000',
+
+    [switch]$LegacyCollectorsAbsent
 )
 
 Set-StrictMode -Version Latest
@@ -46,7 +48,16 @@ function Get-ExactTask() {
     return $matches[0]
 }
 
-$task = Get-ExactTask
+function Assert-LegacyCollectorsAbsent() {
+    $matches = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
+        Where-Object { $_.TaskName -eq $TaskName })
+    if ($matches.Count -ne 0) { throw "Legacy-absent mode requires zero tasks named '$TaskName'; found $($matches.Count)." }
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $LegacyWatchEndpoint -Method Get -SkipHttpErrorCheck
+    if ($response.StatusCode -ne 404) { throw "Legacy-absent mode requires the X watcher endpoint to return 404; received $($response.StatusCode)." }
+}
+
+$task = $null
+if ($LegacyCollectorsAbsent) { Assert-LegacyCollectorsAbsent } else { $task = Get-ExactTask }
 if ($WhatIfPreference) { Write-Verbose 'WhatIf: exact task validated; no remote or scheduler mutation performed.'; return }
 
 try {
@@ -62,6 +73,12 @@ try {
     Assert-AllPiCollectorsStopped
 } catch {
     throw "Partial rollback: Pi units may still be active; Windows task and PC X watcher were not enabled. $($_.Exception.Message)"
+}
+
+if ($LegacyCollectorsAbsent) {
+    Assert-LegacyCollectorsAbsent
+    Write-Output 'Rollback completed with legacy collectors confirmed absent and without deleting or truncating Pi or Supabase data.'
+    return
 }
 
 if ($PSCmdlet.ShouldProcess($LegacyWatchEndpoint, 'restart the legacy PC X watcher after all Pi collectors are stopped')) {

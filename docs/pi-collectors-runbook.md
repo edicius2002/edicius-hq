@@ -194,6 +194,11 @@ Set-Location '<pinned-checkout>\ops\pi'
 .\cutover.ps1 -PiHost '<pi-dns-name>' -LegacyApiBase 'http://127.0.0.1:8000'
 ```
 
+If the exact Windows Airfare task was never installed and the loopback X
+watcher endpoint returns HTTP 404, use `-LegacyCollectorsAbsent` for both the
+WhatIf and real cutover. The switch refuses to proceed unless it verifies both
+conditions; it is not a way to bypass a running legacy collector.
+
 The script confirms full disabled Pi preflight and uses read-only
 `GET /api/tweets/thsottiaux/refresh` (required HTTP `200` and expected handle)
 to prove the local, loopback-only PC API is reachable before changing either PC
@@ -223,6 +228,10 @@ Set-Location '<pinned-checkout>\ops\pi'
 .\rollback.ps1 -PiHost '<pi-dns-name>' -WhatIf
 .\rollback.ps1 -PiHost '<pi-dns-name>' -LegacyApiBase 'http://127.0.0.1:8000'
 ```
+
+Use the same `-LegacyCollectorsAbsent` switch for rollback when cutover used
+that mode; rollback then confirms absence again instead of creating or starting
+legacy collectors that did not exist before the migration.
 
 Rollback stops/disables every Pi timer and service and confirms all are
 inactive before it restarts the legacy PC X watcher with

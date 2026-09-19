@@ -21,3 +21,6 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/edicius-hq
 UMask=0077
+
+[Install]
+WantedBy=multi-user.target

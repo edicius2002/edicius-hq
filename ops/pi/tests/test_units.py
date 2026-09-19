@@ -91,6 +91,13 @@ def test_workers_restart_with_bounded_systemd_backoff(unit: Path) -> None:
     assert "TimeoutStopSec=60" in text
 
 
+@pytest.mark.parametrize("unit", (SYSTEMD / "edicius-tweets.service", SYSTEMD / "edicius-market.service"))
+def test_long_running_workers_can_be_enabled_only_at_controlled_cutover(unit: Path) -> None:
+    text = unit.read_text(encoding="utf-8")
+    assert "[Install]" in text
+    assert "WantedBy=multi-user.target" in text
+
+
 @pytest.mark.parametrize(
     "unit,script_name",
     (

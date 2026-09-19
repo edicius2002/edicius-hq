@@ -168,6 +168,10 @@ def test_installer_precreates_private_edicius_owned_entrypoint_locks() -> None:
     for lock_name in ("airfare", "sentiment", "tweets", "market"):
         assert lock_name in text
     assert 'install -o edicius -g edicius -m 0600 /dev/null "$lock_path"' in text
+    assert 'install -d -o root -g edicius -m 0750 "$STATE_ROOT/locks"' in text
+    reject_symlink = text.index('[[ ! -L "$lock_path" ]]')
+    create = text.index('install -o edicius -g edicius -m 0600 /dev/null "$lock_path"')
+    assert reject_symlink < create
     assert '[[ -f "$lock_path" && ! -L "$lock_path" ]]' in text
     assert "stat -c '%U:%G:%a'" in text
     assert "edicius:edicius:600" in text

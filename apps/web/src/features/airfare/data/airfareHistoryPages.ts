@@ -272,29 +272,33 @@ async function readAttempt(
     datasetSignal.throwIfAborted();
     return result;
   };
-  const readDataset = async (dataset: Dataset): Promise<Record<string, unknown>[]> => {
-    const assembled: Record<string, unknown>[] = [];
-    const expected = decimal(meta.counts[dataset]);
+  const readDataset = async (
+    dataset: Dataset,
+    datasetParams: HistoryFilters,
+    datasetMeta: HistoryMeta,
+  ): Promise<HistoryItem[]> => {
+    const assembled: HistoryItem[] = [];
+    const expected = decimal(datasetMeta.counts[dataset]);
     const identities = new Set<string>();
     let cursor: HistoryCursor | null = null;
     let received = 0n;
     while (expected > 0n) {
       const page = parsePage(
         await datasetRequest('read_owner_airfare_history_page', {
-          ...params,
-          p_revision: meta.revision,
+          ...datasetParams,
+          p_revision: datasetMeta.revision,
           p_dataset: dataset,
           p_cursor: cursor,
           p_page_size: 250,
         }),
-        meta,
+        datasetMeta,
         dataset,
         cursor,
       );
       for (const item of page.items) {
         if (identities.has(item.recordId)) reject();
         identities.add(item.recordId);
-        assembled.push(item.payload);
+        assembled.push(item);
         received += 1n;
       }
       cursor = page.nextCursor;
@@ -304,15 +308,57 @@ async function readAttempt(
     if (received !== expected) reject();
     return assembled;
   };
-  const guardedRead = async (dataset: Dataset) => {
+
+  const readSnapshots = async (): Promise<HistoryItem[]> => {
+    const expected = decimal(meta.counts.snapshots);
+    if (expected === 0n) return [];
+    const months = [...new Set(params.p_snapshot_months ?? [])];
+    if (months.length <= 1) return readDataset('snapshots', params, meta);
+
+    const shards: HistoryItem[][] = Array.from({ length: months.length });
+    let nextShard = 0;
+    const worker = async () => {
+      while (true) {
+        const index = nextShard;
+        nextShard += 1;
+        if (index >= months.length) return;
+        const shardParams = { ...params, p_snapshot_months: [months[index]] };
+        const shardMeta = parseMeta(
+          await datasetRequest('read_owner_airfare_history_meta', {
+            ...shardParams,
+            p_expected_revision: meta.revision,
+          }),
+          shardParams,
+        );
+        if (shardMeta.revision !== meta.revision) throw new HistoryRevisionChanged();
+        shards[index] = await readDataset('snapshots', shardParams, shardMeta);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, months.length) }, async () => worker()));
+
+    const assembled = shards.flat();
+    if (BigInt(assembled.length) !== expected) reject();
+    const identities = new Set<string>();
+    for (const item of assembled) {
+      if (identities.has(item.recordId)) reject();
+      identities.add(item.recordId);
+    }
+    assembled.sort((left, right) => compare(left.order, right.order, 'snapshots'));
+    return assembled;
+  };
+
+  const guardedRead = async <Result>(read: () => Promise<Result>) => {
     try {
-      return await readDataset(dataset);
+      return await read();
     } catch (error) {
       if (!datasetSignal.aborted) datasetController.abort(error);
       throw error;
     }
   };
-  const reads = [guardedRead('snapshots'), guardedRead('baseline')] as const;
+  const reads = [
+    guardedRead(readSnapshots),
+    guardedRead(() => readDataset('baseline', params, meta)),
+  ] as const;
   const settled = await Promise.allSettled(reads);
   signal.removeEventListener('abort', abortDatasets);
   signal.throwIfAborted();
@@ -320,8 +366,8 @@ async function readAttempt(
     (result): result is PromiseRejectedResult => result.status === 'rejected',
   );
   if (failure) throw failure.reason;
-  const snapshots = (settled[0] as PromiseFulfilledResult<Record<string, unknown>[]>).value;
-  const baseline = (settled[1] as PromiseFulfilledResult<Record<string, unknown>[]>).value;
+  const snapshots = (settled[0] as PromiseFulfilledResult<HistoryItem[]>).value;
+  const baseline = (settled[1] as PromiseFulfilledResult<HistoryItem[]>).value;
   const final = parseMeta(
     await request('read_owner_airfare_history_meta', {
       ...params,
@@ -337,8 +383,8 @@ async function readAttempt(
     health: meta.health,
     airports: meta.airports,
     pairReference: meta.pairReference,
-    snapshots: snapshots as FareHistoryResponse['snapshots'],
-    baseline: baseline as FareHistoryResponse['baseline'],
+    snapshots: snapshots.map((item) => item.payload) as FareHistoryResponse['snapshots'],
+    baseline: baseline.map((item) => item.payload) as FareHistoryResponse['baseline'],
   };
 }
 

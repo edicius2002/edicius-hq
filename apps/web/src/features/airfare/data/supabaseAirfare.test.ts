@@ -41,7 +41,7 @@ describe('Supabase Airfare reads', () => {
     await expect(
       fetchFareHistory('AQP', 'LIM', {
         departure: '2026-11',
-        snapshotMonths: ['2026-11', '2026-12'],
+        snapshotMonths: ['2026-11'],
         signal: controller.signal,
       }),
     ).resolves.toEqual(history.expected);
@@ -49,7 +49,7 @@ describe('Supabase Airfare reads', () => {
       p_origin: 'AQP',
       p_destination: 'LIM',
       p_departure: '2026-11',
-      p_snapshot_months: ['2026-11', '2026-12'],
+      p_snapshot_months: ['2026-11'],
       p_since: '',
       p_until: '',
     });

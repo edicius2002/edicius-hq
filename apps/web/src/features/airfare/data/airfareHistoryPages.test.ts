@@ -17,6 +17,14 @@ function fixture(): Fixture {
   expect(value).toHaveProperty('meta.counts.snapshots', '4');
   expect(value).toHaveProperty('snapshotPages');
   expect(value).toHaveProperty('expected');
+  const data = value as Fixture;
+  data.filters = { ...data.filters, p_snapshot_months: ['2026-11'] };
+  return data;
+}
+
+function multiMonthFixture(): Fixture {
+  const value: unknown = JSON.parse(rawFixture);
+  expect(value).toHaveProperty('filters.p_snapshot_months', ['2026-11', '2026-12']);
   return value as Fixture;
 }
 
@@ -65,6 +73,7 @@ describe('complete revision-checked Airfare history', () => {
       wire: unknown[];
       expected: FareHistoryResponse;
     };
+    data.filters = { ...data.filters, p_snapshot_months: ['2026-11'] };
     const pass = [data.wire[0], data.wire[1], data.wire[3], data.wire[2], data.wire[4]];
     const rpc = queued([...pass.slice(0, -1), new HistoryRevisionChanged(), ...pass]);
     const assertion = expect(assembleHistory(rpc, data.filters)).resolves.toEqual(data.expected);
@@ -117,6 +126,190 @@ describe('complete revision-checked Airfare history', () => {
 
     await expect(result).resolves.toEqual(data.expected);
     expect(beforeRelease).toEqual(expect.arrayContaining(['snapshots', 'baseline']));
+  });
+
+  it('reads distinct snapshot months concurrently and restores global order', async () => {
+    const data = multiMonthFixture();
+    const allItems = data.snapshotPages.flatMap((page) =>
+      structuredClone(page.items as Record<string, unknown>[]),
+    );
+    const months = ['2026-11', '2026-12'] as const;
+    const queryKeys = { '2026-11': 'a'.repeat(32), '2026-12': 'b'.repeat(32) };
+    const shardMeta = Object.fromEntries(
+      months.map((month) => {
+        const count = allItems.filter((item) =>
+          String((item.payload as Record<string, unknown>).flightDate).startsWith(month),
+        ).length;
+        return [
+          month,
+          {
+            ...structuredClone(data.meta),
+            queryKey: queryKeys[month],
+            counts: { ...(data.meta.counts as Record<string, unknown>), snapshots: String(count) },
+          },
+        ];
+      }),
+    );
+    const shardPages = Object.fromEntries(
+      months.map((month) => [
+        month,
+        {
+          protocolVersion: 1,
+          queryKey: queryKeys[month],
+          revision: data.meta.revision,
+          dataset: 'snapshots',
+          items: allItems.filter((item) =>
+            String((item.payload as Record<string, unknown>).flightDate).startsWith(month),
+          ),
+          nextCursor: null,
+        },
+      ]),
+    );
+    const novemberPage = deferred<unknown>();
+    const decemberStarted = deferred<void>();
+    const baselinePages = data.baselinePages.map((page) => structuredClone(page));
+    const rootSnapshotPages = data.snapshotPages.map((page) => structuredClone(page));
+    const rpc = vi.fn<Parameters<typeof assembleHistory>[0]>(async (name, params) => {
+      const selected = params.p_snapshot_months;
+      if (name.endsWith('_meta')) {
+        if (selected.length === 1)
+          return structuredClone(shardMeta[selected[0] as keyof typeof shardMeta]);
+        if ('p_expected_revision' in params) return structuredClone(data.meta);
+        return structuredClone(data.meta);
+      }
+      if ('p_dataset' in params && params.p_dataset === 'baseline') return baselinePages.shift();
+      if (selected.length !== 1) {
+        decemberStarted.resolve();
+        return rootSnapshotPages.shift();
+      }
+      if (selected[0] === '2026-11') return novemberPage.promise;
+      decemberStarted.resolve();
+      return structuredClone(shardPages['2026-12']);
+    });
+
+    const result = assembleHistory(rpc, data.filters);
+    await decemberStarted.promise;
+    expect(
+      rpc.mock.calls.flatMap(([, params]) =>
+        'p_dataset' in params && params.p_dataset === 'snapshots' ? [params.p_snapshot_months] : [],
+      ),
+    ).toEqual(expect.arrayContaining([['2026-11'], ['2026-12']]));
+    novemberPage.resolve(structuredClone(shardPages['2026-11']));
+
+    await expect(result).resolves.toEqual(data.expected);
+    expect(rpc).toHaveBeenCalledTimes(7);
+    expect(
+      rpc.mock.calls
+        .filter(([name, params]) => name.endsWith('_meta') && params.p_snapshot_months.length === 1)
+        .every(
+          ([, params]) =>
+            'p_expected_revision' in params && params.p_expected_revision === data.meta.revision,
+        ),
+    ).toBe(true);
+  });
+
+  it('limits monthly snapshot metadata and page streams to three workers', async () => {
+    const data = multiMonthFixture();
+    const rootMeta = structuredClone(data.meta);
+    rootMeta.counts = { snapshots: '4', baseline: '1' };
+    const items = data.snapshotPages.flatMap((page) =>
+      structuredClone(page.items as Record<string, unknown>[]),
+    );
+    const months = ['2026-09', '2026-10', '2026-11', '2026-12'];
+    const gates = months.map(() => deferred<void>());
+    const thirdStarted = deferred<void>();
+    const fourthStarted = deferred<void>();
+    const baselineStarted = deferred<void>();
+    const baselineGate = deferred<void>();
+    const started: string[] = [];
+    const rpc = vi.fn<Parameters<typeof assembleHistory>[0]>(async (name, params) => {
+      const selected = params.p_snapshot_months;
+      if (name.endsWith('_meta')) {
+        if (selected.length !== 1) return structuredClone(rootMeta);
+        const index = months.indexOf(selected[0]);
+        started.push(selected[0]);
+        if (started.length === 3) thirdStarted.resolve();
+        if (started.length === 4) fourthStarted.resolve();
+        await gates[index].promise;
+        return {
+          ...structuredClone(rootMeta),
+          queryKey: (index + 10).toString(16).repeat(32),
+          counts: { snapshots: '1', baseline: '0' },
+        };
+      }
+      if (!('p_dataset' in params)) throw new Error('unexpected page');
+      if (params.p_dataset === 'baseline') {
+        baselineStarted.resolve();
+        await baselineGate.promise;
+        const item = (data.baselinePages[0].items as Record<string, unknown>[])[0];
+        return {
+          protocolVersion: 1,
+          queryKey: rootMeta.queryKey,
+          revision: rootMeta.revision,
+          dataset: 'baseline',
+          items: [structuredClone(item)],
+          nextCursor: null,
+        };
+      }
+      const index = months.indexOf(selected[0]);
+      return {
+        protocolVersion: 1,
+        queryKey: (index + 10).toString(16).repeat(32),
+        revision: rootMeta.revision,
+        dataset: 'snapshots',
+        items: [items[index]],
+        nextCursor: null,
+      };
+    });
+
+    const result = assembleHistory(rpc, { ...data.filters, p_snapshot_months: months });
+    await Promise.all([thirdStarted.promise, baselineStarted.promise]);
+    expect(started).toHaveLength(3);
+    gates.slice(0, 3).forEach((gate) => gate.resolve());
+    baselineGate.resolve();
+    await fourthStarted.promise;
+    gates[3].resolve();
+
+    await expect(result).resolves.toMatchObject({
+      snapshots: data.expected.snapshots,
+      baseline: [data.expected.baseline[0]],
+    });
+    expect(started).toEqual(months);
+  });
+
+  it('cancels sibling month and baseline requests when one shard fails', async () => {
+    const data = multiMonthFixture();
+    const failureGate = deferred<void>();
+    const siblingStarted = deferred<void>();
+    const baselineStarted = deferred<void>();
+    const pendingSignals: AbortSignal[] = [];
+    const pending = (signal: AbortSignal, started: { resolve: () => void }) => {
+      pendingSignals.push(signal);
+      started.resolve();
+      return new Promise<unknown>(() => undefined);
+    };
+    const rpc = vi.fn<Parameters<typeof assembleHistory>[0]>(async (name, params, signal) => {
+      const selected = params.p_snapshot_months;
+      if (name.endsWith('_meta')) {
+        if (selected.length !== 1) return structuredClone(data.meta);
+        if (selected[0] === '2026-11') {
+          await failureGate.promise;
+          throw new Error('month unavailable');
+        }
+        return pending(signal, siblingStarted);
+      }
+      if ('p_dataset' in params && params.p_dataset === 'baseline')
+        return pending(signal, baselineStarted);
+      throw new Error('unexpected page');
+    });
+
+    const result = assembleHistory(rpc, data.filters);
+    await Promise.all([siblingStarted.promise, baselineStarted.promise]);
+    failureGate.resolve();
+
+    await expect(result).rejects.toThrow('month unavailable');
+    expect(pendingSignals).toHaveLength(2);
+    expect(pendingSignals.every((signal) => signal.aborted)).toBe(true);
   });
 
   const malformed: [number, (string | number)[], unknown][] = [

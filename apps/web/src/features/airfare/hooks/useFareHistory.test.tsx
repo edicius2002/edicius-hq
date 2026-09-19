@@ -11,10 +11,10 @@ vi.mock('@/shared/supabase/client', () => ({ supabase: { rpc } }));
 const route = {
   origin: 'AQP',
   destination: 'LIM',
-  months: ['2026-11', '2026-12'],
+  months: ['2026-11'],
   currency: 'USD',
 };
-const key = ['fares', 'history', 'AQP', 'LIM', '2026-11', '2026-11,2026-12'];
+const key = ['fares', 'history', 'AQP', 'LIM', '2026-11', '2026-11'];
 
 function setup() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 1000 } } });

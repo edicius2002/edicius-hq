@@ -72,7 +72,17 @@ ensure_runtime() {
   shell="$(getent passwd "$SERVICE_USER" | awk -F: '{print $7}')"
   [[ "$shell" == /usr/sbin/nologin || "$shell" == /sbin/nologin ]] || fail "$SERVICE_USER must be a non-login account"
   command -v chromium >/dev/null || fail "Chromium must be installed"
-  install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$STATE_ROOT" "$STATE_ROOT/x-profile"
+  [[ ! -L "$STATE_ROOT" ]] || fail "$STATE_ROOT must not be a symlink"
+  [[ ! -e "$STATE_ROOT" || -d "$STATE_ROOT" ]] || fail "$STATE_ROOT must be a directory"
+  install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT"
+  [[ -z "$(find "$STATE_ROOT" -xdev -type l -print -quit)" ]] || fail "durable state contains a symlink"
+  chown -R --no-dereference "$SERVICE_USER:$SERVICE_USER" "$STATE_ROOT"
+  find "$STATE_ROOT" -xdev -type d -exec chmod 0750 {} +
+  find "$STATE_ROOT" -xdev -type f -exec chmod 0600 {} +
+  chown root:"$SERVICE_USER" "$STATE_ROOT"
+  for runtime_dir in x-profile kv bars sentiment codex-resets; do
+    install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/$runtime_dir"
+  done
   [[ ! -L "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must not be a symlink"
   [[ ! -e "$STATE_ROOT/locks" || -d "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must be a directory"
   install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/locks"
@@ -85,9 +95,11 @@ ensure_runtime() {
       install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0600 /dev/null "$lock_path"
     fi
     [[ -f "$lock_path" && ! -L "$lock_path" ]] || fail "$lock_path must be a regular file"
+    chown "$SERVICE_USER:$SERVICE_USER" "$lock_path"
+    chmod 0600 "$lock_path"
     [[ "$(stat -c '%U:%G:%a' -- "$lock_path")" == $SERVICE_USER:$SERVICE_USER:600 ]] || fail "$lock_path owner or mode is invalid"
   done
-  runuser -u "$SERVICE_USER" -- test -w "$STATE_ROOT" || fail "durable state is not writable by $SERVICE_USER"
+  runuser -u "$SERVICE_USER" -- test -w "$STATE_ROOT/x-profile" || fail "durable state is not writable by $SERVICE_USER"
 }
 
 install_units() {

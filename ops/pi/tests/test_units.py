@@ -198,7 +198,21 @@ def test_installer_never_repairs_or_reuses_the_interactive_edicius_login() -> No
 def test_live_verification_runs_collectors_as_the_service_identity() -> None:
     text = VERIFY.read_text(encoding="utf-8")
     assert "readonly SERVICE_USER=edicius-collector" in text
-    assert 'runuser -u "$SERVICE_USER" --preserve-environment --' in text
+    assert "systemd-run --quiet --wait --pipe --collect" in text
+    assert '--uid="$SERVICE_USER"' in text
+    assert 'EnvironmentFile=$ENV_FILE' in text
+    assert 'Environment=HOME=$STATE_ROOT' in text
+    assert 'Environment=LOCAL_DATA_DIR=$STATE_ROOT' in text
+    assert 'Environment=X_SCRAPER_PROFILE=$STATE_ROOT/x-profile' in text
+    assert "--preserve-environment" not in text
+
+
+def test_installer_normalizes_existing_symlink_free_durable_state() -> None:
+    text = INSTALL.read_text(encoding="utf-8")
+    assert 'find "$STATE_ROOT" -xdev -type l -print -quit' in text
+    assert 'chown -R --no-dereference "$SERVICE_USER:$SERVICE_USER" "$STATE_ROOT"' in text
+    assert 'chown "$SERVICE_USER:$SERVICE_USER" "$lock_path"' in text
+    assert 'chmod 0600 "$lock_path"' in text
 
 
 def test_install_and_verify_reject_dirty_or_untracked_release_files() -> None:

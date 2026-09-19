@@ -78,29 +78,8 @@ def validate_market_state(
 
 
 def load_env() -> None:
-    if ENV_FILE.is_symlink() or not ENV_FILE.is_file():
-        raise ValueError("collector environment file is unavailable")
-    metadata = ENV_FILE.stat()
-    if metadata.st_uid != 0 or metadata.st_gid != 0:
-        raise ValueError("collector environment file owner is invalid")
-    if metadata.st_mode & 0o777 != 0o600:
-        raise ValueError("collector environment file mode is invalid")
-    values: dict[str, str] = {}
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-        if not line or line.startswith("#"):
-            continue
-        name, separator, value = line.partition("=")
-        if (
-            not separator
-            or name not in ALLOWED_ENV_NAMES
-            or not value
-            or name in values
-        ):
-            raise ValueError("collector environment file is invalid")
-        values[name] = value
-    if set(values) != ALLOWED_ENV_NAMES:
-        raise ValueError("collector environment file is incomplete")
-    os.environ.update(values)
+    if any(not os.environ.get(name) for name in ALLOWED_ENV_NAMES):
+        raise ValueError("collector environment is incomplete")
 
 
 def _rows(

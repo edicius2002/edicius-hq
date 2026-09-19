@@ -17,8 +17,16 @@ All steps are agent/operator executable except the following two actions.
    `0600`. Never paste, print, screenshot, or put its values in command
    history.
 2. **HUMAN-ONLY — satisfy X login/MFA.** At the approved local Pi console,
-   complete X login/MFA into the imported Chromium profile. Never export its
-   cookies, tokens, or screenshots.
+   grant the non-login service identity temporary access to the graphical
+   session, run Chromium directly as that identity, complete X login/MFA into
+   the imported profile, close Chromium, and revoke the display grant. Never
+   export its cookies, tokens, or screenshots:
+
+   ```sh
+   xhost +SI:localuser:edicius-collector
+   sudo -u edicius-collector env HOME=/var/lib/edicius-hq DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" chromium --user-data-dir=/var/lib/edicius-hq/x-profile https://x.com/thsottiaux
+   xhost -SI:localuser:edicius-collector
+   ```
 
 ## Checkpoint A: pinned data plane
 

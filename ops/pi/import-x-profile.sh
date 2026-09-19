@@ -50,6 +50,8 @@ if [[ -e "$TARGET" || -L "$TARGET" ]]; then
   if [[ -z "$(find "$TARGET" -mindepth 1 -print -quit)" ]]; then
     target_is_empty=true
   elif diff -qr --no-dereference -- "$source_real" "$TARGET" >/dev/null; then
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$TARGET"
+    chmod -R go-rwx "$TARGET"
     printf '%s\n' 'X profile is already imported; no change was made.'
     exit 0
   else

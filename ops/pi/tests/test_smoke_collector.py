@@ -91,3 +91,22 @@ def test_market_state_rejects_empty_or_stale_provider_results() -> None:
             requests,
             [{"symbol": "AAPL", "fetched_at": "2026-09-17T23:59:00+00:00"}],
         )
+
+
+def test_smoke_uses_injected_environment_without_reopening_root_secret_file(
+    monkeypatch, tmp_path
+) -> None:
+    module = load_script()
+    module.ENV_FILE = tmp_path / "unreadable-and-absent.env"
+    values = {
+        "SUPABASE_URL": "https://abndifkxpfppmllgxfnu.supabase.co",
+        "SUPABASE_SECRET_KEY": "test-secret",
+        "EDICIUS_OWNER_ID": OWNER,
+        "COLLECTOR_SUPABASE_TIMEOUT_SECONDS": "15",
+        "AIRFARE_DATA_BACKEND": "supabase",
+        "AIRFARE_SYNC_ENABLED": "true",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+
+    module.load_env()

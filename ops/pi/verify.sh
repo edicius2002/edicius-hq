@@ -26,7 +26,14 @@ sanitize() {
 }
 
 run_as_service() {
-  runuser -u "$SERVICE_USER" --preserve-environment -- "$@"
+  systemd-run --quiet --wait --pipe --collect \
+    --uid="$SERVICE_USER" --gid="$SERVICE_USER" \
+    --property="EnvironmentFile=$ENV_FILE" \
+    --property="Environment=HOME=$STATE_ROOT" \
+    --property="Environment=LOCAL_DATA_DIR=$STATE_ROOT" \
+    --property="Environment=X_SCRAPER_PROFILE=$STATE_ROOT/x-profile" \
+    --property="WorkingDirectory=$CURRENT_LINK" \
+    -- "$@"
 }
 
 validate_active_release() {

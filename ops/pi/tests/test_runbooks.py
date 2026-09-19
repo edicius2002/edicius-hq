@@ -190,6 +190,9 @@ def test_x_profile_import_refuses_unsafe_paths_and_live_replacement() -> None:
     assert "readonly SERVICE_USER=edicius-collector" in text
     assert 'chown -R "$SERVICE_USER:$SERVICE_USER"' in text
     assert "chmod -R go-rwx" in text
+    identical = text.index("X profile is already imported")
+    assert text.rfind('chown -R "$SERVICE_USER:$SERVICE_USER" "$TARGET"', 0, identical) > 0
+    assert text.rfind('chmod -R go-rwx "$TARGET"', 0, identical) > 0
     assert "rm -rf" not in text
     assert "Cookies" not in text
 
@@ -216,10 +219,8 @@ def test_collector_run_helper_reads_secret_file_locally_and_never_accepts_secret
 def test_live_smoke_uses_local_secret_file_and_bounded_one_shots() -> None:
     smoke = SMOKE_COLLECTOR.read_text(encoding="utf-8")
     verify = (PI_ROOT / "verify.sh").read_text(encoding="utf-8")
-    assert "/etc/edicius-hq/collectors.env" in smoke
-    assert "metadata.st_uid != 0" in smoke
-    assert "metadata.st_gid != 0" in smoke
-    assert "metadata.st_mode & 0o777 != 0o600" in smoke
+    assert "ENV_FILE.read_text" not in smoke
+    assert "ALLOWED_ENV_NAMES" in smoke
     assert "trust_env=False" in smoke
     assert "SUPABASE_SECRET_KEY" in smoke
     assert "--secret" not in smoke
@@ -227,6 +228,7 @@ def test_live_smoke_uses_local_secret_file_and_bounded_one_shots() -> None:
     assert "tweets-watch.py" in smoke
     assert "market-worker.py" in smoke
     assert "smoke-collector.py" in verify
+    assert "/etc/edicius-hq/collectors.env" in verify
     assert "systemctl is-enabled" in verify
     assert "systemctl is-active" in verify
 

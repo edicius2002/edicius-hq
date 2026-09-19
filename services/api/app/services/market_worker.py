@@ -260,7 +260,9 @@ class MarketWorker:
 
     async def claim_until_empty(self) -> int:
         claimed = 0
-        while (request := self.cloud.claim_request()) is not None:
+        while (
+            request := self.cloud.claim_request(("market-bars", "market-search"))
+        ) is not None:
             claimed += 1
             await self.serve_request(request)
         return claimed

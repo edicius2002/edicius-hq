@@ -97,15 +97,20 @@ def test_claim_request_calls_the_owner_scoped_rpc_and_returns_immutable_request(
         "expires_at": "2026-09-17T00:05:00+00:00",
     }
     request = captured_request_for(
-        lambda cloud: cloud.claim_request(), secret_config, httpx.Response(200, json=body)
+        lambda cloud: cloud.claim_request(("market-bars",)),
+        secret_config,
+        httpx.Response(200, json=body),
     )
     assert request.url.path.endswith("/rpc/claim_collector_request")
-    assert json.loads(request.content) == {"p_owner_id": str(OWNER_ID)}
+    assert json.loads(request.content) == {
+        "p_owner_id": str(OWNER_ID),
+        "p_operations": ["market-bars"],
+    }
 
     cloud = CollectorCloud(
         secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
     )
-    claimed = cloud.claim_request()
+    claimed = cloud.claim_request(("market-bars",))
     assert claimed is not None
     assert claimed.id == UUID(body["request_id"])
     assert claimed.owner_id == OWNER_ID
@@ -132,7 +137,7 @@ def test_claim_request_accepts_postgrest_empty_composite_as_an_empty_queue(secre
         secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
     )
 
-    assert cloud.claim_request() is None
+    assert cloud.claim_request(("market-bars", "market-search")) is None
 
 
 def test_claimed_request_payload_is_deeply_immutable(secret_config):
@@ -147,12 +152,89 @@ def test_claimed_request_payload_is_deeply_immutable(secret_config):
     cloud = CollectorCloud(
         secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
     )
-    claimed = cloud.claim_request()
+    claimed = cloud.claim_request(("market-search",))
 
     assert claimed is not None
     assert claimed.payload["query"]["symbols"][0] == "AAPL"
     with pytest.raises((AttributeError, TypeError)):
         claimed.payload["query"]["symbols"].append("MSFT")
+
+
+@pytest.mark.parametrize(
+    "operations",
+    [(), ("market-bars", "market-bars"), ("unknown",)],
+)
+def test_claim_request_rejects_invalid_operation_sets_before_http(secret_config, operations):
+    requests: list[httpx.Request] = []
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda request: requests.append(request) or httpx.Response(200, json={})
+        ),
+    )
+
+    with pytest.raises(CollectorCloudRejected, match="operations"):
+        cloud.claim_request(operations)
+
+    assert requests == []
+
+
+def test_claim_request_rejects_an_operation_outside_the_requested_set(secret_config):
+    body = {
+        "request_id": "22222222-2222-2222-2222-222222222222",
+        "owner_id": str(OWNER_ID),
+        "operation": "airfare-route",
+        "payload": {"origin": "LIM"},
+        "expires_at": "2026-09-17T00:05:00+00:00",
+    }
+    cloud = CollectorCloud(
+        secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    )
+
+    with pytest.raises(CollectorCloudRejected, match="invalid collector request"):
+        cloud.claim_request(("market-bars", "market-search"))
+
+
+def test_update_request_progress_uses_the_allowlisted_rpc(secret_config):
+    request_id = UUID("22222222-2222-2222-2222-222222222222")
+    progress = {"stage": "collecting", "completed": 3, "total": 31}
+
+    request = captured_request_for(
+        lambda cloud: cloud.update_request_progress(request_id, progress), secret_config
+    )
+
+    assert request.url.path.endswith("/rpc/update_collector_request_progress")
+    assert json.loads(request.content) == {
+        "p_request_id": str(request_id),
+        "p_progress": progress,
+    }
+
+
+@pytest.mark.parametrize(
+    "progress",
+    [
+        {},
+        {"stage": "unknown", "completed": 0, "total": None},
+        {"stage": "collecting", "completed": -1, "total": 31},
+        {"stage": "collecting", "completed": 32, "total": 31},
+        {"stage": "collecting", "completed": True, "total": 31},
+    ],
+)
+def test_update_request_progress_rejects_malformed_values_before_http(
+    secret_config, progress
+):
+    requests: list[httpx.Request] = []
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda request: requests.append(request) or httpx.Response(200, json={})
+        ),
+    )
+
+    with pytest.raises(CollectorCloudRejected, match="progress"):
+        cloud.update_request_progress(UUID(int=1), progress)
+
+    assert requests == []
 
 
 def test_run_transitions_are_compare_and_set(secret_config):

@@ -141,6 +141,15 @@ def test_request_completion_and_failure_are_counted_in_the_service_run():
     remote.fail_request.assert_called_once_with(request.id, "invalid-request")
 
 
+def test_market_claim_loop_requests_only_market_operations():
+    remote = cloud()
+    remote.claim_request.return_value = None
+
+    assert asyncio.run(MarketWorker(remote, clock=Clock()).claim_until_empty()) == 0
+
+    remote.claim_request.assert_called_once_with(("market-bars", "market-search"))
+
+
 def test_quote_recovery_counts_returned_provider_failures(monkeypatch):
     remote = cloud()
     remote.documents.return_value = {

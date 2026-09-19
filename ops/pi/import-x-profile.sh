@@ -50,6 +50,10 @@ if [[ -e "$TARGET" || -L "$TARGET" ]]; then
   if [[ -z "$(find "$TARGET" -mindepth 1 -print -quit)" ]]; then
     target_is_empty=true
   elif diff -qr --no-dereference -- "$source_real" "$TARGET" >/dev/null; then
+    if [[ "$dry_run" == true ]]; then
+      printf '%s\n' 'dry run: source and target are identical; no profile was changed.'
+      exit 0
+    fi
     chown -R "$SERVICE_USER:$SERVICE_USER" "$TARGET"
     chmod -R go-rwx "$TARGET"
     printf '%s\n' 'X profile is already imported; no change was made.'

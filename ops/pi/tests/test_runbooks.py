@@ -191,6 +191,10 @@ def test_x_profile_import_refuses_unsafe_paths_and_live_replacement() -> None:
     assert 'chown -R "$SERVICE_USER:$SERVICE_USER"' in text
     assert "chmod -R go-rwx" in text
     identical = text.index("X profile is already imported")
+    dry_run_guard = text.rfind('if [[ "$dry_run" == true ]]', 0, identical)
+    ownership = text.rfind('chown -R "$SERVICE_USER:$SERVICE_USER" "$TARGET"', 0, identical)
+    assert dry_run_guard > 0
+    assert dry_run_guard < ownership
     assert text.rfind('chown -R "$SERVICE_USER:$SERVICE_USER" "$TARGET"', 0, identical) > 0
     assert text.rfind('chmod -R go-rwx "$TARGET"', 0, identical) > 0
     assert "rm -rf" not in text

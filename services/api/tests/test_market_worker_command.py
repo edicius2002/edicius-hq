@@ -5,7 +5,7 @@ import importlib.util
 import sys
 import uuid
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -162,3 +162,84 @@ def test_subscription_close_awaits_the_sdk_channel_cleanup():
     asyncio.run(module.RequestSubscription(client, Mock()).close())
 
     client.remove_all_channels.assert_awaited_once_with()
+
+
+def subscription_fixture(monkeypatch, module, state):
+    """Model the SDK returning from subscribe before its join acknowledgement."""
+    import supabase
+    from realtime import RealtimeSubscribeStates
+
+    class PendingChannel:
+        is_joined = False
+
+        def on_postgres_changes(self, *_args):
+            return self
+
+        async def subscribe(self, callback=None):
+            def acknowledge():
+                self.is_joined = state == RealtimeSubscribeStates.SUBSCRIBED
+                if callback is not None:
+                    callback(state, None)
+
+            if state is not None:
+                asyncio.get_running_loop().call_soon(acknowledge)
+            return self
+
+    channel = PendingChannel()
+    client = Mock(channel=Mock(return_value=channel), remove_all_channels=AsyncMock())
+    monkeypatch.setattr(supabase, "create_async_client", AsyncMock(return_value=client))
+    monkeypatch.setattr(
+        module,
+        "collector_config",
+        lambda: SimpleNamespace(url="https://example.supabase.co", secret_key="test-only"),
+    )
+    return channel, client
+
+
+def test_subscribe_waits_for_the_asynchronous_join_before_returning(monkeypatch):
+    from realtime import RealtimeSubscribeStates
+
+    module = load_script()
+    channel, client = subscription_fixture(monkeypatch, module, RealtimeSubscribeStates.SUBSCRIBED)
+
+    async def scenario():
+        subscription = await module.subscribe_requests(Mock(owner_id=uuid.uuid4()))
+        assert subscription is not None
+        assert channel.is_joined, "The health monitor must never receive a still-joining channel"
+        await subscription.close()
+
+    asyncio.run(scenario())
+    client.remove_all_channels.assert_awaited_once()
+
+
+@pytest.mark.parametrize("state", ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"])
+def test_subscribe_cleans_up_unsuccessful_join_before_retry(monkeypatch, state):
+    from realtime import RealtimeSubscribeStates
+
+    module = load_script()
+    _channel, client = subscription_fixture(monkeypatch, module, RealtimeSubscribeStates(state))
+    assert asyncio.run(module.subscribe_requests(Mock(owner_id=uuid.uuid4()))) is None
+    client.remove_all_channels.assert_awaited_once()
+
+
+def test_subscribe_cleans_up_when_cancelled_while_waiting_for_join(monkeypatch):
+    module = load_script()
+    _channel, client = subscription_fixture(monkeypatch, module, None)
+
+    async def scenario():
+        task = asyncio.create_task(module.subscribe_requests(Mock(owner_id=uuid.uuid4())))
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+    client.remove_all_channels.assert_awaited_once()
+
+
+def test_subscribe_times_out_and_cleans_up_a_join_without_acknowledgement(monkeypatch):
+    module = load_script()
+    _channel, client = subscription_fixture(monkeypatch, module, None)
+    monkeypatch.setattr(module, "REQUEST_JOIN_TIMEOUT_SECONDS", 0.01, raising=False)
+    assert asyncio.run(module.subscribe_requests(Mock(owner_id=uuid.uuid4()))) is None
+    client.remove_all_channels.assert_awaited_once()

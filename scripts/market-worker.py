@@ -24,6 +24,7 @@ from app.services.process_lock import (  # noqa: E402
 )
 
 LOGGER = logging.getLogger(__name__)
+REQUEST_JOIN_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass
@@ -55,8 +56,9 @@ class RequestSubscription:
 
 async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None:
     """Subscribe only to this owner's inserts; claim RPC remains the authority."""
+    client = None
     try:
-        from realtime import RealtimePostgresChangesListenEvent
+        from realtime import RealtimePostgresChangesListenEvent, RealtimeSubscribeStates
         from supabase import create_async_client
 
         config = collector_config()
@@ -69,12 +71,24 @@ async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None
             "public",
             f"owner_id=eq.{worker.owner_id}",
         )
-        # `subscribe`'s callback reports only join outcomes.  Channel/client
-        # health below owns the lifetime signal, after the SDK reconnects have
-        # exhausted their own bounded retries.
-        await channel.subscribe()
+        # The SDK returns from subscribe while the channel is still JOINING.
+        # Wait for its acknowledgement before exposing it to the health monitor.
+        joined: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+
+        def on_join(state: RealtimeSubscribeStates, _error: Exception | None) -> None:
+            if not joined.done():
+                joined.set_result(state == RealtimeSubscribeStates.SUBSCRIBED)
+
+        await channel.subscribe(on_join)
+        if not await asyncio.wait_for(joined, timeout=REQUEST_JOIN_TIMEOUT_SECONDS):
+            raise RuntimeError("realtime join failed")
         return RequestSubscription(client, channel)
-    except Exception:  # noqa: BLE001 - 30-second reconciliation heals a dropped wakeup
+    except (Exception, asyncio.CancelledError) as exc:
+        if client is not None:
+            with contextlib.suppress(Exception):
+                await client.remove_all_channels()
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         return None
 
 

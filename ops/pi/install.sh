@@ -72,7 +72,10 @@ ensure_runtime() {
   [[ "$shell" == /usr/sbin/nologin || "$shell" == /sbin/nologin ]] || fail "edicius must be a non-login account"
   command -v chromium >/dev/null || fail "Chromium must be installed"
   install -d -o edicius -g edicius -m 0750 "$STATE_ROOT" "$STATE_ROOT/x-profile"
+  [[ ! -L "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must not be a symlink"
+  [[ ! -e "$STATE_ROOT/locks" || -d "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must be a directory"
   install -d -o root -g edicius -m 0750 "$STATE_ROOT/locks"
+  [[ "$(stat -c '%U:%G:%a' -- "$STATE_ROOT/locks")" == root:edicius:750 ]] || fail "lock directory owner or mode is invalid"
   local lock_name lock_path
   for lock_name in airfare sentiment tweets market; do
     lock_path="$STATE_ROOT/locks/$lock_name.lock"

@@ -114,6 +114,27 @@ def test_claim_request_calls_the_owner_scoped_rpc_and_returns_immutable_request(
         claimed.operation = "market-search"
 
 
+def test_claim_request_accepts_postgrest_empty_composite_as_an_empty_queue(secret_config):
+    body = {
+        "request_id": None,
+        "owner_id": None,
+        "operation": None,
+        "payload": None,
+        "status": None,
+        "created_at": None,
+        "expires_at": None,
+        "claimed_at": None,
+        "completed_at": None,
+        "result": None,
+        "error_code": None,
+    }
+    cloud = CollectorCloud(
+        secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body))
+    )
+
+    assert cloud.claim_request() is None
+
+
 def test_claimed_request_payload_is_deeply_immutable(secret_config):
     """A worker must not mutate a claimed request before recording its result."""
     body = {

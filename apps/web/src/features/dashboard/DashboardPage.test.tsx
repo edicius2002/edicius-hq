@@ -6,8 +6,14 @@ const auth = vi.hoisted(() => ({
   clearLocalSession: vi.fn(),
   getAccessToken: vi.fn(async () => null),
 }));
+const tweetData = vi.hoisted(() => ({
+  fetchTweets: vi.fn(),
+  fetchLatestTweetRun: vi.fn(),
+  subscribeTweets: vi.fn(() => () => {}),
+}));
 
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
+vi.mock('./data/supabaseTweets', () => tweetData);
 
 import { DashboardPage } from './DashboardPage';
 
@@ -92,11 +98,17 @@ const RESETS = {
  */
 function stubApi(refresh: Record<string, unknown>, resets: Response | object = RESETS) {
   const calls: string[] = [];
+  tweetData.fetchTweets.mockResolvedValue(TWEETS.tweets);
+  tweetData.fetchLatestTweetRun.mockResolvedValue({
+    status:
+      refresh.state === 'failed' ? 'failed' : refresh.state === 'running' ? 'running' : 'complete',
+    completed_at: refresh.finishedAt ?? null,
+    error_code: refresh.error ?? null,
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}`);
-      if (url.endsWith('/refresh')) return Response.json(refresh);
       if (url.endsWith('/api/codex-resets')) {
         return resets instanceof Response ? resets : Response.json(resets);
       }
@@ -192,13 +204,13 @@ it('says when no refresh has completed yet', async () => {
   expect(await screen.findByText('Never updated')).toBeInTheDocument();
 });
 
-it('keeps the last completed refresh visible while a capture reports progress', async () => {
+it('keeps the last completed refresh visible while the collector reports progress', async () => {
   const finishedAt = new Date(Date.now() - 3 * 60_000).toISOString();
   stubApi({ ...IDLE, state: 'running', scroll: 7, new: 12, finishedAt });
   renderPage();
 
   expect(await screen.findByText('Updated 3 minutes ago')).toBeInTheDocument();
-  expect(screen.getByText(/Scrolled 7 · 12 new/)).toBeInTheDocument();
+  expect(screen.getByText('X collector is running.')).toBeInTheDocument();
 });
 
 it('shows why a capture failed', async () => {
@@ -209,7 +221,7 @@ it('shows why a capture failed', async () => {
   });
   renderPage();
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('import_session.py');
+  expect(await screen.findByRole('alert')).toHaveTextContent('X collector failed');
 });
 
 it('keeps the API watcher running when the Dashboard unmounts', () => {

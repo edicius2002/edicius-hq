@@ -82,6 +82,165 @@ export type Database = {
         };
         Relationships: [];
       };
+      airport_coordinate_reference: {
+        Row: {
+          code: string;
+          latitude: number;
+          longitude: number;
+        };
+        Insert: {
+          code: string;
+          latitude: number;
+          longitude: number;
+        };
+        Update: {
+          code?: string;
+          latitude?: number;
+          longitude?: number;
+        };
+        Relationships: [];
+      };
+      app_documents: {
+        Row: {
+          document_key: string;
+          owner_id: string;
+          payload: Json;
+          revision: number;
+          updated_at: string;
+        };
+        Insert: {
+          document_key: string;
+          owner_id: string;
+          payload: Json;
+          revision?: number;
+          updated_at?: string;
+        };
+        Update: {
+          document_key?: string;
+          owner_id?: string;
+          payload?: Json;
+          revision?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'app_documents_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
+      collector_requests: {
+        Row: {
+          claimed_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          expires_at: string;
+          operation: string;
+          owner_id: string;
+          payload: Json;
+          request_id: string;
+          result: Json | null;
+          status: string;
+        };
+        Insert: {
+          claimed_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          error_code?: string | null;
+          expires_at?: string;
+          operation: string;
+          owner_id?: string;
+          payload: Json;
+          request_id?: string;
+          result?: Json | null;
+          status?: string;
+        };
+        Update: {
+          claimed_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          error_code?: string | null;
+          expires_at?: string;
+          operation?: string;
+          owner_id?: string;
+          payload?: Json;
+          request_id?: string;
+          result?: Json | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'collector_requests_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
+      collector_runs: {
+        Row: {
+          collector: string;
+          completed_at: string | null;
+          error_code: string | null;
+          owner_id: string;
+          records_failed: number;
+          records_seen: number;
+          records_written: number;
+          run_id: string;
+          started_at: string;
+          status: string;
+        };
+        Insert: {
+          collector: string;
+          completed_at?: string | null;
+          error_code?: string | null;
+          owner_id: string;
+          records_failed?: number;
+          records_seen?: number;
+          records_written?: number;
+          run_id?: string;
+          started_at?: string;
+          status: string;
+        };
+        Update: {
+          collector?: string;
+          completed_at?: string | null;
+          error_code?: string | null;
+          owner_id?: string;
+          records_failed?: number;
+          records_seen?: number;
+          records_written?: number;
+          run_id?: string;
+          started_at?: string;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'collector_runs_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
+      edicius_owners: {
+        Row: {
+          owner_id: string;
+        };
+        Insert: {
+          owner_id: string;
+        };
+        Update: {
+          owner_id?: string;
+        };
+        Relationships: [];
+      };
       fare_airports: {
         Row: {
           city: string | null;
@@ -310,12 +469,231 @@ export type Database = {
         };
         Relationships: [];
       };
+      market_bars: {
+        Row: {
+          expires_at: string;
+          extended: boolean;
+          fetched_at: string;
+          owner_id: string;
+          payload: Json;
+          provider: string;
+          symbol: string;
+          timeframe: string;
+        };
+        Insert: {
+          expires_at: string;
+          extended: boolean;
+          fetched_at: string;
+          owner_id: string;
+          payload: Json;
+          provider: string;
+          symbol: string;
+          timeframe: string;
+        };
+        Update: {
+          expires_at?: string;
+          extended?: boolean;
+          fetched_at?: string;
+          owner_id?: string;
+          payload?: Json;
+          provider?: string;
+          symbol?: string;
+          timeframe?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'market_bars_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
+      market_quotes: {
+        Row: {
+          fetched_at: string;
+          market_time: number | null;
+          owner_id: string;
+          payload: Json;
+          provider: string;
+          symbol: string;
+        };
+        Insert: {
+          fetched_at: string;
+          market_time?: number | null;
+          owner_id: string;
+          payload: Json;
+          provider: string;
+          symbol: string;
+        };
+        Update: {
+          fetched_at?: string;
+          market_time?: number | null;
+          owner_id?: string;
+          payload?: Json;
+          provider?: string;
+          symbol?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'market_quotes_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
+      sentiment_snapshots: {
+        Row: {
+          as_of: string;
+          classification: string | null;
+          fetched_at: string;
+          owner_id: string;
+          payload: Json;
+          score: number | null;
+          source: string;
+        };
+        Insert: {
+          as_of: string;
+          classification?: string | null;
+          fetched_at?: string;
+          owner_id: string;
+          payload: Json;
+          score?: number | null;
+          source: string;
+        };
+        Update: {
+          as_of?: string;
+          classification?: string | null;
+          fetched_at?: string;
+          owner_id?: string;
+          payload?: Json;
+          score?: number | null;
+          source?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'sentiment_snapshots_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
+      tweet_posts: {
+        Row: {
+          captured_at: string;
+          handle: string;
+          owner_id: string;
+          payload: Json;
+          post_id: string;
+          posted_at: string;
+        };
+        Insert: {
+          captured_at?: string;
+          handle: string;
+          owner_id: string;
+          payload: Json;
+          post_id: string;
+          posted_at: string;
+        };
+        Update: {
+          captured_at?: string;
+          handle?: string;
+          owner_id?: string;
+          payload?: Json;
+          post_id?: string;
+          posted_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'tweet_posts_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
       airfare_dataset_manifest: { Args: never; Returns: Json };
+      claim_collector_request: {
+        Args: { p_owner_id: string };
+        Returns: {
+          claimed_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          expires_at: string;
+          operation: string;
+          owner_id: string;
+          payload: Json;
+          request_id: string;
+          result: Json | null;
+          status: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'collector_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      complete_collector_request: {
+        Args: { p_request_id: string; p_result: Json };
+        Returns: {
+          claimed_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          expires_at: string;
+          operation: string;
+          owner_id: string;
+          payload: Json;
+          request_id: string;
+          result: Json | null;
+          status: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'collector_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      delete_app_document: {
+        Args: { p_document_key: string; p_expected_revision: number };
+        Returns: undefined;
+      };
+      fail_collector_request: {
+        Args: { p_error_code: string; p_request_id: string };
+        Returns: {
+          claimed_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          error_code: string | null;
+          expires_at: string;
+          operation: string;
+          owner_id: string;
+          payload: Json;
+          request_id: string;
+          result: Json | null;
+          status: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'collector_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       read_airfare_calendar: {
         Args: { p_destination: string; p_origin: string };
         Returns: Json;
@@ -330,6 +708,84 @@ export type Database = {
           p_until: string;
         };
         Returns: Json;
+      };
+      read_owner_airfare_calendar: {
+        Args: { p_destination: string; p_origin: string };
+        Returns: Json;
+      };
+      read_owner_fare_airports: {
+        Args: { p_codes: string[] };
+        Returns: Json;
+      };
+      read_airfare_history_meta: {
+        Args: {
+          p_departure: string;
+          p_destination: string;
+          p_origin: string;
+          p_since: string;
+          p_snapshot_months: string[];
+          p_until: string;
+          p_expected_revision?: string;
+        };
+        Returns: Json;
+      };
+      read_airfare_history_page: {
+        Args: {
+          p_departure: string;
+          p_destination: string;
+          p_origin: string;
+          p_since: string;
+          p_snapshot_months: string[];
+          p_until: string;
+          p_revision: string;
+          p_dataset: string;
+          p_cursor?: Json;
+          p_page_size?: number;
+        };
+        Returns: Json;
+      };
+      read_owner_airfare_history_meta: {
+        Args: Database['public']['Functions']['read_airfare_history_meta']['Args'];
+        Returns: Json;
+      };
+      read_owner_airfare_history_page: {
+        Args: Database['public']['Functions']['read_airfare_history_page']['Args'];
+        Returns: Json;
+      };
+      read_owner_airfare_history: {
+        Args: {
+          p_departure: string;
+          p_destination: string;
+          p_origin: string;
+          p_since: string;
+          p_snapshot_months: string[];
+          p_until: string;
+        };
+        Returns: Json;
+      };
+      search_owner_airports: {
+        Args: { p_limit: number; p_query: string };
+        Returns: Json;
+      };
+      write_app_document: {
+        Args: {
+          p_document_key: string;
+          p_expected_revision: number;
+          p_payload: Json;
+        };
+        Returns: {
+          document_key: string;
+          owner_id: string;
+          payload: Json;
+          revision: number;
+          updated_at: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'app_documents';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
       write_finance_document: {
         Args: {
@@ -441,9 +897,7 @@ export type TablesUpdate<
     : never;
 
 export type Enums<
-  // The CLI keeps this generic helper even when the local database has no enums.
   DefaultSchemaEnumNameOrOptions extends
-    // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
     keyof DefaultSchema['Enums'] | { schema: keyof DatabaseWithoutInternals },
   EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;
@@ -459,9 +913,7 @@ export type Enums<
     : never;
 
 export type CompositeTypes<
-  // The CLI keeps this generic helper even when the local database has no composite types.
   PublicCompositeTypeNameOrOptions extends
-    // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
     keyof DefaultSchema['CompositeTypes'] | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals;

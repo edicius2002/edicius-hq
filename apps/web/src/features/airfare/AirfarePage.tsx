@@ -13,6 +13,10 @@ import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
+import {
+  airfaresStatusText,
+  useAirfareCollectorStatus,
+} from '@/features/airfare/data/collectorStatus';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { airportPoint, legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
@@ -71,18 +75,12 @@ export function AirfarePage() {
   const [projection, setProjection] = useState<Projection>('globe');
 
   const watchlist = useFareRoutes();
-  // Per-row collection is its own hook, not more state on this page: the
-  // in-flight set, the reports and the mutation that keeps them in step are one
-  // mechanism, and the page's job is to hand it to the list.
+  // Compatibility state is empty: automatic Pi collection is represented once
+  // below by the global collector status.
   const rowCollection = useRouteCollection();
-  /*
-   * Adding a route collects its booking horizon — 12.247. Its own hook rather
-   * than a branch of `useRouteCollection`, because it is a different pass over
-   * a different unit: that one polls up to thirty-one boards for one month,
-   * this one fetches one curve across every month, and the server keeps them in
-   * separate slots for the same reason.
-   */
+  /* Pi-scheduled collection has no browser-triggered horizon pass. */
   const horizon = useHorizonCollection();
+  const collectorStatus = useAirfareCollectorStatus();
 
   /*
    * Which way each pair's arc flows, and which watch collected most recently.
@@ -625,82 +623,17 @@ export function AirfarePage() {
               horizon.forget(id);
               void watchlist.remove(id);
             }}
-            onCollect={rowCollection.collect}
-            /*
-              The add lands first and the horizon collection follows it, never
-              the other way round — 12.247. The add is a write to the reader's
-              own document and this is a request to somebody else's server; a
-              route that failed to save because a fare lookup failed would let
-              an upstream veto a watchlist edit, and the reader would have no
-              row left to retry from. So the route is watched either way and the
-              collection reports itself below.
-            */
+            /* Adding edits only the owner watch document; the Pi timer collects it. */
             onAdd={(route) => {
-              void watchlist.add(route).then(() => horizon.collect(route));
+              void watchlist.add(route);
             }}
             onMove={(from, to) => void watchlist.move(from, to)}
           />
-          {/*
-            The horizon reports, coloured by what they say.
-
-            This list was `styles.failures`, and that class paints every line in
-            `--color-expense` unconditionally — so a horizon collected perfectly,
-            three hundred dates priced and not a refusal in sight, was printed in
-            red. The owner reported errors they did not have, and this is a large
-            part of why. `RowReport` has carried `ok` since it was written and
-            nothing here was reading it.
-
-            The rule is the row list's, taken rather than reinvented: the line is
-            muted by default and red only when `!report.ok`. Two lists reporting
-            the same kind of outcome in two colour schemes would be the same
-            fault waiting to come back.
-          */}
-          {horizon.reports.size > 0 ? (
-            <ul className={styles.reports} data-testid="horizon-reports">
-              {[...horizon.reports.entries()].map(([id, report]) => {
-                const bar = horizon.progress.get(id) ?? null;
-                return (
-                  <li key={id}>
-                    {/*
-                      The bar above the words, and only while a pass is
-                      running. `horizonProgress` returns null for a pass that
-                      has stopped, for somebody else's, and for one that
-                      settled at nothing to do — so a track in the document at
-                      all means work is genuinely in flight.
-
-                      `aria-hidden`, with no `progressbar` role and no figures
-                      on it: the sentence underneath already says how many
-                      windows have been priced and how many requests it took,
-                      and a bar carrying the same numbers would make a screen
-                      reader hear the pass twice. The row list settled this
-                      question the same way.
-                    */}
-                    {bar ? (
-                      <span
-                        className={
-                          bar.fraction === null
-                            ? `${styles.progress} ${styles.unplanned}`
-                            : styles.progress
-                        }
-                        data-testid={`horizon-progress-${id}`}
-                        aria-hidden="true"
-                      >
-                        <span
-                          className={styles.fill}
-                          style={
-                            bar.fraction === null
-                              ? undefined
-                              : { width: `${Math.min(1, bar.fraction) * 100}%` }
-                          }
-                        />
-                      </span>
-                    ) : null}
-                    <span className={report.ok ? undefined : styles.refused}>{report.text}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
+          <p role="status" data-testid="airfare-collector-status">
+            {collectorStatus.isError
+              ? 'Airfare collector status is unavailable.'
+              : airfaresStatusText(collectorStatus.data)}
+          </p>
         </Panel>
 
         {/*

@@ -1,10 +1,10 @@
 # Implementation Plan and Decision Log
 
-> **Status:** Delivery steps 0–5 and 7 are complete. Investing, Airfare and Sentiment are usable; Investing and Airfare remain open for their explicitly pending slices.
-> **Last updated:** 2026-09-17
-> **Review status:** Sentiment is on its feature branch; `main` was green after the 2026-09-07 dependency merges. Airfare history-cache validation is recorded in decision 12.273.
-> **Phase closure:** Vercel hosts the app; Supabase Auth owns the passkey browser session; FastAPI verifies Bearer JWTs over Tailscale transport. Finance is direct browser-to-Supabase. Cutover is still pending; see the [Finance cutover runbook](deploy-plan.md#finance-supabase-and-passkey-cutover-runbook).
-> **Next delivery:** INV-07. Also pending: AIR-03, the SSE transport check, and legacy cutover.
+> **Status:** Delivery steps 0–5 and 7 are implemented; Step 6 Investing remains under way with INV-07 pending. Raspberry Pi collector/data-plane Tasks 1–10 and the pre-production Task 11 safety repairs are implemented; production cutover (Task 11) and post-observation PC-route retirement (Task 12) remain pending. Airfare remains open for its explicitly pending product slice.
+> **Last updated:** 2026-09-18
+> **Review status:** The approved Pi/Supabase design and ADR 0004 are implemented in this change set. This records repository state, not a production deployment or observation result.
+> **Phase closure:** Supabase Auth remains the browser identity boundary. Finance documents and the owner-document/collector data plane are implemented in Supabase; provider acquisition is implemented for Raspberry Pi collectors. The Pi cutover has not been executed.
+> **Next delivery:** Task 11 staged production migration and collector cutover, followed by Task 12 after its observation window. Also pending: INV-07 and AIR-03.
 
 ---
 
@@ -37,20 +37,23 @@ This file is the repository’s source of truth for confirmed product decisions,
 
 ### Delivery sequence
 
-| Order | Delivery                 | Scope                                                                                                                                                                                                                                                                                                    |
-| ----- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | **Docs PR**              | Clean `README.md`, `NOTICE`, `.gitignore`, this plan; minimal GitHub templates if needed. No application scaffold.                                                                                                                                                                                       |
-| 1     | **Initial Setup**        | Tooling only: workspaces, Vite/TS skeleton, FastAPI `/api/health`, lint/format/test/CI, Docker Compose. **No AppShell / no product pages.**                                                                                                                                                              |
-| 2     | **Shell + placeholders** | Router, AppShell, sidebar (4 tabs), all pages as title + “Coming soon.”, NotFound, error boundaries.                                                                                                                                                                                                     |
-| 3     | **API client + storage** | Typed `shared/api`, local KV facade, **TanStack Query** provider.                                                                                                                                                                                                                                        |
-| 3b    | **UI foundation**        | Dark tokens (ediciuscorp), Berkeley Mono, shell migration, primitives `Button` / `Panel` / `PageHeader` / `Stat` (no Radix yet).                                                                                                                                                                         |
-| 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                                                                                                                                                                              |
-| 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                                                                                                                                                                                      |
-| 6     | **Investing**            | Markets UI, quote bus, candle cache via API and charts.                                                                                                                                                                                                                                                  |
-| 6b    | **Airfare**              | Fare watchlist, daily collection from a scraped provider, append-only price history, `/airfare`.                                                                                                                                                                                                         |
-| 6c    | **Sentiment**            | Standalone `/sentiment` page with CNN Fear & Greed and its seven component indicators.                                                                                                                                                                                                                   |
-| 7     | **Cloud**                | Vercel app; Supabase Auth passkey session; FastAPI Bearer JWT gate over Tailscale transport; direct Finance RLS/CAS. See the [Finance cutover runbook](deploy-plan.md#finance-supabase-and-passkey-cutover-runbook) and [approved design](superpowers/specs/2026-09-16-finance-supabase-auth-design.md). |
-| 8     | **Cutover**              | Archive `ediciuscorp`.                                                                                                                                                                                                                                                                                   |
+| Order | Delivery                 | Scope                                                                                                                                                                                   |
+| ----- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | **Docs PR**              | Clean `README.md`, `NOTICE`, `.gitignore`, this plan; minimal GitHub templates if needed. No application scaffold.                                                                      |
+| 1     | **Initial Setup**        | Tooling only: workspaces, Vite/TS skeleton, FastAPI `/api/health`, lint/format/test/CI, Docker Compose. **No AppShell / no product pages.**                                             |
+| 2     | **Shell + placeholders** | Router, AppShell, sidebar (4 tabs), all pages as title + “Coming soon.”, NotFound, error boundaries.                                                                                    |
+| 3     | **API client + storage** | Historical foundation: typed `shared/api`, local-KV facade, **TanStack Query** provider. The owner-document migration later supersedes local KV for production application documents.   |
+| 3b    | **UI foundation**        | Dark tokens (ediciuscorp), Berkeley Mono, shell migration, primitives `Button` / `Panel` / `PageHeader` / `Stat` (no Radix yet).                                                        |
+| 4     | **Greenlight**           | Full feature (replace Coming soon); adapt to UI foundation.                                                                                                                             |
+| 5     | **Finance**              | Full feature (replace Coming soon).                                                                                                                                                     |
+| 6     | **Investing**            | Markets UI, quote bus and charts. Browser reads now target Supabase market rows and the request/result channel; Pi workers acquire provider data.                                       |
+| 6b    | **Airfare**              | Fare watchlist, append-only price history and `/airfare`; the archive authority is the Pi journal and Supabase is its indexed replica.                                                  |
+| 6c    | **Sentiment**            | Standalone `/sentiment` page with CNN Fear & Greed and its seven component indicators.                                                                                                  |
+| 7     | **Cloud**                | Vercel/Supabase Auth/Finance RLS-CAS implementation. PC FastAPI provider routes remain only for rollback and local development until the Pi cutover and observation complete.           |
+| 8     | **Legacy cutover**       | Historical product cutover and archive work; superseded operationally by the staged Pi cutover below.                                                                                   |
+| 9     | **Pi data plane**        | Tasks 1–10: Supabase owner documents and collected-data plane, Pi-compatible collectors, browser Supabase reads, pinned Pi units, and operator runbooks. Implemented; not yet deployed. |
+| 10    | **Production cutover**   | Task 11: apply/verify production schema, import retained data, deploy and verify disabled Pi units, enable collectors one at a time, and record the 24-hour observation. **Pending.**   |
+| 11    | **PC route retirement**  | Task 12: after observation, remove or development-gate production browser dependence on PC provider routes and run the final verification matrix. **Pending.**                          |
 
 ---
 
@@ -69,7 +72,7 @@ edicius-hq/
 |           `-- styles/
 |-- services/
 |   `-- api/                         # FastAPI (Python 3.12)
-|       |-- .local-data/             # gitignored — bars cache + local KV
+|       |-- .local-data/             # gitignored — local-development/rollback state; not production document authority
 |       `-- app/
 |           |-- routers/
 |           |-- services/
@@ -139,7 +142,7 @@ styles/
 
 ## Product Baseline
 
-Responsive private web suite for personal finance, markets, captured X posts and airfare. The frontend is on Vercel. Supabase Auth owns the browser passkey session; every FastAPI API and SSE route verifies its Bearer JWT, while Tailscale Serve/Funnel carry the home-API traffic. Finance reads and writes directly between the browser and Supabase under RLS/CAS.
+Responsive private web suite for personal finance, markets, captured X posts and airfare. The implemented pre-cutover architecture uses Supabase Auth for browser identity and Supabase for Finance, owner documents, collected X and sentiment data, Airfare reads, collector health, and market request/result data. The Raspberry Pi is the only intended provider-facing runtime; it exposes no public API. Existing PC FastAPI provider routes are retained only for rollback and local development until Tasks 11 and 12 complete. This paragraph describes the implemented target, not a claim that production cutover has occurred.
 
 **Out of scope:** Status / local PC network monitoring; real brokerage; microservices; Next.js; moving the API or collectors to a datacenter; an unauthenticated public API.
 
@@ -162,47 +165,48 @@ Airfare was the fifth tab and the first addition to the four this plan fixed in 
 
 ### Feature outcomes (post–Coming soon)
 
-| Area       | Outcome                                                                                                          |
-| ---------- | ---------------------------------------------------------------------------------------------------------------- |
-| Dashboard  | Captured X posts and replies timeline                                                                            |
-| Finance    | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore, persistence                        |
-| Greenlight | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, projector, persistence; no real CSVs in git |
-| Investing  | Built: ticker, chart, TA, watchlist, streaming, browser alerts and portfolio. Pending: INV-07.                   |
-| Airfare    | Built: route watchlist, collection, history, map and analysis. Pending AIR-03 alerts.                            |
-| Sentiment  | Built: standalone CNN Fear & Greed composite plus all seven component charts, with accessible crosshairs.        |
+| Area       | Outcome                                                                                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard  | Captured X posts and replies timeline; browser reads Supabase archive and collector health.                                                                                 |
+| Finance    | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore; `finance_documents` remains its RLS/CAS contract.                                             |
+| Greenlight | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, projector, Supabase owner-document persistence; no real CSVs in git.                                   |
+| Investing  | Built: ticker, chart, TA, watchlist, streaming, browser alerts and portfolio; browser reads Supabase market data and queues bars/search for Pi processing. Pending: INV-07. |
+| Airfare    | Built: route watchlist, status-only collection controls, history, map and analysis; Pi archive authority with Supabase indexed reads. Pending AIR-03 alerts.                |
+| Sentiment  | Built: standalone CNN Fear & Greed composite plus all seven component charts, with accessible crosshairs; browser reads normalized Supabase snapshots.                      |
 
 ---
 
 ## Data Plane
 
-Do not mix these traffics.
+The following is the implemented **pre-cutover target**. It replaces the former production ownership of application documents and provider acquisition by the browser/PC FastAPI/local KV. Task 11 deploys and observes it; Task 12 retires the remaining PC browser paths after that observation.
 
 ```text
-A) Non-Finance user state → FastAPI local KV through shared/storage
-B) Market data            → FastAPI (HTTP polling + SSE; upstream WS stays inside FastAPI) + client memory
-C) Finance documents      → Browser ↔ Supabase (RLS read + CAS RPC write)
+A) Owner documents        → Browser ↔ Supabase (RLS read + revisioned CAS write)
+B) Collected data         → Pi → Supabase; browser reads Supabase / Realtime
+C) Market acquisition     → Browser request → Supabase queue → Pi → Supabase result/cache
+D) Airfare archive        → Pi append-only journal → Supabase indexed replica
 ```
 
-| Kind                                                               | Store                                           | Notes                                                  |
-| ------------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------ |
-| Watchlist, prefs, portfolio, alert **rules**, greenlight, drawings | Path A                                          | Low frequency; stored on the home API                  |
-| Finance documents                                                  | Path C                                          | Direct browser-to-Supabase; RLS read and CAS RPC write |
-| Live quotes / ticks                                                | Client quote bus (SSE + API poll)               | In-memory hot path                                     |
-| OHLCV / candle history                                             | FastAPI cache under `services/api/.local-data/` | Upstream Yahoo (or successor); not per-user state      |
-| Live forming candle                                                | Client chart memory                             | Ephemeral                                              |
-| Fundamentals                                                       | FastAPI + short TTL cache                       | Not user tables                                        |
-| CNN Fear & Greed snapshot                                          | FastAPI + 4h TTL / 7d stale-if-error cache      | CNN direct, public attributed mirror on 403/418        |
+| Kind                                                               | Store                                     | Notes                                                                                       |
+| ------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Finance documents                                                  | `finance_documents` in Supabase           | Existing browser RLS read + CAS RPC write contract                                          |
+| Watchlist, prefs, portfolio, alert **rules**, greenlight, drawings | `app_documents` in Supabase               | Revisioned owner documents; Pi holds only last-known-good collector input                   |
+| X posts and collector health                                       | Supabase `tweet_posts` / `collector_runs` | Durable owner archive and browser Realtime reads; Pi JSONL outbox until acknowledged        |
+| CNN Fear & Greed snapshots                                         | Supabase `sentiment_snapshots`            | Durable normalized owner snapshots; Pi cache is disposable                                  |
+| Live quotes / bars                                                 | Supabase `market_quotes` / `market_bars`  | Pi writes replaceable provider cache; client quote bus remains in-memory presentation state |
+| Bars and symbol search                                             | Supabase `collector_requests`             | Owner-scoped request/result queue claimed by the Pi                                         |
+| Airfare archive                                                    | Pi append-only journal                    | Authority and sync cursor; Supabase remains the indexed replica                             |
 
-**Quotes are not stored in the user-state KV.**
-**TanStack Query:** HTTP/history; quote bus for streams. Added in **API client + storage** phase.
+**No production application document is owned by the PC local KV.**
+**TanStack Query:** Supabase reads/history; quote bus for streams. The Pi service-role credential never enters the browser.
 
 ### Investing runtime
 
-1. Load watchlist/prefs from storage facade.
-2. Poll/subscribe market data for that set.
-3. History via TanStack Query → API bar/quote endpoints.
-4. Ticks update in-memory bus → UI/chart.
-5. Alerts compare in-memory quotes to stored rules.
+1. Load watchlist, portfolio and alert rules from Supabase owner documents.
+2. Read/subscribe to Supabase market quotes for that set.
+3. Read fresh bars from Supabase, or enqueue an owner-scoped bar/search request for the Pi worker.
+4. Quote updates feed the in-memory client bus and UI/chart.
+5. Alerts compare in-memory quotes to the stored owner rules.
 
 ---
 
@@ -378,7 +382,7 @@ npm run format | format:check | typecheck | lint | lint:fix | test | test:watch 
 - [x] Available and In transit totals, no currency ever added to another
 - [x] Account view: what its active holdings have left, plus in/out operation counts
 - [x] Ownership drawn on the canvas as a tether, derived rather than stored
-- [x] Persist via `shared/storage` key `finance`, in a shape that leaves room for more diagrams
+- [x] Persist Finance through its `finance_documents` RLS/CAS contract, in a shape that leaves room for more diagrams
 - [x] Domain tested without React: document, fees, summary, transitions, geometry
 - [x] PR linked to the Finance issue — [#15](https://github.com/edicius2002/edicius-hq/pull/15)
 
@@ -418,16 +422,16 @@ its own PR — the rhythm Finance settled into, rather than one issue covering e
 freezes decisions at the moment it is written, so one written now would be deciding the heatmap
 weeks before the heatmap is understood.
 
-| ID     | Slice                    | Scope                                                                                                                            |
-| ------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| INV-01 | **Data plane**           | FastAPI adapters (Yahoo, Binance), batched quotes, OHLCV cache under `.local-data/`, typed `shared/api` client, client quote bus |
-| INV-02 | **Chart**                | Hand-built candle chart on canvas, the timeframe set, the extended-hours overlay, the live forming bar                           |
-| INV-03 | **Watchlist and ticker** | Symbol search, watchlist persisted via `shared/storage`, ticker tape, market-status badge                                        |
-| INV-04 | **Technical analysis**   | RSI, MACD, overlays and their toggles                                                                                            |
-| INV-05 | **Portfolio**            | Positions with quantity and cost, market value and P&L against live quotes                                                       |
-| INV-06 | **Pulse**                | Historical slice superseded by standalone SENT-01 on `/sentiment`                                                                |
-| INV-07 | **Secondary surfaces**   | Heatmap with tabs, symbol comparison, fundamentals, chart drawings and annotations                                               |
-| INV-08 | **Live streaming**       | Prices pushed over a WebSocket held by the API and relayed by SSE, with the poll reduced to a slow sweep                         |
+| ID     | Slice                    | Scope                                                                                                                                              |
+| ------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| INV-01 | **Data plane**           | Historical FastAPI adapters/caches and client quote bus; browser ownership now moves through Supabase market rows and the Pi request/result worker |
+| INV-02 | **Chart**                | Hand-built candle chart on canvas, the timeframe set, the extended-hours overlay, the live forming bar                                             |
+| INV-03 | **Watchlist and ticker** | Symbol search, watchlist persisted via `shared/storage`, ticker tape, market-status badge                                                          |
+| INV-04 | **Technical analysis**   | RSI, MACD, overlays and their toggles                                                                                                              |
+| INV-05 | **Portfolio**            | Positions with quantity and cost, market value and P&L against live quotes                                                                         |
+| INV-06 | **Pulse**                | Historical slice superseded by standalone SENT-01 on `/sentiment`                                                                                  |
+| INV-07 | **Secondary surfaces**   | Heatmap with tabs, symbol comparison, fundamentals, chart drawings and annotations                                                                 |
+| INV-08 | **Live streaming**       | Historical API WebSocket/SSE transport; browser quote delivery is now Supabase Realtime with the same client quote bus                             |
 
 **INV-01 comes first and draws nothing.** Every other slice reads from it, and the legacy's
 `js/investing/config.js` is where the expensive knowledge lives — Yahoo's retention ceiling per
@@ -455,7 +459,7 @@ and Duffel's free tier serves an invented airline. The history is not fetched, i
 
 | ID     | Slice                     | Scope                                                                                                              |
 | ------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| AIR-01 | **Watch and collect**     | Google Flights adapter, append-only JSONL archive, paced collector, `/airfare` with watchlist and history          |
+| AIR-01 | **Watch and collect**     | Google Flights adapter, Pi append-only archive, Supabase owner watch document and indexed archive reads            |
 | AIR-02 | **Continuous monitoring** | Polling by how near the departure is, a snapshot only when something moved, and every flight followed individually |
 | AIR-03 | **Alerts**                | A fare below its own median, reported where it can be seen without opening the tab                                 |
 | AIR-04 | **Map and analysis**      | Watched routes as arcs on a globe or flat, and the archive read by day, week or month                              |
@@ -466,7 +470,7 @@ is known to be: it reads an untagged array by position, so it is behind `adapter
 from the first commit and its drift is a typed error rather than an empty list (12.4).
 
 **Out of scope:** running the collector in the cloud, which needs a provider that is not a scraper
-first (12.3), and booking anything at all — this observes prices, it does not buy tickets.
+first (12.3), and booking anything at all — this observes prices, it does not buy tickets. The Pi, not the PC API, is the intended provider-facing runtime after Task 11.
 
 ---
 
@@ -475,8 +479,8 @@ first (12.3), and booking anything at all — this observes prices, it does not 
 **Status:** Complete on 2026-09-07 as SENT-01. This delivery replaces the planned Pulse panels from INV-06 without changing the rest of Investing.
 
 - [x] Typed CNN and public-mirror adapters with strict normalization of the composite plus seven indicators
-- [x] One atomic disk cache with a four-hour TTL, request coalescing and seven-day stale-if-error fallback
-- [x] Supabase JWT-protected `GET /api/sentiment` with explicit upstream, malformed-data and stale responses
+- [x] One atomic normalized snapshot with a four-hour freshness target and seven-day stale-if-error behavior; the Pi cache is disposable and Supabase retains durable snapshots
+- [x] Browser Supabase reads of owner-scoped sentiment snapshots; the retained PC API route is rollback/local-development-only until Task 12
 - [x] Standalone `/sentiment` route and sixth top-navigation item
 - [x] Eight responsive SVG charts with text legends, labelled axes, keyboard/pointer crosshairs, live text readouts and reduced-motion support
 - [x] Loading, empty, error/retry and stale states; the composite alone shows its observation timestamp
@@ -489,20 +493,52 @@ The API sends only `Accept: application/json`. It does not imitate a browser, ad
 
 ### 7 — Cloud
 
-**Status:** Implementation complete for the chosen architecture. One operational transport check remains.
+**Status:** Browser authentication and Finance Supabase RLS/CAS implementation are complete. This checklist does not assert a production deployment; Pi cutover is tracked separately below.
 
-- [x] Deploy `apps/web` to Vercel
-- [x] Keep `services/api` on the owner's PC and publish it with Tailscale Serve
-- [x] Gate API access with passkey sessions
-- [x] Support Tailscale Funnel for authenticated devices outside the tailnet
-- [ ] Record an end-to-end SSE soak through Serve/Funnel for the market, fare and tweet streams
+- [x] Implement the Vercel/Supabase Auth browser boundary
+- [x] Implement Finance direct browser-to-Supabase RLS/CAS
+- [x] Keep FastAPI Bearer-JWT verification and Tailscale transport for retained rollback/local-development routes
+- [ ] Retire production browser dependence on retained PC provider routes only after Task 11 observation (Task 12)
 
 ### 8 — Cutover
 
-**Status:** Pending.
+**Status:** Historical product cutover scope; staged Pi production cutover is Task 11 below and remains pending.
 
 - [ ] Confirm any remaining legacy parity or data handoff
 - [ ] Archive `ediciuscorp`
+
+### 9 — Raspberry Pi collectors and Supabase data plane
+
+**Status:** Tasks 1–10 implemented on 2026-09-18. The implementation is not evidence of a deployed or observed production cutover. See the [approved design](superpowers/specs/2026-09-17-pi-collectors-supabase-design.md), [ADR 0004](ADRs/0004-pi-collectors-supabase-data-plane.md), and [Pi collector runbook](pi-collectors-runbook.md).
+
+- [x] Task 1 — record ADR 0004; add owner-scoped Supabase schema, RLS/RPCs, Realtime publication and typed client contracts
+- [x] Task 2 — move `shared/storage` application documents to revisioned Supabase owner documents
+- [x] Task 3 — move Airfare browser reads to owner-gated Supabase RPCs and make manual controls status-only
+- [x] Task 4 — make the append-only Airfare archive Pi-compatible with idempotent Supabase replica sync
+- [x] Task 5 — collect Sentiment on the Pi and read durable snapshots from Supabase
+- [x] Task 6 — run X as a replayable Pi worker and read Dashboard data/health from Supabase
+- [x] Task 7 — add the Pi market worker and Supabase request/result channel
+- [x] Task 8 — move Investing quotes, bars and search browser paths to Supabase
+- [x] Task 9 — package pinned, disabled-by-default Pi systemd units and installer verification
+- [x] Task 10 — add operator migration, deployment and rollback runbooks
+
+### 10 — Staged production migration and collector cutover
+
+**Status:** Pending — Task 11 has not been performed.
+
+- [ ] Apply and verify the production schema and RLS before data movement
+- [ ] Import owner documents and retained X history without deleting PC data
+- [ ] Deploy disabled Pi units, run one-shot verification, then enable collectors one at a time
+- [ ] Disable the Windows collector/watchers only after their Pi replacements verify
+- [ ] Record the required 24-hour observation evidence and retain PC sources for at least seven days
+
+### 11 — Post-observation PC route retirement
+
+**Status:** Pending — Task 12 follows a successful Task 11 observation window.
+
+- [ ] Remove or development-gate obsolete production PC provider routes and startup ownership
+- [ ] Confirm production browser bundles contain no PC provider-route dependencies
+- [ ] Run the full verification matrix and preserve the rollback-safe data-retention guarantees
 
 ---
 
@@ -602,6 +638,8 @@ there is nothing for a merge to choose between, and nothing it can silently drop
 | 5.6 | Supabase Realtime only for user documents (optional).            | Wrong tool for tape.                   |
 | 5.7 | Alerts: in-memory quote vs stored rules.                         | No need to persist last price.         |
 | 5.8 | No tick/OHLCV primary design in Supabase unless a later ADR.     | Avoid Postgres time-series by default. |
+
+**Superseded for the collector data plane by ADR 0004 (2026-09-18):** decisions 5.1–5.8 record the original PC FastAPI/local-KV and API-streaming model. The current implemented target uses Supabase revisioned owner documents, collected-data tables and Realtime/request-result channels; Pi workers acquire provider data. Airfare retains its append-only Pi archive as authority and Supabase remains its indexed replica. Tasks 11 and 12 remain required before this target can be described as production cut over.
 
 ### 6. Greenlight
 
@@ -1075,20 +1113,21 @@ A box's height follows what the node says, not what its kind could ever say
 
 ### 13. Deploy
 
-#### Current deployment and Finance authority — approved 2026-09-16
+#### Current implemented target — 2026-09-18
 
-Supabase Auth owns the browser's passkey session. The browser sends its Supabase access token only in an `Authorization: Bearer` header to **every** FastAPI API and SSE route, and FastAPI verifies that JWT. SSE is authenticated fetch streaming; a JWT never appears in a URL. Tailscale Serve and Funnel are transport choices only: `tailnet.mjs` does not inspect credentials or passkey use. Finance is not a routine home-API/local-KV path: the browser reads from Supabase under RLS and writes through the direct compare-and-swap RPC. This is the operative model for cutover. Follow the [Finance Supabase and passkey cutover runbook](deploy-plan.md#finance-supabase-and-passkey-cutover-runbook) and the [approved Finance Supabase Auth design](superpowers/specs/2026-09-16-finance-supabase-auth-design.md).
+Supabase Auth owns the browser's passkey session. Finance retains its browser-to-Supabase RLS/CAS contract. ADR 0004 extends Supabase to revisioned owner documents, collected X and sentiment data, market cache/request-result data, and owner-gated Airfare reads; the Raspberry Pi is the only intended provider-facing runtime and has no public HTTP API. FastAPI's Bearer-JWT/Tailscale routes remain only for rollback and local development until Task 12. This is implementation state, not a claim that the Pi services, schema migration, or observation window have run in production. Follow the [Pi collector runbook](pi-collectors-runbook.md), [approved Pi design](superpowers/specs/2026-09-17-pi-collectors-supabase-design.md), and [Finance Supabase Auth design](superpowers/specs/2026-09-16-finance-supabase-auth-design.md).
 
-| ID   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 13.1 | **`apps/web` deploys to Vercel; `services/api` does not deploy at all.** Decision 8.39 measured Binance answering HTTP 451 to both REST and its socket from a GitHub runner, while every Yahoo surface answered and several were faster than from home. A conventional cloud host loses crypto entirely. Decision 12.9 pins the fare collector to a residential address independently. Two upstreams, two reasons, one address. |
-| 13.2 | **Every upstream request leaves the home connection. Always.** An invariant of the deploy shape, not a preference: it rules out moving the API to Fly, Railway or a VPS, running a collection pass anywhere but the home PC, and putting any cloud worker or proxy in front of the upstreams. Serving the SPA from a cloud host is _not_ ruled out, because the SPA makes no upstream data request of its own.                  |
-| 13.3 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier Tailscale-only/no-API-auth model is retained as historical rationale for keeping upstream traffic at home, but it is not a deploy instruction. Serve and Funnel do not decide identity; the current Bearer-JWT gate does.                                                                                                                                 |
-| 13.4 | **Superseded in scope — 2026-09-16 Finance Supabase Auth design.** The earlier public-empty-shell rationale assumed that every private byte came only from the home API. The public Vercel app now presents Supabase passkey sign-in; protected API/SSE calls use the JWT gate and Finance uses its direct Supabase RLS/CAS boundary.                                                                                           |
-| 13.5 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier local WebAuthn/session implementation, including its local auth-route exception, was removed. There is no home-PC credential store, passkey ceremony, or local session token. Supabase Auth now owns the browser passkey session, and FastAPI verifies its Bearer JWT on every API/SSE route.                                                             |
-| 13.6 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former EventSource query-token mechanism is retired. SSE now uses authenticated fetch streaming with the Supabase JWT in `Authorization: Bearer`; a JWT never appears in a URL.                                                                                                                                                                                   |
-| 13.7 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier PC-printed enrollment-code and local credential-management flow was removed. Supabase Auth owns passkey enrollment and session lifecycle under the cutover runbook; there is no home-PC enrollment path to operate.                                                                                                                                       |
-| 13.8 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former Funnel credential-store/passkey-use precondition was removed. `tailnet.mjs` is transport-only: Serve and Funnel select network reachability, while FastAPI's Supabase Bearer-JWT verifier decides API access.                                                                                                                                              |
+| ID   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 13.1 | **Superseded in provider-runtime scope by ADR 0004.** The original Vercel/web and non-deployed-PC-API decision preserves the evidence that datacenter hosting loses Binance access, but collector ownership moves from the PC to the home Raspberry Pi.                                                                                                                                                                               |
+| 13.2 | **Superseded in host wording by ADR 0004.** Upstream requests remain on the residential connection, but no longer require the home PC: the Pi is the intended collector runtime. The SPA makes no provider request of its own.                                                                                                                                                                                                        |
+| 13.3 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier Tailscale-only/no-API-auth model is retained as historical rationale for keeping upstream traffic at home, but it is not a deploy instruction. Serve and Funnel do not decide identity; the current Bearer-JWT gate does.                                                                                                                                       |
+| 13.4 | **Superseded in scope — 2026-09-16 Finance Supabase Auth design.** The earlier public-empty-shell rationale assumed that every private byte came only from the home API. The public Vercel app now presents Supabase passkey sign-in; protected API/SSE calls use the JWT gate and Finance uses its direct Supabase RLS/CAS boundary.                                                                                                 |
+| 13.5 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier local WebAuthn/session implementation, including its local auth-route exception, was removed. There is no home-PC credential store, passkey ceremony, or local session token. Supabase Auth now owns the browser passkey session, and FastAPI verifies its Bearer JWT on every API/SSE route.                                                                   |
+| 13.6 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former EventSource query-token mechanism is retired. SSE now uses authenticated fetch streaming with the Supabase JWT in `Authorization: Bearer`; a JWT never appears in a URL.                                                                                                                                                                                         |
+| 13.7 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier PC-printed enrollment-code and local credential-management flow was removed. Supabase Auth owns passkey enrollment and session lifecycle under the cutover runbook; there is no home-PC enrollment path to operate.                                                                                                                                             |
+| 13.8 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former Funnel credential-store/passkey-use precondition was removed. `tailnet.mjs` is transport-only: Serve and Funnel select network reachability, while FastAPI's Supabase Bearer-JWT verifier decides API access.                                                                                                                                                    |
+| 13.9 | **Current implemented pre-cutover target — ADR 0004.** Supabase owns Finance documents, revisioned application owner documents, Dashboard/X data, Sentiment snapshots, market request/result/cache data, collector health, and Airfare indexed reads; the Pi owns provider acquisition. Airfare's append-only Pi journal remains the authority, not Supabase. Task 11 production cutover and Task 12 route retirement remain pending. |
 
 ### 14. Sentiment
 
@@ -1304,10 +1343,10 @@ Current-state reconciliation (2026-09-07): FastAPI and the five green dependency
 | 2026-09-03 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The earlier Vercel + Tailscale-only Step 7 decision remains historical context for the home-API/upstream placement, not the current authentication or Finance model. |
 | 2026-09-03 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former PC-local WebAuthn/session and enrollment design was removed; Supabase Auth owns the passkey session and FastAPI verifies Bearer JWTs for all API/SSE routes. |
 | 2026-09-04 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former Funnel credential/passkey-use gate was removed. Tailscale is transport-only; Serve/Funnel reachability does not replace the FastAPI Bearer-JWT access check. |
-| 2026-09-16 | **Current model.** Supabase Auth passkey browser session; FastAPI Bearer-JWT verification for all API/SSE routes; header-only fetch streaming; transport-only Tailscale; and direct Finance RLS/CAS. See the [Finance cutover runbook](deploy-plan.md#finance-supabase-and-passkey-cutover-runbook) and [approved design](superpowers/specs/2026-09-16-finance-supabase-auth-design.md). |
+| 2026-09-16 | **Superseded in provider and application-data scope — ADR 0004, 2026-09-18.** Supabase Auth passkey browser session and Finance RLS/CAS remain; FastAPI Bearer-JWT/header streaming/Tailscale apply only to retained rollback and local-development routes until Task 12. The current pre-cutover target moves application documents, Dashboard, Sentiment, Investing and Airfare browser data paths to Supabase and provider acquisition to Pi collectors. |
 
 ## Dashboard Codex reset history — 2026-09-14
 
-Completed: live last-reset summary, reset statistics, and a 53-week calendar above the preserved Posts and Replies timelines. An authenticated local endpoint reads public upstream data through a separate client, follows pagination, deduplicates records, and retains stale cached data during transient failures. Dates use America/Bogota.
+Historical implementation before the Pi/Supabase data-plane change: live last-reset summary, reset statistics, and a 53-week calendar above the preserved Posts and Replies timelines. Its authenticated local endpoint read public upstream data through a separate client, followed pagination, deduplicated records, and retained stale cached data during transient failures. Dates use America/Bogota.
 
 Owner review approved compact announcement-style cards, centered history content, removal of the attribution footer, and a card height reserved from the longest daily detail at the current viewport width. See [implementation results](dashboard-codex-resets-result.md) for behavior, validation, sources, and limitations.

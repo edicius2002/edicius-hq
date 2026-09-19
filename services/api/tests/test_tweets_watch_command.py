@@ -1,0 +1,119 @@
+import asyncio
+import importlib.util
+import sys
+import uuid
+from pathlib import Path
+from types import ModuleType
+from unittest.mock import AsyncMock, Mock
+
+from app.services.collector_cloud import CollectorCloudUnavailable
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SCRIPT_PATH = REPO_ROOT / "scripts" / "tweets-watch.py"
+
+
+def load_script() -> ModuleType:
+    name = f"tweets_watch_script_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_worker_replays_before_opening_the_browser_and_closes_on_stop():
+    events: list[str] = []
+    stopped = asyncio.Event()
+    replica = Mock()
+    replica.replay.return_value = 0
+    watcher = Mock()
+    watcher.stop = AsyncMock()
+    observer = None
+
+    def set_observer(callback):
+        nonlocal observer
+        observer = callback
+
+    watcher.set_run_observer.side_effect = set_observer
+
+    def watch(_handle):
+        events.append("watch")
+        assert observer is not None
+        observer(type("Refresh", (), {"new": 0})())
+        stopped.set()
+
+    watcher.watch.side_effect = watch
+    cloud = Mock()
+    cloud.begin_run.return_value = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+    assert (
+        asyncio.run(load_script().run_worker("thsottiaux", cloud, watcher, replica, stopped)) == 0
+    )
+
+    replica.replay.assert_called_once_with("thsottiaux")
+    assert events == ["watch"]
+    watcher.stop.assert_awaited_once_with()
+    cloud.heartbeat_run.assert_called_once_with(
+        cloud.begin_run.return_value, {"seen": 0, "written": 0, "failed": 0}
+    )
+    cloud.finish_run.assert_called_once_with(
+        cloud.begin_run.return_value, {"seen": 0, "written": 0, "failed": 0}
+    )
+
+
+def test_worker_marks_a_fatal_watcher_failure_and_exits_nonzero():
+    stopped = asyncio.Event()
+    replica = Mock()
+    watcher = Mock()
+    watcher.stop = AsyncMock()
+    watcher.watch.side_effect = lambda _handle: stopped.set()
+    watcher.current.return_value = type("Refresh", (), {"state": "failed"})()
+    cloud = Mock()
+    cloud.begin_run.return_value = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+    assert (
+        asyncio.run(load_script().run_worker("thsottiaux", cloud, watcher, replica, stopped)) == 1
+    )
+
+    watcher.stop.assert_awaited_once_with()
+    cloud.fail_run.assert_called_once_with(cloud.begin_run.return_value, "session-failed")
+
+
+def test_worker_keeps_watching_when_the_initial_outbox_replay_is_offline():
+    stopped = asyncio.Event()
+    replica = Mock()
+    replica.replay.side_effect = CollectorCloudUnavailable("offline")
+    watcher = Mock()
+    watcher.stop = AsyncMock()
+    watcher.watch.side_effect = lambda _handle: stopped.set()
+    watcher.current.return_value = None
+    cloud = Mock()
+    cloud.begin_run.return_value = uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+    assert (
+        asyncio.run(load_script().run_worker("thsottiaux", cloud, watcher, replica, stopped)) == 0
+    )
+
+    watcher.watch.assert_called_once_with("thsottiaux")
+
+
+def test_once_captures_replays_and_exits_without_starting_watch_loop():
+    cloud = Mock()
+    replica = Mock(replay=Mock(return_value=0))
+    watcher = Mock(run_once=AsyncMock())
+    watcher.stop = AsyncMock()
+    watcher.current.return_value = type("Refresh", (), {"state": "finished", "new": 0})()
+
+    assert (
+        asyncio.run(
+            load_script().run_worker(
+                "thsottiaux", cloud, watcher, replica, asyncio.Event(), once=True
+            )
+        )
+        == 0
+    )
+
+    watcher.run_once.assert_awaited_once_with("thsottiaux")
+    watcher.watch.assert_not_called()
+    watcher.stop.assert_awaited_once_with()

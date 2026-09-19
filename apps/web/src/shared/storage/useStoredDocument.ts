@@ -1,9 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { readStorage, writeStorage } from '@/shared/storage/storage';
 import { createWriteQueue, type WriteQueue, type WriteState } from '@/shared/storage/writeQueue';
 import type { StorageKey } from '@/shared/storage/keys';
+import {
+  readRemoteDocument,
+  type RemoteDocument,
+  writeRemoteDocument,
+} from '@/shared/storage/supabaseStorage';
 
 const noop = () => undefined;
 
@@ -43,8 +47,10 @@ export type StoredDocument<T> = {
   replace: (next: T) => Promise<T>;
 };
 
+type CachedDocument<T> = Pick<RemoteDocument<T>, 'payload' | 'revision'>;
+
 /**
- * A whole-document store backed by the local KV API.
+ * A whole-document store backed by revisioned Supabase owner documents.
  *
  * Two failure modes are handled here rather than in each feature, because both
  * were real bugs before this existed:
@@ -75,7 +81,13 @@ export function useStoredDocument<T>({
 
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => readStorage(key, signal).then(normalize),
+    queryFn: async ({ signal }): Promise<CachedDocument<T>> => {
+      const document = await readRemoteDocument<unknown>(key, signal);
+      return {
+        payload: normalize(document?.payload),
+        revision: document?.revision ?? 0,
+      };
+    },
     retry: false,
   });
 
@@ -84,8 +96,18 @@ export function useStoredDocument<T>({
   // Built once and never rebuilt: a queue replaced mid-flight would drop
   // whatever it was holding, which is the one thing it exists to keep.
   const [queue] = useState<WriteQueue<T>>(() =>
-    createWriteQueue<T, T>({
-      write: (value) => writeStorage(key, value),
+    createWriteQueue<T, RemoteDocument<T>>({
+      write: (value) => {
+        const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
+        if (!cached)
+          throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
+        return writeRemoteDocument(key, value, cached.revision);
+      },
+      onWritten: (acknowledgement) => {
+        queryClient.setQueryData<CachedDocument<T>>(queryKey, (cached) =>
+          cached ? { payload: cached.payload, revision: acknowledgement.revision } : cached,
+        );
+      },
       onState: setWriteState,
     }),
   );
@@ -102,18 +124,21 @@ export function useStoredDocument<T>({
   const edit = useCallback(
     (change: (current: T) => T | Promise<T>) =>
       serialize(async () => {
-        const cached = queryClient.getQueryData<T>(queryKey);
+        const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (cached === undefined) {
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
         }
-        const current = normalize(cached);
+        const current = cached.payload;
         const next = await change(current);
         // A change that returns what it was given decided against editing —
         // a refused operation, say — so there is nothing worth persisting.
         if (next === current) return current;
 
         // Set inside the serialized task, never after it, so the next edit sees this.
-        queryClient.setQueryData(queryKey, next);
+        queryClient.setQueryData<CachedDocument<T>>(queryKey, {
+          payload: next,
+          revision: cached.revision,
+        });
         queue.push(next);
         return next;
       }),
@@ -124,7 +149,14 @@ export function useStoredDocument<T>({
   const replace = useCallback(
     (next: T) =>
       serialize(async () => {
-        queryClient.setQueryData(queryKey, next);
+        const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
+        if (cached === undefined) {
+          throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
+        }
+        queryClient.setQueryData<CachedDocument<T>>(queryKey, {
+          payload: next,
+          revision: cached.revision,
+        });
         // Awaited rather than debounced: replacing the document is deliberate and
         // destructive, so the caller is told whether it landed. It also takes
         // over whatever the debounce was still holding, which would otherwise be
@@ -167,7 +199,7 @@ export function useStoredDocument<T>({
 
   return {
     // Undefined means loading or failed, never "stored and empty".
-    data: query.data ?? placeholder,
+    data: query.data?.payload ?? placeholder,
     isFetching: query.isFetching,
     isError: query.isError,
     // A failed read outranks anything the queue has to say: it is why the queue

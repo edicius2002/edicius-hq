@@ -1,134 +1,111 @@
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import type { PropsWithChildren } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import rawFixture from '../../../../../../fixtures/airfare-history-pagination/v1.json?raw';
+import { useFareHistory } from './useFareHistory';
 
-import type { FareRoute } from '@/features/airfare/data/fareRoutes';
-import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
-import type { FareHistoryResponse } from '@/shared/api/fares';
-import { queryWrapper, sharedQueryWrapper } from '@/test/queryWrapper';
+const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
+vi.mock('@/shared/supabase/client', () => ({ supabase: { rpc } }));
 
-/**
- * Which departures the archive is asked about.
- *
- * The month, and since 12.260 only ever the month. `departure` is a prefix
- * (12.112), so `2027-03` matches every departure key inside March and the
- * baseline and the heartbeat counts come back for all of them. This suite once
- * covered a second answer — one focused day inside the month — and the point
- * of what is left is that the request is the month even when the same pair is
- * watched twice.
- */
+const route = {
+  origin: 'AQP',
+  destination: 'LIM',
+  months: ['2026-11', '2026-12'],
+  currency: 'USD',
+};
+const key = ['fares', 'history', 'AQP', 'LIM', '2026-11', '2026-11,2026-12'];
+
+function setup() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 1000 } } });
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return { client, wrapper };
+}
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
-const LIM_MAD: FareRoute = {
-  origin: 'LIM',
-  destination: 'MAD',
-  months: ['2027-03'],
-  currency: 'USD',
-};
-
-const EMPTY: FareHistoryResponse = {
-  origin: 'LIM',
-  destination: 'MAD',
-  snapshots: [],
-  baseline: [],
-  health: { lastCheckedAt: null, checks: 0, changes: 0, errors: 0 },
-  airports: [],
-  pairReference: null,
-};
-
-/** `setup.ts` makes an unstubbed `fetch` reject, so nothing here reaches out. */
-function stubHistory() {
-  const urls: string[] = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn((input: RequestInfo | URL) => {
-      urls.push(String(input));
-      return Promise.resolve(Response.json(EMPTY));
-    }),
-  );
-  return urls;
-}
-
-const wrapper = queryWrapper();
-
-describe('useFareHistory', () => {
-  it('does not replace the current route with an older, slower response', async () => {
-    let finishFirst!: (response: Response) => void;
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockImplementationOnce(
-          () =>
-            new Promise<Response>((resolve) => {
-              finishFirst = resolve;
-            }),
-        )
-        .mockImplementationOnce(() =>
-          Promise.resolve(Response.json({ ...EMPTY, destination: 'SCL' })),
-        ),
-    );
-    const shared = sharedQueryWrapper();
-    const { result, rerender } = renderHook(({ route }) => useFareHistory(route, '2027-03'), {
-      wrapper: shared,
-      initialProps: { route: LIM_MAD },
-    });
-    rerender({ route: { ...LIM_MAD, destination: 'SCL' } });
-    await waitFor(() => expect(result.current.data?.destination).toBe('SCL'));
+describe('useFareHistory complete reads', () => {
+  it('does not multiply three internal attempts with QueryClient retry defaults', async () => {
+    vi.useFakeTimers();
+    rpc.mockImplementation(() => ({
+      abortSignal: () =>
+        Promise.resolve({
+          data: null,
+          error: { code: '40001', message: 'airfare_history_revision_changed' },
+        }),
+    }));
+    const { client, wrapper } = setup();
+    const { unmount } = renderHook(() => useFareHistory(route, '2026-11'), { wrapper });
     await act(async () => {
-      finishFirst(Response.json(EMPTY));
+      await vi.advanceTimersByTimeAsync(2500);
     });
-    expect(result.current.data?.destination).toBe('SCL');
-    shared.client.clear();
+    expect(client.getQueryState(key)?.status).toBe('error');
+    expect(client.getQueryData(key)).toBeUndefined();
+    expect(rpc).toHaveBeenCalledTimes(3);
+    unmount();
+    client.clear();
   });
 
-  it('waits until a reading month is selected', async () => {
-    const urls = stubHistory();
-    renderHook(() => useFareHistory(LIM_MAD, null), { wrapper });
-    await Promise.resolve();
-    expect(urls).toHaveLength(0);
+  it('keeps prior complete cached data on late failure without exposing partial pages', async () => {
+    vi.useFakeTimers();
+    const fixture = JSON.parse(rawFixture);
+    const responses = [fixture.meta, fixture.snapshotPages[0]];
+    rpc.mockImplementation(() => ({
+      abortSignal: () =>
+        Promise.resolve(
+          responses.length
+            ? { data: responses.shift(), error: null }
+            : { data: null, error: { code: '503', message: 'unavailable' } },
+        ),
+    }));
+    const { client, wrapper } = setup();
+    const previous = { ...fixture.expected, snapshots: [] };
+    client.setQueryData(key, previous, { updatedAt: Date.now() - 61_000 });
+    const { unmount } = renderHook(() => useFareHistory(route, '2026-11'), { wrapper });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(client.getQueryState(key)?.status).toBe('error');
+    expect(client.getQueryData(key)).toEqual(previous);
+    expect(
+      rpc.mock.calls.filter(([name]) => name === 'read_owner_airfare_history_meta'),
+    ).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledTimes(4);
+    unmount();
+    client.clear();
   });
 
-  it('asks for every watched snapshot month while retaining the active departure filter', async () => {
-    const urls = stubHistory();
-    const route = { ...LIM_MAD, months: ['2027-03', '2027-04'] };
-    renderHook(() => useFareHistory(route, route.months[0]), { wrapper });
-
-    await waitFor(() => expect(urls).toHaveLength(1));
-    const params = new URL(urls[0], 'http://x').searchParams;
-    expect(params.get('departure')).toBe('2027-03');
-    expect(params.getAll('snapshotMonth')).toEqual(['2027-03', '2027-04']);
-  });
-
-  it('refetches when the watched month set changes while the active month does not', async () => {
-    /*
-     * The month is in the query key as well as in the request, and it has to
-     * be: two watches on LIM-MAD in different months are two different
-     * archives, and serving the second from the first would put March's
-     * baseline and March's heartbeat counts under a heading naming April.
-     *
-     * This is what is left of the case a focus used to make — the same test
-     * with `focusDate: '2027-03-09'` in place of the second month.
-     */
-    const urls = stubHistory();
-    // `sharedQueryWrapper`, not the module's `wrapper`: one client across the
-    // rerender, or the second month would find an empty cache whatever the
-    // query key said and the test would pass for the wrong reason.
-    const shared = sharedQueryWrapper();
-
-    const { rerender } = renderHook(
-      ({ route, month }: { route: FareRoute; month: string }) => useFareHistory(route, month),
-      { wrapper: shared, initialProps: { route: LIM_MAD, month: '2027-03' } },
-    );
-    await waitFor(() => expect(urls).toHaveLength(1));
-
-    rerender({ route: { ...LIM_MAD, months: ['2027-03', '2027-04'] }, month: '2027-03' });
-    await waitFor(() => expect(urls).toHaveLength(2));
-    const params = new URL(urls[1], 'http://x').searchParams;
-    expect(params.get('departure')).toBe('2027-03');
-    expect(params.getAll('snapshotMonth')).toEqual(['2027-03', '2027-04']);
+  it('forwards unmount cancellation to both active RPCs and starts no subsequent page', async () => {
+    const fixture = JSON.parse(rawFixture);
+    const signals: AbortSignal[] = [];
+    rpc.mockImplementation(() => ({
+      abortSignal: (signal: AbortSignal) => {
+        signals.push(signal);
+        if (signals.length === 1) return Promise.resolve({ data: fixture.meta, error: null });
+        return new Promise(() => undefined);
+      },
+    }));
+    const { client, wrapper } = setup();
+    const { unmount } = renderHook(() => useFareHistory(route, '2026-11'), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(signals).toHaveLength(3);
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(signals[1].aborted).toBe(true);
+    expect(signals[2].aborted).toBe(true);
+    expect(client.getQueryData(key)).toBeUndefined();
+    expect(rpc).toHaveBeenCalledTimes(3);
+    client.clear();
   });
 });

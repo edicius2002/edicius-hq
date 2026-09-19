@@ -27,7 +27,9 @@ create table public.collector_runs (
   records_failed integer not null default 0 check (records_failed >= 0),
   error_code text check (error_code is null or error_code ~ '^[a-z0-9][a-z0-9_-]{0,63}$'),
   started_at timestamptz not null default now(),
+  heartbeat_at timestamptz not null default now(),
   completed_at timestamptz,
+  check (heartbeat_at >= started_at),
   check (completed_at is null or completed_at >= started_at)
 );
 
@@ -186,6 +188,12 @@ as $$
 declare v_claimed public.collector_requests;
 begin
   update public.collector_requests
+     set status = 'expired', completed_at = now()
+   where owner_id = p_owner_id
+     and status in ('queued', 'running')
+     and expires_at <= now();
+
+  update public.collector_requests
      set status = 'running', claimed_at = now()
    where request_id = (
      select request_id
@@ -194,12 +202,8 @@ begin
       order by created_at, request_id
       for update skip locked
       limit 1
-   )
+  )
   returning * into v_claimed;
-
-  update public.collector_requests
-     set status = 'expired', completed_at = now()
-   where owner_id = p_owner_id and status = 'queued' and expires_at <= now();
 
   return v_claimed;
 end;

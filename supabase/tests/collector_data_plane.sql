@@ -1,5 +1,5 @@
 begin;
-select plan(80);
+select plan(85);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -15,6 +15,8 @@ select col_is_pk('public', 'sentiment_snapshots', array['owner_id', 'source', 'a
 select col_is_pk('public', 'market_quotes', array['owner_id', 'symbol']);
 select col_is_pk('public', 'market_bars', array['owner_id', 'symbol', 'timeframe', 'extended']);
 select col_is_pk('public', 'collector_requests', array['request_id']);
+select has_column('public', 'collector_runs', 'heartbeat_at',
+                  'collector runs expose a heartbeat timestamp');
 
 select has_function('public', 'write_app_document', array['text','jsonb','bigint']);
 select has_function('public', 'delete_app_document', array['text','bigint']);
@@ -164,6 +166,13 @@ select throws_ok($$ select public.read_owner_airfare_calendar('AQP', 'LIM') $$,
 
 reset role;
 set local role service_role;
+insert into public.collector_runs (owner_id, collector, status)
+values ('11111111-1111-1111-1111-111111111111', 'market', 'running');
+select is(
+  (select heartbeat_at from public.collector_runs where collector = 'market'),
+  (select started_at from public.collector_runs where collector = 'market'),
+  'collector run heartbeat starts at the run start time'
+);
 select is(
   (public.claim_collector_request('11111111-1111-1111-1111-111111111111')).status,
   'running', 'service role atomically claims an unexpired queued request'
@@ -188,6 +197,21 @@ select is((public.claim_collector_request('11111111-1111-1111-1111-111111111111'
           'claim returns no row after consuming the queue');
 select is((select status from public.collector_requests order by created_at limit 1), 'expired',
           'claiming expires stale queued requests after five minutes');
+insert into public.collector_requests (
+  request_id, owner_id, operation, payload, status, created_at, claimed_at, expires_at
+) values (
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  '11111111-1111-1111-1111-111111111111',
+  'market-search', '{"query":"AAPL"}', 'running',
+  now() - interval '10 minutes', now() - interval '9 minutes', now() - interval '5 minutes'
+);
+select is((public.claim_collector_request('11111111-1111-1111-1111-111111111111')).request_id, null::uuid,
+          'claim returns no row while expiring stale running work');
+select is((select status from public.collector_requests where request_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+          'expired', 'claiming expires stale running requests after five minutes');
+select ok((select completed_at is not null from public.collector_requests
+           where request_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+          'expired running requests record terminal completion time');
 
 select * from finish();
 rollback;

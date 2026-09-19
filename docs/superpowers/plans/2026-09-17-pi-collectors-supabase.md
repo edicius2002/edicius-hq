@@ -882,17 +882,16 @@ Run dry-run first, record counts, then apply. Re-run both imports and require ze
 
 - [ ] **Step 3: Deploy disabled Pi units and perform one-shot verification**
 
-Run `ops/pi/install.sh <commit>`, `ops/pi/verify.sh`, one Airfare dry-run, one real sentiment pass, one X replay/capture, and one market quote/bar/search request. Verify corresponding `collector_runs` and dataset rows in Supabase.
+Run `ops/pi/install.sh`, `ops/pi/verify.sh`, `ops/pi/verify.sh --live sentiment`, `ops/pi/verify.sh --live x-posts`, and `ops/pi/verify.sh --live market` while every unit remains disabled. Verify the Airfare dry run, completed Sentiment run, X replay/capture and post state, and Market quote/bar/search results in Supabase.
 
 - [ ] **Step 4: Cut over in dependency order**
 
 Order:
 
 1. Enable sentiment timer and observe one success.
-2. Enable X service and verify new/replayed post idempotency.
+2. Stop and confirm the PC X watcher, then enable X service and verify new/replayed post idempotency.
 3. Enable market service and verify Realtime plus request turnaround.
-4. Disable Windows `Edicius airfare`, enable Pi Airfare timer, and verify one complete pass/sync.
-5. Set PC `X_TWEET_WATCH_ON_START=false` and stop any current API-owned watcher.
+4. Stop any running Windows `Edicius airfare` instance, wait for termination, disable and recheck the task, then enable Pi Airfare timer and verify one complete pass/sync.
 
 - [ ] **Step 5: Record 24-hour observation evidence**
 

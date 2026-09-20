@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import type { PassProgress } from '@/features/airfare/lib/passProgress';
-import type { RowReport } from '@/features/airfare/lib/rowReport';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 
@@ -25,7 +24,6 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     activeMonth: null as string | null,
     editing: null as FareRoute | null,
     collecting: [] as readonly string[],
-    reports: new Map<string, RowReport>(),
     progress: new Map<string, PassProgress>(),
     onSelect: vi.fn(),
     onOpenMonth: vi.fn(),
@@ -429,29 +427,9 @@ describe('RouteList', () => {
     expect(screen.getByRole('button', { name: /^Collect LIM → MAD/ })).toBeEnabled();
   });
 
-  it('reports what the collection came back with on the row that asked', () => {
-    // A press that quietly does nothing is a broken button as far as the
-    // reader is concerned — decisions 8.8 and 8.41, the same rule the pass
-    // itself follows.
-    renderList({
-      reports: new Map([
-        [routeId(ROUTES[0]), { ok: true, text: 'Collected: 14 flights, cheapest $412.00.' }],
-      ]),
-    });
-    expect(screen.getByText('Collected: 14 flights, cheapest $412.00.')).toBeInTheDocument();
-  });
-
-  it('says a refusal out loud rather than dropping it', () => {
-    renderList({
-      reports: new Map([
-        [routeId(ROUTES[0]), { ok: false, text: 'Refused: no-offers — nothing on that day.' }],
-      ]),
-    });
-    const line = screen.getByText('Refused: no-offers — nothing on that day.');
-    expect(line.className).toMatch(/refused/);
-    // The region has to be in the document before its text changes, or a
-    // screen reader has nothing to notice. Every row carries an empty one.
-    expect(line).toHaveAttribute('aria-live', 'polite');
+  it('does not render inline terminal report text', () => {
+    renderList();
+    expect(document.querySelector('[aria-live]')).toBeNull();
   });
 
   it('draws how far the pass has got, and only on the row running one', () => {
@@ -466,10 +444,11 @@ describe('RouteList', () => {
     // The fill is a width, so the figure the reader is looking at is checkable
     // as the figure the pass reported rather than as a class name.
     expect((bar.firstElementChild as HTMLElement).style.width).toBe(`${(4 / 31) * 100}%`);
-    // Drawn and never read aloud: the line under it is already announcing "4
-    // of 31" into a live region, and a bar that entered the accessibility tree
-    // would have one row saying the same figure twice.
-    expect(bar).toHaveAttribute('aria-hidden', 'true');
+    expect(bar).toHaveAttribute('role', 'progressbar');
+    expect(bar).toHaveAttribute('aria-valuemin', '0');
+    expect(bar).toHaveAttribute('aria-valuemax', '31');
+    expect(bar).toHaveAttribute('aria-valuenow', '4');
+    expect(bar).toHaveAccessibleName('Collecting LIM → CUZ, October 2026');
 
     // A row between presses costs no element at all — a track drawn on every
     // row would be three pixels of ink down an idle watchlist.
@@ -489,6 +468,8 @@ describe('RouteList', () => {
 
     const bar = screen.getByTestId(`collect-progress-${running}`);
     expect(bar.className).toMatch(/unplanned/);
+    expect(bar).toHaveAttribute('role', 'progressbar');
+    expect(bar).not.toHaveAttribute('aria-valuenow');
     // No inline width: the stylesheet owns the sweep, and a width written here
     // would pin the fill and stop it moving.
     expect((bar.firstElementChild as HTMLElement).style.width).toBe('');

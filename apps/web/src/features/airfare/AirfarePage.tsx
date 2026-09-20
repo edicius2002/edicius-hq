@@ -14,8 +14,10 @@ import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import {
+  airfareRequestWorkerHealthy,
   airfaresStatusText,
   useAirfareCollectorStatus,
+  useAirfareRequestWorkerStatus,
 } from '@/features/airfare/data/collectorStatus';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
@@ -81,6 +83,7 @@ export function AirfarePage() {
   /* Pi-scheduled collection has no browser-triggered horizon pass. */
   const horizon = useHorizonCollection();
   const collectorStatus = useAirfareCollectorStatus();
+  const requestWorkerStatus = useAirfareRequestWorkerStatus();
 
   /*
    * Which way each pair's arc flows, and which watch collected most recently.
@@ -475,8 +478,7 @@ export function AirfarePage() {
       */}
 
       {/*
-        Four cells, laid out in order: map and watchlist across the top row,
-        route detail and the collection report under them. The panels are grid
+        The map and watchlist share the top row. The panels are grid
         children rather than two stacked columns, which is what makes the map
         and the watchlist share a row — and so a height — instead of each
         column growing to its own content.
@@ -545,8 +547,12 @@ export function AirfarePage() {
             activeMonth={activeMonth}
             editing={editing}
             collecting={rowCollection.collecting}
-            reports={rowCollection.reports}
             progress={rowCollection.progress}
+            onCollect={
+              airfareRequestWorkerHealthy(requestWorkerStatus.data)
+                ? rowCollection.collect
+                : undefined
+            }
             onSelect={(id) => {
               setSelectedId(id);
               setEditingId(id);
@@ -615,10 +621,8 @@ export function AirfarePage() {
             onRemove={(id) => {
               if (id === editingId) setEditingId(null);
               if (id === selectedId) setSelectedId(null);
-              // The report goes with the row. Route ids are content rather
-              // than handles — the same pair on the same dates rebuilds the
-              // same id — so a stale line would reappear under a route that
-              // had just been added back.
+              // Transient request state goes with the row. Route ids are
+              // content rather than handles, so removing one must forget it.
               rowCollection.forget(id);
               horizon.forget(id);
               void watchlist.remove(id);
@@ -769,22 +773,8 @@ export function AirfarePage() {
       </Panel>
 
       {/*
-        What a press of the reader's own came back with, in the corner, for as
-        long as it takes to read.
-
-        Last in the document and fixed over the page, which is the ordering that
-        matters least and the placement that matters most: a pass is minutes
-        long, and by the time it lands the reader is somewhere else on this page
-        — down at the flight table, or dragging a crosshair across a chart.
-        The row's own line still holds the same sentence and still waits to be
-        superseded, so nothing is lost when a card fades; what the card buys is
-        that the news arrives where the reader is rather than where the press
-        was made.
-
-        Only presses. The scheduled collector runs every fifteen minutes and
-        raises nothing — `collectNotice` asks `isOurPass` before it says a word,
-        and a page that interrupted its reader on somebody else's schedule would
-        be worth closing.
+        Request acceptance and terminal outcomes appear in the fixed toast
+        stack. The scheduled collector never creates these notices.
       */}
       <CollectNotices notices={rowCollection.notices} />
     </section>

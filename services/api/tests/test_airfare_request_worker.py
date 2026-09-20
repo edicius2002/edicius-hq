@@ -167,6 +167,31 @@ def test_sync_false_or_exception_is_a_sanitized_failure():
         remote.fail_request.assert_called_once_with(REQUEST_ID, "sync-failed")
 
 
+def test_syncing_progress_failure_settles_the_request_safely():
+    remote = Mock(owner_id=OWNER)
+    remote.claim_request.side_effect = [request(), None]
+
+    def update_progress(_request_id, progress):
+        if progress["stage"] == "syncing":
+            raise RuntimeError("private cloud detail")
+
+    remote.update_request_progress.side_effect = update_progress
+    sync_pass = Mock(return_value=True)
+
+    healthy = asyncio.run(
+        worker_for(
+            remote,
+            collect_route=AsyncMock(return_value=report()),
+            sync_pass=sync_pass,
+        ).reconcile_once()
+    )
+
+    assert healthy is False
+    sync_pass.assert_not_called()
+    remote.complete_request.assert_not_called()
+    remote.fail_request.assert_called_once_with(REQUEST_ID, "sync-failed")
+
+
 def test_lock_contention_happens_before_claim_and_leaves_request_queued():
     remote = Mock(owner_id=OWNER)
 

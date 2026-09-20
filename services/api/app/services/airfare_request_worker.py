@@ -226,8 +226,8 @@ class AirfareRequestWorker:
             recorder.finish(exit_code=1)
             return False
 
-        await progress.syncing()
         try:
+            await progress.syncing()
             synced = await asyncio.to_thread(self._sync_pass, report)
         except Exception:  # noqa: BLE001 - no internal sync detail crosses the queue
             synced = False

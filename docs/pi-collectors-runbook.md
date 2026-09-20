@@ -81,6 +81,7 @@ units (the installer intentionally fails without that protected file):
 ```sh
 ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/install.sh'
 ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare.timer edicius-sentiment.timer edicius-tweets.service edicius-market.service'
+ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service'
 ```
 
 The installer also downloads the Playwright-pinned Chromium build into the
@@ -182,6 +183,54 @@ ssh '<pi-host>' "sudo journalctl -u edicius-airfare.service -u edicius-sentiment
 Checkpoint C passes when imports are idempotent, source/destination manifests
 match, the profile is private, and unit verification/one-shots are healthy.
 
+## Manual Airfare request worker activation gate
+
+This branch only prepares the gate. It does not execute these commands against
+the Pi or hosted Supabase, and installation leaves
+`edicius-airfare-requests.service` disabled. Run this section only after the
+pinned schema, release, protected environment, archive import, and disabled-unit
+verification above have passed.
+
+First prove the installed unit is disabled, start it without enabling it, and
+require a post-start heartbeat. These commands run from the same Git Bash
+operator shell used above:
+
+```sh
+ssh '<pi-host>' 'test "$(sudo systemctl is-enabled edicius-airfare-requests.service 2>/dev/null || true)" = disabled'
+REQUEST_CUTOFF="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ssh '<pi-host>' 'sudo systemctl start edicius-airfare-requests.service'
+ssh '<pi-host>' 'sudo systemctl is-active edicius-airfare-requests.service'
+ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/check-collector-run.py airfare-requests --cutoff '$REQUEST_CUTOFF' --wait-seconds 90"
+ssh '<pi-host>' "sudo journalctl -u edicius-airfare-requests.service --since '$REQUEST_CUTOFF' --no-pager"
+```
+
+For the one manual Airfare canary, open the deployed Airfare page as the owner,
+choose a live route/month, and press its circular refresh control once. The
+accepted notification must appear, the row must show its spinner/progress, and
+the completion notification must appear only after the Pi archive has synced to
+Supabase. Record no payload or provider response. In the operator shell, prove
+that the owner request completed after sync:
+
+```sh
+CANARY_STATE="$(docker run --rm --env SUPABASE_DB_URL --env REQUEST_CUTOFF --env EDICIUS_OWNER_BOOTSTRAP_ID postgres:16 sh -ceu "psql \"\$SUPABASE_DB_URL\" -X -A -t -v ON_ERROR_STOP=1 -v owner_id=\"\$EDICIUS_OWNER_BOOTSTRAP_ID\" -v cutoff=\"\$REQUEST_CUTOFF\" -c \"select status || '|' || (result->>'synced') from public.collector_requests where owner_id = :'owner_id'::uuid and operation = 'airfare-route' and created_at >= :'cutoff'::timestamptz and status = 'complete' and result->>'synced' = 'true' order by created_at desc limit 1;\"")"
+test "$CANARY_STATE" = 'complete|true'
+```
+
+Before activation, prove stale health removes the control: stop the worker, wait
+past the 90-second health window, refresh the Airfare page, and confirm the
+circular refresh control is absent while the scheduled-Airfare status remains.
+Then explicitly activate only the manual request worker and repeat the heartbeat
+check with a new cutoff:
+
+```sh
+ssh '<pi-host>' 'sudo systemctl stop edicius-airfare-requests.service'
+sleep 91
+REQUEST_CUTOFF="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ssh '<pi-host>' 'sudo systemctl enable --now edicius-airfare-requests.service'
+ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/check-collector-run.py airfare-requests --cutoff '$REQUEST_CUTOFF' --wait-seconds 90"
+ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service && sudo systemctl is-active edicius-airfare-requests.service'
+```
+
 ## Cutover, observation, and rollback
 
 Capture owner-scoped Supabase baseline counts and health for `collector_runs`,
@@ -250,3 +299,14 @@ PC X restart reports partial rollback and leaves Windows airfare disabled; the
 PC X watcher is not restarted until all Pi collectors are confirmed stopped.
 Both scripts validate the loopback API base and `-WhatIf` performs no API,
 remote, or scheduler mutation.
+
+### Roll back only the manual request worker
+
+This rollback does not change the scheduled collector. It removes the manual
+refresh control after the health window while preserving scheduled Airfare data:
+
+```sh
+ssh '<pi-host>' 'sudo systemctl disable --now edicius-airfare-requests.service'
+ssh '<pi-host>' 'test "$(sudo systemctl is-enabled edicius-airfare-requests.service 2>/dev/null || true)" = disabled'
+ssh '<pi-host>' 'test "$(sudo systemctl is-active edicius-airfare-requests.service 2>/dev/null || true)" = inactive'
+```

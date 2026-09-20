@@ -12,9 +12,10 @@ from pathlib import Path
 
 import httpx
 
-
 ENV_FILE = Path("/etc/edicius-hq/collectors.env")
-COLLECTORS = frozenset({"airfare", "sentiment", "x-posts", "market"})
+COLLECTORS = frozenset(
+    {"airfare", "airfare-requests", "sentiment", "x-posts", "market"}
+)
 ALLOWED_ENV_NAMES = frozenset(
     {
         "SUPABASE_URL",

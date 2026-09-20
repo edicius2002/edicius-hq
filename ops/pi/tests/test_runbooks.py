@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 PI_ROOT = Path(__file__).resolve().parents[1]
 CUTOVER = PI_ROOT / "cutover.ps1"
 ROLLBACK = PI_ROOT / "rollback.ps1"
@@ -304,3 +303,24 @@ def test_runbook_declares_only_two_human_only_actions_and_required_checkpoints()
         "python3 -m venv",
     ):
         assert required.lower() in text.lower()
+
+
+def test_runbook_gates_the_manual_airfare_worker_and_rolls_back_only_its_unit() -> None:
+    text = RUNBOOK.read_text(encoding="utf-8")
+    words = " ".join(text.split())
+    assert "edicius-airfare-requests.service" in text
+    assert "is-enabled edicius-airfare-requests.service" in text
+    assert "systemctl start edicius-airfare-requests.service" in text
+    assert "check-collector-run.py airfare-requests" in text
+    assert "manual Airfare canary" in text
+    assert "result->>'synced' = 'true'" in text.replace("''", "'")
+    assert "sleep 91" in text
+    assert "disable --now edicius-airfare-requests.service" in text
+    assert "does not execute these commands against the Pi or hosted Supabase" in words
+    rollback = text[text.index("### Roll back only the manual request worker") :]
+    assert "edicius-airfare.timer" not in rollback
+
+
+def test_collector_run_check_accepts_the_manual_airfare_worker() -> None:
+    text = CHECK_RUN.read_text(encoding="utf-8")
+    assert '"airfare-requests"' in text

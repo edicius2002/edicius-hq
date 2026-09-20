@@ -220,9 +220,7 @@ def test_update_request_progress_uses_the_allowlisted_rpc(secret_config):
         {"stage": "collecting", "completed": True, "total": 31},
     ],
 )
-def test_update_request_progress_rejects_malformed_values_before_http(
-    secret_config, progress
-):
+def test_update_request_progress_rejects_malformed_values_before_http(secret_config, progress):
     requests: list[httpx.Request] = []
     cloud = CollectorCloud(
         secret_config,

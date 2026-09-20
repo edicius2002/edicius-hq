@@ -394,11 +394,7 @@ class CollectorCloud:
             or completed < 0
             or (
                 total is not None
-                and (
-                    isinstance(total, bool)
-                    or not isinstance(total, int)
-                    or total < completed
-                )
+                and (isinstance(total, bool) or not isinstance(total, int) or total < completed)
             )
         ):
             raise CollectorCloudRejected("invalid collector progress")

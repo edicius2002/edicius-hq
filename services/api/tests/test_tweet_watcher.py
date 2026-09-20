@@ -49,6 +49,18 @@ def test_cycle_persists_only_unknown_ids_from_the_entire_archive(tmp_path):
     asyncio.run(scenario())
 
 
+def test_stop_marks_an_active_watcher_stopped_without_opening_a_browser(tmp_path):
+    async def scenario():
+        watcher = TweetWatcher(data_dir=tmp_path, cycle=lambda _handle: None)
+        watcher.pass_ = tweet_watcher.Refresh(handle="thsottiaux", state="watching")
+
+        await watcher.stop(close_browser=False)
+
+        assert watcher.current("thsottiaux").state == "stopped"
+
+    asyncio.run(scenario())
+
+
 def test_pagination_stops_as_soon_as_it_reaches_a_known_id():
     assert should_stop_scrolling(reached_known=True, idle_windows=0) is True
     assert should_stop_scrolling(reached_known=False, idle_windows=0) is False
@@ -63,6 +75,30 @@ def test_a_failed_cycle_increases_backoff(tmp_path):
         await watcher.run_once("sample")
         assert watcher.current("sample").state == "failed"
         assert watcher.delay_seconds == 240
+
+    asyncio.run(scenario())
+
+
+def test_run_observer_receives_only_durably_successful_passes(tmp_path):
+    async def scenario():
+        observed = []
+
+        async def successful(_handle):
+            return []
+
+        success = TweetWatcher(data_dir=tmp_path, cycle=successful)
+        success.set_run_observer(observed.append)
+        await success.run_once("sample")
+
+        async def broken(_handle):
+            raise RuntimeError("offline")
+
+        failure = TweetWatcher(data_dir=tmp_path, cycle=broken)
+        failure.set_run_observer(observed.append)
+        await failure.run_once("sample")
+
+        assert len(observed) == 1
+        assert observed[0].state == "finished"
 
     asyncio.run(scenario())
 

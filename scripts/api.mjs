@@ -15,6 +15,11 @@ const MODES = [
   'fares-backfill',
   'fares-supabase',
   'finance-supabase',
+  'app-documents-supabase',
+  'sentiment-collect',
+  'tweets-watch',
+  'market-worker',
+  'airfare-request-worker',
 ];
 
 const mode = process.argv[2];
@@ -106,6 +111,11 @@ const ARGS = {
   'fares-backfill': [['../../scripts/fares-viapoints-backfill.py', ...process.argv.slice(3)]],
   'fares-supabase': [['../../scripts/fares-supabase.py', ...process.argv.slice(3)]],
   'finance-supabase': [['../../scripts/finance-supabase.py', ...process.argv.slice(3)]],
+  'app-documents-supabase': [['../../scripts/app-documents-supabase.py', ...process.argv.slice(3)]],
+  'sentiment-collect': [['../../scripts/sentiment-collect.py', ...process.argv.slice(3)]],
+  'tweets-watch': [['../../scripts/tweets-watch.py', ...process.argv.slice(3)]],
+  'market-worker': [['../../scripts/market-worker.py', ...process.argv.slice(3)]],
+  'airfare-request-worker': [['../../scripts/airfare-request-worker.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

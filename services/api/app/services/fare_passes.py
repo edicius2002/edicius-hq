@@ -130,6 +130,8 @@ class PassTally:
         self.sent = 0
         #: Units that came back an error. A refusal is not a skip.
         self.failed = 0
+        #: Successful observations that changed durable local history.
+        self.written = 0
         #: Reasons for everything not polled, counted. Only the reasons that
         #: happened: the collector's vocabulary is open (`unreadable-month`,
         #: `departed`, `past-horizon`, `another-pass-is-running`, …) and a
@@ -156,6 +158,7 @@ class PassTally:
         self.due += len(report.results) + sum(reasons.count(r) for r in WANTED_AND_REFUSED)
         self.sent += len(report.results)
         self.failed += report.failed
+        self.written += sum(result.changed for result in report.results if result.ok)
 
     def calendars(self, report: "CalendarReport") -> None:
         """
@@ -170,6 +173,7 @@ class PassTally:
         self.due += len(report.results) + reasons.count(OVER_BUDGET)
         self.sent += report.requests
         self.failed += report.failed
+        self.written += sum(result.changed for result in report.results if result.ok)
 
 
 class PassLedger:

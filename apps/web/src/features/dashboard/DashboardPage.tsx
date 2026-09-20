@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { fetchRefresh, fetchTweets, openTweetStream, startWatch } from '@/shared/api/tweets';
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import { useCodexResets } from './hooks/useCodexResets';
+import { fetchLatestTweetRun, fetchTweets, subscribeTweets } from './data/supabaseTweets';
 import { formatBogotaDateTime } from './lib/codexResetCalendar';
 import { CodexResetOverview } from './ui/CodexResetOverview';
 import styles from './DashboardPage.module.css';
@@ -14,7 +14,7 @@ import styles from './DashboardPage.module.css';
 const HANDLE = 'thsottiaux';
 const exactTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 
-type Tweets = Awaited<ReturnType<typeof fetchTweets>>['tweets'];
+type Tweets = Awaited<ReturnType<typeof fetchTweets>>;
 
 const AVATAR_URL = 'https://codex-resets.com/thsottiaux-avatar.jpg';
 
@@ -66,53 +66,20 @@ export function DashboardPage() {
   const client = useQueryClient();
   const now = useLiveNow();
   const codexResets = useCodexResets();
-  /*
-   * Polled only while a run is live: `refetchInterval` returning `false` is
-   * what stops this becoming a request every second for the whole session,
-   * which is what a fixed interval would be on a page that is idle almost all
-   * of the time.
-   */
-  const refresh = useQuery({
-    queryKey: ['tweets-refresh', HANDLE],
-    queryFn: ({ signal }) => fetchRefresh(HANDLE, signal),
-    refetchInterval: (query) => (query.state.data?.state === 'running' ? 1000 : false),
-  });
   const query = useQuery({
     queryKey: ['tweets', HANDLE],
-    queryFn: ({ signal }) => fetchTweets(HANDLE, signal),
-    // SSE makes a new row immediate; this remains the cheap recovery path if
-    // a proxy drops that long-lived connection.
-    refetchInterval: 60_000,
+    queryFn: () => fetchTweets(HANDLE),
   });
-  /*
-   * The API owns the watcher; this page asks it to start and listens for its
-   * updates while mounted.
-   *
-   * The start call swallows its own failure, and `void` alone did not: it
-   * discards the value and leaves the rejection unhandled, which is a console
-   * error in the browser and four unhandled rejections in the test run — the
-   * kind vitest warns can turn a passing test into a false positive.
-   *
-   * Swallowed rather than surfaced because neither is news the reader can act
-   * on. Whether the watcher is actually running is reported by its own status,
-   * which this page already polls, so a start that failed shows up there as
-   * plainly as an exception would. The watcher belongs to the API process, so
-   * unmounting this page only closes its stream; DELETE /watch remains the
-   * explicit way to stop the capture.
-   */
+  const run = useQuery({ queryKey: ['collector-runs', 'x-posts'], queryFn: fetchLatestTweetRun });
   useEffect(() => {
-    startWatch(HANDLE).catch(() => {});
-    const close = openTweetStream(
+    return subscribeTweets(
       HANDLE,
       () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }),
     );
-    return () => {
-      close();
-    };
   }, [client]);
-  const tweets = query.data?.tweets ?? [];
-  const running = refresh.data?.state === 'running';
-  const finishedAt = refresh.data?.finishedAt ?? null;
+  const tweets = query.data ?? [];
+  const running = run.data?.status === 'running';
+  const finishedAt = run.data?.completed_at ?? null;
   const relativeFinishedAt = finishedAt ? formatRelativeTime(finishedAt) : null;
 
   return (
@@ -133,11 +100,13 @@ export function DashboardPage() {
       />
       {running ? (
         <p className={styles.progress} role="status">
-          Scrolled {refresh.data?.scroll ?? 0} · {refresh.data?.new ?? 0} new
+          X collector is running.
         </p>
       ) : null}
-      {refresh.data?.state === 'failed' ? (
-        <Panel role="alert">{refresh.data.error ?? 'The refresh failed.'}</Panel>
+      {run.data?.status === 'failed' ? (
+        <Panel role="alert">
+          The X collector failed{run.data.error_code ? ` (${run.data.error_code})` : ''}.
+        </Panel>
       ) : null}
       <CodexResetOverview query={codexResets} now={now} />
       {query.isLoading ? (

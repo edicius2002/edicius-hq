@@ -45,7 +45,7 @@ function storedWrapper(view: ProjectorView) {
           mutations: { retry: false },
         },
       });
-      next.setQueryData(['storage', 'greenlight-projector'], view);
+      next.setQueryData(['storage', 'greenlight-projector'], { payload: view, revision: 1 });
       return next;
     });
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

@@ -87,8 +87,8 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes('/api/kv/')) {
-        return new Response(null, { status: 404 });
+      if (url.includes('/app_documents')) {
+        return Response.json([]);
       }
       // Shell navigation must not depend on a market upstream being reachable.
       if (url.includes('/api/market/quotes')) {
@@ -316,10 +316,16 @@ describe('Investing chart-first workspace', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes('/api/kv/watchlist')) {
-          return Response.json({ key: 'watchlist', value: { version: 1, entries } });
+        if (url.includes('/app_documents')) {
+          return Response.json([
+            {
+              document_key: 'watchlist',
+              payload: { version: 1, entries },
+              revision: 1,
+              updated_at: '',
+            },
+          ]);
         }
-        if (url.includes('/api/kv/')) return new Response(null, { status: 404 });
         if (url.includes('/api/market/quotes')) return Response.json({ quotes: [], failed: [] });
         if (url.includes('/api/market/bars')) {
           return Response.json({ symbol: 'AAPL', timeframe: '1d', provider: 'test', bars: [] });
@@ -429,6 +435,7 @@ describe('The session gate', () => {
     render(<App />);
 
     emitAuth('SIGNED_IN', signedInSession);
+    await arrivesAt('Dashboard');
     await user.click(await screen.findByRole('button', { name: 'Menu' }));
     expect(await screen.findByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
 

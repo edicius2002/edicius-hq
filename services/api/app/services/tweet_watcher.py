@@ -23,6 +23,7 @@ from typing import Any
 
 from app.config import tweets_dir
 from app.services.pass_stream import PassBroadcast
+from app.services.tweet_replica import TweetReplica
 
 DEFAULT_INTERVAL_SECONDS = int(os.getenv("X_TWEET_WATCH_INTERVAL_SECONDS", "120"))
 MAX_SCROLLS = 80
@@ -167,11 +168,13 @@ class TweetWatcher:
         *,
         data_dir: Path | None = None,
         cycle: Cycle | None = None,
+        replica: TweetReplica | None = None,
         interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
         jitter: Callable[[float, float], float] = random.uniform,
     ) -> None:
         self.data_dir = data_dir or tweets_dir()
         self._cycle = cycle or self._capture
+        self.replica = replica
         self.interval_seconds = interval_seconds
         self.jitter = jitter
         self.delay_seconds = interval_seconds
@@ -184,7 +187,12 @@ class TweetWatcher:
         self._playwright: Any | None = None
         self._page: Any | None = None
         self._browser_loop: BrowserLoop | None = None
+        self._run_observer: Callable[[Refresh], None] | None = None
         self.stream: PassBroadcast[dict[str, Any]] = PassBroadcast()
+
+    def set_run_observer(self, observer: Callable[[Refresh], None] | None) -> None:
+        """Observe only passes whose capture and durable replica both succeeded."""
+        self._run_observer = observer
 
     def current(self, handle: str | None = None) -> Refresh | None:
         if handle is None or self.pass_ is None or self.pass_.handle == handle:
@@ -218,6 +226,12 @@ class TweetWatcher:
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     async def record(self, handle: str, rows: list[dict[str, Any]]) -> int:
+        if self.replica is not None:
+            fresh = self.replica.fresh_rows(handle, rows)
+            await asyncio.to_thread(self.replica.append_and_sync, handle, rows)
+            for row in fresh:
+                self.stream.write(row)
+            return len(fresh)
         known = self.recent_ids(handle)
         fresh = [row for row in rows if str(row.get("id", "")) and str(row["id"]) not in known]
         self._write(handle, fresh)
@@ -283,6 +297,8 @@ class TweetWatcher:
             self.pass_.state = "finished"
             self.pass_.finishedAt = datetime.now(UTC).isoformat()
             self.delay_seconds = self.interval_seconds
+            if self._run_observer is not None:
+                self._run_observer(self.pass_)
         except Exception as error:  # noqa: BLE001 - anything the browser or the
             # session can raise has to be named for the reader rather than escape
             # into a loop that would then retry it every two minutes.

@@ -21,11 +21,13 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from conftest import NOW
 
 from app.config import SCHEDULER_INTERVAL_MINUTES
+from app.services.collector_cloud import CollectorCloudUnavailable
 from app.services.fare_collector import (
     CalendarReport,
     CalendarResult,
@@ -56,6 +58,244 @@ def load_collect_script():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_load_routes_defaults_to_the_cloud_watch(monkeypatch, tmp_path):
+    script = load_collect_script()
+    seen = []
+
+    class Cloud:
+        def document(self, key):
+            seen.append(key)
+            return {"routes": []}
+
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: Cloud())
+    monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
+    assert script.load_routes() == []
+    assert seen == ["airfare-routes"]
+
+
+def test_real_cloud_pass_finishes_a_run_and_closes_the_client(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    recorder = PassRecorder(source="cron", kind="board", gap=0)
+    recorder.tally.due = 4
+    recorder.tally.sent = 3
+    recorder.tally.failed = 1
+    recorder.tally.written = 2
+    args = argparse.Namespace(dry_run=False, watch_source="supabase")
+
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
+
+    assert script.run_pass(args, recorder) == 0
+
+    cloud.begin_run.assert_called_once_with("airfare")
+    cloud.finish_run.assert_called_once_with("run-id", {"seen": 4, "written": 2, "failed": 1})
+    cloud.close.assert_called_once_with()
+
+
+def test_dry_run_and_local_rollback_do_not_create_a_cloud_client(monkeypatch):
+    script = load_collect_script()
+    configured = Mock()
+    monkeypatch.setattr(script, "configured_collector_cloud", configured)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
+
+    for args in (
+        argparse.Namespace(dry_run=True, watch_source="supabase"),
+        argparse.Namespace(dry_run=False, watch_source="local"),
+    ):
+        assert script.run_pass(args, PassRecorder(source="cron", kind="board", gap=0)) == 0
+
+    configured.assert_not_called()
+
+
+def test_real_dry_run_uses_the_local_cache_without_constructing_cloud(monkeypatch, tmp_path):
+    script = load_collect_script()
+    configured = Mock()
+    monkeypatch.setattr(script, "configured_collector_cloud", configured)
+    monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
+
+    assert (
+        script.run_pass(
+            argparse.Namespace(
+                dry_run=True, watch_source="supabase", all=False, gap=0, no_calendar=True
+            ),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 0
+    )
+
+    configured.assert_not_called()
+
+
+def test_real_cloud_pass_marks_failure_with_a_stable_code_and_closes(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 1)
+
+    assert (
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 1
+    )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
+
+
+def test_begin_run_outage_uses_cached_watch_and_keeps_the_local_pass_durable(
+    monkeypatch, tmp_path, caplog
+):
+    """An unavailable cloud leaves the cached watch and completed local pass replayable."""
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.side_effect = CollectorCloudUnavailable(
+        "https://secret.example.invalid/telemetry"
+    )
+    cloud.document.side_effect = CollectorCloudUnavailable("https://secret.example.invalid/watch")
+    (soon,) = coming_months(1)
+    cache = tmp_path / "kv" / "airfare-routes.json"
+    cache.parent.mkdir()
+    cache.write_text(
+        json.dumps(
+            {
+                "routes": [
+                    {"origin": "AQP", "destination": "LIM", "months": [soon], "currency": "USD"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = PassLedger(tmp_path / "passes")
+    collected: list[object] = []
+    synced_after_local_record: list[bool] = []
+
+    async def fake_collect_due(watches, **_kwargs):
+        collected.extend(watches)
+        return CollectionReport(
+            started_at=NOW.isoformat(),
+            finished_at=NOW.isoformat(),
+            source="google-flights",
+            results=[RouteResult("AQP", "LIM", f"{soon}-01", None, True)],
+        )
+
+    class Budget:
+        day = NOW.date()
+        ledger = SimpleNamespace(path_for=lambda _day: tmp_path / "spend.jsonl")
+
+        def remaining(self):
+            return None
+
+        def spent(self):
+            return 0
+
+    class Facade:
+        def sync_incremental(self):
+            synced_after_local_record.append(any(ledger.directory.glob("*.jsonl")))
+            return SimpleNamespace(status="failed", uploaded={})
+
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "kv_dir", lambda: tmp_path / "kv")
+    monkeypatch.setattr(script, "collect_due", fake_collect_due)
+    monkeypatch.setattr(script, "daily_budget", lambda **_kwargs: Budget())
+    monkeypatch.setattr(script, "AIRFARE_DATA", Facade())
+    monkeypatch.setattr(script, "airfare_sync_enabled", lambda: True)
+    args = argparse.Namespace(
+        dry_run=False, watch_source="supabase", all=False, gap=0, no_calendar=True
+    )
+    recorder = PassRecorder(source="cron", kind="board", gap=0, ledger=ledger, now=NOW)
+
+    assert script.run_pass(args, recorder) == 0
+
+    assert [(watch.origin, watch.destination, watch.month) for watch in collected] == [
+        ("AQP", "LIM", soon)
+    ]
+    assert json.loads(cache.read_text(encoding="utf-8"))["routes"][0]["origin"] == "AQP"
+    lines = [
+        json.loads(line)
+        for path in ledger.directory.glob("*.jsonl")
+        for line in path.read_text().splitlines()
+    ]
+    assert [line["exit"] for line in lines] == [0]
+    assert synced_after_local_record == [True]
+    cloud.begin_run.assert_called_once_with("airfare")
+    cloud.document.assert_called_once_with("airfare-routes")
+    cloud.finish_run.assert_not_called()
+    cloud.fail_run.assert_not_called()
+    cloud.close.assert_called_once_with()
+    assert "secret.example.invalid" not in caplog.text
+    assert "could not initialize its cloud run" in caplog.text
+
+
+def test_real_cloud_pass_exception_marks_failure_and_closes(monkeypatch):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+
+    def fail(_args, _recorder):
+        raise RuntimeError("provider detail must not reach Supabase")
+
+    monkeypatch.setattr(script, "_pass", fail)
+
+    with pytest.raises(RuntimeError, match="provider detail"):
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
+
+
+def test_finish_failure_keeps_a_successful_local_pass_successful(monkeypatch, caplog):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    cloud.finish_run.side_effect = RuntimeError("cloud detail")
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 0)
+
+    assert (
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 0
+    )
+
+    cloud.fail_run.assert_not_called()
+    cloud.close.assert_called_once_with()
+    assert "cloud detail" not in caplog.text
+    assert "could not finish its cloud run" in caplog.text
+
+
+def test_failed_terminal_failure_keeps_the_local_failure_and_is_not_retried(monkeypatch, caplog):
+    script = load_collect_script()
+    cloud = Mock()
+    cloud.begin_run.return_value = "run-id"
+    cloud.fail_run.side_effect = RuntimeError("cloud detail")
+    monkeypatch.setattr(script, "configured_collector_cloud", lambda: cloud)
+    monkeypatch.setattr(script, "_pass", lambda _args, _recorder: 1)
+
+    assert (
+        script.run_pass(
+            argparse.Namespace(dry_run=False, watch_source="supabase"),
+            PassRecorder(source="cron", kind="board", gap=0),
+        )
+        == 1
+    )
+
+    cloud.fail_run.assert_called_once_with("run-id", "pass-failed")
+    cloud.close.assert_called_once_with()
+    assert "cloud detail" not in caplog.text
+    assert "could not mark its run failed" in caplog.text
 
 
 def test_a_stored_route_still_naming_a_focus_becomes_a_watch(tmp_path):
@@ -257,7 +497,13 @@ def test_the_scheduled_command_runs_a_whole_dry_pass_over_a_route_with_two_month
     )
 
     finished = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py"), "--dry-run"],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "fares-collect.py"),
+            "--dry-run",
+            "--watch-source",
+            "local",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "LOCAL_DATA_DIR": str(data)},
@@ -312,7 +558,13 @@ def test_the_scheduled_command_runs_a_whole_dry_pass(tmp_path):
     )
 
     finished = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py"), "--dry-run"],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "fares-collect.py"),
+            "--dry-run",
+            "--watch-source",
+            "local",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "LOCAL_DATA_DIR": str(data)},

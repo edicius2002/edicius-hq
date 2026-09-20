@@ -41,6 +41,9 @@ venv/
 services/api/.local-data/
 .local-data/
 
+# Raspberry Pi durable collector state and authenticated browser profile.
+ops/pi/state/
+
 # Logs / temp
 *.log
 *.tmp

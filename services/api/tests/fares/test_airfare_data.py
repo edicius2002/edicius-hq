@@ -5,11 +5,16 @@ import logging
 import threading
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.adapters.fares.models import Airport, CalendarPrice, FareOffer, FareSnapshot, PricePoint
 from app.services.airfare_data import AirfareData, HistoryQuery
-from app.services.airfare_supabase import AirfareRemoteRejected, AirfareRemoteUnavailable
+from app.services.airfare_supabase import (
+    AirfareRemoteRejected,
+    AirfareRemoteUnavailable,
+    SupabaseAirfare,
+)
 from app.services.airfare_sync import AirfareSync, SyncReport
 from app.services.fare_calendar import CalendarCurve, FareCalendar
 from app.services.fare_history import FareHistory
@@ -95,7 +100,15 @@ class FakeRemote:
 
     def rpc(self, name: str, params: dict[str, object]) -> object:
         self.rpc_calls.append((name, params))
-        result = self.history if name == "read_airfare_history" else self.calendar
+        assert name != "read_airfare_history", "domain reader must use assembled history"
+        result = self.calendar
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def read_history(self, params: dict[str, object]) -> object:
+        self.rpc_calls.append(("read_history", params))
+        result = self.history
         if isinstance(result, Exception):
             raise result
         return result
@@ -242,7 +255,7 @@ def test_local_and_supabase_adapters_return_the_same_domain_answers(archive):
     assert local.airports(["AQP", "LIM"]) == hosted.airports(["AQP", "LIM"])
     assert remote.rpc_calls == [
         (
-            "read_airfare_history",
+            "read_history",
             {
                 "p_origin": "AQP",
                 "p_destination": "LIM",
@@ -255,6 +268,52 @@ def test_local_and_supabase_adapters_return_the_same_domain_answers(archive):
         ("read_airfare_calendar", {"p_origin": "AQP", "p_destination": "LIM"}),
     ]
     assert remote.select_calls == [("fare_airports", ("code", "payload"), "code")]
+
+
+@pytest.mark.parametrize("ending", ["complete", "unavailable", "churn", "rejected"])
+def test_real_paged_transport_preserves_domain_fallback_boundary(archive, ending, caplog):
+    root, history, calendar = archive
+    data = json.loads(
+        (
+            Path(__file__).resolve().parents[4] / "fixtures/airfare-history-pagination/v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    responses = iter([data["meta"], *data["snapshotPages"], *data["baselinePages"]])
+
+    async def handle(request):
+        if ending == "churn":
+            return httpx.Response(
+                500, json={"code": "40001", "message": "airfare_history_revision_changed"}
+            )
+        if "p_expected_revision" in json.loads(request.content):
+            if ending == "unavailable":
+                return httpx.Response(503, json={"message": "private-detail"})
+            if ending == "rejected":
+                return httpx.Response(
+                    400, json={"code": "22023", "message": "airfare_history_invalid_cursor"}
+                )
+            return httpx.Response(200, json=data["meta"])
+        return httpx.Response(200, json=next(responses))
+
+    remote = SupabaseAirfare(
+        "https://example.supabase.co", "test-key", history_transport=httpx.MockTransport(handle)
+    )
+    query = HistoryQuery("AQP", "LIM", departure="2026-11", snapshot_months=("2026-11", "2026-12"))
+    hosted = AirfareData(history, calendar, remote=remote, backend="supabase", source_root=root)
+    try:
+        with caplog.at_level(logging.WARNING):
+            if ending == "rejected":
+                with pytest.raises(AirfareRemoteRejected):
+                    hosted.history(query)
+            elif ending in {"unavailable", "churn"}:
+                local = AirfareData(history, calendar, backend="local", source_root=root)
+                assert hosted.history(query) == local.history(query)
+                assert caplog.records
+            else:
+                assert len(hosted.history(query).snapshots) == 4
+        assert "private-detail" not in caplog.text
+    finally:
+        remote.close()
 
 
 def test_pair_reference_local_and_supabase_parity_counts_each_departure_once(tmp_path):

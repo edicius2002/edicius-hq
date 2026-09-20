@@ -1,9 +1,12 @@
 """The only Airfare boundary that speaks to the Supabase Data API."""
 
+import asyncio
 import re
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from math import isfinite
-from threading import RLock
+from threading import Event, RLock
+from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -24,9 +27,49 @@ class AirfareRemoteRejected(AirfareRemoteError):
     """A non-retryable request, schema, or response failure."""
 
 
+class AirfareHistoryRevisionChanged(AirfareRemoteError):
+    """Only the exact history protocol conflict can restart an assembled read."""
+
+
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _CONFLICT_TARGET = re.compile(r"^[a-z_][a-z0-9_,]*$")
+_HISTORY_BUDGET_SECONDS = 60.0
+_HISTORY_PROTOCOL_ERRORS = {
+    ("22023", "airfare_history_invalid_request"),
+    ("22023", "airfare_history_invalid_cursor"),
+    ("22023", "airfare_history_item_too_large"),
+    ("22023", "airfare_history_metadata_too_large"),
+    ("55000", "airfare_history_revision_missing"),
+}
+
+
+def _decode_response(response: httpx.Response) -> Any:
+    if response.status_code >= 400:
+        try:
+            error = response.json()
+        except ValueError:
+            error = None
+        if isinstance(error, dict):
+            code, message = error.get("code"), error.get("message")
+            if code == "40001" and message == "airfare_history_revision_changed":
+                raise AirfareHistoryRevisionChanged("Airfare history revision changed")
+            if (
+                isinstance(code, str)
+                and isinstance(message, str)
+                and (code, message) in _HISTORY_PROTOCOL_ERRORS
+            ):
+                raise AirfareRemoteRejected("Supabase rejected the history protocol request")
+    if response.status_code == 429 or response.status_code >= 500:
+        raise AirfareRemoteUnavailable(f"Supabase is unavailable ({response.status_code})")
+    if response.status_code >= 400:
+        raise AirfareRemoteRejected(f"Supabase rejected the request ({response.status_code})")
+    if not response.content:
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        raise AirfareRemoteRejected("Supabase returned invalid JSON") from None
 
 
 def _reject_redirect_response(response: httpx.Response) -> None:
@@ -72,6 +115,7 @@ class SupabaseAirfare:
         *,
         timeout_seconds: float = 15.0,
         transport: httpx.BaseTransport | None = None,
+        history_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         project_url = _project_url(url)
         if not secret_key:
@@ -79,6 +123,7 @@ class SupabaseAirfare:
         if not isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("Supabase timeout must be positive")
         self._project_host = urlsplit(project_url).hostname
+        self._history_transport = history_transport
         self._client = httpx.Client(
             base_url=f"{project_url}/rest/v1/",
             headers={
@@ -116,6 +161,91 @@ class SupabaseAirfare:
     def rpc(self, name: str, params: Mapping[str, object]) -> Any:
         name = _identifier(name, kind="RPC name")
         return self._post(f"rpc/{name}", dict(params))
+
+    def read_history(
+        self, params: Mapping[str, object], *, cancel_event: Event | None = None
+    ) -> dict[str, Any]:
+        """Return one complete revision, with an independently cancellable transport."""
+        from app.services.airfare_history_pages import assemble_history
+
+        deadline = monotonic() + _HISTORY_BUDGET_SECONDS
+
+        def check_cancelled() -> None:
+            if cancel_event is not None and cancel_event.is_set():
+                raise AirfareRemoteUnavailable("Airfare history read cancelled")
+            if monotonic() >= deadline:
+                raise AirfareRemoteUnavailable("Airfare history deadline exceeded")
+
+        check_cancelled()
+        if self.is_closed:
+            raise AirfareRemoteRejected("Supabase client is closed")
+
+        async def read() -> dict[str, Any]:
+            check_cancelled()
+            try:
+                async with asyncio.timeout(max(0, deadline - monotonic())):
+                    async with httpx.AsyncClient(
+                        base_url=self._client.base_url,
+                        headers=self._client.headers,
+                        timeout=self._client.timeout,
+                        transport=self._history_transport,
+                        follow_redirects=False,
+                    ) as client:
+
+                        async def rpc(name: str, arguments: Mapping[str, object]) -> Any:
+                            check_cancelled()
+                            response = await client.post(
+                                f"rpc/{_identifier(name, kind='RPC name')}", json=dict(arguments)
+                            )
+                            check_cancelled()
+                            _reject_redirect_response(response)
+                            if len(response.content) > 1048576:
+                                raise AirfareRemoteRejected(
+                                    "Supabase history response is too large"
+                                )
+                            return _decode_response(response)
+
+                        async def watch_cancel() -> None:
+                            while cancel_event is None or not cancel_event.is_set():
+                                await asyncio.sleep(0.02)
+
+                        operation = asyncio.create_task(
+                            assemble_history(
+                                rpc,
+                                params,
+                                check_cancelled=check_cancelled,
+                                sleep=asyncio.sleep,
+                            )
+                        )
+                        watcher = (
+                            asyncio.create_task(watch_cancel())
+                            if cancel_event is not None
+                            else None
+                        )
+                        try:
+                            if watcher is not None:
+                                done, _ = await asyncio.wait(
+                                    {operation, watcher}, return_when=asyncio.FIRST_COMPLETED
+                                )
+                                if watcher in done:
+                                    raise AirfareRemoteUnavailable("Airfare history read cancelled")
+                            result = await operation
+                            check_cancelled()
+                            return result
+                        finally:
+                            pending = [operation] + ([watcher] if watcher is not None else [])
+                            for task in pending:
+                                task.cancel()
+                            await asyncio.gather(*pending, return_exceptions=True)
+            except (TimeoutError, httpx.TimeoutException, httpx.RequestError):
+                raise AirfareRemoteUnavailable("Airfare history request is unavailable") from None
+
+        # Async I/O lets the deadline cancel in-flight streams; a dedicated worker
+        # also supports synchronous callers that already have an event loop.
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="airfare-history") as pool:
+            result = pool.submit(lambda: asyncio.run(read())).result()
+        check_cancelled()
+        return result
 
     def select_all(
         self,
@@ -212,16 +342,7 @@ class SupabaseAirfare:
             if location is not None and redirect_host != self._project_host:
                 raise AirfareRemoteRejected("Supabase redirected to another host")
             raise AirfareRemoteRejected("Supabase returned an unexpected redirect")
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AirfareRemoteUnavailable(f"Supabase is unavailable ({response.status_code})")
-        if response.status_code >= 400:
-            raise AirfareRemoteRejected(f"Supabase rejected the request ({response.status_code})")
-        if not response.content:
-            return None
-        try:
-            return response.json()
-        except ValueError:
-            raise AirfareRemoteRejected("Supabase returned invalid JSON") from None
+        return _decode_response(response)
 
     def close(self) -> None:
         self._client.close()

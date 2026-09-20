@@ -33,6 +33,8 @@ export function useFareHistory(route: FareRoute | null, month: string | null) {
 
   return useQuery<FareHistoryResponse>({
     ...archiveQueryOptions,
+    // The reader already bounds revision restarts; outer retries multiply them.
+    retry: false,
     queryKey: ['fares', 'history', route?.origin, route?.destination, departure, snapshotMonthSet],
     queryFn: ({ signal }) =>
       fetchFareHistory(route!.origin, route!.destination, {

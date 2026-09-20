@@ -12,7 +12,6 @@ import {
   type Tick,
 } from '@/features/investing/data/quoteStream';
 import type { Quote } from '@/shared/api/market';
-import type { EventStreamHandlers } from '@/shared/api/eventStream';
 
 function quote(over: Partial<Quote> = {}): Quote {
   return {
@@ -138,56 +137,82 @@ describe('applyTicks', () => {
 
 describe('openQuoteStream', () => {
   function open(onTicks = vi.fn()) {
-    let handlers!: EventStreamHandlers;
     const stop = vi.fn();
-    const openStream = vi.fn((_: string, next: EventStreamHandlers) => {
-      handlers = next;
-      return stop;
-    });
+    let receive!: (quotes: Quote[]) => void;
+    let status!: (status: string) => void;
+    const subscribe = vi.fn(
+      (next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+        receive = next;
+        status = nextStatus;
+        return stop;
+      },
+    );
     const close = openQuoteStream(['AAPL'], {
       onTicks,
-      open: openStream,
+      subscribe,
     });
-    return { handlers, close, onTicks, openStream, stop };
+    return { receive, status, close, onTicks, subscribe, stop };
   }
 
   it('hands on the batch it was sent', () => {
-    const { handlers, onTicks } = open();
+    const { receive, onTicks } = open();
 
-    handlers.onEvent({ type: 'quotes', data: JSON.stringify([tick({ price: 500 })]), id: null });
+    receive([mergeTick(quote(), tick({ price: 500 }))]);
 
     expect(onTicks).toHaveBeenCalledWith([expect.objectContaining({ price: 500 })]);
   });
 
-  it('ignores a frame it cannot read rather than throwing', () => {
-    // The stream is an optimisation over the sweep. It must never be able to
-    // break the thing it is optimising.
-    const { handlers, onTicks } = open();
-
-    expect(() => handlers.onEvent({ type: 'quotes', data: 'not json', id: null })).not.toThrow();
-    expect(() =>
-      handlers.onEvent({ type: 'quotes', data: JSON.stringify({ nope: true }), id: null }),
-    ).not.toThrow();
-    expect(onTicks).not.toHaveBeenCalled();
-  });
-
   it('opens nothing when there is nothing to follow', () => {
-    const openStream = vi.fn();
+    const subscribe = vi.fn();
 
-    openQuoteStream([], { onTicks: vi.fn(), open: openStream });
+    openQuoteStream([], { onTicks: vi.fn(), subscribe });
 
-    expect(openStream).not.toHaveBeenCalled();
+    expect(subscribe).not.toHaveBeenCalled();
   });
 
-  it('uses one encoded path and closes the connection when told to', () => {
-    const { close, openStream, stop } = open();
+  it('filters owner-visible quote updates to followed symbols and closes when told to', () => {
+    const { close, receive, onTicks, stop } = open();
 
+    receive([quote({ symbol: 'MSFT' })]);
     close();
 
-    expect(openStream).toHaveBeenCalledWith(
-      '/api/market/stream?symbols=AAPL',
-      expect.objectContaining({ onEvent: expect.any(Function) }),
-    );
+    expect(onTicks).not.toHaveBeenCalled();
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not report live until Supabase confirms the subscription', () => {
+    const onOpen = vi.fn();
+    let status!: (value: string) => void;
+    openQuoteStream(['AAPL'], {
+      onTicks: vi.fn(),
+      onOpen,
+      subscribe: (_: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+        status = nextStatus;
+        return () => {};
+      },
+    });
+
+    expect(onOpen).not.toHaveBeenCalled();
+    status('SUBSCRIBED');
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('lowers the live latch on a terminal Realtime status and ignores later quote callbacks', () => {
+    const onError = vi.fn();
+    let receive!: (quotes: Quote[]) => void;
+    let status!: (value: string) => void;
+    openQuoteStream(['AAPL'], {
+      onTicks: vi.fn(),
+      onError,
+      subscribe: (next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+        receive = next;
+        status = nextStatus;
+        return () => {};
+      },
+    });
+
+    status('CHANNEL_ERROR');
+    receive([quote()]);
+    expect(onError).toHaveBeenCalledOnce();
   });
 });

@@ -41,19 +41,26 @@ function stubKv(options: { stored?: StoredView | null; hold?: boolean } = {}) {
 
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? 'GET') === 'PUT') {
-        const body = JSON.parse(String(init?.body)) as { value: StoredView };
-        stored = body.value;
-        writes.push(body.value);
-        return Response.json({ key: 'greenlight-projector', value: body.value });
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/rpc/write_app_document')) {
+        const body = JSON.parse(String(init?.body)) as { p_payload: StoredView };
+        stored = body.p_payload;
+        writes.push(body.p_payload);
+        return Response.json({
+          document_key: 'greenlight-projector',
+          payload: stored,
+          revision: 1,
+          updated_at: '',
+        });
       }
 
       if (options.hold) await answered;
       // Nothing has ever been stored under this key, which is what the API says
       // about every key until the first write.
-      if (stored === null) return new Response(null, { status: 404 });
-      return Response.json({ key: 'greenlight-projector', value: stored });
+      if (stored === null) return Response.json([]);
+      return Response.json([
+        { document_key: 'greenlight-projector', payload: stored, revision: 1, updated_at: '' },
+      ]);
     }),
   );
 
@@ -172,8 +179,8 @@ describe('when the store cannot be read at all', () => {
   it('falls back to the page net and still lets the field be typed in', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'PUT') return Response.json({ key: 'x', value: null });
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/rpc/write_app_document')) return Response.json({});
         return Response.json({ detail: 'boom' }, { status: 500 });
       }),
     );

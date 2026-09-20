@@ -11,21 +11,18 @@ from app.auth import configured_verifier, require_session_gate
 from app.config import (
     CORS_ORIGINS,
     kv_dir,
-    tweet_watch_on_start_enabled,
 )
 from app.routers import codex_resets, fares, geography, health, kv, market, sentiment, tweets
 from app.routers.codex_resets import close_client as close_codex_resets_client
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
 from app.routers.sentiment import close_client as close_sentiment_client
-from app.routers.tweets import DEFAULT_HANDLE
 from app.services.airfare_supabase import close_airfare_supabase_client, configured_airfare_supabase
 from app.services.calendar_job import CALENDAR_RUNNER
 from app.services.collection_job import RUNNER
 from app.services.kv_store import ensure_kv_dir
 from app.services.pass_stream import CALENDAR_STREAM, COLLECTION_STREAM
 from app.services.stream_hub import HUB
-from app.services.tweet_watcher import RUNNER as TWEET_WATCHER
 
 # Two lines against the day this runs somewhere nobody can attach a debugger.
 # Today a Yahoo rate-limit block, a read-only data volume, a stream reconnecting
@@ -51,9 +48,6 @@ async def lifespan(_app: FastAPI):
     # follows nothing until someone asks, so an idle API opens no connection.
     HUB.attach(CompositeStream())
     HUB.start()
-    if tweet_watch_on_start_enabled():
-        # `watch` only schedules its first capture, so startup never waits for X.
-        TWEET_WATCHER.watch(DEFAULT_HANDLE)
     logger.info("api started; kv=%s", kv_dir())
     yield
     logger.info("api stopping")
@@ -67,7 +61,6 @@ async def lifespan(_app: FastAPI):
     # reintroduce the confusing failure for the half that was left running.
     await RUNNER.aclose()
     await CALENDAR_RUNNER.aclose()
-    await TWEET_WATCHER.stop()
     # After the runners, because cancelling a pass is itself something the
     # watchers are owed — a row holding a `running` document for a pass that
     # will never move again is the spinner-forever failure 8.8 names. Closing

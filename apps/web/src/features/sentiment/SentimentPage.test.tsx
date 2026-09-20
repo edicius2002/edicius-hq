@@ -4,8 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SentimentPage } from '@/features/sentiment/SentimentPage';
+import { getLatestSentiment } from '@/features/sentiment/data/supabaseSentiment';
 import type { SentimentMetric, SentimentResponse } from '@/shared/api/sentiment';
 import panelStyles from '@/shared/ui/Panel.module.css';
+
+vi.mock('@/features/sentiment/data/supabaseSentiment', () => ({ getLatestSentiment: vi.fn() }));
+
+const mockedGetLatestSentiment = vi.mocked(getLatestSentiment);
 
 const INDICATORS = [
   ['market_momentum', 'Market Momentum'],
@@ -60,15 +65,12 @@ function renderPage() {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  mockedGetLatestSentiment.mockReset();
 });
 
 describe('SentimentPage', () => {
   it('renders the composite and all seven CNN indicator charts', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json(response())),
-    );
+    mockedGetLatestSentiment.mockResolvedValue(response());
 
     renderPage();
 
@@ -94,10 +96,7 @@ describe('SentimentPage', () => {
   });
 
   it('shows an honest loading state while the snapshot is pending', () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Promise<Response>(() => {})),
-    );
+    mockedGetLatestSentiment.mockReturnValue(new Promise(() => {}));
 
     renderPage();
 
@@ -106,11 +105,9 @@ describe('SentimentPage', () => {
 
   it('explains an unavailable source and retries the request', async () => {
     const user = userEvent.setup();
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ detail: 'CNN unavailable' }, { status: 503 }))
-      .mockResolvedValueOnce(Response.json(response()));
-    vi.stubGlobal('fetch', fetchMock);
+    mockedGetLatestSentiment
+      .mockRejectedValueOnce(new Error('Supabase unavailable'))
+      .mockResolvedValueOnce(response());
 
     renderPage();
 
@@ -119,14 +116,11 @@ describe('SentimentPage', () => {
     await user.click(within(alert).getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findAllByRole('img')).toHaveLength(8);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockedGetLatestSentiment).toHaveBeenCalledTimes(2);
   });
 
   it('warns when the API serves the last known good snapshot', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json(response({ stale: true }))),
-    );
+    mockedGetLatestSentiment.mockResolvedValue(response({ stale: true }));
 
     renderPage();
 
@@ -137,10 +131,7 @@ describe('SentimentPage', () => {
   });
 
   it('keeps provider provenance out of the page chrome', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json(response({ source: 'cnn-mirror' }))),
-    );
+    mockedGetLatestSentiment.mockResolvedValue(response({ source: 'cnn-mirror' }));
 
     renderPage();
 
@@ -158,10 +149,7 @@ describe('SentimentPage', () => {
   it('does not invent charts when the normalized snapshot has no history', async () => {
     const empty = metric('fear_and_greed', 'Fear & Greed Index');
     empty.series[0].points = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json(response({ composite: empty, indicators: [] }))),
-    );
+    mockedGetLatestSentiment.mockResolvedValue(response({ composite: empty, indicators: [] }));
 
     renderPage();
 

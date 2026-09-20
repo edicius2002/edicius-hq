@@ -64,12 +64,22 @@ function stubStoredAlert() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes('/api/kv/alert-rules')) {
-        if ((init?.method ?? 'GET') === 'PUT') {
-          writes.push(JSON.parse(String(init?.body)).value);
-          return Response.json({ key: 'alert-rules', value: rules });
+      if (
+        String(input).includes('/app_documents') ||
+        String(input).includes('/write_app_document')
+      ) {
+        if (String(input).includes('/write_app_document')) {
+          writes.push(JSON.parse(String(init?.body)).p_payload);
+          return Response.json({
+            document_key: 'alert-rules',
+            payload: rules,
+            revision: 2,
+            updated_at: '',
+          });
         }
-        return Response.json({ key: 'alert-rules', value: rules });
+        return Response.json([
+          { document_key: 'alert-rules', payload: rules, revision: 1, updated_at: '' },
+        ]);
       }
       return new Response(null, { status: 404 });
     }),

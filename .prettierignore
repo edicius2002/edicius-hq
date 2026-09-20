@@ -31,3 +31,5 @@ services/api/app/data/subdivisions
 # one people stop reading, which is how the format break in #143 reached main.
 **/.venv*/
 **/venv/
+services/api/.mypy_cache/
+.superpowers/sdd/

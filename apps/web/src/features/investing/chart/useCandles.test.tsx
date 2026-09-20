@@ -1,6 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const getBars = vi.hoisted(() => vi.fn());
+vi.mock('@/shared/api/market', () => ({ getBars }));
+
 import { candleRefetchInterval, useCandles } from '@/features/investing/chart/useCandles';
 import { queryWrapper } from '@/test/queryWrapper';
 
@@ -27,11 +30,7 @@ describe('useCandles', () => {
   });
 
   it('keeps a loaded chart when a background refresh fails', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(barsResponse))
-      .mockResolvedValueOnce(Response.json({ detail: 'upstream down' }, { status: 502 }));
-    vi.stubGlobal('fetch', fetch);
+    getBars.mockResolvedValueOnce(barsResponse).mockRejectedValueOnce(new Error('upstream down'));
 
     const { result } = renderHook(() => useCandles('SPCX', '15m'), { wrapper });
     await waitFor(() => expect(result.current.bars).toHaveLength(1));
@@ -44,10 +43,7 @@ describe('useCandles', () => {
   });
 
   it('still reports a fatal error when no series has ever loaded', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(Response.json({ detail: 'upstream down' }, { status: 502 })),
-    );
+    getBars.mockRejectedValue(new Error('upstream down'));
 
     const { result } = renderHook(() => useCandles('SPCX', '15m'), { wrapper });
     await waitFor(() => expect(result.current.isError).toBe(true));

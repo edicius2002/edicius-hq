@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Edicius sentiment collector passes
+
+[Timer]
+OnCalendar=*-*-* 0/4:00:00
+OnBootSec=2min
+Persistent=true
+RandomizedDelaySec=30
+Unit=edicius-sentiment.service
+
+[Install]
+WantedBy=timers.target

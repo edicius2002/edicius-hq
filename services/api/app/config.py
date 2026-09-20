@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from math import isfinite
 from pathlib import Path
 from typing import Literal, cast
+from uuid import UUID
 
 # Path A user-state keys (expand as features land).
 ALLOWED_KV_KEYS = frozenset(
@@ -43,6 +44,47 @@ class SupabaseJwtConfig:
     issuer: str
     jwks_url: str
     audience: str
+
+
+@dataclass(frozen=True, slots=True)
+class CollectorConfig:
+    """The Pi-only configuration for service-role collector writes."""
+
+    url: str
+    secret_key: str = field(repr=False)
+    owner_id: UUID
+    timeout_seconds: float = 15.0
+
+
+def _required(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise ValueError(f"{name} must be configured")
+    return value
+
+
+def _positive_float(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError:
+        raise ValueError(f"{name} must be positive") from None
+    if not isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def collector_config() -> CollectorConfig:
+    """Read the mandatory, fail-closed configuration for Pi collectors."""
+    try:
+        owner_id = UUID(_required("EDICIUS_OWNER_ID"))
+    except ValueError:
+        raise ValueError("EDICIUS_OWNER_ID must be a UUID") from None
+    return CollectorConfig(
+        url=_required("SUPABASE_URL").rstrip("/"),
+        secret_key=_required("SUPABASE_SECRET_KEY"),
+        owner_id=owner_id,
+        timeout_seconds=_positive_float("COLLECTOR_SUPABASE_TIMEOUT_SECONDS", 15.0),
+    )
 
 
 def supabase_jwt_config() -> SupabaseJwtConfig:
@@ -127,8 +169,8 @@ def sky_official_lookup_enabled() -> bool:
 
 
 def tweet_watch_on_start_enabled() -> bool:
-    """Whether API startup owns the default X watcher; absent and empty mean enabled."""
-    return os.getenv("X_TWEET_WATCH_ON_START", "").strip().casefold() not in {
+    """Legacy API watcher switch; absent and empty deliberately leave X to the worker."""
+    return os.getenv("X_TWEET_WATCH_ON_START", "false").strip().casefold() not in {
         "0",
         "false",
         "no",

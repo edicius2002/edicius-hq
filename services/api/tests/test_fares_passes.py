@@ -594,7 +594,12 @@ def test_the_scheduled_command_writes_its_line_when_there_is_nothing_to_do(tmp_p
     (data / "kv").mkdir(parents=True)
 
     finished = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py")],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "fares-collect.py"),
+            "--watch-source",
+            "local",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "LOCAL_DATA_DIR": str(data)},
@@ -633,7 +638,13 @@ def test_a_dry_run_is_not_a_pass_and_leaves_no_line(tmp_path):
     )
 
     finished = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "fares-collect.py"), "--dry-run"],
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "fares-collect.py"),
+            "--watch-source",
+            "local",
+            "--dry-run",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "LOCAL_DATA_DIR": str(data)},

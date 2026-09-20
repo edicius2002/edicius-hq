@@ -189,6 +189,11 @@ export class QuoteBus {
   clear(): void {
     this.cache.clear();
   }
+
+  /** Realtime rows are the same normalized wire value as a sweep response. */
+  ingest(quotes: Quote[]): void {
+    for (const quote of quotes) this.remember(quote);
+  }
 }
 
 /**

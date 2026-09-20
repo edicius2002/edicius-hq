@@ -13,7 +13,6 @@ import {
 import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
 import { shortMonth } from '@/features/airfare/lib/monthChips';
 import type { PassProgress } from '@/features/airfare/lib/passProgress';
-import type { RowReport } from '@/features/airfare/lib/rowReport';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
@@ -30,8 +29,6 @@ type RouteListProps = {
   today: string;
   /** Route ids whose own collection is in flight. Never more than a few. */
   collecting: readonly string[];
-  /** What the last press on a row came back with, by route id. */
-  reports: ReadonlyMap<string, RowReport>;
   /** How far each running pass has got, by route id. Absent means no bar. */
   progress: ReadonlyMap<string, PassProgress>;
   /** Which month of the selected route the chart is reading. */
@@ -133,7 +130,6 @@ export function RouteList({
   activeMonth,
   editing,
   collecting,
-  reports,
   progress,
   onSelect,
   onOpenMonth,
@@ -202,7 +198,7 @@ export function RouteList({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [routes, reports]);
+  }, [routes]);
 
   return (
     <div className={styles.panel} onClick={clearOnBackdrop}>
@@ -264,7 +260,6 @@ export function RouteList({
               // and is a predicate now that a row is its only reader.
               const departed = hasDeparted(route, today);
               const busy = collecting.includes(id);
-              const report = reports.get(id) ?? null;
               const bar = progress.get(id) ?? null;
               // Every month, explicitly. The row used to draw three and count
               // the rest, which meant the shape of a watch was legible and its
@@ -458,33 +453,8 @@ export function RouteList({
                     </div>
                   </div>
                   {departed ? <span className={styles.departed}>Departed</span> : null}
-                  {/*
-                  Always rendered, empty until there is something to say. An
-                  empty paragraph with no margin lays out no line box and so
-                  costs no height — and a live region has to be in the document
-                  before its content changes if a screen reader is to announce
-                  it, which a node that appears along with its own text is not.
-                */}
-                  {/*
-                    How far the pass has got, drawn — and drawn only.
-
-                    `aria-hidden`, with no `progressbar` role and no figures of
-                    its own, because the line underneath is already saying
-                    "Collecting: 4 of 31 departures so far" into a live region
-                    every two seconds. A bar that also carried the numbers would
-                    print them twice on one row, and one that carried them
-                    instead would make the words a duplicate of a picture a
-                    screen reader cannot see. This is the picture of a figure
-                    already reported; it adds nothing to the accessibility tree
-                    and takes nothing out of it.
-
-                    Absent rather than emptied when there is nothing to draw:
-                    `passProgress` returns nothing for a pass that has stopped,
-                    for one that belongs to another row, and for one whose plan
-                    settled at no departures at all — so a row that is between
-                    presses costs no element and the list is exactly the height
-                    it was.
-                  */}
+                  {/* The bar is the row's only progress surface; terminal text
+                      is announced by the toast stack instead of repeated here. */}
                   {bar ? (
                     <div
                       className={
@@ -492,7 +462,11 @@ export function RouteList({
                           ? `${styles.progress} ${styles.unplanned}`
                           : styles.progress
                       }
-                      aria-hidden="true"
+                      role="progressbar"
+                      aria-label={`Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`}
+                      aria-valuemin={0}
+                      aria-valuemax={bar.polling ?? undefined}
+                      aria-valuenow={bar.polling === null ? undefined : bar.completed}
                       data-testid={`collect-progress-${id}`}
                     >
                       <span
@@ -505,14 +479,6 @@ export function RouteList({
                       />
                     </div>
                   ) : null}
-                  <p
-                    className={
-                      report && !report.ok ? `${styles.report} ${styles.refused}` : styles.report
-                    }
-                    aria-live="polite"
-                  >
-                    {report?.text ?? ''}
-                  </p>
                 </li>
               );
             })}

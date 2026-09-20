@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run and verify one bounded X or Market collector smoke without exposing secrets."""
+"""Run and verify one bounded worker smoke without exposing secrets."""
 
 from __future__ import annotations
 
@@ -77,6 +77,23 @@ def validate_market_state(
     return {"requests": len(requests), "quotes": len(fresh)}
 
 
+def validate_airfare_requests_state(
+    owner: str,
+    cutoff: datetime,
+    runs: list[dict[str, Any]],
+) -> dict[str, int]:
+    healthy = [
+        row
+        for row in runs
+        if row.get("owner_id") == owner
+        and row.get("status") == "complete"
+        and _timestamp(row.get("heartbeat_at")) >= cutoff
+    ]
+    if not healthy:
+        raise ValueError("Airfare request worker did not reconcile after cutoff")
+    return {"runs": len(healthy)}
+
+
 def load_env() -> None:
     if any(not os.environ.get(name) for name in ALLOWED_ENV_NAMES):
         raise ValueError("collector environment is incomplete")
@@ -104,7 +121,7 @@ def _run(script: str, *arguments: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("collector", choices=("x-posts", "market"))
+    parser.add_argument("collector", choices=("x-posts", "market", "airfare-requests"))
     parser.add_argument("--cutoff", required=True)
     args = parser.parse_args()
     cutoff = _timestamp(args.cutoff)
@@ -148,7 +165,7 @@ def main() -> int:
                 },
             )
             counts = validate_x_state(owner, cutoff, runs, posts)
-        else:
+        elif args.collector == "market":
             payload = [
                 {
                     "owner_id": owner,
@@ -187,6 +204,19 @@ def main() -> int:
                 },
             )
             counts = validate_market_state(owner, cutoff, requests, quotes)
+        else:
+            _run("airfare-request-worker.py")
+            runs = _rows(
+                client,
+                "collector_runs",
+                {
+                    "select": "owner_id,status,heartbeat_at",
+                    "owner_id": f"eq.{owner}",
+                    "collector": "eq.airfare-requests",
+                    "heartbeat_at": f"gte.{cutoff.isoformat()}",
+                },
+            )
+            counts = validate_airfare_requests_state(owner, cutoff, runs)
     print(
         "smoke complete " + " ".join(f"{key}={value}" for key, value in counts.items())
     )

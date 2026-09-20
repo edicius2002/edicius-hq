@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import isfinite
@@ -22,7 +22,9 @@ from app.config import CollectorConfig, collector_config
 LOGGER = logging.getLogger(__name__)
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _ERROR_CODE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_COLLECTORS = frozenset({"airfare", "x-posts", "sentiment", "market"})
+_COLLECTORS = frozenset({"airfare", "airfare-requests", "x-posts", "sentiment", "market"})
+_OPERATIONS = frozenset({"market-bars", "market-search", "airfare-route"})
+_PROGRESS_STAGES = frozenset({"queued", "collecting", "syncing"})
 _TABLES = frozenset(
     {
         "app_documents",
@@ -34,7 +36,12 @@ _TABLES = frozenset(
     }
 )
 _RPCS = frozenset(
-    {"claim_collector_request", "complete_collector_request", "fail_collector_request"}
+    {
+        "claim_collector_request",
+        "complete_collector_request",
+        "fail_collector_request",
+        "update_collector_request_progress",
+    }
 )
 
 
@@ -199,8 +206,19 @@ class CollectorCloud:
     def upsert_bars(self, row: dict[str, Any]) -> None:
         self._upsert("market_bars", [row], "owner_id,symbol,timeframe,extended")
 
-    def claim_request(self) -> CollectorRequest | None:
-        result = self._rpc("claim_collector_request", {"p_owner_id": str(self._owner_id)})
+    def claim_request(self, operations: Collection[str]) -> CollectorRequest | None:
+        requested = tuple(operations)
+        if (
+            not requested
+            or len(set(requested)) != len(requested)
+            or any(operation not in _OPERATIONS for operation in requested)
+        ):
+            raise CollectorCloudRejected("invalid collector request operations")
+        allowed = frozenset(requested)
+        result = self._rpc(
+            "claim_collector_request",
+            {"p_owner_id": str(self._owner_id), "p_operations": list(requested)},
+        )
         if result is None:
             return None
         row = self._one_row(result, "collector request")
@@ -219,12 +237,16 @@ class CollectorCloud:
             )
         except (KeyError, TypeError, ValueError):
             raise CollectorCloudRejected("Supabase returned an invalid collector request") from None
-        if request.owner_id != self._owner_id or request.operation not in {
-            "market-bars",
-            "market-search",
-        }:
+        if request.owner_id != self._owner_id or request.operation not in allowed:
             raise CollectorCloudRejected("Supabase returned an invalid collector request")
         return request
+
+    def update_request_progress(self, request_id: UUID, progress: Mapping[str, Any]) -> None:
+        value = self._progress(progress)
+        self._rpc(
+            "update_collector_request_progress",
+            {"p_request_id": str(self._uuid(request_id)), "p_progress": value},
+        )
 
     def complete_request(self, request_id: UUID, result: Mapping[str, Any]) -> None:
         self._rpc(
@@ -357,6 +379,26 @@ class CollectorCloud:
     def _validate_error_code(code: str) -> None:
         if not isinstance(code, str) or not _ERROR_CODE.fullmatch(code):
             raise CollectorCloudRejected("invalid collector error code")
+
+    @staticmethod
+    def _progress(progress: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(progress, Mapping) or set(progress) != {"stage", "completed", "total"}:
+            raise CollectorCloudRejected("invalid collector progress")
+        stage = progress["stage"]
+        completed = progress["completed"]
+        total = progress["total"]
+        if (
+            stage not in _PROGRESS_STAGES
+            or isinstance(completed, bool)
+            or not isinstance(completed, int)
+            or completed < 0
+            or (
+                total is not None
+                and (isinstance(total, bool) or not isinstance(total, int) or total < completed)
+            )
+        ):
+            raise CollectorCloudRejected("invalid collector progress")
+        return {"stage": stage, "completed": completed, "total": total}
 
     @staticmethod
     def _result(result: Mapping[str, Any]) -> dict[str, Any]:

@@ -33,7 +33,11 @@ const { from, channel, removeChannel, maybeSingle, limit, order, eq, subscribe, 
     };
   });
 vi.mock('@/shared/supabase/client', () => ({ supabase: { from, channel, removeChannel } }));
-import { useAirfareCollectorStatus } from './collectorStatus';
+import {
+  airfareRequestWorkerHealthy,
+  useAirfareCollectorStatus,
+  useAirfareRequestWorkerStatus,
+} from './collectorStatus';
 
 describe('useAirfareCollectorStatus', () => {
   it('refetches on relevant realtime changes, every 30 seconds, and cleans up its channel', async () => {
@@ -66,6 +70,90 @@ describe('useAirfareCollectorStatus', () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
     expect(maybeSingle.mock.calls.length).toBeGreaterThan(afterRealtime);
+    unmount();
+    expect(removeChannel).toHaveBeenCalledWith({ id: 'channel' });
+    vi.useRealTimers();
+  });
+});
+
+describe('manual Airfare worker health', () => {
+  it('requires a running worker with a post-start heartbeat no older than 90 seconds', () => {
+    const now = new Date('2026-09-19T12:02:00.000Z');
+    expect(
+      airfareRequestWorkerHealthy(
+        {
+          status: 'running',
+          started_at: '2026-09-19T12:00:00.000Z',
+          heartbeat_at: '2026-09-19T12:01:00.000Z',
+        },
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      airfareRequestWorkerHealthy(
+        {
+          status: 'running',
+          started_at: '2026-09-19T12:00:00.000Z',
+          heartbeat_at: '2026-09-19T12:00:00.000Z',
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      airfareRequestWorkerHealthy(
+        {
+          status: 'running',
+          started_at: '2026-09-19T12:00:00.000Z',
+          heartbeat_at: '2026-09-19T12:00:29.999Z',
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      airfareRequestWorkerHealthy(
+        {
+          status: 'complete',
+          started_at: '2026-09-19T12:00:00.000Z',
+          heartbeat_at: '2026-09-19T12:01:59.000Z',
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      airfareRequestWorkerHealthy(
+        { status: 'running', started_at: 'bad', heartbeat_at: 'also-bad' },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it('uses a distinct query and realtime channel for the manual worker', async () => {
+    maybeSingle.mockResolvedValue({
+      data: {
+        status: 'running',
+        started_at: '2026-09-19T12:00:00.000Z',
+        heartbeat_at: '2026-09-19T12:01:00.000Z',
+      },
+      error: null,
+    });
+    vi.useFakeTimers();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { unmount } = renderHook(() => useAirfareRequestWorkerStatus(), { wrapper });
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+
+    expect(eq).toHaveBeenLastCalledWith('collector', 'airfare-requests');
+    expect(channel).toHaveBeenLastCalledWith('airfare-request-worker-runs');
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    await act(async () => callback());
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['collector-runs', 'airfare-requests'],
+    });
+    const beforePoll = maybeSingle.mock.calls.length;
+    await act(async () => void (await vi.advanceTimersByTimeAsync(30_000)));
+    expect(maybeSingle.mock.calls.length).toBeGreaterThan(beforePoll);
     unmount();
     expect(removeChannel).toHaveBeenCalledWith({ id: 'channel' });
     vi.useRealTimers();

@@ -15,7 +15,10 @@ PI_ROOT = Path(__file__).resolve().parents[1]
 SYSTEMD = PI_ROOT / "systemd"
 INSTALL = PI_ROOT / "install.sh"
 VERIFY = PI_ROOT / "verify.sh"
-SERVICES = tuple(SYSTEMD / f"edicius-{name}.service" for name in ("airfare", "sentiment", "tweets", "market"))
+SERVICES = tuple(
+    SYSTEMD / f"edicius-{name}.service"
+    for name in ("airfare", "airfare-requests", "sentiment", "tweets", "market")
+)
 TIMERS = tuple(SYSTEMD / f"edicius-{name}.timer" for name in ("airfare", "sentiment"))
 
 
@@ -83,7 +86,14 @@ def test_oneshots_delegate_process_locking_to_the_entrypoint(unit: Path) -> None
     assert "/usr/bin/flock" not in text
 
 
-@pytest.mark.parametrize("unit", (SYSTEMD / "edicius-tweets.service", SYSTEMD / "edicius-market.service"))
+@pytest.mark.parametrize(
+    "unit",
+    (
+        SYSTEMD / "edicius-tweets.service",
+        SYSTEMD / "edicius-market.service",
+        SYSTEMD / "edicius-airfare-requests.service",
+    ),
+)
 def test_workers_restart_with_bounded_systemd_backoff(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")
     assert "Restart=on-failure" in text
@@ -91,7 +101,14 @@ def test_workers_restart_with_bounded_systemd_backoff(unit: Path) -> None:
     assert "TimeoutStopSec=60" in text
 
 
-@pytest.mark.parametrize("unit", (SYSTEMD / "edicius-tweets.service", SYSTEMD / "edicius-market.service"))
+@pytest.mark.parametrize(
+    "unit",
+    (
+        SYSTEMD / "edicius-tweets.service",
+        SYSTEMD / "edicius-market.service",
+        SYSTEMD / "edicius-airfare-requests.service",
+    ),
+)
 def test_long_running_workers_can_be_enabled_only_at_controlled_cutover(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")
     assert "[Install]" in text
@@ -103,6 +120,7 @@ def test_long_running_workers_can_be_enabled_only_at_controlled_cutover(unit: Pa
     (
         (SYSTEMD / "edicius-tweets.service", "tweets-watch.py"),
         (SYSTEMD / "edicius-market.service", "market-worker.py"),
+        (SYSTEMD / "edicius-airfare-requests.service", "airfare-request-worker.py"),
     ),
 )
 def test_long_running_workers_delegate_process_locking_to_the_entrypoint(
@@ -128,6 +146,13 @@ def test_each_entrypoint_owns_a_distinct_nonblocking_process_lock(
     text = (PI_ROOT.parents[1] / "scripts" / script_name).read_text(encoding="utf-8")
     assert "exclusive_process_lock" in text
     assert f'exclusive_process_lock("{lock_name}")' in text
+
+
+def test_airfare_request_worker_uses_the_scheduled_airfare_process_lock() -> None:
+    text = (
+        PI_ROOT.parents[1] / "services/api/app/services/airfare_request_worker.py"
+    ).read_text(encoding="utf-8")
+    assert 'self._lock_factory("airfare")' in text
 
 
 def test_verify_uses_fixed_state_and_active_release_working_directory() -> None:
@@ -200,6 +225,15 @@ def test_installer_never_repairs_or_reuses_the_interactive_edicius_login() -> No
     assert "getent passwd edicius-collector" not in text
     assert 'getent passwd "$SERVICE_USER"' in text
     assert 'useradd --system --user-group --home-dir "$STATE_ROOT"' in text
+
+
+def test_airfare_request_worker_is_installed_but_never_auto_started() -> None:
+    install = INSTALL.read_text(encoding="utf-8")
+    verify = VERIFY.read_text(encoding="utf-8")
+    assert "edicius-airfare-requests.service" in install
+    assert "edicius-airfare-requests.service" in verify
+    assert "systemctl enable" not in install
+    assert "systemctl start" not in install
 
 
 def test_live_verification_runs_collectors_as_the_service_identity() -> None:

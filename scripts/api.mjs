@@ -19,6 +19,7 @@ const MODES = [
   'sentiment-collect',
   'tweets-watch',
   'market-worker',
+  'airfare-request-worker',
 ];
 
 const mode = process.argv[2];
@@ -114,6 +115,7 @@ const ARGS = {
   'sentiment-collect': [['../../scripts/sentiment-collect.py', ...process.argv.slice(3)]],
   'tweets-watch': [['../../scripts/tweets-watch.py', ...process.argv.slice(3)]],
   'market-worker': [['../../scripts/market-worker.py', ...process.argv.slice(3)]],
+  'airfare-request-worker': [['../../scripts/airfare-request-worker.py', ...process.argv.slice(3)]],
 };
 
 for (const args of ARGS[mode]) {

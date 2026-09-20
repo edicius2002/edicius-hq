@@ -93,6 +93,28 @@ def test_market_state_rejects_empty_or_stale_provider_results() -> None:
         )
 
 
+def test_airfare_request_worker_smoke_requires_a_post_cutoff_run() -> None:
+    module = load_script()
+    runs = [
+        {
+            "owner_id": OWNER,
+            "status": "complete",
+            "heartbeat_at": "2026-09-18T00:01:00+00:00",
+        }
+    ]
+
+    assert module.validate_airfare_requests_state(OWNER, CUTOFF, runs) == {"runs": 1}
+    runs[0]["heartbeat_at"] = "2026-09-17T23:59:00+00:00"
+    with pytest.raises(ValueError, match="Airfare request worker"):
+        module.validate_airfare_requests_state(OWNER, CUTOFF, runs)
+
+
+def test_airfare_request_worker_smoke_uses_the_bounded_once_mode() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert '"airfare-requests"' in text
+    assert '_run("airfare-request-worker.py")' in text
+
+
 def test_smoke_uses_injected_environment_without_reopening_root_secret_file(
     monkeypatch, tmp_path
 ) -> None:

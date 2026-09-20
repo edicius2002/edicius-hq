@@ -39,6 +39,7 @@
     "sentiment:collect": "node scripts/api.mjs sentiment-collect",
     "tweets:watch": "node scripts/api.mjs tweets-watch",
     "market:worker": "node scripts/api.mjs market-worker",
+    "airfare:worker": "node scripts/api.mjs airfare-request-worker",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint ."

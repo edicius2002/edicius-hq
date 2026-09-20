@@ -2,6 +2,9 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const searchSymbols = vi.hoisted(() => vi.fn());
+vi.mock('@/shared/api/market', () => ({ searchSymbols }));
+
 import { SymbolSearch } from './SymbolSearch';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -9,10 +12,7 @@ afterEach(() => vi.unstubAllGlobals());
 function stubResults(
   results: { symbol: string; name: string; kind: string; exchange: string | null }[],
 ) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json({ results })),
-  );
+  searchSymbols.mockResolvedValue({ results });
 }
 
 describe('SymbolSearch', () => {

@@ -253,8 +253,7 @@ class AirfareData:
 
     def _remote_history(self, query: HistoryQuery) -> HistoryRead:
         remote = self._remote_or_raise()
-        document = remote.rpc(
-            "read_airfare_history",
+        document = remote.read_history(
             {
                 "p_origin": query.origin,
                 "p_destination": query.destination,

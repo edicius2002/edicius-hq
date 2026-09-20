@@ -209,11 +209,19 @@ describe('reading damaged stored data', () => {
   function stubStored(state: unknown) {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        if ((init?.method ?? 'GET') === 'PUT') {
-          return Response.json({ key: 'greenlight', value: JSON.parse(String(init?.body)).value });
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/rpc/write_app_document')) {
+          const payload = JSON.parse(String(init?.body)).p_payload;
+          return Response.json({
+            document_key: 'greenlight',
+            payload,
+            revision: 2,
+            updated_at: '',
+          });
         }
-        return Response.json({ key: 'greenlight', value: state });
+        return Response.json([
+          { document_key: 'greenlight', payload: state, revision: 1, updated_at: '' },
+        ]);
       }),
     );
   }

@@ -1,5 +1,7 @@
+import asyncio
 import json
 import threading
+import time
 import traceback
 
 import httpx
@@ -8,6 +10,7 @@ import pytest
 from app.config import airfare_supabase_config
 from app.services import airfare_supabase
 from app.services.airfare_supabase import (
+    AirfareHistoryRevisionChanged,
     AirfareRemoteRejected,
     AirfareRemoteUnavailable,
     SupabaseAirfare,
@@ -19,6 +22,136 @@ SNAPSHOT_ROW = {
     "destination": "LIM",
     "payload": {"flightDate": "2027-03-01"},
 }
+
+
+@pytest.mark.parametrize(
+    ("code", "message", "expected"),
+    [
+        ("40001", "airfare_history_revision_changed", AirfareHistoryRevisionChanged),
+        ("40001", "another conflict", AirfareRemoteUnavailable),
+        ("55000", "airfare_history_revision_missing", AirfareRemoteRejected),
+        ("22023", "airfare_history_item_too_large", AirfareRemoteRejected),
+        ("22023", "airfare_history_metadata_too_large", AirfareRemoteRejected),
+        ("57014", "cancelled", AirfareRemoteUnavailable),
+    ],
+)
+def test_only_allowlisted_history_errors_override_http_500(code, message, expected):
+    secret = "private-server-details-never-print"
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                500, json={"code": code, "message": message, "details": secret}
+            )
+        ),
+    )
+    try:
+        with pytest.raises(expected) as error:
+            client.rpc("read_airfare_history_meta", {})
+        assert secret not in "".join(traceback.format_exception(error.value))
+        assert message not in str(error.value)
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("inside_loop", [False, True])
+def test_history_scoped_transport_assembles_without_closing_shared_client(inside_loop):
+    from pathlib import Path
+
+    data = json.loads(
+        (
+            Path(__file__).resolve().parents[4] / "fixtures/airfare-history-pagination/v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    responses = iter([data["meta"], *data["snapshotPages"], *data["baselinePages"], data["meta"]])
+    paths = []
+
+    async def handle(request):
+        assert request.headers["apikey"] == "test-history-key"
+        assert "authorization" not in request.headers
+        paths.append(request.url.path)
+        return httpx.Response(200, json=next(responses))
+
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-history-key",
+        history_transport=httpx.MockTransport(handle),
+    )
+    try:
+
+        async def call_inside_loop():
+            return client.read_history(data["filters"])
+
+        result = (
+            asyncio.run(call_inside_loop()) if inside_loop else client.read_history(data["filters"])
+        )
+        assert result == data["expected"]
+        assert not client.is_closed
+        assert paths.count("/rest/v1/rpc/read_airfare_history_page") == 3
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_history_deadline_or_cancel_stops_active_io_and_joins_worker(monkeypatch, cancel):
+    event = threading.Event()
+    started = threading.Event()
+    stopped = threading.Event()
+
+    async def handle(request):
+        started.set()
+        try:
+            await asyncio.sleep(10)
+        finally:
+            stopped.set()
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(airfare_supabase, "_HISTORY_BUDGET_SECONDS", 0.08)
+    client = SupabaseAirfare(
+        "https://example.supabase.co", "test-key", history_transport=httpx.MockTransport(handle)
+    )
+    timer = threading.Timer(0.04, event.set) if cancel else None
+    if timer:
+        timer.start()
+    before = time.monotonic()
+    try:
+        with pytest.raises(AirfareRemoteUnavailable):
+            client.read_history({"p_origin": "AQP", "p_destination": "LIM"}, cancel_event=event)
+        assert started.is_set() and stopped.is_set()
+        assert time.monotonic() - before < 2
+        assert not client.is_closed
+    finally:
+        if timer:
+            timer.cancel()
+            timer.join()
+        client.close()
+
+
+def test_history_deadline_bounds_slowly_streaming_body(monkeypatch):
+    closed = threading.Event()
+
+    class Drip(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            while True:
+                await asyncio.sleep(0.005)
+                yield b" "
+
+        async def aclose(self):
+            closed.set()
+
+    monkeypatch.setattr(airfare_supabase, "_HISTORY_BUDGET_SECONDS", 0.05)
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        history_transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=Drip())),
+    )
+    try:
+        with pytest.raises(AirfareRemoteUnavailable):
+            client.read_history({"p_origin": "AQP", "p_destination": "LIM"})
+        assert closed.is_set()
+    finally:
+        client.close()
 
 
 def test_local_airfare_configuration_does_not_require_supabase_secrets(monkeypatch):

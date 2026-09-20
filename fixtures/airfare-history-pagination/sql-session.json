@@ -1,0 +1,163 @@
+{
+  "filters": {
+    "p_origin": "CON",
+    "p_destination": "DST",
+    "p_departure": "",
+    "p_snapshot_months": ["2026-11", "2026-12"],
+    "p_since": "",
+    "p_until": ""
+  },
+  "wire": [
+    {
+      "counts": {
+        "baseline": "1",
+        "snapshots": "2"
+      },
+      "health": {
+        "checks": 1,
+        "errors": 0,
+        "changes": 1,
+        "lastCheckedAt": null
+      },
+      "origin": "CON",
+      "airports": [
+        {
+          "code": "CON",
+          "latitude": 0,
+          "longitude": 0
+        }
+      ],
+      "queryKey": "8050effc5e0c8831660a4917605671ac",
+      "revision": "939",
+      "destination": "DST",
+      "pairReference": null,
+      "protocolVersion": 1
+    },
+    {
+      "items": [
+        {
+          "order": [
+            "2026-09-19T00:00:00Z",
+            "2",
+            "1111111111111111111111111111111111111111111111111111111111111111"
+          ],
+          "payload": {
+            "point": 1
+          },
+          "recordId": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "dataset": "snapshots",
+      "queryKey": "8050effc5e0c8831660a4917605671ac",
+      "revision": "939",
+      "nextCursor": {
+        "after": [
+          "2026-09-19T00:00:00Z",
+          "2",
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ],
+        "dataset": "snapshots",
+        "queryKey": "8050effc5e0c8831660a4917605671ac",
+        "revision": "939",
+        "protocolVersion": 1
+      },
+      "protocolVersion": 1
+    },
+    {
+      "items": [
+        {
+          "order": [
+            "2026-09-19T00:00:00Z",
+            "3",
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ],
+          "payload": {
+            "point": 2
+          },
+          "recordId": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      ],
+      "dataset": "snapshots",
+      "queryKey": "8050effc5e0c8831660a4917605671ac",
+      "revision": "939",
+      "nextCursor": null,
+      "protocolVersion": 1
+    },
+    {
+      "items": [
+        {
+          "order": [
+            "2026-11-01",
+            "2026-09-01",
+            "3333333333333333333333333333333333333333333333333333333333333333"
+          ],
+          "payload": {
+            "price": 10
+          },
+          "recordId": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ],
+      "dataset": "baseline",
+      "queryKey": "8050effc5e0c8831660a4917605671ac",
+      "revision": "939",
+      "nextCursor": null,
+      "protocolVersion": 1
+    },
+    {
+      "counts": {
+        "baseline": "1",
+        "snapshots": "2"
+      },
+      "health": {
+        "checks": 1,
+        "errors": 0,
+        "changes": 1,
+        "lastCheckedAt": null
+      },
+      "origin": "CON",
+      "airports": [
+        {
+          "code": "CON",
+          "latitude": 0,
+          "longitude": 0
+        }
+      ],
+      "queryKey": "8050effc5e0c8831660a4917605671ac",
+      "revision": "939",
+      "destination": "DST",
+      "pairReference": null,
+      "protocolVersion": 1
+    }
+  ],
+  "expected": {
+    "health": {
+      "checks": 1,
+      "errors": 0,
+      "changes": 1,
+      "lastCheckedAt": null
+    },
+    "origin": "CON",
+    "airports": [
+      {
+        "code": "CON",
+        "latitude": 0,
+        "longitude": 0
+      }
+    ],
+    "baseline": [
+      {
+        "price": 10
+      }
+    ],
+    "snapshots": [
+      {
+        "point": 1
+      },
+      {
+        "point": 2
+      }
+    ],
+    "destination": "DST",
+    "pairReference": null
+  }
+}

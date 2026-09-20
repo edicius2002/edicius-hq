@@ -2,6 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const searchSymbols = vi.hoisted(() => vi.fn());
+vi.mock('@/shared/api/market', () => ({ searchSymbols }));
+
 import { EMPTY_PORTFOLIO } from '@/features/investing/data/portfolio';
 import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
 
@@ -41,16 +44,11 @@ describe('Positions', () => {
   it('adds a position from an empty portfolio', async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          results: [
-            { symbol: 'MSFT', name: 'Microsoft Corporation', kind: 'Equity', exchange: 'NASDAQ' },
-          ],
-        }),
-      ),
-    );
+    searchSymbols.mockResolvedValue({
+      results: [
+        { symbol: 'MSFT', name: 'Microsoft Corporation', kind: 'Equity', exchange: 'NASDAQ' },
+      ],
+    });
 
     render(
       <Positions

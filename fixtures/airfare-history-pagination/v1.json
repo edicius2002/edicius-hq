@@ -1,0 +1,308 @@
+{
+  "filters": {
+    "p_origin": "AQP",
+    "p_destination": "LIM",
+    "p_departure": "2026-11",
+    "p_snapshot_months": ["2026-11", "2026-12"],
+    "p_since": null,
+    "p_until": null
+  },
+  "meta": {
+    "protocolVersion": 1,
+    "queryKey": "d631ec1e7651e445bfd422e75ded1dbe",
+    "revision": "9007199254740993",
+    "origin": "AQP",
+    "destination": "LIM",
+    "counts": {
+      "snapshots": "4",
+      "baseline": "2"
+    },
+    "health": {
+      "lastCheckedAt": "2026-09-19T00:00:00Z",
+      "checks": 3,
+      "changes": 1,
+      "errors": 0
+    },
+    "airports": [
+      {
+        "code": "AQP",
+        "name": "Arequipa",
+        "city": null,
+        "country": "PE",
+        "latitude": 0,
+        "longitude": 0
+      },
+      {
+        "code": "LIM",
+        "name": "Lima",
+        "city": "Lima",
+        "country": "PE",
+        "latitude": 0,
+        "longitude": 0
+      }
+    ],
+    "pairReference": {
+      "value": 150,
+      "dates": 2
+    }
+  },
+  "snapshotPages": [
+    {
+      "protocolVersion": 1,
+      "queryKey": "d631ec1e7651e445bfd422e75ded1dbe",
+      "revision": "9007199254740993",
+      "dataset": "snapshots",
+      "items": [
+        {
+          "recordId": "1111111111111111111111111111111111111111111111111111111111111111",
+          "order": [
+            "2026-09-19T00:00:00Z",
+            "9007199254740992",
+            "1111111111111111111111111111111111111111111111111111111111111111"
+          ],
+          "payload": {
+            "capturedAt": "2026-09-19T00:00:00Z",
+            "source": "test",
+            "origin": "AQP",
+            "destination": "LIM",
+            "flightDate": "2026-11-01",
+            "returnDate": null,
+            "currency": "USD",
+            "insights": null,
+            "offers": [],
+            "extra": {
+              "zero": 0,
+              "nil": null
+            }
+          }
+        },
+        {
+          "recordId": "2222222222222222222222222222222222222222222222222222222222222222",
+          "order": [
+            "2026-09-19T00:00:00Z",
+            "9007199254740992",
+            "2222222222222222222222222222222222222222222222222222222222222222"
+          ],
+          "payload": {
+            "capturedAt": "2026-09-19T00:00:00Z",
+            "source": "test",
+            "origin": "AQP",
+            "destination": "LIM",
+            "flightDate": "2026-12-01",
+            "returnDate": null,
+            "currency": "USD",
+            "insights": null,
+            "offers": [],
+            "extra": {
+              "label": "Perú"
+            }
+          }
+        }
+      ],
+      "nextCursor": {
+        "protocolVersion": 1,
+        "queryKey": "d631ec1e7651e445bfd422e75ded1dbe",
+        "revision": "9007199254740993",
+        "dataset": "snapshots",
+        "after": [
+          "2026-09-19T00:00:00Z",
+          "9007199254740992",
+          "2222222222222222222222222222222222222222222222222222222222222222"
+        ]
+      }
+    },
+    {
+      "protocolVersion": 1,
+      "queryKey": "d631ec1e7651e445bfd422e75ded1dbe",
+      "revision": "9007199254740993",
+      "dataset": "snapshots",
+      "items": [
+        {
+          "recordId": "3333333333333333333333333333333333333333333333333333333333333333",
+          "order": [
+            "2026-09-19T00:00:00Z",
+            "9007199254740993",
+            "3333333333333333333333333333333333333333333333333333333333333333"
+          ],
+          "payload": {
+            "capturedAt": "2026-09-19T00:00:00Z",
+            "source": "test",
+            "origin": "AQP",
+            "destination": "LIM",
+            "flightDate": "2026-11-01",
+            "returnDate": null,
+            "currency": "USD",
+            "insights": null,
+            "offers": [],
+            "extra": {
+              "label": "third"
+            }
+          }
+        },
+        {
+          "recordId": "4444444444444444444444444444444444444444444444444444444444444444",
+          "order": [
+            "2026-09-20T00:00:00Z",
+            "1",
+            "4444444444444444444444444444444444444444444444444444444444444444"
+          ],
+          "payload": {
+            "capturedAt": "2026-09-20T00:00:00Z",
+            "source": "test",
+            "origin": "AQP",
+            "destination": "LIM",
+            "flightDate": "2026-12-01",
+            "returnDate": null,
+            "currency": "USD",
+            "insights": null,
+            "offers": [],
+            "extra": {
+              "label": "fourth"
+            }
+          }
+        }
+      ],
+      "nextCursor": null
+    }
+  ],
+  "baselinePages": [
+    {
+      "protocolVersion": 1,
+      "queryKey": "d631ec1e7651e445bfd422e75ded1dbe",
+      "revision": "9007199254740993",
+      "dataset": "baseline",
+      "items": [
+        {
+          "recordId": "5555555555555555555555555555555555555555555555555555555555555555",
+          "order": [
+            "2026-11-01",
+            "2026-09-01",
+            "5555555555555555555555555555555555555555555555555555555555555555"
+          ],
+          "payload": {
+            "flightDate": "2026-11-01",
+            "date": "2026-09-01",
+            "price": 0
+          }
+        },
+        {
+          "recordId": "6666666666666666666666666666666666666666666666666666666666666666",
+          "order": [
+            "2026-11-01",
+            "2026-09-02",
+            "6666666666666666666666666666666666666666666666666666666666666666"
+          ],
+          "payload": {
+            "flightDate": "2026-11-01",
+            "date": "2026-09-02",
+            "price": 300
+          }
+        }
+      ],
+      "nextCursor": null
+    }
+  ],
+  "expected": {
+    "origin": "AQP",
+    "destination": "LIM",
+    "snapshots": [
+      {
+        "capturedAt": "2026-09-19T00:00:00Z",
+        "source": "test",
+        "origin": "AQP",
+        "destination": "LIM",
+        "flightDate": "2026-11-01",
+        "returnDate": null,
+        "currency": "USD",
+        "insights": null,
+        "offers": [],
+        "extra": {
+          "zero": 0,
+          "nil": null
+        }
+      },
+      {
+        "capturedAt": "2026-09-19T00:00:00Z",
+        "source": "test",
+        "origin": "AQP",
+        "destination": "LIM",
+        "flightDate": "2026-12-01",
+        "returnDate": null,
+        "currency": "USD",
+        "insights": null,
+        "offers": [],
+        "extra": {
+          "label": "Perú"
+        }
+      },
+      {
+        "capturedAt": "2026-09-19T00:00:00Z",
+        "source": "test",
+        "origin": "AQP",
+        "destination": "LIM",
+        "flightDate": "2026-11-01",
+        "returnDate": null,
+        "currency": "USD",
+        "insights": null,
+        "offers": [],
+        "extra": {
+          "label": "third"
+        }
+      },
+      {
+        "capturedAt": "2026-09-20T00:00:00Z",
+        "source": "test",
+        "origin": "AQP",
+        "destination": "LIM",
+        "flightDate": "2026-12-01",
+        "returnDate": null,
+        "currency": "USD",
+        "insights": null,
+        "offers": [],
+        "extra": {
+          "label": "fourth"
+        }
+      }
+    ],
+    "baseline": [
+      {
+        "flightDate": "2026-11-01",
+        "date": "2026-09-01",
+        "price": 0
+      },
+      {
+        "flightDate": "2026-11-01",
+        "date": "2026-09-02",
+        "price": 300
+      }
+    ],
+    "health": {
+      "lastCheckedAt": "2026-09-19T00:00:00Z",
+      "checks": 3,
+      "changes": 1,
+      "errors": 0
+    },
+    "airports": [
+      {
+        "code": "AQP",
+        "name": "Arequipa",
+        "city": null,
+        "country": "PE",
+        "latitude": 0,
+        "longitude": 0
+      },
+      {
+        "code": "LIM",
+        "name": "Lima",
+        "city": "Lima",
+        "country": "PE",
+        "latitude": 0,
+        "longitude": 0
+      }
+    ],
+    "pairReference": {
+      "value": 150,
+      "dates": 2
+    }
+  }
+}

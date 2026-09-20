@@ -12,7 +12,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.services.airfare_supabase import SupabaseAirfare
+from app.services.airfare_supabase import (
+    AirfareRemoteRejected,
+    AirfareRemoteUnavailable,
+    SupabaseAirfare,
+)
 from app.services.airfare_sync import AirfareSync, canonical_record_id
 
 STAMP = "2026-09-15T00:00:00+00:00"
@@ -146,8 +150,64 @@ class Destination:
                     for (d, r), ids in sorted(groups.items())
                 ],
             )
-        if table == "read_airfare_history":
-            return httpx.Response(200, json=self.history)
+        if table in {"read_airfare_history_meta", "read_airfare_history_page"}:
+            filters = {
+                k: v
+                for k, v in body.items()
+                if k
+                in {
+                    "p_origin",
+                    "p_destination",
+                    "p_departure",
+                    "p_snapshot_months",
+                    "p_since",
+                    "p_until",
+                }
+            }
+            key = hashlib.md5(json.dumps(filters, sort_keys=True).encode()).hexdigest()
+            envelope = {"protocolVersion": 1, "queryKey": key, "revision": "1"}
+            if table == "read_airfare_history_meta":
+                return httpx.Response(
+                    200,
+                    json={
+                        **envelope,
+                        **{
+                            k: v
+                            for k, v in self.history.items()
+                            if k not in {"snapshots", "baseline"}
+                        },
+                        "counts": {k: str(len(self.history[k])) for k in ("snapshots", "baseline")},
+                    },
+                )
+            dataset = body["p_dataset"]
+            items = []
+            for n, payload in enumerate(self.history[dataset], 1):
+                record_id = canonical_record_id(
+                    "snapshot" if dataset == "snapshots" else "baseline",
+                    body["p_origin"],
+                    body["p_destination"],
+                    payload,
+                )
+                if dataset == "snapshots":
+                    stored = self.tables.get("fare_snapshots", {}).get(record_id, {})
+                    last_line = max(
+                        (
+                            row["source_line"]
+                            for row in self.tables.get("fare_snapshots", {}).values()
+                        ),
+                        default=0,
+                    )
+                    order = [
+                        payload["capturedAt"],
+                        str(stored.get("source_line", last_line + n)),
+                        record_id,
+                    ]
+                else:
+                    order = [payload["flightDate"], payload["date"], record_id]
+                items.append({"recordId": record_id, "order": order, "payload": payload})
+            return httpx.Response(
+                200, json={**envelope, "dataset": dataset, "items": items, "nextCursor": None}
+            )
         if table == "read_airfare_calendar":
             return httpx.Response(200, json=self.calendar)
         keys = request.url.params["on_conflict"].split(",")
@@ -204,6 +264,7 @@ def remote():
         "https://testproject.supabase.co",
         "sb_secret_test",
         transport=httpx.MockTransport(destination.handle),
+        history_transport=httpx.MockTransport(destination.handle),
     )
     yield destination, client
     client.close()
@@ -523,6 +584,8 @@ def test_compare_reads_bounds_snapshots_to_the_watched_months(source):
                         "errors": 1,
                     },
                 }
+
+        def read_history(self, params):
             calls.append(params)
             month = params["p_departure"]
             snapshot = SNAPSHOT if month == "2027-03" else april_snapshot
@@ -530,7 +593,9 @@ def test_compare_reads_bounds_snapshots_to_the_watched_months(source):
             return {
                 "origin": "AQP",
                 "destination": "LIM",
-                "snapshots": [snapshot],
+                "snapshots": [SNAPSHOT, april_snapshot]
+                if len(params["p_snapshot_months"]) == 2
+                else [snapshot],
                 "baseline": [baseline],
                 "airports": [AIRPORT],
                 # Pair reference stays pair-wide and includes the month outside the watch.
@@ -544,9 +609,29 @@ def test_compare_reads_bounds_snapshots_to_the_watched_months(source):
             }
 
     assert module.compare_reads(source, BoundedRemote())["matches"]
-    assert [call["p_departure"] for call in calls] == ["2027-03", "2027-04"]
-    assert all(call["p_snapshot_months"] == [call["p_departure"]] for call in calls)
+    assert [call["p_departure"] for call in calls] == ["2027-03", "2027-03", "2027-04", "2027-04"]
+    assert [call["p_snapshot_months"] for call in calls] == [
+        ["2027-03"],
+        ["2027-03", "2027-04"],
+        ["2027-04"],
+        ["2027-03", "2027-04"],
+    ]
     assert all(call["p_departure"] is not None for call in calls)
+
+
+def test_compare_reads_propagates_remote_unavailable_instead_of_local_parity(source):
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_strict_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class UnavailableRemote:
+        def read_history(self, params):
+            raise AirfareRemoteUnavailable("late page unavailable")
+
+    with pytest.raises(AirfareRemoteUnavailable):
+        module.compare_reads(source, UnavailableRemote())
 
 
 def test_compare_reads_rejects_more_than_twelve_months_before_remote_reads(source):
@@ -861,7 +946,8 @@ def test_compare_logical_snapshots_retain_final_occurrence_and_detect_content_or
     assert sync.verify(sync.scan("full")).matches
     assert module.compare_reads(tmp_path, client)["matches"]
     server.history["snapshots"] = [SNAPSHOT, second]
-    assert not module.compare_reads(tmp_path, client)["matches"]
+    with pytest.raises(AirfareRemoteRejected):
+        module.compare_reads(tmp_path, client)
     server.history["snapshots"] = [second, {**SNAPSHOT, "extra": "changed"}]
     assert not module.compare_reads(tmp_path, client)["matches"]
 

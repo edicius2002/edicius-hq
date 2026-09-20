@@ -97,6 +97,7 @@ a word. `--dry-run` writes no line: it reaches nothing, so it records nothing.
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from collections import Counter
 from datetime import UTC, date, datetime
@@ -116,6 +117,7 @@ from app.config import (  # noqa: E402
 )
 from app.services.airfare_data import AIRFARE_DATA  # noqa: E402
 from app.services.collection_sync import sync_completed_pass  # noqa: E402
+from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
 from app.services.fare_budget import daily_budget  # noqa: E402
 from app.services.fare_collector import (  # noqa: E402
     REQUEST_GAP_SECONDS,
@@ -129,6 +131,11 @@ from app.services.fare_collector import (  # noqa: E402
 from app.services.fare_history import HISTORY  # noqa: E402
 from app.services.fare_passes import PassRecorder  # noqa: E402
 from app.services.fare_schedule import days_until, month_dates, poll_minutes  # noqa: E402
+from app.services.process_lock import (  # noqa: E402
+    ProcessLockUnavailable,
+    exclusive_process_lock,
+)
+from app.services.watch_document import CloudWatchDocument  # noqa: E402
 
 # Windows consoles default to cp1252, which cannot encode an arrow or an
 # accented airline name — and a scheduled task that dies on its own summary
@@ -142,16 +149,21 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 ROUTES_KEY = "airfare-routes"
+LOGGER = logging.getLogger(__name__)
 
 
-def load_routes() -> list[dict[str, object]]:
+def load_routes(watch_source: str = "supabase") -> list[dict[str, object]]:
     """
-    The watchlist, read straight off disk.
+    The cloud-owned watch, refreshed into its local last-known-good cache.
 
-    The KV document is written by the browser through the API; here we only
-    read it, so there is no allowlist to consult and no server to ask.
+    ``local`` is the explicit rollback switch. It intentionally retains the
+    old tolerant read path so an operator can run a collector without cloud
+    configuration while restoring service.
     """
     path = kv_dir() / f"{ROUTES_KEY}.json"
+    if watch_source == "supabase":
+        document = CloudWatchDocument(configured_collector_cloud(), path).load()
+        return [route for route in document["routes"] if isinstance(route, dict)]
     if not path.exists():
         return []
     try:
@@ -298,12 +310,18 @@ def per_day(watch: FareWatch, today: date) -> tuple[int, int]:
     return collectable, requests
 
 
-def main() -> int:
+def collect_main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="List what is due and reach nothing.",
+    )
+    parser.add_argument(
+        "--watch-source",
+        choices=("supabase", "local"),
+        default="supabase",
+        help="Read the owner watch from Supabase (default) or use the local rollback cache.",
     )
     parser.add_argument(
         "--all",
@@ -345,7 +363,7 @@ def main() -> int:
         gap=args.gap if args.gap is not None else REQUEST_GAP_SECONDS,
     )
     try:
-        return _pass(args, recorder)
+        return run_pass(args, recorder)
     except BaseException:
         # **A pass that fell over is still a pass, and it still leaves a line.**
         # Before this the only trace was a non-zero exit code, and the comment
@@ -359,6 +377,57 @@ def main() -> int:
         raise
 
 
+def run_pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
+    """Run a real cloud pass inside one collector-run lifecycle."""
+    if args.dry_run:
+        # A dry run still gives the operator the normal estimate, but it must
+        # remain usable before Supabase credentials or network are available.
+        return _pass(argparse.Namespace(**{**vars(args), "watch_source": "local"}), recorder)
+    if getattr(args, "watch_source", "supabase") == "local":
+        return _pass(args, recorder)
+
+    cloud = configured_collector_cloud()
+    run_id = None
+    terminalization_attempted = False
+    try:
+        try:
+            run_id = cloud.begin_run("airfare")
+        except Exception:  # noqa: BLE001 - local durable collection survives cloud loss
+            LOGGER.error("airfare collector could not initialize its cloud run")
+        code = _pass(args, recorder)
+        if code:
+            if run_id is not None:
+                terminalization_attempted = True
+                try:
+                    cloud.fail_run(run_id, "pass-failed")
+                except Exception:  # noqa: BLE001 - preserve the local pass outcome
+                    LOGGER.error("airfare collector could not mark its run failed")
+        elif run_id is not None:
+            terminalization_attempted = True
+            try:
+                cloud.finish_run(
+                    run_id,
+                    {
+                        "seen": recorder.tally.due,
+                        "written": recorder.tally.written,
+                        "failed": recorder.tally.failed,
+                    },
+                )
+            except Exception:  # noqa: BLE001 - retain observations for later replay
+                LOGGER.error("airfare collector could not finish its cloud run")
+        return code
+    except BaseException:
+        if run_id is not None and not terminalization_attempted:
+            terminalization_attempted = True
+            try:
+                cloud.fail_run(run_id, "pass-failed")
+            except Exception:  # noqa: BLE001 - preserve the pass failure
+                LOGGER.error("airfare collector could not mark its run failed")
+        raise
+    finally:
+        cloud.close()
+
+
 def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     """
     The pass itself: what is watched, what is due, and what came back.
@@ -369,7 +438,8 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     spend lines can be traced back to the pass that sent them.
     """
     today = datetime.now(UTC).date()
-    routes = load_routes()
+    watch_source = getattr(args, "watch_source", None)
+    routes = load_routes() if watch_source is None else load_routes(watch_source)
     watches, dropped = to_watches(routes)
 
     print(f"watchlist: {len(routes)} route(s), {len(watches)} watchable, {len(dropped)} dropped")
@@ -590,6 +660,15 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
             *((calendar,) if calendar is not None else ()),
         )
     return code
+
+
+def main() -> int:
+    try:
+        with exclusive_process_lock("airfare"):
+            return collect_main()
+    except ProcessLockUnavailable:
+        LOGGER.error("Airfare collector is already running")
+        return 1
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import { supabase } from '@/shared/supabase/client';
 import { REALTIME_SUBSCRIBE_STATES } from '@supabase/realtime-js';
 import type { Json } from '@/shared/supabase/database.types';
 import type { BarsResponse, Quote, QuotesResponse, SymbolHit } from '@/shared/api/market';
+import type { Tick } from './quoteStream';
 
 type CollectorOperation = 'market-bars' | 'market-search';
 type RequestRow = { status: string; result: Json | null; error_code: string | null };
@@ -145,38 +146,71 @@ function waitForCollectorResult<T>(
 
 export type QuoteSubscriptionStatus = string;
 
-export function subscribeQuotes(
-  onQuotes: (quotes: Quote[]) => void,
+export function subscribeQuoteTicks(
+  onTicks: (ticks: Tick[]) => void,
   onStatus?: (status: QuoteSubscriptionStatus) => void,
 ): () => void {
   let disposed = false;
-  const subscription: { channel: ReturnType<typeof supabase.channel> | undefined } = {
-    channel: undefined,
-  };
+  let channel: ReturnType<typeof supabase.channel> | undefined;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (subscription.channel) void supabase.removeChannel(subscription.channel);
+    if (channel) void supabase.removeChannel(channel);
   };
-  subscription.channel = supabase
-    .channel('market-quotes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'market_quotes' }, (event) => {
-      const quote = quoteFromRow(
-        event.new as {
-          symbol: string;
-          provider: string;
-          market_time: number | null;
-          payload: Json;
-        },
-      );
-      if (!disposed && quote.length) onQuotes(quote);
-    })
-    .subscribe((status) => {
-      if (!disposed) onStatus?.(status);
-      if (status !== REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) dispose();
-    });
-  if (disposed) void supabase.removeChannel(subscription.channel);
+  void supabase.auth.getSession().then(
+    ({ data, error }) => {
+      if (disposed) return;
+      const owner = data.session?.user.id;
+      if (error || !owner) {
+        onStatus?.('CHANNEL_ERROR');
+        return;
+      }
+      channel = supabase
+        .channel(`market-quotes:${owner}`, { config: { private: true } })
+        .on('broadcast', { event: 'ticks' }, ({ payload }) => {
+          const ticks = ticksFromPayload(payload);
+          if (!disposed && ticks.length) onTicks(ticks);
+        })
+        .subscribe((status) => {
+          if (!disposed) onStatus?.(status);
+        });
+      if (disposed) void supabase.removeChannel(channel);
+    },
+    () => {
+      if (!disposed) onStatus?.('CHANNEL_ERROR');
+    },
+  );
   return dispose;
+}
+
+function ticksFromPayload(raw: unknown): Tick[] {
+  const value = object(raw);
+  return value && Array.isArray(value.ticks) ? value.ticks.flatMap(tickFromJson) : [];
+}
+
+function tickFromJson(raw: Json): Tick[] {
+  const value = object(raw);
+  const symbol = typeof value?.symbol === 'string' ? value.symbol.trim().toUpperCase() : '';
+  if (
+    !value ||
+    !symbol ||
+    !number(value.price) ||
+    typeof value.extended !== 'boolean' ||
+    !(value.marketState === null || typeof value.marketState === 'string') ||
+    !(value.changePercent === null || number(value.changePercent)) ||
+    !(value.time === null || number(value.time))
+  )
+    return [];
+  return [
+    {
+      symbol,
+      price: value.price,
+      marketState: value.marketState,
+      extended: value.extended,
+      changePercent: value.changePercent,
+      time: value.time,
+    },
+  ];
 }
 
 function quoteFromRow(row: {
@@ -267,8 +301,10 @@ function searchFromJson(raw: Json): { results: SymbolHit[] } | null {
   return results.length === value.results.length ? { results } : null;
 }
 
-function object(value: Json): { [key: string]: Json | undefined } | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+function object(value: unknown): { [key: string]: Json | undefined } | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as { [key: string]: Json | undefined })
+    : null;
 }
 function number(value: Json | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);

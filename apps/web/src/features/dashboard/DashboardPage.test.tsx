@@ -8,7 +8,6 @@ const auth = vi.hoisted(() => ({
 }));
 const tweetData = vi.hoisted(() => ({
   fetchTweets: vi.fn(),
-  fetchLatestTweetRun: vi.fn(),
   subscribeTweets: vi.fn(() => () => {}),
 }));
 
@@ -35,15 +34,6 @@ const TWEETS = {
       url: 'https://x.com/a/2',
     },
   ],
-};
-
-const IDLE = {
-  handle: 'thsottiaux',
-  state: 'idle',
-  scroll: 0,
-  new: 0,
-  error: null,
-  finishedAt: null,
 };
 
 const RESETS = {
@@ -96,15 +86,9 @@ const RESETS = {
  * tweet query and the refresh poll together and the order between them is not
  * this component's promise to keep.
  */
-function stubApi(refresh: Record<string, unknown>, resets: Response | object = RESETS) {
+function stubApi(resets: Response | object = RESETS) {
   const calls: string[] = [];
   tweetData.fetchTweets.mockResolvedValue(TWEETS.tweets);
-  tweetData.fetchLatestTweetRun.mockResolvedValue({
-    status:
-      refresh.state === 'failed' ? 'failed' : refresh.state === 'running' ? 'running' : 'complete',
-    completed_at: refresh.finishedAt ?? null,
-    error_code: refresh.error ?? null,
-  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -131,7 +115,7 @@ function renderPage() {
 afterEach(() => vi.unstubAllGlobals());
 
 it('separates captured posts and replies with links', async () => {
-  stubApi(IDLE);
+  stubApi();
   renderPage();
 
   expect(await screen.findByText('post anon')).toBeInTheDocument();
@@ -141,7 +125,7 @@ it('separates captured posts and replies with links', async () => {
 });
 
 it('places live reset summary and calendar above the preserved tweet columns', async () => {
-  stubApi(IDLE);
+  stubApi();
   renderPage();
 
   const latest = await screen.findByRole('heading', { name: 'Latest Codex limit reset' });
@@ -159,7 +143,7 @@ it('places live reset summary and calendar above the preserved tweet columns', a
 });
 
 it('keeps tweets visible while reset data is unavailable instead of showing zero statistics', async () => {
-  stubApi(IDLE, new Response('unavailable', { status: 503 }));
+  stubApi(new Response('unavailable', { status: 503 }));
   renderPage();
 
   expect(await screen.findByText('post anon')).toBeInTheDocument();
@@ -169,38 +153,26 @@ it('keeps tweets visible while reset data is unavailable instead of showing zero
 });
 
 it('shows cached reset values without an operational warning', async () => {
-  stubApi(IDLE, { ...RESETS, stale: true });
+  stubApi({ ...RESETS, stale: true });
   renderPage();
 
   expect(await screen.findByText('53')).toBeInTheDocument();
   expect(screen.queryByText(/Could not refresh; showing cached data/i)).not.toBeInTheDocument();
 });
 
-it('omits X collector timestamps and progress while retaining captured posts', async () => {
-  const finishedAt = new Date(Date.now() - 3 * 60_000).toISOString();
-  stubApi({ ...IDLE, state: 'running', scroll: 7, new: 12, finishedAt });
+it('omits X collector chrome while retaining captured posts', async () => {
+  stubApi();
   renderPage();
 
   expect(await screen.findByText('post anon')).toBeInTheDocument();
   expect(screen.queryByText(/Updated /)).not.toBeInTheDocument();
   expect(screen.queryByText('Never updated')).not.toBeInTheDocument();
   expect(screen.queryByText('X collector is running.')).not.toBeInTheDocument();
-});
-
-it('omits X collector failures while retaining captured posts', async () => {
-  stubApi({
-    ...IDLE,
-    state: 'failed',
-    error: 'Sesión X inválida; ejecuta import_session.py.',
-  });
-  renderPage();
-
-  expect(await screen.findByText('post anon')).toBeInTheDocument();
   expect(screen.queryByText(/X collector failed/i)).not.toBeInTheDocument();
 });
 
 it('keeps the API watcher running when the Dashboard unmounts', () => {
-  const calls = stubApi(IDLE);
+  const calls = stubApi();
   const { unmount } = renderPage();
 
   unmount();

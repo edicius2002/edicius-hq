@@ -123,8 +123,8 @@ and is the only gate Funnel can rely on.
 Every route under `/api` requires a live Supabase access token. The dependency is
 applied where the routers are included (`services/api/app/main.py`) and validates the
 configured issuer, audience and JWKS through `services/api/app/auth.py`. `/api/health`
-is gated with the rest, so the status indicator reads "API offline" while signed out —
-deliberate, and honest, since the API genuinely will not answer that visitor.
+is gated with the rest even though the browser no longer presents a global API status;
+navigation chrome does not define the endpoint's authentication policy.
 
 **The API is not safe by network alone.** The public link requires an application-level
 identity check as well as whichever transport is selected. Supabase Auth owns the

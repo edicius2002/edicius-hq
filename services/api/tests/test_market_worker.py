@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 from app.adapters import registry
 from app.adapters.models import Quote, Tick
-from app.services.collector_cloud import CollectorRequest
+from app.services import market_worker
+from app.services.collector_cloud import CollectorCloudUnavailable, CollectorRequest
 from app.services.market_worker import MarketWorker
 
 OWNER = UUID("11111111-1111-1111-1111-111111111111")
@@ -29,6 +31,15 @@ class Clock:
 
     def advance(self, seconds: float) -> None:
         self.value += seconds
+
+
+class IdleStream:
+    async def watch(self, _symbols):
+        return None
+
+    async def ticks(self):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover - establishes this as an async generator
 
 
 def cloud() -> Mock:
@@ -60,6 +71,17 @@ def cloud() -> Mock:
     return result
 
 
+def expect_tick(symbol: str, price: float, *, time: float | None) -> dict[str, object]:
+    return {
+        "symbol": symbol,
+        "price": price,
+        "marketState": None,
+        "extended": False,
+        "changePercent": None,
+        "time": time,
+    }
+
+
 def test_symbols_union_three_documents_without_duplicates():
     """Removing source validation would poll malformed or duplicate symbols."""
     assert MarketWorker(cloud()).desired_symbols() == ("AAPL", "BTC-USD", "BAD")
@@ -89,6 +111,61 @@ def test_many_ticks_flush_one_latest_quote_per_window():
     assert row["symbol"] == "AAPL"
     assert row["payload"]["price"] == 101
     assert worker.run_records == {"seen": 1, "written": 1, "failed": 0}
+
+
+def test_live_batch_keeps_only_the_newest_tick_per_symbol():
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept(Tick("AAPL", 100, "yahoo", time=1))
+    worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+
+    assert asyncio.run(worker.publish_ticks()) == 1
+    remote.broadcast_quote_ticks.assert_called_once_with([expect_tick("AAPL", 101, time=2)])
+
+
+def test_live_batch_omits_a_burst_that_returns_to_the_last_visible_reading():
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept(Tick("AAPL", 100, "yahoo", market_state="REGULAR", time=1))
+    asyncio.run(worker.publish_ticks())
+    remote.broadcast_quote_ticks.reset_mock()
+    worker.accept(Tick("AAPL", 101, "yahoo", market_state="REGULAR", time=2))
+    worker.accept(Tick("AAPL", 100, "yahoo", market_state="REGULAR", time=3))
+
+    assert asyncio.run(worker.publish_ticks()) == 0
+    remote.broadcast_quote_ticks.assert_not_called()
+
+
+def test_failed_broadcast_retries_only_the_newest_pending_tick():
+    remote = cloud()
+    remote.broadcast_quote_ticks.side_effect = [
+        CollectorCloudUnavailable("offline"),
+        1,
+    ]
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept(Tick("AAPL", 100, "yahoo", time=1))
+    assert asyncio.run(worker.publish_ticks()) == 0
+    worker.accept(Tick("AAPL", 102, "yahoo", time=2))
+
+    assert asyncio.run(worker.publish_ticks()) == 1
+    assert remote.broadcast_quote_ticks.call_args.args[0][0]["price"] == 102
+
+
+def test_database_tick_snapshots_remain_bounded_to_sixty_seconds():
+    remote = cloud()
+    clock = Clock()
+    worker = MarketWorker(remote, clock=clock)
+    worker.accept(Tick("AAPL", 100, "yahoo", time=1))
+    worker.flush_quotes()
+    clock.advance(59)
+    worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+    worker.flush_quotes()
+    assert remote.merge_quote_ticks.call_count == 1
+
+    clock.advance(1)
+    worker.flush_quotes()
+    assert remote.merge_quote_ticks.call_count == 2
+    assert remote.merge_quote_ticks.call_args.args[0][0]["payload"]["price"] == 101
 
 
 def test_tick_market_time_is_an_integer_for_the_database_column():
@@ -170,16 +247,112 @@ def test_quote_recovery_counts_returned_provider_failures(monkeypatch):
     remote.upsert_quotes.assert_called_once()
 
 
+def test_publisher_runs_without_another_reconciliation(monkeypatch):
+    monkeypatch.setattr(market_worker, "LIVE_BROADCAST_SECONDS", 0.01)
+
+    async def scenario():
+        remote = cloud()
+        stopped = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        remote.broadcast_quote_ticks.side_effect = lambda _rows: (
+            loop.call_soon_threadsafe(stopped.set) or 1
+        )
+        worker = MarketWorker(remote, stream=IdleStream(), client=Mock())
+        worker.reconcile_once = AsyncMock(return_value=True)
+        worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+
+        await asyncio.wait_for(worker.run(stopped), 0.2)
+
+        assert worker.reconcile_once.await_count == 1
+        remote.broadcast_quote_ticks.assert_called_once()
+
+    asyncio.run(scenario())
+
+
+def test_slow_broadcasts_do_not_overlap_or_drop_ticks_accepted_in_flight(monkeypatch):
+    monkeypatch.setattr(market_worker, "LIVE_BROADCAST_SECONDS", 0.01)
+
+    async def scenario():
+        remote = cloud()
+        stopped = asyncio.Event()
+        started = threading.Event()
+        release = threading.Event()
+        guard = threading.Lock()
+        calls: list[list[dict[str, object]]] = []
+        in_flight = 0
+        max_in_flight = 0
+        loop = asyncio.get_running_loop()
+
+        def broadcast(rows):
+            nonlocal in_flight, max_in_flight
+            with guard:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+                calls.append(rows)
+                number = len(calls)
+            if number == 1:
+                started.set()
+                assert release.wait(0.2)
+            else:
+                loop.call_soon_threadsafe(stopped.set)
+            with guard:
+                in_flight -= 1
+            return len(rows)
+
+        remote.broadcast_quote_ticks.side_effect = broadcast
+        worker = MarketWorker(remote, client=Mock())
+        worker.accept(Tick("AAPL", 100, "yahoo", time=1))
+        publishing = asyncio.create_task(worker._publish_ticks(stopped))
+        assert await asyncio.to_thread(started.wait, 0.1)
+        worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+        release.set()
+
+        await asyncio.wait_for(publishing, 0.3)
+
+        assert max_in_flight == 1
+        assert [[row["price"] for row in batch] for batch in calls] == [[100], [101]]
+
+    asyncio.run(scenario())
+
+
+def test_quiet_market_makes_no_broadcast_request_and_still_reconciles(monkeypatch):
+    monkeypatch.setattr(market_worker, "LIVE_BROADCAST_SECONDS", 0.01)
+
+    async def scenario():
+        remote = cloud()
+        worker = MarketWorker(remote, stream=IdleStream(), client=Mock())
+        worker.refresh_symbols = AsyncMock()
+        worker.claim_until_empty = AsyncMock(return_value=0)
+        worker.recover_quotes = AsyncMock()
+        stopped = asyncio.Event()
+
+        asyncio.get_running_loop().call_later(0.035, stopped.set)
+        await asyncio.wait_for(worker._publish_ticks(stopped), 0.1)
+        assert await worker.reconcile_once() is True
+
+        remote.broadcast_quote_ticks.assert_not_called()
+        worker.refresh_symbols.assert_awaited_once()
+        worker.recover_quotes.assert_awaited_once()
+
+    asyncio.run(scenario())
+
+
+def test_stop_event_interrupts_publisher_wait(monkeypatch):
+    monkeypatch.setattr(market_worker, "LIVE_BROADCAST_SECONDS", 30.0)
+
+    async def scenario():
+        worker = MarketWorker(cloud(), client=Mock())
+        stopped = asyncio.Event()
+        task = asyncio.create_task(worker._publish_ticks(stopped))
+        await asyncio.sleep(0)
+        stopped.set()
+        await asyncio.wait_for(task, timeout=0.1)
+
+    asyncio.run(scenario())
+
+
 def test_stop_event_interrupts_reconciliation_wait_without_waiting_thirty_seconds():
     """A SIGTERM must not make a service manager wait out the polling interval."""
-
-    class IdleStream:
-        async def watch(self, _symbols):
-            return None
-
-        async def ticks(self):
-            await asyncio.Event().wait()
-            yield  # pragma: no cover - establishes this as an async generator
 
     async def run() -> None:
         remote = cloud()

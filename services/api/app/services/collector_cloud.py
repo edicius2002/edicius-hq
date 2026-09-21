@@ -40,6 +40,7 @@ _RPCS = frozenset(
         "claim_collector_request",
         "complete_collector_request",
         "fail_collector_request",
+        "merge_market_quote_ticks",
         "update_collector_request_progress",
     }
 )
@@ -202,6 +203,26 @@ class CollectorCloud:
 
     def upsert_quotes(self, rows: Sequence[dict[str, Any]]) -> int:
         return self._upsert("market_quotes", rows, "owner_id,symbol")
+
+    def merge_quote_ticks(self, rows: Sequence[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        payload = []
+        for row in rows:
+            owned = self._owner_row(row)
+            payload.append({key: value for key, value in owned.items() if key != "owner_id"})
+        result = self._rpc(
+            "merge_market_quote_ticks",
+            {"p_owner_id": str(self._owner_id), "p_rows": payload},
+        )
+        if (
+            isinstance(result, bool)
+            or not isinstance(result, int)
+            or not 0 <= result <= len(payload)
+        ):
+            raise CollectorCloudRejected("Supabase returned an invalid quote tick count")
+        LOGGER.info("collector cloud quote ticks=%d", result)
+        return result
 
     def upsert_bars(self, row: dict[str, Any]) -> None:
         self._upsert("market_bars", [row], "owner_id,symbol,timeframe,extended")

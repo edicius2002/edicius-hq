@@ -59,6 +59,21 @@ def test_quote_upsert_uses_owner_symbol_conflict_and_never_authorization(secret_
     assert json.loads(request.content) == [{**QUOTE, "owner_id": str(OWNER_ID)}]
 
 
+def test_quote_tick_merge_uses_owner_scoped_rpc(secret_config):
+    """Live ticks must merge into, rather than replace, the complete quote payload."""
+    request = captured_request_for(
+        lambda cloud: cloud.merge_quote_ticks([QUOTE]),
+        secret_config,
+        httpx.Response(200, json=1),
+    )
+
+    assert request.url.path.endswith("/rpc/merge_market_quote_ticks")
+    assert json.loads(request.content) == {
+        "p_owner_id": str(OWNER_ID),
+        "p_rows": [QUOTE],
+    }
+
+
 def test_redirect_is_rejected_without_following_it(secret_config):
     """Following even a same-host redirect could replay the service secret."""
     first = httpx.Response(307, headers={"location": "/rest/v1/market_quotes"})

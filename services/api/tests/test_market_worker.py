@@ -84,8 +84,8 @@ def test_many_ticks_flush_one_latest_quote_per_window():
 
     worker.flush_quotes()
 
-    remote.upsert_quotes.assert_called_once()
-    row = remote.upsert_quotes.call_args.args[0][0]
+    remote.merge_quote_ticks.assert_called_once()
+    row = remote.merge_quote_ticks.call_args.args[0][0]
     assert row["symbol"] == "AAPL"
     assert row["payload"]["price"] == 101
     assert worker.run_records == {"seen": 1, "written": 1, "failed": 0}
@@ -99,13 +99,13 @@ def test_tick_market_time_is_an_integer_for_the_database_column():
 
     worker.flush_quotes()
 
-    assert remote.upsert_quotes.call_args.args[0][0]["market_time"] == 2
+    assert remote.merge_quote_ticks.call_args.args[0][0]["market_time"] == 2
 
 
 def test_failed_quote_flush_keeps_the_latest_tick_for_a_later_retry():
     """Dropping a tick before a rejected upsert makes a quiet market permanently stale."""
     remote = cloud()
-    remote.upsert_quotes.side_effect = [RuntimeError("offline"), None]
+    remote.merge_quote_ticks.side_effect = [RuntimeError("offline"), None]
     clock = Clock()
     worker = MarketWorker(remote, clock=clock)
     worker.accept(Tick("AAPL", 100, "yahoo", time=1))
@@ -115,8 +115,8 @@ def test_failed_quote_flush_keeps_the_latest_tick_for_a_later_retry():
     worker.accept(Tick("AAPL", 101, "yahoo", time=2))
     worker.flush_quotes()
 
-    assert remote.upsert_quotes.call_count == 2
-    assert remote.upsert_quotes.call_args.args[0][0]["payload"]["price"] == 101
+    assert remote.merge_quote_ticks.call_count == 2
+    assert remote.merge_quote_ticks.call_args.args[0][0]["payload"]["price"] == 101
     assert worker.run_records == {"seen": 2, "written": 1, "failed": 1}
 
 

@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/shared/auth/supabaseAuth', () => ({
   clearLocalSession: vi.fn(),
   getAccessToken: vi.fn(),
 }));
+
+const quoteBusState = vi.hoisted(() => ({ ingest: vi.fn() }));
+vi.mock('@/features/investing/data/quoteBus', () => ({ quoteBus: quoteBusState }));
 
 import {
   applyTicks,
@@ -12,6 +15,8 @@ import {
   type Tick,
 } from '@/features/investing/data/quoteStream';
 import type { Quote } from '@/shared/api/market';
+
+afterEach(() => vi.clearAllMocks());
 
 function quote(over: Partial<Quote> = {}): Quote {
   return {
@@ -138,10 +143,10 @@ describe('applyTicks', () => {
 describe('openQuoteStream', () => {
   function open(onTicks = vi.fn()) {
     const stop = vi.fn();
-    let receive!: (quotes: Quote[]) => void;
+    let receive!: (ticks: Tick[]) => void;
     let status!: (status: string) => void;
     const subscribe = vi.fn(
-      (next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+      (next: (ticks: Tick[]) => void, nextStatus: (value: string) => void) => {
         receive = next;
         status = nextStatus;
         return stop;
@@ -154,12 +159,13 @@ describe('openQuoteStream', () => {
     return { receive, status, close, onTicks, subscribe, stop };
   }
 
-  it('hands on the batch it was sent', () => {
+  it('hands on a thin Broadcast batch unchanged', () => {
     const { receive, onTicks } = open();
+    const incoming = [tick({ price: 500, time: 200 })];
 
-    receive([mergeTick(quote(), tick({ price: 500 }))]);
+    receive(incoming);
 
-    expect(onTicks).toHaveBeenCalledWith([expect.objectContaining({ price: 500 })]);
+    expect(onTicks).toHaveBeenCalledWith(incoming);
   });
 
   it('opens nothing when there is nothing to follow', () => {
@@ -170,14 +176,23 @@ describe('openQuoteStream', () => {
     expect(subscribe).not.toHaveBeenCalled();
   });
 
-  it('filters owner-visible quote updates to followed symbols and closes when told to', () => {
+  it('filters Broadcast ticks to followed symbols and closes exactly once', () => {
     const { close, receive, onTicks, stop } = open();
 
-    receive([quote({ symbol: 'MSFT' })]);
+    receive([tick({ symbol: 'MSFT' }), tick({ symbol: 'AAPL', price: 320 })]);
+    close();
     close();
 
-    expect(onTicks).not.toHaveBeenCalled();
+    expect(onTicks).toHaveBeenCalledWith([expect.objectContaining({ symbol: 'AAPL', price: 320 })]);
     expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it('does not ingest an incomplete live tick into the full quote cache', () => {
+    const { receive } = open();
+
+    receive([tick()]);
+
+    expect(quoteBusState.ingest).not.toHaveBeenCalled();
   });
 
   it('does not report live until Supabase confirms the subscription', () => {
@@ -186,7 +201,7 @@ describe('openQuoteStream', () => {
     openQuoteStream(['AAPL'], {
       onTicks: vi.fn(),
       onOpen,
-      subscribe: (_: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+      subscribe: (_: (ticks: Tick[]) => void, nextStatus: (value: string) => void) => {
         status = nextStatus;
         return () => {};
       },
@@ -197,14 +212,15 @@ describe('openQuoteStream', () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
-  it('lowers the live latch on a terminal Realtime status and ignores later quote callbacks', () => {
+  it('lowers the live latch on a terminal Realtime status and ignores later tick callbacks', () => {
     const onError = vi.fn();
-    let receive!: (quotes: Quote[]) => void;
+    const onTicks = vi.fn();
+    let receive!: (ticks: Tick[]) => void;
     let status!: (value: string) => void;
     openQuoteStream(['AAPL'], {
-      onTicks: vi.fn(),
+      onTicks,
       onError,
-      subscribe: (next: (quotes: Quote[]) => void, nextStatus: (value: string) => void) => {
+      subscribe: (next: (ticks: Tick[]) => void, nextStatus: (value: string) => void) => {
         receive = next;
         status = nextStatus;
         return () => {};
@@ -212,7 +228,8 @@ describe('openQuoteStream', () => {
     });
 
     status('CHANNEL_ERROR');
-    receive([quote()]);
+    receive([tick()]);
     expect(onError).toHaveBeenCalledOnce();
+    expect(onTicks).not.toHaveBeenCalled();
   });
 });

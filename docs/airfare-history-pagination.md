@@ -60,7 +60,9 @@ Selection limits key-only candidates before joining original payloads. Each comp
 page is at most 1 MiB; byte-limited pages can contain fewer than the requested rows.
 Only a null next cursor signals exhaustion. A single oversized item fails with
 `22023/airfare_history_item_too_large`; stale revisions fail with
-`40001/airfare_history_revision_changed`. Neither error means an empty dataset.
+`PT409/airfare_history_revision_changed`. `PT409` maps the stale read to HTTP 409
+without invoking PostgREST's serialization-failure retry. Neither error means an
+empty dataset.
 
 The opt-in `supabase/benchmarks/airfare_history_pagination.sql` seeds synthetic data
 inside a transaction and rolls back both fixtures and candidate indexes. Run it only

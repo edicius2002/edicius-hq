@@ -25,24 +25,25 @@ SNAPSHOT_ROW = {
 
 
 @pytest.mark.parametrize(
-    ("code", "message", "expected"),
+    ("status", "code", "message", "expected"),
     [
-        ("40001", "airfare_history_revision_changed", AirfareHistoryRevisionChanged),
-        ("40001", "another conflict", AirfareRemoteUnavailable),
-        ("55000", "airfare_history_revision_missing", AirfareRemoteRejected),
-        ("22023", "airfare_history_item_too_large", AirfareRemoteRejected),
-        ("22023", "airfare_history_metadata_too_large", AirfareRemoteRejected),
-        ("57014", "cancelled", AirfareRemoteUnavailable),
+        (409, "PT409", "airfare_history_revision_changed", AirfareHistoryRevisionChanged),
+        (409, "PT409", "another conflict", AirfareRemoteRejected),
+        (500, "40001", "airfare_history_revision_changed", AirfareRemoteUnavailable),
+        (500, "55000", "airfare_history_revision_missing", AirfareRemoteRejected),
+        (500, "22023", "airfare_history_item_too_large", AirfareRemoteRejected),
+        (500, "22023", "airfare_history_metadata_too_large", AirfareRemoteRejected),
+        (500, "57014", "cancelled", AirfareRemoteUnavailable),
     ],
 )
-def test_only_allowlisted_history_errors_override_http_500(code, message, expected):
+def test_only_allowlisted_history_errors_override_http_status(status, code, message, expected):
     secret = "private-server-details-never-print"
     client = SupabaseAirfare(
         "https://example.supabase.co",
         "test-key",
         transport=httpx.MockTransport(
             lambda request: httpx.Response(
-                500, json={"code": code, "message": message, "details": secret}
+                status, json={"code": code, "message": message, "details": secret}
             )
         ),
     )

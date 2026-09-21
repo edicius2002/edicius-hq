@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
-import { ApiStatus } from '@/app/layout/ApiStatus';
 import { useIsNarrow } from '@/app/layout/useIsNarrow';
 import { AccountControls } from '@/features/auth/AccountControls';
 
@@ -190,10 +189,7 @@ export function TopNav() {
 
   return (
     <header ref={topbarRef} className={styles.topbar}>
-      <div className={styles.brandBlock}>
-        {brand}
-        <ApiStatus />
-      </div>
+      {brand}
       {activeItem ? (
         /*
          * Hidden from the narrow row, never from the tree: Dashboard, Finance

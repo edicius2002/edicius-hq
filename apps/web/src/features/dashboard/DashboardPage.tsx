@@ -6,13 +6,12 @@ import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 
 import { useCodexResets } from './hooks/useCodexResets';
-import { fetchLatestTweetRun, fetchTweets, subscribeTweets } from './data/supabaseTweets';
+import { fetchTweets, subscribeTweets } from './data/supabaseTweets';
 import { formatBogotaDateTime } from './lib/codexResetCalendar';
 import { CodexResetOverview } from './ui/CodexResetOverview';
 import styles from './DashboardPage.module.css';
 
 const HANDLE = 'thsottiaux';
-const exactTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 
 type Tweets = Awaited<ReturnType<typeof fetchTweets>>;
 
@@ -70,7 +69,6 @@ export function DashboardPage() {
     queryKey: ['tweets', HANDLE],
     queryFn: () => fetchTweets(HANDLE),
   });
-  const run = useQuery({ queryKey: ['collector-runs', 'x-posts'], queryFn: fetchLatestTweetRun });
   useEffect(() => {
     return subscribeTweets(
       HANDLE,
@@ -78,36 +76,10 @@ export function DashboardPage() {
     );
   }, [client]);
   const tweets = query.data ?? [];
-  const running = run.data?.status === 'running';
-  const finishedAt = run.data?.completed_at ?? null;
-  const relativeFinishedAt = finishedAt ? formatRelativeTime(finishedAt) : null;
 
   return (
     <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader
-        title={`@${HANDLE}`}
-        className={styles.header}
-        actions={
-          <span
-            className={styles.updated}
-            title={
-              relativeFinishedAt && finishedAt ? exactTime.format(new Date(finishedAt)) : undefined
-            }
-          >
-            {relativeFinishedAt ? `Updated ${relativeFinishedAt}` : 'Never updated'}
-          </span>
-        }
-      />
-      {running ? (
-        <p className={styles.progress} role="status">
-          X collector is running.
-        </p>
-      ) : null}
-      {run.data?.status === 'failed' ? (
-        <Panel role="alert">
-          The X collector failed{run.data.error_code ? ` (${run.data.error_code})` : ''}.
-        </Panel>
-      ) : null}
+      <PageHeader title={`@${HANDLE}`} className={styles.header} />
       <CodexResetOverview query={codexResets} now={now} />
       {query.isLoading ? (
         <Panel>Loading tweets…</Panel>

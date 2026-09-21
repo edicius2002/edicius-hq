@@ -41,8 +41,6 @@ function stubNarrow(matches: boolean) {
 }
 
 function renderNav(path = '/dashboard') {
-  // `ApiStatus` polls health through react-query; retries off so a rejected
-  // fetch settles once instead of holding the test open.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -80,11 +78,11 @@ afterEach(() => {
 });
 
 describe('the narrow shell', () => {
-  it('shows the brand and the API status, and nothing else', () => {
+  it('shows the brand without an API status or wide-menu control', () => {
     renderNav();
 
     expect(trigger()).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByText(/^API(?: online| offline|…)?$/)).not.toBeInTheDocument();
     // The control the wide branch uses; its absence is what makes the row fit.
     expect(screen.queryByRole('button', { name: 'Menu' })).not.toBeInTheDocument();
   });

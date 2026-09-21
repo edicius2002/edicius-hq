@@ -27,23 +27,12 @@ export function CodexResetOverview({
     );
   }
   if (!data) {
-    return (
-      <div className={styles.error} role="alert" aria-label="Codex reset data">
-        <strong>Codex reset data could not refresh.</strong>
-        <span>Posts and replies remain available below.</span>
-      </div>
-    );
+    return null;
   }
 
-  const stale = data.stale || query.isError;
   const latest = data.latestReset;
   return (
     <div className={styles.overview}>
-      {stale ? (
-        <p className={styles.stale} role="status" aria-label="Codex reset data">
-          Could not refresh; showing cached data fetched {formatBogotaDateTime(data.fetchedAt)}.
-        </p>
-      ) : null}
       <section className={styles.hero} aria-labelledby="latest-reset-title">
         <h2 id="latest-reset-title">Latest Codex limit reset</h2>
         {latest ? (

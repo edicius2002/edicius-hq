@@ -121,9 +121,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 # the `Authorization: Bearer` header. A route-level dependency can only add to
 # this requirement; it can never create a query-string-token exception.
 #
-# `/api/health` is in here on purpose. Signed out, the status indicator reads
-# "API offline"; that is honest, it leaks nothing, and the login screen is what
-# an unauthenticated visitor sees anyway.
+# `/api/health` remains gated for the same reason as every other API route. The
+# browser no longer presents a global health indicator, so this endpoint's
+# authentication policy is independent of navigation chrome.
 GATED = [Depends(require_session_gate)]
 
 app.include_router(health.router, dependencies=GATED)

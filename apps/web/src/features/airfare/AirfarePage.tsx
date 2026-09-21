@@ -13,12 +13,6 @@ import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
-import {
-  airfareRequestWorkerHealthy,
-  airfaresStatusText,
-  useAirfareCollectorStatus,
-  useAirfareRequestWorkerStatus,
-} from '@/features/airfare/data/collectorStatus';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
 import { airportPoint, legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
@@ -77,13 +71,11 @@ export function AirfarePage() {
   const [projection, setProjection] = useState<Projection>('globe');
 
   const watchlist = useFareRoutes();
-  // Compatibility state is empty: automatic Pi collection is represented once
-  // below by the global collector status.
+  // Manual requests are the only collection state this page presents. The Pi's
+  // scheduled pass runs independently and adds no operational chrome here.
   const rowCollection = useRouteCollection();
   /* Pi-scheduled collection has no browser-triggered horizon pass. */
   const horizon = useHorizonCollection();
-  const collectorStatus = useAirfareCollectorStatus();
-  const requestWorkerStatus = useAirfareRequestWorkerStatus();
 
   /*
    * Which way each pair's arc flows, and which watch collected most recently.
@@ -548,11 +540,7 @@ export function AirfarePage() {
             editing={editing}
             collecting={rowCollection.collecting}
             progress={rowCollection.progress}
-            onCollect={
-              airfareRequestWorkerHealthy(requestWorkerStatus.data)
-                ? rowCollection.collect
-                : undefined
-            }
+            onCollect={rowCollection.collect}
             onSelect={(id) => {
               setSelectedId(id);
               setEditingId(id);
@@ -633,11 +621,6 @@ export function AirfarePage() {
             }}
             onMove={(from, to) => void watchlist.move(from, to)}
           />
-          <p role="status" data-testid="airfare-collector-status">
-            {collectorStatus.isError
-              ? 'Airfare collector status is unavailable.'
-              : airfaresStatusText(collectorStatus.data)}
-          </p>
         </Panel>
 
         {/*

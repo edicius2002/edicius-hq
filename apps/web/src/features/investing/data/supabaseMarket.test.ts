@@ -21,7 +21,10 @@ const state = vi.hoisted(() => {
     return { select: quotesSelect };
   });
   const subscribe = vi.fn();
-  const on = vi.fn(() => ({ subscribe }));
+  const on = vi.fn((...args: unknown[]) => {
+    void args;
+    return { subscribe };
+  });
   const channel = vi.fn(() => ({ on }));
   const removeChannel = vi.fn();
   const getSession = vi.fn();
@@ -274,8 +277,8 @@ describe('Supabase Investing market boundary', () => {
       error: null,
     });
     let receive!: (event: { payload: unknown }) => void;
-    state.on.mockImplementation((_kind, _filter, next) => {
-      receive = next;
+    state.on.mockImplementation((...args: unknown[]) => {
+      receive = args[2] as (event: { payload: unknown }) => void;
       return { subscribe: state.subscribe };
     });
     const onTicks = vi.fn();
@@ -372,7 +375,7 @@ describe('Supabase Investing market boundary', () => {
         data: { session: { user: { id: 'owner-42' } } },
         error: null,
       });
-      state.subscribe.mockImplementation((callback) => {
+      state.subscribe.mockImplementation((callback: (value: string) => void) => {
         callback(status);
         return { id: 'quotes' };
       });

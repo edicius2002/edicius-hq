@@ -179,7 +179,7 @@ class MarketWorker:
             # unavailable: leaving them pending lets the next window retry.
             self._run_stats.seen += len(rows)
             try:
-                self.cloud.upsert_quotes(rows)
+                self.cloud.merge_quote_ticks(rows)
             except Exception:
                 self._run_stats.failed += len(rows)
                 raise

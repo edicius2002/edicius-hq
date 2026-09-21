@@ -116,7 +116,7 @@ Snapshot `order`/`after` is `[captured_at_text, source_line_decimal, record_id]`
 
 Private SQL helper `public.airfare_history_query_key(text,text,text,text[],text,text) returns text` normalizes empty optional text to null, sorts/deduplicates months, preserves null versus empty months, and includes version and exact route. Return `md5(jsonb_build_array(1, origin, destination, departure, months, since, until)::text)` after normalization/validation; this is an opaque binding key, not a security hash. Reject null/malformed month elements (strict `YYYY-MM`, valid nonzero year/month) with `22023/airfare_history_invalid_request`. Clients bind to the validated initial metadata's key and reuse identical filters; they do not independently recreate PostgreSQL JSON serialization.
 
-Additional fixed errors: `40001/airfare_history_revision_changed`, `22023/airfare_history_item_too_large`, `22023/airfare_history_metadata_too_large`, `22023/airfare_history_invalid_cursor`. Missing singleton is `55000/airfare_history_revision_missing`. Revoke default PUBLIC execute on new internal functions. Grant service_role EXECUTE on the pure query-key helper because the invoker core readers call it; browser roles need no direct helper access. The trigger function receives no client execution grant. None of these messages contain request values or payloads.
+Additional fixed errors: `PT409/airfare_history_revision_changed`, `22023/airfare_history_item_too_large`, `22023/airfare_history_metadata_too_large`, `22023/airfare_history_invalid_cursor`. The `PT409` correction dated 2026-09-21 supersedes the original `40001` choice because PostgREST 14 retries serialization failures internally. Missing singleton is `55000/airfare_history_revision_missing`. Revoke default PUBLIC execute on new internal functions. Grant service_role EXECUTE on the pure query-key helper because the invoker core readers call it; browser roles need no direct helper access. The trigger function receives no client execution grant. None of these messages contain request values or payloads.
 
 Python public method:
 
@@ -244,7 +244,7 @@ Use PL/pgSQL STABLE with empty search path. Validate expected revision's type/ra
 
 ```sql
 if p_expected_revision is not null and p_expected_revision <> v_revision::text then
-  raise exception using errcode = '40001', message = 'airfare_history_revision_changed';
+  raise sqlstate 'PT409' using message = 'airfare_history_revision_changed';
 end if;
 -- v_body is the assembled metadata JSONB, including all summary fields.
 if octet_length(convert_to(v_body::text, 'UTF8')) > 1048576 then
@@ -410,13 +410,13 @@ if response.status_code >= 400:
     except ValueError:
         error = None
     if isinstance(error, dict) and (
-        error.get("code") == "40001"
+        error.get("code") == "PT409"
         and error.get("message") == "airfare_history_revision_changed"
     ):
         raise AirfareHistoryRevisionChanged("Airfare history revision changed")
 ```
 
-Before generic status mapping, map the fixed protocol-error pairs from the locked interface (22023 request/cursor/size errors and 55000 missing revision) to sanitized `AirfareRemoteRejected`, including if PostgREST wraps one in HTTP 500. Then preserve 429/5xx unavailable versus other 4xx rejected mapping. A different 40001 never restarts; its HTTP status still determines the existing generic classification. Keep credentials, response content and exception chaining out of errors. Add transport tests for exact conflict on HTTP 500, wrong message, malformed JSON, 403, 429, 57014, missing revision 55000 and oversized-item 22023; assert a sentinel secret in arbitrary server details appears nowhere in traceback/log output.
+Before generic status mapping, map the fixed protocol-error pairs from the locked interface (22023 request/cursor/size errors and 55000 missing revision) to sanitized `AirfareRemoteRejected`, including if PostgREST wraps one in HTTP 500. Then preserve 429/5xx unavailable versus other 4xx rejected mapping. A different `PT409` never restarts; its HTTP status still determines the existing generic classification. Keep credentials, response content and exception chaining out of errors. Add transport tests for the exact conflict on HTTP 409, wrong message, legacy `40001`, malformed JSON, 403, 429, 57014, missing revision 55000 and oversized-item 22023; assert a sentinel secret in arbitrary server details appears nowhere in traceback/log output.
 
 - [ ] **Step 4: Enforce active-request cancellation and the full deadline without raising request timeouts.**
 
@@ -540,7 +540,7 @@ In `supabaseAirfare.ts`, the adapter awaits `.abortSignal(signal)` on each owner
 ```typescript
 const { data, error } = await supabase.rpc(name, params).abortSignal(signal);
 signal.throwIfAborted();
-if (error?.code === '40001' && error.message === 'airfare_history_revision_changed') {
+if (error?.code === 'PT409' && error.message === 'airfare_history_revision_changed') {
   throw new HistoryRevisionChanged();
 }
 return rpcResult<unknown>(data, error);
@@ -562,7 +562,7 @@ Define `key` from the actual route/departure/month-set key, and increment `metad
 
 - [ ] **Step 5: Complete rejection/cancellation tests and run GREEN.**
 
-Mirror Python fixture mutations and exact count/cursor checks. Test byte-trimmed pages without assuming every nonterminal page has 100 rows. Use fake timers for whole-budget exhaustion and each backoff; use a controlled pending RPC for in-flight abort. Assert all builders receive the derived signal, abort stops subsequent calls, listeners/timers are cleaned, and late resolved promises cannot publish. Check immediate cancel on entry, final-validation conflict, third conflict, wrong 40001 message and no legacy-RPC fallback.
+Mirror Python fixture mutations and exact count/cursor checks. Test byte-trimmed pages without assuming every nonterminal page has 100 rows. Use fake timers for whole-budget exhaustion and each backoff; use a controlled pending RPC for in-flight abort. Assert all builders receive the derived signal, abort stops subsequent calls, listeners/timers are cleaned, and late resolved promises cannot publish. Check immediate cancel on entry, final-validation conflict, third conflict, wrong `PT409` message and no legacy-RPC fallback.
 
 Run focused helper/adapter/hook tests; then `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`. Keep existing query-key and month-set assertions. No product code commit until these pass.
 
@@ -578,7 +578,7 @@ Run focused helper/adapter/hook tests; then `npm test`, `npm run lint`, `npm run
 
 Start two independent long-lived `docker exec -i supabase_db_edicius-hq psql -U postgres -d <validated-test-db> -X -At -v ON_ERROR_STOP=1` processes via redirected pipes, using the Task 1 name validation. Set process-specific application_name and bounded statement/lock timeouts only for the local harness; do not raise hosted deadlines. Read an explicit `\echo` marker before advancing a barrier, with a harness deadline that terminates only its own child processes on failure. No timing-only sleeps to assume a transaction has committed.
 
-In session A insert synthetic route `CON-DST` data and commit, read metadata and page 1 with size 1, retaining revision/cursor. In session B insert a new row ordered before A's cursor, then COMMIT and emit `writer_committed`. A's next page with the old revision must report exactly `40001/airfare_history_revision_changed` and no payload. For error assertions, catch expected SQL exceptions within a DO block and print a fixed pass/fail marker; an unexpected success must raise, causing nonzero psql exit.
+In session A insert synthetic route `CON-DST` data and commit, read metadata and page 1 with size 1, retaining revision/cursor. In session B insert a new row ordered before A's cursor, then COMMIT and emit `writer_committed`. A's next page with the old revision must report exactly `PT409/airfare_history_revision_changed` and no payload. For error assertions, catch expected SQL exceptions within a DO block and print a fixed pass/fail marker; an unexpected success must raise, causing nonzero psql exit.
 
 ```sql
 do $$
@@ -587,7 +587,7 @@ begin
     'CON','DST',null,null,null,null,
     current_setting('test.old_revision'),'snapshots',null,1);
   raise exception 'stale read unexpectedly succeeded';
-exception when serialization_failure then
+exception when sqlstate 'PT409' then
   if sqlerrm <> 'airfare_history_revision_changed' then raise; end if;
 end;
 $$;

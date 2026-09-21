@@ -52,7 +52,7 @@ def _decode_response(response: httpx.Response) -> Any:
             error = None
         if isinstance(error, dict):
             code, message = error.get("code"), error.get("message")
-            if code == "40001" and message == "airfare_history_revision_changed":
+            if code == "PT409" and message == "airfare_history_revision_changed":
                 raise AirfareHistoryRevisionChanged("Airfare history revision changed")
             if (
                 isinstance(code, str)

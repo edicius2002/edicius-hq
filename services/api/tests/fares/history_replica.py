@@ -56,7 +56,7 @@ class Session:
                 begin
                   execute q into result;
                   return jsonb_build_object('data', result);
-                exception when serialization_failure then
+                exception when sqlstate 'PT409' then
                   if sqlerrm <> 'airfare_history_revision_changed' then raise; end if;
                   return jsonb_build_object('conflict', true);
                 end $$;

@@ -93,7 +93,7 @@ select is(public.read_airfare_history_meta('MET','DST',null,null,'2026-09-20',nu
 select is(public.read_airfare_history_meta('MET','DST','2026-11',array['2026-11'],null,null,body->>'revision'),
   body,'final expected revision preserves metadata') from meta_reference;
 select throws_ok($$select public.read_airfare_history_meta('MET','DST',null,null,null,null,'1')$$,
-  '40001','airfare_history_revision_changed','old expected revision rejects');
+  'PT409','airfare_history_revision_changed','old expected revision returns a bounded HTTP conflict');
 select throws_ok(format('select public.read_airfare_history_meta(''MET'',''DST'',null,array[%L],null,null)',m),
   '22023','airfare_history_invalid_request','invalid month rejects: ' || coalesce(m,'null'))
 from unnest(array['2026-13','2026-00','2026-1','0000-01','2026-01-01',null]) m;

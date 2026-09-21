@@ -76,8 +76,6 @@ export function useRouteCollection(): RouteCollection {
         ['fares', 'history', request.payload.origin, request.payload.destination],
         ['fares', 'calendar', request.payload.origin, request.payload.destination],
         ['fares', 'airports'],
-        ['collector-runs', 'airfare'],
-        ['collector-runs', 'airfare-requests'],
       ]) {
         void client.invalidateQueries({ queryKey });
       }

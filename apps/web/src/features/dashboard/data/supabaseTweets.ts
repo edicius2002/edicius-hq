@@ -9,12 +9,6 @@ export type Tweet = {
   url: string;
 };
 
-export type TweetRun = {
-  status: string;
-  completed_at: string | null;
-  error_code?: string | null;
-};
-
 function tweetFromRow(postId: string, postedAt: string, payload: Json): Tweet {
   const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   return {
@@ -35,18 +29,6 @@ export async function fetchTweets(handle: string): Promise<Tweet[]> {
     .limit(500);
   if (error) throw error;
   return (data ?? []).map((row) => tweetFromRow(row.post_id, row.posted_at, row.payload));
-}
-
-export async function fetchLatestTweetRun(): Promise<TweetRun | null> {
-  const { data, error } = await supabase
-    .from('collector_runs')
-    .select('status, completed_at, error_code')
-    .eq('collector', 'x-posts')
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
 }
 
 export function subscribeTweets(handle: string, onInsert: () => void): () => void {

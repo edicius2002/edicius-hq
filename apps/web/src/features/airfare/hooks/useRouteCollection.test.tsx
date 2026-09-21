@@ -152,12 +152,10 @@ describe('useRouteCollection', () => {
       ['fares', 'history', 'LIM', 'CUZ'],
       ['fares', 'calendar', 'LIM', 'CUZ'],
       ['fares', 'airports'],
-      ['collector-runs', 'airfare'],
-      ['collector-runs', 'airfare-requests'],
     ]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey });
     }
-    expect(invalidate).toHaveBeenCalledTimes(5);
+    expect(invalidate).toHaveBeenCalledTimes(3);
     expect(result.current.collecting).toEqual([]);
   });
 

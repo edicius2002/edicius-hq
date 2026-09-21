@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { from, channel, removeChannel, limit, order, eq, maybeSingle, on } = vi.hoisted(() => {
-  const mockedMaybeSingle = vi.fn();
-  const mockedLimit = vi.fn<() => unknown>(() => ({ maybeSingle: mockedMaybeSingle }));
+const { from, channel, removeChannel, limit, order, eq, on } = vi.hoisted(() => {
+  const mockedLimit = vi.fn();
   const mockedOrder = vi.fn(() => ({ limit: mockedLimit }));
   const mockedEq = vi.fn(() => ({ order: mockedOrder }));
   const mockedSelect = vi.fn(() => ({ eq: mockedEq }));
@@ -16,14 +15,13 @@ const { from, channel, removeChannel, limit, order, eq, maybeSingle, on } = vi.h
     limit: mockedLimit,
     order: mockedOrder,
     eq: mockedEq,
-    maybeSingle: mockedMaybeSingle,
     on: mockedOn,
   };
 });
 
 vi.mock('@/shared/supabase/client', () => ({ supabase: { from, channel, removeChannel } }));
 
-import { fetchLatestTweetRun, fetchTweets, subscribeTweets } from './supabaseTweets';
+import { fetchTweets, subscribeTweets } from './supabaseTweets';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -53,21 +51,6 @@ describe('dashboard tweet data', () => {
     expect(eq).toHaveBeenCalledWith('handle', 'thsottiaux');
     expect(order).toHaveBeenCalledWith('posted_at', { ascending: false });
     expect(limit).toHaveBeenCalledWith(500);
-  });
-
-  it('reads the newest X collector run', async () => {
-    limit.mockImplementation(() => ({ maybeSingle }));
-    maybeSingle.mockResolvedValue({
-      data: { status: 'complete', completed_at: '2026-09-18T11:00:00Z' },
-      error: null,
-    });
-
-    await expect(fetchLatestTweetRun()).resolves.toEqual({
-      status: 'complete',
-      completed_at: '2026-09-18T11:00:00Z',
-    });
-    expect(from).toHaveBeenCalledWith('collector_runs');
-    expect(eq).toHaveBeenCalledWith('collector', 'x-posts');
   });
 
   it('subscribes to inserts for this handle and removes its channel', () => {

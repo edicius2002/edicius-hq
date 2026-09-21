@@ -2,22 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
-  worker: null as null | { status: string; started_at: string; heartbeat_at: string },
   collect: vi.fn(),
-}));
-
-vi.mock('@/features/airfare/data/collectorStatus', () => ({
-  airfaresStatusText: () => 'Scheduled Airfare status remains visible.',
-  useAirfareCollectorStatus: () => ({ data: null, isError: false }),
-  useAirfareRequestWorkerStatus: () => ({ data: state.worker, isError: false }),
-  airfareRequestWorkerHealthy: (
-    run: null | { status: string; started_at: string; heartbeat_at: string },
-  ) => {
-    if (!run || run.status !== 'running') return false;
-    const started = Date.parse(run.started_at);
-    const heartbeat = Date.parse(run.heartbeat_at);
-    return heartbeat > started && Date.now() - heartbeat <= 90_000;
-  },
 }));
 
 vi.mock('@/features/airfare/hooks/useRouteCollection', () => ({
@@ -89,27 +74,16 @@ import { AirfarePage } from './AirfarePage';
 
 describe('AirfarePage manual collection availability', () => {
   beforeEach(() => {
-    state.worker = null;
     vi.setSystemTime(new Date('2026-09-19T12:02:00.000Z'));
   });
 
-  it('withholds collection unless the Pi request worker heartbeat is fresh', () => {
-    const view = render(<AirfarePage />);
-    expect(screen.getByTestId('route-list')).toHaveAttribute('data-can-collect', 'no');
-
-    state.worker = {
-      status: 'running',
-      started_at: '2026-09-19T12:00:00.000Z',
-      heartbeat_at: '2026-09-19T12:01:00.000Z',
-    };
-    view.rerender(<AirfarePage />);
+  it('offers the circular manual collection controls from the first render', () => {
+    render(<AirfarePage />);
     expect(screen.getByTestId('route-list')).toHaveAttribute('data-can-collect', 'yes');
   });
 
-  it('keeps the scheduled collector status separate and visible', () => {
+  it('omits the scheduled collector status', () => {
     render(<AirfarePage />);
-    expect(screen.getByTestId('airfare-collector-status')).toHaveTextContent(
-      'Scheduled Airfare status remains visible.',
-    );
+    expect(screen.queryByTestId('airfare-collector-status')).not.toBeInTheDocument();
   });
 });

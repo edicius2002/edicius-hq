@@ -110,29 +110,13 @@
   font-weight: 800;
 }
 
-.loading,
-.error,
-.stale {
+.loading {
   padding: 0.85rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);
   color: var(--color-muted);
   font-size: 0.7rem;
-}
-
-.error {
-  display: grid;
-  gap: 0.2rem;
-  border-color: var(--color-danger);
-}
-
-.error strong {
-  color: var(--color-text);
-}
-.stale {
-  margin: 0;
-  border-color: var(--color-accent);
 }
 
 @media (max-width: 44rem) {

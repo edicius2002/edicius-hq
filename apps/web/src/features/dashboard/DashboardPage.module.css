@@ -148,17 +148,6 @@
   color: var(--color-link-strong);
 }
 
-.updated,
-.progress {
-  color: var(--color-muted);
-  font-size: 0.65rem;
-}
-
-.progress {
-  margin: 0;
-  text-align: center;
-}
-
 @media (max-width: 54rem) {
   .columns {
     grid-template-columns: 1fr;

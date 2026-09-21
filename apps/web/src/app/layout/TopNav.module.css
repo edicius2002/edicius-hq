@@ -10,20 +10,12 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.brandBlock {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
 .brand {
   padding: 0 var(--space-3);
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--color-accent);
-  /* See `.status`: stacked, the two words cost the header 24px it does not
-     have to spend, and they cost it on every page at every width. */
   white-space: nowrap;
 }
 
@@ -38,11 +30,8 @@
   background: none;
   font: inherit;
   /*
-   * A point under the wide brand's 1.05rem, and the point buys slack rather
-   * than looks. On one line the row is brand + status + padding + gap; at
-   * 1.05rem that came to 345px against the 345px a 360px viewport leaves —
-   * fitting exactly, with nothing left for a longer status string. At 0.95rem
-   * the brand is ~140px and the row ~335px, so there are 10px to give.
+   * A point under the wide brand's 1.05rem keeps the drawer trigger compact on
+   * the narrow row without changing the wide brand.
    */
   font-size: 0.95rem;
   font-weight: 700;
@@ -153,10 +142,8 @@
  * The narrow branch.
  *
  * **640px is derived and lives in `useIsNarrow.ts` as `NARROW_QUERY`; the two
- * must agree.** The row's `min-content` is 474px on Dashboard and 485px on
- * Greenlight — brand, status, title and trigger, none of which shrink past
- * their own text — against the 345px a 360px viewport leaves after the shell's
- * padding, which is how the trigger came to sit at x=396 on a 360px screen.
+ * must agree.** The narrow branch keeps the title in the accessibility tree
+ * while taking it out of the row, leaving the brand as its drawer trigger.
  * The threshold is in pixels because `--font-size-base: 125%` makes a rem 20px
  * here; `40rem` would read 800px, not 640.
  */

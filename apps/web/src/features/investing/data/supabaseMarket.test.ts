@@ -21,10 +21,15 @@ const state = vi.hoisted(() => {
     return { select: quotesSelect };
   });
   const subscribe = vi.fn();
-  const on = vi.fn(() => ({ subscribe }));
+  const on = vi.fn((...args: unknown[]) => {
+    void args;
+    return { subscribe };
+  });
   const channel = vi.fn(() => ({ on }));
   const removeChannel = vi.fn();
+  const getSession = vi.fn();
   return {
+    auth: { getSession },
     from,
     insert,
     select,
@@ -36,6 +41,7 @@ const state = vi.hoisted(() => {
     on,
     subscribe,
     removeChannel,
+    getSession,
     eq,
     requestSingle,
   };
@@ -43,7 +49,7 @@ const state = vi.hoisted(() => {
 
 vi.mock('@/shared/supabase/client', () => ({ supabase: state }));
 
-import { getBars, getQuotes, searchSymbols, subscribeQuotes } from './supabaseMarket';
+import { getBars, getQuotes, searchSymbols, subscribeQuoteTicks } from './supabaseMarket';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -265,31 +271,120 @@ describe('Supabase Investing market boundary', () => {
     vi.useRealTimers();
   });
 
-  it('maps owner-visible quote updates and removes the Realtime channel', () => {
-    const receive = vi.fn();
-    let handler!: (event: { new: unknown }) => void;
-    (
-      state.on as unknown as { mockImplementation: (fn: (...args: unknown[]) => unknown) => void }
-    ).mockImplementation((_, __, next) => {
-      handler = next as (event: { new: unknown }) => void;
+  it('joins the authenticated owner private topic and emits only valid ticks', async () => {
+    state.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'owner-42' } } },
+      error: null,
+    });
+    let receive!: (event: { payload: unknown }) => void;
+    state.on.mockImplementation((...args: unknown[]) => {
+      receive = args[2] as (event: { payload: unknown }) => void;
       return { subscribe: state.subscribe };
     });
-    state.subscribe.mockImplementation(() => ({ id: 'quotes' }));
-    const close = subscribeQuotes(receive);
+    const onTicks = vi.fn();
+    const close = subscribeQuoteTicks(onTicks);
+    await vi.waitFor(() => expect(state.channel).toHaveBeenCalledOnce());
 
-    handler({
-      new: {
-        symbol: 'AAPL',
-        provider: 'worker',
-        market_time: 2,
-        payload: { price: 201, currency: 'USD', previousClose: 190, extended: false },
+    expect(state.channel).toHaveBeenCalledWith('market-quotes:owner-42', {
+      config: { private: true },
+    });
+    expect(state.on).toHaveBeenCalledWith('broadcast', { event: 'ticks' }, expect.any(Function));
+    receive({
+      payload: {
+        ticks: [
+          {
+            symbol: 'AAPL',
+            price: 201,
+            marketState: 'REGULAR',
+            extended: false,
+            changePercent: 1,
+            time: 2,
+          },
+          {
+            symbol: 'BAD',
+            price: Number.NaN,
+            marketState: null,
+            extended: false,
+            changePercent: null,
+            time: null,
+          },
+          { symbol: 'NOFLAG', price: 3, marketState: null, changePercent: null, time: 3 },
+        ],
       },
     });
     close();
 
-    expect(receive).toHaveBeenCalledWith([
-      expect.objectContaining({ symbol: 'AAPL', time: 2, price: 201 }),
+    expect(onTicks).toHaveBeenCalledWith([
+      {
+        symbol: 'AAPL',
+        price: 201,
+        marketState: 'REGULAR',
+        extended: false,
+        changePercent: 1,
+        time: 2,
+      },
     ]);
-    expect(state.removeChannel).toHaveBeenCalled();
+    expect(state.removeChannel).toHaveBeenCalledOnce();
   });
+
+  it('reports CHANNEL_ERROR and opens no channel when the session is missing', async () => {
+    state.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    const onStatus = vi.fn();
+
+    subscribeQuoteTicks(vi.fn(), onStatus);
+    await vi.waitFor(() => expect(onStatus).toHaveBeenCalledWith('CHANNEL_ERROR'));
+
+    expect(state.channel).not.toHaveBeenCalled();
+  });
+
+  it('reports a sanitized CHANNEL_ERROR when session lookup rejects', async () => {
+    state.getSession.mockRejectedValue(new Error('secret session detail'));
+    const onStatus = vi.fn();
+
+    subscribeQuoteTicks(vi.fn(), onStatus);
+    await vi.waitFor(() => expect(onStatus).toHaveBeenCalledWith('CHANNEL_ERROR'));
+
+    expect(onStatus).toHaveBeenCalledOnce();
+    expect(state.channel).not.toHaveBeenCalled();
+  });
+
+  it('does not open a channel when disposed before session resolution', async () => {
+    let resolveSession!: (value: {
+      data: { session: { user: { id: string } } };
+      error: null;
+    }) => void;
+    state.getSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSession = resolve;
+      }),
+    );
+
+    const close = subscribeQuoteTicks(vi.fn());
+    close();
+    resolveSession({ data: { session: { user: { id: 'owner-42' } } }, error: null });
+    await Promise.resolve();
+
+    expect(state.channel).not.toHaveBeenCalled();
+    expect(state.removeChannel).not.toHaveBeenCalled();
+  });
+
+  it.each(['SUBSCRIBED', 'TIMED_OUT', 'CHANNEL_ERROR', 'CLOSED'])(
+    'forwards the %s Realtime status unchanged',
+    async (status) => {
+      state.getSession.mockResolvedValue({
+        data: { session: { user: { id: 'owner-42' } } },
+        error: null,
+      });
+      state.subscribe.mockImplementation((callback: (value: string) => void) => {
+        callback(status);
+        return { id: 'quotes' };
+      });
+      const onStatus = vi.fn();
+
+      subscribeQuoteTicks(vi.fn(), onStatus);
+      await vi.waitFor(() => expect(onStatus).toHaveBeenCalledWith(status));
+
+      expect(onStatus).toHaveBeenCalledOnce();
+    },
+  );
 });

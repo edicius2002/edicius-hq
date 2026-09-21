@@ -55,7 +55,7 @@ Airfare continues to obey the glossary distinction between **Airfare archive** a
 ### Investing market data
 
 - A long-running worker reads the union of `watchlist`, `portfolio`, and active alert symbols from owner documents.
-- Provider ticks are coalesced to at most one Supabase update per symbol every five seconds. REST quote refresh remains a 60-second recovery path.
+- Provider ticks are coalesced into one owner-private Realtime Broadcast batch at most every 500 ms. `market_quotes` is a complete recovery snapshot updated no more than once per symbol every 60 seconds and is not in the Postgres Changes publication.
 - Bars and symbol-search requests are inserted by the authenticated browser into `collector_requests`. The Pi receives them through Supabase Realtime, with a 30-second polling reconciliation path after reconnects.
 - A request is atomically claimed by one worker, completed once, and expires after five minutes.
 - Bar cache rows replace the whole normalized series for `(owner, symbol, timeframe, extended)`. Raw ticks are not retained.
@@ -66,7 +66,7 @@ Airfare continues to obey the glossary distinction between **Airfare archive** a
 - New owner tables carry `owner_id` and enforce `owner_id = auth.uid()` for authenticated reads/writes that originate in the browser.
 - Provider data writes are granted only to `service_role`.
 - Existing Airfare tables remain hidden. New security-definer read RPCs first verify the caller in `edicius_owners`, then call the existing service-only Airfare RPCs.
-- Realtime publication includes only `market_quotes`, `tweet_posts`, `collector_runs`, and `collector_requests`; no secret or browser profile material is published.
+- The Postgres Changes publication includes only `tweet_posts`, `collector_runs`, and `collector_requests`; owner-private market ticks use Realtime Broadcast, and no secret or browser profile material is published.
 
 ## Browser behavior
 

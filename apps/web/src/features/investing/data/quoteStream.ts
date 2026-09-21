@@ -1,15 +1,14 @@
 import type { Quote } from '@/shared/api/market';
 import {
-  subscribeQuotes,
+  subscribeQuoteTicks,
   type QuoteSubscriptionStatus,
 } from '@/features/investing/data/supabaseMarket';
-import { quoteBus } from '@/features/investing/data/quoteBus';
 
 /**
  * Live prices, pushed rather than asked for.
  *
- * Owner-visible quote rows arrive over Supabase Realtime. Nothing in this file
- * names a provider; the worker is the only upstream-facing component.
+ * Owner-private ticks arrive over Supabase Realtime Broadcast. Nothing in this
+ * file names a provider; the worker is the only upstream-facing component.
  *
  * **This does not replace polling.** A tick is a trade, so a symbol that does
  * not trade says nothing, and a tick never carries a previous close. The sweep
@@ -105,7 +104,7 @@ export type QuoteStreamOptions = {
   onError?: () => void;
   /** Injected in tests; Supabase Realtime otherwise. */
   subscribe?: (
-    onQuotes: (quotes: Quote[]) => void,
+    onTicks: (ticks: Tick[]) => void,
     onStatus: (status: QuoteSubscriptionStatus) => void,
   ) => () => void;
 };
@@ -128,22 +127,12 @@ export function openQuoteStream(symbols: string[], options: QuoteStreamOptions):
     else closeWhenReady = true;
   };
   try {
-    close = (options.subscribe ?? subscribeQuotes)(
-      (quotes) => {
+    close = (options.subscribe ?? subscribeQuoteTicks)(
+      (ticks) => {
         if (terminated) return;
-        quoteBus.ingest(quotes);
         const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
-        const ticks = quotes
-          .filter((quote) => wanted.has(quote.symbol))
-          .map(({ symbol, price, marketState, extended, changePercent, time }) => ({
-            symbol,
-            price,
-            marketState,
-            extended,
-            changePercent,
-            time,
-          }));
-        if (ticks.length) options.onTicks(ticks);
+        const incoming = ticks.filter((tick) => wanted.has(tick.symbol));
+        if (incoming.length) options.onTicks(incoming);
       },
       (status) => {
         if (terminated) return;

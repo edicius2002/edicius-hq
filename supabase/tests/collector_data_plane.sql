@@ -115,9 +115,12 @@ select ok(exists (select 1 from pg_constraint where conrelid = 'public.collector
 select ok(exists (select 1 from pg_constraint where conrelid = 'public.collector_runs'::regclass
                   and pg_get_constraintdef(oid) like '%error_code%'), 'run errors must be sanitized');
 
-select isnt_empty(
-  $$select tablename from pg_publication_tables
-    where pubname = 'supabase_realtime' and tablename = 'market_quotes'$$
+select is(
+  (select count(*) from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'market_quotes'),
+  0::bigint,
+  'market quote snapshots are not duplicated through Postgres Changes'
 );
 select isnt_empty($$select tablename from pg_publication_tables
   where pubname = 'supabase_realtime' and tablename = 'tweet_posts'$$);

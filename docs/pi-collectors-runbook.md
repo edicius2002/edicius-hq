@@ -183,6 +183,19 @@ ssh '<pi-host>' "sudo journalctl -u edicius-airfare.service -u edicius-sentiment
 Checkpoint C passes when imports are idempotent, source/destination manifests
 match, the profile is private, and unit verification/one-shots are healthy.
 
+## Market Broadcast rollout checks
+
+1. Confirm `edicius-market.service` is enabled and active on the Pi.
+2. Confirm the deployed commit equals the merged commit.
+3. Open Investing and verify the Realtime channel reaches `SUBSCRIBED`.
+4. During an active provider move, verify the visible tick arrives within the
+   500 ms publication window plus network latency.
+5. Query `market_quotes` twice 10 seconds apart and verify `fetched_at` does not
+   advance from live ticks; repeat after 60–90 seconds and verify a complete
+   snapshot advances.
+6. Check Supabase Realtime errors and Disk IO after rollout. Roll back the Pi
+   release if private-channel joins fail or snapshot freshness exceeds 90 seconds.
+
 ## Manual Airfare request worker activation gate
 
 This branch only prepares the gate. It does not execute these commands against

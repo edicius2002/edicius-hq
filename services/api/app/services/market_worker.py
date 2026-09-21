@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Callable, Mapping
@@ -17,10 +16,11 @@ from app.adapters import registry
 from app.adapters.models import Bar, ProviderError, Quote, SymbolHit, Tick
 from app.adapters.streams import CompositeStream
 from app.config import TIMEFRAMES, UPSTREAM_TIMEOUT_SECONDS
-from app.services.collector_cloud import CollectorCloud, CollectorRequest
+from app.services.collector_cloud import CollectorCloud, CollectorCloudError, CollectorRequest
 
 LOGGER = logging.getLogger(__name__)
-QUOTE_FLUSH_SECONDS = 5.0
+LIVE_BROADCAST_SECONDS = 0.5
+QUOTE_FLUSH_SECONDS = 60.0
 QUOTE_RECOVERY_SECONDS = 60.0
 RECONCILE_SECONDS = 30.0
 _DOCUMENT_KEYS = ("watchlist", "portfolio", "alert-rules")
@@ -104,6 +104,10 @@ def tick_wire(tick: Tick) -> dict[str, Any]:
     }
 
 
+def _visible_reading(tick: Tick) -> tuple[float, str | None, bool]:
+    return (tick.price, tick.market_state, tick.extended)
+
+
 def quote_wire(quote: Quote) -> dict[str, Any]:
     return {
         "symbol": quote.symbol,
@@ -147,6 +151,8 @@ class MarketWorker:
         self._owns_client = client is None
         self._clock = clock
         self._pending: dict[str, Tick] = {}
+        self._live_pending: dict[str, Tick] = {}
+        self._last_broadcast: dict[str, tuple[float, str | None, bool]] = {}
         self._last_write: dict[str, float] = {}
         self._last_recovery = float("-inf")
         self._wake = asyncio.Event()
@@ -166,6 +172,33 @@ class MarketWorker:
 
     def accept(self, tick: Tick) -> None:
         self._pending[tick.symbol] = tick
+        self._live_pending[tick.symbol] = tick
+
+    async def publish_ticks(self) -> int:
+        candidates = {
+            symbol: tick
+            for symbol, tick in self._live_pending.items()
+            if _visible_reading(tick) != self._last_broadcast.get(symbol)
+        }
+        for symbol, tick in tuple(self._live_pending.items()):
+            if symbol not in candidates and self._live_pending.get(symbol) is tick:
+                self._live_pending.pop(symbol, None)
+        if not candidates:
+            return 0
+        rows = [tick_wire(tick) for tick in candidates.values()]
+        self._run_stats.seen += len(rows)
+        try:
+            await asyncio.to_thread(self.cloud.broadcast_quote_ticks, rows)
+        except CollectorCloudError as error:
+            self._run_stats.failed += len(rows)
+            LOGGER.warning("market quote broadcast failed: %s", type(error).__name__)
+            return 0
+        self._run_stats.written += len(rows)
+        for symbol, tick in candidates.items():
+            self._last_broadcast[symbol] = _visible_reading(tick)
+            if self._live_pending.get(symbol) is tick:
+                self._live_pending.pop(symbol, None)
+        return len(rows)
 
     def flush_quotes(self) -> int:
         now = self._clock()
@@ -274,19 +307,27 @@ class MarketWorker:
         if stop_event.is_set():
             return
         ticks = asyncio.create_task(self._consume_ticks(stop_event))
+        publisher = asyncio.create_task(self._publish_ticks(stop_event))
         try:
             while not stop_event.is_set():
                 healthy = await self.reconcile_once()
                 if healthy and cycle_completed is not None:
                     cycle_completed(self.run_records)
                 await self._wait_for_wake_or_stop(stop_event)
+                if not stop_event.is_set():
+                    self._raise_background_failure(ticks, publisher)
         finally:
-            ticks.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await ticks
+            for task in (ticks, publisher):
+                task.cancel()
+            results = await asyncio.gather(ticks, publisher, return_exceptions=True)
             self.flush_quotes()
             if self._owns_client:
                 await self.client.aclose()
+            for result in results:
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    raise result
 
     async def reconcile_once(self) -> bool:
         """Complete one bounded document, request, and quote reconciliation."""
@@ -305,6 +346,21 @@ class MarketWorker:
             if stop_event.is_set():
                 return
             self.accept(tick)
+
+    async def _publish_ticks(self, stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=LIVE_BROADCAST_SECONDS)
+            except TimeoutError:
+                await self.publish_ticks()
+
+    @staticmethod
+    def _raise_background_failure(*tasks: asyncio.Task[None]) -> None:
+        for task in tasks:
+            if not task.done():
+                continue
+            task.result()
+            raise RuntimeError("market background task stopped unexpectedly")
 
     async def _wait_for_wake_or_stop(self, stop_event: asyncio.Event) -> None:
         wake = asyncio.create_task(self._wake.wait())

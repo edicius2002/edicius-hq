@@ -35,6 +35,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.pytest-tmp-*/
 *.egg-info/
 
 # API local data (bars cache, KV)

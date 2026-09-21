@@ -163,57 +163,31 @@ it('keeps tweets visible while reset data is unavailable instead of showing zero
   renderPage();
 
   expect(await screen.findByText('post anon')).toBeInTheDocument();
-  expect(await screen.findByRole('alert', { name: /Codex reset data/i })).toHaveTextContent(
-    /could not refresh/i,
-  );
+  expect(screen.queryByText(/Codex reset data could not refresh/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Posts and replies remain available below/i)).not.toBeInTheDocument();
   expect(screen.queryByText('0d')).not.toBeInTheDocument();
 });
 
-it('labels cached reset data with the exact age while retaining its values', async () => {
+it('shows cached reset values without an operational warning', async () => {
   stubApi(IDLE, { ...RESETS, stale: true });
   renderPage();
 
   expect(await screen.findByText('53')).toBeInTheDocument();
-  expect(screen.getByRole('status', { name: /Codex reset data/i })).toHaveTextContent(
-    /cached data/i,
-  );
-  expect(screen.getByRole('status', { name: /Codex reset data/i })).toHaveTextContent(
-    /Sep 14, 2026/i,
-  );
+  expect(screen.queryByText(/Could not refresh; showing cached data/i)).not.toBeInTheDocument();
 });
 
-it('shows the last completed refresh relatively, with its exact time on hover', async () => {
-  const finishedAt = new Date(Date.now() - 3 * 60_000).toISOString();
-  stubApi({ ...IDLE, finishedAt });
-  renderPage();
-
-  const updated = await screen.findByText('Updated 3 minutes ago');
-
-  const title = updated.getAttribute('title') ?? '';
-  expect(title).toContain(
-    new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(finishedAt)),
-  );
-  expect(title).toMatch(/\d{1,2}:\d{2}/);
-  expect(screen.queryByRole('button', { name: /Refresh/ })).not.toBeInTheDocument();
-});
-
-it('says when no refresh has completed yet', async () => {
-  stubApi(IDLE);
-  renderPage();
-
-  expect(await screen.findByText('Never updated')).toBeInTheDocument();
-});
-
-it('keeps the last completed refresh visible while the collector reports progress', async () => {
+it('omits X collector timestamps and progress while retaining captured posts', async () => {
   const finishedAt = new Date(Date.now() - 3 * 60_000).toISOString();
   stubApi({ ...IDLE, state: 'running', scroll: 7, new: 12, finishedAt });
   renderPage();
 
-  expect(await screen.findByText('Updated 3 minutes ago')).toBeInTheDocument();
-  expect(screen.getByText('X collector is running.')).toBeInTheDocument();
+  expect(await screen.findByText('post anon')).toBeInTheDocument();
+  expect(screen.queryByText(/Updated /)).not.toBeInTheDocument();
+  expect(screen.queryByText('Never updated')).not.toBeInTheDocument();
+  expect(screen.queryByText('X collector is running.')).not.toBeInTheDocument();
 });
 
-it('shows why a capture failed', async () => {
+it('omits X collector failures while retaining captured posts', async () => {
   stubApi({
     ...IDLE,
     state: 'failed',
@@ -221,7 +195,8 @@ it('shows why a capture failed', async () => {
   });
   renderPage();
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('X collector failed');
+  expect(await screen.findByText('post anon')).toBeInTheDocument();
+  expect(screen.queryByText(/X collector failed/i)).not.toBeInTheDocument();
 });
 
 it('keeps the API watcher running when the Dashboard unmounts', () => {

@@ -161,7 +161,7 @@ describe('Shell navigation', () => {
   it('redirects / to Dashboard coming soon', async () => {
     renderAt('/');
     expect(await arrivesAt('Dashboard')).toBeInTheDocument();
-    expect(await screen.findByRole('status')).toHaveTextContent('API online');
+    expect(screen.queryByText(/^API(?: online| offline|…)?$/)).not.toBeInTheDocument();
   });
 
   it('navigates between the six top-level tabs', async () => {

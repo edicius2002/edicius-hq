@@ -190,8 +190,11 @@ the transaction relationship of triggers in its
 Each read validates the expected revision and reads its rows using the same calling
 statement snapshot. STABLE functions provide that fixed snapshot for their internal
 reads; see [PostgreSQL function volatility](https://www.postgresql.org/docs/17/xfunc-volatility.html).
-If the revision changed, return SQLSTATE `40001` with the fixed message
+If the revision changed, return SQLSTATE `PT409` with the fixed message
 `airfare_history_revision_changed` and no page payload. Do not return an empty page.
+This 2026-09-21 correction supersedes the original `40001` transport choice:
+PostgREST 14 retries serialization failures internally and can otherwise hold one
+stale request in an unbounded transaction loop.
 
 This does not retain a database transaction across HTTP requests or freeze collection.
 It proves the assembled result belongs to one unchanged committed revision. A write
@@ -221,7 +224,7 @@ The initial metadata, all pages and final check use the same filters. Do not rec
 whole-pair reference or health from a partial page. Do not sort native JSON numbers
 to reconstruct bigint cursor order; use exact ordering metadata representations.
 
-On `40001` plus the exact revision-change message, discard the entire attempt and
+On `PT409` plus the exact revision-change message, discard the entire attempt and
 restart from metadata. Allow two restarts (three attempts total), with cancelable
 backoffs of 100ms and 250ms. No retries on invalid cursors, malformed responses,
 permission failures or oversized items. Network/timeout failures abandon the partial
@@ -232,7 +235,7 @@ refetch/invalidation behavior; those are separate logical reads, not hidden retr
 The Python transport must recognize only the allow-listed revision-change code/message
 before its generic HTTP-500 mapping, and expose a sanitized typed signal to the reader.
 The web reader applies the same exact check. Do not print arbitrary server messages,
-details, response bodies, headers or credentials. A different `40001` is not permission
+details, response bodies, headers or credentials. A different `PT409` is not permission
 to silently restart under this protocol. Cursor/protocol errors remain explicit failures.
 
 Keep current per-request/database timeouts. Add a 60-second whole-operation budget,

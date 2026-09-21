@@ -31,13 +31,13 @@ afterEach(() => {
 });
 
 describe('useFareHistory complete reads', () => {
-  it('does not multiply three internal attempts with QueryClient retry defaults', async () => {
+  it('retries a PT409 revision conflict only three times without QueryClient retries', async () => {
     vi.useFakeTimers();
     rpc.mockImplementation(() => ({
       abortSignal: () =>
         Promise.resolve({
           data: null,
-          error: { code: '40001', message: 'airfare_history_revision_changed' },
+          error: { code: 'PT409', message: 'airfare_history_revision_changed' },
         }),
     }));
     const { client, wrapper } = setup();

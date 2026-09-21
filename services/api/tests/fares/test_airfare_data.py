@@ -283,7 +283,7 @@ def test_real_paged_transport_preserves_domain_fallback_boundary(archive, ending
     async def handle(request):
         if ending == "churn":
             return httpx.Response(
-                500, json={"code": "40001", "message": "airfare_history_revision_changed"}
+                409, json={"code": "PT409", "message": "airfare_history_revision_changed"}
             )
         if "p_expected_revision" in json.loads(request.content):
             if ending == "unavailable":

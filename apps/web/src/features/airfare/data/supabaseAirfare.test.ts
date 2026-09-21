@@ -60,16 +60,16 @@ describe('Supabase Airfare reads', () => {
     expect(signals[0]).toBeInstanceOf(AbortSignal);
   });
 
-  it('does not restart a different 40001 or expose arbitrary server details', async () => {
+  it('does not restart a different PT409 or expose arbitrary server details', async () => {
     rpc.mockReturnValue({
       abortSignal: () =>
         Promise.resolve({
           data: null,
-          error: { code: '40001', message: 'private-server-message', details: 'private-key' },
+          error: { code: 'PT409', message: 'private-server-message', details: 'private-key' },
         }),
     });
     await expect(fetchFareHistory('AQP', 'LIM')).rejects.toThrow(
-      'Airfare data request failed (40001).',
+      'Airfare data request failed (PT409).',
     );
     expect(rpc).toHaveBeenCalledTimes(1);
   });

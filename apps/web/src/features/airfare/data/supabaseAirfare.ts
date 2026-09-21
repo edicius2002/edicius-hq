@@ -40,7 +40,7 @@ export async function fetchFareHistory(
     async (name, params, signal) => {
       const { data, error } = await supabase.rpc(name, params).abortSignal(signal);
       signal.throwIfAborted();
-      if (error?.code === '40001' && error.message === 'airfare_history_revision_changed') {
+      if (error?.code === 'PT409' && error.message === 'airfare_history_revision_changed') {
         throw new HistoryRevisionChanged();
       }
       return rpcResult<unknown>(data, error);

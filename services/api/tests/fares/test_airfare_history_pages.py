@@ -344,7 +344,7 @@ def test_local_replica_harness_detects_unexpected_stale_success(local_replica_se
           perform public.read_airfare_history_page('CON','DST',null,null,null,null,
             '{meta["revision"]}','snapshots',null,1);
           raise exception 'stale read unexpectedly succeeded';
-        exception when serialization_failure then
+        exception when sqlstate 'PT409' then
           if sqlerrm <> 'airfare_history_revision_changed' then raise; end if;
         end $$;""")
 

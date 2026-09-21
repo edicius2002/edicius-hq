@@ -98,7 +98,7 @@ rollback to bytes;
 
 update public.fare_snapshots set source_line=source_line+1 where record_id=repeat('1',64);
 select throws_ok(format('select public.read_airfare_history_page(''JSN'',''DST'',null,null,null,null,%L,''snapshots'',%L::jsonb,2)',
-  body->>'revision',body->'nextCursor'),'40001','airfare_history_revision_changed','replay position move invalidates cursor') from first_page;
+  body->>'revision',body->'nextCursor'),'PT409','airfare_history_revision_changed','replay position move returns a bounded HTTP conflict') from first_page;
 
 select ok(provolatile='s' and proconfig=array['search_path=""']
   and prosecdef=(proname='read_owner_airfare_history_page'),proname || ' security and snapshot')

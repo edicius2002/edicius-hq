@@ -23,6 +23,16 @@ QUOTE = {
     "fetched_at": "2026-09-17T00:00:00Z",
     "payload": {"price": 1},
 }
+TICKS = [
+    {
+        "symbol": "AAPL",
+        "price": 201.5,
+        "marketState": "REGULAR",
+        "extended": False,
+        "changePercent": 1.25,
+        "time": 1790008113.25,
+    }
+]
 
 
 @pytest.fixture
@@ -72,6 +82,55 @@ def test_quote_tick_merge_uses_owner_scoped_rpc(secret_config):
         "p_owner_id": str(OWNER_ID),
         "p_rows": [QUOTE],
     }
+
+
+def test_quote_broadcast_uses_private_owner_topic_and_one_batch(secret_config):
+    request = captured_request_for(
+        lambda cloud: cloud.broadcast_quote_ticks(TICKS),
+        secret_config,
+        httpx.Response(202, json={}),
+    )
+
+    assert request.url.path == (f"/realtime/v1/api/broadcast/market-quotes:{OWNER_ID}/events/ticks")
+    assert request.url.params["private"] == "true"
+    assert request.headers["apikey"] == secret_config.secret_key
+    assert json.loads(request.content) == {"ticks": TICKS}
+
+
+def test_empty_quote_broadcast_makes_no_http_request(secret_config):
+    requests = []
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda request: requests.append(request) or httpx.Response(202, json={})
+        ),
+    )
+
+    assert cloud.broadcast_quote_ticks([]) == 0
+    assert requests == []
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (429, CollectorCloudUnavailable),
+        (503, CollectorCloudUnavailable),
+        (403, CollectorCloudRejected),
+    ],
+)
+def test_quote_broadcast_classifies_remote_failures_without_response_details(
+    secret_config, status, error
+):
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(status, text="private policy detail")
+        ),
+    )
+
+    with pytest.raises(error) as raised:
+        cloud.broadcast_quote_ticks(TICKS)
+    assert "private policy detail" not in str(raised.value)
 
 
 def test_redirect_is_rejected_without_following_it(secret_config):

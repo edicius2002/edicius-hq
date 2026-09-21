@@ -123,6 +123,7 @@ class CollectorCloud:
         if not isfinite(config.timeout_seconds) or config.timeout_seconds <= 0:
             raise ValueError("Supabase timeout must be positive")
         self._owner_id = config.owner_id
+        self._project_url = project_url
         self._client = httpx.Client(
             base_url=f"{project_url}/rest/v1/",
             headers={
@@ -223,6 +224,20 @@ class CollectorCloud:
             raise CollectorCloudRejected("Supabase returned an invalid quote tick count")
         LOGGER.info("collector cloud quote ticks=%d", result)
         return result
+
+    def broadcast_quote_ticks(self, ticks: Sequence[Mapping[str, Any]]) -> int:
+        if not ticks:
+            return 0
+        payload = [dict(tick) for tick in ticks]
+        self._request(
+            "POST",
+            f"{self._project_url}/realtime/v1/api/broadcast/"
+            f"market-quotes:{self._owner_id}/events/ticks",
+            body={"ticks": payload},
+            params={"private": "true"},
+        )
+        LOGGER.info("collector cloud quote broadcasts=%d", len(payload))
+        return len(payload)
 
     def upsert_bars(self, row: dict[str, Any]) -> None:
         self._upsert("market_bars", [row], "owner_id,symbol,timeframe,extended")

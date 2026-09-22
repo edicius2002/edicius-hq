@@ -33,6 +33,22 @@ TICKS = [
         "time": 1790008113.25,
     }
 ]
+LIVE_BAR_ROWS = [
+    {
+        "symbol": "AAPL",
+        "timeframe": "15m",
+        "extended": True,
+        "asOf": 1790076602.25,
+        "bar": {
+            "time": 1790075700,
+            "open": 251.1,
+            "high": 252.4,
+            "low": 250.9,
+            "close": 252.2,
+            "volume": 18432,
+        },
+    }
+]
 
 
 @pytest.fixture
@@ -95,6 +111,63 @@ def test_quote_broadcast_uses_private_owner_topic_and_one_batch(secret_config):
     assert request.url.params["private"] == "true"
     assert request.headers["apikey"] == secret_config.secret_key
     assert json.loads(request.content) == {"ticks": TICKS}
+
+
+def test_live_bar_broadcast_uses_private_owner_topic_and_one_batch(secret_config):
+    request = captured_request_for(
+        lambda cloud: cloud.broadcast_live_bars(LIVE_BAR_ROWS),
+        secret_config,
+        httpx.Response(202, json={}),
+    )
+
+    assert request.url.path == (f"/realtime/v1/api/broadcast/market-quotes:{OWNER_ID}/events/bars")
+    assert request.url.params["private"] == "true"
+    assert request.headers["apikey"] == secret_config.secret_key
+    assert json.loads(request.content) == {"bars": LIVE_BAR_ROWS}
+
+
+def test_empty_live_bar_broadcast_makes_no_http_request(secret_config):
+    requests = []
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda request: requests.append(request) or httpx.Response(202, json={})
+        ),
+    )
+
+    assert cloud.broadcast_live_bars([]) == 0
+    assert requests == []
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (429, CollectorCloudUnavailable),
+        (503, CollectorCloudUnavailable),
+        (403, CollectorCloudRejected),
+    ],
+)
+def test_live_bar_broadcast_classifies_remote_failures_without_response_details(
+    secret_config, status, error
+):
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(status, text="private policy detail")
+        ),
+    )
+
+    with pytest.raises(error) as raised:
+        cloud.broadcast_live_bars(LIVE_BAR_ROWS)
+    assert "private policy detail" not in str(raised.value)
+
+
+def test_live_bar_redirect_is_rejected_without_following_it(secret_config):
+    response = httpx.Response(307, headers={"location": "/rest/v1/market_quotes"})
+    with pytest.raises(CollectorCloudRejected, match="redirect"):
+        captured_request_for(
+            lambda cloud: cloud.broadcast_live_bars(LIVE_BAR_ROWS), secret_config, response
+        )
 
 
 def test_empty_quote_broadcast_makes_no_http_request(secret_config):

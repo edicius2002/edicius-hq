@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   cadenceFor,
@@ -15,7 +15,7 @@ import {
 } from '@/features/investing/data/liveBars';
 import type { Tick } from '@/features/investing/data/quoteStream';
 import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
-import { getBars, type Bar } from '@/shared/api/market';
+import { getBars, type Bar, type BarsResponse } from '@/shared/api/market';
 
 /**
  * Bars for one symbol, at the cadence the session deserves.
@@ -89,6 +89,8 @@ export type Candles = {
   refetch: () => void;
 };
 
+type LoadedSeries = { key: string; response: BarsResponse };
+
 export function useCandles(
   symbol: string,
   timeframe: string,
@@ -98,6 +100,7 @@ export function useCandles(
   const clockRegime = useRegime();
   const regime = regimeFromMarketState(tick?.marketState) ?? clockRegime;
   const [sessions, setSessions] = useState<Map<string, boolean>>(() => new Map());
+  const loadedSeries = useRef<LoadedSeries | undefined>(undefined);
   const hasSession = sessions.get(symbol) ?? true;
   const wantExtended = hasSession && regime !== 'regular';
   useChartFocus({
@@ -116,9 +119,17 @@ export function useCandles(
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 
-  const provider = query.data?.provider ?? '';
-  const reportedSession = query.data?.hasSession ?? hasSession;
-  const baseBars = query.data?.bars ?? [];
+  const seriesKey = JSON.stringify([symbol, timeframe]);
+  if (query.data) loadedSeries.current = { key: seriesKey, response: query.data };
+  // Session changes use another query key for good cache separation. Keep the
+  // last successful history for this same chart visible until that variant
+  // arrives, while a different symbol or timeframe gets no fallback at all.
+  const response =
+    query.data ??
+    (loadedSeries.current?.key === seriesKey ? loadedSeries.current.response : undefined);
+  const provider = response?.provider ?? '';
+  const reportedSession = response?.hasSession ?? hasSession;
+  const baseBars = response?.bars ?? [];
   const authoritative = liveBars.get(liveBarKey({ symbol, timeframe, extended: wantExtended }));
   const context: LiveBarContext = { symbol, timeframe, extended: wantExtended, hasSession };
   const bars = useMemo(
@@ -129,7 +140,7 @@ export function useCandles(
   // Reported session support is remembered per symbol, purely as a function of
   // the freshest query response, so it is adjusted here during render instead
   // of from an effect.
-  const nextHasSession = query.data?.hasSession;
+  const nextHasSession = response?.hasSession;
   if (nextHasSession !== undefined && sessions.get(symbol) !== nextHasSession) {
     setSessions((current) => new Map(current).set(symbol, nextHasSession));
   }
@@ -146,13 +157,13 @@ export function useCandles(
     bars,
     provider,
     regime,
-    extended: query.data?.extended ?? false,
+    extended: response?.extended ?? false,
     isGhost,
     isPending: query.isPending,
     // React Query intentionally retains successful data when a background
     // refresh fails. That is degraded data, not a fatal empty chart.
-    isStale: (query.data?.stale ?? false) || (query.isError && query.data !== undefined),
-    isError: query.isError && query.data === undefined,
+    isStale: (response?.stale ?? false) || (query.isError && response !== undefined),
+    isError: query.isError && response === undefined,
     refetch: () => void query.refetch(),
   };
 }

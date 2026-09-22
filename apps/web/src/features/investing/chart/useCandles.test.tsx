@@ -45,6 +45,14 @@ const tick: Tick = {
   changePercent: null,
 };
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('useCandles', () => {
   it('keeps 24/7 instruments polling while the US market is closed', () => {
     expect(candleRefetchInterval('closed', '1m', false)).toBe(10_000);
@@ -69,7 +77,15 @@ describe('useCandles', () => {
 
   it('reconciles authoritative volume then replays the newer quote tick', async () => {
     const wrapper = sharedQueryWrapper();
-    getBars.mockResolvedValue(barsResponse);
+    const nextSeries = deferred<typeof barsResponse>();
+    let requestedInitialSeries = false;
+    getBars.mockImplementation(() => {
+      if (!requestedInitialSeries) {
+        requestedInitialSeries = true;
+        return Promise.resolve(barsResponse);
+      }
+      return nextSeries.promise;
+    });
     const { result, rerender } = renderHook(
       ({ symbol, timeframe, selectedTick, liveBars }) =>
         useCandles(symbol, timeframe, selectedTick, liveBars),
@@ -96,6 +112,14 @@ describe('useCandles', () => {
     });
     await waitFor(() => expect(result.current.bars.at(-1)?.volume).toBe(12));
     expect(result.current.bars.at(-1)?.close).toBe(1.9);
+
+    rerender({
+      symbol: 'SPCX',
+      timeframe: '1h',
+      selectedTick: undefined,
+      liveBars: new Map([['SPCX:15m:false', corrected]]),
+    });
+    expect(result.current.bars).toEqual([]);
 
     rerender({
       symbol: 'OTHER',
@@ -131,7 +155,10 @@ describe('useCandles', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-22T14:00:00Z'));
     const wrapper = sharedQueryWrapper();
-    getBars.mockResolvedValue(barsResponse);
+    const extendedResponse = deferred<typeof barsResponse>();
+    getBars.mockImplementation((_symbol, _timeframe, extended) =>
+      extended ? extendedResponse.promise : Promise.resolve(barsResponse),
+    );
     const { result, rerender } = renderHook(
       ({ selectedTick }) => useCandles('SPCX', '15m', selectedTick, new Map()),
       { initialProps: { selectedTick: tick }, wrapper },
@@ -147,6 +174,9 @@ describe('useCandles', () => {
       active: false,
     });
     await waitFor(() => expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true));
+    expect(result.current.bars).toEqual([history]);
+
+    extendedResponse.resolve({ ...barsResponse, extended: true });
     await waitFor(() => expect(result.current.bars).toEqual([history]));
   });
 

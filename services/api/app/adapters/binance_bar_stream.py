@@ -32,6 +32,7 @@ def parse_kline(message: str) -> LiveBar | None:
         envelope = json.loads(message)
         payload = envelope.get("data", envelope)
         kline = payload["k"]
+        closed = kline["x"]
         values = tuple(float(kline[key]) for key in ("o", "h", "l", "c", "v"))
         symbol, timeframe = str(payload["s"]), str(kline["i"])
         start, as_of = int(kline["t"]) // 1000, float(payload["E"]) / 1000
@@ -39,7 +40,8 @@ def parse_kline(message: str) -> LiveBar | None:
         return None
 
     if (
-        timeframe not in INTERVALS
+        not isinstance(closed, bool)
+        or timeframe not in INTERVALS
         or not math.isfinite(as_of)
         or not all(math.isfinite(value) for value in values)
     ):
@@ -54,6 +56,24 @@ def parse_kline(message: str) -> LiveBar | None:
         bar=Bar(start, open_, high, low, close, volume),
         provider=PROVIDER,
     )
+
+
+async def _next_frame_or_change(
+    iterator, changed: asyncio.Event
+) -> tuple[bool, str | bytes | None]:
+    """Wait for a frame or a watch update, cancelling whichever loses."""
+    frame = asyncio.create_task(anext(iterator))
+    update = asyncio.create_task(changed.wait())
+    try:
+        done, _ = await asyncio.wait({frame, update}, return_when=asyncio.FIRST_COMPLETED)
+        if update in done:
+            return True, None
+        return False, frame.result()
+    finally:
+        for task in (frame, update):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(frame, update, return_exceptions=True)
 
 
 class BinanceBarStream:
@@ -71,6 +91,7 @@ class BinanceBarStream:
         self._sleep = sleep or asyncio.sleep
         self._focuses: set[BarFocus] = set()
         self._generation = 0
+        self._change = asyncio.Event()
 
     async def watch(self, focuses: set[BarFocus]) -> None:
         desired = {
@@ -82,6 +103,9 @@ class BinanceBarStream:
             return
         self._focuses = desired
         self._generation += 1
+        changed = self._change
+        self._change = asyncio.Event()
+        changed.set()
 
     async def bars(self) -> AsyncIterator[LiveBar]:
         backoff = 1.0
@@ -92,12 +116,20 @@ class BinanceBarStream:
                 continue
 
             generation = self._generation
+            changed = self._change
             try:
                 async with self._connect(stream_url(wanted, base=self._base)) as socket:
                     backoff = 1.0
-                    async for raw in socket:
-                        if self._generation != generation:
+                    iterator = socket.__aiter__()
+                    while self._generation == generation:
+                        try:
+                            interrupted, raw = await _next_frame_or_change(iterator, changed)
+                        except StopAsyncIteration:
                             break
+                        if interrupted:
+                            break
+                        if not isinstance(raw, (str, bytes)):
+                            continue
                         update = parse_kline(raw if isinstance(raw, str) else raw.decode())
                         if update is not None:
                             yield update

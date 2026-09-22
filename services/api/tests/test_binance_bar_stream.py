@@ -7,7 +7,13 @@ from app.adapters.binance_bar_stream import BinanceBarStream, parse_kline
 from app.adapters.models import Bar, BarFocus, LiveBar
 
 
-def kline(*, symbol: str = "BTCUSDT", timeframe: str = "1m", volume: str = "12.5") -> str:
+def kline(
+    *,
+    symbol: str = "BTCUSDT",
+    timeframe: str = "1m",
+    volume: str = "12.5",
+    closed: object = False,
+) -> str:
     return json.dumps(
         {
             "stream": f"{symbol.lower()}@kline_{timeframe}",
@@ -23,7 +29,7 @@ def kline(*, symbol: str = "BTCUSDT", timeframe: str = "1m", volume: str = "12.5
                     "l": "99",
                     "c": "102",
                     "v": volume,
-                    "x": False,
+                    "x": closed,
                 },
             },
         }
@@ -85,6 +91,8 @@ def test_parse_kline_keeps_a_volume_only_change():
         json.dumps({"data": {"s": "BTCUSDT", "k": {"i": "1m"}}}),
         kline(timeframe="2h"),
         kline(volume="nan"),
+        kline(closed=1),
+        kline(closed="false"),
     ],
 )
 def test_parse_kline_ignores_malformed_or_unsupported_frames(message):
@@ -107,6 +115,27 @@ class FakeSocket:
                 yield frame
 
         return frames()
+
+
+class QuietSocket:
+    def __init__(self) -> None:
+        self.released = asyncio.Event()
+        self.exited = False
+
+    async def __aenter__(self) -> "QuietSocket":
+        return self
+
+    async def __aexit__(self, *_: object) -> bool:
+        self.exited = True
+        self.released.set()
+        return False
+
+    def __aiter__(self) -> "QuietSocket":
+        return self
+
+    async def __anext__(self) -> str:
+        await self.released.wait()
+        raise StopAsyncIteration
 
 
 async def _no_wait(_seconds: float) -> None:
@@ -152,3 +181,35 @@ def test_changed_binance_focus_reconnects_with_the_sorted_desired_set():
     assert [bar.symbol for bar in bars] == ["BTCUSDT", "SOLUSDT"]
     assert opened[0].endswith("?streams=btcusdt@kline_5m/ethusdt@kline_1m")
     assert opened[1].endswith("?streams=btcusdt@kline_5m/ethusdt@kline_1m/solusdt@kline_1d")
+
+
+def test_watch_interrupts_a_quiet_socket_before_reconnecting_with_all_focuses():
+    quiet = QuietSocket()
+    opened: list[str] = []
+    sockets = [quiet, FakeSocket([kline(symbol="SOLUSDT", timeframe="1d")])]
+
+    def connect(url: str):
+        opened.append(url)
+        return sockets.pop(0)
+
+    async def run() -> LiveBar:
+        stream = BinanceBarStream(connect=connect, sleep=_no_wait)
+        await stream.watch({BarFocus("BTCUSDT", "5m", False)})
+        bars = stream.bars()
+        pending = asyncio.create_task(anext(bars))
+        await asyncio.sleep(0)
+        await stream.watch(
+            {
+                BarFocus("BTCUSDT", "5m", False),
+                BarFocus("SOLUSDT", "1d", False),
+            }
+        )
+        result = await asyncio.wait_for(pending, timeout=1)
+        await bars.aclose()
+        return result
+
+    result = asyncio.run(run())
+
+    assert quiet.exited
+    assert result.symbol == "SOLUSDT"
+    assert opened[1].endswith("?streams=btcusdt@kline_5m/solusdt@kline_1d")

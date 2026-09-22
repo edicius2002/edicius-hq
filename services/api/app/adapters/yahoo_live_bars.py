@@ -41,6 +41,18 @@ def yahoo_session_at(timestamp: int) -> str:
     return CLOSED
 
 
+def seconds_until_yahoo_open(timestamp: int | float) -> float:
+    """Return seconds until the next weekday 04:00 New York open."""
+    local = local_datetime(timestamp)
+    candidate = local.date()
+    if local.weekday() >= 5 or local.hour >= 4:
+        candidate += timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    opening = datetime.combine(candidate, clock_time(4, 0), tzinfo=NEW_YORK)
+    return max(0.0, opening.timestamp() - timestamp)
+
+
 def intraday_bucket_start(timestamp: int, timeframe: str, session: str) -> int:
     """Use 04:00, 09:30, or 16:00 New York anchors."""
     period = _INTRADAY_PERIODS[timeframe]

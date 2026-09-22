@@ -58,8 +58,18 @@ export function useChartFocus(input: ChartFocusInput): void {
       disposed = true;
       if (timer) clearInterval(timer);
       if (publisher) {
-        send(publisher, { ...focus, active: false });
-        void publisher.close().catch(() => {});
+        void (async () => {
+          try {
+            await publisher?.publish({ ...focus, active: false });
+          } catch {
+            // Release is best-effort; always try to remove the channel.
+          }
+          try {
+            await publisher?.close();
+          } catch {
+            // Cleanup failures must not escape through React.
+          }
+        })();
       }
     };
   }, [active, extended, symbol, timeframe]);

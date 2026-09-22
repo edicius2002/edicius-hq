@@ -40,6 +40,9 @@ describe('useChartFocus', () => {
     expect(joined.publish).toHaveBeenCalledTimes(2);
     unmount();
     expect(joined.publish).toHaveBeenLastCalledWith(expect.objectContaining({ active: false }));
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(joined.close).toHaveBeenCalledOnce();
   });
 
@@ -112,5 +115,38 @@ describe('useChartFocus', () => {
     });
     expect(joined.publish).toHaveBeenCalledOnce();
     unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(joined.close).toHaveBeenCalledOnce();
+  });
+
+  it('waits for the inactive release attempt to settle before closing the channel', async () => {
+    let finishRelease!: () => void;
+    const joined = publisher();
+    joined.publish.mockImplementation((focus) =>
+      focus.active
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            finishRelease = resolve;
+          }),
+    );
+    transport.open.mockResolvedValue(joined);
+    const { unmount } = renderHook(() =>
+      useChartFocus({ symbol: 'AAPL', timeframe: '15m', extended: false }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    unmount();
+
+    expect(joined.publish).toHaveBeenLastCalledWith(expect.objectContaining({ active: false }));
+    expect(joined.close).not.toHaveBeenCalled();
+    await act(async () => {
+      finishRelease();
+      await Promise.resolve();
+    });
+    expect(joined.close).toHaveBeenCalledOnce();
   });
 });

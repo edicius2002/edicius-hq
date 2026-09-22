@@ -23,9 +23,11 @@ const state = vi.hoisted(() => {
   const subscribe = vi.fn();
   const on = vi.fn((...args: unknown[]) => {
     void args;
-    return { subscribe };
+    return { on, subscribe };
   });
-  const channel = vi.fn(() => ({ on }));
+  const send = vi.fn().mockResolvedValue('ok');
+  const channelSubscribe = vi.fn();
+  const channel = vi.fn(() => ({ on, send, subscribe: channelSubscribe }));
   const removeChannel = vi.fn();
   const getSession = vi.fn();
   return {
@@ -40,6 +42,8 @@ const state = vi.hoisted(() => {
     channel,
     on,
     subscribe,
+    send,
+    channelSubscribe,
     removeChannel,
     getSession,
     eq,
@@ -49,7 +53,14 @@ const state = vi.hoisted(() => {
 
 vi.mock('@/shared/supabase/client', () => ({ supabase: state }));
 
-import { getBars, getQuotes, searchSymbols, subscribeQuoteTicks } from './supabaseMarket';
+import {
+  getBars,
+  getQuotes,
+  openChartFocus,
+  searchSymbols,
+  subscribeMarketUpdates,
+} from './supabaseMarket';
+import type { LiveBarUpdate } from './liveBars';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -276,20 +287,24 @@ describe('Supabase Investing market boundary', () => {
       data: { session: { user: { id: 'owner-42' } } },
       error: null,
     });
-    let receive!: (event: { payload: unknown }) => void;
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
     state.on.mockImplementation((...args: unknown[]) => {
-      receive = args[2] as (event: { payload: unknown }) => void;
-      return { subscribe: state.subscribe };
+      handlers.set(
+        (args[1] as { event: string }).event,
+        args[2] as (event: { payload: unknown }) => void,
+      );
+      return { on: state.on, subscribe: state.subscribe };
     });
     const onTicks = vi.fn();
-    const close = subscribeQuoteTicks(onTicks);
+    const onBars = vi.fn<(bars: LiveBarUpdate[]) => void>();
+    const close = subscribeMarketUpdates(onTicks, onBars);
     await vi.waitFor(() => expect(state.channel).toHaveBeenCalledOnce());
 
     expect(state.channel).toHaveBeenCalledWith('market-quotes:owner-42', {
       config: { private: true },
     });
     expect(state.on).toHaveBeenCalledWith('broadcast', { event: 'ticks' }, expect.any(Function));
-    receive({
+    handlers.get('ticks')?.({
       payload: {
         ticks: [
           {
@@ -327,21 +342,155 @@ describe('Supabase Investing market boundary', () => {
     expect(state.removeChannel).toHaveBeenCalledOnce();
   });
 
+  it('decodes valid live bars on the same channel and rejects malformed rows', async () => {
+    state.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'owner-42' } } },
+      error: null,
+    });
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    state.on.mockImplementation((...args: unknown[]) => {
+      handlers.set(
+        (args[1] as { event: string }).event,
+        args[2] as (event: { payload: unknown }) => void,
+      );
+      return { on: state.on, subscribe: state.subscribe };
+    });
+    const onTicks = vi.fn();
+    const onBars = vi.fn();
+    const onStatus = vi.fn();
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'quotes' };
+    });
+    const close = subscribeMarketUpdates(onTicks, onBars, onStatus);
+    await vi.waitFor(() => expect(handlers.size).toBe(2));
+
+    handlers.get('ticks')?.({
+      payload: {
+        ticks: [
+          {
+            symbol: 'AAPL',
+            price: 2,
+            marketState: null,
+            extended: false,
+            changePercent: null,
+            time: 5,
+          },
+        ],
+      },
+    });
+    handlers.get('bars')?.({
+      payload: {
+        bars: [
+          {
+            symbol: 'AAPL',
+            timeframe: '15m',
+            extended: true,
+            asOf: 100,
+            bar: { time: 90, open: 1, high: 3, low: 1, close: 2, volume: 12 },
+          },
+          {
+            symbol: 'NAN',
+            timeframe: '15m',
+            extended: true,
+            asOf: Number.NaN,
+            bar: { time: 90, open: 1, high: 3, low: 1, close: 2, volume: 12 },
+          },
+          {
+            symbol: 'BOOL',
+            timeframe: '15m',
+            extended: 1,
+            asOf: 100,
+            bar: { time: 90, open: 1, high: 3, low: 1, close: 2, volume: 12 },
+          },
+          {
+            symbol: 'BADTF',
+            timeframe: '2m',
+            extended: true,
+            asOf: 100,
+            bar: { time: 90, open: 1, high: 3, low: 1, close: 2, volume: 12 },
+          },
+          {
+            symbol: 'PARTIAL',
+            timeframe: '15m',
+            extended: true,
+            asOf: 100,
+            bar: { time: 90, open: 1, high: 3, low: 1, close: 2 },
+          },
+        ],
+      },
+    });
+    close();
+
+    expect(onTicks).toHaveBeenCalledOnce();
+    expect(onBars).toHaveBeenCalledWith([
+      {
+        symbol: 'AAPL',
+        timeframe: '15m',
+        extended: true,
+        asOf: 100,
+        bar: { time: 90, open: 1, high: 3, low: 1, close: 2, volume: 12 },
+      },
+    ]);
+    expect(onStatus).toHaveBeenCalledWith('SUBSCRIBED');
+  });
+
   it('reports CHANNEL_ERROR and opens no channel when the session is missing', async () => {
     state.getSession.mockResolvedValue({ data: { session: null }, error: null });
     const onStatus = vi.fn();
 
-    subscribeQuoteTicks(vi.fn(), onStatus);
+    subscribeMarketUpdates(vi.fn(), vi.fn(), onStatus);
     await vi.waitFor(() => expect(onStatus).toHaveBeenCalledWith('CHANNEL_ERROR'));
 
     expect(state.channel).not.toHaveBeenCalled();
+  });
+
+  it('opens one private focus publisher and removes its channel idempotently', async () => {
+    state.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'owner-42' } } },
+      error: null,
+    });
+    state.channelSubscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'focus' };
+    });
+    const focus = await openChartFocus();
+    const message = {
+      clientId: 'tab-id',
+      symbol: 'AAPL',
+      timeframe: '15m',
+      extended: true,
+      active: true,
+    };
+    await focus.publish(message);
+    await focus.close();
+    await focus.close();
+
+    expect(state.channel).toHaveBeenCalledWith('market-focus:owner-42', {
+      config: { private: true },
+    });
+    expect(state.send).toHaveBeenCalledWith({
+      type: 'broadcast',
+      event: 'focus',
+      payload: message,
+    });
+    expect(state.removeChannel).toHaveBeenCalledOnce();
+  });
+
+  it('does not join a focus channel when session lookup fails', async () => {
+    state.getSession.mockRejectedValue(new Error('session unavailable'));
+
+    await expect(openChartFocus()).rejects.toThrow();
+
+    expect(state.channel).not.toHaveBeenCalled();
+    expect(state.removeChannel).not.toHaveBeenCalled();
   });
 
   it('reports a sanitized CHANNEL_ERROR when session lookup rejects', async () => {
     state.getSession.mockRejectedValue(new Error('secret session detail'));
     const onStatus = vi.fn();
 
-    subscribeQuoteTicks(vi.fn(), onStatus);
+    subscribeMarketUpdates(vi.fn(), vi.fn(), onStatus);
     await vi.waitFor(() => expect(onStatus).toHaveBeenCalledWith('CHANNEL_ERROR'));
 
     expect(onStatus).toHaveBeenCalledOnce();
@@ -359,7 +508,7 @@ describe('Supabase Investing market boundary', () => {
       }),
     );
 
-    const close = subscribeQuoteTicks(vi.fn());
+    const close = subscribeMarketUpdates(vi.fn(), vi.fn());
     close();
     resolveSession({ data: { session: { user: { id: 'owner-42' } } }, error: null });
     await Promise.resolve();
@@ -381,7 +530,7 @@ describe('Supabase Investing market boundary', () => {
       });
       const onStatus = vi.fn();
 
-      subscribeQuoteTicks(vi.fn(), onStatus);
+      subscribeMarketUpdates(vi.fn(), vi.fn(), onStatus);
       await vi.waitFor(() => expect(onStatus).toHaveBeenCalledWith(status));
 
       expect(onStatus).toHaveBeenCalledOnce();

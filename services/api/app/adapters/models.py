@@ -76,6 +76,23 @@ class Bar:
 
 
 @dataclass(frozen=True, slots=True)
+class BarFocus:
+    symbol: str
+    timeframe: str
+    extended: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LiveBar:
+    symbol: str
+    timeframe: str
+    extended: bool
+    as_of: float
+    bar: Bar
+    provider: str
+
+
+@dataclass(frozen=True, slots=True)
 class SymbolHit:
     symbol: str
     name: str

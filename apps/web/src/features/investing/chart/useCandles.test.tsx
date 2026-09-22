@@ -2,16 +2,23 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const getBars = vi.hoisted(() => vi.fn());
+const focus = vi.hoisted(() => vi.fn());
 vi.mock('@/shared/api/market', () => ({ getBars }));
+vi.mock('@/features/investing/hooks/useChartFocus', () => ({ useChartFocus: focus }));
 
 import { candleRefetchInterval, useCandles } from '@/features/investing/chart/useCandles';
-import { queryWrapper } from '@/test/queryWrapper';
+import type { Tick } from '@/features/investing/data/quoteStream';
+import type { LiveBarUpdate } from '@/features/investing/data/liveBars';
+import { queryWrapper, sharedQueryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-const wrapper = queryWrapper();
+const BASE_TIME = Date.parse('2026-08-07T13:30:00Z') / 1000;
+const history = { time: BASE_TIME, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 };
 
 const barsResponse = {
   symbol: 'SPCX',
@@ -20,7 +27,22 @@ const barsResponse = {
   extended: false,
   hasSession: true,
   stale: false,
-  bars: [{ time: 1_786_060_800, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 }],
+  bars: [history],
+};
+const live: LiveBarUpdate = {
+  symbol: 'SPCX',
+  timeframe: '15m',
+  extended: false,
+  asOf: BASE_TIME + 90,
+  bar: { ...history, close: 1.7, high: 1.8, volume: 80 },
+};
+const tick: Tick = {
+  symbol: 'SPCX',
+  time: BASE_TIME + 100,
+  price: 1.9,
+  marketState: 'REGULAR',
+  extended: false,
+  changePercent: null,
 };
 
 describe('useCandles', () => {
@@ -30,9 +52,12 @@ describe('useCandles', () => {
   });
 
   it('keeps a loaded chart when a background refresh fails', async () => {
+    const wrapper = queryWrapper();
     getBars.mockResolvedValueOnce(barsResponse).mockRejectedValueOnce(new Error('upstream down'));
 
-    const { result } = renderHook(() => useCandles('SPCX', '15m'), { wrapper });
+    const { result } = renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.bars).toHaveLength(1));
 
     await act(async () => result.current.refetch());
@@ -42,10 +67,140 @@ describe('useCandles', () => {
     expect(result.current.bars).toHaveLength(1);
   });
 
+  it('reconciles authoritative volume then replays the newer quote tick', async () => {
+    const wrapper = sharedQueryWrapper();
+    getBars.mockResolvedValue(barsResponse);
+    const { result, rerender } = renderHook(
+      ({ symbol, timeframe, selectedTick, liveBars }) =>
+        useCandles(symbol, timeframe, selectedTick, liveBars),
+      {
+        initialProps: {
+          symbol: 'SPCX',
+          timeframe: '15m',
+          selectedTick: tick as Tick | undefined,
+          liveBars: new Map([['SPCX:15m:false', live]]),
+        },
+        wrapper,
+      },
+    );
+
+    await waitFor(() => expect(result.current.bars.at(-1)?.volume).toBe(80));
+    expect(result.current.bars.at(-1)).toMatchObject({ close: 1.9, high: 1.9, volume: 80 });
+
+    const corrected = { ...live, asOf: live.asOf + 1, bar: { ...live.bar, volume: 12 } };
+    rerender({
+      symbol: 'SPCX',
+      timeframe: '15m',
+      selectedTick: tick,
+      liveBars: new Map([['SPCX:15m:false', corrected]]),
+    });
+    await waitFor(() => expect(result.current.bars.at(-1)?.volume).toBe(12));
+    expect(result.current.bars.at(-1)?.close).toBe(1.9);
+
+    rerender({
+      symbol: 'OTHER',
+      timeframe: '1h',
+      selectedTick: undefined,
+      liveBars: new Map([['SPCX:15m:false', corrected]]),
+    });
+    expect(result.current.bars).toEqual([]);
+  });
+
+  it('uses POST immediately for the extended query and focus variant', async () => {
+    const wrapper = sharedQueryWrapper();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-22T14:00:00Z'));
+    getBars.mockResolvedValue(barsResponse);
+    const post = { ...tick, marketState: 'POST', extended: true };
+    const { rerender } = renderHook(
+      ({ selectedTick }) => useCandles('SPCX', '15m', selectedTick, new Map()),
+      { initialProps: { selectedTick: tick }, wrapper },
+    );
+
+    rerender({ selectedTick: post });
+    expect(focus).toHaveBeenLastCalledWith({
+      symbol: 'SPCX',
+      timeframe: '15m',
+      extended: true,
+      active: true,
+    });
+    await waitFor(() => expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true));
+  });
+
+  it('releases Yahoo focus immediately on CLOSED while preserving history', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-22T14:00:00Z'));
+    const wrapper = sharedQueryWrapper();
+    getBars.mockResolvedValue(barsResponse);
+    const { result, rerender } = renderHook(
+      ({ selectedTick }) => useCandles('SPCX', '15m', selectedTick, new Map()),
+      { initialProps: { selectedTick: tick }, wrapper },
+    );
+    await waitFor(() => expect(result.current.bars).toHaveLength(1));
+
+    vi.setSystemTime(new Date('2026-09-22T21:00:00Z'));
+    rerender({ selectedTick: { ...tick, marketState: 'CLOSED', extended: false } });
+    expect(focus).toHaveBeenLastCalledWith({
+      symbol: 'SPCX',
+      timeframe: '15m',
+      extended: true,
+      active: false,
+    });
+    await waitFor(() => expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true));
+    await waitFor(() => expect(result.current.bars).toEqual([history]));
+  });
+
+  it('keeps focus active for a sessionless Binance market through a New York close', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-22T21:00:00Z'));
+    const wrapper = sharedQueryWrapper();
+    getBars.mockResolvedValue({
+      ...barsResponse,
+      symbol: 'BTCUSDT',
+      provider: 'binance',
+      hasSession: false,
+    });
+    const { result } = renderHook(() => useCandles('BTCUSDT', '1m', undefined, new Map()), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.bars).toHaveLength(1));
+    expect(focus).toHaveBeenLastCalledWith({
+      symbol: 'BTCUSDT',
+      timeframe: '1m',
+      extended: false,
+      active: true,
+    });
+  });
+
+  it('ghosts a newly appended daily bar during extended hours', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-22T21:00:00Z'));
+    const wrapper = sharedQueryWrapper();
+    const previousDay = {
+      ...history,
+      time: Date.parse('2026-09-21T13:30:00Z') / 1000,
+    };
+    getBars.mockResolvedValue({ ...barsResponse, timeframe: '1d', bars: [previousDay] });
+    const postTick: Tick = {
+      ...tick,
+      time: Date.parse('2026-09-22T20:05:00Z') / 1000,
+      marketState: 'POST',
+      extended: true,
+    };
+    const { result } = renderHook(() => useCandles('SPCX', '1d', postTick, new Map()), { wrapper });
+
+    await waitFor(() => expect(result.current.bars).toHaveLength(2));
+    expect(result.current.isGhost(result.current.bars[1], 1)).toBe(true);
+  });
+
   it('still reports a fatal error when no series has ever loaded', async () => {
+    const wrapper = queryWrapper();
     getBars.mockRejectedValue(new Error('upstream down'));
 
-    const { result } = renderHook(() => useCandles('SPCX', '15m'), { wrapper });
+    const { result } = renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(result.current.bars).toEqual([]);

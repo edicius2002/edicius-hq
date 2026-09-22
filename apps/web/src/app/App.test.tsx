@@ -12,8 +12,66 @@ const auth = vi.hoisted(() => ({
   signOut: vi.fn(),
   subscribeToAuth: vi.fn(),
 }));
+const quoteStream = vi.hoisted(() => ({
+  emit: undefined as
+    | ((
+        tick?: {
+          symbol: string;
+          price: number;
+          marketState: string | null;
+          extended: boolean;
+          changePercent: number | null;
+          time: number | null;
+        },
+        bar?: {
+          symbol: string;
+          timeframe: string;
+          extended: boolean;
+          asOf: number;
+          bar: {
+            time: number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+            volume: number;
+          };
+        },
+      ) => void)
+    | undefined,
+}));
+const marketApi = vi.hoisted(() => ({
+  getBars: vi.fn(),
+  getQuotes: vi.fn(),
+  searchSymbols: vi.fn(),
+}));
 
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
+vi.mock('@/shared/api/market', () => marketApi);
+vi.mock('@/features/investing/hooks/useQuoteStream', async () => {
+  const React = await import('react');
+  const discardTicksBefore = () => undefined;
+  return {
+    useQuoteStream: () => {
+      const [state, setState] = React.useState({
+        ticks: new Map(),
+        bars: new Map(),
+        live: true,
+        discardTicksBefore,
+      });
+      quoteStream.emit = (tick, bar) => {
+        setState((current) => {
+          const ticks = new Map(current.ticks);
+          const bars = new Map(current.bars);
+          if (tick) ticks.set(tick.symbol, tick);
+          if (bar) bars.set(`${bar.symbol}:${bar.timeframe}:${bar.extended}`, bar);
+          return { ...current, ticks, bars };
+        });
+      };
+      return state;
+    },
+  };
+});
 
 import { App } from '@/app/App';
 import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
@@ -65,6 +123,18 @@ const CODEX_RESETS = {
 };
 
 beforeEach(() => {
+  quoteStream.emit = undefined;
+  marketApi.getBars.mockResolvedValue({
+    symbol: 'AAPL',
+    timeframe: '1d',
+    provider: 'test',
+    extended: false,
+    hasSession: true,
+    stale: false,
+    bars: [],
+  });
+  marketApi.getQuotes.mockResolvedValue({ quotes: [], failed: [] });
+  marketApi.searchSymbols.mockResolvedValue({ results: [] });
   auth.getAccessToken.mockResolvedValue(null);
   auth.registerPasskey.mockResolvedValue({
     id: 'pk-1',
@@ -216,6 +286,98 @@ describe('Account controls in the wide menu', () => {
 });
 
 describe('Investing chart-first workspace', () => {
+  it('keeps the candle close and authoritative volume synchronized with stream updates', async () => {
+    const user = userEvent.setup();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-22T14:00:00Z'));
+    const baseTime = Date.parse('2026-09-22T13:30:00Z') / 1000;
+    const history = {
+      time: baseTime,
+      open: 100,
+      high: 102,
+      low: 99,
+      close: 100,
+      volume: 100,
+    };
+    marketApi.getQuotes.mockResolvedValue({
+      quotes: [
+        {
+          symbol: 'AAPL',
+          price: 100,
+          currency: 'USD',
+          previousClose: 100,
+          change: 0,
+          changePercent: 0,
+          provider: 'yahoo',
+          time: baseTime - 1,
+          marketState: 'REGULAR',
+          name: 'Apple',
+          extended: false,
+        },
+      ],
+      failed: [],
+    });
+    marketApi.getBars.mockResolvedValue({
+      symbol: 'AAPL',
+      timeframe: '1d',
+      provider: 'yahoo',
+      extended: false,
+      hasSession: true,
+      stale: false,
+      bars: [history],
+    });
+    const fallbackFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/app_documents')) {
+          return Promise.resolve(
+            Response.json([
+              {
+                document_key: 'watchlist',
+                payload: { version: 1, entries: [{ symbol: 'AAPL', name: 'Apple' }] },
+                revision: 1,
+                updated_at: '',
+              },
+            ]),
+          );
+        }
+        return fallbackFetch(input, init);
+      }),
+    );
+
+    renderAt('/investing');
+    await arrivesAt('Investing');
+    const watchlist = await screen.findByRole('list', { name: 'Watchlist' });
+    const watchRow = within(watchlist).getByRole('button', { name: /AAPLApple/ });
+    await waitFor(() => expect(watchRow).toHaveTextContent('100.00'));
+    await user.click(screen.getByRole('button', { name: 'Show data table' }));
+    const table = screen.getByRole('table', { name: /AAPL 1d visible candle data/ });
+
+    quoteStream.emit?.({
+      symbol: 'AAPL',
+      price: 101.25,
+      marketState: 'REGULAR',
+      extended: false,
+      changePercent: 1.25,
+      time: baseTime + 60,
+    });
+    await waitFor(() => {
+      expect(watchRow).toHaveTextContent('101.25');
+      expect(within(table).getAllByRole('row')[1]).toHaveTextContent('101.25');
+    });
+
+    quoteStream.emit?.(undefined, {
+      symbol: 'AAPL',
+      timeframe: '1d',
+      extended: false,
+      asOf: baseTime + 90,
+      bar: { ...history, close: 101.25, high: 102, volume: 45 },
+    });
+    await waitFor(() => expect(within(table).getAllByRole('row')[1]).toHaveTextContent('45'));
+    expect(watchRow).toHaveTextContent('101.25');
+  });
+
   it('imports positions into the portfolio and adds their symbols to the watchlist', async () => {
     const user = userEvent.setup();
     const stored = new Map<string, unknown>();

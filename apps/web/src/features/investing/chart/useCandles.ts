@@ -7,6 +7,14 @@ import {
   regimeAt,
   type Regime,
 } from '@/features/investing/lib/session';
+import {
+  liveBarKey,
+  mergeLiveBars,
+  type LiveBarContext,
+  type LiveBarUpdate,
+} from '@/features/investing/data/liveBars';
+import type { Tick } from '@/features/investing/data/quoteStream';
+import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
 import { getBars, type Bar } from '@/shared/api/market';
 
 /**
@@ -81,11 +89,23 @@ export type Candles = {
   refetch: () => void;
 };
 
-export function useCandles(symbol: string, timeframe: string): Candles {
-  const regime = useRegime();
+export function useCandles(
+  symbol: string,
+  timeframe: string,
+  tick: Tick | undefined,
+  liveBars: Map<string, LiveBarUpdate>,
+): Candles {
+  const clockRegime = useRegime();
+  const regime = regimeFromMarketState(tick?.marketState) ?? clockRegime;
   const [sessions, setSessions] = useState<Map<string, boolean>>(() => new Map());
   const hasSession = sessions.get(symbol) ?? true;
   const wantExtended = hasSession && regime !== 'regular';
+  useChartFocus({
+    symbol,
+    timeframe,
+    extended: wantExtended,
+    active: !hasSession || regime !== 'closed',
+  });
 
   const query = useQuery({
     // The flag is part of the key: the two variants are different series, and
@@ -98,7 +118,13 @@ export function useCandles(symbol: string, timeframe: string): Candles {
 
   const provider = query.data?.provider ?? '';
   const reportedSession = query.data?.hasSession ?? hasSession;
-  const bars = useMemo(() => query.data?.bars ?? [], [query.data]);
+  const baseBars = query.data?.bars ?? [];
+  const authoritative = liveBars.get(liveBarKey({ symbol, timeframe, extended: wantExtended }));
+  const context: LiveBarContext = { symbol, timeframe, extended: wantExtended, hasSession };
+  const bars = useMemo(
+    () => mergeLiveBars(baseBars, authoritative, tick, context),
+    [baseBars, authoritative, tick, symbol, timeframe, wantExtended, hasSession],
+  );
 
   // Reported session support is remembered per symbol, purely as a function of
   // the freshest query response, so it is adjusted here during render instead
@@ -129,4 +155,18 @@ export function useCandles(symbol: string, timeframe: string): Candles {
     isError: query.isError && query.data === undefined,
     refetch: () => void query.refetch(),
   };
+}
+
+function regimeFromMarketState(marketState: string | null | undefined): Regime | undefined {
+  switch (marketState?.toUpperCase()) {
+    case 'REGULAR':
+      return 'regular';
+    case 'PRE':
+    case 'POST':
+      return 'extended';
+    case 'CLOSED':
+      return 'closed';
+    default:
+      return undefined;
+  }
 }

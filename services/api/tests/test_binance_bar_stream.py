@@ -213,3 +213,12 @@ def test_watch_interrupts_a_quiet_socket_before_reconnecting_with_all_focuses():
     assert quiet.exited
     assert result.symbol == "SOLUSDT"
     assert opened[1].endswith("?streams=btcusdt@kline_5m/solusdt@kline_1d")
+
+
+def test_watch_rejects_unsupported_binance_timeframe():
+    async def run():
+        stream = BinanceBarStream()
+        await stream.watch({BarFocus("BTCUSDT", "2h", False)})
+
+    with pytest.raises(ValueError, match="unsupported Binance timeframe"):
+        asyncio.run(run())

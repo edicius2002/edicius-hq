@@ -119,6 +119,40 @@ def test_month_excludes_a_prior_month_daily_bar():
     assert update.bar.volume == 1_275
 
 
+def test_month_end_fetch_includes_the_first_calendar_day_of_the_month():
+    requests: list[httpx.Request] = []
+    first_day = ny_timestamp("2026-09-01T09:30:00")
+    last_day = ny_timestamp("2026-09-30T09:30:00")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.params["interval"] == "1m":
+            row = (last_day, 30, 35, 29, 34, 50)
+        else:
+            row = (first_day, 10, 20, 9, 18, 100)
+        return httpx.Response(
+            200,
+            json=yahoo_chart(
+                stamps=[row[0]],
+                opens=[row[1]],
+                highs=[row[2]],
+                lows=[row[3]],
+                closes=[row[4]],
+                volumes=[row[5]],
+            ),
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await YahooLiveBarClient(client).fetch(BarFocus("AAPL", "1M", True))
+
+    update = asyncio.run(run())
+
+    assert update is not None
+    assert update.bar == Bar(first_day, 10, 35, 9, 34, 150)
+    assert requests[1].url.params["range"] == "3mo"
+
+
 def test_provider_volume_correction_can_reduce_the_authoritative_bar():
     focus = BarFocus("AAPL", "1m", False)
     before = aggregate_live_bar(
@@ -187,6 +221,22 @@ def test_live_parser_rejects_missing_or_non_finite_volume_but_keeps_zero():
     bars = yahoo.parse_live_bars(payload)
 
     assert bars == [Bar(1, 10, 11, 9, 10, 0)]
+
+
+@pytest.mark.parametrize("quote", [None, "malformed"])
+def test_live_parser_ignores_malformed_quote_container(quote):
+    payload = yahoo_chart(stamps=[1], opens=[10], highs=[11], lows=[9], closes=[10], volumes=[1])
+    payload["chart"]["result"][0]["indicators"]["quote"] = [quote]
+
+    assert yahoo.parse_live_bars(payload) == []
+
+
+def test_live_parser_ignores_overflowing_numeric_values():
+    payload = yahoo_chart(
+        stamps=[1], opens=[10**10000], highs=[11], lows=[9], closes=[10], volumes=[1]
+    )
+
+    assert yahoo.parse_live_bars(payload) == []
 
 
 def test_fetch_chart_bars_uses_bounded_extended_request_and_provider_watermark():
@@ -279,8 +329,8 @@ def test_weekly_daily_prefix_is_bounded_cached_and_expires():
         (request.url.params["interval"], request.url.params["range"]) for request in requests
     ] == [
         ("1m", "1d"),
-        ("1d", "1mo"),
+        ("1d", "3mo"),
         ("1m", "1d"),
         ("1m", "1d"),
-        ("1d", "1mo"),
+        ("1d", "3mo"),
     ]

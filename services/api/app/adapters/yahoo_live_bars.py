@@ -197,7 +197,7 @@ class YahooLiveBarClient:
         if cached is not None and now - cached[0] < 60:
             return cached[1]
         bars, _ = await yahoo.fetch_chart_bars(
-            self._client, symbol, interval="1d", range_="1mo", extended=True
+            self._client, symbol, interval="1d", range_="3mo", extended=True
         )
         self._daily[symbol] = (now, bars)
         return bars

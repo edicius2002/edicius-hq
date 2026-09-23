@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-from app.adapters import registry
+from app.adapters import registry, yahoo
 from app.adapters.binance_bar_stream import BinanceBarStream
 from app.adapters.models import BarFocus, LiveBar
 from app.adapters.yahoo_live_bars import (
@@ -43,13 +43,15 @@ class CompositeBarStream:
 
     async def watch(self, focuses: set[BarFocus]) -> None:
         """Replace the desired focuses and reconcile each provider source."""
-        yahoo = {focus for focus in focuses if registry.provider_for(focus.symbol) == "yahoo"}
-        binance = focuses - yahoo
+        yahoo_focuses = {
+            focus for focus in focuses if registry.provider_for(focus.symbol) == yahoo.PROVIDER
+        }
+        binance = focuses - yahoo_focuses
         await self._binance.watch(binance)
 
-        for focus in self._yahoo_tasks.keys() - yahoo:
+        for focus in self._yahoo_tasks.keys() - yahoo_focuses:
             self._yahoo_tasks.pop(focus).cancel()
-        for focus in yahoo - self._yahoo_tasks.keys():
+        for focus in yahoo_focuses - self._yahoo_tasks.keys():
             self._yahoo_tasks[focus] = asyncio.create_task(self._poll_yahoo(focus))
 
     async def _poll_yahoo(self, focus: BarFocus) -> None:

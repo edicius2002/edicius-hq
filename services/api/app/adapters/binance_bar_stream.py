@@ -94,6 +94,13 @@ class BinanceBarStream:
         self._change = asyncio.Event()
 
     async def watch(self, focuses: set[BarFocus]) -> None:
+        unsupported = {
+            focus.timeframe
+            for focus in focuses
+            if registry.provider_for(focus.symbol) == PROVIDER and focus.timeframe not in INTERVALS
+        }
+        if unsupported:
+            raise ValueError(f"unsupported Binance timeframe: {sorted(unsupported)[0]}")
         desired = {
             BarFocus(registry.normalize_symbol(focus.symbol), focus.timeframe, False)
             for focus in focuses

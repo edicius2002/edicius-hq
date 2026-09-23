@@ -186,7 +186,12 @@ def parse_live_bars(payload: Any) -> list[Bar]:
     """Parse live rows, rejecting incomplete or non-finite provider volume."""
     result = _first_result(payload)
     stamps = result.get("timestamp") or []
-    quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
+    quote_rows = (result.get("indicators") or {}).get("quote")
+    quote = (
+        quote_rows[0]
+        if isinstance(quote_rows, list) and quote_rows and isinstance(quote_rows[0], dict)
+        else {}
+    )
     opens, highs = quote.get("open") or [], quote.get("high") or []
     lows, closes = quote.get("low") or [], quote.get("close") or []
     volumes = quote.get("volume") or []
@@ -197,7 +202,7 @@ def parse_live_bars(payload: Any) -> list[Bar]:
             o, h, low, c = opens[i], highs[i], lows[i], closes[i]
             raw_volume = volumes[i]
             values = (float(stamp), float(o), float(h), float(low), float(c), float(raw_volume))
-        except (IndexError, TypeError, ValueError):
+        except (IndexError, TypeError, ValueError, OverflowError):
             continue
         if not all(math.isfinite(value) for value in values):
             continue

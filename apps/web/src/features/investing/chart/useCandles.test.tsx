@@ -86,16 +86,23 @@ describe('useCandles', () => {
       }
       return nextSeries.promise;
     });
+    type HookInput = {
+      symbol: string;
+      timeframe: string;
+      selectedTick: Tick | undefined;
+      liveBars: Map<string, LiveBarUpdate>;
+    };
+    const initialProps: HookInput = {
+      symbol: 'SPCX',
+      timeframe: '15m',
+      selectedTick: tick,
+      liveBars: new Map([['SPCX:15m:false', live]]),
+    };
     const { result, rerender } = renderHook(
       ({ symbol, timeframe, selectedTick, liveBars }) =>
         useCandles(symbol, timeframe, selectedTick, liveBars),
       {
-        initialProps: {
-          symbol: 'SPCX',
-          timeframe: '15m',
-          selectedTick: tick as Tick | undefined,
-          liveBars: new Map([['SPCX:15m:false', live]]),
-        },
+        initialProps,
         wrapper,
       },
     );

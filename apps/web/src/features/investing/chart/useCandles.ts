@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   cadenceFor,
@@ -89,8 +89,6 @@ export type Candles = {
   refetch: () => void;
 };
 
-type LoadedSeries = { key: string; response: BarsResponse };
-
 export function useCandles(
   symbol: string,
   timeframe: string,
@@ -99,9 +97,23 @@ export function useCandles(
 ): Candles {
   const clockRegime = useRegime();
   const regime = regimeFromMarketState(tick?.marketState) ?? clockRegime;
-  const [sessions, setSessions] = useState<Map<string, boolean>>(() => new Map());
-  const loadedSeries = useRef<LoadedSeries | undefined>(undefined);
-  const hasSession = sessions.get(symbol) ?? true;
+  const queryClient = useQueryClient();
+  const cachedRegular = queryClient.getQueryData<BarsResponse>([
+    'market',
+    'bars',
+    symbol,
+    timeframe,
+    false,
+  ]);
+  const cachedExtended = queryClient.getQueryData<BarsResponse>([
+    'market',
+    'bars',
+    symbol,
+    timeframe,
+    true,
+  ]);
+  const cachedSeries = cachedRegular ?? cachedExtended;
+  const hasSession = cachedSeries?.hasSession ?? true;
   const wantExtended = hasSession && regime !== 'regular';
   useChartFocus({
     symbol,
@@ -119,31 +131,21 @@ export function useCandles(
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 
-  const seriesKey = JSON.stringify([symbol, timeframe]);
-  if (query.data) loadedSeries.current = { key: seriesKey, response: query.data };
   // Session changes use another query key for good cache separation. Keep the
   // last successful history for this same chart visible until that variant
   // arrives, while a different symbol or timeframe gets no fallback at all.
-  const response =
-    query.data ??
-    (loadedSeries.current?.key === seriesKey ? loadedSeries.current.response : undefined);
+  const response = query.data ?? cachedSeries;
   const provider = response?.provider ?? '';
   const reportedSession = response?.hasSession ?? hasSession;
-  const baseBars = response?.bars ?? [];
   const authoritative = liveBars.get(liveBarKey({ symbol, timeframe, extended: wantExtended }));
-  const context: LiveBarContext = { symbol, timeframe, extended: wantExtended, hasSession };
-  const bars = useMemo(
-    () => mergeLiveBars(baseBars, authoritative, tick, context),
-    [baseBars, authoritative, tick, symbol, timeframe, wantExtended, hasSession],
+  const context = useMemo<LiveBarContext>(
+    () => ({ symbol, timeframe, extended: wantExtended, hasSession }),
+    [symbol, timeframe, wantExtended, hasSession],
   );
-
-  // Reported session support is remembered per symbol, purely as a function of
-  // the freshest query response, so it is adjusted here during render instead
-  // of from an effect.
-  const nextHasSession = response?.hasSession;
-  if (nextHasSession !== undefined && sessions.get(symbol) !== nextHasSession) {
-    setSessions((current) => new Map(current).set(symbol, nextHasSession));
-  }
+  const bars = useMemo(
+    () => mergeLiveBars(response?.bars ?? [], authoritative, tick, context),
+    [response?.bars, authoritative, tick, context],
+  );
 
   const isGhost = useMemo(() => {
     // Crypto never has an overlay: a pair's market runs around the clock, so

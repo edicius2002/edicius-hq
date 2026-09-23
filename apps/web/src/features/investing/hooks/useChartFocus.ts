@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   openChartFocus,
@@ -17,8 +17,7 @@ export type ChartFocusInput = {
 
 /** Advertise the one chart this tab is showing, with an expiring lease. */
 export function useChartFocus(input: ChartFocusInput): void {
-  const clientId = useRef<string | undefined>(undefined);
-  if (!clientId.current) clientId.current = crypto.randomUUID();
+  const [clientId] = useState(() => crypto.randomUUID());
 
   const { symbol, timeframe, extended, active = true } = input;
   useEffect(() => {
@@ -26,9 +25,8 @@ export function useChartFocus(input: ChartFocusInput): void {
     let disposed = false;
     let publisher: ChartFocusPublisher | undefined;
     let timer: ReturnType<typeof setInterval> | undefined;
-    const client = clientId.current as string;
     const focus: ChartFocusMessage = {
-      clientId: client,
+      clientId,
       symbol,
       timeframe,
       extended,
@@ -72,5 +70,5 @@ export function useChartFocus(input: ChartFocusInput): void {
         })();
       }
     };
-  }, [active, extended, symbol, timeframe]);
+  }, [active, clientId, extended, symbol, timeframe]);
 }

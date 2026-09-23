@@ -41,7 +41,10 @@ def test_regular_hour_is_anchored_at_0930_and_excludes_premarket():
 @pytest.mark.parametrize("timeframe", ["1m", "5m", "15m", "1h"])
 def test_regular_intraday_timeframes_share_the_session_anchor(timeframe: str):
     update = aggregate_live_bar(
-        BarFocus("AAPL", timeframe, False), minute_fixture(), [], ny_timestamp("2026-09-22T09:30:00")
+        BarFocus("AAPL", timeframe, False),
+        minute_fixture(),
+        [],
+        ny_timestamp("2026-09-22T09:30:00"),
     )
 
     assert update is not None
@@ -76,7 +79,9 @@ def test_extended_daily_bar_includes_pre_regular_and_post_minutes():
     )
 
     assert update is not None
-    assert update.bar == Bar(time=ny_timestamp("2026-09-22T04:00:00"), open=98, high=106, low=97, close=105, volume=175)
+    assert update.bar == Bar(
+        time=ny_timestamp("2026-09-22T04:00:00"), open=98, high=106, low=97, close=105, volume=175
+    )
 
 
 def test_week_uses_completed_days_plus_today_minutes_without_double_counting():
@@ -203,7 +208,9 @@ def test_fetch_chart_bars_uses_bounded_extended_request_and_provider_watermark()
 
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            return await yahoo.fetch_chart_bars(client, "AAPL", interval="1m", range_="1d", extended=True)
+            return await yahoo.fetch_chart_bars(
+                client, "AAPL", interval="1m", range_="1d", extended=True
+            )
 
     bars, as_of = asyncio.run(run())
 
@@ -217,7 +224,9 @@ def test_fetch_chart_bars_uses_bounded_extended_request_and_provider_watermark()
 
 def test_empty_minute_series_produces_no_live_update():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=yahoo_chart(stamps=[], opens=[], highs=[], lows=[], closes=[], volumes=[]))
+        return httpx.Response(
+            200, json=yahoo_chart(stamps=[], opens=[], highs=[], lows=[], closes=[], volumes=[])
+        )
 
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -242,7 +251,14 @@ def test_weekly_daily_prefix_is_bounded_cached_and_expires():
                 volumes=[1],
             )
         else:
-            body = yahoo_chart(stamps=[ny_timestamp("2026-09-21T09:30:00")], opens=[90], highs=[100], lows=[80], closes=[95], volumes=[10])
+            body = yahoo_chart(
+                stamps=[ny_timestamp("2026-09-21T09:30:00")],
+                opens=[90],
+                highs=[100],
+                lows=[80],
+                closes=[95],
+                volumes=[10],
+            )
         return httpx.Response(200, json=body)
 
     async def run():
@@ -259,7 +275,9 @@ def test_weekly_daily_prefix_is_bounded_cached_and_expires():
     first, second, third = asyncio.run(run())
 
     assert first is not None and second is not None and third is not None
-    assert [(request.url.params["interval"], request.url.params["range"]) for request in requests] == [
+    assert [
+        (request.url.params["interval"], request.url.params["range"]) for request in requests
+    ] == [
         ("1m", "1d"),
         ("1d", "1mo"),
         ("1m", "1d"),

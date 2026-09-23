@@ -10,7 +10,7 @@ import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
@@ -61,8 +61,11 @@ async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None
     """Subscribe this owner's request inserts and chart focus broadcasts."""
     client = None
     try:
-        from realtime import RealtimePostgresChangesListenEvent, RealtimeSubscribeStates
-
+        from realtime import (
+            RealtimeChannelOptions,
+            RealtimePostgresChangesListenEvent,
+            RealtimeSubscribeStates,
+        )
         from supabase import create_async_client
 
         config = collector_config()
@@ -80,24 +83,21 @@ async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None
             payload = envelope.get("payload") if isinstance(envelope, dict) else None
             worker.accept_focus(payload)
 
-        focus_channel = client.channel(
-            f"market-focus:{worker.owner_id}", {"config": {"private": True}}
-        )
+        # RealtimeChannelConfig declares omitted defaultable config entries as
+        # required in its TypedDict, though the SDK accepts this partial config.
+        focus_options = cast(RealtimeChannelOptions, {"config": {"private": True}})
+        focus_channel = client.channel(f"market-focus:{worker.owner_id}", focus_options)
         focus_channel.on_broadcast("focus", on_focus)
 
         # The SDK returns from subscribe while the channel is still JOINING.
         # Wait for its acknowledgement before exposing it to the health monitor.
-        request_joined: asyncio.Future[bool] = (
-            asyncio.get_running_loop().create_future()
-        )
+        request_joined: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         focus_joined: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
 
         def on_join(
             joined: asyncio.Future[bool],
         ) -> Any:
-            def callback(
-                state: RealtimeSubscribeStates, _error: Exception | None
-            ) -> None:
+            def callback(state: RealtimeSubscribeStates, _error: Exception | None) -> None:
                 if not joined.done():
                     joined.set_result(state == RealtimeSubscribeStates.SUBSCRIBED)
 

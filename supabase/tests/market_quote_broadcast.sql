@@ -30,9 +30,10 @@ select ok(
 select is(
   (select count(*) from pg_policies
     where schemaname = 'realtime' and tablename = 'messages'
-      and cmd = 'INSERT' and 'authenticated' = any(roles)),
+      and cmd = 'INSERT' and 'authenticated' = any(roles)
+      and coalesce(with_check, '') like '%market-quotes:%'),
   0::bigint,
-  'authenticated clients cannot publish Broadcasts'
+  'authenticated clients cannot publish market quote Broadcasts'
 );
 select is(
   (select count(*) from pg_publication_tables

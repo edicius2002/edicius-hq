@@ -222,7 +222,11 @@ export async function openChartFocus(): Promise<ChartFocusPublisher> {
         if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
           settled = true;
           resolve();
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        } else if (
+          status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
+          status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
+          status === REALTIME_SUBSCRIBE_STATES.CLOSED
+        ) {
           settled = true;
           reject(new CollectorRequestError('focus_unavailable'));
         }

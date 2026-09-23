@@ -113,7 +113,9 @@ def _period_bucket_start(as_of: float, timeframe: str, extended: bool) -> int:
 
 def _current_day_minutes(focus: BarFocus, minute_bars: Sequence[Bar], as_of: float) -> list[Bar]:
     today = local_date(as_of)
-    return [bar for bar in _eligible_minutes(focus, minute_bars, as_of) if local_date(bar.time) == today]
+    return [
+        bar for bar in _eligible_minutes(focus, minute_bars, as_of) if local_date(bar.time) == today
+    ]
 
 
 def aggregate_live_bar(
@@ -148,12 +150,15 @@ def aggregate_live_bar(
             completed = [bar for bar in daily_bars if local_date(bar.time) < today]
             if focus.timeframe == "1w":
                 year_week = today.isocalendar()[:2]
-                completed = [bar for bar in completed if local_date(bar.time).isocalendar()[:2] == year_week]
+                completed = [
+                    bar for bar in completed if local_date(bar.time).isocalendar()[:2] == year_week
+                ]
             elif focus.timeframe == "1M":
                 completed = [
                     bar
                     for bar in completed
-                    if (local_date(bar.time).year, local_date(bar.time).month) == (today.year, today.month)
+                    if (local_date(bar.time).year, local_date(bar.time).month)
+                    == (today.year, today.month)
                 ]
             else:
                 return None

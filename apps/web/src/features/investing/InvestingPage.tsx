@@ -100,10 +100,7 @@ export function InvestingPage() {
     };
   }, [chartFocused]);
 
-  const candles = useCandles(symbol, timeframe);
   const { indicators, toggle: toggleIndicator } = useIndicators();
-  // Functions of the bars alone, so they survive every pan and zoom untouched.
-  const series = useIndicatorSeries(candles.bars, indicators, timeframe);
   const panes = useMemo(() => activePanes(indicators), [indicators]);
   const formatTime = useMemo(() => timeFormatter(timeframe), [timeframe]);
   const position = useMemo(
@@ -129,7 +126,11 @@ export function InvestingPage() {
 
   // Prices arrive by push. Asked before the sweep is set up, because how often
   // to sweep depends on whether the stream is carrying — and not the reverse.
-  const { ticks, live, discardTicksBefore } = useQuoteStream(wanted);
+  const { ticks, bars, live, discardTicksBefore } = useQuoteStream(wanted);
+  const selectedTick = ticks.get(symbol);
+  const candles = useCandles(symbol, timeframe, selectedTick, bars);
+  // Functions of the merged bars alone, so they survive every pan and zoom untouched.
+  const series = useIndicatorSeries(candles.bars, indicators, timeframe);
 
   // The poll behind it is a sweep, not a cadence, and it slows only while the
   // stream is actually live: a dead socket puts the page straight back on the

@@ -15,6 +15,7 @@ import {
   type Tick,
 } from '@/features/investing/data/quoteStream';
 import type { Quote } from '@/shared/api/market';
+import type { LiveBarUpdate } from './liveBars';
 
 afterEach(() => vi.clearAllMocks());
 
@@ -145,9 +146,15 @@ describe('openQuoteStream', () => {
     const stop = vi.fn();
     let receive!: (ticks: Tick[]) => void;
     let status!: (status: string) => void;
+    let receiveBars!: (bars: LiveBarUpdate[]) => void;
     const subscribe = vi.fn(
-      (next: (ticks: Tick[]) => void, nextStatus: (value: string) => void) => {
+      (
+        next: (ticks: Tick[]) => void,
+        nextBars: (bars: LiveBarUpdate[]) => void,
+        nextStatus: (value: string) => void,
+      ) => {
         receive = next;
+        receiveBars = nextBars;
         status = nextStatus;
         return stop;
       },
@@ -156,7 +163,7 @@ describe('openQuoteStream', () => {
       onTicks,
       subscribe,
     });
-    return { receive, status, close, onTicks, subscribe, stop };
+    return { receive, receiveBars, status, close, onTicks, subscribe, stop };
   }
 
   it('hands on a thin Broadcast batch unchanged', () => {
@@ -187,6 +194,30 @@ describe('openQuoteStream', () => {
     expect(stop).toHaveBeenCalledOnce();
   });
 
+  it('filters live bars to followed symbols', () => {
+    const onBars = vi.fn();
+    let receiveBars!: (bars: LiveBarUpdate[]) => void;
+    openQuoteStream(['AAPL'], {
+      onTicks: vi.fn(),
+      onBars,
+      subscribe: (_ticks, bars) => {
+        receiveBars = bars;
+        return () => {};
+      },
+    });
+    const bar = (symbol: string): LiveBarUpdate => ({
+      symbol,
+      timeframe: '15m',
+      extended: true,
+      asOf: 3,
+      bar: { time: 1, open: 2, high: 3, low: 1, close: 2, volume: 10 },
+    });
+
+    receiveBars([bar('AAPL'), bar('MSFT')]);
+
+    expect(onBars).toHaveBeenCalledWith([bar('AAPL')]);
+  });
+
   it('does not ingest an incomplete live tick into the full quote cache', () => {
     const { receive } = open();
 
@@ -201,7 +232,11 @@ describe('openQuoteStream', () => {
     openQuoteStream(['AAPL'], {
       onTicks: vi.fn(),
       onOpen,
-      subscribe: (_: (ticks: Tick[]) => void, nextStatus: (value: string) => void) => {
+      subscribe: (
+        _: (ticks: Tick[]) => void,
+        _bars: (bars: LiveBarUpdate[]) => void,
+        nextStatus: (value: string) => void,
+      ) => {
         status = nextStatus;
         return () => {};
       },
@@ -220,7 +255,11 @@ describe('openQuoteStream', () => {
     openQuoteStream(['AAPL'], {
       onTicks,
       onError,
-      subscribe: (next: (ticks: Tick[]) => void, nextStatus: (value: string) => void) => {
+      subscribe: (
+        next: (ticks: Tick[]) => void,
+        _bars: (bars: LiveBarUpdate[]) => void,
+        nextStatus: (value: string) => void,
+      ) => {
         receive = next;
         status = nextStatus;
         return () => {};

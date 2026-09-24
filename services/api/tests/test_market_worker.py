@@ -9,9 +9,12 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
+import pytest
+
 from app.adapters import registry
-from app.adapters.models import Quote, Tick
+from app.adapters.models import Bar, BarFocus, LiveBar, Quote, Tick
 from app.services import market_worker
+from app.services.chart_focus import ChartFocusBook
 from app.services.collector_cloud import CollectorCloudUnavailable, CollectorRequest
 from app.services.market_worker import MarketWorker
 
@@ -40,6 +43,60 @@ class IdleStream:
     async def ticks(self):
         await asyncio.Event().wait()
         yield  # pragma: no cover - establishes this as an async generator
+
+
+class IdleBarStream:
+    def __init__(self) -> None:
+        self.watched: list[set[BarFocus]] = []
+        self.started = asyncio.Event()
+        self.changed = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def watch(self, focuses: set[BarFocus]) -> None:
+        self.watched.append(set(focuses))
+        self.changed.set()
+
+    async def bars(self):
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled.set()
+        yield  # pragma: no cover - establishes this as an async generator
+
+
+class FailingBarStream:
+    async def watch(self, _focuses: set[BarFocus]) -> None:
+        return None
+
+    async def bars(self):
+        raise RuntimeError("bar stream failed")
+        yield  # pragma: no cover - establishes this as an async generator
+
+
+def live_bar(
+    *, close: float = 100, volume: float = 10, as_of: float = 1, symbol: str = "AAPL"
+) -> LiveBar:
+    return LiveBar(
+        symbol=symbol,
+        timeframe="15m",
+        extended=False,
+        as_of=as_of,
+        bar=Bar(time=100, open=99, high=max(100, close), low=98, close=close, volume=volume),
+        provider="yahoo",
+    )
+
+
+def focus_payload(
+    *, client_id: str = "tab-a", symbol: str = "AAPL", active: bool = True
+) -> dict[str, object]:
+    return {
+        "clientId": client_id,
+        "symbol": symbol,
+        "timeframe": "15m",
+        "extended": False,
+        "active": active,
+    }
 
 
 def cloud() -> Mock:
@@ -149,6 +206,157 @@ def test_failed_broadcast_retries_only_the_newest_pending_tick():
 
     assert asyncio.run(worker.publish_ticks()) == 1
     assert remote.broadcast_quote_ticks.call_args.args[0][0]["price"] == 102
+
+
+def test_volume_only_change_is_a_visible_bar_update():
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept_bar(live_bar(close=100, volume=10, as_of=1))
+
+    assert asyncio.run(worker.publish_bars()) == 1
+
+
+def test_newer_as_of_without_an_ohlcv_change_is_not_rebroadcast():
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept_bar(live_bar(close=100, volume=10, as_of=1))
+    assert asyncio.run(worker.publish_bars()) == 1
+
+    worker.accept_bar(live_bar(close=100, volume=10, as_of=2))
+    assert asyncio.run(worker.publish_bars()) == 0
+    assert worker._live_bar_pending == {}
+
+    worker.accept_bar(live_bar(close=100, volume=12, as_of=2))
+    assert asyncio.run(worker.publish_bars()) == 1
+
+
+def test_older_bar_snapshot_does_not_replace_a_newer_pending_snapshot():
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept_bar(live_bar(close=102, volume=12, as_of=2))
+    worker.accept_bar(live_bar(close=101, volume=11, as_of=1))
+
+    assert asyncio.run(worker.publish_bars()) == 1
+    assert remote.broadcast_live_bars.call_args.args[0][0]["bar"]["close"] == 102
+
+
+def test_failed_bar_broadcast_retries_only_newest_snapshot():
+    remote = cloud()
+    remote.broadcast_live_bars.side_effect = [CollectorCloudUnavailable("offline"), 1]
+    worker = MarketWorker(remote, clock=Clock())
+    worker.accept_bar(live_bar(close=100, volume=10, as_of=1))
+    assert asyncio.run(worker.publish_bars()) == 0
+
+    worker.accept_bar(live_bar(close=101, volume=12, as_of=2))
+    assert asyncio.run(worker.publish_bars()) == 1
+    assert remote.broadcast_live_bars.call_args.args[0][0]["bar"]["close"] == 101
+
+
+def test_bar_publication_failure_does_not_stop_quote_publication():
+    async def scenario():
+        remote = cloud()
+        remote.broadcast_live_bars.side_effect = CollectorCloudUnavailable("offline")
+        worker = MarketWorker(remote, clock=Clock())
+        worker.accept_bar(live_bar())
+        worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+
+        assert await asyncio.gather(worker.publish_bars(), worker.publish_ticks()) == [0, 1]
+        remote.broadcast_quote_ticks.assert_called_once()
+
+    asyncio.run(scenario())
+
+
+def test_focus_heartbeat_immediately_updates_bar_stream_watch():
+    async def scenario():
+        remote = cloud()
+        bar_stream = IdleBarStream()
+        worker = MarketWorker(
+            remote,
+            stream=IdleStream(),
+            bar_stream=bar_stream,
+            focus_book=ChartFocusBook(ttl_seconds=45, max_clients=8),
+            client=Mock(),
+        )
+        worker.reconcile_once = AsyncMock(return_value=True)
+        stopped = asyncio.Event()
+        task = asyncio.create_task(worker.run(stopped))
+        await asyncio.wait_for(bar_stream.changed.wait(), 0.1)
+        bar_stream.changed.clear()
+
+        assert worker.accept_focus(focus_payload())
+        await asyncio.wait_for(bar_stream.changed.wait(), 0.1)
+        assert bar_stream.watched[-1] == {BarFocus("AAPL", "15m", False)}
+
+        stopped.set()
+        await asyncio.wait_for(task, 0.1)
+
+    asyncio.run(scenario())
+
+
+def test_focus_lease_expiry_removes_focus_without_another_browser_message():
+    async def scenario():
+        remote = cloud()
+        bar_stream = IdleBarStream()
+        worker = MarketWorker(
+            remote,
+            stream=IdleStream(),
+            bar_stream=bar_stream,
+            focus_book=ChartFocusBook(ttl_seconds=0.1, max_clients=8),
+            client=Mock(),
+        )
+        worker.reconcile_once = AsyncMock(return_value=True)
+        stopped = asyncio.Event()
+        task = asyncio.create_task(worker.run(stopped))
+        await asyncio.wait_for(bar_stream.changed.wait(), 0.1)
+        bar_stream.changed.clear()
+
+        assert worker.accept_focus(focus_payload())
+        await asyncio.wait_for(bar_stream.changed.wait(), 0.1)
+        bar_stream.changed.clear()
+        for _ in range(50):
+            if bar_stream.watched[-1] == set():
+                break
+            await asyncio.sleep(0.01)
+        assert bar_stream.watched[-1] == set()
+
+        stopped.set()
+        await asyncio.wait_for(task, 0.1)
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_cancels_bar_consumer_promptly():
+    async def scenario():
+        remote = cloud()
+        bar_stream = IdleBarStream()
+        worker = MarketWorker(
+            remote,
+            stream=IdleStream(),
+            bar_stream=bar_stream,
+            client=Mock(),
+        )
+        worker.reconcile_once = AsyncMock(return_value=True)
+        stopped = asyncio.Event()
+        task = asyncio.create_task(worker.run(stopped))
+        await asyncio.wait_for(bar_stream.started.wait(), 0.1)
+
+        stopped.set()
+        await asyncio.wait_for(task, 0.1)
+        assert bar_stream.cancelled.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_background_bar_failure_is_reraised_without_waiting_for_reconciliation():
+    async def scenario():
+        remote = cloud()
+        worker = MarketWorker(remote, bar_stream=FailingBarStream(), client=Mock())
+        worker.reconcile_once = AsyncMock(return_value=True)
+
+        with pytest.raises(RuntimeError, match="bar stream failed"):
+            await asyncio.wait_for(worker.run(asyncio.Event()), 0.1)
+
+    asyncio.run(scenario())
 
 
 def test_database_tick_snapshots_remain_bounded_to_sixty_seconds():

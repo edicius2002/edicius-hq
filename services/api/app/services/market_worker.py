@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable, Mapping
@@ -13,13 +14,19 @@ from typing import Any
 import httpx
 
 from app.adapters import registry
-from app.adapters.models import Bar, ProviderError, Quote, SymbolHit, Tick
+from app.adapters.binance_bar_stream import BinanceBarStream
+from app.adapters.live_bars import CompositeBarStream
+from app.adapters.models import Bar, LiveBar, ProviderError, Quote, SymbolHit, Tick
 from app.adapters.streams import CompositeStream
+from app.adapters.yahoo_live_bars import YahooLiveBarClient
 from app.config import TIMEFRAMES, UPSTREAM_TIMEOUT_SECONDS
+from app.services.chart_focus import ChartFocusBook
 from app.services.collector_cloud import CollectorCloud, CollectorCloudError, CollectorRequest
 
 LOGGER = logging.getLogger(__name__)
 LIVE_BROADCAST_SECONDS = 0.5
+CHART_FOCUS_TTL_SECONDS = 45.0
+MAX_CHART_FOCUSES = 8
 QUOTE_FLUSH_SECONDS = 60.0
 QUOTE_RECOVERY_SECONDS = 60.0
 RECONCILE_SECONDS = 30.0
@@ -108,6 +115,28 @@ def _visible_reading(tick: Tick) -> tuple[float, str | None, bool]:
     return (tick.price, tick.market_state, tick.extended)
 
 
+def bar_reading(update: LiveBar) -> tuple[int, float, float, float, float, float]:
+    bar = update.bar
+    return (bar.time, bar.open, bar.high, bar.low, bar.close, bar.volume)
+
+
+def live_bar_wire(update: LiveBar) -> dict[str, Any]:
+    return {
+        "symbol": update.symbol,
+        "timeframe": update.timeframe,
+        "extended": update.extended,
+        "asOf": update.as_of,
+        "bar": {
+            "time": update.bar.time,
+            "open": update.bar.open,
+            "high": update.bar.high,
+            "low": update.bar.low,
+            "close": update.bar.close,
+            "volume": update.bar.volume,
+        },
+    }
+
+
 def quote_wire(quote: Quote) -> dict[str, Any]:
     return {
         "symbol": quote.symbol,
@@ -139,6 +168,8 @@ class MarketWorker:
         cloud: CollectorCloud,
         *,
         stream: CompositeStream | None = None,
+        bar_stream: CompositeBarStream | None = None,
+        focus_book: ChartFocusBook | None = None,
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -150,12 +181,23 @@ class MarketWorker:
         )
         self._owns_client = client is None
         self._clock = clock
+        self.bar_stream = bar_stream or CompositeBarStream(
+            BinanceBarStream(), YahooLiveBarClient(self.client)
+        )
+        self._focus_book = focus_book or ChartFocusBook(
+            ttl_seconds=CHART_FOCUS_TTL_SECONDS, max_clients=MAX_CHART_FOCUSES
+        )
         self._pending: dict[str, Tick] = {}
         self._live_pending: dict[str, Tick] = {}
+        self._live_bar_pending: dict[tuple[str, str, bool], LiveBar] = {}
+        self._last_bar_reading: dict[
+            tuple[str, str, bool], tuple[int, float, float, float, float, float]
+        ] = {}
         self._last_broadcast: dict[str, tuple[float, str | None, bool]] = {}
         self._last_write: dict[str, float] = {}
         self._last_recovery = float("-inf")
         self._wake = asyncio.Event()
+        self._focus_wake = asyncio.Event()
         self._run_stats = MarketRunStats()
 
     @property
@@ -173,6 +215,18 @@ class MarketWorker:
     def accept(self, tick: Tick) -> None:
         self._pending[tick.symbol] = tick
         self._live_pending[tick.symbol] = tick
+
+    def accept_focus(self, payload: object) -> bool:
+        accepted = self._focus_book.accept(payload, self._clock())
+        if accepted:
+            self._focus_wake.set()
+        return accepted
+
+    def accept_bar(self, update: LiveBar) -> None:
+        key = (update.symbol, update.timeframe, update.extended)
+        current = self._live_bar_pending.get(key)
+        if current is None or update.as_of >= current.as_of:
+            self._live_bar_pending[key] = update
 
     async def publish_ticks(self) -> int:
         candidates = {
@@ -198,6 +252,33 @@ class MarketWorker:
             self._last_broadcast[symbol] = _visible_reading(tick)
             if self._live_pending.get(symbol) is tick:
                 self._live_pending.pop(symbol, None)
+        return len(rows)
+
+    async def publish_bars(self) -> int:
+        pending = dict(self._live_bar_pending)
+        candidates = {
+            key: update
+            for key, update in pending.items()
+            if bar_reading(update) != self._last_bar_reading.get(key)
+        }
+        for key, update in pending.items():
+            if key not in candidates and self._live_bar_pending.get(key) is update:
+                self._live_bar_pending.pop(key)
+        if not candidates:
+            return 0
+        rows = [live_bar_wire(update) for update in candidates.values()]
+        self._run_stats.seen += len(rows)
+        try:
+            await asyncio.to_thread(self.cloud.broadcast_live_bars, rows)
+        except CollectorCloudError as error:
+            self._run_stats.failed += len(rows)
+            LOGGER.warning("market bar broadcast failed: %s", type(error).__name__)
+            return 0
+        self._run_stats.written += len(rows)
+        for key, update in candidates.items():
+            self._last_bar_reading[key] = bar_reading(update)
+            if self._live_bar_pending.get(key) is update:
+                self._live_bar_pending.pop(key, None)
         return len(rows)
 
     def flush_quotes(self) -> int:
@@ -307,7 +388,17 @@ class MarketWorker:
         if stop_event.is_set():
             return
         ticks = asyncio.create_task(self._consume_ticks(stop_event))
+        bars = asyncio.create_task(self._consume_bars(stop_event))
+        focus = asyncio.create_task(self._maintain_focus(stop_event))
         publisher = asyncio.create_task(self._publish_ticks(stop_event))
+        bar_publisher = asyncio.create_task(self._publish_bars(stop_event))
+        tasks = (ticks, bars, focus, publisher, bar_publisher)
+
+        def wake_supervisor(_task: asyncio.Task[None]) -> None:
+            self._wake.set()
+
+        for task in tasks:
+            task.add_done_callback(wake_supervisor)
         try:
             while not stop_event.is_set():
                 healthy = await self.reconcile_once()
@@ -315,11 +406,11 @@ class MarketWorker:
                     cycle_completed(self.run_records)
                 await self._wait_for_wake_or_stop(stop_event)
                 if not stop_event.is_set():
-                    self._raise_background_failure(ticks, publisher)
+                    self._raise_background_failure(*tasks)
         finally:
-            for task in (ticks, publisher):
+            for task in tasks:
                 task.cancel()
-            results = await asyncio.gather(ticks, publisher, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             self.flush_quotes()
             if self._owns_client:
                 await self.client.aclose()
@@ -347,12 +438,51 @@ class MarketWorker:
                 return
             self.accept(tick)
 
+    async def _consume_bars(self, stop_event: asyncio.Event) -> None:
+        async for bar in self.bar_stream.bars():
+            if stop_event.is_set():
+                return
+            self.accept_bar(bar)
+
+    async def _maintain_focus(self, stop_event: asyncio.Event) -> None:
+        await self.bar_stream.watch(set(self._focus_book.active(self._clock())))
+        while not stop_event.is_set():
+            now = self._clock()
+            expiry = self._focus_book.next_expiry(now)
+            timeout = None if expiry is None else max(0.05, expiry - now)
+            stopped = asyncio.create_task(stop_event.wait())
+
+            def wake_focus(_task: asyncio.Task[bool]) -> None:
+                if not _task.cancelled() and _task.result() and not self._focus_wake.is_set():
+                    self._focus_wake.set()
+
+            stopped.add_done_callback(wake_focus)
+            try:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._focus_wake.wait(), timeout=timeout)
+                if stop_event.is_set():
+                    return
+                if self._focus_wake.is_set():
+                    self._focus_wake.clear()
+                await self.bar_stream.watch(set(self._focus_book.active(self._clock())))
+            finally:
+                if not stopped.done():
+                    stopped.cancel()
+                await asyncio.gather(stopped, return_exceptions=True)
+
     async def _publish_ticks(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=LIVE_BROADCAST_SECONDS)
             except TimeoutError:
                 await self.publish_ticks()
+
+    async def _publish_bars(self, stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=LIVE_BROADCAST_SECONDS)
+            except TimeoutError:
+                await self.publish_bars()
 
     @staticmethod
     def _raise_background_failure(*tasks: asyncio.Task[None]) -> None:

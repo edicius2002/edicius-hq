@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -7,7 +7,15 @@ import {
   regimeAt,
   type Regime,
 } from '@/features/investing/lib/session';
-import { getBars, type Bar } from '@/shared/api/market';
+import {
+  liveBarKey,
+  mergeLiveBars,
+  type LiveBarContext,
+  type LiveBarUpdate,
+} from '@/features/investing/data/liveBars';
+import type { Tick } from '@/features/investing/data/quoteStream';
+import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
+import { getBars, type Bar, type BarsResponse } from '@/shared/api/market';
 
 /**
  * Bars for one symbol, at the cadence the session deserves.
@@ -81,11 +89,38 @@ export type Candles = {
   refetch: () => void;
 };
 
-export function useCandles(symbol: string, timeframe: string): Candles {
-  const regime = useRegime();
-  const [sessions, setSessions] = useState<Map<string, boolean>>(() => new Map());
-  const hasSession = sessions.get(symbol) ?? true;
+export function useCandles(
+  symbol: string,
+  timeframe: string,
+  tick: Tick | undefined,
+  liveBars: Map<string, LiveBarUpdate>,
+): Candles {
+  const clockRegime = useRegime();
+  const regime = regimeFromMarketState(tick?.marketState) ?? clockRegime;
+  const queryClient = useQueryClient();
+  const cachedRegular = queryClient.getQueryData<BarsResponse>([
+    'market',
+    'bars',
+    symbol,
+    timeframe,
+    false,
+  ]);
+  const cachedExtended = queryClient.getQueryData<BarsResponse>([
+    'market',
+    'bars',
+    symbol,
+    timeframe,
+    true,
+  ]);
+  const cachedSeries = cachedRegular ?? cachedExtended;
+  const hasSession = cachedSeries?.hasSession ?? true;
   const wantExtended = hasSession && regime !== 'regular';
+  useChartFocus({
+    symbol,
+    timeframe,
+    extended: wantExtended,
+    active: !hasSession || regime !== 'closed',
+  });
 
   const query = useQuery({
     // The flag is part of the key: the two variants are different series, and
@@ -96,17 +131,21 @@ export function useCandles(symbol: string, timeframe: string): Candles {
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 
-  const provider = query.data?.provider ?? '';
-  const reportedSession = query.data?.hasSession ?? hasSession;
-  const bars = useMemo(() => query.data?.bars ?? [], [query.data]);
-
-  // Reported session support is remembered per symbol, purely as a function of
-  // the freshest query response, so it is adjusted here during render instead
-  // of from an effect.
-  const nextHasSession = query.data?.hasSession;
-  if (nextHasSession !== undefined && sessions.get(symbol) !== nextHasSession) {
-    setSessions((current) => new Map(current).set(symbol, nextHasSession));
-  }
+  // Session changes use another query key for good cache separation. Keep the
+  // last successful history for this same chart visible until that variant
+  // arrives, while a different symbol or timeframe gets no fallback at all.
+  const response = query.data ?? cachedSeries;
+  const provider = response?.provider ?? '';
+  const reportedSession = response?.hasSession ?? hasSession;
+  const authoritative = liveBars.get(liveBarKey({ symbol, timeframe, extended: wantExtended }));
+  const context = useMemo<LiveBarContext>(
+    () => ({ symbol, timeframe, extended: wantExtended, hasSession }),
+    [symbol, timeframe, wantExtended, hasSession],
+  );
+  const bars = useMemo(
+    () => mergeLiveBars(response?.bars ?? [], authoritative, tick, context),
+    [response?.bars, authoritative, tick, context],
+  );
 
   const isGhost = useMemo(() => {
     // Crypto never has an overlay: a pair's market runs around the clock, so
@@ -120,13 +159,27 @@ export function useCandles(symbol: string, timeframe: string): Candles {
     bars,
     provider,
     regime,
-    extended: query.data?.extended ?? false,
+    extended: response?.extended ?? false,
     isGhost,
     isPending: query.isPending,
     // React Query intentionally retains successful data when a background
     // refresh fails. That is degraded data, not a fatal empty chart.
-    isStale: (query.data?.stale ?? false) || (query.isError && query.data !== undefined),
-    isError: query.isError && query.data === undefined,
+    isStale: (response?.stale ?? false) || (query.isError && response !== undefined),
+    isError: query.isError && response === undefined,
     refetch: () => void query.refetch(),
   };
+}
+
+function regimeFromMarketState(marketState: string | null | undefined): Regime | undefined {
+  switch (marketState?.toUpperCase()) {
+    case 'REGULAR':
+      return 'regular';
+    case 'PRE':
+    case 'POST':
+      return 'extended';
+    case 'CLOSED':
+      return 'closed';
+    default:
+      return undefined;
+  }
 }

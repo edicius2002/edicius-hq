@@ -239,6 +239,20 @@ class CollectorCloud:
         LOGGER.info("collector cloud quote broadcasts=%d", len(payload))
         return len(payload)
 
+    def broadcast_live_bars(self, bars: Sequence[Mapping[str, Any]]) -> int:
+        if not bars:
+            return 0
+        payload = [dict(bar) for bar in bars]
+        self._request(
+            "POST",
+            f"{self._project_url}/realtime/v1/api/broadcast/"
+            f"market-quotes:{self._owner_id}/events/bars",
+            body={"bars": payload},
+            params={"private": "true"},
+        )
+        LOGGER.info("collector cloud live bar broadcasts=%d", len(payload))
+        return len(payload)
+
     def upsert_bars(self, row: dict[str, Any]) -> None:
         self._upsert("market_bars", [row], "owner_id,symbol,timeframe,extended")
 

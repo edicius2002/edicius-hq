@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { QuoteStreamOptions } from '@/features/investing/data/quoteStream';
+import type { LiveBarUpdate } from '@/features/investing/data/liveBars';
 
 const stream = vi.hoisted(() => ({ open: vi.fn() }));
 
@@ -98,5 +99,37 @@ describe('useQuoteStream', () => {
     act(() => result.current.discardTicksBefore(new Map([['AAPL', null]]), 100));
 
     expect(result.current.ticks.has('AAPL')).toBe(false);
+  });
+
+  it('keeps the newest bar per focus key in one animation frame', () => {
+    let flush!: FrameRequestCallback;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      flush = callback;
+      return 1;
+    });
+    const first: LiveBarUpdate = {
+      symbol: 'AAPL',
+      timeframe: '15m',
+      extended: true,
+      asOf: 10,
+      bar: { time: 1, open: 2, high: 2, low: 2, close: 2, volume: 10 },
+    };
+    const newest: LiveBarUpdate = { ...first, asOf: 11, bar: { ...first.bar, volume: 12 } };
+    const other: LiveBarUpdate = {
+      ...first,
+      timeframe: '1h',
+      asOf: 11,
+      bar: { ...first.bar, volume: 4 },
+    };
+    stream.open.mockImplementation((_symbols: string[], options: QuoteStreamOptions) => {
+      options.onBars?.([first, newest, other]);
+      return vi.fn();
+    });
+
+    const { result } = renderHook(() => useQuoteStream(['AAPL']));
+    act(() => flush(0));
+
+    expect(result.current.bars.get('AAPL:15m:true')?.bar.volume).toBe(12);
+    expect(result.current.bars.get('AAPL:1h:true')?.bar.volume).toBe(4);
   });
 });

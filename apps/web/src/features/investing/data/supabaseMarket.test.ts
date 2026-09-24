@@ -111,11 +111,19 @@ describe('Supabase Investing market boundary', () => {
 
   it('returns a fresh cached bars result without creating a collector request', async () => {
     state.maybeSingle.mockResolvedValue({
-      data: { provider: 'worker', payload: BARS, expires_at: '2999-01-01T00:00:00Z' },
+      data: {
+        provider: 'worker',
+        payload: BARS,
+        fetched_at: '2026-09-24T00:00:00Z',
+        expires_at: '2999-01-01T00:00:00Z',
+      },
       error: null,
     });
 
-    await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
+    await expect(getBars('AAPL', '1d')).resolves.toEqual({
+      ...BARS,
+      capturedAt: Date.parse('2026-09-24T00:00:00Z'),
+    });
     expect(state.insert).not.toHaveBeenCalled();
   });
 

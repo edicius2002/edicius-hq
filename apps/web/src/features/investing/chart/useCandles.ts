@@ -48,6 +48,10 @@ const POLL_MS: Record<string, number> = {
   '1M': 1_800_000,
 };
 
+function captureTime(): number {
+  return Date.now();
+}
+
 export function candleRefetchInterval(
   regime: Regime,
   timeframe: string,
@@ -149,7 +153,9 @@ export function useCandles(
       signal.throwIfAborted();
       const fresh = await getBars(symbol, timeframe, wantExtended, signal, publishSaved);
       signal.throwIfAborted();
-      const response = { ...fresh, capturedAt: fresh.capturedAt ?? Date.now() };
+      const dated = { ...fresh, capturedAt: fresh.capturedAt ?? captureTime() };
+      const current = queryClient.getQueryData<BarsResponse>(key);
+      const response = current && (current.capturedAt ?? 0) > dated.capturedAt ? current : dated;
       if (ownerId) void marketBarCache.write(ownerId, response);
       return response;
     },

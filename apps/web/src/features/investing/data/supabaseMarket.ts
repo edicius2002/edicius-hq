@@ -51,9 +51,9 @@ export async function getBars(
   if (data) {
     const cached = barsFromJson(data.payload);
     if (cached) {
-      const saved = { ...cached, provider: data.provider };
+      const saved = { ...cached, provider: data.provider, capturedAt: Date.parse(data.fetched_at) };
       if (Date.parse(data.expires_at) > Date.now()) return saved;
-      onStored?.({ ...saved, capturedAt: Date.parse(data.fetched_at), stale: true });
+      onStored?.({ ...saved, stale: true });
     }
   }
   return enqueue('market-bars', { symbol, timeframe, extended }, barsFromJson, signal);

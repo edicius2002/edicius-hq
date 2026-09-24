@@ -146,6 +146,32 @@ describe('useCandles', () => {
     await waitFor(() => expect(result.current.bars[0].close).toBe(1.8));
   });
 
+  it('keeps a newer browser copy when a fresh-but-older Supabase row finishes', async () => {
+    const wrapper = sharedQueryWrapper();
+    barCache.read.mockResolvedValueOnce({
+      ...barsResponse,
+      stale: true,
+      capturedAt: 200,
+      bars: [{ ...history, close: 1.8 }],
+    });
+    getBars.mockResolvedValueOnce({
+      ...barsResponse,
+      capturedAt: 100,
+      bars: [{ ...history, close: 1.1 }],
+    });
+
+    const { result } = renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.bars[0].close).toBe(1.8));
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(result.current.bars[0].close).toBe(1.8);
+    expect(barCache.write).toHaveBeenCalledWith(
+      'owner-a',
+      expect.objectContaining({ capturedAt: 200 }),
+    );
+  });
+
   it('cannot repopulate memory or IndexedDB after its chart request is cancelled', async () => {
     const wrapper = sharedQueryWrapper();
     const next = deferred<typeof barsResponse>();

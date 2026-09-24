@@ -58,9 +58,9 @@
 
 ## Verification record
 
-- Web tests: 2,357 passed, 2 skipped (173 files passed, 1 skipped). Focused post-review tests: 43 passed.
+- Web tests: 2,357 passed, 2 skipped (173 files passed, 1 skipped) before the final ordering test. Focused post-review tests: 44 passed.
 - Typecheck, lint, formatting and production build passed. Lint retains 11 warnings in unrelated files.
 - A Chrome smoke test exercised native IndexedDB write, read, owner isolation and clear successfully.
-- Review fixes: saved series use capture timestamps to prevent an older source from replacing a newer one; memory retention lasts for the open page session.
+- Review fixes: saved series use capture timestamps to prevent an older source, including an unexpired Supabase row, from replacing a newer one; memory retention lasts for the open page session.
 - Before/after timing for authenticated asset swaps requires a signed-in production browser. The earlier Investing navigation trace showed `market_bars` at 239 ms and collector requests ending at 1,798 ms from page navigation; it is not an asset-swap benchmark. Record A→B→A, a return after five minutes, and a reload in production after merge.
 - Remaining: PR, CI, merge, deployed-page verification and authenticated swap timing.

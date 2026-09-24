@@ -74,6 +74,8 @@ export function useRouteCollection(): RouteCollection {
       if (request.status !== 'complete') return;
       for (const queryKey of [
         ['fares', 'history', request.payload.origin, request.payload.destination],
+        ['fares', 'projection', request.payload.origin, request.payload.destination],
+        ['fares', 'flightPage', request.payload.origin, request.payload.destination],
         ['fares', 'calendar', request.payload.origin, request.payload.destination],
         ['fares', 'airports'],
       ]) {

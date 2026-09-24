@@ -583,6 +583,19 @@ describe('the controls that are gone', () => {
 });
 
 describe('how the price moved, on one axis and one period', () => {
+  it('uses persisted daily buckets when only the latest departure boards are loaded', () => {
+    render(
+      <Harness
+        monthSnapshots={[]}
+        baseline={[]}
+        priceDays={[{ key: '2026-08-19', label: '08-19', low: 61, high: 70, middle: 65, count: 2 }]}
+        providerDays={[]}
+        unsoldDays={[]}
+      />,
+    );
+    click(MOVES);
+    expect(screen.getByText(/median \$65.*across 2 observations/)).toBeInTheDocument();
+  });
   it('is drawn by day whatever the period switch is set to', () => {
     // A week bucket folds a run of daily figures into a median of medians, and
     // what this chart exists to show is that the fare moved.

@@ -30,6 +30,7 @@ import {
   type TimeBand,
 } from '@/features/airfare/lib/flightTable';
 import { formatDuration, formatStamp } from '@/features/airfare/lib/series';
+import type { FareFlightPage } from '@/features/airfare/data/fareProjections';
 import type { FareSnapshot } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
 import { formatMoney } from '@/shared/lib/money';
@@ -70,6 +71,12 @@ type FlightTableProps = {
    * the wrong storefront.
    */
   leg: { origin: string; destination: string; originCountry: string | null } | null;
+  remote?: {
+    period: import('@/features/airfare/lib/flightTable').ObservationWindow | null;
+    data: FareFlightPage | null;
+    criteria: { filters: Filters; sort: Sort; page: number };
+    onCriteriaChange: (next: { filters: Filters; sort: Sort; page: number }) => void;
+  };
 };
 
 const COLUMNS: { column: SortColumn; label: string; numeric?: boolean }[] = [
@@ -358,11 +365,15 @@ export function FlightTable({
   loading = false,
   error = null,
   onRetry,
+  remote,
 }: FlightTableProps) {
   const priceLabelId = useId();
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
-  const [page, setPage] = useState(1);
+  const [localFilters, setLocalFilters] = useState<Filters>(NO_FILTERS);
+  const [localSort, setLocalSort] = useState<Sort>(DEFAULT_SORT);
+  const [localPage, setLocalPage] = useState(1);
+  const filters = remote?.criteria.filters ?? localFilters;
+  const sort = remote?.criteria.sort ?? localSort;
+  const page = remote?.criteria.page ?? localPage;
   const [shownPeriod, setShownPeriod] = useState<Granularity>(granularity);
 
   /*
@@ -373,22 +384,48 @@ export function FlightTable({
    */
   if (shownPeriod !== granularity) {
     setShownPeriod(granularity);
-    setPage(1);
+    setLocalPage(1);
   }
 
-  const { rows, period, tracked } = useMemo(
-    () => tableRows(snapshots, granularity),
-    [snapshots, granularity],
+  const localRows = useMemo(() => tableRows(snapshots, granularity), [snapshots, granularity]);
+  const localFacets = useMemo(() => facetsOf(localRows.rows), [localRows.rows]);
+  const localVisible = useMemo(
+    () => sortRows(filterRows(localRows.rows, localFilters), localSort),
+    [localRows.rows, localFilters, localSort],
   );
-  const facets = useMemo(() => facetsOf(rows), [rows]);
-  const visible = useMemo(() => sortRows(filterRows(rows, filters), sort), [rows, filters, sort]);
-  const slice = pageOf(visible, page);
+  const rows = remote?.data?.rows ?? (remote ? [] : localRows.rows);
+  const period = remote ? remote.period : localRows.period;
+  const tracked = remote ? (remote.data?.tracked ?? 0) : localRows.tracked;
+  const inPeriod = remote ? (remote.data?.inPeriod ?? 0) : rows.length;
+  const shown = remote ? (remote.data?.shown ?? 0) : localVisible.length;
+  const facets = remote?.data?.facets ?? localFacets;
+  const slice = remote
+    ? {
+        rows,
+        page: remote.data?.page ?? page,
+        pageCount: remote.data?.pageCount ?? 1,
+      }
+    : pageOf(localVisible, page);
+
+  function changePage(next: number) {
+    if (remote) remote.onCriteriaChange({ filters, sort, page: next });
+    else setLocalPage(next);
+  }
+
+  function changeSort(column: SortColumn) {
+    const next = nextSort(sort, column);
+    if (remote) remote.onCriteriaChange({ filters, sort: next, page: 1 });
+    else setLocalSort(next);
+  }
 
   // Every filter change resets the page, and none of them resets the sort: the
   // reader chose that order and a narrower table is still in it.
   function update(change: Partial<Filters>) {
-    setFilters((current) => ({ ...current, ...change }));
-    setPage(1);
+    if (remote) remote.onCriteriaChange({ filters: { ...filters, ...change }, sort, page: 1 });
+    else {
+      setLocalFilters((current) => ({ ...current, ...change }));
+      setLocalPage(1);
+    }
   }
 
   if (tracked === 0) {
@@ -406,8 +443,8 @@ export function FlightTable({
 
   const summary = tableSummary({
     period,
-    inPeriod: rows.length,
-    shown: visible.length,
+    inPeriod,
+    shown,
     tracked,
   });
 
@@ -613,7 +650,7 @@ export function FlightTable({
                   label={column.label}
                   numeric={column.numeric}
                   sort={sort}
-                  onSort={(next) => setSort((current) => nextSort(current, next))}
+                  onSort={changeSort}
                 />
               ))}
             </tr>
@@ -630,7 +667,7 @@ export function FlightTable({
 
       {slice.rows.length === 0 ? (
         <p className={styles.empty}>
-          {rows.length === 0
+          {inPeriod === 0
             ? 'No flights were on the board in this period.'
             : 'Every flight in this period is hidden by the filters above.'}
         </p>
@@ -638,14 +675,18 @@ export function FlightTable({
 
       {slice.pageCount > 1 ? (
         <nav className={styles.pager} aria-label="Flight table pages">
-          <Button size="small" disabled={slice.page <= 1} onClick={() => setPage(slice.page - 1)}>
+          <Button
+            size="small"
+            disabled={slice.page <= 1}
+            onClick={() => changePage(slice.page - 1)}
+          >
             Previous page
           </Button>
           <span className={styles.pageOf}>{`Page ${slice.page} of ${slice.pageCount}`}</span>
           <Button
             size="small"
             disabled={slice.page >= slice.pageCount}
-            onClick={() => setPage(slice.page + 1)}
+            onClick={() => changePage(slice.page + 1)}
           >
             Next page
           </Button>

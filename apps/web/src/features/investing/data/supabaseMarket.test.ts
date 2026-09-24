@@ -5,7 +5,6 @@ const state = vi.hoisted(() => {
   const select = vi.fn(() => ({ single }));
   const insert = vi.fn(() => ({ select }));
   const maybeSingle = vi.fn();
-  const gt = vi.fn(() => ({ maybeSingle }));
   const requestSingle = vi.fn();
   const eq = vi.fn(() => ({ single: requestSingle }));
   const quotesIn = vi.fn();
@@ -15,7 +14,7 @@ const state = vi.hoisted(() => {
     if (table === 'market_bars')
       return {
         select: vi.fn(() => ({
-          eq: vi.fn(() => ({ eq: vi.fn(() => ({ eq: vi.fn(() => ({ gt })) })) })),
+          eq: vi.fn(() => ({ eq: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) })),
         })),
       };
     return { select: quotesSelect };
@@ -37,7 +36,6 @@ const state = vi.hoisted(() => {
     select,
     single,
     maybeSingle,
-    gt,
     quotesIn,
     channel,
     on,
@@ -113,7 +111,7 @@ describe('Supabase Investing market boundary', () => {
 
   it('returns a fresh cached bars result without creating a collector request', async () => {
     state.maybeSingle.mockResolvedValue({
-      data: { provider: 'worker', payload: BARS },
+      data: { provider: 'worker', payload: BARS, expires_at: '2999-01-01T00:00:00Z' },
       error: null,
     });
 
@@ -143,11 +141,40 @@ describe('Supabase Investing market boundary', () => {
     });
 
     await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
-    expect(state.gt).toHaveBeenCalledWith('expires_at', '2026-09-18T16:00:00.000Z');
     expect(state.insert).toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'market-bars' }),
     );
     vi.useRealTimers();
+  });
+
+  it('offers an expired saved series before the collector finishes', async () => {
+    const onStored = vi.fn();
+    let complete!: (value: unknown) => void;
+    state.maybeSingle.mockResolvedValue({
+      data: {
+        provider: 'worker',
+        payload: BARS,
+        expires_at: '2020-01-01T00:00:00Z',
+      },
+      error: null,
+    });
+    state.single.mockResolvedValue({ data: { request_id: 'request-stale' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+
+    const pending = getBars('AAPL', '1d', false, undefined, onStored);
+    await vi.waitFor(() => expect(onStored).toHaveBeenCalledWith({ ...BARS, stale: true }));
+    expect(state.insert).toHaveBeenCalledOnce();
+    complete({ data: { status: 'complete', result: BARS, error_code: null }, error: null });
+    await expect(pending).resolves.toEqual(BARS);
   });
 
   it('treats a malformed fresh cache row as a miss and returns only a normalized completed result', async () => {

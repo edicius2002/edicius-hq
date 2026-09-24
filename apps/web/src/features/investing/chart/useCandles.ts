@@ -15,7 +15,9 @@ import {
 } from '@/features/investing/data/liveBars';
 import type { Tick } from '@/features/investing/data/quoteStream';
 import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
+import { marketBarCache } from '@/features/investing/data/marketBarCache';
 import { getBars, type Bar, type BarsResponse } from '@/shared/api/market';
+import { supabase } from '@/shared/supabase/client';
 
 /**
  * Bars for one symbol, at the cadence the session deserves.
@@ -126,8 +128,26 @@ export function useCandles(
     // The flag is part of the key: the two variants are different series, and
     // one must not be served from the other's cache entry.
     queryKey: ['market', 'bars', symbol, timeframe, wantExtended],
-    queryFn: () => getBars(symbol, timeframe, wantExtended),
+    queryFn: async () => {
+      const key = ['market', 'bars', symbol, timeframe, wantExtended] as const;
+      const publishSaved = (saved: BarsResponse) => {
+        queryClient.setQueryData<BarsResponse>(key, (current) => current ?? saved);
+      };
+      const ownerId = await supabase.auth.getSession().then(
+        ({ data }) => data.session?.user.id ?? null,
+        () => null,
+      );
+      if (ownerId && queryClient.getQueryData(key) === undefined) {
+        const local = await marketBarCache.read(ownerId, symbol, timeframe, wantExtended);
+        if (local) publishSaved(local);
+      }
+      const fresh = await getBars(symbol, timeframe, wantExtended, undefined, publishSaved);
+      if (ownerId) void marketBarCache.write(ownerId, fresh);
+      return fresh;
+    },
     enabled: Boolean(symbol),
+    staleTime: POLL_MS[timeframe] ?? 60_000,
+    gcTime: 60 * 60_000,
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 

@@ -3,8 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const getBars = vi.hoisted(() => vi.fn());
 const focus = vi.hoisted(() => vi.fn());
+const barCache = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }));
+const getSession = vi.hoisted(() => vi.fn());
 vi.mock('@/shared/api/market', () => ({ getBars }));
 vi.mock('@/features/investing/hooks/useChartFocus', () => ({ useChartFocus: focus }));
+vi.mock('@/features/investing/data/marketBarCache', () => ({ marketBarCache: barCache }));
+vi.mock('@/shared/supabase/client', () => ({ supabase: { auth: { getSession } } }));
 
 import { candleRefetchInterval, useCandles } from '@/features/investing/chart/useCandles';
 import type { Tick } from '@/features/investing/data/quoteStream';
@@ -16,6 +20,10 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+getSession.mockResolvedValue({ data: { session: { user: { id: 'owner-a' } } }, error: null });
+barCache.read.mockResolvedValue(null);
+barCache.write.mockResolvedValue(undefined);
 
 const BASE_TIME = Date.parse('2026-08-07T13:30:00Z') / 1000;
 const history = { time: BASE_TIME, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 };
@@ -54,6 +62,38 @@ function deferred<Value>() {
 }
 
 describe('useCandles', () => {
+  it('reuses a recent daily series when switching back to an asset', async () => {
+    const wrapper = sharedQueryWrapper();
+    getBars.mockImplementation((symbol: string) => Promise.resolve({ ...barsResponse, symbol }));
+    const { rerender, result } = renderHook(
+      ({ symbol }) => useCandles(symbol, '1d', undefined, new Map()),
+      { initialProps: { symbol: 'SPCX' }, wrapper },
+    );
+    await waitFor(() => expect(result.current.bars).toHaveLength(1));
+    rerender({ symbol: 'OTHER' });
+    await waitFor(() => expect(getBars).toHaveBeenCalledTimes(2));
+    rerender({ symbol: 'SPCX' });
+    await waitFor(() => expect(result.current.bars).toHaveLength(1));
+    expect(getBars.mock.calls.filter(([symbol]) => symbol === 'SPCX')).toHaveLength(1);
+  });
+
+  it('paints a persisted series while a fresh series is still loading', async () => {
+    const wrapper = sharedQueryWrapper();
+    const next = deferred<typeof barsResponse>();
+    barCache.read.mockResolvedValueOnce({ ...barsResponse, stale: true });
+    getBars.mockReturnValue(next.promise);
+
+    const { result } = renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.bars).toEqual([history]));
+    expect(result.current.isStale).toBe(true);
+    expect(result.current.isPending).toBe(false);
+
+    next.resolve({ ...barsResponse, bars: [{ ...history, close: 1.8 }] });
+    await waitFor(() => expect(result.current.bars[0].close).toBe(1.8));
+    expect(result.current.isStale).toBe(false);
+  });
   it('keeps 24/7 instruments polling while the US market is closed', () => {
     expect(candleRefetchInterval('closed', '1m', false)).toBe(10_000);
     expect(candleRefetchInterval('closed', '1m', true)).toBe(false);
@@ -155,7 +195,9 @@ describe('useCandles', () => {
       extended: true,
       active: true,
     });
-    await waitFor(() => expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true));
+    await waitFor(() =>
+      expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true, undefined, expect.any(Function)),
+    );
   });
 
   it('releases Yahoo focus immediately on CLOSED while preserving history', async () => {
@@ -180,7 +222,9 @@ describe('useCandles', () => {
       extended: true,
       active: false,
     });
-    await waitFor(() => expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true));
+    await waitFor(() =>
+      expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true, undefined, expect.any(Function)),
+    );
     expect(result.current.bars).toEqual([history]);
 
     extendedResponse.resolve({ ...barsResponse, extended: true });

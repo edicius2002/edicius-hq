@@ -11,6 +11,7 @@ which now demands a cookie and a crumb and is rate-limited harder. One extra
 field parsed here buys not having to maintain a session handshake.
 """
 
+import math
 from typing import Any
 
 import httpx
@@ -118,6 +119,28 @@ async def fetch_bars(
     return parse_bars(payload, timeframe.limit)
 
 
+async def fetch_chart_bars(
+    client: httpx.AsyncClient,
+    symbol: str,
+    *,
+    interval: str,
+    range_: str,
+    extended: bool,
+) -> tuple[list[Bar], float]:
+    """Fetch a bounded live chart series and return its provider watermark."""
+    payload = await _get_json(
+        client,
+        f"/v8/finance/chart/{symbol}",
+        {
+            "interval": interval,
+            "range": range_,
+            "includePrePost": "true" if extended else "false",
+        },
+    )
+    bars = parse_live_bars(payload)
+    return bars, float(max((bar.time for bar in bars), default=0))
+
+
 def parse_bars(payload: Any, limit: int) -> list[Bar]:
     """
     Split out so it can be tested against a recorded response without a network.
@@ -157,6 +180,43 @@ def parse_bars(payload: Any, limit: int) -> list[Bar]:
 
     # Newest bars are the ones worth keeping when the cap bites.
     return bars[-limit:] if limit and len(bars) > limit else bars
+
+
+def parse_live_bars(payload: Any) -> list[Bar]:
+    """Parse live rows, rejecting incomplete or non-finite provider volume."""
+    result = _first_result(payload)
+    stamps = result.get("timestamp") or []
+    quote_rows = (result.get("indicators") or {}).get("quote")
+    quote = (
+        quote_rows[0]
+        if isinstance(quote_rows, list) and quote_rows and isinstance(quote_rows[0], dict)
+        else {}
+    )
+    opens, highs = quote.get("open") or [], quote.get("high") or []
+    lows, closes = quote.get("low") or [], quote.get("close") or []
+    volumes = quote.get("volume") or []
+
+    bars: list[Bar] = []
+    for i, stamp in enumerate(stamps):
+        try:
+            o, h, low, c = opens[i], highs[i], lows[i], closes[i]
+            raw_volume = volumes[i]
+            values = (float(stamp), float(o), float(h), float(low), float(c), float(raw_volume))
+        except (IndexError, TypeError, ValueError, OverflowError):
+            continue
+        if not all(math.isfinite(value) for value in values):
+            continue
+        bars.append(
+            Bar(
+                time=int(values[0]),
+                open=values[1],
+                high=values[2],
+                low=values[3],
+                close=values[4],
+                volume=values[5],
+            )
+        )
+    return bars
 
 
 async def search(client: httpx.AsyncClient, query: str, limit: int = 10) -> list[SymbolHit]:

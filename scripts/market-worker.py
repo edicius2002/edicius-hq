@@ -10,7 +10,7 @@ import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
@@ -32,18 +32,21 @@ class RequestSubscription:
     """The small real-SDK surface a reconnect supervisor needs."""
 
     client: Any
-    channel: Any
+    request_channel: Any
+    focus_channel: Any
+
+    @property
+    def channels(self) -> tuple[Any, Any]:
+        return self.request_channel, self.focus_channel
 
     async def wait_closed(
         self, stopped: asyncio.Event, *, sleep=asyncio.sleep, poll_seconds: float = 1.0
     ) -> None:
         while not stopped.is_set():
             realtime = self.client.realtime
-            if (
-                self.channel.is_closed
-                or self.channel.is_errored
-                or not self.channel.is_joined
-                or not realtime.is_connected
+            if not realtime.is_connected or any(
+                channel.is_closed or channel.is_errored or not channel.is_joined
+                for channel in self.channels
             ):
                 return
             await sleep(poll_seconds)
@@ -55,34 +58,60 @@ class RequestSubscription:
 
 
 async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None:
-    """Subscribe only to this owner's inserts; claim RPC remains the authority."""
+    """Subscribe this owner's request inserts and chart focus broadcasts."""
     client = None
     try:
-        from realtime import RealtimePostgresChangesListenEvent, RealtimeSubscribeStates
+        from realtime import (
+            RealtimeChannelOptions,
+            RealtimePostgresChangesListenEvent,
+            RealtimeSubscribeStates,
+        )
         from supabase import create_async_client
 
         config = collector_config()
         client = await create_async_client(config.url, config.secret_key)
-        channel = client.channel("market-worker-requests")
-        channel.on_postgres_changes(
+        request_channel = client.channel("market-worker-requests")
+        request_channel.on_postgres_changes(
             RealtimePostgresChangesListenEvent.Insert,
             lambda _payload: worker.wake_requests(),
             "collector_requests",
             "public",
             f"owner_id=eq.{worker.owner_id}",
         )
+
+        def on_focus(envelope: object) -> None:
+            payload = envelope.get("payload") if isinstance(envelope, dict) else None
+            worker.accept_focus(payload)
+
+        # RealtimeChannelConfig declares omitted defaultable config entries as
+        # required in its TypedDict, though the SDK accepts this partial config.
+        focus_options = cast(RealtimeChannelOptions, {"config": {"private": True}})
+        focus_channel = client.channel(f"market-focus:{worker.owner_id}", focus_options)
+        focus_channel.on_broadcast("focus", on_focus)
+
         # The SDK returns from subscribe while the channel is still JOINING.
         # Wait for its acknowledgement before exposing it to the health monitor.
-        joined: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        request_joined: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        focus_joined: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
 
-        def on_join(state: RealtimeSubscribeStates, _error: Exception | None) -> None:
-            if not joined.done():
-                joined.set_result(state == RealtimeSubscribeStates.SUBSCRIBED)
+        def on_join(
+            joined: asyncio.Future[bool],
+        ) -> Any:
+            def callback(state: RealtimeSubscribeStates, _error: Exception | None) -> None:
+                if not joined.done():
+                    joined.set_result(state == RealtimeSubscribeStates.SUBSCRIBED)
 
-        await channel.subscribe(on_join)
-        if not await asyncio.wait_for(joined, timeout=REQUEST_JOIN_TIMEOUT_SECONDS):
+            return callback
+
+        await request_channel.subscribe(on_join(request_joined))
+        await focus_channel.subscribe(on_join(focus_joined))
+        joined = await asyncio.wait_for(
+            asyncio.gather(request_joined, focus_joined),
+            timeout=REQUEST_JOIN_TIMEOUT_SECONDS,
+        )
+        if not all(joined):
             raise RuntimeError("realtime join failed")
-        return RequestSubscription(client, channel)
+        return RequestSubscription(client, request_channel, focus_channel)
     except (Exception, asyncio.CancelledError) as exc:
         if client is not None:
             with contextlib.suppress(Exception):

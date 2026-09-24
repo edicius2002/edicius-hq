@@ -3,6 +3,7 @@ import { REALTIME_SUBSCRIBE_STATES } from '@supabase/realtime-js';
 import type { Json } from '@/shared/supabase/database.types';
 import type { BarsResponse, Quote, QuotesResponse, SymbolHit } from '@/shared/api/market';
 import type { Tick } from './quoteStream';
+import type { LiveBarUpdate } from './liveBars';
 
 type CollectorOperation = 'market-bars' | 'market-search';
 type RequestRow = { status: string; result: Json | null; error_code: string | null };
@@ -146,8 +147,9 @@ function waitForCollectorResult<T>(
 
 export type QuoteSubscriptionStatus = string;
 
-export function subscribeQuoteTicks(
+export function subscribeMarketUpdates(
   onTicks: (ticks: Tick[]) => void,
+  onBars: (bars: LiveBarUpdate[]) => void,
   onStatus?: (status: QuoteSubscriptionStatus) => void,
 ): () => void {
   let disposed = false;
@@ -171,6 +173,10 @@ export function subscribeQuoteTicks(
           const ticks = ticksFromPayload(payload);
           if (!disposed && ticks.length) onTicks(ticks);
         })
+        .on('broadcast', { event: 'bars' }, ({ payload }) => {
+          const bars = liveBarsFromPayload(payload);
+          if (!disposed && bars.length) onBars(bars);
+        })
         .subscribe((status) => {
           if (!disposed) onStatus?.(status);
         });
@@ -181,6 +187,113 @@ export function subscribeQuoteTicks(
     },
   );
   return dispose;
+}
+
+export type ChartFocusMessage = {
+  clientId: string;
+  symbol: string;
+  timeframe: string;
+  extended: boolean;
+  active: boolean;
+};
+
+export type ChartFocusPublisher = {
+  publish: (focus: ChartFocusMessage) => Promise<void>;
+  close: () => Promise<void>;
+};
+
+export async function openChartFocus(): Promise<ChartFocusPublisher> {
+  let data: Awaited<ReturnType<typeof supabase.auth.getSession>>['data'];
+  let error: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'];
+  try {
+    ({ data, error } = await supabase.auth.getSession());
+  } catch {
+    throw new CollectorRequestError('focus_unavailable');
+  }
+  const owner = data.session?.user.id;
+  if (error || !owner) throw new CollectorRequestError('focus_unavailable');
+
+  const channel = supabase.channel(`market-focus:${owner}`, { config: { private: true } });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      channel.subscribe((status) => {
+        if (settled) return;
+        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
+          settled = true;
+          resolve();
+        } else if (
+          status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
+          status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
+          status === REALTIME_SUBSCRIBE_STATES.CLOSED
+        ) {
+          settled = true;
+          reject(new CollectorRequestError('focus_unavailable'));
+        }
+      });
+    });
+  } catch {
+    await supabase.removeChannel(channel);
+    throw new CollectorRequestError('focus_unavailable');
+  }
+
+  let closed = false;
+  return {
+    publish: async (payload) => {
+      if (closed) throw new CollectorRequestError('focus_unavailable');
+      const result = await channel.send({ type: 'broadcast', event: 'focus', payload });
+      if (result !== 'ok') throw new CollectorRequestError('focus_unavailable');
+    },
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      await supabase.removeChannel(channel);
+    },
+  };
+}
+
+function liveBarsFromPayload(raw: unknown): LiveBarUpdate[] {
+  const value = object(raw);
+  return value && Array.isArray(value.bars) ? value.bars.flatMap(liveBarFromJson) : [];
+}
+
+function liveBarFromJson(raw: Json): LiveBarUpdate[] {
+  const value = object(raw);
+  const bar = object(value?.bar);
+  const symbol = typeof value?.symbol === 'string' ? value.symbol.trim().toUpperCase() : '';
+  const timeframe = value?.timeframe;
+  if (
+    !symbol ||
+    typeof timeframe !== 'string' ||
+    !['1m', '5m', '15m', '1h', '1d', '1w', '1M'].includes(timeframe) ||
+    typeof value?.extended !== 'boolean' ||
+    !number(value.asOf) ||
+    !bar ||
+    !number(bar.time) ||
+    !number(bar.open) ||
+    !number(bar.high) ||
+    !number(bar.low) ||
+    !number(bar.close) ||
+    !number(bar.volume)
+  ) {
+    return [];
+  }
+  return [
+    {
+      symbol,
+      timeframe,
+      extended: value.extended,
+      asOf: value.asOf,
+      bar: {
+        time: bar.time,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+      },
+    },
+  ];
 }
 
 function ticksFromPayload(raw: unknown): Tick[] {

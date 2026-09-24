@@ -1,8 +1,9 @@
 import type { Quote } from '@/shared/api/market';
 import {
-  subscribeQuoteTicks,
+  subscribeMarketUpdates,
   type QuoteSubscriptionStatus,
 } from '@/features/investing/data/supabaseMarket';
+import type { LiveBarUpdate } from './liveBars';
 
 /**
  * Live prices, pushed rather than asked for.
@@ -100,11 +101,13 @@ function sameReading(quote: Quote, tick: Tick): boolean {
 
 export type QuoteStreamOptions = {
   onTicks: (ticks: Tick[]) => void;
+  onBars?: (bars: LiveBarUpdate[]) => void;
   onOpen?: () => void;
   onError?: () => void;
   /** Injected in tests; Supabase Realtime otherwise. */
   subscribe?: (
     onTicks: (ticks: Tick[]) => void,
+    onBars: (bars: LiveBarUpdate[]) => void,
     onStatus: (status: QuoteSubscriptionStatus) => void,
   ) => () => void;
 };
@@ -127,12 +130,17 @@ export function openQuoteStream(symbols: string[], options: QuoteStreamOptions):
     else closeWhenReady = true;
   };
   try {
-    close = (options.subscribe ?? subscribeQuoteTicks)(
+    const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
+    close = (options.subscribe ?? subscribeMarketUpdates)(
       (ticks) => {
         if (terminated) return;
-        const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
         const incoming = ticks.filter((tick) => wanted.has(tick.symbol));
         if (incoming.length) options.onTicks(incoming);
+      },
+      (bars) => {
+        if (terminated) return;
+        const incoming = bars.filter((bar) => wanted.has(bar.symbol));
+        if (incoming.length) options.onBars?.(incoming);
       },
       (status) => {
         if (terminated) return;

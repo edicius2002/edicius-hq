@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { openQuoteStream, type Tick } from '@/features/investing/data/quoteStream';
+import { liveBarKey, type LiveBarUpdate } from '@/features/investing/data/liveBars';
 import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch';
 
 /**
@@ -29,6 +30,7 @@ import { FALL_GRACE_MS, latch, type Latch } from '@/features/investing/lib/latch
  */
 export type QuoteStreamState = {
   ticks: Map<string, Tick>;
+  bars: Map<string, LiveBarUpdate>;
   live: boolean;
   /** Drops only ticks known to predate their quote's REST sweep. */
   discardTicksBefore: (sweepTimes: Map<string, number | null>, fallbackAt: number) => void;
@@ -36,6 +38,7 @@ export type QuoteStreamState = {
 
 export function useQuoteStream(symbols: string[]): QuoteStreamState {
   const [ticks, setTicks] = useState<Map<string, Tick>>(() => new Map());
+  const [bars, setBars] = useState<Map<string, LiveBarUpdate>>(() => new Map());
   const [connection, setConnection] = useState<Latch>(() => latch(false));
 
   // Joined so the effect keys on what the symbols are rather than on the array
@@ -48,6 +51,7 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   if (shownKey !== key) {
     setShownKey(key);
     setTicks(new Map());
+    setBars(new Map());
     if (!key) setConnection((current) => current.lower(performance.now()));
   }
   const frame = useRef(0);
@@ -93,12 +97,15 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
      * keeping anyway.
      */
     let queued = new Map<string, Tick>();
+    let queuedBars = new Map<string, LiveBarUpdate>();
 
     const flush = () => {
       frame.current = 0;
-      if (!queued.size) return;
+      if (!queued.size && !queuedBars.size) return;
       const batch = queued;
+      const barBatch = queuedBars;
       queued = new Map();
+      queuedBars = new Map();
 
       setTicks((current) => {
         const next = new Map(current);
@@ -115,6 +122,18 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
         }
         return next;
       });
+      setBars((current) => {
+        let changed = false;
+        const next = new Map(current);
+        for (const [key, update] of barBatch) {
+          const previous = next.get(key);
+          if (!previous || update.asOf >= previous.asOf) {
+            next.set(key, update);
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
     };
 
     const close = openQuoteStream(key.split(','), {
@@ -122,6 +141,14 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
       onError: () => setConnection((current) => current.lower(performance.now())),
       onTicks: (incoming) => {
         for (const tick of incoming) queued.set(tick.symbol, tick);
+        if (!frame.current) frame.current = requestAnimationFrame(flush);
+      },
+      onBars: (incoming) => {
+        for (const update of incoming) {
+          const key = liveBarKey(update);
+          const previous = queuedBars.get(key);
+          if (!previous || update.asOf >= previous.asOf) queuedBars.set(key, update);
+        }
         if (!frame.current) frame.current = requestAnimationFrame(flush);
       },
     });
@@ -141,5 +168,5 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
     };
   }, [key]);
 
-  return { ticks, live: connection.value, discardTicksBefore };
+  return { ticks, bars, live: connection.value, discardTicksBefore };
 }

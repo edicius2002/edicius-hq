@@ -125,11 +125,13 @@ def test_realtime_monitor_recreates_client_when_joined_channel_becomes_errored()
     stopped = asyncio.Event()
     worker = Mock()
     first_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
+    first_focus_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
     second_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
+    second_focus_channel = Mock(is_closed=False, is_errored=False, is_joined=True)
     first_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=AsyncMock())
     second_client = Mock(realtime=Mock(is_connected=True), remove_all_channels=AsyncMock())
-    first = module.RequestSubscription(first_client, first_channel)
-    second = module.RequestSubscription(second_client, second_channel)
+    first = module.RequestSubscription(first_client, first_channel, first_focus_channel)
+    second = module.RequestSubscription(second_client, second_channel, second_focus_channel)
     attempts = [first, second]
     sleeps: list[float] = []
 
@@ -159,7 +161,7 @@ def test_subscription_close_awaits_the_sdk_channel_cleanup():
     module = load_script()
     client = Mock(remove_all_channels=AsyncMock())
 
-    asyncio.run(module.RequestSubscription(client, Mock()).close())
+    asyncio.run(module.RequestSubscription(client, Mock(), Mock()).close())
 
     client.remove_all_channels.assert_awaited_once_with()
 
@@ -172,7 +174,14 @@ def subscription_fixture(monkeypatch, module, state):
     class PendingChannel:
         is_joined = False
 
+        def __init__(self):
+            self.broadcast_callbacks = {}
+
         def on_postgres_changes(self, *_args):
+            return self
+
+        def on_broadcast(self, event, callback):
+            self.broadcast_callbacks[event] = callback
             return self
 
         async def subscribe(self, callback=None):
@@ -194,6 +203,48 @@ def subscription_fixture(monkeypatch, module, state):
         lambda: SimpleNamespace(url="https://example.supabase.co", secret_key="test-only"),
     )
     return channel, client
+
+
+def focus_subscription_fixture(monkeypatch, module, state):
+    """Provide separate request/focus channels and expose registered callbacks."""
+    import supabase
+    from realtime import RealtimeSubscribeStates
+
+    class PendingChannel:
+        def __init__(self):
+            self.is_joined = False
+            self.broadcast_callbacks = {}
+
+        def on_postgres_changes(self, *_args):
+            return self
+
+        def on_broadcast(self, event, callback):
+            self.broadcast_callbacks[event] = callback
+            return self
+
+        async def subscribe(self, callback=None):
+            def acknowledge():
+                self.is_joined = state == RealtimeSubscribeStates.SUBSCRIBED
+                if callback is not None:
+                    callback(state, None)
+
+            if state is not None:
+                asyncio.get_running_loop().call_soon(acknowledge)
+            return self
+
+    request_channel = PendingChannel()
+    focus_channel = PendingChannel()
+    client = Mock(
+        channel=Mock(side_effect=[request_channel, focus_channel]),
+        remove_all_channels=AsyncMock(),
+    )
+    monkeypatch.setattr(supabase, "create_async_client", AsyncMock(return_value=client))
+    monkeypatch.setattr(
+        module,
+        "collector_config",
+        lambda: SimpleNamespace(url="https://example.supabase.co", secret_key="test-only"),
+    )
+    return request_channel, focus_channel, client
 
 
 def test_subscribe_waits_for_the_asynchronous_join_before_returning(monkeypatch):
@@ -243,3 +294,52 @@ def test_subscribe_times_out_and_cleans_up_a_join_without_acknowledgement(monkey
     monkeypatch.setattr(module, "REQUEST_JOIN_TIMEOUT_SECONDS", 0.01, raising=False)
     assert asyncio.run(module.subscribe_requests(Mock(owner_id=uuid.uuid4()))) is None
     client.remove_all_channels.assert_awaited_once()
+
+
+def test_subscribe_registers_focus_broadcast_and_forwards_nested_payload(monkeypatch):
+    from realtime import RealtimeSubscribeStates
+
+    module = load_script()
+    request_channel, focus_channel, client = focus_subscription_fixture(
+        monkeypatch, module, RealtimeSubscribeStates.SUBSCRIBED
+    )
+    owner_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    worker = Mock(owner_id=owner_id)
+    focus = {"clientId": "chart-1", "symbol": "AAPL", "timeframe": "1m"}
+
+    async def scenario():
+        subscription = await module.subscribe_requests(worker)
+        assert subscription is not None
+        assert client.channel.call_args_list[0].args == ("market-worker-requests",)
+        assert client.channel.call_args_list[1].args == (
+            f"market-focus:{owner_id}",
+            {"config": {"private": True}},
+        )
+        assert "focus" in focus_channel.broadcast_callbacks
+        focus_channel.broadcast_callbacks["focus"]({"payload": focus})
+        worker.accept_focus.assert_called_once_with(focus)
+        await subscription.close()
+
+    asyncio.run(scenario())
+    assert request_channel.is_joined
+    assert focus_channel.is_joined
+
+
+@pytest.mark.parametrize("envelope", [None, {}, [], {"event": "focus"}])
+def test_focus_callback_passes_inert_payload_for_malformed_envelope(monkeypatch, envelope):
+    from realtime import RealtimeSubscribeStates
+
+    module = load_script()
+    _request_channel, focus_channel, _client = focus_subscription_fixture(
+        monkeypatch, module, RealtimeSubscribeStates.SUBSCRIBED
+    )
+    worker = Mock(owner_id=uuid.uuid4())
+
+    async def scenario():
+        subscription = await module.subscribe_requests(worker)
+        assert subscription is not None
+        focus_channel.broadcast_callbacks["focus"](envelope)
+        await subscription.close()
+
+    asyncio.run(scenario())
+    worker.accept_focus.assert_called_once_with(None)

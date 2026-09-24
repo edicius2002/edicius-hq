@@ -14,6 +14,9 @@ def timestamp(value: str) -> float:
     return datetime.fromisoformat(value).replace(tzinfo=NY).timestamp()
 
 
+OPEN_MARKET = timestamp("2026-09-22T10:00:00")
+
+
 def live_bar(symbol: str, provider: str) -> LiveBar:
     return LiveBar(
         symbol=symbol,
@@ -65,7 +68,7 @@ def test_watch_splits_providers_and_deduplicates_live_acquisition():
     async def run() -> tuple[FakeBinance, FakeYahoo, list[LiveBar]]:
         binance = FakeBinance([live_bar("BTCUSDT", "binance")])
         yahoo = FakeYahoo([live_bar("AAPL", "yahoo")])
-        stream = CompositeBarStream(binance, yahoo, sleep=_advance_once)
+        stream = CompositeBarStream(binance, yahoo, clock=lambda: OPEN_MARKET, sleep=_advance_once)
         focuses = {
             BarFocus("BTCUSDT", "1m", False),
             BarFocus("AAPL", "1m", False),
@@ -161,7 +164,7 @@ def test_yahoo_failures_use_bounded_backoff_then_reset_after_a_valid_bar():
             if len(waits) == 6:
                 raise asyncio.CancelledError
 
-        stream = CompositeBarStream(FakeBinance(), yahoo, sleep=sleep)
+        stream = CompositeBarStream(FakeBinance(), yahoo, clock=lambda: OPEN_MARKET, sleep=sleep)
         await stream.watch({BarFocus("AAPL", "1m", False)})
         with pytest.raises(asyncio.CancelledError):
             await stream._yahoo_tasks[next(iter(stream._yahoo_tasks))]
@@ -176,7 +179,7 @@ def test_quiet_binance_does_not_block_yahoo_bar():
     async def run() -> LiveBar:
         binance = FakeBinance()
         yahoo = FakeYahoo([live_bar("AAPL", "yahoo")])
-        stream = CompositeBarStream(binance, yahoo, sleep=_advance_once)
+        stream = CompositeBarStream(binance, yahoo, clock=lambda: OPEN_MARKET, sleep=_advance_once)
         await stream.watch({BarFocus("BTCUSDT", "1m", False), BarFocus("AAPL", "1m", False)})
         bars = stream.bars()
         result = await asyncio.wait_for(anext(bars), timeout=1)

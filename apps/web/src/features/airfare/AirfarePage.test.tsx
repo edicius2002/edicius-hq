@@ -31,8 +31,11 @@ vi.mock('@/features/airfare/hooks/useFareRoutes', () => ({
 vi.mock('@/features/airfare/hooks/useHorizonCollection', () => ({
   useHorizonCollection: () => ({ collecting: [], forget: vi.fn() }),
 }));
-vi.mock('@/features/airfare/hooks/useFareHistory', () => ({
-  useFareHistory: () => ({ data: undefined, isPending: false, error: null, refetch: vi.fn() }),
+vi.mock('@/features/airfare/hooks/useFareProjections', () => ({
+  useFareProjections: () => ({
+    primary: { data: undefined, isPending: false, error: null, refetch: vi.fn() },
+    secondaryBoards: [],
+  }),
 }));
 vi.mock('@/features/airfare/hooks/useFareCalendar', () => ({
   useFareCalendar: () => ({ data: undefined, isPending: false, error: null }),

@@ -10,7 +10,7 @@ import {
 } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
-import { useFareHistory } from '@/features/airfare/hooks/useFareHistory';
+import { useFareProjections } from '@/features/airfare/hooks/useFareProjections';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
@@ -22,6 +22,7 @@ import { cheapestDeparture, snapshotsFor, snapshotsForMonths } from '@/features/
 import { AnalysisPanel, ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
+import { ProjectedFlightTable } from '@/features/airfare/ui/ProjectedFlightTable';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
@@ -40,6 +41,7 @@ const EMPTY_AIRPORTS = new Map<string, Airport>();
 
 /** Same reason as `EMPTY_AIRPORTS`: one identity for "this route watches nothing". */
 const EMPTY_MONTHS: readonly string[] = [];
+const EMPTY_VIA_SEQUENCES: string[][] = [];
 
 /** Today as a calendar date, in the reader's own zone — which is when they fly. */
 function todayIso(): string {
@@ -205,7 +207,7 @@ export function AirfarePage() {
    */
   const activeMonth = selected ? readingMonth(selected, routeView.month, today) : null;
 
-  const history = useFareHistory(selected, activeMonth);
+  const { primary: history, secondaryBoards } = useFareProjections(selected, activeMonth);
   // Beside the archive rather than inside the panel that draws it: the two are
   // the same kind of thing — one route's data, fetched where the route is
   // chosen — and the panel stays a component that is handed everything it
@@ -239,22 +241,13 @@ export function AirfarePage() {
 
   const snapshots = useMemo(
     () =>
-      selected && reading && history.data ? snapshotsFor(history.data.snapshots, reading) : [],
+      selected && reading && history.data ? snapshotsFor(history.data.latestBoards, reading) : [],
     [history.data, selected, reading],
   );
+  const viaSequences = history.data?.viaSequences ?? EMPTY_VIA_SEQUENCES;
   // A selected month is the only time its intermediate airports matter. The
   // default map remains a city-pair map and requests no extra coordinates.
-  const viaCodes = useMemo(
-    () =>
-      [
-        ...new Set(
-          snapshots.flatMap((snapshot) =>
-            snapshot.offers.flatMap((offer) => offer.viaPoints ?? []),
-          ),
-        ),
-      ].sort(),
-    [snapshots],
-  );
+  const viaCodes = useMemo(() => [...new Set(viaSequences.flat())].sort(), [viaSequences]);
   const airports = useAirports(viaCodes);
 
   /*
@@ -269,8 +262,8 @@ export function AirfarePage() {
    * dropped month under the current route.
    */
   const watchedSnapshots = useMemo(
-    () => (history.data ? snapshotsForMonths(history.data.snapshots, watchedMonths) : []),
-    [history.data, watchedMonths],
+    () => snapshotsForMonths([...snapshots, ...secondaryBoards], watchedMonths),
+    [snapshots, secondaryBoards, watchedMonths],
   );
   /*
    * What this city pair usually costs — a whole-pair server summary, rather
@@ -306,27 +299,22 @@ export function AirfarePage() {
     const data = airports.data;
     const endpoints = [data.get(selected.origin), data.get(selected.destination)];
     if (endpoints.some((airport) => !airport)) return [];
-    const found = new Set<string>();
-    return snapshots
-      .flatMap((snapshot) => snapshot.offers)
-      .flatMap((offer) => {
-        const via = offer.viaPoints ?? [];
-        if (via.length === 0 || found.has(via.join('>'))) return [];
-        const stops = via.map((code) => data.get(code));
-        if (stops.some((airport) => !airport)) return [];
-        found.add(via.join('>'));
-        return [
-          {
-            id: `${selectedKey}:${via.join('>')}`,
-            points: [endpoints[0], ...stops, endpoints[1]]
-              .filter((airport): airport is Airport => airport !== undefined)
-              .map(airportPoint),
-            viaPoints: via,
-            colour: routeColour(watchlist.routes.length + found.size),
-          },
-        ];
-      });
-  }, [activeMonth, airports.data, selected, selectedKey, snapshots, watchlist.routes.length]);
+    return viaSequences.flatMap((via, index) => {
+      if (via.length === 0) return [];
+      const stops = via.map((code) => data.get(code));
+      if (stops.some((airport) => !airport)) return [];
+      return [
+        {
+          id: `${selectedKey}:${via.join('>')}`,
+          points: [endpoints[0], ...stops, endpoints[1]]
+            .filter((airport): airport is Airport => airport !== undefined)
+            .map(airportPoint),
+          viaPoints: via,
+          colour: routeColour(watchlist.routes.length + index + 1),
+        },
+      ];
+    });
+  }, [activeMonth, airports.data, selected, selectedKey, viaSequences, watchlist.routes.length]);
 
   /*
    * The arcs, pointed by the open route first and by the last collection after.
@@ -683,7 +671,10 @@ export function AirfarePage() {
           watchedMonths={watchedMonths}
           monthSnapshots={snapshots}
           watchedSnapshots={watchedSnapshots}
-          baseline={history.data?.baseline ?? []}
+          baseline={[]}
+          priceDays={history.data?.priceDays}
+          providerDays={history.data?.providerDays}
+          unsoldDays={history.data?.unsoldDays}
           curve={calendar.data?.horizon ?? null}
           /*
             `isPending` is false on a failed query, so passing it alone left a
@@ -744,15 +735,28 @@ export function AirfarePage() {
           the same object the analysis panel above is given, so the two panels
           cannot disagree about which flights are reachable.
         */}
-        <FlightTable
-          loading={selected !== null && history.isPending}
-          error={history.error}
-          onRetry={() => void history.refetch()}
-          snapshots={snapshots}
-          granularity={granularity}
-          departure={activeMonth ? formatFlightMonth(activeMonth) : null}
-          leg={leg}
-        />
+        {selected && activeMonth && history.data && history.data.revision !== 'archive' ? (
+          <ProjectedFlightTable
+            key={`${selectedKey}:${activeMonth}`}
+            route={selected}
+            month={activeMonth}
+            revision={history.data.revision}
+            latestCapture={history.data.latestCapture}
+            granularity={granularity}
+            departure={formatFlightMonth(activeMonth)}
+            leg={leg}
+          />
+        ) : (
+          <FlightTable
+            loading={selected !== null && history.isPending}
+            error={history.error}
+            onRetry={() => void history.refetch()}
+            snapshots={history.data?.archiveSnapshots ?? []}
+            granularity={granularity}
+            departure={activeMonth ? formatFlightMonth(activeMonth) : null}
+            leg={leg}
+          />
+        )}
       </Panel>
 
       {/*

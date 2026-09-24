@@ -150,12 +150,14 @@ describe('useRouteCollection', () => {
 
     for (const queryKey of [
       ['fares', 'history', 'LIM', 'CUZ'],
+      ['fares', 'projection', 'LIM', 'CUZ'],
+      ['fares', 'flightPage', 'LIM', 'CUZ'],
       ['fares', 'calendar', 'LIM', 'CUZ'],
       ['fares', 'airports'],
     ]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey });
     }
-    expect(invalidate).toHaveBeenCalledTimes(3);
+    expect(invalidate).toHaveBeenCalledTimes(5);
     expect(result.current.collecting).toEqual([]);
   });
 

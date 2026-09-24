@@ -514,6 +514,7 @@ class AirfareSync:
                     batch = rows[index : index + self.batch_size]
                     client.upsert(_TABLES[name], batch, on_conflict=key)
                     uploaded[name] += len(batch)
+            self._refresh_projections(client)
             run.update(
                 status="complete",
                 completed_at=datetime.now(UTC).isoformat(),
@@ -528,6 +529,32 @@ class AirfareSync:
             except AirfareRemoteError:
                 error += "; import-run status could not be recorded"
         return SyncReport(mode, "failed" if error else "complete", source, uploaded, error)
+
+    def _refresh_projections(self, client: SupabaseAirfare) -> None:
+        """Drain DB-owned dirty routes after all source batches have arrived.
+
+        A failed refresh leaves its dirty row in Postgres, so the next ordinary
+        synchronization retries even when its source cursors have advanced.
+        """
+        routes = client.rpc("list_fare_projection_dirty_routes", {})
+        if not isinstance(routes, list):
+            raise AirfareRemoteRejected("Invalid dirty Airfare projection list")
+        for route in routes:
+            if (
+                not isinstance(route, dict)
+                or set(route) != {"origin", "destination"}
+                or not isinstance(route["origin"], str)
+                or not isinstance(route["destination"], str)
+                or not re.fullmatch(r"[A-Z0-9]{3}", route["origin"])
+                or not re.fullmatch(r"[A-Z0-9]{3}", route["destination"])
+            ):
+                raise AirfareRemoteRejected("Invalid dirty Airfare projection route")
+            count = client.rpc(
+                "refresh_fare_route_projection",
+                {"p_origin": route["origin"], "p_destination": route["destination"]},
+            )
+            if not isinstance(count, int) or count < 0:
+                raise AirfareRemoteRejected("Invalid Airfare projection refresh result")
 
     def _remote_groups(self) -> list[dict[str, Any]]:
         groups = self._client().rpc("airfare_dataset_manifest", {})

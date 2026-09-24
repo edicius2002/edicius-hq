@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AirfareRequest } from '@/features/airfare/data/airfareRequests';
+import { routeId } from '@/features/airfare/data/fareRoutes';
 
 const api = vi.hoisted(() => {
   let receive: ((request: unknown) => void) | undefined;
@@ -31,6 +32,8 @@ const ROUTE = {
   months: ['2026-11'],
   currency: 'USD',
 };
+// The key every watchlist row, the map and the page look a route up by.
+const ROW_ID = routeId(ROUTE);
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 
 function request(overrides: Partial<AirfareRequest> = {}): AirfareRequest {
@@ -66,8 +69,8 @@ describe('useRouteCollection', () => {
     api.fetchActiveAirfareRequests.mockResolvedValue([request()]);
     const { result, unmount } = setup();
 
-    await waitFor(() => expect(result.current.collecting).toEqual(['LIM-CUZ']));
-    expect(result.current.progress.get('LIM-CUZ')).toEqual({
+    await waitFor(() => expect(result.current.collecting).toEqual([ROW_ID]));
+    expect(result.current.progress.get(ROW_ID)).toEqual({
       completed: 0,
       polling: null,
       fraction: null,
@@ -81,7 +84,7 @@ describe('useRouteCollection', () => {
         }),
       ),
     );
-    expect(result.current.progress.get('LIM-CUZ')).toEqual({
+    expect(result.current.progress.get(ROW_ID)).toEqual({
       completed: 2,
       polling: 5,
       fraction: 0.4,
@@ -95,7 +98,7 @@ describe('useRouteCollection', () => {
         }),
       ),
     );
-    expect(result.current.progress.get('LIM-CUZ')).toEqual({
+    expect(result.current.progress.get(ROW_ID)).toEqual({
       completed: 5,
       polling: 5,
       fraction: 1,
@@ -108,7 +111,7 @@ describe('useRouteCollection', () => {
         }),
       ),
     );
-    expect(result.current.progress.get('LIM-CUZ')).toEqual({
+    expect(result.current.progress.get(ROW_ID)).toEqual({
       completed: 3,
       polling: 3,
       fraction: 1,
@@ -127,6 +130,8 @@ describe('useRouteCollection', () => {
     act(() => result.current.collect(ROUTE, '2026-11'));
     await waitFor(() => expect(api.enqueueAirfareRequest).toHaveBeenCalledOnce());
     await waitFor(() => expect(result.current.notices[0]?.kind).toBe('accepted'));
+    expect(result.current.notices[0]?.routeId).toBe(ROW_ID);
+    expect(result.current.collecting).toEqual([ROW_ID]);
 
     const complete = request({
       status: 'complete',
@@ -169,7 +174,7 @@ describe('useRouteCollection', () => {
     );
     const { result } = setup();
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    expect(result.current.collecting).toEqual(['LIM-CUZ']);
+    expect(result.current.collecting).toEqual([ROW_ID]);
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
     expect(api.fetchAirfareRequest).toHaveBeenCalledWith(REQUEST_ID);
@@ -191,9 +196,9 @@ describe('useRouteCollection', () => {
   it('forgets all state belonging to a removed route', async () => {
     api.fetchActiveAirfareRequests.mockResolvedValue([request()]);
     const { result } = setup();
-    await waitFor(() => expect(result.current.collecting).toContain('LIM-CUZ'));
-    act(() => result.current.forget('LIM-CUZ'));
+    await waitFor(() => expect(result.current.collecting).toContain(ROW_ID));
+    act(() => result.current.forget(ROW_ID));
     expect(result.current.collecting).toEqual([]);
-    expect(result.current.progress.has('LIM-CUZ')).toBe(false);
+    expect(result.current.progress.has(ROW_ID)).toBe(false);
   });
 });

@@ -489,6 +489,29 @@ describe('RouteMap', () => {
       const stop = container.querySelector('circle[class*="node"]')!;
       expect(stop).toHaveStyle({ fill: '#ef6c00' });
     });
+
+    it('fades a stop route in rather than popping it onto a map already drawn', () => {
+      // Stops come with the month, after the routes are on screen; arriving at
+      // full strength read as the map blinking. Each leg and node sits in a
+      // group of its own, because the legs already run the flow animation.
+      const { container } = renderMap({
+        projection: 'globe',
+        stopRoutes: [
+          {
+            id: 'LIM|MAD|2027-06:BOG',
+            points: [LIMA, [-74.1469, 4.70159] as LngLat, MADRID],
+            viaPoints: ['BOG'],
+            colour: '#ef6c00',
+          },
+        ],
+      });
+
+      const legs = [...container.querySelectorAll('path[class*="stop"]')];
+      expect(legs.length).toBeGreaterThan(0);
+      for (const leg of legs) expect(leg.closest('g[class*="arriving"]')).not.toBeNull();
+      const node = container.querySelector('circle[class*="node"]')!;
+      expect(node.closest('g[class*="arriving"]')).not.toBeNull();
+    });
   });
 
   describe('the flow along the open route', () => {

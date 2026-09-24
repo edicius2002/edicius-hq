@@ -35,6 +35,8 @@ function validResponse(value: unknown): value is BarsResponse {
     typeof response.extended === 'boolean' &&
     typeof response.hasSession === 'boolean' &&
     typeof response.stale === 'boolean' &&
+    (response.capturedAt === undefined ||
+      (typeof response.capturedAt === 'number' && Number.isFinite(response.capturedAt))) &&
     Array.isArray(response.bars) &&
     response.bars.every(
       (bar) =>
@@ -77,7 +79,11 @@ export function createMarketBarCache(
           saved.response.extended !== extended
         )
           return null;
-        return { ...saved.response, stale: true };
+        return {
+          ...saved.response,
+          capturedAt: saved.response.capturedAt ?? saved.savedAt,
+          stale: true,
+        };
       } catch {
         return null;
       }

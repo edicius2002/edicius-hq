@@ -13,6 +13,7 @@ vi.mock('@/shared/supabase/client', () => ({ supabase: { auth: { getSession } } 
 import { candleRefetchInterval, useCandles } from '@/features/investing/chart/useCandles';
 import type { Tick } from '@/features/investing/data/quoteStream';
 import type { LiveBarUpdate } from '@/features/investing/data/liveBars';
+import type { BarsResponse } from '@/shared/api/market';
 import { queryWrapper, sharedQueryWrapper } from '@/test/queryWrapper';
 
 afterEach(() => {
@@ -70,6 +71,9 @@ describe('useCandles', () => {
       { initialProps: { symbol: 'SPCX' }, wrapper },
     );
     await waitFor(() => expect(result.current.bars).toHaveLength(1));
+    expect(
+      wrapper.client.getQueryCache().findAll({ queryKey: ['market', 'bars'] })[0]?.gcTime,
+    ).toBe(Infinity);
     rerender({ symbol: 'OTHER' });
     await waitFor(() => expect(getBars).toHaveBeenCalledTimes(2));
     rerender({ symbol: 'SPCX' });
@@ -93,6 +97,53 @@ describe('useCandles', () => {
     next.resolve({ ...barsResponse, bars: [{ ...history, close: 1.8 }] });
     await waitFor(() => expect(result.current.bars[0].close).toBe(1.8));
     expect(result.current.isStale).toBe(false);
+  });
+
+  it('replaces an older browser copy with a newer saved Supabase row', async () => {
+    const wrapper = sharedQueryWrapper();
+    const next = deferred<typeof barsResponse>();
+    barCache.read.mockResolvedValueOnce({
+      ...barsResponse,
+      stale: true,
+      capturedAt: 100,
+      bars: [{ ...history, close: 1.1 }],
+    });
+    getBars.mockReturnValue(next.promise);
+
+    const { result } = renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.bars[0].close).toBe(1.1));
+    const publish = getBars.mock.calls[0][4] as (bars: BarsResponse) => void;
+    act(() =>
+      publish({
+        ...barsResponse,
+        stale: true,
+        capturedAt: 50,
+        bars: [{ ...history, close: 1.05 }],
+      }),
+    );
+    expect(result.current.bars[0].close).toBe(1.1);
+    act(() =>
+      publish({
+        ...barsResponse,
+        stale: true,
+        capturedAt: 200,
+        bars: [{ ...history, close: 1.4 }],
+      }),
+    );
+    await waitFor(() => expect(result.current.bars[0].close).toBe(1.4));
+    act(() =>
+      publish({
+        ...barsResponse,
+        stale: true,
+        capturedAt: 150,
+        bars: [{ ...history, close: 1.2 }],
+      }),
+    );
+    expect(result.current.bars[0].close).toBe(1.4);
+    next.resolve({ ...barsResponse, bars: [{ ...history, close: 1.8 }] });
+    await waitFor(() => expect(result.current.bars[0].close).toBe(1.8));
   });
 
   it('cannot repopulate memory or IndexedDB after its chart request is cancelled', async () => {

@@ -41,7 +41,7 @@ export async function getBars(
 ): Promise<BarsResponse> {
   const request = supabase
     .from('market_bars')
-    .select('provider, payload, expires_at')
+    .select('provider, payload, fetched_at, expires_at')
     .eq('symbol', symbol)
     .eq('timeframe', timeframe)
     .eq('extended', extended);
@@ -53,7 +53,7 @@ export async function getBars(
     if (cached) {
       const saved = { ...cached, provider: data.provider };
       if (Date.parse(data.expires_at) > Date.now()) return saved;
-      onStored?.({ ...saved, stale: true });
+      onStored?.({ ...saved, capturedAt: Date.parse(data.fetched_at), stale: true });
     }
   }
   return enqueue('market-bars', { symbol, timeframe, extended }, barsFromJson, signal);

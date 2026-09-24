@@ -132,7 +132,11 @@ export function useCandles(
       const key = ['market', 'bars', symbol, timeframe, wantExtended] as const;
       const publishSaved = (saved: BarsResponse) => {
         if (signal.aborted) return;
-        queryClient.setQueryData<BarsResponse>(key, (current) => current ?? saved);
+        queryClient.setQueryData<BarsResponse>(key, (current) => {
+          if (!current) return saved;
+          if ((saved.capturedAt ?? 0) > (current.capturedAt ?? 0)) return saved;
+          return current;
+        });
       };
       const ownerId = await supabase.auth.getSession().then(
         ({ data }) => data.session?.user.id ?? null,
@@ -145,12 +149,13 @@ export function useCandles(
       signal.throwIfAborted();
       const fresh = await getBars(symbol, timeframe, wantExtended, signal, publishSaved);
       signal.throwIfAborted();
-      if (ownerId) void marketBarCache.write(ownerId, fresh);
-      return fresh;
+      const response = { ...fresh, capturedAt: fresh.capturedAt ?? Date.now() };
+      if (ownerId) void marketBarCache.write(ownerId, response);
+      return response;
     },
     enabled: Boolean(symbol),
     staleTime: POLL_MS[timeframe] ?? 60_000,
-    gcTime: 60 * 60_000,
+    gcTime: Infinity,
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 

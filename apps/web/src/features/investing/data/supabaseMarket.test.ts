@@ -154,6 +154,7 @@ describe('Supabase Investing market boundary', () => {
       data: {
         provider: 'worker',
         payload: BARS,
+        fetched_at: '2020-01-01T00:00:00Z',
         expires_at: '2020-01-01T00:00:00Z',
       },
       error: null,
@@ -171,7 +172,13 @@ describe('Supabase Investing market boundary', () => {
     );
 
     const pending = getBars('AAPL', '1d', false, undefined, onStored);
-    await vi.waitFor(() => expect(onStored).toHaveBeenCalledWith({ ...BARS, stale: true }));
+    await vi.waitFor(() =>
+      expect(onStored).toHaveBeenCalledWith({
+        ...BARS,
+        capturedAt: Date.parse('2020-01-01T00:00:00Z'),
+        stale: true,
+      }),
+    );
     expect(state.insert).toHaveBeenCalledOnce();
     complete({ data: { status: 'complete', result: BARS, error_code: null }, error: null });
     await expect(pending).resolves.toEqual(BARS);

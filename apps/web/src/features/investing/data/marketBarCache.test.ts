@@ -43,6 +43,7 @@ describe('market bar browser cache', () => {
 
     expect(await cache.read('owner-a', 'AAPL', '1d', false)).toEqual({
       ...response,
+      capturedAt: expect.any(Number),
       stale: true,
     });
     expect(await cache.read('owner-b', 'AAPL', '1d', false)).toBeNull();

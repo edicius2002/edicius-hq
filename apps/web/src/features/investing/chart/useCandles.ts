@@ -15,7 +15,9 @@ import {
 } from '@/features/investing/data/liveBars';
 import type { Tick } from '@/features/investing/data/quoteStream';
 import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
+import { marketBarCache } from '@/features/investing/data/marketBarCache';
 import { getBars, type Bar, type BarsResponse } from '@/shared/api/market';
+import { supabase } from '@/shared/supabase/client';
 
 /**
  * Bars for one symbol, at the cadence the session deserves.
@@ -45,6 +47,10 @@ const POLL_MS: Record<string, number> = {
   '1w': 600_000,
   '1M': 1_800_000,
 };
+
+function captureTime(): number {
+  return Date.now();
+}
 
 export function candleRefetchInterval(
   regime: Regime,
@@ -126,8 +132,36 @@ export function useCandles(
     // The flag is part of the key: the two variants are different series, and
     // one must not be served from the other's cache entry.
     queryKey: ['market', 'bars', symbol, timeframe, wantExtended],
-    queryFn: () => getBars(symbol, timeframe, wantExtended),
+    queryFn: async ({ signal }) => {
+      const key = ['market', 'bars', symbol, timeframe, wantExtended] as const;
+      const publishSaved = (saved: BarsResponse) => {
+        if (signal.aborted) return;
+        queryClient.setQueryData<BarsResponse>(key, (current) => {
+          if (!current) return saved;
+          if ((saved.capturedAt ?? 0) > (current.capturedAt ?? 0)) return saved;
+          return current;
+        });
+      };
+      const ownerId = await supabase.auth.getSession().then(
+        ({ data }) => data.session?.user.id ?? null,
+        () => null,
+      );
+      if (ownerId && queryClient.getQueryData(key) === undefined) {
+        const local = await marketBarCache.read(ownerId, symbol, timeframe, wantExtended);
+        if (local) publishSaved(local);
+      }
+      signal.throwIfAborted();
+      const fresh = await getBars(symbol, timeframe, wantExtended, signal, publishSaved);
+      signal.throwIfAborted();
+      const dated = { ...fresh, capturedAt: fresh.capturedAt ?? captureTime() };
+      const current = queryClient.getQueryData<BarsResponse>(key);
+      const response = current && (current.capturedAt ?? 0) > dated.capturedAt ? current : dated;
+      if (ownerId) void marketBarCache.write(ownerId, response);
+      return response;
+    },
     enabled: Boolean(symbol),
+    staleTime: POLL_MS[timeframe] ?? 60_000,
+    gcTime: Infinity,
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
 

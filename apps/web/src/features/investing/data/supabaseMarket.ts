@@ -37,19 +37,24 @@ export async function getBars(
   timeframe: string,
   extended = false,
   signal?: AbortSignal,
+  onStored?: (bars: BarsResponse) => void,
 ): Promise<BarsResponse> {
-  const { data, error } = await supabase
+  const request = supabase
     .from('market_bars')
-    .select('provider, payload')
+    .select('provider, payload, fetched_at, expires_at')
     .eq('symbol', symbol)
     .eq('timeframe', timeframe)
-    .eq('extended', extended)
-    .gt('expires_at', new Date().toISOString())
-    .maybeSingle();
+    .eq('extended', extended);
+  const { data, error } = await (signal ? request.abortSignal(signal) : request).maybeSingle();
+  signal?.throwIfAborted();
   if (error) throw new CollectorRequestError('bars_unavailable');
   if (data) {
     const cached = barsFromJson(data.payload);
-    if (cached) return { ...cached, provider: data.provider };
+    if (cached) {
+      const saved = { ...cached, provider: data.provider, capturedAt: Date.parse(data.fetched_at) };
+      if (Date.parse(data.expires_at) > Date.now()) return saved;
+      onStored?.({ ...saved, stale: true });
+    }
   }
   return enqueue('market-bars', { symbol, timeframe, extended }, barsFromJson, signal);
 }

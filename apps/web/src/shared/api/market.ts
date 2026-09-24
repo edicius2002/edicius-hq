@@ -36,6 +36,7 @@ export type BarsResponse = {
   extended: boolean;
   hasSession: boolean;
   stale: boolean;
+  capturedAt?: number;
   bars: Bar[];
 };
 export type SymbolHit = { symbol: string; name: string; kind: string; exchange: string | null };

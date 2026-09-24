@@ -12,12 +12,14 @@ field parsed here buys not having to maintain a session handshake.
 """
 
 import math
+from dataclasses import replace
 from typing import Any
 
 import httpx
 
 from app.adapters import models
 from app.adapters.models import Bar, ProviderError, Quote, SymbolHit
+from app.adapters.yahoo_buckets import bucket_start
 from app.adapters.yahoo_session import BROWSER_UA, SESSION
 from app.config import Timeframe
 
@@ -116,7 +118,7 @@ async def fetch_bars(
             "includePrePost": "true" if extended else "false",
         },
     )
-    return parse_bars(payload, timeframe.limit)
+    return parse_bars(payload, timeframe.key, timeframe.limit)
 
 
 async def fetch_chart_bars(
@@ -141,13 +143,21 @@ async def fetch_chart_bars(
     return bars, float(max((bar.time for bar in bars), default=0))
 
 
-def parse_bars(payload: Any, limit: int) -> list[Bar]:
+def parse_bars(payload: Any, timeframe: str, limit: int) -> list[Bar]:
     """
     Split out so it can be tested against a recorded response without a network.
 
     Yahoo pads its series with nulls where a bar is missing — a holiday, a
     halt, a gap in its own data. Those rows are dropped rather than carried as
     zeroes, which would draw a candle crashing to nothing.
+
+    `timeframe` is the `Timeframe.key`, because the rows are not all candles.
+    Mid-session Yahoo appends one stamped at the quote time: a zero-volume
+    snapshot on an intraday series, and today's daily bar on a weekly or
+    monthly one, whose period row stops at yesterday. Both are moved onto the
+    candle they belong to (see `_normalize`), so every candle here starts where
+    the live candle for the same period does and the two can replace each
+    other.
     """
     result = _first_result(payload)
     stamps = result.get("timestamp") or []
@@ -178,8 +188,39 @@ def parse_bars(payload: Any, limit: int) -> list[Bar]:
             )
         )
 
+    bars = _normalize(bars, timeframe)
     # Newest bars are the ones worth keeping when the cap bites.
     return bars[-limit:] if limit and len(bars) > limit else bars
+
+
+def _normalize(bars: list[Bar], timeframe: str) -> list[Bar]:
+    """
+    Put every row at the start of its candle, folding it in when that candle
+    already exists.
+
+    Folding keeps the candle's open, widens its range, takes the row's close
+    and adds the row's volume — which is right for both kinds of trailing row:
+    the intraday snapshot has no volume, and today's bar is not yet counted in
+    its week or month. A row that lands on no candle (outside every session)
+    or behind the last one is dropped rather than drawn out of order.
+    """
+    candles: list[Bar] = []
+    for bar in bars:
+        start = bucket_start(bar.time, timeframe)
+        if start is None:
+            continue
+        prev = candles[-1] if candles else None
+        if prev is not None and prev.time == start:
+            candles[-1] = replace(
+                prev,
+                high=max(prev.high, bar.high),
+                low=min(prev.low, bar.low),
+                close=bar.close,
+                volume=prev.volume + bar.volume,
+            )
+        elif prev is None or start > prev.time:
+            candles.append(replace(bar, time=start))
+    return candles
 
 
 def parse_live_bars(payload: Any) -> list[Bar]:

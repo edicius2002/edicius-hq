@@ -1,4 +1,4 @@
-import { formatFlightMonth, routeLabel } from '@/features/airfare/data/fareRoutes';
+import { formatFlightMonth, routeId, routeLabel } from '@/features/airfare/data/fareRoutes';
 import type { AirfareRequest } from '@/features/airfare/data/airfareRequests';
 
 export const NOTICE_LIFE_MS = 10_000;
@@ -57,7 +57,7 @@ function notice(request: AirfareRequest, kind: CollectNotice['kind'], text: stri
   };
   return {
     id: request.requestId,
-    routeId: `${request.payload.origin}-${request.payload.destination}`,
+    routeId: routeId(route),
     title: `${routeLabel(route)} · ${formatFlightMonth(request.payload.month)}`,
     text,
     kind,

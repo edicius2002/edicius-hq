@@ -525,8 +525,25 @@
    * labelled "Lima to Madrid", in that order, and every route on the page
    * leaves from the one neutral dot.
    */
-  .flow {
+  .flow,
+  .arriving {
     animation: none;
+  }
+}
+
+/*
+ * A stop route's arrival. Stops come with the month, after the routes are on
+ * screen, and at full strength at once they read as the map blinking. Opacity
+ * only, from nothing to whatever the leg or node already carries, and short:
+ * this says "added", not "watch this".
+ */
+.arriving {
+  animation: arrive 220ms ease-out both;
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
   }
 }
 

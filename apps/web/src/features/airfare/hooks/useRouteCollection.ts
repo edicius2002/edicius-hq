@@ -8,7 +8,7 @@ import {
   subscribeAirfareRequests,
   type AirfareRequest,
 } from '@/features/airfare/data/airfareRequests';
-import type { FareRoute } from '@/features/airfare/data/fareRoutes';
+import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import {
   NOTICE_LIFE_MS,
   acceptedCollectNotice,
@@ -127,7 +127,7 @@ export function useRouteCollection(): RouteCollection {
 
   const collect = useCallback(
     (route: FareRoute, month: string) => {
-      forgottenRoutes.current.delete(`${route.origin}-${route.destination}`);
+      forgottenRoutes.current.delete(routeId(route));
       void enqueueAirfareRequest({
         origin: route.origin,
         destination: route.destination,
@@ -142,7 +142,7 @@ export function useRouteCollection(): RouteCollection {
           const id = `enqueue-${route.origin}-${route.destination}-${month}`;
           showNotice({
             id,
-            routeId: `${route.origin}-${route.destination}`,
+            routeId: routeId(route),
             title: `${route.origin} → ${route.destination}`,
             text: 'Collection request could not be accepted. Try again.',
             kind: 'error',
@@ -199,6 +199,12 @@ function deriveActiveState(requests: ReadonlyMap<string, AirfareRequest>): {
   return { collecting, progress };
 }
 
+/**
+ * The watchlist's own key for the route a request collects.
+ *
+ * Rows, the map and the page look routes up by `routeId`; a request keyed any
+ * other way is progress no row can find, which is how the bar went missing.
+ */
 function requestRouteId(request: AirfareRequest): string {
-  return `${request.payload.origin}-${request.payload.destination}`;
+  return routeId(request.payload);
 }

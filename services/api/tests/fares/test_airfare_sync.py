@@ -107,6 +107,8 @@ class Destination:
         self.fail_after = 0
         self.history = None
         self.calendar = None
+        self.dirty_routes = []
+        self.projection_refreshes = []
 
     def handle(self, request):
         self.requests.append(request)
@@ -124,6 +126,16 @@ class Destination:
                 200, json=[{k: row[k] for k in columns} for row in rows[offset : offset + limit]]
             )
         body = json.loads(request.content)
+        if table == "list_fare_projection_dirty_routes":
+            return httpx.Response(200, json=self.dirty_routes)
+        if table == "refresh_fare_route_projection":
+            route = (body["p_origin"], body["p_destination"])
+            self.projection_refreshes.append(route)
+            self.dirty_routes = [
+                item for item in self.dirty_routes
+                if (item["origin"], item["destination"]) != route
+            ]
+            return httpx.Response(200, json=1)
         if table == "airfare_dataset_manifest":
             groups = {}
             for name, dataset in (
@@ -243,6 +255,9 @@ class ProcessDestination:
         self.state["baseline_price"] = rows[0]["price"]
 
     def rpc(self, name, params):
+        if name == "list_fare_projection_dirty_routes":
+            assert params == {}
+            return []
         assert name == "airfare_dataset_manifest"
         assert params == {}
         return []
@@ -315,6 +330,31 @@ def test_full_replay_preserves_payload_and_source_positions(source, remote):
     assert server.tables["airfare_documents"]["airfare-routes"]["value"] == WATCH
     assert server.tables["airfare_documents"]["airfare-routes"]["source_updated_at"]
     assert all(row["status"] == "complete" for row in server.tables["airfare_import_runs"].values())
+
+
+def test_sync_refreshes_dirty_route_projection_after_upload(source, remote):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+
+    report = AirfareSync(source, client).apply("incremental")
+
+    assert report.status == "complete"
+    assert server.projection_refreshes == [("AQP", "LIM")]
+    assert server.dirty_routes == []
+
+
+def test_failed_projection_refresh_is_retried_after_cursors_advance(source, remote):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+    server.fail_table = "refresh_fare_route_projection"
+    sync = AirfareSync(source, client)
+
+    assert sync.apply("incremental").status == "failed"
+    assert server.dirty_routes == [{"origin": "AQP", "destination": "LIM"}]
+
+    server.fail_table = None
+    assert sync.apply("incremental").status == "complete"
+    assert server.projection_refreshes == [("AQP", "LIM")]
 
 
 def test_apply_serializes_processes_before_scanning_a_rewritten_baseline(tmp_path):

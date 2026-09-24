@@ -6,39 +6,26 @@ import time
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from datetime import time as clock_time
-from zoneinfo import ZoneInfo
 
 import httpx
 
 from app.adapters import yahoo
-from app.adapters.models import CLOSED, POST, PRE, REGULAR, Bar, BarFocus, LiveBar
+from app.adapters.models import CLOSED, REGULAR, Bar, BarFocus, LiveBar
+from app.adapters.yahoo_buckets import (
+    INTRADAY_MINUTES,
+    NEW_YORK,
+    bucket_start,
+    local_datetime,
+    session_at,
+)
 
-NEW_YORK = ZoneInfo("America/New_York")
-_SESSION_ANCHORS = {PRE: (4, 0), REGULAR: (9, 30), POST: (16, 0)}
-_INTRADAY_PERIODS = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
-
-
-def local_datetime(timestamp: int | float) -> datetime:
-    return datetime.fromtimestamp(timestamp, tz=NEW_YORK)
+# Kept under the names `live_bars` already imports; the definitions live in
+# `yahoo_buckets` so the live candle and the history agree on every anchor.
+yahoo_session_at = session_at
 
 
 def local_date(timestamp: int | float) -> date:
     return local_datetime(timestamp).date()
-
-
-def yahoo_session_at(timestamp: int) -> str:
-    """Return PRE, REGULAR, POST, or CLOSED in America/New_York."""
-    local = local_datetime(timestamp)
-    if local.weekday() >= 5:
-        return CLOSED
-    minutes = local.hour * 60 + local.minute
-    if 4 * 60 <= minutes < 9 * 60 + 30:
-        return PRE
-    if 9 * 60 + 30 <= minutes < 16 * 60:
-        return REGULAR
-    if 16 * 60 <= minutes < 20 * 60:
-        return POST
-    return CLOSED
 
 
 def seconds_until_yahoo_open(timestamp: int | float) -> float:
@@ -53,17 +40,17 @@ def seconds_until_yahoo_open(timestamp: int | float) -> float:
     return max(0.0, opening.timestamp() - timestamp)
 
 
-def intraday_bucket_start(timestamp: int, timeframe: str, session: str) -> int:
-    """Use 04:00, 09:30, or 16:00 New York anchors."""
-    period = _INTRADAY_PERIODS[timeframe]
-    hour, minute = _SESSION_ANCHORS[session]
-    local = local_datetime(timestamp)
-    elapsed = local.hour * 60 + local.minute - (hour * 60 + minute)
-    bucket_minutes = hour * 60 + minute + (elapsed // period) * period
-    bucket = datetime.combine(local.date(), clock_time.min, tzinfo=NEW_YORK) + timedelta(
-        minutes=bucket_minutes
-    )
-    return int(bucket.timestamp())
+def _bucket(timestamp: int | float, timeframe: str) -> int:
+    """
+    `bucket_start` for a timestamp already known to have a candle.
+
+    Every caller here passes an eligible minute (inside a session) or a
+    daily-or-longer timeframe, neither of which can come back None.
+    """
+    start = bucket_start(timestamp, timeframe)
+    if start is None:
+        raise ValueError(f"no Yahoo {timeframe} candle contains {timestamp}")
+    return start
 
 
 def combine(time: int, bars: Sequence[Bar]) -> Bar | None:
@@ -92,25 +79,6 @@ def _eligible_minutes(focus: BarFocus, minute_bars: Sequence[Bar], as_of: float)
     return eligible
 
 
-def _day_bucket_start(as_of: float, extended: bool) -> int:
-    local = local_datetime(as_of)
-    hour, minute = _SESSION_ANCHORS[PRE if extended else REGULAR]
-    bucket = datetime.combine(local.date(), clock_time(hour, minute), tzinfo=NEW_YORK)
-    return int(bucket.timestamp())
-
-
-def _period_bucket_start(as_of: float, timeframe: str, extended: bool) -> int:
-    local = local_datetime(as_of)
-    if timeframe == "1d":
-        return _day_bucket_start(as_of, extended)
-    if timeframe == "1w":
-        start = local.date() - timedelta(days=local.date().weekday())
-    else:
-        start = local.date().replace(day=1)
-    hour, minute = _SESSION_ANCHORS[PRE if extended else REGULAR]
-    return int(datetime.combine(start, clock_time(hour, minute), tzinfo=NEW_YORK).timestamp())
-
-
 def _current_day_minutes(focus: BarFocus, minute_bars: Sequence[Bar], as_of: float) -> list[Bar]:
     today = local_date(as_of)
     return [
@@ -129,21 +97,17 @@ def aggregate_live_bar(
     if not eligible:
         return None
 
-    if focus.timeframe in _INTRADAY_PERIODS:
+    if focus.timeframe in INTRADAY_MINUTES:
+        # Yahoo's trailing quote snapshot is stamped mid-minute (10:19:02);
+        # bucketing by start folds it into its minute like any other row.
         latest = max(eligible, key=lambda bar: bar.time)
-        session = yahoo_session_at(latest.time)
-        bucket = intraday_bucket_start(latest.time, focus.timeframe, session)
-        selected = [
-            bar
-            for bar in eligible
-            if yahoo_session_at(bar.time) == session
-            and intraday_bucket_start(bar.time, focus.timeframe, session) == bucket
-        ]
+        bucket = _bucket(latest.time, focus.timeframe)
+        selected = [bar for bar in eligible if _bucket(bar.time, focus.timeframe) == bucket]
         current = combine(bucket, selected)
     else:
         today = local_date(as_of)
         selected_minutes = _current_day_minutes(focus, minute_bars, as_of)
-        current_day = combine(_day_bucket_start(as_of, focus.extended), selected_minutes)
+        current_day = combine(_bucket(as_of, "1d"), selected_minutes)
         if focus.timeframe == "1d":
             completed: list[Bar] = []
         else:
@@ -163,13 +127,11 @@ def aggregate_live_bar(
             else:
                 return None
         pieces = [*completed, *([] if current_day is None else [current_day])]
-        if focus.timeframe == "1d":
-            bucket = _day_bucket_start(as_of, focus.extended)
-        elif pieces:
-            bucket = min(piece.time for piece in pieces)
-        else:
-            bucket = _period_bucket_start(as_of, focus.timeframe, focus.extended)
-        current = combine(bucket, pieces)
+        # Stamped where Yahoo's own history stamps the period — 09:30 for a
+        # day even with pre-market minutes inside it, 00:00 Monday for a
+        # week, 00:00 on the 1st for a month — never at the earliest piece,
+        # or the browser cannot match it to the historical candle it updates.
+        current = combine(_bucket(as_of, focus.timeframe), pieces)
 
     if current is None:
         return None

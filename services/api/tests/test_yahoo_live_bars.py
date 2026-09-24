@@ -1,5 +1,7 @@
 import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -7,9 +9,11 @@ import pytest
 
 from app.adapters import yahoo
 from app.adapters.models import Bar, BarFocus
+from app.adapters.yahoo_buckets import bucket_start
 from app.adapters.yahoo_live_bars import YahooLiveBarClient, aggregate_live_bar
 
 NY = ZoneInfo("America/New_York")
+FIXTURES = Path(__file__).parent / "fixtures"
 AS_OF = datetime(2026, 9, 22, 10, 0, tzinfo=NY).timestamp()
 
 
@@ -79,8 +83,10 @@ def test_extended_daily_bar_includes_pre_regular_and_post_minutes():
     )
 
     assert update is not None
+    # Stamped 09:30 like Yahoo's daily history, even though the content
+    # starts with the 04:00 pre-market minute.
     assert update.bar == Bar(
-        time=ny_timestamp("2026-09-22T04:00:00"), open=98, high=106, low=97, close=105, volume=175
+        time=ny_timestamp("2026-09-22T09:30:00"), open=98, high=106, low=97, close=105, volume=175
     )
 
 
@@ -102,6 +108,22 @@ def test_week_uses_completed_days_plus_today_minutes_without_double_counting():
 
     assert update is not None
     assert update.bar.volume == 1_275
+    # Monday 00:00, where Yahoo's weekly history puts it — not the time of the
+    # earliest daily piece (Monday 09:30).
+    assert update.bar.time == ny_timestamp("2026-09-21T00:00:00")
+
+
+@pytest.mark.parametrize("extended", [False, True])
+def test_week_and_month_buckets_do_not_depend_on_extended_or_pieces(extended: bool):
+    minutes = [Bar(ny_timestamp("2026-09-22T10:00:00"), 100, 101, 99, 100, 5)]
+    as_of = ny_timestamp("2026-09-22T10:00:00")
+
+    week = aggregate_live_bar(BarFocus("AAPL", "1w", extended), minutes, [], as_of)
+    month = aggregate_live_bar(BarFocus("AAPL", "1M", extended), minutes, [], as_of)
+
+    assert week is not None and month is not None
+    assert week.bar.time == ny_timestamp("2026-09-21T00:00:00")
+    assert month.bar.time == ny_timestamp("2026-09-01T00:00:00")
 
 
 def test_month_excludes_a_prior_month_daily_bar():
@@ -149,7 +171,8 @@ def test_month_end_fetch_includes_the_first_calendar_day_of_the_month():
     update = asyncio.run(run())
 
     assert update is not None
-    assert update.bar == Bar(first_day, 10, 35, 9, 34, 150)
+    # Yahoo stamps a monthly candle 00:00 on the 1st, not at the session open.
+    assert update.bar == Bar(ny_timestamp("2026-09-01T00:00:00"), 10, 35, 9, 34, 150)
     assert requests[1].url.params["range"] == "3mo"
 
 
@@ -334,3 +357,92 @@ def test_weekly_daily_prefix_is_bounded_cached_and_expires():
         ("1m", "1d"),
         ("1d", "3mo"),
     ]
+
+
+def load_fixture(name: str) -> list[Bar]:
+    path = FIXTURES / f"yahoo_chart_aapl_{name}_2026-09-24.json"
+    return yahoo.parse_live_bars(json.loads(path.read_text(encoding="utf-8")))
+
+
+# The historical series a live candle has to land on, per timeframe and focus.
+# There is no extended capture for 1m/5m/15m; during the regular session an
+# extended series carries the same tail, so the regular one stands in.
+HISTORY_FIXTURES = {
+    ("1m", False): "1m",
+    ("1m", True): "1m",
+    ("5m", False): "5m",
+    ("5m", True): "5m",
+    ("15m", False): "15m",
+    ("15m", True): "15m",
+    ("1h", False): "1h",
+    ("1h", True): "1h_ext",
+    ("1d", False): "1d",
+    ("1d", True): "1d_ext",
+    ("1w", False): "1w",
+    ("1w", True): "1w",
+    ("1M", False): "1mo",
+    ("1M", True): "1mo",
+}
+LIVE_EXPECTED = {
+    "1m": "2026-09-24T10:19:00",
+    "5m": "2026-09-24T10:15:00",
+    "15m": "2026-09-24T10:15:00",
+    "1h": "2026-09-24T09:30:00",
+    "1d": "2026-09-24T09:30:00",
+    "1w": "2026-09-21T00:00:00",
+    "1M": "2026-09-01T00:00:00",
+}
+
+
+@pytest.mark.parametrize(("timeframe", "extended"), sorted(HISTORY_FIXTURES))
+def test_live_candle_lands_on_yahoo_history_tail(timeframe: str, extended: bool):
+    """
+    Real capture, AAPL 2026-09-24 ~10:19 NY: the live candle must carry the
+    time of the history's last candle, or the browser cannot merge it.
+
+    The history's last row is Yahoo's off-grid quote snapshot (intraday) or
+    today's daily row (1w/1M); normalised, it folds into `bucket_start` of
+    itself, which is therefore the last candle's time.
+    """
+    minutes = load_fixture("live1m")
+    daily = load_fixture("1d_ext")
+    as_of = float(max(bar.time for bar in minutes))
+    history = load_fixture(HISTORY_FIXTURES[(timeframe, extended)])
+
+    update = aggregate_live_bar(BarFocus("AAPL", timeframe, extended), minutes, daily, as_of)
+
+    assert update is not None
+    assert update.bar.time == bucket_start(history[-1].time, timeframe)
+    assert update.bar.time == ny_timestamp(LIVE_EXPECTED[timeframe])
+
+
+def test_trailing_quote_snapshot_folds_into_its_minute_without_adding_volume():
+    minutes = load_fixture("live1m")
+    snapshot = minutes[-1]
+    as_of = float(snapshot.time)
+    # Yahoo's trailing row: stamped at the quote time, flat, volume 0.
+    assert snapshot.time % 60 != 0 and snapshot.volume == 0
+    assert snapshot.open == snapshot.high == snapshot.low == snapshot.close
+
+    one = aggregate_live_bar(BarFocus("AAPL", "1m", False), minutes, [], as_of)
+    five = aggregate_live_bar(BarFocus("AAPL", "5m", False), minutes, [], as_of)
+
+    assert one is not None and five is not None
+    assert one.bar == Bar(
+        ny_timestamp("2026-09-24T10:19:00"),
+        snapshot.open,
+        snapshot.high,
+        snapshot.low,
+        snapshot.close,
+        0,
+    )
+    real = [
+        bar
+        for bar in minutes
+        if ny_timestamp("2026-09-24T10:15:00") <= bar.time < ny_timestamp("2026-09-24T10:19:00")
+    ]
+    assert len(real) == 4
+    assert five.bar.time == ny_timestamp("2026-09-24T10:15:00")
+    assert five.bar.open == real[0].open
+    assert five.bar.volume == sum(bar.volume for bar in real)
+    assert five.bar.close == snapshot.close

@@ -9,6 +9,8 @@ playwright==1.62.0
 # Arrives with uvicorn[standard], but the streaming adapters import it directly
 # — a transitive dependency you rely on by name is one an upgrade can remove.
 websockets==15.0.1
+# Windows has no system zone database, so `ZoneInfo("America/New_York")` fails without it.
+tzdata==2026.4
 pytest==9.1.1
 # Lint and format for the API. Pinned like everything else: the code already
 # carried `# noqa` codes for a linter nobody had installed, which suppressed

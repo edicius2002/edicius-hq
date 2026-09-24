@@ -55,3 +55,10 @@
 - [ ] Clear in-memory and persistent bars on auth boundary; leave other data untouched.
 - [ ] Run web tests, typecheck, lint, formatting and build; review the diff.
 - [ ] Open PR, wait for CI, merge and verify the deployed asset is accessible.
+
+## Verification record
+
+- Web tests: 2,356 passed, 2 skipped (173 files passed, 1 skipped).
+- Typecheck, lint, formatting and production build passed. Lint retains 11 warnings in unrelated files.
+- A Chrome smoke test exercised native IndexedDB write, read, owner isolation and clear successfully.
+- Remaining: PR, CI, merge and deployed-page verification.

@@ -94,6 +94,27 @@ describe('useCandles', () => {
     await waitFor(() => expect(result.current.bars[0].close).toBe(1.8));
     expect(result.current.isStale).toBe(false);
   });
+
+  it('cannot repopulate memory or IndexedDB after its chart request is cancelled', async () => {
+    const wrapper = sharedQueryWrapper();
+    const next = deferred<typeof barsResponse>();
+    getBars.mockReturnValue(next.promise);
+    renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), { wrapper });
+    await waitFor(() => expect(getBars).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      await wrapper.client.cancelQueries({ queryKey: ['market', 'bars', 'SPCX', '15m', true] });
+    });
+    const publish = getBars.mock.calls[0][4] as (bars: typeof barsResponse) => void;
+    act(() => publish({ ...barsResponse, stale: true }));
+    next.resolve(barsResponse);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(wrapper.client.getQueryData(['market', 'bars', 'SPCX', '15m', true])).toBeUndefined();
+    expect(barCache.write).not.toHaveBeenCalled();
+  });
   it('keeps 24/7 instruments polling while the US market is closed', () => {
     expect(candleRefetchInterval('closed', '1m', false)).toBe(10_000);
     expect(candleRefetchInterval('closed', '1m', true)).toBe(false);
@@ -196,7 +217,13 @@ describe('useCandles', () => {
       active: true,
     });
     await waitFor(() =>
-      expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true, undefined, expect.any(Function)),
+      expect(getBars).toHaveBeenCalledWith(
+        'SPCX',
+        '15m',
+        true,
+        expect.any(AbortSignal),
+        expect.any(Function),
+      ),
     );
   });
 
@@ -223,7 +250,13 @@ describe('useCandles', () => {
       active: false,
     });
     await waitFor(() =>
-      expect(getBars).toHaveBeenCalledWith('SPCX', '15m', true, undefined, expect.any(Function)),
+      expect(getBars).toHaveBeenCalledWith(
+        'SPCX',
+        '15m',
+        true,
+        expect.any(AbortSignal),
+        expect.any(Function),
+      ),
     );
     expect(result.current.bars).toEqual([history]);
 

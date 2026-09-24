@@ -88,4 +88,23 @@ describe('market bar browser cache', () => {
     await expect(unavailable.read('owner-a', 'AAPL', '1d', false)).resolves.toBeNull();
     await expect(unavailable.write('owner-a', response)).resolves.toBeUndefined();
   });
+
+  it('clears a write already in flight when the owner signs out', async () => {
+    const storage = memoryStorage();
+    const originalWrite = storage.write;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    storage.write = async (key, value) => {
+      await held;
+      await originalWrite(key, value);
+    };
+    const cache = createMarketBarCache(storage);
+    const writing = cache.write('owner-a', response);
+    const clearing = cache.clear();
+    release();
+    await Promise.all([writing, clearing]);
+    expect(storage.rows.size).toBe(0);
+  });
 });

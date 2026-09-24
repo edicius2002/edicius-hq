@@ -128,9 +128,10 @@ export function useCandles(
     // The flag is part of the key: the two variants are different series, and
     // one must not be served from the other's cache entry.
     queryKey: ['market', 'bars', symbol, timeframe, wantExtended],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const key = ['market', 'bars', symbol, timeframe, wantExtended] as const;
       const publishSaved = (saved: BarsResponse) => {
+        if (signal.aborted) return;
         queryClient.setQueryData<BarsResponse>(key, (current) => current ?? saved);
       };
       const ownerId = await supabase.auth.getSession().then(
@@ -141,7 +142,9 @@ export function useCandles(
         const local = await marketBarCache.read(ownerId, symbol, timeframe, wantExtended);
         if (local) publishSaved(local);
       }
-      const fresh = await getBars(symbol, timeframe, wantExtended, undefined, publishSaved);
+      signal.throwIfAborted();
+      const fresh = await getBars(symbol, timeframe, wantExtended, signal, publishSaved);
+      signal.throwIfAborted();
       if (ownerId) void marketBarCache.write(ownerId, fresh);
       return fresh;
     },

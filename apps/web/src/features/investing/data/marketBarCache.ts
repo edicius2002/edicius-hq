@@ -14,7 +14,7 @@ type SavedSeries = {
 };
 
 export type BarCacheStorage = {
-  read: (key: string) => Promise<unknown | null>;
+  read: (key: string) => Promise<unknown>;
   write: (key: string, value: SavedSeries) => Promise<void>;
   oldestKeys: () => Promise<string[]>;
   remove: (key: string) => Promise<void>;
@@ -51,6 +51,13 @@ export function createMarketBarCache(
   storage: BarCacheStorage,
   { limit = DEFAULT_LIMIT, now = Date.now }: { limit?: number; now?: () => number } = {},
 ) {
+  let mutation = Promise.resolve();
+  function queueMutation(operation: () => Promise<void>): Promise<void> {
+    const next = mutation.then(operation, operation);
+    mutation = next.catch(() => undefined);
+    return next;
+  }
+
   return {
     async read(ownerId: string, symbol: string, timeframe: string, extended: boolean) {
       if (!ownerId) return null;
@@ -75,25 +82,29 @@ export function createMarketBarCache(
         return null;
       }
     },
-    async write(ownerId: string, response: BarsResponse) {
+    write(ownerId: string, response: BarsResponse) {
       if (!ownerId || !validResponse(response)) return;
       const key = seriesKey(ownerId, response.symbol, response.timeframe, response.extended);
-      try {
-        await storage.write(key, { version: VERSION, ownerId, key, savedAt: now(), response });
-        const keys = await storage.oldestKeys();
-        for (const old of keys.slice(0, Math.max(0, keys.length - limit))) {
-          await storage.remove(old);
+      return queueMutation(async () => {
+        try {
+          await storage.write(key, { version: VERSION, ownerId, key, savedAt: now(), response });
+          const keys = await storage.oldestKeys();
+          for (const old of keys.slice(0, Math.max(0, keys.length - limit))) {
+            await storage.remove(old);
+          }
+        } catch {
+          // Private mode, disabled storage and quota errors only lose the local copy.
         }
-      } catch {
-        // Private mode, disabled storage and quota errors only lose the local copy.
-      }
+      });
     },
-    async clear() {
-      try {
-        await storage.clear();
-      } catch {
-        // Authentication and network state are independent of browser storage.
-      }
+    clear() {
+      return queueMutation(async () => {
+        try {
+          await storage.clear();
+        } catch {
+          // Authentication and network state are independent of browser storage.
+        }
+      });
     },
   };
 }
@@ -109,7 +120,7 @@ function openDatabase(): Promise<IDBDatabase> {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
     request.onblocked = () => reject(new Error('IndexedDB upgrade blocked'));
   });
 }
@@ -131,11 +142,11 @@ async function transact<T>(
     };
     transaction.onerror = () => {
       database.close();
-      reject(transaction.error);
+      reject(transaction.error ?? new Error('IndexedDB transaction failed'));
     };
     transaction.onabort = () => {
       database.close();
-      reject(transaction.error);
+      reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
     };
   });
 }
@@ -158,7 +169,7 @@ const indexedDbStorage: BarCacheStorage = {
       request.onsuccess = () => {
         const cursor = request.result;
         if (cursor) {
-          keys.push(String(cursor.primaryKey));
+          if (typeof cursor.primaryKey === 'string') keys.push(cursor.primaryKey);
           cursor.continue();
         } else finish(keys);
       };

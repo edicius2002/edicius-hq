@@ -132,8 +132,7 @@ class Destination:
             route = (body["p_origin"], body["p_destination"])
             self.projection_refreshes.append(route)
             self.dirty_routes = [
-                item for item in self.dirty_routes
-                if (item["origin"], item["destination"]) != route
+                item for item in self.dirty_routes if (item["origin"], item["destination"]) != route
             ]
             return httpx.Response(200, json=1)
         if table == "airfare_dataset_manifest":

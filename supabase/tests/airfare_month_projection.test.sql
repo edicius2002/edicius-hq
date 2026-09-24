@@ -45,6 +45,26 @@ select is((select category from public.fare_flight_projections where origin='TST
 select is((select category from public.fare_flight_projections where origin='TST' and destination='DST' and month='2027-03' and flight_key='AA|1|2027-03-09T10:00|2027-03-09T12:00'),'fell','last distinct price determines category');
 select is((select payload->>'latestCapture' from public.fare_month_projections where origin='TST' and destination='DST' and month='2027-03'),'2026-09-20T14:00:00Z','latest capture spans all departures');
 select is((select last_seen_at from public.fare_flight_projections where origin='TST' and destination='DST' and month='2027-03' and flight_key='AA|1|2027-03-09T10:00|2027-03-09T12:00'),'2026-09-20T14:00:00Z','unpriced sighting sets period membership');
+select is((select payload ? 'airports' from public.fare_month_projections where origin='TST' and destination='DST' and month='2027-03'),false,'airport directory is read separately rather than copied into month projection');
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+select repeat('7',64),'STB','DST','2027-04-09'::date,'2026-09-20T10:00:00Z'::timestamptz,'2026-09-20T10:00:00Z',1,'test','USD',100,
+  jsonb_build_object('offers',jsonb_build_array(jsonb_build_object('airline','AA','flightNumber','1','departureAt','2027-04-09T10:00','arrivalAt','2027-04-09T12:00','price',100)))
+union all
+select repeat('8',64),'STB','DST','2027-04-09'::date,'2026-09-20T11:00:00Z'::timestamptz,'2026-09-20T11:00:00Z',2,'test','USD',100,
+  jsonb_build_object('offers',jsonb_build_array(jsonb_build_object('airline','AA','flightNumber','1','departureAt','2027-04-09T10:00','arrivalAt','2027-04-09T12:00','price',100)));
+select lives_ok($$select public.refresh_fare_month_projection('STB','DST','2027-04')$$,'stable flight projection refresh succeeds');
+select is((select change_percent::text from public.fare_flight_projections where origin='STB' and destination='DST' and month='2027-04'),'0','repeated stable price reports zero change');
+select is((select category from public.fare_flight_projections where origin='STB' and destination='DST' and month='2027-04'),'unchanged','repeated stable flight remains unchanged');
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+values (repeat('9',64),'DEL','DST','2027-05-09','2026-09-20T10:00:00Z','2026-09-20T10:00:00Z',1,'test','USD',100,'{"offers":[]}');
+select is(public.refresh_fare_route_projection('DEL','DST'),1,'route builds its only month');
+reset role;
+delete from public.fare_snapshots where origin='DEL' and destination='DST';
+set local role service_role;
+select is(public.refresh_fare_route_projection('DEL','DST'),0,'route has no source months after deletion');
+select is((select count(*)::text from public.fare_month_projections where origin='DEL' and destination='DST'),'0','removed source month also removes its projection');
 select throws_ok($$select public.read_owner_fare_month_projection('TST','DST','2027-03')$$,'42501','not_edicius_owner','month read denies a non-owner');
 select throws_ok($$select public.read_owner_fare_flights('TST','DST','2027-03')$$,'42501','not_edicius_owner','flight read denies a non-owner');
 select is(public.refresh_fare_route_projection('TST','DST'),1,'route refresh covers its month');

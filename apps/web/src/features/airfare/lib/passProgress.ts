@@ -31,6 +31,8 @@ export type PassProgress = {
    * for that, and it needs to be able to tell the two apart.
    */
   fraction: number | null;
+  /** Every departure is collected and the pass is writing it to Supabase. */
+  syncing?: boolean;
 };
 
 /**

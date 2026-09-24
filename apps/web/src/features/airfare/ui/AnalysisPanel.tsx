@@ -12,7 +12,9 @@ import {
   calendarAxis,
   periodBounds,
   unsoldPeriods,
+  type Bucket,
   type Granularity,
+  type UnsoldPeriod,
 } from '@/features/airfare/lib/buckets';
 import {
   anchorFor,
@@ -157,6 +159,10 @@ type AnalysisPanelProps = {
   /** The archive for every watched month — chart B's. */
   watchedSnapshots: FareSnapshot[];
   baseline: FarePricePoint[];
+  /** Persisted daily series when the historical archive has not been downloaded. */
+  priceDays?: Bucket[];
+  providerDays?: Bucket[];
+  unsoldDays?: UnsoldPeriod[];
   /** The booking horizon as last collected, or null where there is none yet. */
   curve: CalendarCurve | null;
   /** True while that request is in flight, so "never collected" is not claimed early. */
@@ -229,6 +235,9 @@ export function AnalysisPanel({
   monthSnapshots,
   watchedSnapshots,
   baseline,
+  priceDays,
+  providerDays,
+  unsoldDays,
   curve,
   curveLoading,
   curveError = null,
@@ -301,9 +310,12 @@ export function AnalysisPanel({
   // price has done over time, so a second month's observations bucketed onto
   // the same dates would widen the band into "cheapest across both", which is
   // not a thing anybody was ever quoted.
-  const ours = useMemo(() => bucketSnapshots(monthSnapshots, 'day'), [monthSnapshots]);
-  const theirs = useMemo(() => bucketBaseline(baseline, 'day'), [baseline]);
-  const oursUnsold = useMemo(() => unsoldPeriods(monthSnapshots, 'day'), [monthSnapshots]);
+  const computedOurs = useMemo(() => bucketSnapshots(monthSnapshots, 'day'), [monthSnapshots]);
+  const computedTheirs = useMemo(() => bucketBaseline(baseline, 'day'), [baseline]);
+  const computedUnsold = useMemo(() => unsoldPeriods(monthSnapshots, 'day'), [monthSnapshots]);
+  const ours = priceDays ?? computedOurs;
+  const theirs = providerDays ?? computedTheirs;
+  const oursUnsold = unsoldDays ?? computedUnsold;
 
   /*
    * What the watch is on, as one range of departure dates per watched month.

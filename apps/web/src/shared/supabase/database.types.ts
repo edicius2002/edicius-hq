@@ -785,6 +785,25 @@ export type Database = {
         Args: { p_codes: string[] };
         Returns: Json;
       };
+      read_owner_fare_month_projection: {
+        Args: { p_origin: string; p_destination: string; p_month: string };
+        Returns: Json;
+      };
+      read_owner_fare_flights_page: {
+        Args: {
+          p_origin: string;
+          p_destination: string;
+          p_month: string;
+          p_from: string;
+          p_to: string;
+          p_filters?: Json;
+          p_sort?: string;
+          p_direction?: string;
+          p_page?: number;
+          p_page_size?: number;
+        };
+        Returns: Json;
+      };
       read_airfare_history_meta: {
         Args: {
           p_departure: string;

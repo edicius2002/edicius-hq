@@ -7,7 +7,14 @@ import type {
   FareHistoryResponse,
 } from '@/shared/api/fares';
 import { supabase } from '@/shared/supabase/client';
+import type { Filters, Sort } from '@/features/airfare/lib/flightTable';
 import { assembleHistory, HistoryRevisionChanged } from './airfareHistoryPages';
+import {
+  parseFareFlightPage,
+  parseFareMonthProjection,
+  type FareFlightPage,
+  type FareMonthProjection,
+} from './fareProjections';
 
 type HistoryOptions = {
   departure?: string;
@@ -29,6 +36,52 @@ function rpcResult<T>(data: unknown, error: unknown): T {
     throw new Error(`Airfare data request failed${code}.`);
   }
   return data as T;
+}
+
+export async function fetchFareMonthProjection(
+  origin: string,
+  destination: string,
+  month: string,
+  signal?: AbortSignal,
+): Promise<FareMonthProjection | null> {
+  const request = supabase.rpc('read_owner_fare_month_projection', {
+    p_origin: origin,
+    p_destination: destination,
+    p_month: month,
+  });
+  const { data, error } = signal ? await request.abortSignal(signal) : await request;
+  signal?.throwIfAborted();
+  const value = rpcResult<unknown>(data, error);
+  return value === null ? null : parseFareMonthProjection(value, origin, destination, month);
+}
+
+export async function fetchFareFlightPage(
+  origin: string,
+  destination: string,
+  month: string,
+  from: string,
+  to: string,
+  filters: Filters,
+  sort: Sort,
+  page: number,
+  signal?: AbortSignal,
+): Promise<FareFlightPage | null> {
+  const request = supabase.rpc('read_owner_fare_flights_page', {
+    p_origin: origin,
+    p_destination: destination,
+    p_month: month,
+    p_from: from,
+    p_to: to,
+    p_filters: filters,
+    p_sort: sort.column,
+    p_direction: sort.direction,
+    p_page: page,
+    p_page_size: 10,
+  });
+  const { data, error } = signal ? await request.abortSignal(signal) : await request;
+  signal?.throwIfAborted();
+  const value = rpcResult<unknown>(data, error);
+  return value === null ? null : parseFareFlightPage(value);
 }
 
 export async function fetchFareHistory(

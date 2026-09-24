@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { AirfareRequest } from '@/features/airfare/data/airfareRequests';
+import { routeId } from '@/features/airfare/data/fareRoutes';
 import {
   MAX_NOTICES,
   acceptedCollectNotice,
@@ -39,7 +40,8 @@ describe('Pi Airfare request notices', () => {
   it('uses request ids and fixed accepted copy', () => {
     expect(acceptedCollectNotice(request())).toMatchObject({
       id: 'request-1',
-      routeId: 'LIM-CUZ',
+      // The watchlist's key, so removing a watch can find its cards.
+      routeId: routeId({ origin: 'LIM', destination: 'CUZ' }),
       title: 'LIM → CUZ · November 2026',
       text: 'Collection request accepted by the Pi.',
       kind: 'accepted',

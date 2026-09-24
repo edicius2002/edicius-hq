@@ -2530,51 +2530,62 @@ export function RouteMap({
             );
           })}
 
-          {stops.map(({ id, colour, line }) =>
-            runsFor(line.coordinates).map((run, index) => {
-              const d = svgPath({ type: 'LineString', coordinates: run.points } as never);
-              return d ? (
-                <path
-                  key={`${id}:${index}`}
-                  d={d}
-                  style={{
-                    stroke: colour,
-                    color: colour,
-                    opacity: run.opacity,
-                    animationDelay: flowDelay(run.before),
-                  }}
-                  className={[
-                    styles.arc,
-                    styles.stop,
-                    // Stops are the exception to the flat-map rule: their
-                    // breaks name an itinerary, not depth, so they stay
-                    // dashed in either projection.
-                    styles.dashed,
-                    isGlobe ? styles.flow : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  aria-hidden="true"
-                />
-              ) : null;
-            }),
-          )}
+          {/*
+            Stops arrive with the month, after the routes are already drawn, so
+            each leg fades in inside a group of its own: the path's own
+            `animation` is the flow, and a second one on it would replace it.
+          */}
+          {stops.map(({ id, colour, line }) => (
+            <g key={id} className={styles.arriving}>
+              {runsFor(line.coordinates).map((run, index) => {
+                const d = svgPath({ type: 'LineString', coordinates: run.points } as never);
+                return d ? (
+                  <path
+                    key={`${id}:${index}`}
+                    d={d}
+                    style={{
+                      stroke: colour,
+                      color: colour,
+                      opacity: run.opacity,
+                      animationDelay: flowDelay(run.before),
+                    }}
+                    className={[
+                      styles.arc,
+                      styles.stop,
+                      // Stops are the exception to the flat-map rule: their
+                      // breaks name an itinerary, not depth, so they stay
+                      // dashed in either projection.
+                      styles.dashed,
+                      isGlobe ? styles.flow : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-hidden="true"
+                  />
+                ) : null;
+              })}
+            </g>
+          ))}
 
           {stopNodes.map(({ id, point, code, colour }) => {
             const xy = place(point);
             if (!xy) return null;
+            // The fade wraps the surface opacity rather than replacing it, so a
+            // node round the back of the globe arrives at its dimmed strength.
             return (
-              <g key={id} style={{ opacity: surfaceOpacity(point) }}>
-                <circle
-                  cx={xy[0]}
-                  cy={xy[1]}
-                  r={4}
-                  style={{ fill: colour }}
-                  className={styles.node}
-                />
-                <text x={xy[0] + 9} y={xy[1] + 3.5} className={styles.label}>
-                  {code}
-                </text>
+              <g key={id} className={styles.arriving}>
+                <g style={{ opacity: surfaceOpacity(point) }}>
+                  <circle
+                    cx={xy[0]}
+                    cy={xy[1]}
+                    r={4}
+                    style={{ fill: colour }}
+                    className={styles.node}
+                  />
+                  <text x={xy[0] + 9} y={xy[1] + 3.5} className={styles.label}>
+                    {code}
+                  </text>
+                </g>
               </g>
             );
           })}

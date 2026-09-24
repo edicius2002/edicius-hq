@@ -179,8 +179,11 @@ describe('useCandles', () => {
     renderHook(() => useCandles('SPCX', '15m', undefined, new Map()), { wrapper });
     await waitFor(() => expect(getBars).toHaveBeenCalledOnce());
 
+    // Without the session flag: which variant is requested follows the wall
+    // clock (extended outside regular hours), and the test must not.
+    const chart = ['market', 'bars', 'SPCX', '15m'];
     await act(async () => {
-      await wrapper.client.cancelQueries({ queryKey: ['market', 'bars', 'SPCX', '15m', true] });
+      await wrapper.client.cancelQueries({ queryKey: chart });
     });
     const publish = getBars.mock.calls[0][4] as (bars: typeof barsResponse) => void;
     act(() => publish({ ...barsResponse, stale: true }));
@@ -189,7 +192,9 @@ describe('useCandles', () => {
       await Promise.resolve();
     });
 
-    expect(wrapper.client.getQueryData(['market', 'bars', 'SPCX', '15m', true])).toBeUndefined();
+    expect(wrapper.client.getQueriesData({ queryKey: chart }).map(([, data]) => data)).toEqual([
+      undefined,
+    ]);
     expect(barCache.write).not.toHaveBeenCalled();
   });
   it('keeps 24/7 instruments polling while the US market is closed', () => {

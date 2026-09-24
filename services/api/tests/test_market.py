@@ -22,6 +22,10 @@ from app.services.market_cache import BarCache, MemoryCache
 
 TF = TIMEFRAMES["1d"]
 
+# Consecutive trading days at the 09:30 New York open, where Yahoo stamps a
+# daily candle — `parse_bars` moves any other stamp onto its candle's start.
+DAY_1, DAY_2, DAY_3, DAY_4 = 1790083800, 1790170200, 1790256600, 1790343000
+
 
 def yahoo_chart(*, stamps, opens, highs, lows, closes, volumes, meta=None):
     return {
@@ -51,69 +55,69 @@ def yahoo_chart(*, stamps, opens, highs, lows, closes, volumes, meta=None):
 class TestYahooParsing:
     def test_reads_a_plain_series(self):
         payload = yahoo_chart(
-            stamps=[1, 2],
+            stamps=[DAY_1, DAY_2],
             opens=[10.0, 11.0],
             highs=[12.0, 13.0],
             lows=[9.0, 10.5],
             closes=[11.0, 12.5],
             volumes=[100, 200],
         )
-        bars = yahoo.parse_bars(payload, limit=100)
+        bars = yahoo.parse_bars(payload, "1d", limit=100)
 
-        assert [b.time for b in bars] == [1, 2]
+        assert [b.time for b in bars] == [DAY_1, DAY_2]
         assert bars[0].close == 11.0
         assert bars[1].volume == 200
 
     def test_drops_padded_gaps_rather_than_drawing_them_as_zero(self):
         payload = yahoo_chart(
-            stamps=[1, 2, 3],
+            stamps=[DAY_1, DAY_2, DAY_3],
             opens=[10.0, None, 12.0],
             highs=[12.0, None, 13.0],
             lows=[9.0, None, 11.0],
             closes=[11.0, None, 12.5],
             volumes=[100, None, 300],
         )
-        bars = yahoo.parse_bars(payload, limit=100)
+        bars = yahoo.parse_bars(payload, "1d", limit=100)
 
-        assert [b.time for b in bars] == [1, 3]
+        assert [b.time for b in bars] == [DAY_1, DAY_3]
         assert all(b.close > 0 for b in bars)
 
     def test_missing_volume_is_zero_not_a_dropped_bar(self):
         payload = yahoo_chart(
-            stamps=[1],
+            stamps=[DAY_1],
             opens=[10.0],
             highs=[12.0],
             lows=[9.0],
             closes=[11.0],
             volumes=[None],
         )
-        bars = yahoo.parse_bars(payload, limit=100)
+        bars = yahoo.parse_bars(payload, "1d", limit=100)
 
         assert len(bars) == 1
         assert bars[0].volume == 0
 
     def test_keeps_the_newest_bars_when_the_cap_bites(self):
         payload = yahoo_chart(
-            stamps=[1, 2, 3, 4],
+            stamps=[DAY_1, DAY_2, DAY_3, DAY_4],
             opens=[1.0] * 4,
             highs=[1.0] * 4,
             lows=[1.0] * 4,
             closes=[1.0, 2.0, 3.0, 4.0],
             volumes=[0] * 4,
         )
-        bars = yahoo.parse_bars(payload, limit=2)
+        bars = yahoo.parse_bars(payload, "1d", limit=2)
 
-        assert [b.time for b in bars] == [3, 4]
+        assert [b.time for b in bars] == [DAY_3, DAY_4]
 
     def test_an_empty_result_is_a_missing_symbol(self):
         with pytest.raises(ProviderError) as caught:
-            yahoo.parse_bars({"chart": {"result": []}}, limit=10)
+            yahoo.parse_bars({"chart": {"result": []}}, "1d", limit=10)
         assert caught.value.code == "symbol-not-found"
 
     def test_an_upstream_error_is_reported_as_one(self):
         payload = {"chart": {"error": {"description": "Not found"}, "result": []}}
         with pytest.raises(ProviderError) as caught:
-            yahoo.parse_bars(payload, limit=10)
+            yahoo.parse_bars(payload, "1d", limit=10)
         assert caught.value.code == "upstream-error"
 
     def test_search_takes_what_it_can_name(self):

@@ -15,6 +15,20 @@ const SESSION_ANCHORS: Record<Session, [number, number]> = {
   REGULAR: [9, 30],
   POST: [16, 0],
 };
+// Yahoo appends a single off-grid row; one row of slack tolerates an odd tail
+// while keeping each merge from scanning the whole history.
+const MAX_OFF_GRID_TAIL = 2;
+// Built once: every tick and every examined tail row reads New York time.
+const NEW_YORK_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: NEW_YORK,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
 
 type Session = 'PRE' | 'REGULAR' | 'POST';
 type CalendarParts = {
@@ -63,7 +77,7 @@ export function mergeLiveBars(
   if (!base.length) return base;
 
   const usableAuthoritative = isMatchingUpdate(authoritative, context) ? authoritative : null;
-  const withBar = usableAuthoritative ? applyAuthoritative(base, usableAuthoritative) : base;
+  const withBar = reconcileHistory(base, usableAuthoritative, context);
 
   if (
     !tick ||
@@ -88,8 +102,22 @@ function isMatchingUpdate(
     update.timeframe === context.timeframe &&
     update.extended === context.extended &&
     Number.isFinite(update.asOf) &&
-    isBar(update.bar)
+    isBar(update.bar) &&
+    onGrid(update.bar.time, context)
   );
+}
+
+/**
+ * Whether a live candle starts where the history's candle for its period does.
+ *
+ * A collector still running older anchors — 09:30 Monday for a week, 04:00 for
+ * an extended day — sends candles that match no historical one. Replacing
+ * nothing, a later one would be appended as a second candle for the same
+ * period, so it is refused and the tick keeps the candle moving instead.
+ */
+function onGrid(time: number, context: LiveBarContext): boolean {
+  if (!context.hasSession || !TIMEFRAMES.has(context.timeframe)) return true;
+  return yahooBucketStart(time, context.timeframe, null) === time;
 }
 
 function isBar(value: Bar | undefined): value is Bar {
@@ -102,6 +130,82 @@ function isBar(value: Bar | undefined): value is Bar {
     Number.isFinite(value.close) &&
     Number.isFinite(value.volume)
   );
+}
+
+/**
+ * Apply the authoritative candle to history that may still end in rows which
+ * are not candles of the series.
+ *
+ * Yahoo ends a chart response with a row stamped at the current quote time:
+ * a zero-volume snapshot on intraday series, and today's daily bar on weekly
+ * and monthly ones (whose period row then excludes today). The API folds that
+ * row away now, but series cached before it did — in IndexedDB, Supabase, or
+ * React Query — still carry it, and it outranks every live candle by `time`.
+ * Only the tail can hold such a row, so only the last few rows are examined
+ * rather than the whole series on every tick.
+ */
+function reconcileHistory(
+  base: Bar[],
+  authoritative: LiveBarUpdate | null,
+  context: LiveBarContext,
+): Bar[] {
+  const normalizes = context.hasSession && TIMEFRAMES.has(context.timeframe);
+  const offGridFrom = normalizes ? trailingOffGrid(base, context.timeframe) : base.length;
+  const history = offGridFrom === base.length ? base : base.slice(0, offGridFrom);
+  const withBar = authoritative ? applyAuthoritative(history, authoritative) : history;
+  if (offGridFrom === base.length) return withBar;
+
+  // The authoritative candle is the provider's whole aggregate for its bucket,
+  // so an off-grid row in that bucket (or an earlier one) is a partial view of
+  // what it already counts; folding it in would double today's volume.
+  const supersededThrough = authoritative ? authoritative.bar.time : -Infinity;
+  return foldOffGrid(withBar, base.slice(offGridFrom), context.timeframe, supersededThrough);
+}
+
+/** The index where the trailing run of off-grid rows begins, at most two rows back. */
+function trailingOffGrid(base: Bar[], timeframe: string): number {
+  let from = base.length;
+  while (
+    from > 0 &&
+    base.length - from < MAX_OFF_GRID_TAIL &&
+    yahooBucketStart(base[from - 1].time, timeframe, null) !== base[from - 1].time
+  ) {
+    from -= 1;
+  }
+  return from;
+}
+
+/**
+ * Fold off-grid rows into candles, the same rule the API applies: a row joins
+ * the candle its bucket names, starts the next candle when its bucket is new,
+ * and is dropped when it has no bucket or its bucket is already behind. The
+ * session is read from the clock, since a cached row carries no market state.
+ */
+function foldOffGrid(
+  candles: Bar[],
+  rows: Bar[],
+  timeframe: string,
+  supersededThrough: number,
+): Bar[] {
+  const next = candles.slice();
+  for (const row of rows) {
+    const start = yahooBucketStart(row.time, timeframe, null);
+    if (start === null || start <= supersededThrough) continue;
+
+    const previous = next.at(-1);
+    if (previous && previous.time === start) {
+      next[next.length - 1] = {
+        ...previous,
+        high: Math.max(previous.high, row.high),
+        low: Math.min(previous.low, row.low),
+        close: row.close,
+        volume: previous.volume + row.volume,
+      };
+    } else if (!previous || start > previous.time) {
+      next.push({ ...row, time: start });
+    }
+  }
+  return next;
 }
 
 function applyAuthoritative(base: Bar[], update: LiveBarUpdate): Bar[] {
@@ -160,26 +264,34 @@ function bucketStart(
   marketState: string | null,
 ): number | null {
   if (!TIMEFRAMES.has(timeframe)) return null;
-  return context.hasSession
-    ? yahooBucketStart(timestamp, timeframe, context.extended, marketState)
-    : utcBucketStart(timestamp, timeframe);
+  if (!context.hasSession) return utcBucketStart(timestamp, timeframe);
+  // A quote outside every session moves no candle, whatever the timeframe.
+  if (!sessionAt(localParts(timestamp), marketState)) return null;
+  return yahooBucketStart(timestamp, timeframe, marketState);
 }
 
+/**
+ * Where Yahoo's own history starts the candle containing `timestamp`, in
+ * America/New_York; the browser twin of `app/adapters/yahoo_buckets.py`.
+ * Intraday candles start at a session anchor plus whole periods, and have no
+ * bucket outside every session. A daily candle starts at 09:30 whether or not
+ * the series is extended, and weekly and monthly candles at 00:00 on the
+ * Monday or the first, even when that day is a holiday or a weekend.
+ * `marketState` only chooses the intraday session; null reads it from the clock.
+ */
 function yahooBucketStart(
   timestamp: number,
   timeframe: string,
-  extended: boolean,
   marketState: string | null,
 ): number | null {
   const local = localParts(timestamp);
-  const session = sessionAt(local, marketState);
-  if (!session) return null;
-
-  if (!(timeframe in INTRADAY_MINUTES)) {
-    const [hour, minute] = SESSION_ANCHORS[extended ? 'PRE' : 'REGULAR'];
-    const date = timeframe === '1d' ? local : periodDate(local, timeframe);
-    return fromNewYorkParts({ ...date, hour, minute, second: 0 });
+  if (timeframe === '1d') return fromNewYorkParts({ ...local, hour: 9, minute: 30, second: 0 });
+  if (timeframe === '1w' || timeframe === '1M') {
+    return fromNewYorkParts({ ...periodDate(local, timeframe), hour: 0, minute: 0, second: 0 });
   }
+
+  const session = sessionAt(local, marketState);
+  if (!session || !(timeframe in INTRADAY_MINUTES)) return null;
 
   const [anchorHour, anchorMinute] = SESSION_ANCHORS[session];
   const period = INTRADAY_MINUTES[timeframe];
@@ -225,7 +337,9 @@ function sessionAt(local: CalendarParts, marketState: string | null): Session | 
   const supplied = marketState?.toUpperCase();
   if (supplied === 'PRE' || supplied === 'REGULAR' || supplied === 'POST') return supplied;
   if (supplied === 'CLOSED') return null;
-  if (localDayOfWeek(local) >= 5) return null;
+  // `getUTCDay` counts from Sunday, so the weekend is 0 and 6.
+  const weekday = localDayOfWeek(local);
+  if (weekday === 0 || weekday === 6) return null;
 
   const minutes = local.hour * 60 + local.minute;
   if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) return 'PRE';
@@ -235,18 +349,11 @@ function sessionAt(local: CalendarParts, marketState: string | null): Session | 
 }
 
 function localParts(timestamp: number): CalendarParts {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: NEW_YORK,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
   const parts = Object.fromEntries(
-    formatter.formatToParts(new Date(timestamp * 1000)).map(({ type, value }) => [type, value]),
+    NEW_YORK_FORMAT.formatToParts(new Date(timestamp * 1000)).map(({ type, value }) => [
+      type,
+      value,
+    ]),
   );
   return {
     year: Number(parts.year),

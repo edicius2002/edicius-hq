@@ -1112,7 +1112,9 @@ export function RouteMap({
      * somewhere to ease towards — rather than anything read off `gesture`,
      * because a zoom never captures the pointer the way a drag does.
      */
-    const zoomGliding = projection === 'globe' && zoom.current !== zoomTarget.current;
+    // Both projections: a flat-map zoom redraws every internal border per
+    // frame too, and hiding them while it glides is what keeps it smooth.
+    const zoomGliding = zoom.current !== zoomTarget.current;
     const forcedCoarse = forcesDegrade(
       gesture.current?.kind,
       zoomGliding,
@@ -1614,7 +1616,7 @@ export function RouteMap({
    * subdivisions to draw. Rebuilding the instant the gesture ends would land
    * that cost, and the jump to full detail, inside the very frame that stops
    * it: one more flip rather than the gesture settling. See `forcesDegrade`.
-   * Called from `endGesture` for a rotate drag and from `stepZoom`/`endGlide`
+   * Called from `endGesture` for a rotate or pan drag and from `stepZoom`/`endGlide`
    * for a zoom glide — the two places that ever notice one just ended.
    */
   function scheduleSettle() {
@@ -1836,7 +1838,10 @@ export function RouteMap({
     // the midpoint on every frame, and on a sphere that is a rotation. So it
     // settles for the same reason a drag does, and it settles even when
     // `endGlide` found the scale already arrived and had nothing to snap.
-    if (held.kind === 'rotate' || held.kind === 'pinch') scheduleSettle();
+    // A flat-map pan hides the same detail while it moves, so it settles the
+    // same way: one beat before the borders come back, not inside the frame
+    // the finger lifts on.
+    if (held.kind === 'rotate' || held.kind === 'pinch' || held.kind === 'pan') scheduleSettle();
     draw();
     commit();
   }

@@ -1,5 +1,6 @@
 import { geoCircle, geoMercator, geoOrthographic, geoPath, type GeoProjection } from 'd3-geo';
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -2458,6 +2459,15 @@ export function RouteMap({
                         data-route={nextWatch(route, selectedId)}
                         aria-hidden="true"
                       />
+                      {/* The flowing arc's glow, still and underneath it. */}
+                      {flowing ? (
+                        <path
+                          d={d}
+                          className={styles.glow}
+                          style={{ stroke, opacity: run.opacity }}
+                          aria-hidden="true"
+                        />
+                      ) : null}
                       <path
                         d={d}
                         // The delay is the phase, and the phase is what makes
@@ -2545,28 +2555,38 @@ export function RouteMap({
               {runsFor(line.coordinates).map((run, index) => {
                 const d = svgPath({ type: 'LineString', coordinates: run.points } as never);
                 return d ? (
-                  <path
-                    key={`${id}:${index}`}
-                    d={d}
-                    style={{
-                      stroke: colour,
-                      color: colour,
-                      opacity: run.opacity,
-                      animationDelay: flowDelay(run.before),
-                    }}
-                    className={[
-                      styles.arc,
-                      styles.stop,
-                      // Stops are the exception to the flat-map rule: their
-                      // breaks name an itinerary, not depth, so they stay
-                      // dashed in either projection.
-                      styles.dashed,
-                      isGlobe ? styles.flow : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    aria-hidden="true"
-                  />
+                  <Fragment key={`${id}:${index}`}>
+                    {/* A flowing leg's glow, still and underneath it. */}
+                    {isGlobe ? (
+                      <path
+                        d={d}
+                        className={styles.glow}
+                        style={{ stroke: colour, opacity: run.opacity }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    <path
+                      d={d}
+                      style={{
+                        stroke: colour,
+                        color: colour,
+                        opacity: run.opacity,
+                        animationDelay: flowDelay(run.before),
+                      }}
+                      className={[
+                        styles.arc,
+                        styles.stop,
+                        // Stops are the exception to the flat-map rule: their
+                        // breaks name an itinerary, not depth, so they stay
+                        // dashed in either projection.
+                        styles.dashed,
+                        isGlobe ? styles.flow : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-hidden="true"
+                    />
+                  </Fragment>
                 ) : null;
               })}
             </g>

@@ -42,8 +42,22 @@ export const ARC_DASH_PERIOD = 10;
  * under a dash that small is a shimmer rather than a direction. Holding the
  * *dash's* travel constant instead gives 11.8 units a second, which is one
  * 10-unit period every 0.85s and 0.425s per dash length.
+ *
+ * **Now half that speed, 1.7s a period.** LIM-MAD flows 39 arcs at once, and
+ * every one repainted on every frame; the slower travel is what lets the
+ * repaints thin out (`ARC_FLOW_STEPS`) without the dashes visibly jumping.
+ * Speed alone would save nothing — a CSS animation repaints each frame however
+ * slowly it moves.
  */
-export const ARC_FLOW_SECONDS = 0.85;
+export const ARC_FLOW_SECONDS = 1.7;
+
+/**
+ * How many discrete positions one period is drawn in: 17 over 1.7s is ten
+ * repaints a second instead of sixty. Each step moves the dashes 10 / 17 ≈ 0.6
+ * units, under a pixel, so the travel still reads as continuous — only slower.
+ * The stylesheet's `steps()` must use this number.
+ */
+export const ARC_FLOW_STEPS = 17;
 
 /**
  * How long a projected arc run is on screen, in the units the dashes use.

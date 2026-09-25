@@ -312,8 +312,9 @@ export function anyStale(decisions: readonly ReuseDecision[]): boolean {
 }
 
 /**
- * Whether every redrawn country must fall back to its coarse stand-in
- * because the reader is turning the globe by hand, rather than because
+ * Whether every redrawn country must fall back to its coarse stand-in —
+ * internal borders hidden — because the reader is moving the map by hand
+ * (turning the globe or panning the flat map), rather than because
  * `decideReuse` ran the throttle and answered `stale`.
  *
  * `anyStale` fixed a *spatial* mismatch — two neighbours filled from two
@@ -374,5 +375,10 @@ export function forcesDegrade(
   now: number,
   until: number,
 ): boolean {
-  return gestureKind === 'rotate' || gestureKind === 'pinch' || zoomGliding || now < until;
+  // Every held gesture, the flat map's pan included. A pan never mismatches
+  // resolution — reuse translates its geometry exactly — but stroking every
+  // internal border on every frame of the drag is what made a zoomed-in flat
+  // map lag where the globe, hiding them, stayed smooth. Moving is the
+  // question, not which way the map moves.
+  return gestureKind !== undefined || zoomGliding || now < until;
 }

@@ -26,7 +26,7 @@ from app.services.fare_collector import (
     collect,
     expand,
 )
-from app.services.fare_passes import WANTED_AND_REFUSED, PassRecorder
+from app.services.fare_passes import PassRecorder
 from app.services.process_lock import (
     ProcessLockUnavailable,
     exclusive_process_lock,
@@ -224,7 +224,12 @@ class AirfareRequestWorker:
             return False
 
         recorder.tally.boards(report)
-        if report.failed or any(reason in WANTED_AND_REFUSED for _, reason in report.skipped):
+        # A press that read nothing at all has nothing to sync and failed. One
+        # that read some departures keeps them, like the scheduled pass always
+        # has: failing the whole request over a few unreadable days used to skip
+        # the sync and throw the rest of the month away. What was missed travels
+        # in the result's `failed` and `skipped` counts instead.
+        if len(report.results) - report.failed == 0:
             self._run_stats.failed += 1
             self._fail(request.id, "collection-failed")
             recorder.finish(exit_code=1)

@@ -22,6 +22,14 @@ describe('the card a finished press leaves in the corner', () => {
     expect(screen.getByText(/2 departures checked/)).toBeInTheDocument();
   });
 
+  it('says what a partial pass missed, on a line of its own', () => {
+    render(<CollectNotices notices={[card({ kind: 'partial', detail: "5 couldn't be read." })]} />);
+    const missed = screen.getByText("5 couldn't be read.");
+    expect(missed.className).toMatch(/missed/);
+    // Still news, not an alarm: the pass kept what it read.
+    expect(missed.closest('[role]')).toHaveAttribute('role', 'status');
+  });
+
   it('marks a refusal as one', () => {
     render(
       <CollectNotices notices={[card({ kind: 'error', text: 'Collection failed. Try again.' })]} />,

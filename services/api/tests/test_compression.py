@@ -3,7 +3,7 @@ What the wire is allowed to compress, and what it must never touch.
 
 `GET /api/fares/history` answers with every snapshot for a city pair — measured
 at 1,960,559 bytes for one month of LIM-MAD — and the reader is usually on
-another device, over a Tailscale path that is sometimes a DERP relay. Those
+another device, over a network path that is not always direct. Those
 bytes are the reason compression is here at all.
 
 The second test is the one worth having. Four endpoints stream server-sent

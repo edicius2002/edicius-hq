@@ -101,6 +101,10 @@ async def _collect_route(
     queries, unreadable = expand([watch])
     if unreadable:
         raise ValueError("invalid airfare request")
+    # `collect_due` announces the plan for the scheduled pass; this path calls
+    # `collect` directly, so it has to say how many departures it means to poll
+    # itself — otherwise the row's bar has no denominator until the pass is over.
+    observer.planned(polling=len(queries), skipped=[])
     return await collect(list(queries.values()), observer=observer, pass_id=pass_id)
 
 

@@ -475,6 +475,42 @@ describe('RouteList', () => {
     expect((bar.firstElementChild as HTMLElement).style.width).toBe('');
   });
 
+  describe('the count beside the bar', () => {
+    it('says how many departures are done, of how many, and the percentage', () => {
+      const running = routeId(ROUTES[0]);
+      renderList({
+        collecting: [running],
+        progress: new Map([[running, { completed: 4, polling: 31, fraction: 4 / 31 }]]),
+      });
+
+      expect(screen.getByText('4/31 days · 13%')).toBeInTheDocument();
+      expect(screen.getByTestId(`collect-progress-${running}`)).toHaveAttribute(
+        'aria-valuetext',
+        '4/31 days · 13%',
+      );
+    });
+
+    it('says it is preparing while the pass has no total yet', () => {
+      const running = routeId(ROUTES[0]);
+      renderList({
+        collecting: [running],
+        progress: new Map([[running, { completed: 0, polling: null, fraction: null }]]),
+      });
+
+      expect(screen.getByText('Preparing…')).toBeInTheDocument();
+    });
+
+    it('says it is syncing once every departure is collected', () => {
+      const running = routeId(ROUTES[0]);
+      renderList({
+        collecting: [running],
+        progress: new Map([[running, { completed: 31, polling: 31, fraction: 1, syncing: true }]]),
+      });
+
+      expect(screen.getByText('Syncing…')).toBeInTheDocument();
+    });
+  });
+
   it('still offers the fields when nothing is watched yet', () => {
     renderList({ routes: [] });
     expect(screen.getByText(/no routes watched yet/i)).toBeInTheDocument();

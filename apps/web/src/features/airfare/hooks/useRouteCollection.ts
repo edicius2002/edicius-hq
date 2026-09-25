@@ -188,7 +188,7 @@ function deriveActiveState(requests: ReadonlyMap<string, AirfareRequest>): {
     const { stage, completed, total } = request.progress;
     if (stage === 'syncing') {
       const polling = total && total > 0 ? total : Math.max(completed, 1);
-      progress.set(id, { completed: polling, polling, fraction: 1 });
+      progress.set(id, { completed: polling, polling, fraction: 1, syncing: true });
     } else if (stage === 'queued' || total === null || total === 0) {
       progress.set(id, { completed, polling: null, fraction: null });
     } else {

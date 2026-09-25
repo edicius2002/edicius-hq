@@ -102,6 +102,7 @@ describe('useRouteCollection', () => {
       completed: 5,
       polling: 5,
       fraction: 1,
+      syncing: true,
     });
     act(() =>
       api.emit(
@@ -115,6 +116,7 @@ describe('useRouteCollection', () => {
       completed: 3,
       polling: 3,
       fraction: 1,
+      syncing: true,
     });
     unmount();
     expect(api.dispose).toHaveBeenCalledOnce();

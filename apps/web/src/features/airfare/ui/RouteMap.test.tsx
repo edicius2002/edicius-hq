@@ -490,6 +490,29 @@ describe('RouteMap', () => {
       expect(stop).toHaveStyle({ fill: '#ef6c00' });
     });
 
+    it('keeps every stop leg flowing on the globe, each with a still glow beneath it', () => {
+      // LIM-MAD flows dozens of legs at once. They all keep moving; what they
+      // shed is the per-frame filter, replaced by one undashed stroke apiece.
+      const { container } = renderMap({
+        projection: 'globe',
+        stopRoutes: [
+          {
+            id: 'LIM|MAD|2027-06:BOG',
+            points: [LIMA, [-74.1469, 4.70159] as LngLat, MADRID],
+            viaPoints: ['BOG'],
+            colour: '#ef6c00',
+          },
+        ],
+      });
+
+      const legs = [...container.querySelectorAll('path[class*="stop"]')];
+      expect(legs.length).toBeGreaterThan(0);
+      for (const leg of legs) {
+        expect(leg).toHaveClass(/flow/);
+        expect(leg.previousElementSibling).toHaveClass(/glow/);
+      }
+    });
+
     it('fades a stop route in rather than popping it onto a map already drawn', () => {
       // Stops come with the month, after the routes are on screen; arriving at
       // full strength read as the map blinking. Each leg and node sits in a

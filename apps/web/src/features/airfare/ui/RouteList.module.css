@@ -639,4 +639,12 @@
   .report {
     overflow-wrap: anywhere;
   }
+  /* Three pixels and a 0.66rem count are easy to miss at arm's length on a
+     phone, which is where a pass is most often started and watched. */
+  .progress {
+    height: 4px;
+  }
+  .progressCount {
+    font-size: 0.72rem;
+  }
 }

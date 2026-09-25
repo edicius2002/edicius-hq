@@ -188,8 +188,8 @@ export function AirfarePage() {
    */
   const {
     view: routeView,
-    setMonth,
     openOn,
+    openMonthOf,
     setGranularity,
     setAnchor,
     setViewport,
@@ -536,7 +536,10 @@ export function AirfarePage() {
             onOpenMonth={(id, month) => {
               setSelectedId(id);
               setEditingId(id);
-              setMonth(month);
+              // Named with its route: `setMonth` writes to the route open when
+              // this render ran, which is the one being left when the tab is
+              // on another row.
+              openMonthOf(id, month);
             }}
             /*
               A press on the panel's empty space puts the fields back to

@@ -48,6 +48,7 @@ vi.mock('@/features/airfare/hooks/useRouteView', () => ({
     view: { month: null, granularity: 'month', anchor: null, viewport: null },
     setMonth: vi.fn(),
     openOn: vi.fn(),
+    openMonthOf: vi.fn(),
     setGranularity: vi.fn(),
     setAnchor: vi.fn(),
     setViewport: vi.fn(),

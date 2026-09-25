@@ -157,6 +157,7 @@ export function useRouteView(
   view: RouteView;
   setMonth: (month: string) => void;
   openOn: (month: string) => void;
+  openMonthOf: (route: string, month: string) => void;
   setGranularity: (granularity: Granularity) => void;
   setAnchor: (anchor: string | null) => void;
   setViewport: (viewport: Viewport | null) => void;
@@ -267,6 +268,33 @@ export function useRouteView(
     [write],
   );
 
+  /*
+   * The month for a route named outright, rather than for the one open now.
+   *
+   * A month tab on another row selects that row and its month in one press.
+   * Everything above writes through `key`, the route this render has open — so
+   * calling `setMonth` in the same press as the selection wrote the month onto
+   * the route being left, and the pressed one opened on its first month. This
+   * takes the route with the month, so the two cannot come apart.
+   */
+  const openMonthOf = useCallback(
+    (route: string, month: string) =>
+      setViews((held) => {
+        const current = held[route];
+        if (current?.month === month) return held;
+        return {
+          ...held,
+          [route]: {
+            ...(current ?? openingView(month)),
+            month,
+            anchor: periodBounds(month, 'month').from.slice(0, 10),
+            viewport: null,
+          },
+        };
+      }),
+    [],
+  );
+
   const setAnchor = useCallback(
     (anchor: string | null) =>
       write((held) => (held.anchor === anchor ? held : { ...held, anchor })),
@@ -278,5 +306,5 @@ export function useRouteView(
     [write],
   );
 
-  return { view, setMonth, openOn, setGranularity, setAnchor, setViewport };
+  return { view, setMonth, openOn, openMonthOf, setGranularity, setAnchor, setViewport };
 }

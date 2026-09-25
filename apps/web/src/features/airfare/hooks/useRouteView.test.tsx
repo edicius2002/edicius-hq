@@ -280,4 +280,20 @@ describe('reopening a route after its months were edited', () => {
     rerender({ route: LIM_SCL });
     expect(result.current.view.anchor).toBe('2026-10-25');
   });
+
+  it('opens another route on the month that was pressed, leaving this one alone', () => {
+    // A month tab on another row is pressed while this route is open: the tab
+    // names its own route and month, and both land together. Writing the month
+    // through the open route's setter put it on this route instead, and the
+    // pressed one opened on its first month.
+    const { result, rerender } = renderHook(({ route }) => useRouteView(route, monthOf(route)), {
+      initialProps: { route: LIM_SCL },
+    });
+
+    act(() => result.current.openMonthOf(LIM_MAD, '2027-05'));
+    expect(result.current.view.month).toBe('2026-10');
+
+    rerender({ route: LIM_MAD });
+    expect(result.current.view).toMatchObject({ month: '2027-05', anchor: '2027-05-01' });
+  });
 });

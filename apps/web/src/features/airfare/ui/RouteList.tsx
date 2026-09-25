@@ -74,6 +74,20 @@ type RouteListProps = {
 };
 
 /**
+ * The words beside a pass's bar: how many departures are in, of how many.
+ *
+ * The bar alone moves a few pixels per departure on a narrow row, which reads as
+ * nothing happening; the count names each step. A month has at most 31
+ * departures, so rounding cannot show 100% before the last one is in.
+ */
+function progressText(bar: PassProgress): string {
+  if (bar.syncing) return 'Syncing…';
+  if (bar.polling === null) return 'Preparing…';
+  const percent = Math.round((Math.min(bar.completed, bar.polling) / bar.polling) * 100);
+  return `${bar.completed}/${bar.polling} days · ${percent}%`;
+}
+
+/**
  * The collect control's mark: a circular arrow, drawn rather than typed.
  *
  * The row's other arrows are text — `→`, `↑`, `↓` — and a `↻` would have
@@ -453,30 +467,37 @@ export function RouteList({
                     </div>
                   </div>
                   {departed ? <span className={styles.departed}>Departed</span> : null}
-                  {/* The bar is the row's only progress surface; terminal text
-                      is announced by the toast stack instead of repeated here. */}
+                  {/* The bar and its count are the row's progress surface; terminal
+                      text is announced by the toast stack instead of repeated here. */}
                   {bar ? (
-                    <div
-                      className={
-                        bar.fraction === null
-                          ? `${styles.progress} ${styles.unplanned}`
-                          : styles.progress
-                      }
-                      role="progressbar"
-                      aria-label={`Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`}
-                      aria-valuemin={0}
-                      aria-valuemax={bar.polling ?? undefined}
-                      aria-valuenow={bar.polling === null ? undefined : bar.completed}
-                      data-testid={`collect-progress-${id}`}
-                    >
-                      <span
-                        className={styles.fill}
-                        style={
+                    <div className={styles.progressLine}>
+                      <div
+                        className={
                           bar.fraction === null
-                            ? undefined
-                            : { width: `${Math.min(1, bar.fraction) * 100}%` }
+                            ? `${styles.progress} ${styles.unplanned}`
+                            : styles.progress
                         }
-                      />
+                        role="progressbar"
+                        aria-label={`Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`}
+                        aria-valuemin={0}
+                        aria-valuemax={bar.polling ?? undefined}
+                        aria-valuenow={bar.polling === null ? undefined : bar.completed}
+                        aria-valuetext={progressText(bar)}
+                        data-testid={`collect-progress-${id}`}
+                      >
+                        <span
+                          className={styles.fill}
+                          style={
+                            bar.fraction === null
+                              ? undefined
+                              : { width: `${Math.min(1, bar.fraction) * 100}%` }
+                          }
+                        />
+                      </div>
+                      {/* Hidden from assistive tech: the bar's value text says it. */}
+                      <span className={styles.progressCount} aria-hidden="true">
+                        {progressText(bar)}
+                      </span>
                     </div>
                   ) : null}
                 </li>

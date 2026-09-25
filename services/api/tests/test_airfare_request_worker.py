@@ -259,3 +259,38 @@ def test_worker_never_reclaims_a_running_request_it_did_not_claim():
     remote.claim_request.assert_called_once_with(("airfare-route",))
     remote.complete_request.assert_not_called()
     remote.fail_request.assert_not_called()
+
+
+def test_the_real_route_collection_announces_its_total_before_the_first_departure(monkeypatch):
+    """
+    The scheduled pass announces its plan in `collect_due`; the manual path calls
+    `collect` directly and announced nothing, so a row's bar had no denominator
+    until the pass was over and swept "unknown length" for the whole collection.
+    The tests above fake the route collection and announce the plan themselves,
+    which is how that went unnoticed.
+    """
+    from app.services import airfare_request_worker as module
+    from app.services.fare_collector import FareWatch
+
+    events: list[tuple[str, int]] = []
+
+    async def fake_collect(queries, *, observer, pass_id):
+        del pass_id
+        events.append(("collect", len(queries)))
+        return report()
+
+    class Observer:
+        def planned(self, *, polling, skipped):
+            events.append(("planned", polling))
+            assert skipped == []
+
+        def collected(self, result, snapshot=None):
+            del result, snapshot
+
+    monkeypatch.setattr(module, "collect", fake_collect)
+    watch = FareWatch("LIM", "CUZ", "2026-11", "USD")
+
+    asyncio.run(module._collect_route(watch, Observer(), "pass"))
+
+    # November has 30 departures, and the total is known before any is polled.
+    assert events == [("planned", 30), ("collect", 30)]

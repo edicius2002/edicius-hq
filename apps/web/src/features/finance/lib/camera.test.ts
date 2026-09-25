@@ -10,6 +10,7 @@ import {
   minimapToWorld,
   minimapView,
   panBy,
+  pinchCamera,
   screenToWorld,
   unionRect,
   visibleRect,
@@ -193,5 +194,46 @@ describe('minimapView', () => {
     const view = minimapView({ left: 0, top: 0, width: 0, height: 0 }, box, 8);
     expect(Number.isFinite(view.scale)).toBe(true);
     expect(view.scale).toBeGreaterThan(0);
+  });
+});
+
+describe('pinchCamera', () => {
+  const start = { mid: { x: 100, y: 100 }, distance: 100 };
+
+  it('zooms by how far the fingers spread, keeping the point between them still', () => {
+    const from = { x: 0, y: 0, zoom: 1 };
+    const next = pinchCamera(from, start, { mid: { x: 100, y: 100 }, distance: 200 });
+
+    expect(next.zoom).toBe(2);
+    // The world point that was under the fingers is under them still.
+    expect(screenToWorld(next, { x: 100, y: 100 })).toEqual(screenToWorld(from, start.mid));
+  });
+
+  it('follows the fingers when the hand moves while pinching', () => {
+    const from = { x: 0, y: 0, zoom: 1 };
+    const next = pinchCamera(from, start, { mid: { x: 160, y: 130 }, distance: 100 });
+
+    expect(next).toEqual({ x: 60, y: 30, zoom: 1 });
+  });
+
+  it('measures every move against where the pinch began, so holding still drifts nothing', () => {
+    const from = { x: -40, y: 25, zoom: 1.5 };
+    const moved = pinchCamera(from, start, { mid: { x: 130, y: 90 }, distance: 180 });
+    const back = pinchCamera(from, start, start);
+
+    expect(moved).not.toEqual(from);
+    expect(back).toEqual(from);
+  });
+
+  it('stays within the zoom limits', () => {
+    const from = { x: 0, y: 0, zoom: 1 };
+    expect(pinchCamera(from, start, { ...start, distance: 10_000 }).zoom).toBe(MAX_ZOOM);
+    expect(pinchCamera(from, start, { ...start, distance: 1 }).zoom).toBe(MIN_ZOOM);
+  });
+
+  it('keeps the camera when either spread is not a real distance', () => {
+    const from = { x: 3, y: 4, zoom: 1 };
+    expect(pinchCamera(from, { ...start, distance: 0 }, start)).toBe(from);
+    expect(pinchCamera(from, start, { ...start, distance: 0 })).toBe(from);
   });
 });

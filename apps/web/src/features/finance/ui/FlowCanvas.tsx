@@ -16,12 +16,14 @@ import { useElementSize } from '@/shared/lib/useElementSize';
 import {
   fitCamera,
   centerOn,
+  pinchCamera,
   screenToWorld,
   unionRect,
   visibleRect,
   zoomAt,
   WHEEL_STEP,
   type Camera,
+  type Pinch,
 } from '@/features/finance/lib/camera';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
 import {
@@ -184,6 +186,19 @@ export function FlowCanvas({
   const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
   const [frameResize, setFrameResize] = useState<FrameResize | null>(null);
   const [draft, setDraft] = useState<FrameDraft | null>(null);
+  /*
+   * Every finger on the canvas, by pointer id, and the pinch two of them make.
+   *
+   * Refs rather than state: a pinch redraws through the camera it writes, and a
+   * re-render per finger move just to remember a coordinate would repaint the
+   * whole diagram for nothing. The map exists because a `pointermove` carries
+   * only the finger that moved — the other's last position has to be kept, or
+   * there is no distance to measure — and pointer ids are whatever the
+   * platform hands out, so a third finger has to be ignorable rather than
+   * displace one of the two being followed.
+   */
+  const touches = useRef(new Map<number, { clientX: number; clientY: number }>());
+  const pinch = useRef<{ pointers: [number, number]; from: Camera; start: Pinch } | null>(null);
   // Keyboard mutations get the same optimistic drawing guarantee as pointer
   // drags. They clear as soon as the document catches up or changes underneath.
   const [keyboardNodePosition, setKeyboardNodePosition] = useState<{
@@ -495,6 +510,84 @@ export function FlowCanvas({
     }
   }
 
+  /** Where two fingers are, as a pinch measures them: in viewport pixels. */
+  function pinchOf(pointers: [number, number]): Pinch | null {
+    const first = touches.current.get(pointers[0]);
+    const second = touches.current.get(pointers[1]);
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!first || !second || !rect) return null;
+    return {
+      mid: {
+        x: (first.clientX + second.clientX) / 2 - rect.left,
+        y: (first.clientY + second.clientY) / 2 - rect.top,
+      },
+      distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
+    };
+  }
+
+  /*
+   * Two fingers zoom, as they do on the investing chart. Fingers are counted in
+   * the capture phase, before a node or a frame header claims the pointer for
+   * a drag of its own: a pinch is a gesture on the canvas, and a second finger
+   * landing on a node is still a pinch rather than a grab.
+   *
+   * The second finger turns whatever the first was doing into the pinch. The
+   * drag or pan is dropped where it stands, so the diagram does not jump on the
+   * way into the zoom, and the pinch starts from the camera that gesture reached.
+   */
+  function onTouchDownCapture(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'touch') return;
+    touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    if (touches.current.size < 2) return;
+
+    // Nothing under this finger gets it — not the node it landed on, not a pan.
+    event.stopPropagation();
+    // A third finger is not a gesture here, nor a reason to drop the two that are.
+    if (pinch.current !== null) return;
+    const [first, second] = [...touches.current.keys()];
+    const start = pinchOf([first, second]);
+    if (!start) return;
+
+    beginGesture(event);
+    setDrag(null);
+    setPan(null);
+    setFrameDrag(null);
+    setFrameResize(null);
+    setDraft(null);
+    pinch.current = { pointers: [first, second], from: camera, start };
+  }
+
+  function onTouchMoveCapture(event: PointerEvent<HTMLDivElement>) {
+    // Before anything else: the pinch's only memory of the other finger is here,
+    // and a move that went unrecorded would measure against a place it has left.
+    if (!touches.current.has(event.pointerId)) return;
+    touches.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+
+    const pinching = pinch.current;
+    if (pinching === null || !pinching.pointers.includes(event.pointerId)) return;
+    event.stopPropagation();
+    const now = pinchOf(pinching.pointers);
+    if (now) setCamera(pinchCamera(pinching.from, pinching.start, now));
+  }
+
+  /*
+   * Lifting one of two fingers hands the canvas back to the one still down, as a
+   * pan seated where that finger is and on the camera now on screen — seating it
+   * anywhere else moves the diagram the moment the finger does.
+   */
+  function onTouchEndCapture(event: PointerEvent<HTMLDivElement>) {
+    if (!touches.current.delete(event.pointerId)) return;
+    const pinching = pinch.current;
+    if (pinching === null || !pinching.pointers.includes(event.pointerId)) return;
+
+    pinch.current = null;
+    const remaining = pinching.pointers.find((id) => id !== event.pointerId);
+    const at = remaining === undefined ? undefined : touches.current.get(remaining);
+    if (remaining !== undefined && at) {
+      setPan({ pointerId: remaining, origin: { x: at.clientX, y: at.clientY }, from: camera });
+    }
+  }
+
   /*
    * Keyboard model
    * --------------
@@ -762,6 +855,10 @@ export function FlowCanvas({
         backgroundSize: `${GRID * camera.zoom}px ${GRID * camera.zoom}px`,
         backgroundPosition: `${camera.x}px ${camera.y}px`,
       }}
+      onPointerDownCapture={onTouchDownCapture}
+      onPointerMoveCapture={onTouchMoveCapture}
+      onPointerUpCapture={onTouchEndCapture}
+      onPointerCancelCapture={onTouchEndCapture}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endGesture}

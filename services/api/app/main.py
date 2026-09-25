@@ -85,8 +85,8 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 # `GET /api/fares/history` answers with every snapshot for a city pair, and the
-# reader is usually on another device over a Tailscale path that is sometimes a
-# DERP relay rather than a direct one. Measured on this archive: one month of
+# reader was usually on another device over a relayed network path rather than a
+# direct one. Measured on this archive: one month of
 # LIM-MAD is 1,960,559 bytes uncompressed and 78,365 gzipped, which is 46 ms of
 # zlib against 1.9 MB that would otherwise be relayed. That trade is the whole
 # reason this is here.

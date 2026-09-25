@@ -9,8 +9,9 @@ export function useCodexResets() {
     staleTime: 60_000,
     refetchInterval: 60_000,
     placeholderData: (previous) => previous,
-    // The backend already owns conditional retry/fallback semantics. Failing
-    // promptly here keeps the existing tweets usable; the minute poll retries.
+    // The provider is read directly and the browser's HTTP cache revalidates
+    // it; `placeholderData` keeps the last good answer on screen. Failing
+    // promptly keeps the rest of the page usable, and the minute poll retries.
     retry: false,
   });
 }

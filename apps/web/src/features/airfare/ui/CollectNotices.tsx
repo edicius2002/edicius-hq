@@ -30,6 +30,7 @@ export function CollectNotices({ notices }: { notices: readonly CollectNotice[] 
         >
           <p className={styles.title}>{notice.title}</p>
           <p className={styles.text}>{notice.text}</p>
+          {notice.detail ? <p className={styles.missed}>{notice.detail}</p> : null}
         </div>
       ))}
     </div>

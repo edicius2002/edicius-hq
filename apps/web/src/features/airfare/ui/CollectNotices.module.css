@@ -82,6 +82,17 @@
 }
 
 /*
+ * What a completed pass could not read. The card stays a completion — the pass
+ * kept everything it did read — so only this line takes the refusal colour.
+ */
+.missed {
+  margin: 2px 0 0;
+  color: var(--color-expense);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+/*
  * Which watch this is about. Quieter than the sentence and above it: the reader
  * is looking for the news, and the name is what tells them which of eight
  * watched routes the news is about once they have found it.

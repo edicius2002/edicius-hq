@@ -11,7 +11,9 @@ export type CollectNotice = {
   routeId: string;
   title: string;
   text: string;
-  kind: 'accepted' | 'success' | 'error';
+  /** What a completed pass missed — only on a `partial` card. */
+  detail?: string;
+  kind: 'accepted' | 'success' | 'partial' | 'error';
 };
 
 export function acceptedCollectNotice(request: AirfareRequest): CollectNotice {
@@ -20,11 +22,16 @@ export function acceptedCollectNotice(request: AirfareRequest): CollectNotice {
 
 export function terminalCollectNotice(request: AirfareRequest): CollectNotice | null {
   if (request.status === 'complete' && request.result) {
-    return notice(
-      request,
-      'success',
-      `Collection complete: ${request.result.lookedAt} departures checked, ${request.result.changed} updated.`,
-    );
+    const { lookedAt, changed, failed, skipped } = request.result;
+    const text = `Collection complete: ${lookedAt} departures checked, ${changed} updated.`;
+    // A pass keeps what it read even when some departures could not be read or
+    // were not polled; the card says so rather than calling it a clean success.
+    const missed = [
+      ...(failed > 0 ? [`${failed} couldn't be read`] : []),
+      ...(skipped > 0 ? [`${skipped} skipped`] : []),
+    ];
+    if (missed.length === 0) return notice(request, 'success', text);
+    return { ...notice(request, 'partial', text), detail: `${missed.join(', ')}.` };
   }
   if (request.status === 'failed') {
     return notice(request, 'error', 'Collection failed. Try again.');

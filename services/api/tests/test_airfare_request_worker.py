@@ -123,11 +123,52 @@ def test_departed_or_beyond_horizon_month_is_invalid():
         remote.fail_request.assert_called_once_with(REQUEST_ID, "invalid-request")
 
 
-def test_failed_or_truncated_collection_never_syncs_or_completes():
-    for collected in (
-        report(failed=True),
-        report(skipped=[("LIM-CUZ 2026-11-04", "over-budget")]),
+def test_a_partial_collection_syncs_what_it_got_and_completes_with_its_failures():
+    """
+    One unreadable departure used to fail the whole request and skip the sync,
+    so the rest of the month never reached the page — ARI-SCL collected 26
+    departures and threw them all away over 5. The scheduled pass has always
+    kept what it got and recorded the rest; a manual press now does the same.
+    """
+    for collected, failed, skipped in (
+        (report(failed=True), 1, 0),
+        (report(skipped=[("LIM-CUZ 2026-11-04", "over-budget")]), 0, 1),
     ):
+        remote = Mock(owner_id=OWNER)
+        remote.claim_request.side_effect = [request(), None]
+        sync_pass = Mock(return_value=True)
+
+        healthy = asyncio.run(
+            worker_for(
+                remote,
+                collect_route=AsyncMock(return_value=collected),
+                sync_pass=sync_pass,
+            ).reconcile_once()
+        )
+
+        assert healthy is True
+        sync_pass.assert_called_once_with(collected)
+        remote.fail_request.assert_not_called()
+        remote.complete_request.assert_called_once()
+        result = remote.complete_request.call_args.args[1]
+        assert (result["lookedAt"], result["failed"], result["skipped"]) == (3, failed, skipped)
+
+
+def test_a_collection_that_got_nothing_fails_without_syncing():
+    nothing_read = CollectionReport(
+        "start",
+        "finish",
+        "google",
+        [
+            RouteResult("LIM", "CUZ", "2026-11-01", None, False, error_code="parse-drift"),
+            RouteResult("LIM", "CUZ", "2026-11-02", None, False, error_code="parse-drift"),
+        ],
+        [],
+    )
+    nothing_allowed = CollectionReport(
+        "start", "finish", "google", [], [("LIM-CUZ 2026-11-01", "over-budget")]
+    )
+    for collected in (nothing_read, nothing_allowed):
         remote = Mock(owner_id=OWNER)
         remote.claim_request.side_effect = [request(), None]
         sync_pass = Mock(return_value=True)

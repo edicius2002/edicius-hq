@@ -64,10 +64,36 @@ describe('Pi Airfare request notices', () => {
         },
       }),
     );
+    // Some departures were read and kept, some were not: a completed pass that
+    // says what it missed rather than a clean success or a failure.
+    expect(completed).toMatchObject({
+      kind: 'partial',
+      text: 'Collection complete: 4 departures checked, 2 updated.',
+      detail: "1 couldn't be read, 1 skipped.",
+    });
+  });
+
+  it('says nothing was missed when nothing was', () => {
+    const completed = terminalCollectNotice(
+      request({
+        status: 'complete',
+        result: {
+          origin: 'LIM',
+          destination: 'CUZ',
+          month: '2026-11',
+          lookedAt: 31,
+          changed: 3,
+          failed: 0,
+          skipped: 0,
+          synced: true,
+        },
+      }),
+    );
     expect(completed).toMatchObject({
       kind: 'success',
-      text: 'Collection complete: 4 departures checked, 2 updated.',
+      text: 'Collection complete: 31 departures checked, 3 updated.',
     });
+    expect(completed?.detail).toBeUndefined();
   });
 
   it('does not expose collector failure codes', () => {

@@ -73,8 +73,8 @@ function stub(answer: (url: string) => Response) {
 }
 
 const serving = (url: string) => {
-  if (url.endsWith('/604')) return Response.json(PERU);
-  if (url.endsWith('/068')) return Response.json(BOLIVIA);
+  if (url.endsWith('/604.json')) return Response.json(PERU);
+  if (url.endsWith('/068.json')) return Response.json(BOLIVIA);
   return new Response('null', { status: 404 });
 };
 
@@ -96,7 +96,7 @@ describe('useSubdivisions', () => {
     const { result } = renderHook(() => useSubdivisions(['604']), { wrapper });
 
     await waitFor(() => expect(result.current).toHaveLength(1));
-    expect(calls[0]).toContain('/api/geography/subdivisions/604');
+    expect(calls[0]).toContain('/geography/subdivisions/604.json');
     expect(result.current[0].labels[0].name).toBe('Loreto');
     expect(result.current[0].borders?.coordinates).toHaveLength(1);
   });
@@ -231,7 +231,7 @@ describe('useSubdivisionCatalogue', () => {
     const { result } = renderHook(() => useSubdivisionCatalogue(true), { wrapper });
 
     await waitFor(() => expect(result.current.data).toBeTruthy());
-    expect(calls[0]).toContain('/api/geography/subdivisions');
+    expect(calls[0]).toContain('/geography/subdivisions/index.json');
     expect(result.current.data?.['604']).toBe(43085);
   });
 

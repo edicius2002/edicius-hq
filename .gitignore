@@ -84,3 +84,7 @@ apps/web/public/fonts/*
 # X scraper: persistent browser profiles contain session cookies; captures are local data.
 tools/x-scraper/.profile/
 tools/x-scraper/*.jsonl
+
+# Published at dev/build time from services/api/app/data/subdivisions by
+# scripts/publish-geography.mjs; the API data directory is the single source.
+apps/web/public/geography/

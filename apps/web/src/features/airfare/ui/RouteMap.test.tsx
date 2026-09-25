@@ -1064,7 +1064,7 @@ describe('RouteMap', () => {
          */
         await waitFor(() => expect(screen.queryByText('Peru')).not.toBeInTheDocument());
         expect(
-          subdivisionRequests.some((url) => url.includes('/api/geography/subdivisions/604')),
+          subdivisionRequests.some((url) => url.includes('/geography/subdivisions/604.json')),
         ).toBe(true);
       });
 
@@ -1161,7 +1161,7 @@ describe('RouteMap', () => {
             // payload leaves `countries` empty, which is the map being told that
             // nothing in the world has subdivisions — and it then correctly asks
             // for none.
-            if (url.endsWith('/api/geography/subdivisions')) {
+            if (url.endsWith('/geography/subdivisions/index.json')) {
               return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
             }
             return Promise.resolve(
@@ -1293,16 +1293,18 @@ describe('RouteMap', () => {
           vi.fn((input: RequestInfo | URL) => {
             const url = String(input);
             subdivisionRequests.push(url);
-            if (url.endsWith('/api/geography/subdivisions')) {
+            if (url.endsWith('/geography/subdivisions/index.json')) {
               return Promise.resolve(
                 catalogue
                   ? Response.json({ countries: catalogue })
                   : new Response('{"detail":"boom"}', { status: 500 }),
               );
             }
-            if (url.endsWith('/604')) return Promise.resolve(Response.json(PERU_SUBDIVISIONS));
-            if (url.endsWith('/068')) return Promise.resolve(Response.json(BOLIVIA_SUBDIVISIONS));
-            if (url.endsWith('/218')) return Promise.resolve(Response.json(ECUADOR_SUBDIVISIONS));
+            if (url.endsWith('/604.json')) return Promise.resolve(Response.json(PERU_SUBDIVISIONS));
+            if (url.endsWith('/068.json'))
+              return Promise.resolve(Response.json(BOLIVIA_SUBDIVISIONS));
+            if (url.endsWith('/218.json'))
+              return Promise.resolve(Response.json(ECUADOR_SUBDIVISIONS));
             return Promise.resolve(new Response('null', { status: 404 }));
           }),
         );
@@ -1354,7 +1356,7 @@ describe('RouteMap', () => {
         await waitFor(() => expect(screen.getByText('Loreto')).toBeInTheDocument());
         expect(screen.getByText('Ecuador')).toBeInTheDocument();
         expect(screen.queryByText('Napo')).not.toBeInTheDocument();
-        expect(subdivisionRequests.some((url) => url.endsWith('/218'))).toBe(false);
+        expect(subdivisionRequests.some((url) => url.endsWith('/218.json'))).toBe(false);
       });
 
       it('never asks for a country the index says has nothing to give', async () => {
@@ -1368,7 +1370,7 @@ describe('RouteMap', () => {
         await closeInOnPeru(container.querySelector('[class*="stage"]') as HTMLElement);
 
         await waitFor(() => expect(screen.getByText('Beni')).toBeInTheDocument());
-        expect(subdivisionRequests.some((url) => url.endsWith('/152'))).toBe(false);
+        expect(subdivisionRequests.some((url) => url.endsWith('/152.json'))).toBe(false);
       });
 
       it('pulls a name off the edge of the panel so the whole word is on the map', async () => {
@@ -1393,11 +1395,11 @@ describe('RouteMap', () => {
           vi.fn((input: RequestInfo | URL) => {
             const url = String(input);
             subdivisionRequests.push(url);
-            if (url.endsWith('/api/geography/subdivisions')) {
+            if (url.endsWith('/geography/subdivisions/index.json')) {
               return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
             }
             return Promise.resolve(
-              url.endsWith('/604')
+              url.endsWith('/604.json')
                 ? Response.json({
                     country: '604',
                     borders: PERU_SUBDIVISIONS.borders,
@@ -1473,7 +1475,7 @@ describe('RouteMap', () => {
           vi.fn((input: RequestInfo | URL) => {
             const url = String(input);
             subdivisionRequests.push(url);
-            if (url.endsWith('/api/geography/subdivisions')) {
+            if (url.endsWith('/geography/subdivisions/index.json')) {
               return Promise.resolve(Response.json({ countries: { '604': 43_085 } }));
             }
             return Promise.resolve(

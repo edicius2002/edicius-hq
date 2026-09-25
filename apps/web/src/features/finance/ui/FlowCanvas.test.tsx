@@ -471,3 +471,79 @@ describe('frames', () => {
     expect(screen.getByRole('img', { name: 'Diagram minimap' })).toBeInTheDocument();
   });
 });
+
+/**
+ * On a phone the canvas has no wheel, and it declares `touch-action: none`, so
+ * the browser does not zoom the page either: before this, two fingers did
+ * nothing but let the first one keep panning. They now zoom as the investing
+ * chart's do.
+ */
+describe('two fingers zoom the canvas', () => {
+  type Kind = 'pointerDown' | 'pointerMove' | 'pointerUp';
+  function touch(kind: Kind, element: Element, pointerId: number, x: number, y: number) {
+    fireEvent[kind](element, {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: 'touch',
+      clientX: x,
+      clientY: y,
+    });
+  }
+
+  function camera(container: HTMLElement) {
+    const surface = container.querySelector<HTMLElement>('[style*="scale("]')!;
+    const [, x, y, zoom] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\((-?[\d.]+)\)/.exec(
+      surface.style.transform,
+    )!;
+    return { x: Number(x), y: Number(y), zoom: Number(zoom) };
+  }
+
+  it('zooms in as the fingers spread and out as they close', () => {
+    const { container } = renderCanvas(populated());
+    const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
+    const before = camera(container).zoom;
+
+    touch('pointerDown', canvas, 1, 200, 200);
+    touch('pointerDown', canvas, 2, 250, 200);
+    touch('pointerMove', canvas, 2, 300, 200);
+    expect(camera(container).zoom).toBeCloseTo(Math.min(3, before * 2));
+
+    touch('pointerMove', canvas, 2, 225, 200);
+    expect(camera(container).zoom).toBeCloseTo(Math.max(0.25, before / 2));
+  });
+
+  it('pinches rather than dragging a node the second finger happens to land on', () => {
+    const props = canvasProps();
+    const { container } = render(<FlowCanvas diagram={populated()} {...props} />, {
+      wrapper: TestWrapper,
+    });
+    const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
+    const node = screen.getByLabelText('Job Job');
+    const before = camera(container).zoom;
+
+    touch('pointerDown', canvas, 1, 300, 300);
+    touch('pointerDown', node, 2, 60, 60);
+    touch('pointerMove', node, 2, 20, 20);
+
+    expect(camera(container).zoom).not.toBe(before);
+    expect(props.onMoveNode).not.toHaveBeenCalled();
+  });
+
+  it('hands the canvas back to the remaining finger as a pan once the other lifts', () => {
+    const { container } = renderCanvas(populated());
+    const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
+
+    touch('pointerDown', canvas, 1, 200, 200);
+    touch('pointerDown', canvas, 2, 300, 200);
+    touch('pointerMove', canvas, 2, 400, 200);
+    touch('pointerUp', canvas, 2, 400, 200);
+    const afterPinch = camera(container);
+
+    touch('pointerMove', canvas, 1, 230, 240);
+    const panned = camera(container);
+    expect(panned.zoom).toBe(afterPinch.zoom);
+    expect(panned.x - afterPinch.x).toBeCloseTo(30);
+    expect(panned.y - afterPinch.y).toBeCloseTo(40);
+  });
+});

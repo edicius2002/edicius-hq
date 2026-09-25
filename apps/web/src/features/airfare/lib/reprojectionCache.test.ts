@@ -390,11 +390,12 @@ describe('forcesDegrade', () => {
     expect(forcesDegrade(undefined, false, 1000, 0)).toBe(false);
   });
 
-  it('is false for a pan gesture, which never mismatches resolution to begin with', () => {
-    // The flat map's rotation never changes, so `decideReuse` always answers
-    // `reuse` for it; forcing coarse during a pan would degrade a gesture
-    // that was never the one this rule exists for.
-    expect(forcesDegrade('pan', false, 1000, 0)).toBe(false);
+  it('is true for a flat-map pan, so moving it zoomed in hides detail as the globe does', () => {
+    // Reuse keeps a pan's geometry exact, but stroking every internal border
+    // on every frame of the drag is still what made a zoomed-in flat map lag
+    // while the globe, degrading, stayed smooth. The rule is about the reader
+    // being mid-gesture, and a pan is a gesture.
+    expect(forcesDegrade('pan', false, 1000, 0)).toBe(true);
   });
 
   it('is true for the whole zoom glide, independently of the grace window', () => {

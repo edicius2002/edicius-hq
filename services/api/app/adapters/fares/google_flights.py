@@ -37,6 +37,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters.fares import drift_samples
 from app.adapters.fares.models import (
     Airport,
     CalendarPrice,
@@ -718,8 +719,15 @@ async def fetch_search(client: httpx.AsyncClient, query: FareQuery) -> SearchRes
         raise FareError("blocked", "Google Flights redirected to consent; this address is flagged")
 
     payload = extract_payload(response.text)
+    try:
+        offers = parse_payload(payload, query.currency.upper())
+    except FareError as exc:
+        # The refusal is the right answer; the board behind it is the evidence.
+        if exc.code == "parse-drift":
+            drift_samples.keep(query, payload)
+        raise
     return SearchResult(
-        offers=parse_payload(payload, query.currency.upper()),
+        offers=offers,
         history=parse_history(payload),
         insights=parse_insights(payload),
         airports=parse_airports(payload),

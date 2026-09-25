@@ -1,5 +1,12 @@
 # Deploy plan: Vercel frontend, Supabase Auth and Finance, home API
 
+> **Superseded in transport — 2026-09-25.** Tailscale is retired. The deployed web app
+> no longer calls the home API: data comes from Supabase, map subdivisions ship as
+> static files of the web app, and the Dashboard reads codex-resets.com directly.
+> Serve and Funnel are off and `scripts/tailnet.mjs` is gone. The Tailscale sections
+> below are kept as the historical record of how the home API was once published; they
+> are not deploy instructions. See the 2026-09-25 entry in `IMPLEMENTATION_PLAN.md`.
+
 The current deployment model is one system, not a transition between two authentication
 systems. `apps/web` is a Vercel-hosted SPA. Supabase Auth issues the browser session;
 the signed-out UI exposes only passkey sign-in, and committed configuration disables

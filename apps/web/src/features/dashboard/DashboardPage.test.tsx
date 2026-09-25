@@ -12,7 +12,12 @@ const tweetData = vi.hoisted(() => ({
 }));
 
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
+const codex = vi.hoisted(() => ({ fetchCodexResets: vi.fn() }));
+
 vi.mock('./data/supabaseTweets', () => tweetData);
+// The card reads codex-resets.com through this client, which has tests of its
+// own; this page test is about the layout it draws, not the provider's wire.
+vi.mock('@/shared/api/codexResets', () => codex);
 
 import { DashboardPage } from './DashboardPage';
 
@@ -89,13 +94,15 @@ const RESETS = {
 function stubApi(resets: Response | object = RESETS) {
   const calls: string[] = [];
   tweetData.fetchTweets.mockResolvedValue(TWEETS.tweets);
+  if (resets instanceof Response) {
+    codex.fetchCodexResets.mockRejectedValue(new Error(`HTTP ${resets.status}`));
+  } else {
+    codex.fetchCodexResets.mockResolvedValue(resets);
+  }
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${url}`);
-      if (url.endsWith('/api/codex-resets')) {
-        return resets instanceof Response ? resets : Response.json(resets);
-      }
       return Response.json(TWEETS);
     }),
   );

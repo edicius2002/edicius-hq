@@ -1347,6 +1347,7 @@ Current-state reconciliation (2026-09-07): FastAPI and the five green dependency
 | 2026-09-03 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former PC-local WebAuthn/session and enrollment design was removed; Supabase Auth owns the passkey session and FastAPI verifies Bearer JWTs for all API/SSE routes. |
 | 2026-09-04 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former Funnel credential/passkey-use gate was removed. Tailscale is transport-only; Serve/Funnel reachability does not replace the FastAPI Bearer-JWT access check. |
 | 2026-09-16 | **Superseded in provider and application-data scope — ADR 0004, 2026-09-18.** Supabase Auth passkey browser session and Finance RLS/CAS remain; FastAPI Bearer-JWT/header streaming/Tailscale apply only to retained rollback and local-development routes until Task 12. The current pre-cutover target moves application documents, Dashboard, Sentiment, Investing and Airfare browser data paths to Supabase and provider acquisition to Pi collectors. |
+| 2026-09-25 | **Tailscale retired.** The deployed web app no longer calls the home API: application data comes from Supabase, map subdivisions are published as static files of the web app (#229) and the Dashboard reads codex-resets.com directly. Serve and Funnel were switched off on the owner PC and `scripts/tailnet.mjs` and the `tailnet:*` scripts were removed. FastAPI remains for local development only, listening on this machine. |
 
 ## Dashboard Codex reset history — 2026-09-14
 

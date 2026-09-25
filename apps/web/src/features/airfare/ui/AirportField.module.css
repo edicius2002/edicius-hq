@@ -53,6 +53,14 @@
 
 .control input {
   width: 100%;
+  /* Codes read upper-case even while a phone keyboard is still composing the
+     lower-case letters the field deliberately leaves alone until they commit. */
+  text-transform: uppercase;
+}
+
+/* The placeholder is a word, not a code. */
+.control input::placeholder {
+  text-transform: none;
 }
 
 .list {

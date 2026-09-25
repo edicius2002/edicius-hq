@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AirportField } from '@/features/airfare/ui/AirportField';
@@ -151,6 +152,67 @@ describe('AirportField', () => {
     renderField('ZZZ');
     await vi.advanceTimersByTimeAsync(400);
 
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * Phones. Two things a desktop never exercises: an Android keyboard composes a
+ * word before committing it, and a finger arrives as a touch, not a mouse.
+ */
+describe('AirportField on a touch keyboard', () => {
+  it('leaves the text alone while the keyboard composes, and capitalises once it commits', () => {
+    const onChange = vi.fn();
+    // Holds the value the way the route editor does, so the controlled input
+    // keeps what was typed rather than snapping back to an unchanged prop.
+    function Controlled() {
+      const [value, setValue] = useState('');
+      return (
+        <AirportField
+          id="test-origin"
+          label="Origin"
+          value={value}
+          onChange={(next) => {
+            onChange(next);
+            setValue(next);
+          }}
+        />
+      );
+    }
+    render(<Controlled />);
+    const input = screen.getByRole('combobox', { name: 'Origin' });
+
+    // Rewriting a controlled value mid-composition makes Android repeat or drop
+    // letters, so the field must hand back exactly what the keyboard typed.
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'li' } });
+    expect(onChange).toHaveBeenLastCalledWith('li');
+
+    fireEvent.compositionEnd(input, { data: 'li' });
+    expect(onChange).toHaveBeenLastCalledWith('LI');
+  });
+
+  it('searches as the letters are typed, whatever their case', async () => {
+    const fetchMock = stubSearch();
+    renderField('ma');
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(fetchMock).toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+  });
+
+  it('takes a suggestion with a tap, without the field losing focus first', async () => {
+    stubSearch();
+    const { onChange } = renderField('MAD');
+    await vi.advanceTimersByTimeAsync(400);
+    const option = await screen.findByRole('option', { name: /Madrid, Spain/ });
+
+    // Keeping focus is what stops the blur closing the list before the tap lands.
+    const notPrevented = fireEvent.pointerDown(option, { pointerType: 'touch', cancelable: true });
+    expect(notPrevented).toBe(false);
+    fireEvent.click(option);
+
+    expect(onChange).toHaveBeenLastCalledWith('MAD');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });

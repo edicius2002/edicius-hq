@@ -90,6 +90,16 @@ export function AirportField({
    */
   const settled = useRef(value);
 
+  /*
+   * Whether a phone keyboard is mid-word. Android keyboards compose before they
+   * commit, and rewriting a controlled value during that — upper-casing it on
+   * every keystroke, as this field did — makes them repeat or drop letters, so
+   * typing a code on a phone never settled into a search. The text goes back
+   * exactly as typed until the word commits, and is capitalised then; the
+   * stylesheet shows it upper-case throughout, and the search ignores case.
+   */
+  const composing = useRef(false);
+
   // A short query has nothing worth showing. Cleared here, during render, as
   // soon as it is known — rather than from the effect below — so there is
   // nothing to undo if the debounced search further down never runs.
@@ -157,12 +167,24 @@ export function AirportField({
         <input
           id={id}
           value={value}
-          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          onChange={(event) =>
+            onChange(composing.current ? event.target.value : event.target.value.toUpperCase())
+          }
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            composing.current = false;
+            onChange(event.currentTarget.value.toUpperCase());
+          }}
           onKeyDown={onKeyDown}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           maxLength={3}
           placeholder={placeholder}
           autoComplete="off"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
@@ -185,12 +207,15 @@ export function AirportField({
                 role="option"
                 aria-selected={index === active}
                 className={index === active ? `${styles.option} ${styles.active}` : styles.option}
-                // `mousedown` rather than `click`: blur fires first otherwise
-                // and the list is gone before the click lands.
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  take(match);
-                }}
+                // The press keeps focus in the input — otherwise blur closes the
+                // list before the choice lands — and the click makes it. On a
+                // phone the emulated `mousedown` a finger produces arrives late
+                // and not reliably, so taking the match there missed taps; the
+                // pointer covers mouse and finger alike, and a finger that
+                // moves off to scroll the list never becomes a click.
+                onPointerDown={(event) => event.preventDefault()}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => take(match)}
                 onMouseEnter={() => setActive(index)}
               >
                 <span className={styles.code}>{match.code}</span>

@@ -64,6 +64,26 @@ export function zoomAt(camera: Camera, factor: number, pivot: Point): Camera {
   };
 }
 
+/** Two fingers on the viewport: the point halfway between them and how far apart. */
+export type Pinch = { mid: Point; distance: number };
+
+/**
+ * The camera a two-finger pinch asks for, measured against where it began.
+ *
+ * The zoom follows the spread — fingers twice as far apart, twice as close — and
+ * the diagram point that was between the fingers stays between them, so a hand
+ * that moves while it pinches carries the diagram with it, as every map on a
+ * phone does. Always from `from` and `start` rather than the last frame: a
+ * product of per-frame ratios never returns to where it began when the hand
+ * does, and the diagram drifts under fingers that are holding still.
+ */
+export function pinchCamera(from: Camera, start: Pinch, now: Pinch): Camera {
+  if (!(start.distance > 0) || !(now.distance > 0)) return from;
+  const zoom = clampZoom(from.zoom * (now.distance / start.distance));
+  const anchor = screenToWorld(from, start.mid);
+  return { zoom, x: now.mid.x - anchor.x * zoom, y: now.mid.y - anchor.y * zoom };
+}
+
 /** Move the camera by a screen-space delta, which is what a drag produces. */
 export function panBy(camera: Camera, delta: Point): Camera {
   return { ...camera, x: camera.x + delta.x, y: camera.y + delta.y };

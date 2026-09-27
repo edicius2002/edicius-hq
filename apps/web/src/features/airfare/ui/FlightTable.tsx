@@ -40,6 +40,7 @@ import { FareHistoryStatus } from './FareHistoryStatus';
 
 type FlightTableProps = {
   loading?: boolean;
+  updating?: boolean;
   error?: Error | null;
   onRetry?: () => void;
   snapshots: FareSnapshot[];
@@ -363,6 +364,7 @@ export function FlightTable({
   departure,
   leg,
   loading = false,
+  updating = false,
   error = null,
   onRetry,
   remote,
@@ -449,7 +451,7 @@ export function FlightTable({
   });
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} aria-busy={updating}>
       <FareHistoryStatus error={error} onRetry={onRetry} />
       {/*
         Heading, departure and every filter on one line — 12.257, where there
@@ -639,6 +641,7 @@ export function FlightTable({
           reading around them.
         */}
           <caption className={styles.caption} aria-live="polite">
+            <span className={styles.updateStatus}>{updating ? 'Updating flights…' : '\u00a0'}</span>
             {summary}
           </caption>
           <thead>
@@ -677,7 +680,7 @@ export function FlightTable({
         <nav className={styles.pager} aria-label="Flight table pages">
           <Button
             size="small"
-            disabled={slice.page <= 1}
+            disabled={updating || slice.page <= 1}
             onClick={() => changePage(slice.page - 1)}
           >
             Previous page
@@ -685,7 +688,7 @@ export function FlightTable({
           <span className={styles.pageOf}>{`Page ${slice.page} of ${slice.pageCount}`}</span>
           <Button
             size="small"
-            disabled={slice.page >= slice.pageCount}
+            disabled={updating || slice.page >= slice.pageCount}
             onClick={() => changePage(slice.page + 1)}
           >
             Next page

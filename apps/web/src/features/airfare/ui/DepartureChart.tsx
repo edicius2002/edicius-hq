@@ -318,6 +318,8 @@ type DepartureChartProps = {
   label: string;
   /** True while the horizon request is in flight, so "never collected" is not claimed early. */
   horizonLoading?: boolean;
+  /** Months whose saved boards have not loaded; their absence is not a collection result. */
+  unavailableMonths?: readonly string[];
   /** Why the horizon could not be read, where the request itself failed — 12.237. */
   horizonError?: Error | null;
   /**
@@ -428,6 +430,7 @@ export function DepartureChart({
   onViewportChange,
   label,
   horizonLoading = false,
+  unavailableMonths = [],
   horizonError = null,
   leg = null,
   reference = null,
@@ -902,6 +905,7 @@ export function DepartureChart({
   } | null>(null);
 
   const priced = points.length + marks.filter((mark) => mark.price !== null).length;
+  const unreadFrame = days.some((day) => unavailableMonths.includes(day.day.slice(0, 7)));
   const notes = horizonNote(days, curve, horizonLoading, horizonError, priced, marks);
 
   if (period === null) {
@@ -1457,7 +1461,9 @@ export function DepartureChart({
           is how many dots there are.
         */}
       {(() => {
-        const frameSummary = summary(source, placed.length, marks);
+        const frameSummary = unreadFrame
+          ? 'Flight data not loaded'
+          : summary(source, placed.length, marks);
         return frameSummary === '' ? null : (
           <p className={styles.window} data-testid="frame-summary">
             {frameSummary}
@@ -1645,7 +1651,7 @@ export function DepartureChart({
           viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
           role="img"
           tabIndex={0}
-          aria-label={`${label}. ${accessibleTail(source, placed.length, marks, currency, caption, ends, reference, referenceAt?.fall ?? null)}`}
+          aria-label={`${label}. ${unreadFrame ? 'Flight data not loaded for this frame.' : accessibleTail(source, placed.length, marks, currency, caption, ends, reference, referenceAt?.fall ?? null)}`}
           /*
           The description is the affordances, and the two live regions are not
           part of it.
@@ -1909,34 +1915,38 @@ export function DepartureChart({
           which kind of nothing it is — 12.232. Under the plot floor, because a
           mark inside the plot at any height reads as a fare.
         */}
-            {absent.map((day) => (
-              <g
-                key={day.day}
-                className={styles.hole}
-                data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
-              >
-                <title>
-                  {axisDayLabel(day.day)}:{' '}
-                  {day.answered ? 'nothing on sale — the board came back empty' : 'never collected'}
-                </title>
-                {day.answered ? (
-                  <rect
-                    x={xOf(day.offset, period, VIEW, view) - 1.6}
-                    y={RAIL_Y - 1.6}
-                    width={3.2}
-                    height={3.2}
-                    className={styles.unsold}
-                  />
-                ) : (
-                  <circle
-                    cx={xOf(day.offset, period, VIEW, view)}
-                    cy={RAIL_Y}
-                    r={2}
-                    className={styles.unanswered}
-                  />
-                )}
-              </g>
-            ))}
+            {absent
+              .filter((day) => !unavailableMonths.includes(day.day.slice(0, 7)))
+              .map((day) => (
+                <g
+                  key={day.day}
+                  className={styles.hole}
+                  data-testid={day.answered ? 'day-unsold' : 'day-unanswered'}
+                >
+                  <title>
+                    {axisDayLabel(day.day)}:{' '}
+                    {day.answered
+                      ? 'nothing on sale — the board came back empty'
+                      : 'never collected'}
+                  </title>
+                  {day.answered ? (
+                    <rect
+                      x={xOf(day.offset, period, VIEW, view) - 1.6}
+                      y={RAIL_Y - 1.6}
+                      width={3.2}
+                      height={3.2}
+                      className={styles.unsold}
+                    />
+                  ) : (
+                    <circle
+                      cx={xOf(day.offset, period, VIEW, view)}
+                      cy={RAIL_Y}
+                      r={2}
+                      className={styles.unanswered}
+                    />
+                  )}
+                </g>
+              ))}
 
             {/*
           A curve date: one price for the whole date, drawn across the whole

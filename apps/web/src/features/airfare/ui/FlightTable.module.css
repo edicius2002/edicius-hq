@@ -549,3 +549,7 @@
     margin-block: -3px;
   }
 }
+.updateStatus {
+  display: block;
+  min-block-size: 1lh;
+}

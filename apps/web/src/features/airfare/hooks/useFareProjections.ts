@@ -7,6 +7,7 @@ import { bucketBaseline, bucketSnapshots, unsoldPeriods } from '@/features/airfa
 import { latestPerDeparture } from '@/features/airfare/lib/series';
 import { fetchFareHistory } from '@/shared/api/fares';
 import { archiveQueryOptions } from './archiveQueryOptions';
+import { useRetainedData } from '@/shared/lib/useRetainedData';
 
 function archiveRequested(): boolean {
   return (
@@ -71,22 +72,40 @@ export function useFareProjections(route: FareRoute | null, month: string | null
     enabled: route !== null && month !== null,
   });
 
+  const data = useRetainedData(`${route?.origin}|${route?.destination}`, primary.data);
+
   // The selected month paints first; other watched months only supply departure
   // frames when they arrive and each remains cached under its own month key.
-  const secondaryBoards = useQueries({
-    queries:
-      route?.months
-        .filter((other) => other !== month)
-        .map((other) => ({
-          ...archiveQueryOptions,
-          retry: false,
-          queryKey: ['fares', 'projection', route.origin, route.destination, other],
-          queryFn: ({ signal }: { signal: AbortSignal }) =>
-            readMonth(route.origin, route.destination, other, signal),
-          enabled: primary.data !== undefined,
-        })) ?? [],
-    combine: (results) => results.flatMap((result) => result.data?.latestBoards ?? []),
+  const secondaryMonths =
+    route?.months.filter((other) => other !== month && other !== data?.month) ?? [];
+  const secondary = useQueries({
+    queries: secondaryMonths.map((other) => ({
+      ...archiveQueryOptions,
+      retry: false,
+      queryKey: ['fares', 'projection', route!.origin, route!.destination, other],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        readMonth(route!.origin, route!.destination, other, signal),
+      enabled: primary.data !== undefined,
+    })),
+    combine: (results) => ({
+      boards: results.flatMap((result) => result.data?.latestBoards ?? []),
+      unavailable: results.flatMap((result, index) =>
+        result.data === undefined ? [secondaryMonths[index]] : [],
+      ),
+    }),
   });
 
-  return { primary, secondaryBoards };
+  return {
+    primary: {
+      ...primary,
+      data,
+      isPending: primary.isPending && data === undefined,
+      isPreviousData: primary.data === undefined && data !== undefined,
+    },
+    secondaryBoards: secondary.boards,
+    unavailableMonths: [
+      ...(primary.data === undefined && month ? [month] : []),
+      ...secondary.unavailable,
+    ],
+  };
 }

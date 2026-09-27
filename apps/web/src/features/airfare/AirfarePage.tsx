@@ -207,7 +207,11 @@ export function AirfarePage() {
    */
   const activeMonth = selected ? readingMonth(selected, routeView.month, today) : null;
 
-  const { primary: history, secondaryBoards } = useFareProjections(selected, activeMonth);
+  const {
+    primary: history,
+    secondaryBoards,
+    unavailableMonths,
+  } = useFareProjections(selected, activeMonth);
   // Beside the archive rather than inside the panel that draws it: the two are
   // the same kind of thing — one route's data, fetched where the route is
   // chosen — and the panel stays a component that is handed everything it
@@ -222,7 +226,7 @@ export function AirfarePage() {
    * answer; `snapshotsFor` still narrows with `startsWith` because `YYYY-MM`
    * is a prefix of every departure key inside it — 12.112.
    */
-  const reading = activeMonth;
+  const reading = history.data?.month ?? activeMonth;
 
   /*
    * The months this watch is on, as a stable identity.
@@ -436,6 +440,41 @@ export function AirfarePage() {
     [selected, airports.data],
   );
 
+  // Chart navigation must not redraw the globe when its inputs are unchanged.
+  const map = useMemo(
+    () => (
+      <RouteMap
+        routes={geometries}
+        stopRoutes={stopRoutes}
+        selectedId={selectedKey}
+        onSelect={setSelectedId}
+        colours={colours}
+        lastCollectedId={flow.freshest}
+        projection={projection}
+        onProjectionChange={setProjection}
+        /*
+              The watchlist's save state, in the map's toolbar — which is not
+              where it belongs by subject but is where it belongs on screen.
+              It stood in the page header beside the collect button; with that
+              button withdrawn the header was a title and a word floating at the
+              far end of an empty row. The two panels below it already carry
+              their own chrome, and this one had a strip with room on it.
+            */
+        status={<SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />}
+      />
+    ),
+    [
+      geometries,
+      stopRoutes,
+      selectedKey,
+      colours,
+      flow.freshest,
+      projection,
+      watchlist.saveState,
+      watchlist.retrySave,
+    ],
+  );
+
   return (
     <section className={styles.page} aria-label="Airfare">
       {/*
@@ -465,25 +504,7 @@ export function AirfarePage() {
       */}
       <div className={styles.top}>
         <Panel className={`${styles.tall} ${styles.panel} ${styles.visualPanel}`}>
-          <RouteMap
-            routes={geometries}
-            stopRoutes={stopRoutes}
-            selectedId={selectedKey}
-            onSelect={setSelectedId}
-            colours={colours}
-            lastCollectedId={flow.freshest}
-            projection={projection}
-            onProjectionChange={setProjection}
-            /*
-              The watchlist's save state, in the map's toolbar — which is not
-              where it belongs by subject but is where it belongs on screen.
-              It stood in the page header beside the collect button; with that
-              button withdrawn the header was a title and a word floating at the
-              far end of an empty row. The two panels below it already carry
-              their own chrome, and this one had a strip with room on it.
-            */
-            status={<SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />}
-          />
+          {map}
           {undrawn > 0 ? (
             <p className={styles.note}>
               {undrawn} route{undrawn === 1 ? '' : 's'} not drawn yet — coordinates arrive with a
@@ -633,7 +654,7 @@ export function AirfarePage() {
       <Panel className={styles.panel}>
         <RouteDetail
           route={selected}
-          month={activeMonth}
+          month={reading}
           latest={latest}
           insights={insights}
           health={health}
@@ -663,14 +684,20 @@ export function AirfarePage() {
         than infer it from the tree" argument exists to avoid. `Panel` spreads
         `HTMLAttributes`, so this needs no change to the component.
       */}
-      <Panel id={ANALYSIS_PANEL_ID} className={`${styles.panel} ${styles.visualPanel}`}>
+      <Panel
+        id={ANALYSIS_PANEL_ID}
+        className={`${styles.panel} ${styles.visualPanel}`}
+        aria-busy={history.isPreviousData && history.isFetching}
+      >
         <AnalysisPanel
+          updatingMonth={history.isPreviousData && history.isFetching ? activeMonth : null}
+          unavailableMonths={unavailableMonths}
           historyLoading={selected !== null && history.isPending}
           historyError={history.error}
           historyAvailable={history.data !== undefined}
           onHistoryRetry={() => void history.refetch()}
           route={selected}
-          month={activeMonth}
+          month={reading}
           watchedMonths={watchedMonths}
           monthSnapshots={snapshots}
           watchedSnapshots={watchedSnapshots}
@@ -738,15 +765,15 @@ export function AirfarePage() {
           the same object the analysis panel above is given, so the two panels
           cannot disagree about which flights are reachable.
         */}
-        {selected && activeMonth && history.data && history.data.revision !== 'archive' ? (
+        {selected && reading && history.data && history.data.revision !== 'archive' ? (
           <ProjectedFlightTable
-            key={`${selectedKey}:${activeMonth}`}
+            key={selectedKey}
             route={selected}
-            month={activeMonth}
+            month={reading}
             revision={history.data.revision}
             latestCapture={history.data.latestCapture}
             granularity={granularity}
-            departure={formatFlightMonth(activeMonth)}
+            departure={formatFlightMonth(reading)}
             leg={leg}
           />
         ) : (
@@ -756,7 +783,7 @@ export function AirfarePage() {
             onRetry={() => void history.refetch()}
             snapshots={history.data?.archiveSnapshots ?? []}
             granularity={granularity}
-            departure={activeMonth ? formatFlightMonth(activeMonth) : null}
+            departure={reading ? formatFlightMonth(reading) : null}
             leg={leg}
           />
         )}

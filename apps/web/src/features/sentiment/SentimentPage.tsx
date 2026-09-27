@@ -73,7 +73,7 @@ export function SentimentPage() {
         <Panel className={styles.state} role="status">
           Loading sentiment…
         </Panel>
-      ) : query.isError ? (
+      ) : query.isError && !hasCompleteHistory ? (
         <Panel className={styles.state} role="alert">
           <p>Sentiment is unavailable. Its data providers may be temporarily unreachable.</p>
           <Button onClick={() => void query.refetch()}>Retry</Button>
@@ -84,6 +84,12 @@ export function SentimentPage() {
         </Panel>
       ) : (
         <>
+          {query.isError ? (
+            <Panel className={styles.stale} role="alert">
+              <p>Could not refresh sentiment. Showing the last available snapshot.</p>
+              <Button onClick={() => void query.refetch()}>Retry</Button>
+            </Panel>
+          ) : null}
           {data.stale ? (
             <Panel className={styles.stale} role="status" aria-label="Stale data">
               The data providers could not be refreshed, so this is the last known snapshot.

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const auth = vi.hoisted(() => ({
@@ -109,11 +109,9 @@ function stubApi(resets: Response | object = RESETS) {
   return calls;
 }
 
-function renderPage() {
+function renderPage(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={client}>
       <DashboardPage />
     </QueryClientProvider>,
   );
@@ -185,4 +183,17 @@ it('keeps the API watcher running when the Dashboard unmounts', () => {
   unmount();
 
   expect(calls.some((call) => call.startsWith('DELETE') && call.endsWith('/watch'))).toBe(false);
+});
+
+it('retains captured posts when a background refresh fails', async () => {
+  stubApi();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderPage(client);
+  const post = await screen.findByText('post anon');
+  tweetData.fetchTweets.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['tweets'] });
+  });
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  expect(post).toBeInTheDocument();
 });

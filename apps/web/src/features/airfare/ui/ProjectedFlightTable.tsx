@@ -12,6 +12,7 @@ import {
 } from '@/features/airfare/lib/flightTable';
 import { archiveQueryOptions } from '@/features/airfare/hooks/archiveQueryOptions';
 import { FlightTable } from './FlightTable';
+import { useRetainedData } from '@/shared/lib/useRetainedData';
 
 type Criteria = { filters: Filters; sort: Sort; page: number };
 
@@ -38,9 +39,11 @@ export function ProjectedFlightTable({
     sort: DEFAULT_SORT,
     page: 1,
   });
-  const [shownGranularity, setShownGranularity] = useState(granularity);
-  if (shownGranularity !== granularity) {
-    setShownGranularity(granularity);
+  const scope = `${route.origin}|${route.destination}`;
+  const criteriaScope = `${scope}:${month}:${granularity}`;
+  const [shownScope, setShownScope] = useState(criteriaScope);
+  if (shownScope !== criteriaScope) {
+    setShownScope(criteriaScope);
     setCriteria((current) => ({ ...current, page: 1 }));
   }
 
@@ -87,21 +90,30 @@ export function ProjectedFlightTable({
         });
         throw new Error('Saved fares changed while loading flights. Retry to refresh.');
       }
-      return result;
+      // Retain the labels with their rows while a different month/period loads.
+      return { data: result, period, departure };
     },
     enabled: from !== null && to !== null,
   });
+  const shown = useRetainedData(scope, latestCapture === null ? null : query.data);
+  const updating = latestCapture !== null && query.isFetching && query.data === undefined;
 
   return (
     <FlightTable
       snapshots={[]}
       granularity={granularity}
-      departure={departure}
+      departure={shown?.departure ?? departure}
       leg={leg}
-      loading={latestCapture !== null && query.isPending}
+      loading={latestCapture !== null && query.isPending && !shown}
+      updating={updating}
       error={query.error}
       onRetry={() => void query.refetch()}
-      remote={{ period, data: query.data ?? null, criteria, onCriteriaChange: setCriteria }}
+      remote={{
+        period: shown?.period ?? period,
+        data: shown?.data ?? null,
+        criteria,
+        onCriteriaChange: setCriteria,
+      }}
     />
   );
 }

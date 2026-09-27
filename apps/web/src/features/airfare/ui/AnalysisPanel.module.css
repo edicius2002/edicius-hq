@@ -397,3 +397,10 @@
     height: calc(56.24cqw + 60px);
   }
 }
+.historyStatus {
+  min-block-size: 1.5em;
+}
+
+.historyStatus > p {
+  margin: 0;
+}

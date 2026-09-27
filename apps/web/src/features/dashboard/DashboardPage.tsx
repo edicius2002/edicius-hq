@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
 import { PageHeader } from '@/shared/ui/PageHeader';
+import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
 
 import { useCodexResets } from './hooks/useCodexResets';
@@ -81,9 +82,15 @@ export function DashboardPage() {
     <section className={styles.page} aria-labelledby="page-title">
       <PageHeader title={`@${HANDLE}`} className={styles.header} />
       <CodexResetOverview query={codexResets} now={now} />
+      {query.isError && query.data !== undefined ? (
+        <Panel role="alert">
+          Could not refresh captured tweets. Showing the last available posts.
+          <Button onClick={() => void query.refetch()}>Retry</Button>
+        </Panel>
+      ) : null}
       {query.isLoading ? (
         <Panel>Loading tweets…</Panel>
-      ) : query.isError ? (
+      ) : query.isError && query.data === undefined ? (
         <Panel role="alert">Could not load captured tweets.</Panel>
       ) : tweets.length === 0 ? (
         <Panel>Nothing captured yet. Run the X scraper to populate this dashboard.</Panel>

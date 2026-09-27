@@ -40,3 +40,23 @@ it('fetches the open month before requesting secondary months', async () => {
   expect(fetchMonth.mock.calls[1][2]).toBe('2026-12');
   expect(result.current.primary.data?.latestBoards).toEqual([]);
 });
+
+it('does not duplicate retained primary boards in secondary months during a switch', async () => {
+  const board = { flightDate: '2026-11-01' };
+  const november = { month: '2026-11', latestBoards: [board] };
+  fetchMonth.mockImplementation((_origin: string, _destination: string, month: string) =>
+    month === '2026-11' ? Promise.resolve(november) : new Promise(() => {}),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result, rerender } = renderHook(({ month }) => useFareProjections(route, month), {
+    initialProps: { month: '2026-11' },
+    wrapper,
+  });
+  await waitFor(() => expect(result.current.primary.data?.month).toBe('2026-11'));
+  rerender({ month: '2026-12' });
+  expect(result.current.primary.data?.latestBoards).toEqual([board]);
+  expect(result.current.secondaryBoards).toEqual([]);
+});

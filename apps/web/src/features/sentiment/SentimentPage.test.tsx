@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,8 +55,7 @@ function response(overrides: Partial<SentimentResponse> = {}): SentimentResponse
   };
 }
 
-function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={client}>
       <SentimentPage />
@@ -156,4 +155,18 @@ describe('SentimentPage', () => {
     expect(await screen.findByText(/No sentiment history/)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
+});
+
+it('retains the same charts when a background refresh fails', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mockedGetLatestSentiment.mockResolvedValueOnce(response());
+  renderPage(client);
+  const charts = await screen.findAllByRole('img');
+  mockedGetLatestSentiment.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['sentiment'] });
+  });
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  for (const chart of charts) expect(chart).toBeInTheDocument();
+  expect(screen.getAllByRole('img')).toEqual(charts);
 });

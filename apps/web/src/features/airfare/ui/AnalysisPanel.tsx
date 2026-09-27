@@ -122,6 +122,8 @@ const DAYS_NAMES: Record<FrameSource, string> = {
 export const ANALYSIS_PANEL_ID = 'airfare-analysis';
 
 type AnalysisPanelProps = {
+  updatingMonth?: string | null;
+  unavailableMonths?: readonly string[];
   historyLoading?: boolean;
   historyError?: Error | null;
   historyAvailable?: boolean;
@@ -225,6 +227,8 @@ type AnalysisPanelProps = {
  * switch above name the chart after the frame it is about to draw.
  */
 export function AnalysisPanel({
+  updatingMonth = null,
+  unavailableMonths,
   historyLoading = false,
   historyError = null,
   historyAvailable = true,
@@ -516,7 +520,12 @@ export function AnalysisPanel({
         of height and a band of letterbox to hold a switch chart A must never
         have.
       */}
-      <FareHistoryStatus loading={historyLoading} error={historyError} onRetry={onHistoryRetry} />
+      <div className={styles.historyStatus}>
+        <FareHistoryStatus loading={historyLoading} error={historyError} onRetry={onHistoryRetry} />
+        {updatingMonth && !historyLoading && !historyError ? (
+          <p role="status">Updating saved fares for {formatFlightMonth(updatingMonth)}…</p>
+        ) : null}
+      </div>
       <div className={styles.stage}>
         <div className={styles.body}>
           {(historyLoading || (historyError && !historyAvailable)) &&
@@ -536,6 +545,7 @@ export function AnalysisPanel({
             it is held above this component and cleared by the route change.
           */
             <DepartureChart
+              unavailableMonths={unavailableMonths}
               key={routeKey ?? 'none'}
               snapshots={watchedSnapshots}
               curve={curve}

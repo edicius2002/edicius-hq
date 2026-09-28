@@ -95,6 +95,27 @@ persistent catch-up, and 30-second jitter. Airfare is bounded with
 `TimeoutStartSec=20min`: this permits its 15-minute scheduled pass plus small
 startup/teardown overhead, while preventing an unbounded one-shot.
 
+## Routine Pi release updates
+
+After the collectors have been enabled, run the reusable Windows launcher from
+the repository root. It resolves the current `main` commit once, asks for the
+Pi user's `sudo` password over SSH, and verifies the pinned release and active
+collector units. Do not start a manual Airfare fetch during deployment.
+
+```powershell
+.\deploy-pi.cmd -WhatIf
+.\deploy-pi.cmd
+```
+
+Use `-Commit <full-40-character-sha>` to deploy or restore an exact commit, and
+`-PiHost <ssh-alias-or-user@host>` when the Pi is not configured as `pi-bodas`.
+The launcher prepares dependencies before stopping services, waits for any
+scheduled pass, refuses to interrupt a manual Airfare fetch, and attempts to
+restore the prior release and restart the collectors if activation fails. It
+reuses an already prepared release with the same commit; it never pulls into an
+active release. Releases that require Supabase migrations still need their
+database steps completed before this Pi code update.
+
 ## Checkpoint C: durable imports and profile
 
 Every `/var/lib/edicius-hq` destination is created

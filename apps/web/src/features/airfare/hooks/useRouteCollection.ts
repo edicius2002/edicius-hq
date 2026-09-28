@@ -61,6 +61,16 @@ export function useRouteCollection(): RouteCollection {
       const route = requestRouteId(request);
       if (forgottenRoutes.current.has(route)) return;
       const active = request.status === 'queued' || request.status === 'running';
+      const previous = requestsRef.current.get(request.requestId);
+      if (
+        previous?.status === 'complete' ||
+        ((previous?.status === 'failed' || previous?.status === 'expired') && active)
+      )
+        return;
+      // A server completion can arrive after the local expiry clock fires.
+      // The confirmed completion must still refresh the fare queries.
+      if (previous?.status === 'expired' && request.status === 'complete')
+        handledTerminal.current.delete(request.requestId);
       if (active) adopted.current.add(request.requestId);
       if (!active && !adopted.current.has(request.requestId)) return;
 
@@ -116,6 +126,16 @@ export function useRouteCollection(): RouteCollection {
       unsubscribe();
     };
   }, [accept]);
+
+  useEffect(() => {
+    const next = [...requests.values()]
+      .filter((request) => request.status === 'queued' || request.status === 'running')
+      .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))[0];
+    if (!next) return;
+    const delay = Math.min(2_147_483_647, Math.max(0, Date.parse(next.expiresAt) - Date.now() + 1));
+    const timer = setTimeout(() => accept(next), delay);
+    return () => clearTimeout(timer);
+  }, [accept, requests]);
 
   useEffect(
     () => () => {

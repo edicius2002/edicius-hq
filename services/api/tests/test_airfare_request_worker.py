@@ -154,6 +154,30 @@ def test_a_partial_collection_syncs_what_it_got_and_completes_with_its_failures(
         assert (result["lookedAt"], result["failed"], result["skipped"]) == (3, failed, skipped)
 
 
+def test_real_manual_sync_accepts_partial_results_when_some_departures_were_read(monkeypatch):
+    from app.services import airfare_request_worker as module
+    from app.services.collection_sync import sync_completed_pass
+
+    data = Mock()
+    data.sync_incremental.return_value = Mock(status="complete")
+    monkeypatch.setattr(module, "AIRFARE_DATA", data)
+
+    assert sync_completed_pass(data, report(failed=True)) is False
+    data.sync_incremental.assert_not_called()
+    for collected in (
+        report(failed=True),
+        report(skipped=[("LIM-CUZ 2026-11-04", "over-budget")]),
+    ):
+        remote = Mock(owner_id=OWNER)
+        remote.claim_request.side_effect = [request(), None]
+        worker = worker_for(remote, collect_route=AsyncMock(return_value=collected))
+
+        assert asyncio.run(worker.reconcile_once()) is True
+        remote.complete_request.assert_called_once()
+        assert remote.complete_request.call_args.args[1]["synced"] is True
+    assert data.sync_incremental.call_count == 2
+
+
 def test_a_collection_that_got_nothing_fails_without_syncing():
     nothing_read = CollectionReport(
         "start",

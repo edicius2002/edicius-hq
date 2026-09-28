@@ -34,6 +34,7 @@ class AirfareHistoryRevisionChanged(AirfareRemoteError):
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _CONFLICT_TARGET = re.compile(r"^[a-z_][a-z0-9_,]*$")
+_SQLSTATE = re.compile(r"^[A-Z0-9]{5}$")
 _HISTORY_BUDGET_SECONDS = 60.0
 _HISTORY_PROTOCOL_ERRORS = {
     ("22023", "airfare_history_invalid_request"),
@@ -60,15 +61,19 @@ def _decode_response(response: httpx.Response) -> Any:
                 and (code, message) in _HISTORY_PROTOCOL_ERRORS
             ):
                 raise AirfareRemoteRejected("Supabase rejected the history protocol request")
+    sqlstate = ""
+    if response.status_code >= 400 and isinstance(error, dict):
+        code = error.get("code")
+        if isinstance(code, str) and _SQLSTATE.fullmatch(code):
+            sqlstate = f", SQLSTATE {code}"
     if response.status_code == 429 or response.status_code >= 500:
-        sqlstate = ""
-        if isinstance(error, dict) and error.get("code") == "57014":
-            sqlstate = ", SQLSTATE 57014"
         raise AirfareRemoteUnavailable(
             f"Supabase is unavailable ({response.status_code}{sqlstate})"
         )
     if response.status_code >= 400:
-        raise AirfareRemoteRejected(f"Supabase rejected the request ({response.status_code})")
+        raise AirfareRemoteRejected(
+            f"Supabase rejected the request ({response.status_code}{sqlstate})"
+        )
     if not response.content:
         return None
     try:

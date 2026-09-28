@@ -78,6 +78,7 @@ declare
   v_from date;
   v_to date;
   v_count integer := 0;
+  v_metadata jsonb;
 begin
   -- The trigger first updates this row. Its lock keeps a concurrent dirty
   -- mark waiting until this refresh either commits or rolls back.
@@ -126,6 +127,23 @@ begin
         where origin=p_origin and destination=p_destination and month=v_month;
     end if;
   end loop;
+
+  -- Pair reference spans the whole route; health is month-specific. Keep
+  -- only the shared reference current in otherwise unchanged months.
+  if exists (select 1 from public.fare_month_projections
+             where origin=p_origin and destination=p_destination) then
+    v_metadata := public.read_airfare_history_meta(
+      p_origin,p_destination,'',array[]::text[],null,null,null
+    );
+    update public.fare_month_projections p set
+      payload = p.payload || jsonb_build_object(
+        'pairReference',v_metadata->'pairReference',
+        'revision',v_metadata->'revision'
+      ),
+      revision = (v_metadata->>'revision')::bigint
+    where p.origin=p_origin and p.destination=p_destination
+      and p.payload->'pairReference' is distinct from v_metadata->'pairReference';
+  end if;
 
   delete from public.fare_projection_dirty_months
     where origin=p_origin and destination=p_destination;

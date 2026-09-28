@@ -98,8 +98,24 @@ select is(public.refresh_fare_route_projection('TMB','DST'),1,'one changed month
 select is((select built_at='2000-01-01T00:00:00Z'::timestamptz
   from public.fare_month_projections where origin='TMB' and destination='DST' and month='2027-02'),true,
   'unchanged month keeps its existing projection');
+select is((select (payload #>> '{pairReference,value}')::numeric
+  from public.fare_month_projections where origin='TMB' and destination='DST' and month='2027-02'),100::numeric,
+  'unchanged month receives updated route-wide price reference');
 select is((select payload #>> '{priceDays,0,low}' from public.fare_month_projections
   where origin='TMB' and destination='DST' and month='2027-01'),'80','changed month receives the new price');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('5',64),'board','TMB','DST','2027-01-09','2026-09-20T10:00:00Z','changed','{"at":"2026-09-20T10:00:00Z"}');
+select is(public.refresh_fare_route_projection('TMB','DST'),1,'board check rebuilds only its departure month');
+select is((select payload #>> '{health,checks}' from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-01'),'1',
+  'changed month receives its board-check health');
+select is((select payload #>> '{health,checks}' from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-02'),'0',
+  'unchanged month retains its own board-check health');
+select is((select payload->>'revision'=revision::text from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-02'),true,
+  'shared metadata update retains a consistent projection revision');
 update public.fare_snapshots set flight_date='2027-03-09' where record_id=repeat('4',64);
 select is(public.refresh_fare_route_projection('TMB','DST'),1,'moving a departure rebuilds its new month');
 select is((select count(*)::text from public.fare_month_projections

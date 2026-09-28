@@ -78,6 +78,47 @@ def test_statement_timeout_reports_sqlstate_without_server_details():
         client.close()
 
 
+@pytest.mark.parametrize(
+    ("status", "code", "expected"),
+    [(500, "42P01", AirfareRemoteUnavailable), (400, "23505", AirfareRemoteRejected)],
+)
+def test_projection_error_reports_safe_sqlstate_without_server_message(status, code, expected):
+    secret = "private-server-details-never-print"
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                status, json={"code": code, "message": secret, "details": secret}
+            )
+        ),
+    )
+    try:
+        with pytest.raises(expected) as error:
+            client.rpc("refresh_fare_route_projection", {})
+        assert code in str(error.value)
+        assert secret not in str(error.value)
+    finally:
+        client.close()
+
+
+def test_projection_error_ignores_untrusted_non_sqlstate_code():
+    secret = "private-server-details-never-print"
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(500, json={"code": secret, "message": secret})
+        ),
+    )
+    try:
+        with pytest.raises(AirfareRemoteUnavailable) as error:
+            client.rpc("refresh_fare_route_projection", {})
+        assert secret not in str(error.value)
+    finally:
+        client.close()
+
+
 def test_rpc_timeout_override_does_not_extend_other_requests():
     observed = []
 

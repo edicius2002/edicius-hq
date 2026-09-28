@@ -342,6 +342,24 @@ def test_sync_refreshes_dirty_route_projection_after_upload(source, remote):
     assert server.dirty_routes == []
 
 
+def test_projection_refresh_allows_a_longer_rpc_than_regular_uploads(source, remote):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+
+    assert AirfareSync(source, client).apply("incremental").status == "complete"
+
+    projection_request = next(
+        request
+        for request in server.requests
+        if request.url.path.endswith("/rpc/refresh_fare_route_projection")
+    )
+    upload_request = next(
+        request for request in server.requests if request.url.path.endswith("/fare_snapshots")
+    )
+    assert projection_request.extensions["timeout"]["read"] == 35
+    assert upload_request.extensions["timeout"]["read"] == 15
+
+
 def test_failed_projection_refresh_is_retried_after_cursors_advance(source, remote):
     server, client = remote
     server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
@@ -355,6 +373,19 @@ def test_failed_projection_refresh_is_retried_after_cursors_advance(source, remo
     retry = sync.apply("incremental")
     assert retry.status == "complete" and retry.uploaded["baseline"] == 0
     assert server.projection_refreshes == [("AQP", "LIM")]
+
+
+def test_failed_projection_refresh_logs_route_and_safe_status(source, remote, caplog):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+    server.fail_table = "refresh_fare_route_projection"
+
+    report = AirfareSync(source, client).apply("incremental")
+
+    assert report.status == "failed"
+    assert "AQP-LIM" in caplog.text
+    assert "503" in caplog.text
+    assert "sb_secret_DO_NOT_REPORT" not in caplog.text
 
 
 def test_apply_serializes_processes_before_scanning_a_rewritten_baseline(tmp_path):

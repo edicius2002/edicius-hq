@@ -34,6 +34,7 @@ class AirfareHistoryRevisionChanged(AirfareRemoteError):
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _CONFLICT_TARGET = re.compile(r"^[a-z_][a-z0-9_,]*$")
+_SQLSTATE = re.compile(r"^[A-Z0-9]{5}$")
 _HISTORY_BUDGET_SECONDS = 60.0
 _HISTORY_PROTOCOL_ERRORS = {
     ("22023", "airfare_history_invalid_request"),
@@ -60,10 +61,19 @@ def _decode_response(response: httpx.Response) -> Any:
                 and (code, message) in _HISTORY_PROTOCOL_ERRORS
             ):
                 raise AirfareRemoteRejected("Supabase rejected the history protocol request")
+    sqlstate = ""
+    if response.status_code >= 400 and isinstance(error, dict):
+        code = error.get("code")
+        if isinstance(code, str) and _SQLSTATE.fullmatch(code):
+            sqlstate = f", SQLSTATE {code}"
     if response.status_code == 429 or response.status_code >= 500:
-        raise AirfareRemoteUnavailable(f"Supabase is unavailable ({response.status_code})")
+        raise AirfareRemoteUnavailable(
+            f"Supabase is unavailable ({response.status_code}{sqlstate})"
+        )
     if response.status_code >= 400:
-        raise AirfareRemoteRejected(f"Supabase rejected the request ({response.status_code})")
+        raise AirfareRemoteRejected(
+            f"Supabase rejected the request ({response.status_code}{sqlstate})"
+        )
     if not response.content:
         return None
     try:
@@ -158,9 +168,11 @@ class SupabaseAirfare:
             headers={"Prefer": "resolution=merge-duplicates"},
         )
 
-    def rpc(self, name: str, params: Mapping[str, object]) -> Any:
+    def rpc(
+        self, name: str, params: Mapping[str, object], *, timeout_seconds: float | None = None
+    ) -> Any:
         name = _identifier(name, kind="RPC name")
-        return self._post(f"rpc/{name}", dict(params))
+        return self._post(f"rpc/{name}", dict(params), timeout_seconds=timeout_seconds)
 
     def read_history(
         self, params: Mapping[str, object], *, cancel_event: Event | None = None
@@ -312,8 +324,16 @@ class SupabaseAirfare:
         *,
         params: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> Any:
-        return self._request("POST", path, body=body, params=params, headers=headers)
+        return self._request(
+            "POST",
+            path,
+            body=body,
+            params=params,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+        )
 
     def _request(
         self,
@@ -323,9 +343,22 @@ class SupabaseAirfare:
         body: object = None,
         params: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> Any:
         try:
-            response = self._client.request(method, path, params=params, json=body, headers=headers)
+            if timeout_seconds is None:
+                response = self._client.request(
+                    method, path, params=params, json=body, headers=headers
+                )
+            else:
+                response = self._client.request(
+                    method,
+                    path,
+                    params=params,
+                    json=body,
+                    headers=headers,
+                    timeout=timeout_seconds,
+                )
         except (httpx.TimeoutException, httpx.RequestError):
             raise AirfareRemoteUnavailable("Supabase request is unavailable") from None
 

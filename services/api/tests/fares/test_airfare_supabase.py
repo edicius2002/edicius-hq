@@ -56,6 +56,90 @@ def test_only_allowlisted_history_errors_override_http_status(status, code, mess
         client.close()
 
 
+def test_statement_timeout_reports_sqlstate_without_server_details():
+    secret = "private-server-details-never-print"
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                500,
+                json={"code": "57014", "message": "canceling statement", "details": secret},
+            )
+        ),
+    )
+    try:
+        with pytest.raises(AirfareRemoteUnavailable) as error:
+            client.rpc("refresh_fare_route_projection", {"p_origin": "AQP", "p_destination": "LIM"})
+        assert "57014" in str(error.value)
+        assert secret not in str(error.value)
+        assert "canceling statement" not in str(error.value)
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "expected"),
+    [(500, "42P01", AirfareRemoteUnavailable), (400, "23505", AirfareRemoteRejected)],
+)
+def test_projection_error_reports_safe_sqlstate_without_server_message(status, code, expected):
+    secret = "private-server-details-never-print"
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                status, json={"code": code, "message": secret, "details": secret}
+            )
+        ),
+    )
+    try:
+        with pytest.raises(expected) as error:
+            client.rpc("refresh_fare_route_projection", {})
+        assert code in str(error.value)
+        assert secret not in str(error.value)
+    finally:
+        client.close()
+
+
+def test_projection_error_ignores_untrusted_non_sqlstate_code():
+    secret = "private-server-details-never-print"
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(500, json={"code": secret, "message": secret})
+        ),
+    )
+    try:
+        with pytest.raises(AirfareRemoteUnavailable) as error:
+            client.rpc("refresh_fare_route_projection", {})
+        assert secret not in str(error.value)
+    finally:
+        client.close()
+
+
+def test_rpc_timeout_override_does_not_extend_other_requests():
+    observed = []
+
+    def handle(request):
+        observed.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json=0)
+
+    client = SupabaseAirfare(
+        "https://example.supabase.co",
+        "test-key",
+        timeout_seconds=15,
+        transport=httpx.MockTransport(handle),
+    )
+    try:
+        client.rpc("refresh_fare_route_projection", {}, timeout_seconds=35)
+        client.rpc("another_rpc", {})
+    finally:
+        client.close()
+    assert observed == [35, 15]
+
+
 @pytest.mark.parametrize("inside_loop", [False, True])
 def test_history_scoped_transport_assembles_without_closing_shared_client(inside_loop):
     from pathlib import Path

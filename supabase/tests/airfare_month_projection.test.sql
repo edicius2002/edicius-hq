@@ -4,6 +4,7 @@ select no_plan();
 select has_table('public', 'fare_month_projections', 'month projections are persisted');
 select has_table('public', 'fare_flight_projections', 'flight projections are persisted');
 select has_table('public', 'fare_projection_dirty_routes', 'dirty routes survive failed syncs');
+select has_table('public', 'fare_projection_dirty_months', 'dirty months survive failed syncs');
 select has_function('public', 'refresh_fare_month_projection', array['text','text','text'], 'service refresh exists');
 select has_function('public', 'refresh_fare_route_projection', array['text','text'], 'route refresh exists');
 select has_function('public', 'list_fare_projection_dirty_routes', array[]::text[], 'dirty route list exists');
@@ -81,6 +82,64 @@ select throws_ok($$select public.read_owner_fare_flights('TST','DST','2027-03')$
 select throws_ok($$select public.read_owner_fare_flights_page('TST','DST','2027-03','2026-09-20','2026-09-20')$$,'42501','not_edicius_owner','paged flight read denies a non-owner');
 select is(public.refresh_fare_route_projection('TST','DST'),1,'route refresh covers its month');
 select is((select count(*)::text from public.list_fare_projection_dirty_routes() where origin='TST' and destination='DST'),'0','successful route refresh clears dirty mark');
+
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+values
+  (repeat('3',64),'TMB','DST','2027-01-09','2026-09-20T10:00:00Z','2026-09-20T10:00:00Z',1,'test','USD',100,'{"offers":[]}'),
+  (repeat('4',64),'TMB','DST','2027-02-09','2026-09-20T10:00:00Z','2026-09-20T10:00:00Z',2,'test','USD',120,'{"offers":[]}');
+select is(public.refresh_fare_route_projection('TMB','DST'),2,'initial route refresh builds both months');
+reset role;
+update public.fare_month_projections set built_at='2000-01-01T00:00:00Z'
+  where origin='TMB' and destination='DST' and month='2027-02';
+set local role service_role;
+update public.fare_snapshots set cheapest_price=80 where record_id=repeat('3',64);
+select is(public.refresh_fare_route_projection('TMB','DST'),1,'one changed month rebuilds only one month');
+select is((select built_at='2000-01-01T00:00:00Z'::timestamptz
+  from public.fare_month_projections where origin='TMB' and destination='DST' and month='2027-02'),true,
+  'unchanged month keeps its existing projection');
+select is((select (payload #>> '{pairReference,value}')::numeric
+  from public.fare_month_projections where origin='TMB' and destination='DST' and month='2027-02'),100::numeric,
+  'unchanged month receives updated route-wide price reference');
+select is((select payload #>> '{priceDays,0,low}' from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-01'),'80','changed month receives the new price');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('5',64),'board','TMB','DST','2027-01-09','2026-09-20T10:00:00Z','changed','{"at":"2026-09-20T10:00:00Z"}');
+select is(public.refresh_fare_route_projection('TMB','DST'),1,'board check rebuilds only its departure month');
+select is((select payload #>> '{health,checks}' from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-01'),'1',
+  'changed month receives its board-check health');
+select is((select payload #>> '{health,checks}' from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-02'),'0',
+  'unchanged month retains its own board-check health');
+select is((select payload->>'revision'=revision::text from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-02'),true,
+  'shared metadata update retains a consistent projection revision');
+update public.fare_snapshots set flight_date='2027-03-09' where record_id=repeat('4',64);
+select is(public.refresh_fare_route_projection('TMB','DST'),1,'moving a departure rebuilds its new month');
+select is((select count(*)::text from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-02'),'0',
+  'moving the last departure removes its old month projection');
+select is((select count(*)::text from public.fare_month_projections
+  where origin='TMB' and destination='DST' and month='2027-03'),'1',
+  'moving a departure creates its new month projection');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('6',64),'calendar','TMB','DST',null,'2026-09-20T10:00:00Z','ok','{}');
+select is((select count(*)::text from public.list_fare_projection_dirty_routes()
+  where origin='TMB' and destination='DST'),'0','calendar checks do not dirty month projections');
+reset role;
+insert into public.fare_projection_dirty_routes(origin,destination,needs_full_refresh)
+values('TMB','DST',true);
+update public.fare_month_projections set built_at='2000-01-01T00:00:00Z'
+  where origin='TMB' and destination='DST' and month='2027-03';
+set local role service_role;
+select is(public.refresh_fare_route_projection('TMB','DST'),2,
+  'a route pending before migration gets one complete refresh');
+select is((select built_at>'2000-01-01T00:00:00Z'::timestamptz
+  from public.fare_month_projections where origin='TMB' and destination='DST' and month='2027-03'),true,
+  'legacy dirty route updates every surviving projection');
 
 reset role;
 insert into auth.users(id) values ('00000000-0000-0000-0000-000000000777');

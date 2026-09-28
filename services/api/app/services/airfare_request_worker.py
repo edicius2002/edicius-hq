@@ -109,7 +109,7 @@ async def _collect_route(
 
 
 def _sync_pass(report: CollectionReport) -> bool:
-    return sync_completed_pass(AIRFARE_DATA, report)
+    return sync_completed_pass(AIRFARE_DATA, report, allow_partial=True)
 
 
 class RequestProgress(PassObserver):

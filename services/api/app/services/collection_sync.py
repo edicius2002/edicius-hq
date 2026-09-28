@@ -25,10 +25,12 @@ class _AirfareSyncFacade(Protocol):
 
 
 def sync_completed_pass(
-    data: _AirfareSyncFacade, *reports: CollectionReport | CalendarReport
+    data: _AirfareSyncFacade,
+    *reports: CollectionReport | CalendarReport,
+    allow_partial: bool = False,
 ) -> bool:
-    """Attempt one facade-locked sync for a complete local pass, never changing it."""
-    if not _is_complete(reports):
+    """Sync a pass with useful local data; scheduled passes still require a clean pass."""
+    if not _is_complete(reports, allow_partial=allow_partial):
         return False
     try:
         sync = data.sync_incremental()
@@ -45,19 +47,24 @@ def sync_completed_pass(
     return False
 
 
-def _is_complete(reports: tuple[CollectionReport | CalendarReport, ...]) -> bool:
-    """Only failure-free, untruncated reports may trigger their completed-pass sync."""
+def _is_complete(
+    reports: tuple[CollectionReport | CalendarReport, ...], *, allow_partial: bool = False
+) -> bool:
+    """A manual pass may publish successful departures alongside reported misses."""
     return (
         bool(reports)
-        and any(report.collected > 0 and report.failed == 0 for report in reports)
+        and any(report.collected > report.failed for report in reports)
         # A lock refusal is represented in `skipped`, so it remains a completed
         # no-op companion. A provider failure is a failed result instead and
         # makes the combined scheduled pass ineligible.
-        and all(report.failed == 0 for report in reports)
+        and (allow_partial or all(report.failed == 0 for report in reports))
         # Budget and pass-window refusals mean a collector was deliberately
         # truncated, so no combined report may claim the pass was complete.
-        and not any(
-            reason in WANTED_AND_REFUSED for report in reports for _, reason in report.skipped
+        and (
+            allow_partial
+            or not any(
+                reason in WANTED_AND_REFUSED for report in reports for _, reason in report.skipped
+            )
         )
     )
 

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -19,6 +20,8 @@ from app.services.airfare_supabase import AirfareRemoteError, AirfareRemoteRejec
 from app.services.fare_calendar import _curve_from
 from app.services.fare_history import _snapshot_from, route_stem
 
+logger = logging.getLogger(__name__)
+
 if sys.platform == "win32":
     import msvcrt
 else:
@@ -34,6 +37,7 @@ _TABLES = {
     "airports": "fare_airports",
     "documents": "airfare_documents",
 }
+_PROJECTION_TIMEOUT_SECONDS = 35.0
 _KINDS = {
     "snapshots": "snapshot",
     "baseline": "baseline",
@@ -548,10 +552,20 @@ class AirfareSync:
                 or not re.fullmatch(r"[A-Z0-9]{3}", route["destination"])
             ):
                 raise AirfareRemoteRejected("Invalid dirty Airfare projection route")
-            count = client.rpc(
-                "refresh_fare_route_projection",
-                {"p_origin": route["origin"], "p_destination": route["destination"]},
-            )
+            try:
+                count = client.rpc(
+                    "refresh_fare_route_projection",
+                    {"p_origin": route["origin"], "p_destination": route["destination"]},
+                    timeout_seconds=_PROJECTION_TIMEOUT_SECONDS,
+                )
+            except AirfareRemoteError as error:
+                logger.warning(
+                    "Airfare projection refresh failed for %s-%s: %s",
+                    route["origin"],
+                    route["destination"],
+                    error,
+                )
+                raise
             if not isinstance(count, int) or count < 0:
                 raise AirfareRemoteRejected("Invalid Airfare projection refresh result")
 

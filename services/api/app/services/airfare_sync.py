@@ -504,9 +504,8 @@ class AirfareSync:
                         else "record_id",
                     )
                     uploaded[journal.dataset] += len(ids)
-                    if journal.dataset != "baseline":
-                        self._acknowledge(journal, pending[ids[-1]], cursors)
-                if journal.dataset != "baseline" and journal.end > start:
+                    self._acknowledge(journal, pending[ids[-1]], cursors)
+                if journal.end > start:
                     self._acknowledge(journal, journal.end, cursors)
             for name, key in (("airports", "code"), ("documents", "key")):
                 rows = list(datasets[name].rows.values())

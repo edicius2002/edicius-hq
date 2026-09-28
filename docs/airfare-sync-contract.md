@@ -4,6 +4,13 @@ The local archive remains authoritative. Synchronization does not delete or
 rewrite source journals. The watch document remains a local KV value replicated
 for recovery.
 
+Incremental sync checkpoints each newline-terminated journal after a confirmed
+upsert, including baseline journals. An unchanged baseline file is not uploaded
+again. Baseline merges atomically replace their route file; the recorded inode
+and prefix digest detect that replacement and replay the changed route from the
+beginning. A failed batch resumes after the last confirmed line, while a full
+sync deliberately replays every file.
+
 ## Identity and source positions
 
 Append-only records use SHA-256 of kind, normalized route, and canonical original

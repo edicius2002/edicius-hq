@@ -352,7 +352,8 @@ def test_failed_projection_refresh_is_retried_after_cursors_advance(source, remo
     assert server.dirty_routes == [{"origin": "AQP", "destination": "LIM"}]
 
     server.fail_table = None
-    assert sync.apply("incremental").status == "complete"
+    retry = sync.apply("incremental")
+    assert retry.status == "complete" and retry.uploaded["baseline"] == 0
     assert server.projection_refreshes == [("AQP", "LIM")]
 
 
@@ -807,6 +808,58 @@ def test_rewritten_baseline_updates_natural_key_without_leaving_old_content(sour
     new = next(iter(server.tables["fare_baseline_points"].values()))
     assert new["price"] == 160 and new["record_id"] != old
     assert sync.verify(sync.scan("full")).matches
+
+
+def test_unchanged_baseline_is_not_reuploaded_after_full_or_incremental_sync(source, remote):
+    server, client = remote
+    sync = AirfareSync(source, client)
+
+    assert sync.apply("full").uploaded["baseline"] == 1
+    cursor = json.loads((source / "fares/sync/cursors.json").read_text())
+    baseline_path = source / "fares/baseline/AQP-LIM.jsonl"
+    assert cursor["fares/baseline/AQP-LIM.jsonl"]["offset"] == baseline_path.stat().st_size
+
+    server.requests.clear()
+    assert sync.apply("incremental").uploaded["baseline"] == 0
+    assert not any(request.url.path.endswith("fare_baseline_points") for request in server.requests)
+    assert sync.apply("full").uploaded["baseline"] == 1
+
+
+def test_rewritten_baseline_reuploads_only_its_route(source, remote):
+    server, client = remote
+    other = {**BASELINE, "flightDate": "2027-04-01"}
+    write_lines(source, "fares/baseline/LIM-CUZ.jsonl", [other])
+    sync = AirfareSync(source, client)
+    assert sync.apply("incremental").uploaded["baseline"] == 2
+
+    write_lines(source, "fares/baseline/AQP-LIM.jsonl", [{**BASELINE, "price": 160}])
+    server.requests.clear()
+    assert sync.apply("incremental").uploaded["baseline"] == 1
+    uploads = [
+        request for request in server.requests if request.url.path.endswith("fare_baseline_points")
+    ]
+    assert len(uploads) == 1
+    assert json.loads(uploads[0].content)[0]["origin"] == "AQP"
+
+
+def test_failed_baseline_batch_resumes_after_the_last_confirmed_line(tmp_path, remote):
+    server, client = remote
+    next_point = {**BASELINE, "date": "2026-09-02", "price": 160}
+    path = write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE, next_point])
+    first_end = path.read_bytes().index(b"\n") + 1
+    server.fail_table = "fare_baseline_points"
+    server.fail_after = 1
+    sync = AirfareSync(tmp_path, client, batch_size=1)
+
+    failed = sync.apply("incremental")
+    assert failed.status == "failed" and failed.uploaded["baseline"] == 1
+    cursor = json.loads((tmp_path / "fares/sync/cursors.json").read_text())
+    assert cursor["fares/baseline/AQP-LIM.jsonl"]["offset"] == first_end
+
+    server.fail_table = None
+    assert sync.apply("incremental").uploaded["baseline"] == 1
+    assert len(server.tables["fare_baseline_points"]) == 2
+    assert sync.apply("incremental").uploaded["baseline"] == 0
 
 
 def test_successful_import_run_records_destination_route_manifest(source, remote):

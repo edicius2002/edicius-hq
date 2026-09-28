@@ -195,6 +195,48 @@ describe('useRouteCollection', () => {
     expect(result.current.notices.at(-1)?.text).toBe('Collection request expired. Try again.');
   });
 
+  it('stops syncing when a request expires even if remote status and polling never settle', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-19T12:00:00.000Z'));
+    api.fetchActiveAirfareRequests.mockResolvedValue([
+      request({
+        status: 'running',
+        progress: { stage: 'syncing', completed: 3, total: 3 },
+        expiresAt: '2026-09-19T12:00:01.000Z',
+      }),
+    ]);
+    const { client, result } = setup();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    expect(result.current.collecting).toEqual([ROW_ID]);
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1_001)));
+    expect(result.current.collecting).toEqual([]);
+    expect(result.current.progress.has(ROW_ID)).toBe(false);
+    expect(result.current.notices.at(-1)?.text).toBe('Collection request expired. Try again.');
+
+    act(() =>
+      api.emit(
+        request({
+          status: 'complete',
+          expiresAt: '2026-09-19T12:00:01.000Z',
+          result: {
+            origin: 'LIM',
+            destination: 'CUZ',
+            month: '2026-11',
+            lookedAt: 3,
+            changed: 2,
+            failed: 0,
+            skipped: 0,
+            synced: true,
+          },
+        }),
+      ),
+    );
+    expect(result.current.notices.at(-1)?.kind).toBe('success');
+    expect(invalidate).toHaveBeenCalledTimes(5);
+  });
+
   it('forgets all state belonging to a removed route', async () => {
     api.fetchActiveAirfareRequests.mockResolvedValue([request()]);
     const { result } = setup();

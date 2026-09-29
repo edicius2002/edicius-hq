@@ -241,3 +241,36 @@ def test_reference_sources_share_one_http_request_per_window(tmp_path, monkeypat
         result = collect_once(store, cloud, ["bcrp", "sbs"], now=NOW)
     assert result == dict(seen=2, written=2, failed=0)
     assert {r["source"]: r["buy"] for r in cloud.rows.values()} == {"bcrp": "3.41", "sbs": "3.43"}
+
+
+@pytest.mark.parametrize("failure", ["series_name", "NaN", "Infinity"])
+def test_malformed_source_allows_next_source_and_pending_replay(tmp_path, monkeypatch, failure):
+    import json
+    from pathlib import Path
+
+    import httpx
+
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    payload = json.loads((Path(__file__).parent / "fixtures/fx/bcrp.txt").read_text())
+    payload["config"]["series"][0]["name"] = None
+
+    def respond(request):
+        if request.url.host == "estadisticas.bcrp.gob.pe":
+            if failure == "series_name":
+                return httpx.Response(200, json=payload)
+            return httpx.Response(429, headers={"Retry-After": failure})
+        return httpx.Response(200, text='<b id="valcompra">3.43</b><b id="valventa">3.46</b>')
+
+    original = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda: original(transport=httpx.MockTransport(respond)))
+    cloud = Cloud()
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        store.save("dollarhouse", [observation("dollarhouse", NOW - timedelta(days=1))], NOW)
+        result = collect_once(store, cloud, ["bcrp", "kambista"], now=NOW)
+        assert result == dict(seen=1, written=2, failed=1)
+        assert store.pending() == []
+        assert not store.due("bcrp", NOW + timedelta(minutes=14))
+        assert store.due("bcrp", NOW + timedelta(minutes=15))
+    assert {row["source"] for row in cloud.rows.values()} == {"dollarhouse", "kambista"}

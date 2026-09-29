@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from math import isfinite
 from typing import Any
 
 import httpx
@@ -155,7 +156,9 @@ def retry_delay(value: str, now: datetime) -> int:
             seconds = (parsedate_to_datetime(value) - now).total_seconds()
         except (ValueError, TypeError, OverflowError):
             seconds = 900
-    return max(60, min(86400, int(seconds)))
+    if not isfinite(seconds):
+        return 900
+    return int(max(60, min(86400, seconds)))
 
 
 def fetch(
@@ -216,6 +219,8 @@ def fetch(
         context: dict[str, Any] = {"variant": "standard", "method": "public-quote"}
         if source in {"rextie", "tkambio"}:
             obj = json.loads(text, parse_float=Decimal)
+            if not isinstance(obj, dict):
+                raise ProviderError("invalid-response")
             if source == "rextie":
                 if (
                     any(
@@ -266,7 +271,16 @@ def fetch(
 def reference_rows(
     source: str, obj: Any, now: datetime, start: date, end: date
 ) -> list[Observation]:
-    series = obj["config"]["series"]
+    if not isinstance(obj, dict) or not isinstance(obj.get("config"), dict):
+        raise ProviderError("invalid-series")
+    series = obj["config"].get("series")
+    if not isinstance(series, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("name"), str) for row in series
+    ):
+        raise ProviderError("invalid-series")
+    periods = obj.get("periods")
+    if not isinstance(periods, list):
+        raise ProviderError("invalid-periods")
     expected = [
         ("interbancario", "compra"),
         ("interbancario", "venta"),
@@ -280,7 +294,9 @@ def reference_rows(
         raise ProviderError("invalid-series")
     rows = []
     previous = None
-    for period in obj["periods"]:
+    for period in periods:
+        if not isinstance(period, dict) or not isinstance(period.get("name"), str):
+            raise ProviderError("invalid-date")
         day, month, year = period["name"].split(".")
         years = [y for y in range(start.year, end.year + 1) if y % 100 == int(year)]
         if len(years) != 1:
@@ -289,8 +305,12 @@ def reference_rows(
         if not start <= effective <= end or (previous is not None and effective <= previous):
             raise ProviderError("invalid-date")
         previous = effective
-        values = period["values"]
-        if len(values) != 4:
+        values = period.get("values")
+        if (
+            not isinstance(values, list)
+            or len(values) != 4
+            or any(not isinstance(value, str) for value in values)
+        ):
             raise ProviderError("invalid-values")
         index = 0 if source == "bcrp" else 2
         buy, sell = values[index : index + 2]

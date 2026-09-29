@@ -158,3 +158,71 @@ def test_retry_after_date():
 
     assert retry_delay("Tue, 29 Sep 2026 19:00:00 GMT", NOW) == 3600
     assert retry_delay("999999999", NOW) == 86400
+
+
+@pytest.mark.parametrize("header", ["NaN", "Infinity", "-Infinity", "1e999", "not-a-delay"])
+def test_malformed_retry_after_uses_bounded_rate_limit_delay(header):
+    from app.services.fx.providers import ProviderError, fetch, retry_delay
+
+    assert retry_delay(header, NOW) == 900
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(429, headers={"Retry-After": header})
+            )
+        ) as client,
+        pytest.raises(ProviderError) as error,
+    ):
+        fetch("tkambio", client, NOW)
+    assert str(error.value) == "rate-limited"
+    assert error.value.delay == 900
+
+
+@pytest.mark.parametrize(
+    "section,value",
+    [
+        ("series_name", None),
+        ("series_name", 42),
+        ("period_name", None),
+        ("period_name", []),
+        ("config", []),
+        ("series", {}),
+        ("periods", {}),
+        ("values", {}),
+    ],
+)
+def test_reference_nested_json_types_are_rejected(section, value):
+    from app.services.fx.providers import ProviderError, fetch
+
+    payload = json.loads((FIXTURES / "bcrp.txt").read_text())
+    if section == "series_name":
+        payload["config"]["series"][0]["name"] = value
+    elif section == "period_name":
+        payload["periods"][0]["name"] = value
+    elif section == "series":
+        payload["config"]["series"] = value
+    elif section == "values":
+        payload["periods"][0]["values"] = value
+    else:
+        payload[section] = value
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+        ) as client,
+        pytest.raises(ProviderError) as error,
+    ):
+        fetch("bcrp", client, NOW)
+    assert error.value.delay == 900
+    assert "None" not in str(error.value)
+
+
+def test_nonobject_rextie_json_is_rejected():
+    from app.services.fx.providers import ProviderError, fetch
+
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[]))
+        ) as client,
+        pytest.raises(ProviderError),
+    ):
+        fetch("rextie", client, NOW)

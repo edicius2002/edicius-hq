@@ -213,15 +213,8 @@ function readout(container: HTMLElement): string {
 /**
  * Which stretch of calendar the frame is drawing, read from the chart itself.
  *
- * The head above the plot used to print `5 flights departing between 08/03/2027
- * 00:00 and 14/03/2027 23:59`, and these tests read the bounds out of the page's
- * text. It prints the count alone now — the rest of that sentence was the x axis
- * spelling itself out directly above the axis that draws it — and the bounds
- * moved to the one place that has to carry them whatever is printed: the
- * chart's accessible name, which is how a reader who cannot see the axis is told
- * what it spans. Every assertion that was reading them from `textContent` reads
- * them from here instead, because what each of those tests is proving is that
- * the frame lands on the period it claims, and that is unchanged.
+ * The flight count and bounds are in the chart's accessible name, where a
+ * reader who cannot see the plot can still tell what the frame contains.
  */
 function frameLabel(container: HTMLElement): string {
   return container.querySelector('svg')?.getAttribute('aria-label') ?? '';
@@ -241,7 +234,7 @@ describe('one dot per itinerary', () => {
 
   it('keeps the flight departing at 23:59 on the Sunday inside that week', () => {
     const { container } = chart();
-    expect(container.textContent).toContain('5 flights');
+    expect(frameLabel(container)).toContain('5 flights');
     expect(dots(container)).toHaveLength(5);
   });
 
@@ -255,7 +248,7 @@ describe('one dot per itinerary', () => {
       ],
     });
     expect(dots(container)).toHaveLength(5);
-    expect(container.textContent).toContain('5 flights');
+    expect(frameLabel(container)).toContain('5 flights');
   });
 
   it('says so rather than drawing an empty plane when nothing is collected', () => {
@@ -268,21 +261,9 @@ describe('one dot per itinerary', () => {
     expect(frameLabel(container)).toContain('between 08/03/2027 00:00 and 14/03/2027 23:59');
   });
 
-  it('prints the count and leaves the window to the axis and the name', () => {
-    /*
-     * The head is the figure now rather than the opening of a sentence about
-     * it. `16 flights departing on 30/11/2026, 00:00 to 23:59` was a count and
-     * then the x axis restated in words immediately above the x axis, and the
-     * owner read the whole of it as noise around the chart.
-     *
-     * Both halves of the change are asserted, because dropping the bounds from
-     * the page without keeping them anywhere would be a loss and not a cleanup:
-     * the printed head is the count and nothing else, and the bounds are still
-     * on the chart's accessible name, where a reader who cannot see the axis is
-     * the one person who has no other way to them.
-     */
+  it('keeps the count and bounds accessible without a visible count', () => {
     const { container } = chart();
-    expect(screen.getByTestId('frame-summary').textContent).toBe('5 flights');
+    expect(screen.queryByTestId('frame-summary')).toBeNull();
     expect(frameLabel(container)).toContain('5 flights departing between 08/03/2027 00:00');
   });
 });
@@ -1132,9 +1113,9 @@ describe('a period that straddles the end of the watched month', () => {
     expect(screen.getAllByTestId('curve-day')).toHaveLength(2);
   });
 
-  it('says in the head that it is showing both', () => {
+  it('names both sources in the chart label', () => {
     const { container } = straddling();
-    expect(container.textContent).toContain('1 flight and 2 priced dates');
+    expect(frameLabel(container)).toContain('1 flight and 2 priced dates');
   });
 
   it('draws one seam, on the midnight the boards stop answering at', () => {
@@ -1332,7 +1313,7 @@ describe('a frame with no boards in it at all', () => {
     expect(screen.getAllByTestId('curve-day')).toHaveLength(2);
   });
 
-  it('removes the visible count but keeps the curve count in the chart name', () => {
+  it('keeps the curve count in the chart name without a visible count', () => {
     const { container } = chart({ granularity: 'month', curve: CURVE });
     fireEvent.click(screen.getByLabelText('Next month'));
     fireEvent.click(screen.getByLabelText('Next month'));
@@ -1347,7 +1328,7 @@ describe('a frame with no boards in it at all', () => {
     const { container } = chart({ granularity: 'month', curve: CURVE });
     expect(screen.getByTestId('source-board')).toBeInTheDocument();
     expect(screen.queryByTestId('source-curve')).toBeNull();
-    expect(container.textContent).toContain('5 flights');
+    expect(frameLabel(container)).toContain('5 flights');
   });
 });
 
@@ -1628,7 +1609,7 @@ describe('a watched range narrower than the frame', () => {
   it('draws the frame the defect was found in', () => {
     const { container } = focused();
     expect(frameLabel(container)).toContain('between 01/03/2027 00:00 and 07/03/2027 23:59');
-    expect(container.textContent).toContain('2 flights and 6 priced dates');
+    expect(frameLabel(container)).toContain('2 flights and 6 priced dates');
   });
 
   it('marks both boundaries around the single board date', () => {

@@ -133,10 +133,10 @@ it('places live reset summary and calendar above the preserved tweet columns', a
   stubApi();
   renderPage();
 
-  const latest = await screen.findByRole('heading', { name: 'Latest Codex limit reset' });
-  expect(latest.compareDocumentPosition(screen.getByRole('heading', { name: 'Posts' }))).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING,
-  );
+  const latest = screen.getByRole('heading', { name: 'Latest Codex limit reset' });
+  expect(
+    latest.compareDocumentPosition(await screen.findByRole('heading', { name: 'Posts' })),
+  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   expect(screen.getByText('53')).toBeInTheDocument();
   expect(screen.getByText('6.9d')).toBeInTheDocument();
   expect(screen.getByText('67.7d')).toBeInTheDocument();
@@ -145,6 +145,18 @@ it('places live reset summary and calendar above the preserved tweet columns', a
   expect(
     screen.queryByText(/Independent tracker; not affiliated with OpenAI/),
   ).not.toBeInTheDocument();
+});
+
+it('keeps reset cards mounted while external data loads', async () => {
+  tweetData.fetchTweets.mockResolvedValue(TWEETS.tweets);
+  codex.fetchCodexResets.mockReturnValue(new Promise(() => {}));
+  renderPage();
+
+  expect(screen.getByRole('heading', { name: 'Latest Codex limit reset' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Codex reset history' })).toBeInTheDocument();
+  expect(screen.getByText('Avg. miracle interval')).toBeInTheDocument();
+  expect(screen.getByRole('status', { name: /loading codex reset history/i })).toBeInTheDocument();
+  expect(screen.queryByText('0d')).not.toBeInTheDocument();
 });
 
 it('keeps tweets visible while reset data is unavailable instead of showing zero statistics', async () => {

@@ -19,23 +19,28 @@ export function CodexResetOverview({
   now: Date;
 }) {
   const data = query.data;
-  if (!data && query.isPending) {
-    return (
-      <div className={styles.loading} role="status">
-        Loading Codex reset history…
-      </div>
-    );
-  }
-  if (!data) {
-    return null;
-  }
-
-  const latest = data.latestReset;
+  const loading = !data && query.isPending;
+  const latest = data?.latestReset;
   return (
-    <div className={styles.overview}>
+    <div className={styles.overview} aria-busy={loading}>
       <section className={styles.hero} aria-labelledby="latest-reset-title">
         <h2 id="latest-reset-title">Latest Codex limit reset</h2>
-        {latest ? (
+        {loading ? (
+          <>
+            <span
+              className={`${styles.placeholder} ${styles.heroPlaceholder}`}
+              aria-hidden="true"
+            />
+            <span
+              className={`${styles.placeholder} ${styles.datePlaceholder}`}
+              aria-hidden="true"
+            />
+            <span
+              className={`${styles.placeholder} ${styles.typePlaceholder}`}
+              aria-hidden="true"
+            />
+          </>
+        ) : latest ? (
           <>
             <strong className={styles.relative}>
               {formatRelativeTime(latest.announcedAt, now)}
@@ -44,24 +49,55 @@ export function CodexResetOverview({
             <span className={styles.type}>{latest.resetType} reset</span>
           </>
         ) : (
-          <strong className={styles.noReset}>No confirmed reset yet</strong>
+          <strong className={styles.noReset}>
+            {data ? 'No confirmed reset yet' : 'Unavailable'}
+          </strong>
         )}
       </section>
       <dl className={styles.stats}>
         <div>
           <dt>Resets</dt>
-          <dd>{data.stats.total}</dd>
+          <dd>
+            {data ? (
+              data.stats.total
+            ) : loading ? (
+              <span className={styles.placeholder} aria-hidden="true" />
+            ) : (
+              '—'
+            )}
+          </dd>
         </div>
         <div>
           <dt>Avg. miracle interval</dt>
-          <dd>{days(data.stats.avgIntervalDays)}</dd>
+          <dd>
+            {data ? (
+              days(data.stats.avgIntervalDays)
+            ) : loading ? (
+              <span className={styles.placeholder} aria-hidden="true" />
+            ) : (
+              '—'
+            )}
+          </dd>
         </div>
         <div>
           <dt>Longest wait</dt>
-          <dd>{days(data.stats.longestIntervalDays)}</dd>
+          <dd>
+            {data ? (
+              days(data.stats.longestIntervalDays)
+            ) : loading ? (
+              <span className={styles.placeholder} aria-hidden="true" />
+            ) : (
+              '—'
+            )}
+          </dd>
         </div>
       </dl>
-      <ResetCalendar resets={data.resets} now={now} />
+      <ResetCalendar
+        resets={data?.resets ?? []}
+        now={now}
+        loading={loading}
+        unavailable={!data && !loading}
+      />
     </div>
   );
 }

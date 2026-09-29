@@ -345,7 +345,7 @@ function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {
 }
 
 describe('RouteMap', () => {
-  it('offers pinch and reset on phones without the plus and minus buttons', () => {
+  it('keeps projection inside the map and leaves zoom to gestures on phones', () => {
     vi.stubGlobal('matchMedia', () => ({
       matches: true,
       addEventListener: vi.fn(),
@@ -355,7 +355,10 @@ describe('RouteMap', () => {
       renderMap();
       expect(screen.queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Zoom out' })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Reset the view' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reset the view' })).not.toBeInTheDocument();
+      expect(screen.getByRole('application')).toContainElement(
+        screen.getByRole('group', { name: 'Map projection' }),
+      );
       expect(screen.getByRole('application')).toHaveAccessibleName(
         'Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom.',
       );
@@ -1109,7 +1112,7 @@ describe('RouteMap', () => {
 
         // Leave: below the zoom gate, Peru's detail is dropped with no wait at all.
         await act(async () => {
-          fireEvent.click(screen.getByRole('button', { name: 'Reset the view' }));
+          for (let notch = 0; notch < 7; notch += 1) wheel(stage, 200, [480, 270]);
         });
         await waitFor(() => expect(screen.queryByText('Loreto')).not.toBeInTheDocument());
 
@@ -1700,21 +1703,23 @@ describe('RouteMap', () => {
   });
 
   describe('zooming', () => {
-    it('refuses to reset a view nobody has moved', () => {
+    it('does not show a reset control', () => {
       renderMap();
-      expect(screen.getByRole('button', { name: /reset the view/i })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /reset the view/i })).not.toBeInTheDocument();
     });
 
     it('keeps zoom reachable from the keyboard', async () => {
-      // One of three routes now, and still the only one for someone driving the
-      // map from a keyboard with no pointer at all.
+      // Keyboard zoom remains available after removing the reset button.
       const user = userEvent.setup();
       const { container } = renderMap();
       const stage = container.querySelector('[class*="stage"]') as HTMLElement;
+      const route = container.querySelector('[data-route]')!;
+      const before = route.getAttribute('d');
       stage.focus();
       await user.keyboard('+');
+      await frame();
 
-      expect(screen.getByRole('button', { name: /reset the view/i })).toBeEnabled();
+      expect(route.getAttribute('d')).not.toBe(before);
     });
 
     it('zooms about the cursor, so the place under it stays under it', async () => {
@@ -1736,7 +1741,7 @@ describe('RouteMap', () => {
       const [movedX, movedY] = lima();
 
       expect(Math.hypot(movedX - x, movedY - y)).toBeLessThan(2);
-      expect(screen.getByRole('button', { name: /reset the view/i })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: /reset the view/i })).not.toBeInTheDocument();
     });
 
     it('eases towards a notch rather than jumping to it', async () => {

@@ -47,17 +47,15 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule('AirfarePage', '.page .visualPanel')).toMatch(/padding-inline:\s*0/);
   });
 
-  it('reserves a full second control row and metadata row across chart switches', () => {
-    expect(rule('AnalysisPanel', '.periodFold')).toMatch(/height:\s*32px/);
-    expect(rule('AnalysisPanel', '.periodFold')).toMatch(/visibility:\s*hidden/);
-    expect(rule('AnalysisPanel', '.periodOpen')).toMatch(/visibility:\s*visible/);
-    expect(rule('AnalysisPanel', '.chartMeta')).toMatch(/min-height:\s*54px/);
+  it('keeps chart metadata at the right edge without reserving an empty row', () => {
+    expect(rule('AnalysisPanel', '.chartMeta')).toMatch(/justify-content:\s*end/);
+    expect(rule('AnalysisPanel', '.chartMeta')).not.toMatch(/min-height/);
     expect(rule('AnalysisPanel', '.body')).toContain('calc(56.24cqw + 60px)');
   });
 
   it.each([
     ['DepartureChart', '.steps button'],
-    ['DepartureChart', '.reset'],
+    ['DepartureChart', '.pinButton'],
     ['PeriodSwitch', '.switch button'],
     ['RouteList', '.monthTab'],
     ['RouteEditor', '.monthChip'],
@@ -97,10 +95,11 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule('FlightTable', '.filter input')).toMatch(/font-size:\s*0.6rem/);
     expect(rule('FlightTable', '.filter > span')).toMatch(/font-size:\s*0.6rem/);
   });
-  it('reduces the globe toolbar chrome and leaves breathing room around it', () => {
+  it('keeps the globe projection control inside the map on phones', () => {
     expect(rule('RouteMap', '.switch button')).toMatch(/min-height:\s*32px/);
     expect(rule('RouteMap', '.switch')).toMatch(/padding:\s*1px/);
-    expect(rule('RouteMap', '.toolbar')).toMatch(/padding-block:\s*2px/);
+    expect(rule('RouteMap', '.switch')).toMatch(/top:\s*8px/);
+    expect(rule('RouteMap', '.switch')).toMatch(/right:\s*8px/);
   });
   it('places detail labels beside values and gives long carrier and range values a full row', () => {
     expect(rule('RouteDetail', '.figures > div')).toMatch(

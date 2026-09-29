@@ -587,27 +587,8 @@ describe('a box the drawing does not fill', () => {
   });
 });
 
-/**
- * Zooming with something that is not a wheel.
- *
- * The chart had exactly two ways in — a hand-bound `wheel` listener and the
- * `+`/`-`/`0` keys — and a phone fires neither. `.chart` sets
- * `touch-action: none`, so the browser's own pinch was suppressed as well, and
- * the one on-screen zoom control was `Reset zoom`, which only ever zooms *out*
- * and is disabled while there is nothing to undo. On a touchscreen that button
- * could not be reached at all: nothing a finger could do would ever give it
- * something to undo. Since 12.267 shrank this plot to 250×101 on a phone, the
- * width where the zoom is worth the most was the width where it did not exist.
- *
- * Two routes in, tested here because they answer different readers: the pinch,
- * which is what a hand reaches for, and the buttons, which are what a reader
- * who does not know the gesture — or cannot make it — is left with.
- *
- * The distances below are view units, because the box every test in this file
- * is given is the viewBox: a `clientX` is an x on the plot, and the whole week
- * is 10,080 minutes of frame across it.
- */
-describe('zooming with two fingers, and with a button', () => {
+/** Pinch zoom remains available on touch screens after removing the chart buttons. */
+describe('zooming with two fingers', () => {
   /** Monday to Sunday, in the minutes the viewport is measured in. */
   const WEEK_MINUTES = 7 * 1440;
 
@@ -792,42 +773,11 @@ describe('zooming with two fingers, and with a button', () => {
     expect(after.start - pinched.start).toBeLessThan(pinched.span * 0.02);
   });
 
-  it('brings the way out of a zoom to life, which no finger could do before', () => {
-    const { svg } = zoomable();
-    expect(screen.getByTestId('reset-zoom')).toBeDisabled();
-
-    finger(svg, 'down', 1, 300);
-    finger(svg, 'down', 2, 460);
-    finger(svg, 'move', 1, 260);
-    finger(svg, 'move', 2, 500);
-
-    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
-  });
-
-  it('offers a zoom in and a zoom out either side of the way back to the period', () => {
-    // Named the way the Finance canvas names its own, because they are the
-    // same control and a reader should not have to learn it twice.
+  it('keeps zoom controls off the chart', () => {
     zoomable();
-    expect(screen.getByTestId('zoom-out')).toHaveAccessibleName('Zoom out');
-    expect(screen.getByTestId('zoom-in')).toHaveAccessibleName('Zoom in');
-    // Nothing to open up on a frame showing the whole week, which is the same
-    // thing the button between them says.
-    expect(screen.getByTestId('zoom-out')).toBeDisabled();
-    expect(screen.getByTestId('zoom-in')).toBeEnabled();
-  });
-
-  it('closes and opens the frame from the buttons alone', () => {
-    const { written } = zoomable();
-    fireEvent.click(screen.getByTestId('zoom-in'));
-    const closed = written.at(-1);
-    expect(closed).not.toBeNull();
-    expect(closed!.span).toBeLessThan(WEEK_MINUTES);
-    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
-
-    fireEvent.click(screen.getByTestId('zoom-out'));
-    // Back to the whole week, which is stored as nothing hidden rather than as
-    // a span that happens to equal it.
-    expect(written.at(-1)).toBeNull();
+    for (const id of ['zoom-in', 'zoom-out', 'reset-zoom']) {
+      expect(screen.queryByTestId(id)).not.toBeInTheDocument();
+    }
   });
 });
 
@@ -990,7 +940,7 @@ describe('pinning the reading', () => {
     fireEvent.keyDown(svg, { key: '+' });
     expect(readout(container)).toContain('$310.00');
     expect(screen.getByTestId('pin-reading')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('reset-zoom')).toBeEnabled();
+    expect(screen.queryByTestId('reset-zoom')).not.toBeInTheDocument();
 
     const hair = container.querySelector('[data-testid="departure-crosshair"] line')!;
     expect(Number(hair.getAttribute('x1'))).toBeCloseTo(dearest(container).x, 6);
@@ -1795,17 +1745,6 @@ describe('the chrome around the plot', () => {
       'Left and right arrow keys move one departure date',
     );
     expect(frameLabel(container)).toContain('What each departure date costs');
-  });
-
-  it('keeps the words on the reset button after taking them off it', () => {
-    // The glyph is the size reduction; the two words move to the accessible name
-    // and the tooltip, which is where a control showing a glyph has to keep them.
-    chart();
-    const reset = screen.getByTestId('reset-zoom');
-    expect(reset).toHaveAccessibleName('Reset zoom');
-    expect(reset).toHaveAttribute('title', 'Reset zoom');
-    // Nothing to undo yet, so it is offered and disabled rather than absent.
-    expect(reset).toBeDisabled();
   });
 });
 

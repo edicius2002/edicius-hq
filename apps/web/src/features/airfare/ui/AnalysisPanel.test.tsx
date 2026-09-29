@@ -421,20 +421,7 @@ describe('the controls that are gone', () => {
     expect(screen.queryByRole('button', { name: 'Watched month' })).not.toBeInTheDocument();
   });
 
-  it('puts the period switch beside the chart switch only for Flights seen', () => {
-    /*
-     * `period-switch-follows-its-chart` superseded, and this is the assertion
-     * that replaces the one proving it.
-     *
-     * The switch used to stand in this head and fold away with chart A, holding
-     * its own space open by `visibility` so that folding could not slide the two
-     * chart buttons under a pressing hand — so the old test looked for a strip
-     * that was in the layout and out of reach. There is no strip now: the switch
-     * is inside the chart it moves, and the head's contents are the same on both
-     * charts because they no longer depend on which chart is open. That is the
-     * same no-reflow guarantee, so it is still asserted — by the stronger fact
-     * that nothing here changes at all.
-     */
+  it('places the period switch in chart metadata only for Flights seen', () => {
     render(<Harness />);
     const head = screen.getByRole('group', { name: 'Chart' }).parentElement!;
     /*
@@ -443,11 +430,13 @@ describe('the controls that are gone', () => {
      * `aria-pressed` and that is the change the reader asked for. What must not
      * move is how many controls are here and how wide their words are.
      */
-    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeTruthy();
+    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeNull();
 
     openDeparture();
 
-    expect(head.querySelector('[aria-label="How much time one period covers"]')).toBeTruthy();
+    expect(
+      screen.getByRole('group', { name: 'How much time one period covers' }),
+    ).toBeInTheDocument();
   });
 
   it('opens on Flights seen, with its period switch already on screen', () => {
@@ -471,25 +460,6 @@ describe('the controls that are gone', () => {
   });
 
   it('offers no period switch on chart A, and holds no room for one', () => {
-    /*
-     * The owner's rule was "not live, not inert, not reserved", and two of
-     * those three still hold exactly. What changed is the third, and only
-     * because the owner asked for the fold to be seen: a control that unmounts
-     * has no width to animate from, so it stays in the tree and collapses to
-     * nothing instead.
-     *
-     * The objection that rule was written against is untouched. It was aimed at
-     * `period-switch-follows-its-chart`, which held the strip with
-     * `visibility: hidden` and so **paid for the space permanently on the one
-     * chart that must never have the control**. A `0fr` track is not that: the
-     * column has no width at all when closed, so chart A is laid out as though
-     * the switch were absent.
-     *
-     * What must still never happen is a reader reaching it or hearing it, and
-     * that is what is checked here — `inert` takes it out of the tab order and
-     * off the accessibility tree, so `queryByRole` finds nothing with or
-     * without `hidden`.
-     */
     render(<Harness />);
     // The panel opens on chart B since `the-panel-opens-on-flights-seen`, so
     // reaching chart A is now setup rather than the starting state.
@@ -500,39 +470,26 @@ describe('the controls that are gone', () => {
     for (const name of ['Day', 'Week', 'Month']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    const fold = document.querySelector('[inert]');
-    expect(fold, 'the folded switch must be inert, not merely invisible').not.toBeNull();
+    expect(document.querySelector('[inert]')).toBeNull();
   });
 
-  it('extends the period switch from the Flights seen tab and takes it away with it', () => {
-    /*
-     * The placement `period-switch-follows-its-chart` had right: the control
-     * belongs to chart B's tab, appears with it and goes away with it. What is
-     * different is that nothing is reserved for it — it is rendered or it is
-     * not.
-     *
-     * That is safe because it no longer shares a row with the chart pill. The
-     * old arrangement put it beside those two buttons, where appearing would
-     * slide them sideways under the hand that had just pressed one, and the
-     * hidden strip existed to stop that. A row of its own cannot move them at
-     * all, which is the whole reason the strip could go.
-     */
+  it('shows the period switch at the right only while Flights seen is active', () => {
     render(<Harness />);
     const head = screen.getByRole('group', { name: 'Chart' }).parentElement!;
 
     openDeparture();
     const shown = screen.getByRole('group', { name: 'How much time one period covers' });
     expect(shown).toBeInTheDocument();
-    // Beside the pill, never inside the chart figure.
-    expect(head).toContainElement(shown);
+    // In the top-right chart metadata, outside the figure.
+    expect(head).not.toContainElement(shown);
+    expect(head.parentElement).toContainElement(shown);
     expect(screen.getByRole('img').closest('figure')).not.toContainElement(shown);
 
     click(MOVES);
     expect(
       screen.queryByRole('group', { name: 'How much time one period covers' }),
     ).not.toBeInTheDocument();
-    // Folded rather than removed, which is what the sideways fold animates.
-    expect(document.querySelector('[inert]')).not.toBeNull();
+    expect(document.querySelector('[inert]')).toBeNull();
   });
 
   it('draws both charts inside one box that the switch does not replace', () => {

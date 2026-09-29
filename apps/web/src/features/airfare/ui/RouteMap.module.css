@@ -62,31 +62,12 @@
   min-height: 0;
 }
 
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-/*
- * The right end of the toolbar: the page's status, then Reset.
- *
- * Its own row rather than two children of a `space-between` strip, which would
- * have put the status in the middle of the toolbar with a control either side
- * of it. `baseline` so a word and a button sit on the same line however their
- * two font sizes differ — `center` lines up their boxes, which is not the same
- * thing and reads as the word floating.
- */
-.tools {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-3);
-}
-
 .switch {
   display: inline-flex;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--color-border);
@@ -129,66 +110,7 @@
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-  /*
-   * The height of the whole first row, because nothing else in that row has
-   * one. The watchlist beside this is sized as if it were empty (12.269), so
-   * what this number settles is not the map's height but the map's and the
-   * watchlist's together — see `AirfarePage.module.css`, where the row is.
-   *
-   * **460 to 640, which is four more watched routes.** The owner: "aumentar
-   * su largo para habilitar espacio para mas rutas y evitar por el momento el
-   * uso de barra de desplazamiento". Written out at this app's 125% root,
-   * where 1rem is 20px: the panel gives its content this stage plus the
-   * toolbar's 43.4px and the map column's 8px gap, so 51.4px; the watchlist
-   * spends the same total on its head (38.5px, the Add button rather than the
-   * title), that head's 15px margin and the panel's 15px gap, then the add
-   * form's 108px, its 15px rule and 1px border and another 15px gap — 207.5px
-   * in all. So the scroller is this height less 156.1px. A row is 38.5px,
-   * which is Remove's height and not the route button's 35.4, plus the 2px
-   * gap that the always-present report line costs even while it is empty; with
-   * the list's own 5px between them, n rows are `45.5n - 5`.
-   *
-   * At 460 the scroller was 303.9px and held **six** rows with 35.9px
-   * standing, and a seventh needed 9.6px more than there was — which is the
-   * scrollbar the owner is looking at, with exactly six routes watched. At 640
-   * it is 483.9px and holds **ten**, with 33.9px standing and an eleventh
-   * needing 11.6px more. Ten was chosen over eight (550px, and only two rows
-   * of headroom on a list that already has six) and over twelve (730px, a
-   * first row taller than a 1080p viewport has to spare above the analysis
-   * panel's own 34.5rem). Past ten the scrollbar comes back, and it should:
-   * "por el momento" is the owner's own qualifier, and a watchlist with
-   * eleven routes on it has outgrown a box rather than broken one.
-   *
-   * **A taller stage is also the only thing that makes the globe bigger.**
-   * `fitted` is `Math.min(rect.width, rect.height) * 0.42`, and this stage is
-   * wider than it is tall at every viewport above 1552px — so the radius is
-   * the height's to give and widening alone would have bought ocean and not
-   * one pixel of planet. 460 to 640 takes the radius from 193.2px to 268.8px
-   * at 1x and Mercator's own cap, `fitted * 0.6`, from 115.9 to 161.3: a 39%
-   * larger drawing at every zoom. Below 1552px the stage is portrait and the
-   * width binds instead, and it grew too — 526x460 becomes 606x640, a radius
-   * of 254.5 against 193.2.
-   *
-   * What it costs is the settle sweep, and only that. `countriesInView` walks
-   * `ceil((d - 6) / 12)` samples per axis, so the widest stage this layout
-   * produces goes from 129x38 to 136x53 — 4,902 samples to 7,208, up 47%. The
-   * ten views `contains-is-flat-not-spherical` measured at 1.20 to 4.42 ms
-   * are 1.76 to 6.50 ms here, once, on the frame after a gesture stops, and
-   * still seven to twelve times cheaper than the 12.5 to 77.8 ms they cost
-   * before that work. The per-frame cost does not follow it: the camera cap
-   * `geometry-off-frame-is-not-drawn` culls against is the frame's
-   * half-diagonal over the radius, and the diagonal grows 8.3% while the
-   * radius grows 39.1%, so the cap narrows from 4.18/zoom to 3.26/zoom
-   * radians and a frame projects *less* geometry than it did.
-   *
-   * **640 became 710 for the month strip**, not for the map —
-   * `a-watch-is-a-pair-and-its-months`. The add form grew 93.6px when its
-   * month dropdown became twelve chips over two rows, and a stage left at 640
-   * would have held eight rows where `a-taller-row-is-four-more-routes` bought
-   * ten. The 70px keeps that decision rather than renegotiating it downwards,
-   * and the map is the thing that grows because the map is what the row's
-   * height is shared with. `routesScroll.test` holds every figure above.
-   */
+  /* Keep the map tall enough to size the shared map and watchlist row. */
   min-height: 710px;
   flex: 1;
   overflow: hidden;
@@ -202,7 +124,7 @@
    * under a drag, and it takes the browser's own pinch away with them — there
    * is no fallback behind the handler, so on a touch screen the two-finger
    * gesture in `RouteMap.tsx` is the only pinch there is. Relaxing it to
-   * `pinch-zoom` was rejected: that scales the *page*, taking the toolbar and
+   * `pinch-zoom` was rejected: that scales the *page*, taking the map controls and
    * the watchlist with it and leaving the map at whatever scale it was, which
    * is not zooming the map at all.
    */
@@ -564,34 +486,13 @@
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
-  .toolbar {
-    padding-inline: 10px;
-    padding-block: 2px;
-    gap: 6px;
-  }
-  .tools [role='status'] {
-    min-width: 0;
-    font-size: 0.55rem;
-    gap: 4px;
-    white-space: normal;
-  }
-  .tools > div {
-    min-width: 0;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
   .switch {
+    top: 8px;
+    right: 8px;
     padding: 1px;
     gap: 2px;
   }
-  .tools {
-    min-width: 0;
-    max-width: 48%;
-    gap: 6px;
-    margin-left: auto;
-  }
-  .switch button,
-  .tools button {
+  .switch button {
     min-height: 32px;
     padding: 3px 6px;
     font-size: 0.65rem;

@@ -81,7 +81,6 @@ import {
   clampViewport,
   fullViewport,
   isFull,
-  MIN_VIEWPORT_MINUTES,
   panBy,
   spanFactorForWheel,
   visibleDays,
@@ -223,8 +222,7 @@ const HELP =
   'date’s board by price, where there is a board to move through. Plus and minus close and open ' +
   'the frame around whatever the crosshair is on, zero returns to the whole period, and shift ' +
   'with left or right moves the frame along it. The wheel and a drag do the same with a pointer, ' +
-  'two fingers pinch to do it on a touchscreen, and the three buttons above the plot zoom out, ' +
-  'return to the whole period and zoom in without any gesture at all. ' +
+  'two fingers pinch to do it on a touchscreen. ' +
   'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
   'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
   'plot does both. Where the airline that flies a mark has a booking search we can reach, that ' +
@@ -488,7 +486,7 @@ export function DepartureChart({
    * frame it was measured in: the reader who left a route zoomed into six hours
    * of a week comes back to a frame the archive may have grown under, and a
    * span wider than its own frame would draw the plot from off its own left
-   * edge. `null` means the whole frame, which is also what a reset writes back,
+   * edge. `null` means the whole frame, which keyboard zero writes back,
    * so "nothing hidden" has exactly one spelling in the stored state.
    */
   const frameSpan = period?.spanMinutes ?? 0;
@@ -498,24 +496,13 @@ export function DepartureChart({
   );
   const zoomed = !isFull(view, frameSpan);
   /*
-   * Whether there is any frame left to close, which is the only thing the two
-   * new buttons need that `zoomed` does not already say. The floor is
-   * `clampViewport`'s and is stated in minutes, so it is asked in minutes here
-   * rather than turned into a scale; the half-minute is the same tolerance
-   * `isFull` keeps at the other end of the range, and for the same reason — the
-   * span arrives through a chain of multiplications and a button that stays lit
-   * on a frame that will not close is the page disagreeing with itself.
-   */
-  const atFloor = view.span <= Math.min(MIN_VIEWPORT_MINUTES, frameSpan) + 0.5;
-
-  /*
    * The one way the zoom is written, so "nothing hidden" has one spelling.
    *
    * A viewport that has come back to the whole frame is stored as `null` rather
    * than as a pair of numbers that happen to equal it. Otherwise a reader who
    * zooms in and back out leaves behind a stored range a rounding error short of
-   * the frame, and every later comparison — is this route zoomed, should the
-   * reset be offered — has to know about that error rather than reading a null.
+   * the frame, and every later comparison has to know about that error rather
+   * than reading a null.
    */
   const write = (next: Viewport) => {
     onViewportChange(isFull(next, frameSpan) ? null : next);
@@ -1471,16 +1458,7 @@ export function DepartureChart({
         );
       })()}
 
-      {/*
-          The chart's own top-right corner: which period is open, and the way
-          back out of a zoom.
-
-          Both answer "where in the archive am I looking", so they are one
-          cluster rather than two things spread along a row. The period switch is
-          deliberately *not* here: it belongs to the tab that opens this chart
-          rather than to the chart, and it stands under that tab, where a reader
-          who has just pressed "Flights seen" is already looking.
-        */}
+      {/* Navigation and pinning stay beside the count in the panel header. */}
       <div className={styles.corner}>
         {keys.length > 1 ? (
           <div className={styles.steps}>
@@ -1506,33 +1484,10 @@ export function DepartureChart({
           </div>
         ) : null}
 
-        {/*
-            The pin, beside the way out of a zoom, because both are things done
-            to the frame rather than to the archive — and because this corner is
-            where this chart already keeps its own controls.
-
-            **It is the discoverable half of the gesture.** A right-click on a
-            mark pins it, and no reader has ever been told that by looking at a
-            chart; a control that is on screen, that is in the tab order, that
-            says "Pin the reading" when asked its name and that visibly stays
-            pressed is what makes the state findable and, more importantly,
-            leaveable. A pinned reading whose only exit was a second right-click
-            in the same place would be a trap, and the repository's rule against
-            text that reads as a fact and is not one has a sibling here: a state
-            with no visible way out is a state that reads as a bug.
-
-            Always rendered and disabled when there is nothing to pin, for the
-            same reason as the button beside it — a control that appeared when a
-            reader first pointed at a dot would reflow this corner at the exact
-            moment they were watching the plot.
-
-            `aria-pressed` rather than two labels. The name of this control does
-            not change when the state does; what changes is whether it is on,
-            which is a thing the platform already has a word for.
-          */}
+        {/* Keep the pin visible so a pinned reading has an obvious way out. */}
         <button
           type="button"
-          className={`${styles.reset} ${styles.pin}`}
+          className={styles.pinButton}
           onClick={() => {
             if (pinned) setPinned(false);
             else if (reading !== null) setPinned(true);
@@ -1545,93 +1500,6 @@ export function DepartureChart({
         >
           <span aria-hidden="true">&#9679;</span>
         </button>
-
-        {/*
-            The zoom, as three controls in one group rather than as three
-            controls.
-
-            `Reset zoom` used to stand here alone, and alone it was a control a
-            touchscreen could never enable: it only ever zooms *out*, it is
-            disabled while there is nothing to undo, and until the pinch above
-            existed nothing a finger could do would ever give it something to
-            undo. The wheel and the `+`/`-` keys were the whole of the way in,
-            and a phone has neither.
-
-            **Out, back, in — which is the order and the shape the Finance
-            canvas already uses** for exactly this cluster. A reader who has
-            worked the money map should not have to learn a second zoom on this
-            page, so these are its labels, its ordering and its glyphs, at this
-            chart's own button size. Putting the reset *between* them is what
-            keeps the count at three controls rather than at four: it stops
-            being a lone thing in the corner and becomes the middle of the one
-            group that answers "how much of the period am I looking at".
-
-            **At every width, not only the narrow ones.** The gesture is what a
-            phone is short of, but the button is what a reader who does not know
-            the gesture is short of at any width — the same argument the pin
-            beside it already makes about the right-click, and the argument the
-            `+` and `-` keys make about the wheel. A cluster that appeared at
-            640px would also be a cluster that vanished from under a reader
-            rotating their phone, and this corner is already written to reflow
-            for nothing.
-
-            Each is disabled where it has nothing to do, like the two beside
-            them: `-` and the reset when the whole period is already on screen,
-            `+` at the hour `clampViewport` will not go under. A live button
-            that visibly does nothing is the thing this corner has consistently
-            refused.
-          */}
-        <div className={styles.zoom}>
-          <button
-            type="button"
-            className={styles.reset}
-            onClick={() => zoomFromControl(KEY_ZOOM)}
-            disabled={!zoomed}
-            aria-label="Zoom out"
-            title="Zoom out"
-            data-testid="zoom-out"
-          >
-            <span aria-hidden="true">&minus;</span>
-          </button>
-
-          {/*
-              Always rendered and disabled when there is nothing to undo, rather
-              than appearing with the first wheel notch. A control that arrives
-              when the reader zooms would reflow the corner at the exact moment
-              they are watching the chart move, and a disabled button is the
-              honest reading anyway: this is a thing you can do, and there is
-              currently nothing to do it to.
-
-              The two words became a glyph, which is the whole of the size
-              reduction — `Reset zoom` set the width of this cluster while
-              saying what a return arrow already says, and the words survive
-              where a control's words have to: the accessible name, and the
-              tooltip a pointer finds.
-            */}
-          <button
-            type="button"
-            className={styles.reset}
-            onClick={() => onViewportChange(null)}
-            disabled={!zoomed}
-            aria-label="Reset zoom"
-            title="Reset zoom"
-            data-testid="reset-zoom"
-          >
-            <span aria-hidden="true">&#8634;</span>
-          </button>
-
-          <button
-            type="button"
-            className={styles.reset}
-            onClick={() => zoomFromControl(1 / KEY_ZOOM)}
-            disabled={atFloor}
-            aria-label="Zoom in"
-            title="Zoom in"
-            data-testid="zoom-in"
-          >
-            <span aria-hidden="true">+</span>
-          </button>
-        </div>
       </div>
     </div>
   );

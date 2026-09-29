@@ -14,7 +14,17 @@ function labelFor(day: ReturnType<typeof buildResetCalendar>['weeks'][number][nu
   return `${count} ${day.resetType} reset${count === 1 ? '' : 's'} on ${day.key} (Bogotá)`;
 }
 
-export function ResetCalendar({ resets, now }: { resets: CodexReset[]; now: Date }) {
+export function ResetCalendar({
+  resets,
+  now,
+  loading = false,
+  unavailable = false,
+}: {
+  resets: CodexReset[];
+  now: Date;
+  loading?: boolean;
+  unavailable?: boolean;
+}) {
   const calendar = useMemo(() => buildResetCalendar(resets, now), [resets, now]);
   const latestDay = calendar.weeks
     .flat()
@@ -72,6 +82,8 @@ export function ResetCalendar({ resets, now }: { resets: CodexReset[]; now: Date
                     data-future={day.future || undefined}
                     aria-label={labelFor(day)}
                     aria-pressed={selected?.key === day.key}
+                    aria-hidden={loading || unavailable || undefined}
+                    disabled={loading || unavailable}
                     style={{ gridColumn: column + 1, gridRow: weekday + 2 }}
                     onFocus={() => setSelectedKey(day.key)}
                     onMouseEnter={() => setSelectedKey(day.key)}
@@ -99,7 +111,13 @@ export function ResetCalendar({ resets, now }: { resets: CodexReset[]; now: Date
               ))}
           </div>
           <div className={styles.detailContent} aria-live="polite">
-            {selected ? (
+            {loading ? (
+              <strong role="status" aria-label="Loading Codex reset history">
+                Loading Codex reset history…
+              </strong>
+            ) : unavailable ? (
+              <strong role="status">Codex reset data unavailable.</strong>
+            ) : selected ? (
               <>
                 <strong>{labelFor(selected)}</strong>
                 {selected.resets.map((reset) => (

@@ -58,6 +58,21 @@ afterEach(() => {
 });
 
 describe('fetchCodexResets', () => {
+  it('starts status and history requests together', async () => {
+    const pending = new Promise<Response>(() => {});
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        calls.push(String(input));
+        return pending;
+      }),
+    );
+
+    void fetchCodexResets();
+    expect(calls).toContain(`${UPSTREAM}/status`);
+    expect(calls).toContain(`${UPSTREAM}/resets?limit=100&order=asc`);
+  });
   it('reads the provider directly and hands the card the shape it already draws', async () => {
     const calls = serve({
       '/status': STATUS,

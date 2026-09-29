@@ -4,6 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 const auth = vi.hoisted(() => ({
   clearLocalSession: vi.fn(),
+  subscribeToAuth: (callback: (event: string, session: { user: { id: string } }) => void) => {
+    callback('INITIAL_SESSION', { user: { id: 'owner' } });
+    return () => {};
+  },
   getAccessToken: vi.fn(async () => null),
 }));
 const tweetData = vi.hoisted(() => ({

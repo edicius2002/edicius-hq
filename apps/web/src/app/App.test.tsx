@@ -90,7 +90,7 @@ function deferred<Value>() {
   return { promise, resolve };
 }
 
-const signedInSession = { access_token: 'jwt-one' } as Session;
+const signedInSession = { access_token: 'jwt-one', user: { id: 'owner' } } as Session;
 let emitAuth: (event: AuthChangeEvent, session: Session | null) => void;
 
 afterEach(() => {
@@ -148,10 +148,17 @@ beforeEach(() => {
   });
   auth.signInWithPasskey.mockResolvedValue(undefined);
   auth.signOut.mockResolvedValue(undefined);
+  const authListeners = new Set<(event: AuthChangeEvent, session: Session | null) => void>();
+  let currentAuthSession: Session | null | undefined;
+  emitAuth = (event, session) => {
+    currentAuthSession = session;
+    for (const listener of authListeners) listener(event, session);
+  };
   auth.subscribeToAuth.mockImplementation(
     (callback: (event: AuthChangeEvent, session: Session | null) => void) => {
-      emitAuth = callback;
-      return vi.fn();
+      authListeners.add(callback);
+      if (currentAuthSession !== undefined) callback('INITIAL_SESSION', currentAuthSession);
+      return () => authListeners.delete(callback);
     },
   );
   // The layout tests exercise the chart shell, not canvas pixels. jsdom emits

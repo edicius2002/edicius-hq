@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 const data = vi.hoisted(() => ({ fetchLatest: vi.fn(), fetchHistory: vi.fn() }));
 vi.mock('./data', () => data);
+vi.mock('@/shared/auth/supabaseAuth', () => ({
+  subscribeToAuth: (callback: (event: string, session: { user: { id: string } }) => void) => {
+    callback('INITIAL_SESSION', { user: { id: 'owner' } });
+    return () => {};
+  },
+}));
 import { UsdPenGadget } from './UsdPenGadget';
 const now = Date.parse('2026-09-29T15:00:00Z');
 const row = {
@@ -80,7 +86,7 @@ it('retains same-source data on refresh failure and provides retry', async () =>
   const client = mount();
   await screen.findByRole('slider');
   data.fetchHistory.mockRejectedValue(new Error('offline'));
-  await client.invalidateQueries({ queryKey: ['fx', 'history'] });
+  await client.invalidateQueries({ queryKey: ['fx', 'owner', 'history'] });
   expect(await screen.findByText(/Could not refresh history/)).toBeVisible();
   expect(screen.getByRole('slider')).toBeVisible();
 });

@@ -159,7 +159,11 @@ function bounded(signal?: AbortSignal): AbortSignal {
 
 export async function fetchCodexResets(signal?: AbortSignal): Promise<CodexResetsResponse> {
   const within = bounded(signal);
-  const status = await get('/status', within);
+  const firstQuery = new URLSearchParams({ limit: String(PAGE_SIZE), order: 'asc' });
+  const [status, firstPage] = await Promise.all([
+    get('/status', within),
+    get(`/resets?${firstQuery}`, within),
+  ]);
   const data = object(status.data, 'status.data');
   const meta = object(status.meta, 'status.meta');
   const stats = object(data.stats, 'status.stats');
@@ -172,7 +176,7 @@ export async function fetchCodexResets(signal?: AbortSignal): Promise<CodexReset
     if (page === MAX_PAGES) invalid(`resets pagination exceeded ${MAX_PAGES} pages`);
     const query = new URLSearchParams({ limit: String(PAGE_SIZE), order: 'asc' });
     if (cursor !== null) query.set('cursor', cursor);
-    const payload = await get(`/resets?${query}`, within);
+    const payload = page === 0 ? firstPage : await get(`/resets?${query}`, within);
     if (!Array.isArray(payload.data)) invalid('resets.data must be an array');
     for (const row of payload.data) {
       const item = codexReset(row);

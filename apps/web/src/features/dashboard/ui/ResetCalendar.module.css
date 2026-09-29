@@ -136,7 +136,9 @@
 
 .detailFrame {
   display: grid;
-  min-height: 2.3rem;
+  min-height: 6rem;
+  max-height: 6rem;
+  overflow-y: auto;
   margin-top: 0.3rem;
   padding-top: 0.35rem;
   border-top: 1px dashed #5c5146;

@@ -1,0 +1,1 @@
+{"config": {"series": [{"name": "Tipo de cambio - Interbancario - Compra"}, {"name": "Tipo de cambio - Interbancario - Venta"}, {"name": "Tipo de cambio - SBS - Compra"}, {"name": "Tipo de cambio - SBS - Venta"}]}, "periods": [{"name": "25.Set.26", "values": ["3.43", "3.46", "3.43", "3.46"]}, {"name": "28.Set.26", "values": ["n.d.", "n.d.", "n.d.", "n.d."]}]}

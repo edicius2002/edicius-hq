@@ -1,0 +1,1 @@
+<span id="buy-exchange-rate">3.43</span><span id="sell-exchange-rate">3.46</span><span id="textoperation3">8.88</span>

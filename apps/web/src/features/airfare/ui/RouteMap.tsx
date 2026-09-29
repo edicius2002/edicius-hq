@@ -7,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 import { flushSync } from 'react-dom';
 import { feature, mesh } from 'topojson-client';
@@ -73,7 +72,6 @@ import {
   useSubdivisionCatalogue,
   useSubdivisions,
 } from '@/features/airfare/hooks/useSubdivisions';
-import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteMap.module.css';
 
@@ -326,21 +324,6 @@ type RouteMapProps = {
   lastCollectedId: string | null;
   projection: Projection;
   onProjectionChange: (projection: Projection) => void;
-  /**
-   * Something to stand in the toolbar, beside Reset.
-   *
-   * A slot rather than a prop that names what goes in it. What the page puts
-   * here is the watchlist's save state, which is a fact about a stored document
-   * and none of a map's business — a `saveState` prop would have this component
-   * importing storage types to render a word it cannot interpret. The map owns
-   * the strip and nothing else about what stands on it.
-   *
-   * Why the strip at all: the status used to sit in the page header, in a row
-   * with the collect button, and when that button went the row was one control
-   * wide and the header was a title with a word floating at the far end of it.
-   * The toolbar already carries this panel's chrome.
-   */
-  status?: ReactNode;
 };
 
 function readToken(element: HTMLElement, name: string): string {
@@ -356,7 +339,6 @@ export function RouteMap({
   lastCollectedId,
   projection,
   onProjectionChange,
-  status,
 }: RouteMapProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -386,41 +368,6 @@ export function RouteMap({
    */
   const anchor = useRef<{ at: [number, number]; geo: [number, number] } | null>(null);
   const [moving, setMoving] = useState(false);
-
-  /**
-   * Whether the view is anywhere but home, which is the only thing "Reset the
-   * view" needs to know.
-   *
-   * State of its own, written wherever the view is *asked* to move, rather
-   * than read off the frame that was last painted. The two agree through a
-   * drag, where every frame is a render — but a wheel notch writes the new
-   * target and then waits for the loop, and a button that stays greyed out
-   * until the next frame is answering a question the reader did not ask. What
-   * has moved the view is the request, and this is the request.
-   */
-  const [moved, setMoved] = useState(false);
-
-  /**
-   * Recomputed wherever rotation, pan or the zoom target is written, which is
-   * every place the view can move from.
-   *
-   * A `setState` per pointer move looks like the thing the note on `zoom`
-   * warns against and is not: this one is a boolean that spends a whole
-   * gesture unchanged, and React drops an update that would set the same
-   * value, so a drag costs exactly one render here — the one where the answer
-   * turns over.
-   */
-  const noteMoved = useCallback(() => {
-    // Rotation counts as having moved the view. Without it, spinning the globe
-    // halfway round the planet left "Reset the view" greyed out.
-    const turned = rotation.current.some((angle, axis) => Math.abs(angle - HOME[axis]) > 0.5);
-    setMoved(
-      Math.abs(zoomTarget.current - 1) > 0.001 ||
-        turned ||
-        Math.abs(pan.current.x) > 0.5 ||
-        Math.abs(pan.current.y) > 0.5,
-    );
-  }, []);
 
   /*
    * Which countries the camera has in front of it, and their subdivisions once
@@ -1781,7 +1728,6 @@ export function RouteMap({
       // Free in both directions; `fit` clamps it to the map's own edges, which
       // at the default zoom leaves only up and down reachable.
       pan.current = { x: held.from.x + (offsetX - held.x), y: held.from.y + (offsetY - held.y) };
-      noteMoved();
       return;
     }
 
@@ -1793,7 +1739,6 @@ export function RouteMap({
     // The third angle is dropped so the horizon stays level. Letting it drift
     // makes the globe feel like it is tumbling rather than turning.
     rotation.current = [next[0], next[1], 0];
-    noteMoved();
   }
 
   /** A press that has not travelled far enough to be a drag. */
@@ -1860,7 +1805,6 @@ export function RouteMap({
   function applyZoom(next: number) {
     zoom.current = next;
     fit();
-    noteMoved();
 
     const pinned = anchor.current;
     if (!pinned) return;
@@ -1974,7 +1918,6 @@ export function RouteMap({
     // One step straight away, so the map answers a notch in the frame it
     // arrived in rather than only once the loop wakes.
     stepZoom(16);
-    noteMoved();
     return true;
   }
 
@@ -2072,17 +2015,6 @@ export function RouteMap({
     if (step === null) return;
     event.preventDefault();
     stepFromCentre(step);
-  }
-
-  function reset() {
-    rotation.current = [...HOME];
-    pan.current = { x: 0, y: 0 };
-    zoom.current = 1;
-    zoomTarget.current = 1;
-    anchor.current = null;
-    noteMoved();
-    draw();
-    commit();
   }
 
   /* ----------------------------------------------------------------- svg -- */
@@ -2313,8 +2245,24 @@ export function RouteMap({
 
   return (
     <div className={styles.map}>
-      <div className={styles.toolbar}>
-        <div className={styles.switch} role="group" aria-label="Map projection">
+      <div
+        ref={stageRef}
+        className={`${styles.stage} ${styles.grabbable}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endGesture}
+        onPointerCancel={endGesture}
+        onKeyDown={onKeyDown}
+        tabIndex={0}
+        role="application"
+        aria-label="Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom."
+      >
+        <div
+          className={styles.switch}
+          role="group"
+          aria-label="Map projection"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           {(['globe', 'mercator'] as const).map((option) => (
             <button
               key={option}
@@ -2327,43 +2275,6 @@ export function RouteMap({
           ))}
         </div>
 
-        {/*
-          The right end of the strip: whatever the page handed over, then Reset.
-          Grouped rather than left to `space-between`, which with three children
-          would put the status in the middle of the toolbar — a status is not a
-          control and does not belong between two of them.
-        */}
-        <div className={styles.tools}>
-          {status}
-          <Button
-            variant="ghost"
-            size="small"
-            onClick={reset}
-            disabled={!moved}
-            aria-label="Reset the view"
-          >
-            Reset
-          </Button>
-        </div>
-      </div>
-
-      <div
-        ref={stageRef}
-        className={`${styles.stage} ${styles.grabbable}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endGesture}
-        onPointerCancel={endGesture}
-        onKeyDown={onKeyDown}
-        tabIndex={0}
-        role="application"
-        /*
-         * What is actually here, on whatever the reader is holding. The old
-         * label promised a scroll wheel and two keys to a phone, which has
-         * neither — and named nothing a finger could do.
-         */
-        aria-label="Route map. Drag to move. Pinch, scroll, or press plus and minus to zoom."
-      >
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg
           className={`${styles.overlay} ${moving ? '' : styles.settled}`}

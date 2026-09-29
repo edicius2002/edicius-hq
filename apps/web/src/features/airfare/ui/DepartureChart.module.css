@@ -39,16 +39,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/*
- * The chart's own top-right corner: how much time a period covers, which period
- * is open, and the way out of a zoom.
- *
- * One cluster because all three answer the same question — where in the archive
- * am I looking — and because a row of three separately-spaced controls reads as
- * three unrelated things. The gaps inside it are tighter than the gap to the
- * count on the left, which is what makes it a group rather than the right-hand
- * half of a `space-between`.
- */
+/* Frame navigation and pinning sit beside the flight count. */
 .corner {
   display: inline-flex;
   align-items: center;
@@ -57,19 +48,8 @@
   justify-content: flex-end;
 }
 
-/*
- * The way out of a zoom, at the size of the arrows beside it.
- *
- * It was `Reset zoom` in a bordered box and it was the widest thing in this
- * corner — two words of chrome, permanently on screen, for a state the chart is
- * usually not in. A round glyph button matching `.steps` is the same control at
- * a fraction of the ink, and it is round for the same reason those are: the
- * three of them are one row of frame controls and a square among circles reads
- * as a different kind of thing. The words are not lost, only unprinted — they
- * are the accessible name and the tooltip, which is where a control that shows
- * a glyph has to keep them.
- */
-.reset {
+/* Round pin control. */
+.pinButton {
   appearance: none;
   cursor: pointer;
   width: 26px;
@@ -86,52 +66,17 @@
   justify-content: center;
 }
 
-.reset:disabled {
+.pinButton:disabled {
   cursor: default;
   opacity: 0.4;
 }
 
-.reset:focus-visible {
+.pinButton:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
-/*
- * The pin, which wears `.reset` for its shape and this for its state.
- *
- * Two classes rather than one, and rather than a pressed rule hung on `.reset`
- * itself: the shape above is a round glyph button the size of the step arrows,
- * and both controls in this corner are one, but only one of them is a toggle.
- * `.reset[aria-pressed='true']` would have worked — the reset button carries no
- * `aria-pressed` to match — and it would have said that the way out of a zoom
- * has a pressed state, which it does not.
- *
- * A pressed toggle has to look pressed from across the panel, because that is
- * the whole of what it is for: it is one of the three things telling a reader
- * that the reading under the plot is held rather than live. Filled rather than
- * outlined, which is the difference a disc glyph can carry at 26px, and the same
- * accent the pinned crosshair takes — one colour for one state.
- */
-/*
- * The three ways the zoom is worked by hand: out, back to the whole period, in.
- *
- * A group of its own inside the corner, with a tighter gap than the corner's
- * own, because they are one control in three parts and the corner's 8px let
- * them read as three unrelated glyphs beside the pin. The same shape the
- * Finance canvas gives its own zoom cluster; only the button size differs, and
- * that is this chart's, not that one's.
- *
- * 4px rather than nothing between them. Touching buttons would read as a
- * segmented control, which promises that exactly one of the three is *selected*
- * — and none of them is a state.
- */
-.zoom {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.pin[aria-pressed='true'] {
+.pinButton[aria-pressed='true'] {
   border-color: var(--color-accent);
   background: var(--color-accent);
   color: var(--color-surface);
@@ -714,7 +659,7 @@
     flex-wrap: nowrap;
     gap: 4px;
   }
-  .reset,
+  .pinButton,
   .steps button {
     min-width: 32px;
     min-height: 32px;

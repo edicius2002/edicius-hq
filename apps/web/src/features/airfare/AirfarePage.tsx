@@ -452,27 +452,9 @@ export function AirfarePage() {
         lastCollectedId={flow.freshest}
         projection={projection}
         onProjectionChange={setProjection}
-        /*
-              The watchlist's save state, in the map's toolbar — which is not
-              where it belongs by subject but is where it belongs on screen.
-              It stood in the page header beside the collect button; with that
-              button withdrawn the header was a title and a word floating at the
-              far end of an empty row. The two panels below it already carry
-              their own chrome, and this one had a strip with room on it.
-            */
-        status={<SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />}
       />
     ),
-    [
-      geometries,
-      stopRoutes,
-      selectedKey,
-      colours,
-      flow.freshest,
-      projection,
-      watchlist.saveState,
-      watchlist.retrySave,
-    ],
+    [geometries, stopRoutes, selectedKey, colours, flow.freshest, projection],
   );
 
   return (
@@ -540,6 +522,9 @@ export function AirfarePage() {
               </Button>
             ) : null}
           </header>
+          {(watchlist.saveState === 'failed' || watchlist.saveState === 'blocked') && (
+            <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
+          )}
           <RouteList
             routes={watchlist.routes}
             colours={colours}

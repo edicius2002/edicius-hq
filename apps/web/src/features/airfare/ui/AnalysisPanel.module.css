@@ -1,8 +1,8 @@
-/* Keep the chart choice centered and reserve the right edge for live metadata. */
+/* Equal side tracks keep the chart choice fixed at the panel's true centre. */
 .head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto max-content;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
@@ -19,6 +19,7 @@
   align-items: center;
   gap: 8px 10px;
   grid-column: 2;
+  justify-self: center;
 }
 
 .switch {
@@ -227,27 +228,60 @@
   height: auto;
 }
 
-/* Month granularity and the flight count share the upper-right corner. */
+/* Month granularity, flight count and frame controls enter at the right edge. */
 .chartMeta {
   display: flex;
   align-items: center;
   justify-content: end;
   gap: var(--space-2);
   grid-column: 3;
+  justify-self: end;
   min-width: 0;
+}
+
+.chartMetaHidden {
+  display: none;
+}
+
+.chartMetaEnter {
+  animation: chart-meta-enter 220ms ease-out both;
+}
+
+@keyframes chart-meta-enter {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chartMetaEnter {
+    animation: none;
+  }
 }
 
 .chartReading {
   min-width: 0;
 }
 
-@media (min-width: 641px) and (max-width: 900px) {
+@media (min-width: 641px) and (max-width: 1280px) {
   .head {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .switches {
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .chartMeta {
-    grid-column: 1 / -1;
+    grid-column: 1;
+    grid-row: 3;
   }
 }
 
@@ -270,6 +304,8 @@
   }
   .switches {
     display: block;
+    grid-row: 2;
+    justify-self: stretch;
   }
   .switch {
     display: grid;
@@ -297,6 +333,7 @@
     white-space: normal;
   }
   .chartMeta {
+    grid-row: 3;
     justify-content: end;
     align-items: center;
     flex-wrap: wrap;

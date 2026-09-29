@@ -451,7 +451,9 @@ export function AnalysisPanel({
           </div>
         </div>
         {/* The month switch and flight count share the top-right corner. */}
-        <div className={styles.chartMeta}>
+        <div
+          className={`${styles.chartMeta} ${view === 'days' ? styles.chartMetaEnter : styles.chartMetaHidden}`}
+        >
           {view === 'days' && (
             <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
           )}

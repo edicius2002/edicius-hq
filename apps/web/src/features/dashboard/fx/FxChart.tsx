@@ -26,13 +26,17 @@ export function FxChart({ history, expanded = false }: { history: History; expan
   const x = (p: typeof point) =>
     50 + (last === first ? 0.5 : (Date.parse(p.effective_at) - first) / (last - first)) * plotWidth;
   const y = (n: number) => height - 35 - ((n - lo) / (hi - lo)) * (height - 60);
+  const gapThreshold = history.aggregation === 'daily' ? 1.5 * 86400_000 : 45 * 60_000;
+  const startsSegment = (i: number) =>
+    i === 0 ||
+    Date.parse(points[i].effective_at) - Date.parse(points[i - 1].effective_at) > gapThreshold;
+  // A move-only path segment has no visible stroke. Preserve its capture with
+  // markers, without adding a circle for every point in a continuous history.
+  const isolated = points.filter(
+    (_, i) => i !== index && startsSegment(i) && (i === points.length - 1 || startsSegment(i + 1)),
+  );
   const path = (side: 'buy' | 'sell') =>
-    points
-      .map(
-        (p, i) =>
-          `${i === 0 || Date.parse(p.effective_at) - Date.parse(points[i - 1].effective_at) > (history.aggregation === 'daily' ? 1.5 * 86400_000 : 45 * 60_000) ? 'M' : 'L'}${x(p)},${y(p[side])}`,
-      )
-      .join(' ');
+    points.map((p, i) => `${startsSegment(i) ? 'M' : 'L'}${x(p)},${y(p[side])}`).join(' ');
   function select(clientX: number, target: SVGSVGElement) {
     const rect = target.getBoundingClientRect();
     const wanted =
@@ -95,12 +99,12 @@ export function FxChart({ history, expanded = false }: { history: History; expan
         ))}
         <path d={path('buy')} className={styles.buy} />
         <path d={path('sell')} className={styles.sell} />
-        {points.length === 1 ? (
-          <>
-            <circle cx={x(point)} cy={y(point.buy)} r="4" fill="#9bcba6" />
-            <circle cx={x(point)} cy={y(point.sell)} r="4" fill="#e9ab88" />
-          </>
-        ) : null}
+        {isolated.map((capture) => (
+          <g key={capture.effective_at}>
+            <circle cx={x(capture)} cy={y(capture.buy)} r="4" fill="#9bcba6" />
+            <circle cx={x(capture)} cy={y(capture.sell)} r="4" fill="#e9ab88" />
+          </g>
+        ))}
         <line x1={x(point)} x2={x(point)} y1="20" y2={height - 30} className={styles.cursor} />
         <circle cx={x(point)} cy={y(point.buy)} r="4" fill="#9bcba6" />
         <circle cx={x(point)} cy={y(point.sell)} r="4" fill="#e9ab88" />

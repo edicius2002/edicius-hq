@@ -9,37 +9,13 @@
 .head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px 16px;
-  /*
-   * A fixed height, because the sentence inside it changes as the reader steps
-   * across the end of the watched month — "681 flights" becomes "31 priced
-   * dates" becomes both. A row that grew by a line when the text got longer
-   * would move the chart under the reader at exactly the step they are trying
-   * to compare across, which is the one thing this panel must not do.
-   */
   min-height: 26px;
 }
 
-/*
- * The count, as a figure rather than as the opening of a sentence.
- *
- * It carried the frame's date range after the number — which is what the axis
- * two rows below is drawn to say — so the number was set in the muted tone with
- * only a `strong` to lift it out of its own caption. With the range gone there
- * is no caption left to be lifted out of, and the whole of what remains is the
- * measurement: text colour, tabular figures, and a size that reads as a heading
- * of the plot rather than a note under it.
- */
-.window {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Frame navigation and pinning sit beside the flight count. */
+/* Frame navigation and pinning stay together at the right edge. */
 .corner {
   display: inline-flex;
   align-items: center;
@@ -649,13 +625,12 @@
     width: 100%;
     gap: 4px;
   }
-  .window,
   .steps {
     font-size: 0.6rem;
   }
   .corner {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
     flex-wrap: nowrap;
     gap: 4px;
   }

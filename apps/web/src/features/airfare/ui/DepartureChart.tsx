@@ -1436,29 +1436,7 @@ export function DepartureChart({
    */
   const head = (
     <div className={styles.head}>
-      {/*
-          The count, printed as the figure it is.
-
-          It used to read `16 flights departing on 30/11/2026, 00:00 to 23:59`,
-          and the half after the number was the x axis spelling itself out in
-          words directly above the axis that draws it. The sentence is not lost
-          — it is still the chart's accessible name, where it is the only thing
-          that can say what the axis says — but a reader looking at the plot has
-          the dates under it already, and what they cannot count for themselves
-          is how many dots there are.
-        */}
-      {(() => {
-        const frameSummary = unreadFrame
-          ? 'Flight data not loaded'
-          : summary(source, placed.length, marks);
-        return frameSummary === '' ? null : (
-          <p className={styles.window} data-testid="frame-summary">
-            {frameSummary}
-          </p>
-        );
-      })()}
-
-      {/* Navigation and pinning stay beside the count in the panel header. */}
+      {/* Keep the same controls at the right edge on every frame. */}
       <div className={styles.corner}>
         {keys.length > 1 ? (
           <div className={styles.steps}>
@@ -2412,7 +2390,7 @@ function curveSentence(mark: CurveMark, currency: string): string {
   return `${formatFlightDate(mark.day)}, the whole departure date with no time of day. ${what}.`;
 }
 
-/** What the frame holds, in the head above it. */
+/** What the frame holds, in the chart's accessible name. */
 function summary(source: FrameSource, flights: number, marks: CurveMark[]): string {
   const flightWords = `${flights} flight${flights === 1 ? '' : 's'}`;
   const dateWords = pricedDates(marks);

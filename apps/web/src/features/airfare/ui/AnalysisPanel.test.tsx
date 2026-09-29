@@ -249,15 +249,8 @@ function chartName(): string {
 /**
  * Which stretch of calendar the open chart is drawing, from the chart itself.
  *
- * The frame used to print its own bounds — `16 flights departing on 09/03/2027,
- * 00:00 to 23:59` — in the head above the plot, and these tests read them from
- * the page's text. It prints the count alone now, because the second half of
- * that sentence was the x axis saying in words what it draws two rows below.
- * The bounds are not gone: they are the chart's accessible name, which is where
- * a reader who cannot see the axis gets them, and that is the one place they
- * have to be right. So the assertions follow them there rather than being
- * dropped — what they were proving is that the panel's navigation lands the
- * frame on the period it claims, and that is exactly as true of the name.
+ * The visible header holds only controls. The chart's accessible name keeps
+ * the flight count and frame bounds, so navigation assertions read them there.
  */
 function frameLabel(): string {
   return screen.getByRole('img').getAttribute('aria-label') ?? '';

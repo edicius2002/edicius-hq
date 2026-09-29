@@ -52,9 +52,7 @@ type RouteEditorProps = {
  * The fields that add a route **and edit one**, always on screen at the top of
  * the watchlist.
  *
- * **Two rows for the pair and a strip for the months** — 12.265 as 12.268
- * revised it, plus `a-watch-is-a-pair-and-its-months`. The airports share the
- * first row, as they always did, because they are one decision.
+ * **One row for the pair and departure year, then a strip for the months.**
  *
  * **The departure is a set of months, picked as twelve chips** — superseding
  * the month-and-year dropdown pair 12.262 introduced. A watch holds several
@@ -231,10 +229,8 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
         The two airports on one row, and the row is also what their suggestion
         lists hang from — 12.268.
 
-        `subgrid` rather than a grid of its own, so the four tracks are the
-        form's own: "Origin" and "Departing" share the first column and their
-        fields start at the same x, which a nested grid measuring its own
-        labels could not manage.
+        `subgrid` keeps the airport labels and inputs in the form's tracks;
+        Departing and its year control use the two tracks after them.
       */}
       <div className={styles.airports}>
         <AirportField

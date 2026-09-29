@@ -20,9 +20,9 @@ non-finite retry headers, source isolation and continued outbox replay.
 
 - API suite: **1,226 passed, 28 skipped** after the backend fixes.
 - API Ruff and mypy passed; mypy checked 93 source files.
-- Web suite: **2,453 passed, 2 skipped**. A subsequent chart expansion adjustment
-  passed the focused App/Dashboard suite: **37 tests**.
-- Web typecheck, scoped ESLint and formatting passed.
+- Final web suite: **2,458 passed, 2 skipped**, after the chart and owner-cache
+  fixes. The focused App/Dashboard suite also passed **41 tests**.
+- Project-wide web typecheck, ESLint and formatting passed.
 - Production web build passed. Vite reported a shared bundle above its 500 kB
   warning threshold.
 - New SQL tests: **24 pgTAP assertions passed**, including owner isolation,
@@ -46,6 +46,10 @@ intercepted synthetic data and GPU acceleration disabled. Checks passed for:
 - A wider expanded desktop chart and a taller expanded mobile chart.
 - Official values with many decimal places, without page overflow.
 - No browser page errors or horizontal page overflow.
+
+Additional offline regressions verify visible isolated chart captures across gaps
+and account isolation: switching owners while offline, denied reads for the new
+owner, sign-out cancellation and late responses from the old owner.
 
 The following screenshots contain **synthetic demonstration values**:
 

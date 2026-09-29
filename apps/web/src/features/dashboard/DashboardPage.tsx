@@ -9,6 +9,7 @@ import { Panel } from '@/shared/ui/Panel';
 import { useCodexResets } from './hooks/useCodexResets';
 import { fetchTweets, subscribeTweets } from './data/supabaseTweets';
 import { formatBogotaDateTime } from './lib/codexResetCalendar';
+import { UsdPenGadget } from './fx/UsdPenGadget';
 import { CodexResetOverview } from './ui/CodexResetOverview';
 import styles from './DashboardPage.module.css';
 
@@ -79,9 +80,11 @@ export function DashboardPage() {
   const tweets = query.data ?? [];
 
   return (
-    <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader title={`@${HANDLE}`} className={styles.header} />
+    <section className={styles.page} aria-labelledby="dashboard-title">
+      <PageHeader titleId="dashboard-title" title="Dashboard" className={styles.header} />
+      <UsdPenGadget now={now} />
       <CodexResetOverview query={codexResets} now={now} />
+      <h2>Posts from @{HANDLE}</h2>
       {query.isError && query.data !== undefined ? (
         <Panel role="alert">
           Could not refresh captured tweets. Showing the last available posts.

@@ -48,6 +48,10 @@ const marketApi = vi.hoisted(() => ({
 
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
 vi.mock('@/shared/api/market', () => marketApi);
+vi.mock('@/features/dashboard/fx/data', () => ({
+  fetchLatest: async () => [],
+  fetchHistory: async () => ({ points: [], aggregation: 'observations' }),
+}));
 vi.mock('@/features/investing/hooks/useQuoteStream', async () => {
   const React = await import('react');
   const discardTicksBefore = () => undefined;
@@ -199,8 +203,12 @@ beforeEach(() => {
  */
 const ROUTE_LOAD_MS = 25_000;
 
-function arrivesAt(name: string) {
-  return screen.findByRole('heading', { name }, { timeout: ROUTE_LOAD_MS });
+async function arrivesAt(name: string) {
+  return (
+    name === 'Dashboard'
+      ? within(await screen.findByRole('main', {}, { timeout: ROUTE_LOAD_MS }))
+      : screen
+  ).findByRole('heading', { name }, { timeout: ROUTE_LOAD_MS });
 }
 
 function renderAt(path: string) {
@@ -281,7 +289,9 @@ describe('Account controls in the wide menu', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
     expect(nav).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('main')).getByRole('heading', { name: 'Dashboard' }),
+    ).toBeInTheDocument();
   });
 });
 

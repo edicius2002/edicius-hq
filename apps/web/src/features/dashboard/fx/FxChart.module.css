@@ -1,0 +1,87 @@
+.chart {
+  min-width: 0;
+}
+.chart svg {
+  width: 100%;
+  display: block;
+  height: 185px;
+  touch-action: pan-y;
+  border-radius: 6px;
+}
+.chart svg:focus-visible {
+  outline: 2px solid #dda835;
+}
+.chart text {
+  fill: var(--color-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 11px;
+}
+.legend span:first-child {
+  color: #9bcba6;
+}
+.legend span:nth-child(2) {
+  color: #e9ab88;
+}
+.legend small {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+.grid {
+  stroke: #e9ded018;
+  stroke-dasharray: 3 4;
+}
+.buy,
+.sell {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.buy {
+  stroke: #9bcba6;
+}
+.sell {
+  stroke: #e9ab88;
+}
+.cursor {
+  stroke: #e9ded05a;
+  stroke-dasharray: 3 3;
+}
+.detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  font-size: 11px;
+  padding: 10px 0;
+  border-top: 1px solid #e9ded024;
+}
+.detail strong {
+  margin-left: auto;
+}
+.detail small {
+  width: 100%;
+  color: var(--color-muted);
+  font-size: 9px;
+}
+.note {
+  font-size: 9px;
+  color: var(--color-muted);
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+.empty {
+  display: grid;
+  place-content: center;
+  min-height: 220px;
+  padding: 20px;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.7;
+}

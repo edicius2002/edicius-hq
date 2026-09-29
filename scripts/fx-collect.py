@@ -37,11 +37,7 @@ def main() -> int:
         parser.error("both backfill dates required")
     backfill = (args.backfill_from, args.backfill_to) if args.backfill_from else None
     sources = (
-        args.sources.split(",")
-        if args.sources
-        else sorted(REFERENCES)
-        if backfill
-        else SOURCES
+        args.sources.split(",") if args.sources else sorted(REFERENCES) if backfill else SOURCES
     )
     cloud = None
     try:
@@ -56,12 +52,8 @@ def main() -> int:
                 else nullcontext(None)
             ) as store,
         ):
-            result = collect_once(
-                store, cloud, sources, dry_run=args.dry_run, backfill=backfill
-            )
-        print(
-            f"FX seen={result['seen']} written={result['written']} failed={result['failed']}"
-        )
+            result = collect_once(store, cloud, sources, dry_run=args.dry_run, backfill=backfill)
+        print(f"FX seen={result['seen']} written={result['written']} failed={result['failed']}")
         return int(result["failed"] > 0)
     except (ValueError, ProcessLockUnavailable) as error:
         LOGGER.error("FX collection unavailable: %s", error)

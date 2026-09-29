@@ -275,9 +275,13 @@ it('distinguishes unread departure months from confirmed empty boards', async ()
   await screen.findByRole('table');
   fireEvent.click(screen.getByRole('button', { name: 'Open April' }));
   expect(screen.getByText(/Updating saved fares for April 2027/)).toBeInTheDocument();
-  expect(screen.getByTestId('frame-summary')).toHaveTextContent('Flight data not loaded');
+  expect(
+    screen.getByRole('img', { name: /Flight data not loaded for this frame/ }),
+  ).toBeInTheDocument();
   expect(screen.queryAllByTestId('day-unanswered')).toHaveLength(0);
   await act(async () => april.resolve(projection('2027-04')));
-  await waitFor(() => expect(screen.getByTestId('frame-summary')).toHaveTextContent('0 flights'));
+  await waitFor(() =>
+    expect(screen.getByRole('img', { name: /0 flights departing/ })).toBeInTheDocument(),
+  );
   expect(screen.queryByText(/Updating saved fares for April 2027/)).not.toBeInTheDocument();
 });

@@ -264,12 +264,11 @@ export function AnalysisPanel({
    * beside it was pressed to ask. Chart A answers what the route has cost over
    * time, which is a second question and is one press away.
    *
-   * The period switch is visible beside the flight count from the first paint.
+   * The period switch is visible beside the frame controls from the first paint.
    */
   const [view, setView] = useState<ChartView>('days');
   /*
-   * Where the departure chart draws its own head — the flight count, frame
-   * arrows and pin.
+   * Where the departure chart draws its own head — the frame arrows and pin.
    *
    * State rather than a ref, because a portal needs its target to exist on the
    * render that reads it and a ref is still null on the first one. A callback
@@ -450,7 +449,7 @@ export function AnalysisPanel({
             </button>
           </div>
         </div>
-        {/* The month switch and flight count share the top-right corner. */}
+        {/* The month switch and frame controls share the top-right corner. */}
         <div
           className={`${styles.chartMeta} ${view === 'days' ? styles.chartMetaEnter : styles.chartMetaHidden}`}
         >

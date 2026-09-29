@@ -228,7 +228,7 @@
   height: auto;
 }
 
-/* Month granularity, flight count and frame controls enter at the right edge. */
+/* Month granularity and frame controls enter at the right edge. */
 .chartMeta {
   display: flex;
   align-items: center;

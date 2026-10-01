@@ -86,7 +86,7 @@ def test_partial_failure_persisted_due_and_retry_after(tmp_path):
         assert result["failed"] == 1 and result["written"] == 1
         assert not store.due("tkambio", NOW + timedelta(minutes=29))
         assert store.due("tkambio", NOW + timedelta(minutes=30))
-        assert store.due("kambista", NOW + timedelta(minutes=15))
+        assert store.due("kambista", NOW + timedelta(minutes=5))
 
 
 def test_dry_run_has_no_writes(tmp_path):
@@ -277,17 +277,19 @@ def test_malformed_source_allows_next_source_and_pending_replay(tmp_path, monkey
 
 
 @pytest.mark.parametrize(
-    ("source", "interval"), (("kambista", timedelta(minutes=15)), ("bcrp", timedelta(hours=4)))
+    ("source", "interval"), (("kambista", timedelta(minutes=5)), ("bcrp", timedelta(hours=4)))
 )
 def test_next_timer_pass_is_due_even_when_it_starts_with_less_jitter(tmp_path, source, interval):
     from app.services.fx.collector import collect_once
     from app.services.fx.store import Store
 
-    # edicius-fx.timer fires every 15 minutes with up to 30 seconds of random delay.
+    # edicius-fx.timer fires every 5 minutes with up to 30 seconds of random delay.
     previous = NOW + timedelta(seconds=30)
     with Store(tmp_path / "fx.sqlite", OWNER) as store:
         collect_once(
             store, Cloud(), [source], now=previous, fetcher=lambda s, c, n, *a: [observation(s, n)]
         )
+        assert not store.due(source, previous + interval - timedelta(minutes=1, seconds=1))
         assert store.due(source, NOW + interval)
-        assert not store.due(source, previous + timedelta(minutes=5))
+        if source == "bcrp":
+            assert not store.due(source, NOW + timedelta(minutes=5))

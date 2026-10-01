@@ -5,6 +5,7 @@
   min-width: 0;
   max-width: 84rem;
   margin-inline: auto;
+  margin-block-start: calc(0.4rem - var(--space-6));
 }
 
 .header {
@@ -13,12 +14,17 @@
   text-align: center;
 }
 
+.header h1 {
+  margin: 0;
+}
+
 .titleRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 0.7rem;
   min-width: 0;
+  margin-block-end: -0.45rem;
 }
 
 .clockPair {
@@ -32,10 +38,17 @@
   justify-content: flex-end;
 }
 
+@media (min-width: 44rem) and (max-width: 54rem) {
+  .titleRow {
+    --clock-scale: 1.1;
+  }
+}
+
 @media (max-width: 44rem) {
   .titleRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem 0.4rem;
+    --clock-scale: 0.85;
   }
 
   .header {
@@ -53,6 +66,12 @@
   }
 }
 
+@media (max-width: 22.5rem) {
+  .titleRow {
+    --clock-scale: 0.75;
+  }
+}
+
 /*
  * Codex resets fill the left half and the USD/PEN widget the right half; both
  * stack into one column once the row gets too narrow.
@@ -60,9 +79,24 @@
 .overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 0.85rem;
   min-width: 0;
+}
+
+.postsHeading {
+  display: grid;
+  place-items: center;
+  min-height: 3rem;
+  margin: 0;
+  text-align: center;
+}
+
+.statusPanel {
+  place-items: center;
+  align-content: center;
+  min-height: 5rem;
+  text-align: center;
 }
 
 @media (max-width: 64rem) {

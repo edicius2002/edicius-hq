@@ -1,13 +1,20 @@
 .overview {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0.8rem;
   min-width: 0;
+  height: 100%;
+}
+
+.overview > :last-child {
+  grid-column: 1 / -1;
 }
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: 'label type' 'figure type' 'date type';
+  grid-template-areas: 'label' 'figure' 'date' 'type';
+  align-content: space-between;
   align-items: center;
   gap: 0.3rem 0.75rem;
   min-width: 0;
@@ -54,6 +61,7 @@
 
 .type {
   grid-area: type;
+  justify-self: start;
   padding: 0.25rem 0.55rem;
   border: 1.5px solid #e9ded0;
   border-radius: 0.5rem;
@@ -70,9 +78,8 @@
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
   gap: 0.6rem;
-  max-width: 34.2rem;
   margin: 0;
 }
 
@@ -159,8 +166,25 @@
   }
 }
 
+@media (max-width: 64rem) {
+  .overview {
+    grid-template-rows: auto auto;
+    height: auto;
+  }
+}
+
 @media (max-width: 44rem) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+  }
+
+  .overview > :last-child {
+    grid-row: 3;
+  }
+
   .hero {
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: 'label label' 'figure figure' 'date type';
     padding: 0.65rem 0.75rem;
   }
@@ -169,6 +193,8 @@
     font-size: clamp(1.25rem, 6vw, 1.6rem);
   }
   .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto;
     gap: 0.5rem;
   }
   /* Too narrow for label and value side by side: stack them in each card. */

@@ -2,7 +2,7 @@
 Description=Schedule Edicius USD/PEN collector passes
 
 [Timer]
-OnCalendar=*-*-* *:0/15:00
+OnCalendar=*-*-* *:0/5:00
 OnBootSec=2min
 Persistent=true
 RandomizedDelaySec=30

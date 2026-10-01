@@ -1,7 +1,7 @@
 .digit {
   display: block;
-  width: 0.68rem;
-  height: 1.1rem;
+  width: calc(0.68rem * var(--clock-scale, 1.5));
+  height: calc(1.1rem * var(--clock-scale, 1.5));
   flex: none;
   overflow: visible;
   transform: skewX(-4deg);

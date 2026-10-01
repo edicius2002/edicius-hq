@@ -3,9 +3,9 @@
   flex-direction: column;
   align-items: center;
   flex: 0 0 auto;
-  min-width: 4.5rem;
+  min-width: calc(4.5rem * var(--clock-scale, 1.5));
   box-sizing: border-box;
-  padding: 0.23rem 0.3rem;
+  padding: calc(0.23rem * var(--clock-scale, 1.5)) calc(0.3rem * var(--clock-scale, 1.5));
   border: 1px solid #321414;
   border-radius: 0.3rem;
   background: #050505;
@@ -16,13 +16,13 @@
 .digits {
   display: inline-flex;
   align-items: center;
-  gap: 0.045rem;
+  gap: calc(0.045rem * var(--clock-scale, 1.5));
 }
 
 .label {
-  margin-top: 0.2rem;
+  margin-top: calc(0.2rem * var(--clock-scale, 1.5));
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.55rem;
+  font-size: calc(0.55rem * var(--clock-scale, 1.5));
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -32,18 +32,18 @@
   flex-direction: column;
   justify-content: space-around;
   align-items: center;
-  width: 0.22rem;
-  height: 0.8rem;
+  width: calc(0.22rem * var(--clock-scale, 1.5));
+  height: calc(0.8rem * var(--clock-scale, 1.5));
   animation: blink 1s steps(1, end) infinite;
 }
 
 .colon::before,
 .colon::after {
-  width: 0.16rem;
-  height: 0.16rem;
-  border-radius: 0.04rem;
+  width: calc(0.16rem * var(--clock-scale, 1.5));
+  height: calc(0.16rem * var(--clock-scale, 1.5));
+  border-radius: calc(0.04rem * var(--clock-scale, 1.5));
   background: #ff2a2a;
-  box-shadow: 0 0 0.25rem #ff2a2a99;
+  box-shadow: 0 0 calc(0.25rem * var(--clock-scale, 1.5)) #ff2a2a99;
   content: '';
 }
 

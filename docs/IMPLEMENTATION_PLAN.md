@@ -496,7 +496,7 @@ The API sends only `Accept: application/json`. It does not imitate a browser, ad
 - [x] Nine HTTP adapters: Kambista, Tu Cambista, Securex, Cambio Seguro, DollarHouse, Rextie, TKambio, BCRP interbank and SBS through BCRP
 - [x] Pi collector with a durable SQLite outbox, owner-scoped `fx_observations` and authenticated `read_fx_latest` / `read_fx_history` reads
 - [x] Dashboard card above Codex resets: provider table, per-source buy/sell chart, ranges, favorites and owner-isolated browser cache
-- [x] `edicius-fx.service` / `.timer` every 15 minutes, installed disabled; routine releases pause the timer only once enabled
+- [x] `edicius-fx.service` / `.timer` every 5 minutes, installed disabled; routine releases pause the timer only once enabled
 - [ ] Apply the migration, run `verify.sh --live fx`, enable the timer and backfill the BCRP references (runbook: USD/PEN collector activation)
 
 Commercial history begins at activation; only the BCRP references reach back to 1997. SUNAT and Cuanto Está el Dólar are not collected.
@@ -1361,6 +1361,7 @@ Current-state reconciliation (2026-09-07): FastAPI and the five green dependency
 | 2026-09-16 | **Superseded in provider and application-data scope — ADR 0004, 2026-09-18.** Supabase Auth passkey browser session and Finance RLS/CAS remain; FastAPI Bearer-JWT/header streaming/Tailscale apply only to retained rollback and local-development routes until Task 12. The current pre-cutover target moves application documents, Dashboard, Sentiment, Investing and Airfare browser data paths to Supabase and provider acquisition to Pi collectors. |
 | 2026-09-25 | **Tailscale retired.** The deployed web app no longer calls the home API: application data comes from Supabase, map subdivisions are published as static files of the web app (#229) and the Dashboard reads codex-resets.com directly. Serve and Funnel were switched off on the owner PC and `scripts/tailnet.mjs` and the `tailnet:*` scripts were removed. FastAPI remains for local development only, listening on this machine. |
 | 2026-10-01 | **Dashboard USD/PEN (6d).** Adds the FX collector's Pi units, install/deploy/verify wiring, health check, `fx:collect` and the activation runbook. Commercial sources are now rescheduled one minute short of their cadence so the timer's random delay cannot skip a pass. |
+| 2026-10-01 | **USD/PEN commercial cadence: 5 minutes.** The owner wants quotes as live as possible; Kambista's own client refreshes every 300 s, so 5 minutes matches the fastest source and stays well clear of the 403 six-hour cooldown. The commercial stale threshold is 15 minutes (three missed passes); references remain on a 4-hour cadence with a 12-hour capture-age threshold. |
 
 ## Dashboard Codex reset history — 2026-09-14
 

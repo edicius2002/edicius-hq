@@ -267,7 +267,7 @@ ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service && s
 
 ## USD/PEN collector activation
 
-`edicius-fx.timer` runs `scripts/fx-collect.py` every 15 minutes. Each pass
+`edicius-fx.timer` runs `scripts/fx-collect.py` every 5 minutes. Each pass
 captures the seven commercial houses and, when due (every 4 hours), the BCRP
 interbank and SBS references, reconciling the last 14 days of references. Rows
 go to a local outbox at `/var/lib/edicius-hq/fx/outbox.sqlite` first and are

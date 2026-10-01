@@ -3,17 +3,17 @@ import { useElementSize } from '@/shared/lib/useElementSize';
 import type { History } from './types';
 import { price, time } from './model';
 import styles from './FxChart.module.css';
-export function FxChart({ history, expanded = false }: { history: History; expanded?: boolean }) {
-  const height = expanded ? 240 : 100;
+export function FxChart({ history, sourceName }: { history: History; sourceName: string }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [container, size] = useElementSize<HTMLDivElement>();
   const width = size.width || 320;
+  const height = size.height || 120;
   const plotWidth = Math.max(1, width - 65);
   const points = history.points;
   if (!points.length)
     return (
-      <div ref={container} className={styles.empty}>
-        No history for this range.
+      <div className={styles.chart} role="region" aria-label={`${sourceName} USD/PEN history`}>
+        <div className={styles.empty}>No history for this range.</div>
       </div>
     );
   const index = Math.min(selected ?? points.length - 1, points.length - 1),
@@ -54,70 +54,71 @@ export function FxChart({ history, expanded = false }: { history: History; expan
     setSelected(nearest);
   }
   return (
-    <div ref={container} className={styles.chart}>
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        style={{ height }}
-        role="slider"
-        aria-label="History point"
-        aria-valuemin={1}
-        aria-valuemax={points.length}
-        aria-valuenow={index + 1}
-        aria-valuetext={`${time(point.effective_at)}; buy ${point.buy}; sell ${point.sell}`}
-        tabIndex={0}
-        onPointerMove={(e) => select(e.clientX, e.currentTarget)}
-        onPointerDown={(e) => select(e.clientX, e.currentTarget)}
-        onKeyDown={(e) => {
-          const next =
-            e.key === 'Home'
-              ? 0
-              : e.key === 'End'
-                ? points.length - 1
-                : e.key === 'ArrowLeft'
-                  ? Math.max(0, index - 1)
-                  : e.key === 'ArrowRight'
-                    ? Math.min(points.length - 1, index + 1)
-                    : null;
-          if (next !== null) {
-            e.preventDefault();
-            setSelected(next);
-          }
-        }}
-      >
-        {[lo, (lo + hi) / 2, hi].map((n) => (
-          <g key={n}>
-            <line x1="50" x2={width - 15} y1={y(n)} y2={y(n)} className={styles.grid} />
-            <text x="43" y={y(n) + 3} textAnchor="end">
-              {price(n)}
-            </text>
-          </g>
-        ))}
-        <path d={path('buy')} className={styles.buy} />
-        <path d={path('sell')} className={styles.sell} />
-        {isolated.map((capture) => (
-          <g key={capture.effective_at}>
-            <circle cx={x(capture)} cy={y(capture.buy)} r="4" fill="#9bcba6" />
-            <circle cx={x(capture)} cy={y(capture.sell)} r="4" fill="#e9ab88" />
-          </g>
-        ))}
-        <line x1={x(point)} x2={x(point)} y1="8" y2={height - 18} className={styles.cursor} />
-        <circle cx={x(point)} cy={y(point.buy)} r="4" fill="#9bcba6" />
-        <circle cx={x(point)} cy={y(point.sell)} r="4" fill="#e9ab88" />
-        <text x="50" y={height - 7}>
-          {new Date(first).toLocaleDateString('en-US', {
-            timeZone: 'America/Lima',
-            month: 'short',
-            day: 'numeric',
-          })}
-        </text>
-        <text x={width - 15} y={height - 7} textAnchor="end">
-          {new Date(last).toLocaleDateString('en-US', {
-            timeZone: 'America/Lima',
-            month: 'short',
-            day: 'numeric',
-          })}
-        </text>
-      </svg>
+    <div className={styles.chart} role="region" aria-label={`${sourceName} USD/PEN history`}>
+      <div ref={container} className={styles.plot}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="slider"
+          aria-label="History point"
+          aria-valuemin={1}
+          aria-valuemax={points.length}
+          aria-valuenow={index + 1}
+          aria-valuetext={`${time(point.effective_at)}; buy ${point.buy}; sell ${point.sell}`}
+          tabIndex={0}
+          onPointerMove={(e) => select(e.clientX, e.currentTarget)}
+          onPointerDown={(e) => select(e.clientX, e.currentTarget)}
+          onKeyDown={(e) => {
+            const next =
+              e.key === 'Home'
+                ? 0
+                : e.key === 'End'
+                  ? points.length - 1
+                  : e.key === 'ArrowLeft'
+                    ? Math.max(0, index - 1)
+                    : e.key === 'ArrowRight'
+                      ? Math.min(points.length - 1, index + 1)
+                      : null;
+            if (next !== null) {
+              e.preventDefault();
+              setSelected(next);
+            }
+          }}
+        >
+          {[lo, (lo + hi) / 2, hi].map((n) => (
+            <g key={n}>
+              <line x1="50" x2={width - 15} y1={y(n)} y2={y(n)} className={styles.grid} />
+              <text x="43" y={y(n) + 3} textAnchor="end">
+                {price(n)}
+              </text>
+            </g>
+          ))}
+          <path d={path('buy')} className={styles.buy} />
+          <path d={path('sell')} className={styles.sell} />
+          {isolated.map((capture) => (
+            <g key={capture.effective_at}>
+              <circle cx={x(capture)} cy={y(capture.buy)} r="4" fill="#9bcba6" />
+              <circle cx={x(capture)} cy={y(capture.sell)} r="4" fill="#e9ab88" />
+            </g>
+          ))}
+          <line x1={x(point)} x2={x(point)} y1="8" y2={height - 18} className={styles.cursor} />
+          <circle cx={x(point)} cy={y(point.buy)} r="4" fill="#9bcba6" />
+          <circle cx={x(point)} cy={y(point.sell)} r="4" fill="#e9ab88" />
+          <text x="50" y={height - 7}>
+            {new Date(first).toLocaleDateString('en-US', {
+              timeZone: 'America/Lima',
+              month: 'short',
+              day: 'numeric',
+            })}
+          </text>
+          <text x={width - 15} y={height - 7} textAnchor="end">
+            {new Date(last).toLocaleDateString('en-US', {
+              timeZone: 'America/Lima',
+              month: 'short',
+              day: 'numeric',
+            })}
+          </text>
+        </svg>
+      </div>
       <div className={styles.detail} data-testid="point-detail" aria-live="polite">
         <span>{time(point.effective_at)}</span>
         <strong title={`Exact quote: buy ${point.buy}; sell ${point.sell}`}>

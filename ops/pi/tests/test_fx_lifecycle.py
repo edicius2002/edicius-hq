@@ -39,9 +39,9 @@ def test_fx_service_is_a_hardened_oneshot_running_the_pinned_cli() -> None:
     assert "/usr/bin/flock" not in text
 
 
-def test_fx_timer_runs_every_fifteen_minutes_with_jitter_and_catch_up() -> None:
+def test_fx_timer_runs_every_five_minutes_with_jitter_and_catch_up() -> None:
     text = TIMER.read_text(encoding="utf-8")
-    assert "OnCalendar=*-*-* *:0/15:00" in text
+    assert "OnCalendar=*-*-* *:0/5:00" in text
     assert "OnBootSec=2min" in text
     assert "Persistent=true" in text
     assert "RandomizedDelaySec=30" in text

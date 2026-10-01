@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
-const data = vi.hoisted(() => ({ fetchLatest: vi.fn(), fetchHistory: vi.fn() }));
+const data = vi.hoisted(() => ({
+  fetchLatest: vi.fn(),
+  fetchHistory: vi.fn(),
+  subscribeFxObservations: vi.fn(() => () => {}),
+}));
 vi.mock('./data', () => data);
 vi.mock('@/shared/auth/supabaseAuth', () => ({
   subscribeToAuth: (callback: (event: string, session: { user: { id: string } }) => void) => {
@@ -41,6 +45,7 @@ beforeEach(() => {
 });
 it('shows both prices, independent best markers, source links and keyboard point details', async () => {
   mount();
+  expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
   expect(await screen.findByRole('button', { name: 'Select Kambista' })).toBeVisible();
   await screen.findByText('3.710');
   expect(screen.getByText('3.730')).toBeVisible();

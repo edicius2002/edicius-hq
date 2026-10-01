@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
-import { fetchLatest, fetchHistory } from './data';
+import { fetchLatest, fetchHistory, subscribeFxObservations } from './data';
 import type { Source, Range } from './sources';
 export function useFx(source: Source, range: Range) {
   const client = useQueryClient();
@@ -11,6 +11,13 @@ export function useFx(source: Source, range: Range) {
     // callback only changes React state; RPC reads run outside the auth lock.
     return subscribeToAuth((_event, session) => setOwnerId(session?.user.id ?? null));
   }, []);
+  useEffect(() => {
+    if (!ownerId) return;
+    return subscribeFxObservations(ownerId, () => {
+      void client.invalidateQueries({ queryKey: ['fx', ownerId, 'latest'] });
+      void client.invalidateQueries({ queryKey: ['fx', ownerId, 'history'] });
+    });
+  }, [client, ownerId]);
   useEffect(() => {
     if (!ownerId) return;
     return () => {

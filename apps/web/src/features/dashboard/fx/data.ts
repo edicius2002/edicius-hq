@@ -13,3 +13,23 @@ export async function fetchHistory(source: Source, range: Range, signal: AbortSi
   if (error) throw error;
   return parseHistory(data, source);
 }
+
+export function subscribeFxObservations(ownerId: string, onChange: () => void): () => void {
+  const filter = `owner_id=eq.${ownerId}`;
+  const channel = supabase
+    .channel(`fx-observations:${ownerId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'fx_observations', filter },
+      onChange,
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'fx_observations', filter },
+      onChange,
+    )
+    .subscribe();
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}

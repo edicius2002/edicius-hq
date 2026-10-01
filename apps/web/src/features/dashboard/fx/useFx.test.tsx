@@ -2,11 +2,22 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ subscribe: vi.fn(), latest: vi.fn(), history: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  subscribe: vi.fn(),
+  latest: vi.fn(),
+  history: vi.fn(),
+  observe: vi.fn(),
+  closed: vi.fn(),
+}));
 vi.mock('@/shared/auth/supabaseAuth', () => ({ subscribeToAuth: mocks.subscribe }));
-vi.mock('./data', () => ({ fetchLatest: mocks.latest, fetchHistory: mocks.history }));
+vi.mock('./data', () => ({
+  fetchLatest: mocks.latest,
+  fetchHistory: mocks.history,
+  subscribeFxObservations: mocks.observe,
+}));
 import { useFx } from './useFx';
 let emit: (event: string, session: { user: { id: string } } | null) => void;
+const changes = new Map<string, () => void>();
 const row = {
   owner_id: 'A',
   source: 'kambista',
@@ -27,12 +38,20 @@ function mount() {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  changes.clear();
   mocks.subscribe.mockImplementation((callback) => {
     emit = callback;
     return () => {};
   });
   mocks.latest.mockResolvedValue([row]);
   mocks.history.mockResolvedValue({ points: [row], aggregation: 'observations' });
+  mocks.observe.mockImplementation((owner: string, onChange: () => void) => {
+    changes.set(owner, onChange);
+    return () => {
+      changes.delete(owner);
+      mocks.closed(owner);
+    };
+  });
 });
 afterEach(() => onlineManager.setOnline(true));
 it('waits for auth resolution and isolates an offline owner switch without remounting', async () => {
@@ -92,4 +111,20 @@ it('cancels old reads and never exposes late responses after sign-out', async ()
   });
   expect(mocks.latest).toHaveBeenCalledOnce();
   expect(mocks.history).toHaveBeenCalledOnce();
+});
+it('refetches latest and history on a capture, then closes the channel on owner change and unmount', async () => {
+  const { unmount } = mount();
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledOnce());
+  expect(mocks.observe).toHaveBeenCalledWith('A', expect.any(Function));
+  act(() => changes.get('A')!());
+  await waitFor(() => expect(mocks.latest).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(2));
+  act(() => emit('SIGNED_IN', { user: { id: 'B' } }));
+  await waitFor(() => expect(mocks.observe).toHaveBeenCalledWith('B', expect.any(Function)));
+  expect(mocks.closed).toHaveBeenCalledWith('A');
+  expect(changes.has('A')).toBe(false);
+  unmount();
+  expect(mocks.closed).toHaveBeenCalledWith('B');
+  expect(changes.has('B')).toBe(false);
 });

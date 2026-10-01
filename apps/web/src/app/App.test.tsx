@@ -51,6 +51,7 @@ vi.mock('@/shared/api/market', () => marketApi);
 vi.mock('@/features/dashboard/fx/data', () => ({
   fetchLatest: async () => [],
   fetchHistory: async () => ({ points: [], aggregation: 'observations' }),
+  subscribeFxObservations: () => () => {},
 }));
 vi.mock('@/features/investing/hooks/useQuoteStream', async () => {
   const React = await import('react');

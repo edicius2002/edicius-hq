@@ -1,6 +1,8 @@
 begin;
-select plan(24);
+select plan(25);
 select has_table('public'::name,'fx_observations'::name);
+select isnt_empty($$select tablename from pg_publication_tables
+  where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'fx_observations'$$);
 select col_is_pk('public','fx_observations',array['owner_id','source','effective_at','observed_at']);
 select ok(not has_table_privilege('anon','public.fx_observations','select'),'anon cannot read');
 select ok(not has_table_privilege('authenticated','public.fx_observations','insert,update,delete'),'browser cannot write');

@@ -22,6 +22,7 @@ vi.mock('./data/supabaseTweets', () => tweetData);
 vi.mock('./fx/data', () => ({
   fetchLatest: async () => [],
   fetchHistory: async () => ({ points: [], aggregation: 'observations' }),
+  subscribeFxObservations: () => () => {},
 }));
 // The card reads codex-resets.com through this client, which has tests of its
 // own; this page test is about the layout it draws, not the provider's wire.

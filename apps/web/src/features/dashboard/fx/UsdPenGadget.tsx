@@ -48,17 +48,6 @@ export function UsdPenGadget({ now }: { now: Date }) {
         <h2 id="fx-title">
           USD <span>/</span> PEN
         </h2>
-        <button
-          className={styles.refresh}
-          aria-label="Refresh"
-          onClick={() => {
-            void latest.refetch();
-            void history.refetch();
-          }}
-          disabled={latest.isFetching || history.isFetching}
-        >
-          ↻
-        </button>
       </header>
       <div className={`${styles.body} ${expanded ? styles.expanded : ''}`}>
         <div className={styles.tableArea}>

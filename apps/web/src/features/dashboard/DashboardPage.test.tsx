@@ -217,3 +217,21 @@ it('retains captured posts when a background refresh fails', async () => {
   expect(await screen.findByRole('alert')).toBeInTheDocument();
   expect(post).toBeInTheDocument();
 });
+
+it('sets the USD/PEN gadget beside the Codex reset cards, above the posts', async () => {
+  stubApi();
+  renderPage();
+
+  const gadget = screen.getByRole('region', { name: 'USD / PEN' });
+  const latest = screen.getByRole('heading', { name: 'Latest Codex limit reset' });
+  const history = screen.getByRole('heading', { name: 'Codex reset history' });
+  const overview = gadget.parentElement!;
+  expect(overview).toContainElement(latest);
+  expect(overview).toContainElement(history);
+  expect(latest.compareDocumentPosition(gadget)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(
+    gadget.compareDocumentPosition(
+      await screen.findByRole('heading', { name: 'Posts from @thsottiaux' }),
+    ),
+  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+});

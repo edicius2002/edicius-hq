@@ -82,8 +82,10 @@ export function DashboardPage() {
   return (
     <section className={styles.page} aria-labelledby="dashboard-title">
       <PageHeader titleId="dashboard-title" title="Dashboard" className={styles.header} />
-      <UsdPenGadget now={now} />
-      <CodexResetOverview query={codexResets} now={now} />
+      <div className={styles.overview}>
+        <CodexResetOverview query={codexResets} now={now} />
+        <UsdPenGadget now={now} />
+      </div>
       <h2>Posts from @{HANDLE}</h2>
       {query.isError && query.data !== undefined ? (
         <Panel role="alert">

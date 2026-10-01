@@ -4,7 +4,7 @@ import type { History } from './types';
 import { price, time } from './model';
 import styles from './FxChart.module.css';
 export function FxChart({ history, expanded = false }: { history: History; expanded?: boolean }) {
-  const height = expanded ? 300 : 185;
+  const height = expanded ? 240 : 100;
   const [selected, setSelected] = useState<number | null>(null);
   const [container, size] = useElementSize<HTMLDivElement>();
   const width = size.width || 320;
@@ -13,7 +13,7 @@ export function FxChart({ history, expanded = false }: { history: History; expan
   if (!points.length)
     return (
       <div ref={container} className={styles.empty}>
-        No history captured for this range. Collection builds history over time.
+        No history for this range.
       </div>
     );
   const index = Math.min(selected ?? points.length - 1, points.length - 1),
@@ -25,7 +25,7 @@ export function FxChart({ history, expanded = false }: { history: History; expan
     hi = Math.max(...values) + 0.002;
   const x = (p: typeof point) =>
     50 + (last === first ? 0.5 : (Date.parse(p.effective_at) - first) / (last - first)) * plotWidth;
-  const y = (n: number) => height - 35 - ((n - lo) / (hi - lo)) * (height - 60);
+  const y = (n: number) => height - 22 - ((n - lo) / (hi - lo)) * (height - 34);
   const gapThreshold = history.aggregation === 'daily' ? 1.5 * 86400_000 : 45 * 60_000;
   const startsSegment = (i: number) =>
     i === 0 ||
@@ -55,11 +55,6 @@ export function FxChart({ history, expanded = false }: { history: History; expan
   }
   return (
     <div ref={container} className={styles.chart}>
-      <div className={styles.legend}>
-        <span>● Buy</span>
-        <span>● Sell</span>
-        <small>PEN / USD</small>
-      </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         style={{ height }}
@@ -105,7 +100,7 @@ export function FxChart({ history, expanded = false }: { history: History; expan
             <circle cx={x(capture)} cy={y(capture.sell)} r="4" fill="#e9ab88" />
           </g>
         ))}
-        <line x1={x(point)} x2={x(point)} y1="20" y2={height - 30} className={styles.cursor} />
+        <line x1={x(point)} x2={x(point)} y1="8" y2={height - 18} className={styles.cursor} />
         <circle cx={x(point)} cy={y(point.buy)} r="4" fill="#9bcba6" />
         <circle cx={x(point)} cy={y(point.sell)} r="4" fill="#e9ab88" />
         <text x="50" y={height - 7}>
@@ -128,15 +123,7 @@ export function FxChart({ history, expanded = false }: { history: History; expan
         <strong title={`Exact quote: buy ${point.buy}; sell ${point.sell}`}>
           Buy {price(point.buy)} · Sell {price(point.sell)}
         </strong>
-        <small>Captured {time(point.observed_at)}</small>
       </div>
-      <p className={styles.note}>
-        {history.aggregation === 'daily'
-          ? 'Daily points · latest capture per Lima date.'
-          : 'Captured observations.'}{' '}
-        Missing periods are left empty.{' '}
-        {points.length === 1 ? 'Only one point is available.' : 'Use arrow keys to explore.'}
-      </p>
     </div>
   );
 }

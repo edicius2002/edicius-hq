@@ -56,7 +56,6 @@ it('switches sources/ranges without mislabeling cached history, persists favorit
   mount();
   await screen.findByRole('slider');
   await user.click(screen.getByRole('button', { name: 'Favorite SBS reference' }));
-  await user.click(screen.getByRole('button', { name: 'References' }));
   data.fetchHistory.mockImplementation(() => new Promise(() => {}));
   await user.click(screen.getByRole('button', { name: 'Select SBS reference' }));
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
@@ -80,7 +79,7 @@ it('distinguishes missing data and load failures; excludes stale quotes from ran
   expect(await screen.findByText('Stale')).toBeVisible();
   expect(screen.queryByText('Best')).not.toBeInTheDocument();
   expect(screen.getAllByText('No capture')).toHaveLength(8);
-  expect(await screen.findByText(/No history captured/)).toBeVisible();
+  expect(await screen.findByText(/No history for this range/)).toBeVisible();
 });
 it('retains same-source data on refresh failure and provides retry', async () => {
   const client = mount();
@@ -103,7 +102,27 @@ it('expands the plot itself on stacked layouts', async () => {
   const user = userEvent.setup();
   mount();
   const chart = await screen.findByRole('slider');
-  expect(chart).toHaveAttribute('viewBox', '0 0 320 185');
+  expect(chart).toHaveAttribute('viewBox', '0 0 320 100');
   await user.click(screen.getByRole('button', { name: 'Expand chart' }));
-  expect(chart).toHaveAttribute('viewBox', '0 0 320 300');
+  expect(chart).toHaveAttribute('viewBox', '0 0 320 240');
+});
+it('stays minimal: every source in one list, no category toggle or explanatory copy', async () => {
+  mount();
+  await screen.findByText('3.710');
+  expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(10);
+  expect(screen.queryByRole('navigation', { name: 'Source category' })).not.toBeInTheDocument();
+  for (const name of ['Online', 'References']) {
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+  }
+  for (const copy of [
+    /source buys your USD/,
+    /Commercial history starts/,
+    /Best = fresh/,
+    /Missing periods/,
+    /CURRENCY WATCH/,
+    /SOURCE HISTORY/,
+  ]) {
+    expect(screen.queryByText(copy)).not.toBeInTheDocument();
+  }
+  expect(screen.queryByText('Fresh')).not.toBeInTheDocument();
 });

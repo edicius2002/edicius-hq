@@ -15,6 +15,11 @@ from .providers import ProviderError, fetch
 from .store import Store
 
 LOGGER = logging.getLogger(__name__)
+# Cadence minus a margin wider than the timer's 30-second random delay, so a pass
+# that starts with less delay than the last one still finds every source due.
+_TIMER_MARGIN = timedelta(minutes=1)
+_COMMERCIAL_EVERY = timedelta(minutes=15) - _TIMER_MARGIN
+_REFERENCE_EVERY = timedelta(hours=4) - _TIMER_MARGIN
 
 
 def year_ranges(start: date, end: date) -> Iterator[tuple[date, date]]:
@@ -71,7 +76,7 @@ def collect_once(
                         store.save(
                             source,
                             rows,
-                            now + timedelta(seconds=14400 if source in REFERENCES else 900),
+                            now + (_REFERENCE_EVERY if source in REFERENCES else _COMMERCIAL_EVERY),
                             window,
                         )
                 except ProviderError as error:

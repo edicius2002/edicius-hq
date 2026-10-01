@@ -1,7 +1,7 @@
 """Normalized USD/PEN observations; only safe context leaves this package."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,8 @@ SOURCES = (
     "sbs",
 )
 REFERENCES = frozenset({"bcrp", "sbs"})
+# Owner decision: every USD/PEN source's history starts at 2026-10-01 00:00 Lima.
+HISTORY_START = datetime(2026, 10, 1, 5, tzinfo=UTC)
 
 
 @dataclass(frozen=True)

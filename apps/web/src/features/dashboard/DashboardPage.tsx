@@ -97,19 +97,23 @@ export function DashboardPage() {
         <CodexResetOverview query={codexResets} now={now} />
         <UsdPenGadget now={now} />
       </div>
-      <h2>Posts from @{HANDLE}</h2>
+      <h2 className={styles.postsHeading}>@{HANDLE}</h2>
       {query.isError && query.data !== undefined ? (
-        <Panel role="alert">
+        <Panel className={styles.statusPanel} role="alert">
           Could not refresh captured tweets. Showing the last available posts.
           <Button onClick={() => void query.refetch()}>Retry</Button>
         </Panel>
       ) : null}
       {query.isLoading ? (
-        <Panel>Loading tweets…</Panel>
+        <Panel className={styles.statusPanel}>Loading tweets…</Panel>
       ) : query.isError && query.data === undefined ? (
-        <Panel role="alert">Could not load captured tweets.</Panel>
+        <Panel className={styles.statusPanel} role="alert">
+          Could not load captured tweets.
+        </Panel>
       ) : tweets.length === 0 ? (
-        <Panel>Nothing captured yet. Run the X scraper to populate this dashboard.</Panel>
+        <Panel className={styles.statusPanel}>
+          Nothing captured yet. Run the X scraper to populate this dashboard.
+        </Panel>
       ) : (
         <div className={styles.columns}>
           <Column title="Posts" tweets={tweets.filter((tweet) => !tweet.isReply)} now={now} />

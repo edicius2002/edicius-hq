@@ -1,5 +1,6 @@
 .section {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0.5rem;
   min-width: 0;
   text-align: center;
@@ -51,6 +52,9 @@
 }
 
 .card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   min-width: 0;
   padding: 0.6rem 0.75rem;
   border: 2px solid #e9ded0;
@@ -150,10 +154,11 @@
 
 .detailFrame {
   display: grid;
-  max-height: 6rem;
+  flex: none;
+  max-height: 3rem;
   overflow-y: auto;
-  margin-top: 0.3rem;
-  padding-top: 0.35rem;
+  margin-top: 0.2rem;
+  padding-top: 0.25rem;
   border-top: 1px dashed #5c5146;
   color: var(--color-muted);
   font-size: 0.6rem;
@@ -176,14 +181,12 @@
   grid-area: 1 / 1;
 }
 
-.detailSizing [data-content]::before {
-  content: attr(data-content);
-}
-
 .detailContent {
-  display: grid;
-  align-content: start;
-  gap: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.1rem 0.35rem;
   min-width: 0;
 }
 
@@ -197,8 +200,12 @@
 }
 
 .detailContent small {
-  display: block;
-  margin-top: 0.1rem;
+  font-size: inherit;
+}
+
+.detailContent small::before {
+  content: '·';
+  margin-right: 0.35rem;
 }
 
 @media (max-width: 44rem) {

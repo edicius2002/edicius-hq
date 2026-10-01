@@ -72,6 +72,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.6rem;
+  max-width: 34.2rem;
   margin: 0;
 }
 
@@ -82,6 +83,7 @@
   border-radius: 0.7rem;
   box-shadow: 4px 4px 0 #090705;
   color: #17110b;
+  text-align: center;
 }
 
 .stats div:nth-child(1) {

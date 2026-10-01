@@ -51,12 +51,6 @@ Additional offline regressions verify visible isolated chart captures across gap
 and account isolation: switching owners while offline, denied reads for the new
 owner, sign-out cancellation and late responses from the old owner.
 
-The following screenshots contain **synthetic demonstration values**:
-
-- [Desktop](screenshots/usd-pen-desktop.png)
-- [Mobile](screenshots/usd-pen-mobile.png)
-- [Expanded mobile reference history](screenshots/usd-pen-mobile-expanded.png)
-
-Useful commercial history starts with collector activation. Earlier official
-history requires the explicit backfill command. Production activation is
-documented separately in the collector runbook.
+History for every source starts at 2026-10-01 00:00 America/Lima; earlier
+data is intentionally absent and the historical backfill was removed in #255.
+Production activation is documented separately in the collector runbook.

@@ -226,3 +226,22 @@ def test_nonobject_rextie_json_is_rejected():
         pytest.raises(ProviderError),
     ):
         fetch("rextie", client, NOW)
+
+
+def test_reference_skips_a_day_the_source_published_inverted():
+    """BCRPData published interbank buy 3.545 above sell 3.5442 on 21 Nov 2000."""
+    from app.services.fx.providers import fetch
+
+    payload = json.loads((FIXTURES / "bcrp.txt").read_text())
+    payload["periods"] = [
+        {"name": "20.Nov.00", "values": ["3.543", "3.545", "3.54", "3.546"]},
+        {"name": "21.Nov.00", "values": ["3.545", "3.5442", "3.54", "3.545"]},
+        {"name": "22.Nov.00", "values": ["3.542", "3.544", "3.539", "3.545"]},
+    ]
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload))
+    ) as client:
+        interbank = fetch("bcrp", client, NOW, date(2000, 1, 1), date(2000, 12, 31))
+        sbs = fetch("sbs", client, NOW, date(2000, 1, 1), date(2000, 12, 31))
+    assert [row.effective_at.day for row in interbank] == [20, 22]
+    assert [row.effective_at.day for row in sbs] == [20, 21, 22]

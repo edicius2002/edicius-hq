@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -15,6 +16,8 @@ from typing import Any
 import httpx
 
 from .models import REFERENCES, SOURCES, Observation
+
+LOGGER = logging.getLogger(__name__)
 
 URLS = dict(
     zip(
@@ -315,6 +318,11 @@ def reference_rows(
         index = 0 if source == "bcrp" else 2
         buy, sell = values[index : index + 2]
         if "n.d." in (buy, sell):
+            continue
+        if Decimal(buy) > Decimal(sell):
+            # BCRPData has published inverted pairs (interbank, 21 Nov 2000). Drop that
+            # one day for this series rather than failing the whole window.
+            LOGGER.warning("FX %s skipped inverted rate on %s", source, effective)
             continue
         rows.append(
             Observation(

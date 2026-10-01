@@ -9,6 +9,7 @@ import {
   clearLocalSession,
   deletePasskey,
   getAccessToken,
+  signInLocally,
   listPasskeys,
   registerPasskey,
   signInWithPasskey,
@@ -125,11 +126,13 @@ describe('the Supabase auth adapter', () => {
     expect(auth.passkey.delete).toHaveBeenCalledExactlyOnceWith({ passkeyId: 'pk-1' });
   });
 
-  it('uses the default sign-out scope for a user-requested logout', async () => {
+  it('uses the default sign-out scope for a user-requested logout in production', async () => {
+    vi.stubEnv('DEV', false);
     const auth = createAuth();
 
     await expect(signOut(authClient(auth))).resolves.toBeUndefined();
     expect(auth.signOut).toHaveBeenCalledExactlyOnceWith();
+    vi.unstubAllEnvs();
   });
 
   it('uses the local sign-out scope only for recovery cleanup', async () => {
@@ -192,5 +195,65 @@ describe('the Supabase auth adapter', () => {
     }
 
     await expect(operation(authClient(auth))).rejects.toBe(error);
+  });
+});
+
+describe('signInLocally', () => {
+  it('exchanges the dev server token for a session of its own', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ token_hash: 'hash-1' }), { status: 200 }),
+    );
+    const verifyOtp = vi.fn(async () => ({ data: {}, error: null }));
+
+    await signInLocally(authClient({ verifyOtp }), fetcher);
+
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/__dev/session', { method: 'POST' });
+    expect(verifyOtp).toHaveBeenCalledExactlyOnceWith({ token_hash: 'hash-1', type: 'magiclink' });
+  });
+
+  it('explains how to configure a machine that has no local sign-in', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => new Response('', { status: 404 }));
+    const verifyOtp = vi.fn();
+
+    await expect(signInLocally(authClient({ verifyOtp }), fetcher)).rejects.toThrow(
+      'Local sign-in is not configured on this machine.',
+    );
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the dev server reason for a refused token', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ error: 'Supabase refused it.' }), { status: 502 }),
+    );
+
+    await expect(signInLocally(authClient({ verifyOtp: vi.fn() }), fetcher)).rejects.toThrow(
+      'Supabase refused it.',
+    );
+  });
+
+  it('surfaces a rejected token', async () => {
+    const error = new Error('Token has expired');
+    const fetcher = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ token_hash: 'hash-1' }), { status: 200 }),
+    );
+    const verifyOtp = vi.fn(async () => ({ data: {}, error }));
+
+    await expect(signInLocally(authClient({ verifyOtp }), fetcher)).rejects.toBe(error);
+  });
+});
+
+describe('signOut in development', () => {
+  it('ends only this browser session and remembers the choice for the tab', async () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      setItem: (key: string, value: string) => stored.set(key, value),
+    });
+    const signOutCall = vi.fn(async () => ({ error: null }));
+
+    await signOut(authClient({ signOut: signOutCall }));
+
+    expect(signOutCall).toHaveBeenCalledExactlyOnceWith({ scope: 'local' });
+    expect(stored.get('edicius-hq.dev-signed-out')).toBe('1');
+    vi.unstubAllGlobals();
   });
 });

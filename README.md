@@ -47,6 +47,27 @@ npm ci
 npm run dev          # Vite on http://localhost:5173
 ```
 
+#### Signing in on localhost
+
+Passkeys are bound to the production origin, so `npm run dev` signs in through
+the dev server instead: it asks Supabase's admin API for a one-time token (no
+email is sent) and the browser exchanges it for its own session. Browsers and
+agents opening localhost are signed in without a prompt. It reads one file per
+machine, outside every checkout, so each worktree works without its own `.env`:
+
+```text
+%USERPROFILE%\.edicius-hq\dev-auth.env      # or set EDICIUS_DEV_AUTH_FILE
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SECRET_KEY=<secret key>
+VITE_SUPABASE_PUBLISHABLE_KEY=<publishable key>
+EDICIUS_DEV_LOGIN_EMAIL=<owner email>       # optional with a single user
+```
+
+The data is production's. The endpoint answers only same-origin requests from
+this machine, never the LAN, and does not exist in production builds. Signing
+out on localhost ends only that browser's session and stops the automatic
+sign-in for the tab.
+
 ### API
 
 ```bash

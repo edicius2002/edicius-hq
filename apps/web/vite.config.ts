@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+import { devSessionPlugin } from './dev/devSession';
+
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 /*
@@ -137,7 +139,7 @@ const sharedTestOptions = {
 };
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), devSessionPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
@@ -201,7 +203,7 @@ export default defineConfig({
         test: {
           ...sharedTestOptions,
           name: 'node',
-          include: ['src/**/*.test.ts'],
+          include: ['src/**/*.test.ts', 'dev/**/*.test.ts'],
           exclude: ['**/node_modules/**', '**/dist/**', ...BROWSER_TESTS],
           environment: 'node',
           setupFiles: ['./src/test/setup.node.ts'],

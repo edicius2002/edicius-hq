@@ -1,0 +1,1 @@
+<div><span class="fs-16-bold">Compra:</span><span>3.43</span></div><div><span class="fs-16-bold">Venta:</span><span>3.46</span></div>

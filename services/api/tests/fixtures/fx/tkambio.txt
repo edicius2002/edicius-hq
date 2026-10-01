@@ -1,0 +1,1 @@
+{"buying_rate": 3.43, "selling_rate": 3.46, "discounts": [{"buying_rate": 3.45, "selling_rate": 3.455}], "secret": "discard"}

@@ -87,7 +87,7 @@ validate_local_safety() {
   local cookie_file
   cookie_file="$(find "$STATE_ROOT/x-profile" -type f -name Cookies -size +0c -print -quit)"
   [[ -n "$cookie_file" ]] || fail "X profile has no Chromium cookie database"
-  systemd-analyze verify "$SCRIPT_DIR/systemd/edicius-airfare.service" "$SCRIPT_DIR/systemd/edicius-airfare.timer" "$SCRIPT_DIR/systemd/edicius-airfare-requests.service" "$SCRIPT_DIR/systemd/edicius-sentiment.service" "$SCRIPT_DIR/systemd/edicius-sentiment.timer" "$SCRIPT_DIR/systemd/edicius-tweets.service" "$SCRIPT_DIR/systemd/edicius-market.service"
+  systemd-analyze verify "$SCRIPT_DIR/systemd/edicius-airfare.service" "$SCRIPT_DIR/systemd/edicius-airfare.timer" "$SCRIPT_DIR/systemd/edicius-airfare-requests.service" "$SCRIPT_DIR/systemd/edicius-sentiment.service" "$SCRIPT_DIR/systemd/edicius-sentiment.timer" "$SCRIPT_DIR/systemd/edicius-tweets.service" "$SCRIPT_DIR/systemd/edicius-market.service" "$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer"
 }
 
 run_airfare_dry_run() {
@@ -104,12 +104,21 @@ run_sentiment_test() {
   [[ "$status" -eq 0 ]] || fail "sentiment live test failed"
 }
 
+run_fx_test() {
+  set +e
+  run_as_service "$PYTHON" "$CURRENT_LINK/scripts/fx-collect.py" 2>&1 | sanitize
+  local status=${PIPESTATUS[0]}
+  set -e
+  [[ "$status" -eq 0 ]] || fail "fx live test failed"
+}
+
 validate_target_unit_disabled() {
   local unit
   case "$LIVE_COLLECTOR" in
     sentiment) unit=edicius-sentiment.timer ;;
     x-posts) unit=edicius-tweets.service ;;
     market) unit=edicius-market.service ;;
+    fx) unit=edicius-fx.timer ;;
     *) fail "unknown live collector" ;;
   esac
   [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == disabled ]] || fail "$unit must remain disabled during one-shot verification"
@@ -134,8 +143,8 @@ run_market_document_discovery() {
   [[ "$status" -eq 0 ]] || fail "market document discovery failed"
 }
 
-[[ $# -le 2 && ( -z "$LIVE" || "$LIVE" == --live ) ]] || fail "usage: verify.sh [--live [sentiment|x-posts|market]]"
-[[ "$LIVE_COLLECTOR" == sentiment || "$LIVE_COLLECTOR" == x-posts || "$LIVE_COLLECTOR" == market ]] || fail "unknown live collector"
+[[ $# -le 2 && ( -z "$LIVE" || "$LIVE" == --live ) ]] || fail "usage: verify.sh [--live [sentiment|x-posts|market|fx]]"
+[[ "$LIVE_COLLECTOR" == sentiment || "$LIVE_COLLECTOR" == x-posts || "$LIVE_COLLECTOR" == market || "$LIVE_COLLECTOR" == fx ]] || fail "unknown live collector"
 validate_active_release
 validate_env
 load_env
@@ -148,6 +157,8 @@ if [[ "$LIVE" == --live ]]; then
   validate_target_unit_disabled
   if [[ "$LIVE_COLLECTOR" == sentiment ]]; then
     run_sentiment_test
+  elif [[ "$LIVE_COLLECTOR" == fx ]]; then
+    run_fx_test
   else
     run_collector_smoke
   fi

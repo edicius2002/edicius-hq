@@ -1,0 +1,1 @@
+<div class="tc-quote-rates"><button class="tc-quote-rate">Compra: <b>3.43</b> --</button><button class="tc-quote-rate">Venta: <b>3.46</b> --</button></div><div>Compra: 9.99</div>

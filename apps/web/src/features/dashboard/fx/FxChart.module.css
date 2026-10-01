@@ -1,0 +1,60 @@
+.chart {
+  min-width: 0;
+}
+.chart svg {
+  width: 100%;
+  display: block;
+  height: 100px;
+  touch-action: pan-y;
+  border-radius: 6px;
+}
+.chart svg:focus-visible {
+  outline: 2px solid #dda835;
+}
+.chart text {
+  fill: var(--color-muted);
+  font-size: 9px;
+  font-family: var(--font-mono);
+}
+.grid {
+  stroke: #e9ded018;
+  stroke-dasharray: 3 4;
+}
+.buy,
+.sell {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.buy {
+  stroke: #9bcba6;
+}
+.sell {
+  stroke: #e9ab88;
+}
+.cursor {
+  stroke: #e9ded05a;
+  stroke-dasharray: 3 3;
+}
+.detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 10px;
+  padding: 4px 0 2px;
+  border-top: 1px solid #e9ded024;
+}
+.detail strong {
+  margin-left: auto;
+}
+.empty {
+  display: grid;
+  place-content: center;
+  min-height: 100px;
+  padding: 8px;
+  color: var(--color-muted);
+  font-size: 10px;
+  text-align: center;
+  line-height: 1.7;
+}

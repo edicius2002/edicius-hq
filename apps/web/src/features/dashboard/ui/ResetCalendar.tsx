@@ -8,10 +8,10 @@ import styles from './ResetCalendar.module.css';
 const WEEKDAYS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
 function labelFor(day: ReturnType<typeof buildResetCalendar>['weeks'][number][number]): string {
-  if (day.future) return `${day.key}, future date in Bogotá`;
-  if (!day.resetType) return `No reset on ${day.key} (Bogotá)`;
+  if (day.future) return `${day.key}, future date`;
+  if (!day.resetType) return `No reset on ${day.key}`;
   const count = day.resets.length;
-  return `${count} ${day.resetType} reset${count === 1 ? '' : 's'} on ${day.key} (Bogotá)`;
+  return `${count} ${day.resetType} reset${count === 1 ? '' : 's'} on ${day.key}`;
 }
 
 export function ResetCalendar({
@@ -63,15 +63,20 @@ export function ResetCalendar({
           </div>
           <div className={styles.scroller}>
             <div className={styles.grid}>
-              {calendar.monthLabels.map((month) => (
-                <span
-                  key={`${month.column}-${month.label}`}
-                  className={styles.month}
-                  style={{ gridColumn: month.column + 1, gridRow: 1 }}
-                >
-                  {month.label}
-                </span>
-              ))}
+              {calendar.monthLabels
+                .filter(
+                  (month, index, labels) =>
+                    !labels[index + 1] || labels[index + 1].column - month.column >= 2,
+                )
+                .map((month) => (
+                  <span
+                    key={`${month.column}-${month.label}`}
+                    className={styles.month}
+                    style={{ gridColumn: month.column + 1, gridRow: 1 }}
+                  >
+                    {month.label}
+                  </span>
+                ))}
               {calendar.weeks.flatMap((week, column) =>
                 week.map((day, weekday) => (
                   <button
@@ -103,9 +108,7 @@ export function ResetCalendar({
                 <div className={styles.detailContent} key={day.key}>
                   <strong data-content={labelFor(day)} />
                   {day.resets.map((reset) => (
-                    <span key={reset.id} data-content={`${reset.text} View on X`}>
-                      <small data-content={formatBogotaDateTime(reset.announcedAt)} />
-                    </span>
+                    <small key={reset.id} data-content={formatBogotaDateTime(reset.announcedAt)} />
                   ))}
                 </div>
               ))}
@@ -121,13 +124,7 @@ export function ResetCalendar({
               <>
                 <strong>{labelFor(selected)}</strong>
                 {selected.resets.map((reset) => (
-                  <span key={reset.id}>
-                    {reset.text}{' '}
-                    <a href={reset.source.url} target="_blank" rel="noreferrer">
-                      View on X
-                    </a>
-                    <small>{formatBogotaDateTime(reset.announcedAt)}</small>
-                  </span>
+                  <small key={reset.id}>{formatBogotaDateTime(reset.announcedAt)}</small>
                 ))}
               </>
             ) : (

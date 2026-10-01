@@ -22,7 +22,7 @@ from app.config import CollectorConfig, collector_config
 LOGGER = logging.getLogger(__name__)
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _ERROR_CODE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_COLLECTORS = frozenset({"airfare", "airfare-requests", "x-posts", "sentiment", "market"})
+_COLLECTORS = frozenset({"airfare", "airfare-requests", "x-posts", "sentiment", "market", "fx"})
 _OPERATIONS = frozenset({"market-bars", "market-search", "airfare-route"})
 _PROGRESS_STAGES = frozenset({"queued", "collecting", "syncing"})
 _TABLES = frozenset(
@@ -32,6 +32,7 @@ _TABLES = frozenset(
         "tweet_posts",
         "sentiment_snapshots",
         "market_quotes",
+        "fx_observations",
         "market_bars",
     }
 )
@@ -195,6 +196,9 @@ class CollectorCloud:
                 "completed_at": timestamp,
             },
         )
+
+    def upsert_fx(self, rows: Sequence[dict[str, Any]]) -> int:
+        return self._upsert("fx_observations", rows, "owner_id,source,effective_at,observed_at")
 
     def upsert_tweets(self, rows: Sequence[dict[str, Any]]) -> int:
         return self._upsert("tweet_posts", rows, "owner_id,handle,post_id")

@@ -14,7 +14,7 @@ import httpx
 
 ENV_FILE = Path("/etc/edicius-hq/collectors.env")
 COLLECTORS = frozenset(
-    {"airfare", "airfare-requests", "sentiment", "x-posts", "market"}
+    {"airfare", "airfare-requests", "sentiment", "x-posts", "market", "fx"}
 )
 ALLOWED_ENV_NAMES = frozenset(
     {

@@ -1,0 +1,17 @@
+.digit {
+  display: block;
+  width: 0.68rem;
+  height: 1.1rem;
+  flex: none;
+  overflow: visible;
+  transform: skewX(-4deg);
+}
+
+.unlit {
+  fill: #2a0b0b;
+}
+
+.lit {
+  fill: #ff2a2a;
+  filter: drop-shadow(0 0 2px #ff2a2a99);
+}

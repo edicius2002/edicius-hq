@@ -3,6 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
 import { fetchLatest, fetchHistory, subscribeFxObservations } from './data';
 import type { Source, Range } from './sources';
+
+const CHANGE_BURST_MS = 250;
+
 export function useFx(source: Source, range: Range) {
   const client = useQueryClient();
   const [ownerId, setOwnerId] = useState<string | null>(null);
@@ -13,10 +16,20 @@ export function useFx(source: Source, range: Range) {
   }, []);
   useEffect(() => {
     if (!ownerId) return;
-    return subscribeFxObservations(ownerId, () => {
-      void client.invalidateQueries({ queryKey: ['fx', ownerId, 'latest'] });
-      void client.invalidateQueries({ queryKey: ['fx', ownerId, 'history'] });
+    // One collector pass upserts a row per source (thousands during a backfill)
+    // and Realtime delivers each separately; refresh once per burst instead.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribeFxObservations(ownerId, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void client.invalidateQueries({ queryKey: ['fx', ownerId, 'latest'] });
+        void client.invalidateQueries({ queryKey: ['fx', ownerId, 'history'] });
+      }, CHANGE_BURST_MS);
     });
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
   }, [client, ownerId]);
   useEffect(() => {
     if (!ownerId) return;

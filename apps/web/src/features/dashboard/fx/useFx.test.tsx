@@ -128,3 +128,15 @@ it('refetches latest and history on a capture, then closes the channel on owner 
   expect(mocks.closed).toHaveBeenCalledWith('B');
   expect(changes.has('B')).toBe(false);
 });
+it('coalesces a burst of captures from one collector pass into a single refresh', async () => {
+  mount();
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledOnce());
+  act(() => {
+    for (let row = 0; row < 25; row += 1) changes.get('A')!();
+  });
+  await waitFor(() => expect(mocks.latest).toHaveBeenCalledTimes(2));
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(mocks.latest).toHaveBeenCalledTimes(2);
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+});

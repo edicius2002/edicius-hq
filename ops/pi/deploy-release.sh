@@ -19,8 +19,28 @@ readonly previous_release="$(readlink -f -- "$current_link")"
 
 workers=(edicius-airfare-requests.service edicius-tweets.service edicius-market.service)
 timers=(edicius-airfare.timer edicius-sentiment.timer)
+# Collectors activated after their first release; pause them only once enabled.
+optional_timers=(edicius-fx.timer)
+for unit in "${optional_timers[@]}"; do
+  if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
+    timers+=("$unit")
+  fi
+done
 paused=0
 switched=0
+
+# An older release has no unit or script for a newer timer; leave it stopped.
+drop_timers_missing_from() {
+  local root="$1" unit kept=()
+  for unit in "${timers[@]}"; do
+    if [[ -e "$root/ops/pi/systemd/$unit" ]]; then
+      kept+=("$unit")
+    else
+      echo "Leaving $unit stopped; the restored release does not ship it." >&2
+    fi
+  done
+  timers=("${kept[@]}")
+}
 
 restore_previous_release() {
   local status=$?
@@ -35,6 +55,7 @@ restore_previous_release() {
       fi
       ln -sfn -- "$previous_release" "$current_link" || echo 'Could not restore the release link.' >&2
       "$previous_release/ops/pi/install.sh" || echo 'Could not reinstall the previous units.' >&2
+      drop_timers_missing_from "$previous_release"
     fi
     systemctl start "${workers[@]}" "${timers[@]}" || echo 'Could not restart every collector unit.' >&2
   fi
@@ -85,7 +106,8 @@ echo 'Waiting for scheduled collector passes to finish.'
 paused=1
 systemctl stop "${timers[@]}"
 deadline=$((SECONDS + 1200))
-for service in edicius-airfare.service edicius-sentiment.service; do
+for timer in "${timers[@]}"; do
+  service="${timer%.timer}.service"
   while [[ "$(systemctl show --property=ActiveState --value "$service")" != inactive ]]; do
     state="$(systemctl show --property=ActiveState --value "$service")"
     [[ "$state" != failed ]] || break

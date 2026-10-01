@@ -48,6 +48,11 @@ const marketApi = vi.hoisted(() => ({
 
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
 vi.mock('@/shared/api/market', () => marketApi);
+vi.mock('@/features/dashboard/fx/data', () => ({
+  fetchLatest: async () => [],
+  fetchHistory: async () => ({ points: [], aggregation: 'observations' }),
+  subscribeFxObservations: () => () => {},
+}));
 vi.mock('@/features/investing/hooks/useQuoteStream', async () => {
   const React = await import('react');
   const discardTicksBefore = () => undefined;
@@ -86,7 +91,7 @@ function deferred<Value>() {
   return { promise, resolve };
 }
 
-const signedInSession = { access_token: 'jwt-one' } as Session;
+const signedInSession = { access_token: 'jwt-one', user: { id: 'owner' } } as Session;
 let emitAuth: (event: AuthChangeEvent, session: Session | null) => void;
 
 afterEach(() => {
@@ -144,10 +149,17 @@ beforeEach(() => {
   });
   auth.signInWithPasskey.mockResolvedValue(undefined);
   auth.signOut.mockResolvedValue(undefined);
+  const authListeners = new Set<(event: AuthChangeEvent, session: Session | null) => void>();
+  let currentAuthSession: Session | null | undefined;
+  emitAuth = (event, session) => {
+    currentAuthSession = session;
+    for (const listener of authListeners) listener(event, session);
+  };
   auth.subscribeToAuth.mockImplementation(
     (callback: (event: AuthChangeEvent, session: Session | null) => void) => {
-      emitAuth = callback;
-      return vi.fn();
+      authListeners.add(callback);
+      if (currentAuthSession !== undefined) callback('INITIAL_SESSION', currentAuthSession);
+      return () => authListeners.delete(callback);
     },
   );
   // The layout tests exercise the chart shell, not canvas pixels. jsdom emits
@@ -199,8 +211,12 @@ beforeEach(() => {
  */
 const ROUTE_LOAD_MS = 25_000;
 
-function arrivesAt(name: string) {
-  return screen.findByRole('heading', { name }, { timeout: ROUTE_LOAD_MS });
+async function arrivesAt(name: string) {
+  return (
+    name === 'Dashboard'
+      ? within(await screen.findByRole('main', {}, { timeout: ROUTE_LOAD_MS }))
+      : screen
+  ).findByRole('heading', { name }, { timeout: ROUTE_LOAD_MS });
 }
 
 function renderAt(path: string) {
@@ -281,7 +297,9 @@ describe('Account controls in the wide menu', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 
     expect(nav).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('main')).getByRole('heading', { name: 'Dashboard' }),
+    ).toBeInTheDocument();
   });
 });
 

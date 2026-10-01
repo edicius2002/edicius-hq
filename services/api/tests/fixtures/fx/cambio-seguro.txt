@@ -1,0 +1,1 @@
+<div class="rates-price"><span>Dólar venta</span><span class="value-rate">3.46</span></div><div class="rates-price"><span>Dólar compra</span><span class="value-rate">3.43</span></div>

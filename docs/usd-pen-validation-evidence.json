@@ -1,0 +1,561 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-29T17:10:06.271228+00:00",
+  "origin": "raspberry-pi",
+  "architecture": "aarch64",
+  "python": "3.13.5",
+  "collector_httpx": "0.28.1",
+  "scope": "Public read-only pages and uncommitted quote simulations; no production collector installed",
+  "notes": [
+    "HTTP success is not data validation. Only explicit parsed fields or buy/sell records demonstrate extraction.",
+    "A failed initial Kambio field mapping is retained; the later corrected-parser record supplies buy/sell.",
+    "No response cookies, session tokens, CSRF tokens, raw HTML, administrative response data or personal data are retained."
+  ],
+  "probes": [
+    {
+      "source": "BCRP",
+      "url": "https://estadisticas.bcrp.gob.pe/estadisticas/series/api/PD04637PD-PD04638PD-PD04639PD-PD04640PD/json/2026-09-01/2026-09-29",
+      "captured_at": "2026-09-29T16:49:44.506190+00:00",
+      "status": 200,
+      "bytes": 2192,
+      "final_url": "https://estadisticas.bcrp.gob.pe/estadisticas/series/api/PD04637PD-PD04638PD-PD04639PD-PD04640PD/json/2026-09-01/2026-09-29",
+      "parsed": {
+        "series_count": 4,
+        "periods": 21,
+        "latest_valid": {
+          "name": "25.Set.26",
+          "values": ["3.41642857142857", "3.41992857142857", "3.416", "3.425"]
+        }
+      },
+      "elapsed_ms": 427,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "SBS",
+      "url": "https://www.sbs.gob.pe/app/pp/SISTIP_PORTAL/Paginas/Publicacion/TipoCambioPromedio.aspx",
+      "captured_at": "2026-09-29T16:49:44.506712+00:00",
+      "status": 200,
+      "bytes": 212,
+      "final_url": "https://www.sbs.gob.pe/app/pp/SISTIP_PORTAL/Paginas/Publicacion/TipoCambioPromedio.aspx",
+      "elapsed_ms": 154,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "SUNAT",
+      "url": "https://e-consulta.sunat.gob.pe/cl-at-ittipcam/tcS01Alias",
+      "captured_at": "2026-09-29T16:49:44.507126+00:00",
+      "status": 200,
+      "bytes": 247,
+      "final_url": "https://e-consulta.sunat.gob.pe/cl-at-ittipcam/tcS01Alias",
+      "elapsed_ms": 130,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Kambista",
+      "url": "https://kambista.com/",
+      "captured_at": "2026-09-29T16:49:44.512797+00:00",
+      "status": 200,
+      "bytes": 495326,
+      "final_url": "https://kambista.com/",
+      "elapsed_ms": 2079,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Tu Cambista",
+      "url": "https://tucambista.pe/",
+      "captured_at": "2026-09-29T16:49:44.637474+00:00",
+      "status": 200,
+      "bytes": 156226,
+      "final_url": "https://tucambista.pe/",
+      "elapsed_ms": 1236,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Securex",
+      "url": "https://securex.pe/",
+      "captured_at": "2026-09-29T16:49:44.661087+00:00",
+      "status": 200,
+      "bytes": 103160,
+      "final_url": "https://securex.pe/",
+      "elapsed_ms": 1138,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Cambio Seguro",
+      "url": "https://cambioseguro.com/",
+      "captured_at": "2026-09-29T16:49:44.933496+00:00",
+      "status": 200,
+      "bytes": 351575,
+      "final_url": "https://cambioseguro.com/",
+      "elapsed_ms": 528,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "DollarHouse",
+      "url": "https://app.dollarhouse.pe/",
+      "captured_at": "2026-09-29T16:49:45.461387+00:00",
+      "status": 200,
+      "bytes": 25638,
+      "final_url": "https://app.dollarhouse.pe/",
+      "elapsed_ms": 679,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Rextie",
+      "url": "https://www.rextie.com/",
+      "captured_at": "2026-09-29T16:49:45.799181+00:00",
+      "status": 200,
+      "bytes": 114973,
+      "final_url": "https://www.rextie.com/",
+      "elapsed_ms": 373,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "TKambio",
+      "url": "https://tkambio.com/",
+      "captured_at": "2026-09-29T16:49:45.873812+00:00",
+      "status": 403,
+      "elapsed_ms": 398,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "BCP",
+      "url": "https://www.viabcp.com/otros-servicios/tipo-cambio",
+      "captured_at": "2026-09-29T16:49:46.140894+00:00",
+      "status": 403,
+      "elapsed_ms": 251,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Cocos y Lucas",
+      "url": "https://www.cocosylucasbcp.com/",
+      "captured_at": "2026-09-29T16:49:46.171993+00:00",
+      "status": 200,
+      "bytes": 114,
+      "final_url": "https://www.cocosylucasbcp.com/",
+      "elapsed_ms": 666,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Interbank",
+      "url": "https://interbank.pe/servicios/cambio-moneda/compra-venta-moneda-extranjera",
+      "captured_at": "2026-09-29T16:49:46.272094+00:00",
+      "status": 403,
+      "elapsed_ms": 195,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "BBVA",
+      "url": "https://www.bbva.pe/personas/servicios-digitales/cambia-dolares-a-soles.html",
+      "captured_at": "2026-09-29T16:49:46.391784+00:00",
+      "status": 403,
+      "elapsed_ms": 296,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Scotiabank",
+      "url": "https://www.scotiabank.com.pe/blog/ahorros/cuenta-en-dolares/tipo-cambio-dolar-hoy",
+      "captured_at": "2026-09-29T16:49:46.467492+00:00",
+      "status": 200,
+      "bytes": 60673,
+      "final_url": "https://www.scotiabank.com.pe/blog/ahorros/cuenta-en-dolares/tipo-cambio-dolar-hoy",
+      "elapsed_ms": 540,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Banco de la Nacion",
+      "url": "https://bancaporinternet.bn.com.pe/TCWeb/",
+      "captured_at": "2026-09-29T16:49:46.591564+00:00",
+      "status": 200,
+      "bytes": 125529,
+      "final_url": "https://bancaporinternet.bn.com.pe/TCWeb/",
+      "elapsed_ms": 859,
+      "probe_group": "pi-initial"
+    },
+    {
+      "source": "Western Union",
+      "url": "https://www.westernunionperu.pe/cambiodemoneda/",
+      "captured_at": "2026-09-29T16:52:35.073999+00:00",
+      "status": 200,
+      "bytes": 78867,
+      "final_url": "https://www.westernunionperu.pe/cambiodemoneda/",
+      "title": [":: Western Union FX :: Home"],
+      "elapsed_ms": 961,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Cambio Mundial",
+      "url": "https://www.cambiomundial.com/",
+      "captured_at": "2026-09-29T16:52:35.074490+00:00",
+      "status": 403,
+      "elapsed_ms": 404,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "CambiaFX",
+      "url": "https://cambiafx.pe/",
+      "captured_at": "2026-09-29T16:52:35.074908+00:00",
+      "status": 403,
+      "elapsed_ms": 408,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Inka Money",
+      "url": "https://inkamoney.com/",
+      "captured_at": "2026-09-29T16:52:35.080472+00:00",
+      "status": 200,
+      "bytes": 29173,
+      "final_url": "https://inkamoney.com/",
+      "title": ["InkaMoney - Cambia soles y dólares en Perú"],
+      "elapsed_ms": 3924,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Dichikash",
+      "url": "https://dichikash.com/index",
+      "captured_at": "2026-09-29T16:52:35.478326+00:00",
+      "status": 200,
+      "bytes": 20177,
+      "final_url": "https://dichikash.com/index",
+      "title": ["DichiKASH"],
+      "elapsed_ms": 484,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Money House",
+      "url": "https://moneyhouse.pe/",
+      "captured_at": "2026-09-29T16:52:35.482511+00:00",
+      "status": 403,
+      "elapsed_ms": 386,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Mercado Cambiario",
+      "url": "https://www.mercadocambiario.pe/",
+      "captured_at": "2026-09-29T16:52:35.869015+00:00",
+      "status": 200,
+      "bytes": 23390,
+      "final_url": "https://www.mercadocambiario.pe/",
+      "title": ["Mercado Cambiario - Compra y Venta de Dólares en Perú"],
+      "elapsed_ms": 736,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Dolarex",
+      "url": "https://dolarex.pe/",
+      "captured_at": "2026-09-29T16:52:35.962241+00:00",
+      "status": 200,
+      "bytes": 7234,
+      "final_url": "https://dolarex.pe/",
+      "title": ["Dolarex | Compra o Vende tus dólares con una atención personalizada."],
+      "elapsed_ms": 469,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Chaski Dolar",
+      "url": "https://chaskidolar.com/",
+      "captured_at": "2026-09-29T16:52:36.035443+00:00",
+      "status": 200,
+      "bytes": 59619,
+      "final_url": "https://chaskidolar.com/",
+      "title": ["Chaski Dolar"],
+      "elapsed_ms": 842,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Kambio",
+      "url": "https://www.kambio.com.pe/",
+      "captured_at": "2026-09-29T16:52:36.431028+00:00",
+      "status": 200,
+      "bytes": 1085,
+      "final_url": "https://www.kambio.com.pe/",
+      "title": ["KAMBIO.ONLINE"],
+      "elapsed_ms": 228,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "TKambio API",
+      "url": "https://tkambio.com/wp-admin/admin-ajax.php",
+      "captured_at": "2026-09-29T16:52:36.605018+00:00",
+      "status": 403,
+      "elapsed_ms": 398,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "CED",
+      "url": "https://cuantoestaeldolar.pe/",
+      "captured_at": "2026-09-29T16:52:36.659485+00:00",
+      "status": 403,
+      "elapsed_ms": 391,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "Scotiabank cambio",
+      "url": "https://www.scotiabank.com.pe/Personas/servicios/otros/cambiar-dolares",
+      "captured_at": "2026-09-29T16:52:36.877244+00:00",
+      "status": 200,
+      "bytes": 156956,
+      "final_url": "https://www.scotiabank.com.pe/Personas/servicios/otros/cambiar-dolares",
+      "title": ["Cambiar D&#243;lares a Soles Online | Scotiabank Per&#250;"],
+      "elapsed_ms": 1263,
+      "probe_group": "pi-other"
+    },
+    {
+      "source": "BCRP recent repeat",
+      "url": "https://estadisticas.bcrp.gob.pe/estadisticas/series/api/PD04637PD-PD04638PD-PD04639PD-PD04640PD/json/2026-09-01/2026-09-29",
+      "captured_at": "2026-09-29T16:57:07.091160+00:00",
+      "status": 200,
+      "bytes": 2206,
+      "parsed": {
+        "series_count": 4,
+        "period_count": 21,
+        "valid_period_count": 20,
+        "first_valid": {
+          "name": "01.Set.26",
+          "values": ["3.36357142857143", "3.36585714285714", "3.36", "3.368"]
+        },
+        "last_valid": {
+          "name": "28.Set.26",
+          "values": ["3.43671428571429", "3.439", "3.432", "3.44"]
+        }
+      },
+      "probe_group": "pi-api"
+    },
+    {
+      "source": "BCRP 1997",
+      "url": "https://estadisticas.bcrp.gob.pe/estadisticas/series/api/PD04637PD-PD04638PD-PD04639PD-PD04640PD/json/1997-01-01/1997-01-10",
+      "captured_at": "2026-09-29T16:57:07.509166+00:00",
+      "status": 200,
+      "bytes": 155,
+      "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+      "probe_group": "pi-api"
+    },
+    {
+      "source": "BCRP 2020",
+      "url": "https://estadisticas.bcrp.gob.pe/estadisticas/series/api/PD04637PD-PD04638PD-PD04639PD-PD04640PD/json/2020-01-01/2020-12-31",
+      "captured_at": "2026-09-29T16:57:07.890928+00:00",
+      "status": 200,
+      "bytes": 22169,
+      "parsed": {
+        "series_count": 4,
+        "period_count": 262,
+        "valid_period_count": 254,
+        "first_valid": {
+          "name": "02.Ene.20",
+          "values": ["3.301", "3.30314285714286", "3.301", "3.305"]
+        },
+        "last_valid": {
+          "name": "31.Dic.20",
+          "values": ["3.62025", "3.623", "3.618", "3.624"]
+        }
+      },
+      "probe_group": "pi-api"
+    },
+    {
+      "source": "Rextie simulation",
+      "url": "https://app.rextie.com/api/v1/fxrates/rate/?origin=home&commit=false",
+      "captured_at": "2026-09-29T16:57:08.340556+00:00",
+      "status": 201,
+      "bytes": 734,
+      "parsed": {
+        "fx_rate_buy": "3.4275",
+        "fx_rate_sell": "3.4625",
+        "source_currency": "USD",
+        "target_currency": "PEN",
+        "source_amount": "1000.00",
+        "target_amount": "3427.50",
+        "valid_until": "2026-09-29T12:02:08.875727-05:00",
+        "quote_pk": null,
+        "promo_code": null,
+        "is_preferential": false
+      },
+      "probe_group": "pi-api"
+    },
+    {
+      "source": "Dichikash compra",
+      "url": "https://dichikash.com/ajax/dolar-compra.php",
+      "captured_at": "2026-09-29T17:00:21.791868+00:00",
+      "status": 200,
+      "bytes": 5,
+      "parsed": {
+        "value": "3.437"
+      },
+      "probe_group": "pi-more-parsed"
+    },
+    {
+      "source": "Dichikash venta",
+      "url": "https://dichikash.com/ajax/dolar-venta.php",
+      "captured_at": "2026-09-29T17:00:21.792344+00:00",
+      "status": 200,
+      "bytes": 5,
+      "parsed": {
+        "value": "3.448"
+      },
+      "probe_group": "pi-more-parsed"
+    },
+    {
+      "source": "Kambio",
+      "url": "https://kambio.com.pe/api/rates/current",
+      "captured_at": "2026-09-29T17:00:21.792722+00:00",
+      "status": 200,
+      "bytes": 256,
+      "parsed": {
+        "buyRate": null,
+        "sellRate": null,
+        "createdAt": "2026-09-29T16:52:03.030Z",
+        "updatedAt": null
+      },
+      "probe_group": "pi-more-parsed",
+      "parser_status": "initial field mapping invalid; corrected in later Kambio probe"
+    },
+    {
+      "source": "Chaski Dolar",
+      "url": "https://chaskidolar.com/",
+      "captured_at": "2026-09-29T17:00:21.901085+00:00",
+      "status": 200,
+      "bytes": 59619,
+      "parsed": {
+        "buy": "3.433",
+        "sell": "3.454",
+        "mapping": "customer sale-price -> entity buy; customer buy-price -> entity sell"
+      },
+      "probe_group": "pi-more-parsed"
+    },
+    {
+      "source": "TKambio httpx",
+      "url": "https://tkambio.com/wp-admin/admin-ajax.php",
+      "captured_at": "2026-09-29T17:00:22.184498+00:00",
+      "status": 200,
+      "bytes": 282,
+      "client": "httpx/0.28.1",
+      "parsed": {
+        "buying_rate": 3.434,
+        "selling_rate": 3.46,
+        "text_updated_at": "un minuto",
+        "outdates_in": 300
+      },
+      "probe_group": "pi-more-parsed"
+    },
+    {
+      "source": "Inka Money",
+      "url": "https://inkamoney.com/convert",
+      "method": "POST",
+      "captured_at": "2026-09-29T17:03:16.340179+00:00",
+      "client": "httpx/0.28.1",
+      "status": 200,
+      "bytes": 475,
+      "parsed": {
+        "buy": "3.4360000000000004",
+        "sell": "3.4509999999999996",
+        "amount": 1000,
+        "converted_amount": 289.7710808461316,
+        "source_currency": "PEN",
+        "input_amount": 1000,
+        "operation": "customer buys USD",
+        "coupon": null
+      },
+      "probe_group": "pi-session-api"
+    },
+    {
+      "source": "Chaski Dolar",
+      "url": "https://chaskidolar.com/convert",
+      "method": "POST",
+      "captured_at": "2026-09-29T17:03:22.687379+00:00",
+      "client": "httpx/0.28.1",
+      "status": 200,
+      "bytes": 443,
+      "parsed": {
+        "buy": "3.433",
+        "sell": "3.454",
+        "amount": 1000,
+        "converted_amount": 289.51939779965255,
+        "source_currency": "PEN",
+        "input_amount": 1000,
+        "operation": "customer buys USD",
+        "coupon": null
+      },
+      "probe_group": "pi-session-api"
+    },
+    {
+      "source": "Kambio corrected parser",
+      "url": "https://kambio.com.pe/api/rates/current",
+      "captured_at": "2026-09-29T17:03:23.379798+00:00",
+      "status": 200,
+      "bytes": 256,
+      "parsed": {
+        "buy": "3.438",
+        "sell": "3.448",
+        "published_at": "2026-09-29T17:03:06.759Z"
+      },
+      "probe_group": "pi-session-api"
+    },
+    {
+      "source": "Cambiosol",
+      "url": "https://cambiosol.pe/",
+      "captured_at": "2026-09-29T17:05:35.741730+00:00",
+      "status": 403,
+      "probe_group": "pi-extra"
+    },
+    {
+      "source": "Fluyez",
+      "url": "https://fluyez.com/",
+      "captured_at": "2026-09-29T17:05:35.742212+00:00",
+      "status": 403,
+      "probe_group": "pi-extra"
+    },
+    {
+      "source": "Lemon",
+      "url": "https://lemon.me/peru/dolar-cripto",
+      "captured_at": "2026-09-29T17:05:35.742604+00:00",
+      "status": 200,
+      "bytes": 479433,
+      "title": ["Dólar digital en tiempo real"],
+      "probe_group": "pi-extra"
+    },
+    {
+      "source": "kambista",
+      "url": "https://kambista.com/",
+      "status": 200,
+      "observed_at": "2026-09-29T16:56:26.939465+00:00",
+      "buy": "3.43",
+      "sell": "3.459",
+      "probe_group": "pi-core-parsed"
+    },
+    {
+      "source": "tucambista",
+      "url": "https://tucambista.pe/",
+      "status": 200,
+      "observed_at": "2026-09-29T16:56:28.100764+00:00",
+      "buy": "3.432",
+      "sell": "3.459",
+      "probe_group": "pi-core-parsed"
+    },
+    {
+      "source": "securex",
+      "url": "https://securex.pe/",
+      "status": 200,
+      "observed_at": "2026-09-29T16:56:29.330531+00:00",
+      "buy": "3.437",
+      "sell": "3.461",
+      "probe_group": "pi-core-parsed"
+    },
+    {
+      "source": "cambioseguro",
+      "url": "https://cambioseguro.com/",
+      "status": 200,
+      "observed_at": "2026-09-29T16:56:29.788509+00:00",
+      "buy": "3.4340",
+      "sell": "3.4590",
+      "probe_group": "pi-core-parsed"
+    },
+    {
+      "source": "dollarhouse",
+      "url": "https://app.dollarhouse.pe/",
+      "status": 200,
+      "observed_at": "2026-09-29T16:56:30.617501+00:00",
+      "buy": "3.4370",
+      "sell": "3.4470",
+      "probe_group": "pi-core-parsed"
+    }
+  ]
+}

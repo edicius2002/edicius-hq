@@ -265,6 +265,73 @@ ssh '<pi-host>' "sudo /opt/edicius-hq/current/ops/pi/check-collector-run.py airf
 ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service && sudo systemctl is-active edicius-airfare-requests.service'
 ```
 
+## USD/PEN collector activation
+
+`edicius-fx.timer` runs `scripts/fx-collect.py` every 15 minutes. Each pass
+captures the seven commercial houses and, when due (every 4 hours), the BCRP
+interbank and SBS references, reconciling the last 14 days of references. Rows
+go to a local outbox at `/var/lib/edicius-hq/fx/outbox.sqlite` first and are
+replayed to `fx_observations` once Supabase accepts them, so a Supabase outage
+delays rows rather than losing them. The installer ships the units but never
+enables them, and routine releases pause the FX timer only after it has been
+enabled.
+
+Commercial history begins at activation: no house publishes a downloadable
+archive. The BCRP references can be backfilled from 1997. SBS is read through
+the BCRP series, not from the SBS site, and SUNAT and Cuanto Está el Dólar are
+not collected.
+
+1. Apply `supabase/migrations/20260929000000_fx_observations.sql` with the
+   Checkpoint A commands from the release commit, then run its RLS tests:
+
+   ```sh
+   npx supabase db push --linked
+   npx supabase test db supabase/tests/fx_observations.sql
+   ```
+
+2. Deploy that commit with `.\deploy-pi.cmd -Commit <full-40-character-sha>`.
+   The FX timer stays disabled.
+3. Run one bounded, writing pass as the service identity, and confirm its run:
+
+   ```sh
+   ssh '<pi-host>' 'sudo /opt/edicius-hq/current/ops/pi/verify.sh --live fx'
+   ssh '<pi-host>' "sudo /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/ops/pi/check-collector-run.py fx --cutoff '<utc-time-before-step-3>' --require-complete"
+   ```
+
+   The pass exits non-zero when any single source fails. Read the journal for
+   the failing source before activating; one house being down does not stop
+   the others from being written.
+
+4. Enable the schedule and watch the first timed passes:
+
+   ```sh
+   ssh '<pi-host>' 'sudo systemctl enable --now edicius-fx.timer'
+   ssh '<pi-host>' 'systemctl list-timers edicius-fx.timer --no-pager'
+   ssh '<pi-host>' "sudo journalctl -u edicius-fx.service --since '-1 hour' --no-pager"
+   ```
+
+5. Backfill the official references once, as the service identity so the
+   outbox stays owned by it. The command takes the FX process lock, so it
+   refuses to run while a timed pass is active; retry after it finishes.
+
+   ```sh
+   ssh '<pi-host>' "sudo systemd-run --quiet --wait --pipe --collect --uid=edicius-collector --gid=edicius-collector --working-directory=/opt/edicius-hq/current --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=Environment=HOME=/var/lib/edicius-hq --property=Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq /opt/edicius-hq/current/services/api/.venv/bin/python scripts/fx-collect.py --backfill-from 1997-01-02 --backfill-to '<today>'"
+   ```
+
+   Backfill proceeds in yearly windows and records each completed window, so a
+   rerun after an interruption resumes rather than repeating finished years.
+
+To roll back, stop the schedule without touching stored observations:
+
+```sh
+ssh '<pi-host>' 'sudo systemctl disable --now edicius-fx.timer'
+```
+
+`fx_observations` and the Pi outbox are kept; re-enabling the timer replays
+any rows still pending. Restoring a release older than the FX units leaves the
+timer stopped. Disable it as above before such a rollback, so a reboot does
+not start a unit whose script the older release lacks.
+
 ## Cutover, observation, and rollback
 
 Capture owner-scoped Supabase baseline counts and health for `collector_runs`,

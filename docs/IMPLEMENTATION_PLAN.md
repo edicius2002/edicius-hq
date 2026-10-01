@@ -167,7 +167,7 @@ Airfare was the fifth tab and the first addition to the four this plan fixed in 
 
 | Area       | Outcome                                                                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dashboard  | Captured X posts and replies timeline plus available Codex reset data; operational collector and refresh states are intentionally omitted.                                      |
+| Dashboard  | USD/PEN quotes and history, captured X posts and replies timeline, and available Codex reset data; operational collector and refresh states are intentionally omitted.          |
 | Finance    | Jobs, accounts, currencies, flows, frames, canvas, undo/redo, backup/restore; `finance_documents` remains its RLS/CAS contract.                                                 |
 | Greenlight | CSV import (EN UI; ES/EN header aliases OK), weekly summary, charts, projector, Supabase owner-document persistence; no real CSVs in git.                                       |
 | Investing  | Built: ticker, chart, TA, watchlist, streaming, browser alerts and portfolio; browser reads Supabase market data and queues bars/search for Pi processing. Pending: INV-07.     |
@@ -488,6 +488,18 @@ first (12.3), and booking anything at all — this observes prices, it does not 
 The source is CNN's public JSON graph-data endpoint at `https://production.dataviz.cnn.io/index/fearandgreed/graphdata`, discovered from the live product's data flow rather than from rendered HTML. Its payload exposes a current 0–100 score for the aggregate and every component plus roughly one trading year's daily history for the underlying measurements. Observed samples were stamped near the end of the US market day (`23:59:55Z`), so the product treats it as daily data. A four-hour cache allows intraday correction without pretending this is a live feed and caps an active API process at six upstream refresh attempts a day; the web query uses the same freshness window and does not poll in the background.
 
 The API sends only `Accept: application/json`. It does not imitate a browser, add a forged origin/referrer, evade a challenge or scrape rendered HTML. A local production probe on 2026-09-07 confirmed that CNN answers this server with HTTP 418. Only after a 403/418 refusal, the adapter requests Fear & Greed Graph's public, no-key JSON mirror at `https://fearandgreedgraph.com/api/fear-greed`; the UI attributes that path as “CNN data via Fear & Greed Graph.” Its published contract is aligned daily `dates`/`values`, the seven component blocks and hourly refresh. The normalized response retains at most 366 daily observations per series to match the useful chart horizon and bound payload size. Any other CNN failure remains explicit, and a malformed or incomplete payload from either provider never replaces the last good cache.
+
+### 6d — Dashboard USD/PEN
+
+**Status:** Implemented on `feat/dashboard-usd-pen` ([#250](https://github.com/edicius2002/edicius-hq/issues/250)); not yet migrated, deployed or enabled. Design: `docs/superpowers/specs/2026-09-29-usd-pen.md`; source validation: `docs/usd-pen-validation.md`.
+
+- [x] Nine HTTP adapters: Kambista, Tu Cambista, Securex, Cambio Seguro, DollarHouse, Rextie, TKambio, BCRP interbank and SBS through BCRP
+- [x] Pi collector with a durable SQLite outbox, owner-scoped `fx_observations` and authenticated `read_fx_latest` / `read_fx_history` reads
+- [x] Dashboard card above Codex resets: provider table, per-source buy/sell chart, ranges, favorites and owner-isolated browser cache
+- [x] `edicius-fx.service` / `.timer` every 15 minutes, installed disabled; routine releases pause the timer only once enabled
+- [ ] Apply the migration, run `verify.sh --live fx`, enable the timer and backfill the BCRP references (runbook: USD/PEN collector activation)
+
+Commercial history begins at activation; only the BCRP references reach back to 1997. SUNAT and Cuanto Está el Dólar are not collected.
 
 ---
 
@@ -1348,6 +1360,7 @@ Current-state reconciliation (2026-09-07): FastAPI and the five green dependency
 | 2026-09-04 | **Superseded — 2026-09-16 Finance Supabase Auth design.** The former Funnel credential/passkey-use gate was removed. Tailscale is transport-only; Serve/Funnel reachability does not replace the FastAPI Bearer-JWT access check. |
 | 2026-09-16 | **Superseded in provider and application-data scope — ADR 0004, 2026-09-18.** Supabase Auth passkey browser session and Finance RLS/CAS remain; FastAPI Bearer-JWT/header streaming/Tailscale apply only to retained rollback and local-development routes until Task 12. The current pre-cutover target moves application documents, Dashboard, Sentiment, Investing and Airfare browser data paths to Supabase and provider acquisition to Pi collectors. |
 | 2026-09-25 | **Tailscale retired.** The deployed web app no longer calls the home API: application data comes from Supabase, map subdivisions are published as static files of the web app (#229) and the Dashboard reads codex-resets.com directly. Serve and Funnel were switched off on the owner PC and `scripts/tailnet.mjs` and the `tailnet:*` scripts were removed. FastAPI remains for local development only, listening on this machine. |
+| 2026-10-01 | **Dashboard USD/PEN (6d).** Adds the FX collector's Pi units, install/deploy/verify wiring, health check, `fx:collect` and the activation runbook. Commercial sources are now rescheduled one minute short of their cadence so the timer's random delay cannot skip a pass. |
 
 ## Dashboard Codex reset history — 2026-09-14
 

@@ -4,6 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 const auth = vi.hoisted(() => ({
   clearLocalSession: vi.fn(),
+  subscribeToAuth: (callback: (event: string, session: { user: { id: string } }) => void) => {
+    callback('INITIAL_SESSION', { user: { id: 'owner' } });
+    return () => {};
+  },
   getAccessToken: vi.fn(async () => null),
 }));
 const tweetData = vi.hoisted(() => ({
@@ -15,6 +19,11 @@ vi.mock('@/shared/auth/supabaseAuth', () => auth);
 const codex = vi.hoisted(() => ({ fetchCodexResets: vi.fn() }));
 
 vi.mock('./data/supabaseTweets', () => tweetData);
+vi.mock('./fx/data', () => ({
+  fetchLatest: async () => [],
+  fetchHistory: async () => ({ points: [], aggregation: 'observations' }),
+  subscribeFxObservations: () => () => {},
+}));
 // The card reads codex-resets.com through this client, which has tests of its
 // own; this page test is about the layout it draws, not the provider's wire.
 vi.mock('@/shared/api/codexResets', () => codex);
@@ -141,7 +150,7 @@ it('places live reset summary and calendar above the preserved tweet columns', a
   expect(screen.getByText('6.9d')).toBeInTheDocument();
   expect(screen.getByText('67.7d')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Codex reset history' })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /banked reset.*2026-09-12/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '1 banked reset on 2026-09-12' })).toBeInTheDocument();
   expect(
     screen.queryByText(/Independent tracker; not affiliated with OpenAI/),
   ).not.toBeInTheDocument();
@@ -208,4 +217,37 @@ it('retains captured posts when a background refresh fails', async () => {
   });
   expect(await screen.findByRole('alert')).toBeInTheDocument();
   expect(post).toBeInTheDocument();
+});
+
+it('sets the USD/PEN gadget beside the Codex reset cards, above the posts', async () => {
+  stubApi();
+  renderPage();
+
+  const gadget = screen.getByRole('region', { name: 'USD / PEN' });
+  const latest = screen.getByRole('heading', { name: 'Latest Codex limit reset' });
+  const history = screen.getByRole('heading', { name: 'Codex reset history' });
+  const overview = gadget.parentElement!;
+  expect(overview).toContainElement(latest);
+  expect(overview).toContainElement(history);
+  expect(latest.compareDocumentPosition(gadget)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(
+    gadget.compareDocumentPosition(
+      await screen.findByRole('heading', { name: 'Posts from @thsottiaux' }),
+    ),
+  ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+it('places PT and EST before the centered title, then PER and ARG after it', () => {
+  stubApi();
+  renderPage();
+
+  const title = screen.getByRole('heading', { level: 1, name: 'Dashboard' });
+  const clocks = ['PT', 'EST', 'PER', 'ARG'].map((label) =>
+    screen.getByLabelText(new RegExp(`^${label} \\d{2}:\\d{2}$`)),
+  );
+
+  expect(clocks[0].compareDocumentPosition(clocks[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(clocks[1].compareDocumentPosition(title)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(title.compareDocumentPosition(clocks[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(clocks[2].compareDocumentPosition(clocks[3])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });

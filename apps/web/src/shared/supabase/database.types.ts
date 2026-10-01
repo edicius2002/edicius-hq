@@ -28,6 +28,44 @@ export type Database = {
   };
   public: {
     Tables: {
+      fx_observations: {
+        Row: {
+          owner_id: string;
+          source: string;
+          observed_at: string;
+          effective_at: string;
+          buy: number;
+          sell: number;
+          context: Json;
+        };
+        Insert: {
+          owner_id: string;
+          source: string;
+          observed_at: string;
+          effective_at: string;
+          buy: number;
+          sell: number;
+          context?: Json;
+        };
+        Update: {
+          owner_id?: string;
+          source?: string;
+          observed_at?: string;
+          effective_at?: string;
+          buy?: number;
+          sell?: number;
+          context?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'fx_observations_owner_id_fkey';
+            columns: ['owner_id'];
+            isOneToOne: false;
+            referencedRelation: 'edicius_owners';
+            referencedColumns: ['owner_id'];
+          },
+        ];
+      };
       airfare_documents: {
         Row: {
           key: string;
@@ -632,6 +670,8 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      read_fx_latest: { Args: Record<PropertyKey, never>; Returns: Json };
+      read_fx_history: { Args: { p_source: string; p_range: string }; Returns: Json };
       airfare_dataset_manifest: { Args: never; Returns: Json };
       claim_collector_request: {
         Args: { p_operations: string[]; p_owner_id: string };

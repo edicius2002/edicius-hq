@@ -1,0 +1,211 @@
+.card {
+  border: 2px solid #e9ded0;
+  border-radius: 12px;
+  background: #27211c;
+  box-shadow: 5px 5px 0 #090705;
+  overflow: hidden;
+  min-width: 0;
+  color: #eee5da;
+  font-family: var(--font-mono);
+}
+.card button {
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.card button:focus-visible,
+.card a:focus-visible {
+  outline: 2px solid #dda835;
+  outline-offset: 3px;
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #e9ded02a;
+}
+.header h2 {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  margin: 0;
+  font-weight: 800;
+}
+.header h2 > span {
+  color: #dda835;
+  margin: 0 3px;
+}
+.expand {
+  border: 1px solid #e9ded040;
+  border-radius: 5px;
+  background: transparent;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+}
+.body {
+  display: grid;
+}
+.tableArea {
+  min-width: 0;
+  padding: 2px 8px 4px;
+}
+.table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+  table-layout: fixed;
+}
+.table th {
+  text-align: right;
+  font-weight: 400;
+  color: #b4a99c;
+  font-size: 9px;
+  padding: 4px 3px;
+  border-bottom: 1px solid #e9ded044;
+}
+.table th:first-child {
+  text-align: left;
+  width: 42%;
+}
+.table th:last-child {
+  width: 16%;
+}
+.table td {
+  height: 22px;
+  padding: 0 3px;
+  text-align: right;
+  border-bottom: 1px solid #e9ded014;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.table tr[data-selected='true'] {
+  background: #dda83512;
+}
+.table tr[data-selected='true'] .select {
+  color: #edc875;
+}
+.source {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.star {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #b6a381 !important;
+  font-size: 11px !important;
+}
+.star[aria-pressed='true'] {
+  color: #dda835 !important;
+}
+.select {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-size: 11px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buy {
+  color: #9bcba6;
+}
+.sell {
+  color: #e9ab88;
+}
+.table td > span {
+  font-variant-numeric: tabular-nums;
+}
+/* The best fresh online quote is tinted rather than labelled, keeping rows one line tall. */
+.table td > span[data-best] {
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.table .buy > span[data-best] {
+  background: #9bcba62e;
+}
+.table .sell > span[data-best] {
+  background: #e9ab882e;
+}
+.status {
+  font-size: 9px;
+  color: #b4a99c;
+}
+.stale {
+  color: #e8bd73;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.history {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px 8px 2px;
+  border-top: 1px solid #e9ded02a;
+  background: #201b17;
+}
+.chartHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chartHeader h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.chartHeader a {
+  color: inherit;
+  text-decoration: none;
+}
+.ranges {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.ranges button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: 9px;
+}
+.ranges button[aria-pressed='true'] {
+  background: #e9ded0;
+  color: #241d17;
+}
+.placeholder {
+  min-height: 100px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: #b4a99c;
+}
+.card p[role='alert'],
+.card p[role='status'] {
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+.expanded .history svg {
+  max-height: 240px;
+}

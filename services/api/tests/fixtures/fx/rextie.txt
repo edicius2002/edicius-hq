@@ -1,0 +1,1 @@
+{"fx_rate_buy": "3.43", "fx_rate_sell": "3.46", "source_currency": "USD", "target_currency": "PEN", "source_amount": "1000.00", "target_amount": "3430.00", "quote_pk": null, "promo_code": null, "campaign": null, "is_preferential": false, "secret": "discard"}

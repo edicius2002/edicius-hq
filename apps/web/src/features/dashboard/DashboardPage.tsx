@@ -9,7 +9,9 @@ import { Panel } from '@/shared/ui/Panel';
 import { useCodexResets } from './hooks/useCodexResets';
 import { fetchTweets, subscribeTweets } from './data/supabaseTweets';
 import { formatBogotaDateTime } from './lib/codexResetCalendar';
+import { UsdPenGadget } from './fx/UsdPenGadget';
 import { CodexResetOverview } from './ui/CodexResetOverview';
+import { ZoneClock } from './ui/ZoneClock';
 import styles from './DashboardPage.module.css';
 
 const HANDLE = 'thsottiaux';
@@ -79,9 +81,23 @@ export function DashboardPage() {
   const tweets = query.data ?? [];
 
   return (
-    <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader title={`@${HANDLE}`} className={styles.header} />
-      <CodexResetOverview query={codexResets} now={now} />
+    <section className={styles.page} aria-labelledby="dashboard-title">
+      <div className={styles.titleRow}>
+        <div className={styles.clockPair}>
+          <ZoneClock label="PT" timeZone="America/Los_Angeles" />
+          <ZoneClock label="EST" timeZone="America/New_York" />
+        </div>
+        <PageHeader titleId="dashboard-title" title="Dashboard" className={styles.header} />
+        <div className={styles.clockPair}>
+          <ZoneClock label="PER" timeZone="America/Lima" />
+          <ZoneClock label="ARG" timeZone="America/Argentina/Buenos_Aires" />
+        </div>
+      </div>
+      <div className={styles.overview}>
+        <CodexResetOverview query={codexResets} now={now} />
+        <UsdPenGadget now={now} />
+      </div>
+      <h2>Posts from @{HANDLE}</h2>
       {query.isError && query.data !== undefined ? (
         <Panel role="alert">
           Could not refresh captured tweets. Showing the last available posts.

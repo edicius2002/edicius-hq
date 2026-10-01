@@ -1,7 +1,49 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { FxChart } from './FxChart';
 import type { History } from './types';
+
+afterEach(() => vi.unstubAllGlobals());
+
+it('uses the measured plot size for SVG coordinates as the card grows', () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(element: HTMLElement) {
+        Object.defineProperties(element, {
+          clientWidth: { value: 420, configurable: true },
+          clientHeight: { value: 180, configurable: true },
+        });
+        this.callback([], this as unknown as ResizeObserver);
+      }
+      disconnect() {}
+    },
+  );
+  const history: History = {
+    aggregation: 'observations',
+    points: [
+      {
+        owner_id: 'owner',
+        source: 'kambista',
+        effective_at: '2026-09-29T10:00:00Z',
+        observed_at: '2026-09-29T10:00:00Z',
+        buy: 3.71,
+        sell: 3.73,
+        context: {},
+      },
+    ],
+  };
+  render(<FxChart history={history} sourceName="Kambista" />);
+  expect(screen.getByRole('region', { name: 'Kambista USD/PEN history' })).toBeInTheDocument();
+  expect(screen.getByRole('slider', { name: 'History point' })).toHaveAttribute(
+    'viewBox',
+    '0 0 420 180',
+  );
+});
 
 it.each([
   {
@@ -39,7 +81,9 @@ it.each([
         context: {},
       })),
     };
-    render(<FxChart history={history} />);
+    render(
+      <FxChart history={history} sourceName={source === 'bcrp' ? 'BCRP interbank' : 'Kambista'} />,
+    );
     const chart = screen.getByRole('slider', { name: 'History point' });
     // Last point is selected by default. The first isolated capture must still
     // have both real SVG circles, while the middle pair is connected by a line.

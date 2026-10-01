@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useFx } from './useFx';
-import { sources, ranges, type Source } from './sources';
-import { age, bestQuotes, freshness, price, readPreferences, time } from './model';
+import { sources, ranges } from './sources';
+import { bestQuotes, freshness, price, readPreferences, time } from './model';
 import { FxChart } from './FxChart';
 import styles from './UsdPenGadget.module.css';
 const STORAGE = 'edicius.fx.preferences';
@@ -13,7 +13,6 @@ export function UsdPenGadget({ now }: { now: Date }) {
       return readPreferences(null);
     }
   });
-  const [expanded, setExpanded] = useState(false);
   const { latest, history } = useFx(preferences.source, preferences.range);
   useEffect(() => {
     try {
@@ -25,17 +24,6 @@ export function UsdPenGadget({ now }: { now: Date }) {
   const rows = latest.data ?? [],
     best = bestQuotes(rows, now.getTime());
   const selected = sources.find((source) => source.id === preferences.source)!;
-  const ordered = sources.toSorted(
-    (a, b) =>
-      Number(preferences.favorites.includes(b.id)) - Number(preferences.favorites.includes(a.id)),
-  );
-  const favorite = (source: Source) =>
-    setPreferences((previous) => ({
-      ...previous,
-      favorites: previous.favorites.includes(source)
-        ? previous.favorites.filter((id) => id !== source)
-        : [...previous.favorites, source],
-    }));
   const priceCell = (value: number, isBest: boolean) => (
     <>
       <span data-best={isBest || undefined}>{price(value)}</span>
@@ -49,7 +37,7 @@ export function UsdPenGadget({ now }: { now: Date }) {
           USD <span>/</span> PEN
         </h2>
       </header>
-      <div className={`${styles.body} ${expanded ? styles.expanded : ''}`}>
+      <div className={styles.body}>
         <div className={styles.tableArea}>
           {latest.isPending ? <p role="status">Loading quotes…</p> : null}
           {latest.isError ? (
@@ -65,26 +53,22 @@ export function UsdPenGadget({ now }: { now: Date }) {
                 <th>Source</th>
                 <th title="The source buys your dollars">Buy</th>
                 <th title="The source sells you dollars">Sell</th>
-                <th>Age</th>
               </tr>
             </thead>
             <tbody>
-              {ordered.map((source) => {
+              {sources.map((source) => {
                 const row = rows.find((item) => item.source === source.id),
                   status = row ? freshness(row, now.getTime()) : undefined,
                   eligible = Boolean(row && !source.reference && status === 'Fresh');
                 return (
-                  <tr key={source.id} data-selected={source.id === preferences.source}>
+                  <tr
+                    key={source.id}
+                    data-selected={source.id === preferences.source}
+                    data-stale={status === 'Stale' || undefined}
+                    title={row && status === 'Stale' ? time(row.observed_at) : undefined}
+                  >
                     <td>
                       <div className={styles.source}>
-                        <button
-                          className={styles.star}
-                          aria-label={`${preferences.favorites.includes(source.id) ? 'Unfavorite' : 'Favorite'} ${source.name}`}
-                          aria-pressed={preferences.favorites.includes(source.id)}
-                          onClick={() => favorite(source.id)}
-                        >
-                          {preferences.favorites.includes(source.id) ? '★' : '☆'}
-                        </button>
                         <button
                           className={styles.select}
                           aria-label={`Select ${source.name}`}
@@ -96,31 +80,13 @@ export function UsdPenGadget({ now }: { now: Date }) {
                           {source.name}
                         </button>
                       </div>
+                      {status === 'Stale' ? <span className={styles.srOnly}>Stale</span> : null}
                     </td>
                     <td className={styles.buy}>
                       {row ? priceCell(row.buy, eligible && row.buy === best.buy) : '—'}
                     </td>
                     <td className={styles.sell}>
                       {row ? priceCell(row.sell, eligible && row.sell === best.sell) : '—'}
-                    </td>
-                    <td className={styles.status}>
-                      {row ? (
-                        status === 'Stale' ? (
-                          <span className={styles.stale} title={time(row.observed_at)}>
-                            Stale
-                          </span>
-                        ) : (
-                          <time title={time(row.observed_at)} dateTime={row.observed_at}>
-                            {age(row.observed_at, now.getTime())}
-                          </time>
-                        )
-                      ) : latest.isError ? (
-                        'Unavailable'
-                      ) : latest.isPending ? (
-                        '…'
-                      ) : (
-                        'No capture'
-                      )}
                     </td>
                   </tr>
                 );
@@ -130,11 +96,6 @@ export function UsdPenGadget({ now }: { now: Date }) {
         </div>
         <div className={styles.history}>
           <div className={styles.chartHeader}>
-            <h3>
-              <a href={selected.url} target="_blank" rel="noreferrer">
-                {selected.name} ↗
-              </a>
-            </h3>
             <nav className={styles.ranges} aria-label="History range">
               {ranges.map((range) => (
                 <button
@@ -146,14 +107,6 @@ export function UsdPenGadget({ now }: { now: Date }) {
                 </button>
               ))}
             </nav>
-            <button
-              className={styles.expand}
-              aria-label={expanded ? 'Collapse chart' : 'Expand chart'}
-              aria-expanded={expanded}
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? '↙' : '↗'}
-            </button>
           </div>
           {history.isPending ? (
             <div className={styles.placeholder} role="status">
@@ -172,7 +125,7 @@ export function UsdPenGadget({ now }: { now: Date }) {
             <FxChart
               key={`${selected.id}:${preferences.range}`}
               history={history.data}
-              expanded={expanded}
+              sourceName={selected.name}
             />
           ) : null}
         </div>

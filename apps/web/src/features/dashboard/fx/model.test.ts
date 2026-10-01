@@ -32,6 +32,12 @@ describe('FX contract and presentation', () => {
   });
   it('distinguishes capture age from reference effective age', () => {
     expect(freshness(parseLatest([row])[0], now)).toBe('Fresh');
+    expect(freshness(parseLatest([{ ...row, observed_at: '2026-09-29T14:45:00Z' }])[0], now)).toBe(
+      'Fresh',
+    );
+    expect(freshness(parseLatest([{ ...row, observed_at: '2026-09-29T14:44:59Z' }])[0], now)).toBe(
+      'Stale',
+    );
     expect(freshness(parseLatest([{ ...row, observed_at: '2026-09-29T14:00:00Z' }])[0], now)).toBe(
       'Stale',
     );

@@ -106,9 +106,9 @@ export function ResetCalendar({
               .filter((day) => day.resets.length > 0)
               .map((day) => (
                 <div className={styles.detailContent} key={day.key}>
-                  <strong data-content={labelFor(day)} />
+                  <strong>{labelFor(day)}</strong>
                   {day.resets.map((reset) => (
-                    <small key={reset.id} data-content={formatBogotaDateTime(reset.announcedAt)} />
+                    <small key={reset.id}>{formatBogotaDateTime(reset.announcedAt)}</small>
                   ))}
                 </div>
               ))}

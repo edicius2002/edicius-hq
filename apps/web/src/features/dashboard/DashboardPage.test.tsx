@@ -232,7 +232,7 @@ it('sets the USD/PEN gadget beside the Codex reset cards, above the posts', asyn
   expect(latest.compareDocumentPosition(gadget)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   expect(
     gadget.compareDocumentPosition(
-      await screen.findByRole('heading', { name: 'Posts from @thsottiaux' }),
+      await screen.findByRole('heading', { level: 2, name: '@thsottiaux' }),
     ),
   ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });

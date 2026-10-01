@@ -82,7 +82,7 @@ ensure_runtime() {
   find "$STATE_ROOT" -xdev -type d -exec chmod 0750 {} +
   find "$STATE_ROOT" -xdev -type f -exec chmod 0600 {} +
   chown root:"$SERVICE_USER" "$STATE_ROOT"
-  for runtime_dir in x-profile kv bars sentiment codex-resets; do
+  for runtime_dir in x-profile kv bars sentiment codex-resets fx; do
     install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/$runtime_dir"
   done
   [[ ! -L "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must not be a symlink"
@@ -90,7 +90,7 @@ ensure_runtime() {
   install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/locks"
   [[ "$(stat -c '%U:%G:%a' -- "$STATE_ROOT/locks")" == root:$SERVICE_USER:750 ]] || fail "lock directory owner or mode is invalid"
   local lock_name lock_path
-  for lock_name in airfare sentiment tweets market; do
+  for lock_name in airfare sentiment tweets market fx; do
     lock_path="$STATE_ROOT/locks/$lock_name.lock"
     [[ ! -L "$lock_path" ]] || fail "$lock_path must not be a symlink"
     if [[ ! -e "$lock_path" ]]; then
@@ -115,7 +115,7 @@ ensure_runtime() {
 
 install_units() {
   local unit
-  for unit in edicius-airfare.service edicius-airfare.timer edicius-airfare-requests.service edicius-sentiment.service edicius-sentiment.timer edicius-tweets.service edicius-market.service; do
+  for unit in edicius-airfare.service edicius-airfare.timer edicius-airfare-requests.service edicius-sentiment.service edicius-sentiment.timer edicius-tweets.service edicius-market.service edicius-fx.service edicius-fx.timer; do
     install -m 0644 "$RELEASE_DIR/ops/pi/systemd/$unit" "$UNIT_DIR/$unit"
   done
   systemctl daemon-reload

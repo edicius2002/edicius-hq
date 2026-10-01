@@ -17,9 +17,9 @@ INSTALL = PI_ROOT / "install.sh"
 VERIFY = PI_ROOT / "verify.sh"
 SERVICES = tuple(
     SYSTEMD / f"edicius-{name}.service"
-    for name in ("airfare", "airfare-requests", "sentiment", "tweets", "market")
+    for name in ("airfare", "airfare-requests", "sentiment", "tweets", "market", "fx")
 )
-TIMERS = tuple(SYSTEMD / f"edicius-{name}.timer" for name in ("airfare", "sentiment"))
+TIMERS = tuple(SYSTEMD / f"edicius-{name}.timer" for name in ("airfare", "sentiment", "fx"))
 
 
 @pytest.mark.parametrize("unit", SERVICES)

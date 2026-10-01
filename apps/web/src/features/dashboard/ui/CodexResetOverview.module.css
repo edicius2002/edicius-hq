@@ -76,14 +76,17 @@
   margin: 0;
 }
 
+/* Label left, value right on one line keeps the cards short. */
 .stats div {
-  min-height: 3.8rem;
-  padding: 0.45rem 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
   border: 2px solid #e9ded0;
   border-radius: 0.7rem;
   box-shadow: 4px 4px 0 #090705;
   color: #17110b;
-  text-align: center;
 }
 
 .stats div:nth-child(1) {
@@ -100,16 +103,16 @@
 }
 
 .stats dt {
-  overflow: hidden;
+  min-width: 0;
   font-size: 0.55rem;
+  line-height: 1.25;
   letter-spacing: 0.08em;
-  text-overflow: ellipsis;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
 .stats dd {
-  margin: 0.2rem 0 0;
+  flex: none;
+  margin: 0;
   font-size: 1.1rem;
   font-weight: 800;
 }
@@ -168,8 +171,12 @@
   .stats {
     gap: 0.5rem;
   }
+  /* Too narrow for label and value side by side: stack them in each card. */
   .stats div {
+    flex-direction: column;
+    gap: 0.2rem;
     padding: 0.4rem 0.45rem;
+    text-align: center;
   }
   .stats dt {
     font-size: 0.43rem;

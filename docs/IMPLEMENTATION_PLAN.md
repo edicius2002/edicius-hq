@@ -491,15 +491,15 @@ The API sends only `Accept: application/json`. It does not imitate a browser, ad
 
 ### 6d — Dashboard USD/PEN
 
-**Status:** Implemented on `feat/dashboard-usd-pen` ([#250](https://github.com/edicius2002/edicius-hq/issues/250)); not yet migrated, deployed or enabled. Design: `docs/superpowers/specs/2026-09-29-usd-pen.md`; source validation: `docs/usd-pen-validation.md`.
+**Status:** Merged in [#252](https://github.com/edicius2002/edicius-hq/pull/252) and [#254](https://github.com/edicius2002/edicius-hq/pull/254); migrated, deployed and enabled on the Pi with a 5-minute cadence. Design: `docs/superpowers/specs/2026-09-29-usd-pen.md`; source validation: `docs/usd-pen-validation.md`.
 
 - [x] Nine HTTP adapters: Kambista, Tu Cambista, Securex, Cambio Seguro, DollarHouse, Rextie, TKambio, BCRP interbank and SBS through BCRP
 - [x] Pi collector with a durable SQLite outbox, owner-scoped `fx_observations` and authenticated `read_fx_latest` / `read_fx_history` reads
-- [x] Dashboard card above Codex resets: provider table, per-source buy/sell chart, ranges, favorites and owner-isolated browser cache
+- [x] Dashboard card beside the Codex column: Source/Buy/Sell table, per-source buy/sell chart, ranges and owner-isolated browser cache; no favourites
 - [x] `edicius-fx.service` / `.timer` every 5 minutes, installed disabled; routine releases pause the timer only once enabled
-- [ ] Apply the migration, run `verify.sh --live fx`, enable the timer and backfill the BCRP references (runbook: USD/PEN collector activation)
+- [x] Apply the migration, enable the timer and align every source's history to 2026-10-01 00:00 America/Lima (runbook: USD/PEN collector activation)
 
-Commercial history begins at activation; only the BCRP references reach back to 1997. SUNAT and Cuanto Está el Dólar are not collected.
+Every source's history starts at 2026-10-01 00:00 America/Lima; earlier data is intentionally absent. SUNAT and Cuanto Está el Dólar are not collected.
 
 ---
 
@@ -1362,6 +1362,8 @@ Current-state reconciliation (2026-09-07): FastAPI and the five green dependency
 | 2026-09-25 | **Tailscale retired.** The deployed web app no longer calls the home API: application data comes from Supabase, map subdivisions are published as static files of the web app (#229) and the Dashboard reads codex-resets.com directly. Serve and Funnel were switched off on the owner PC and `scripts/tailnet.mjs` and the `tailnet:*` scripts were removed. FastAPI remains for local development only, listening on this machine. |
 | 2026-10-01 | **Dashboard USD/PEN (6d).** Adds the FX collector's Pi units, install/deploy/verify wiring, health check, `fx:collect` and the activation runbook. Commercial sources are now rescheduled one minute short of their cadence so the timer's random delay cannot skip a pass. |
 | 2026-10-01 | **USD/PEN commercial cadence: 5 minutes.** The owner wants quotes as live as possible; Kambista's own client refreshes every 300 s, so 5 minutes matches the fastest source and stays well clear of the 403 six-hour cooldown. The commercial stale threshold is 15 minutes (three missed passes); references remain on a 4-hour cadence with a 12-hour capture-age threshold. |
+| 2026-10-01 | **USD/PEN aligned history.** The owner set the start for every source to 2026-10-01 00:00 America/Lima, making commercial and official history comparable over the same span. The historical backfill is removed so pre-start data cannot return; the coordinator deletes earlier Supabase rows after deploy. |
+| 2026-10-01 | **Dashboard visual changes (#254).** The title row and clocks were adjusted; Codex stats sit beside the hero with the calendar detail on one line; the USD/PEN chart sits beside a three-column Source/Buy/Sell table without Age, stars, link or expand controls. Cells have equal height, and the `@thsottiaux` heading is updated. |
 
 ## Dashboard Codex reset history — 2026-09-14
 

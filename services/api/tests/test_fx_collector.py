@@ -1,10 +1,13 @@
-from datetime import UTC, date, datetime, timedelta
+import subprocess
+import sys
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID
 
 import pytest
 
-NOW = datetime(2026, 9, 29, 18, tzinfo=UTC)
+NOW = datetime(2026, 10, 2, 18, tzinfo=UTC)
 OWNER = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
 
@@ -105,50 +108,67 @@ def test_dry_run_has_no_writes(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_backfill_years():
-    from app.services.fx.collector import year_ranges
-
-    assert list(year_ranges(date(1997, 6, 1), date(1999, 2, 1))) == [
-        (date(1997, 6, 1), date(1997, 12, 31)),
-        (date(1998, 1, 1), date(1998, 12, 31)),
-        (date(1999, 1, 1), date(1999, 2, 1)),
-    ]
-    with pytest.raises(ValueError):
-        list(year_ranges(date(1996, 1, 1), date(1997, 1, 1)))
-
-
-def test_backfill_restart_keeps_successful_years(tmp_path):
+def test_reference_reconcile_only_writes_history_from_lima_october_first(tmp_path):
     from app.services.fx.collector import collect_once
-    from app.services.fx.providers import ProviderError
+    from app.services.fx.models import HISTORY_START, Observation
     from app.services.fx.store import Store
 
-    calls = []
-
-    def first(s, c, n, start, end):
-        calls.append(start.year)
-        if start.year == 1998:
-            raise ProviderError()
-        return [observation(s, n)]
-
+    cloud = Cloud()
+    days = [HISTORY_START - timedelta(days=1), HISTORY_START, HISTORY_START + timedelta(days=1)]
+    rows = [Observation("bcrp", NOW, day, Decimal("3.43"), Decimal("3.46")) for day in days]
     with Store(tmp_path / "fx.sqlite", OWNER) as store:
-        collect_once(
-            store,
-            Cloud(),
-            ["bcrp"],
-            now=NOW,
-            fetcher=first,
-            backfill=(date(1997, 1, 1), date(1998, 12, 31)),
-        )
+        result = collect_once(store, cloud, ["bcrp"], now=NOW, fetcher=lambda *args: rows)
+        assert store.pending() == []
+    assert result == dict(seen=3, written=2, failed=0)
+    assert {row["effective_at"] for row in cloud.rows.values()} == {
+        day.isoformat() for day in days[1:]
+    }
+
+
+def test_commercial_capture_before_history_start_is_not_written(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.models import HISTORY_START
+    from app.services.fx.store import Store
+
+    clock = HISTORY_START - timedelta(seconds=1)
+    cloud = Cloud()
     with Store(tmp_path / "fx.sqlite", OWNER) as store:
-        collect_once(
+        result = collect_once(
             store,
-            Cloud(),
-            ["bcrp"],
-            now=NOW + timedelta(days=1),
-            fetcher=first,
-            backfill=(date(1997, 1, 1), date(1998, 12, 31)),
+            cloud,
+            ["kambista"],
+            now=clock,
+            fetcher=lambda source, _client, now, *_range: [observation(source, now)],
         )
-    assert calls == [1997, 1998, 1998]
+        assert store.pending() == []
+    assert result == dict(seen=1, written=0, failed=0)
+    assert cloud.rows == {}
+
+
+def test_existing_outbox_drops_pre_start_rows_before_replay(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.models import HISTORY_START
+    from app.services.fx.store import Store
+
+    cloud = Cloud()
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        store.save("bcrp", [observation("bcrp", HISTORY_START - timedelta(days=1))], NOW)
+        result = collect_once(store, cloud, ["kambista"], now=NOW, fetcher=lambda *_args: [])
+        assert store.pending() == []
+    assert result == dict(seen=0, written=0, failed=0)
+    assert cloud.rows == {}
+
+
+def test_cli_rejects_backfill_option():
+    script = Path(__file__).resolve().parents[3] / "scripts" / "fx-collect.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--backfill-from", "1997-01-02"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "unrecognized arguments: --backfill-from" in result.stderr
 
 
 def test_cloud_boundary_owns_idempotent_fx():
@@ -176,47 +196,7 @@ def test_cloud_boundary_owns_idempotent_fx():
     with_client.close()
 
 
-def test_explicit_backfill_bypasses_live_cadence_but_respects_failure_cooldown(tmp_path):
-    from app.services.fx.collector import collect_once
-    from app.services.fx.providers import ProviderError
-    from app.services.fx.store import Store
-
-    calls = []
-
-    def successful(s, c, n, *window):
-        calls.append(window)
-        return [observation(s, n)]
-
-    with Store(tmp_path / "fx.sqlite", OWNER) as store:
-        collect_once(store, Cloud(), ["bcrp"], now=NOW, fetcher=successful)
-        collect_once(
-            store,
-            Cloud(),
-            ["bcrp"],
-            now=NOW,
-            fetcher=successful,
-            backfill=(date(1997, 1, 1), date(1997, 12, 31)),
-        )
-        assert len(calls) == 2
-    with Store(tmp_path / "blocked.sqlite", OWNER) as store:
-        collect_once(
-            store,
-            Cloud(),
-            ["bcrp"],
-            now=NOW,
-            fetcher=lambda *a: (_ for _ in ()).throw(ProviderError("forbidden", 21600)),
-        )
-        collect_once(
-            store,
-            Cloud(),
-            ["bcrp"],
-            now=NOW,
-            fetcher=lambda *a: pytest.fail("cooldown bypassed"),
-            backfill=(date(1997, 1, 1), date(1997, 12, 31)),
-        )
-
-
-def test_reference_sources_share_one_http_request_per_window(tmp_path, monkeypatch):
+def test_reference_sources_share_one_http_request_per_reconcile(tmp_path, monkeypatch):
     import json
     from pathlib import Path
 
@@ -226,6 +206,8 @@ def test_reference_sources_share_one_http_request_per_window(tmp_path, monkeypat
     from app.services.fx.store import Store
 
     payload = json.loads((Path(__file__).parent / "fixtures/fx/bcrp.txt").read_text())
+    payload["periods"][0]["name"] = "01.Oct.26"
+    payload["periods"] = payload["periods"][:1]
     payload["periods"][0]["values"] = ["3.41", "3.42", "3.43", "3.46"]
     requests = []
 

@@ -21,8 +21,6 @@ class Store:
         self.db.execute("pragma synchronous=FULL")
         self.db.executescript("""
           create table if not exists outbox(owner text, source text, effective text, observed text, payload text not null, primary key(owner,source,effective,observed));
-          create table if not exists completed(owner text, source text, window text, primary key(owner,source,window));
-          create table if not exists cooldown(owner text, source text, next_at real not null, primary key(owner,source));
           create table if not exists due(owner text, source text, next_at real not null, primary key(owner,source));
         """)
 
@@ -32,11 +30,9 @@ class Store:
     def __exit__(self, *args: Any) -> None:
         self.db.close()
 
-    def due(self, source: str, now: datetime, *, backfill: bool = False) -> bool:
+    def due(self, source: str, now: datetime) -> bool:
         row = self.db.execute(
-            "select next_at from cooldown where owner=? and source=?"
-            if backfill
-            else "select next_at from due where owner=? and source=?",
+            "select next_at from due where owner=? and source=?",
             (self.owner_id, source),
         ).fetchone()
         return row is None or row[0] <= now.timestamp()
@@ -46,15 +42,8 @@ class Store:
         source: str,
         rows: list[Observation],
         next_at: datetime,
-        window: str | None = None,
-        *,
-        failed: bool = False,
     ) -> None:
         with self.db:
-            if window is not None:
-                self.db.execute(
-                    "insert or ignore into completed values(?,?,?)", (self.owner_id, source, window)
-                )
             for observation in rows:
                 row = {**observation.wire(), "owner_id": self.owner_id}
                 self.db.execute(
@@ -68,14 +57,9 @@ class Store:
                     ),
                 )
             self.db.execute(
-                "insert into cooldown values(?,?,?) on conflict(owner,source) do update set next_at=excluded.next_at",
-                (self.owner_id, source, next_at.timestamp() if failed else 0),
+                "insert into due values(?,?,?) on conflict(owner,source) do update set next_at=excluded.next_at",
+                (self.owner_id, source, next_at.timestamp()),
             )
-            if window is None:
-                self.db.execute(
-                    "insert into due values(?,?,?) on conflict(owner,source) do update set next_at=excluded.next_at",
-                    (self.owner_id, source, next_at.timestamp()),
-                )
 
     def pending(self, limit: int = 500) -> list[dict[str, Any]]:
         return [
@@ -92,12 +76,3 @@ class Store:
                 "delete from outbox where owner=? and source=? and effective=? and observed=?",
                 [(self.owner_id, r["source"], r["effective_at"], r["observed_at"]) for r in rows],
             )
-
-    def completed(self, source: str, window: str) -> bool:
-        return (
-            self.db.execute(
-                "select 1 from completed where owner=? and source=? and window=?",
-                (self.owner_id, source, window),
-            ).fetchone()
-            is not None
-        )

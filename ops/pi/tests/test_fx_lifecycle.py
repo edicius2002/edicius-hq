@@ -108,12 +108,13 @@ def test_npm_exposes_fx_collect_through_the_api_dispatcher() -> None:
     assert "  'fx-collect',\n" in dispatcher
 
 
-def test_runbook_documents_fx_activation_backfill_and_rollback() -> None:
+def test_runbook_documents_fx_activation_history_start_and_rollback() -> None:
     text = RUNBOOK.read_text(encoding="utf-8")
     section = text[text.index("## USD/PEN collector") :]
     assert "20260929000000_fx_observations.sql" in section
     assert "verify.sh --live fx" in section
     assert "systemctl enable --now edicius-fx.timer" in section
-    assert "--backfill-from" in section
+    assert "backfill" not in section.lower()
     assert "systemctl disable --now edicius-fx.timer" in section
-    assert "begins at activation" in section
+    assert "2026-10-01 00:00 America/Lima" in section
+    assert "Earlier data is intentionally absent" in section

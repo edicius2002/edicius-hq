@@ -276,10 +276,10 @@ delays rows rather than losing them. The installer ships the units but never
 enables them, and routine releases pause the FX timer only after it has been
 enabled.
 
-Commercial history begins at activation: no house publishes a downloadable
-archive. The BCRP references can be backfilled from 1997. SBS is read through
-the BCRP series, not from the SBS site, and SUNAT and Cuanto Está el Dólar are
-not collected.
+History for every source starts at 2026-10-01 00:00 America/Lima
+(2026-10-01T05:00:00Z). Earlier data is intentionally absent. No house
+publishes a downloadable archive. SBS is read through the BCRP series, not
+from the SBS site, and SUNAT and Cuanto Está el Dólar are not collected.
 
 1. Apply `supabase/migrations/20260929000000_fx_observations.sql` with the
    Checkpoint A commands from the release commit, then run its RLS tests:
@@ -309,17 +309,6 @@ not collected.
    ssh '<pi-host>' 'systemctl list-timers edicius-fx.timer --no-pager'
    ssh '<pi-host>' "sudo journalctl -u edicius-fx.service --since '-1 hour' --no-pager"
    ```
-
-5. Backfill the official references once, as the service identity so the
-   outbox stays owned by it. The command takes the FX process lock, so it
-   refuses to run while a timed pass is active; retry after it finishes.
-
-   ```sh
-   ssh '<pi-host>' "sudo systemd-run --quiet --wait --pipe --collect --uid=edicius-collector --gid=edicius-collector --working-directory=/opt/edicius-hq/current --property=EnvironmentFile=/etc/edicius-hq/collectors.env --property=Environment=HOME=/var/lib/edicius-hq --property=Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq /opt/edicius-hq/current/services/api/.venv/bin/python scripts/fx-collect.py --backfill-from 1997-01-02 --backfill-to '<today>'"
-   ```
-
-   Backfill proceeds in yearly windows and records each completed window, so a
-   rerun after an interruption resumes rather than repeating finished years.
 
 To roll back, stop the schedule without touching stored observations:
 

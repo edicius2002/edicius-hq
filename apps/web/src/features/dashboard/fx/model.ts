@@ -70,7 +70,7 @@ export function freshness(row: Observation, now: number): 'Fresh' | 'Stale' {
   const effective = now - Date.parse(row.effective_at);
   return captured < 0 ||
     effective < 0 ||
-    captured > (isReference(row.source) ? 12 * 60 : 45) * 60_000 ||
+    captured > (isReference(row.source) ? 12 * 60 : 15) * 60_000 ||
     (isReference(row.source) && effective > 7 * 86400_000)
     ? 'Stale'
     : 'Fresh';

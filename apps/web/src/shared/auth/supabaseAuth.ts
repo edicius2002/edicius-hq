@@ -3,6 +3,8 @@ import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabas
 import { supabase } from '@/shared/supabase/client';
 import type { Database } from '@/shared/supabase/database.types';
 
+import { DEV_SIGNED_OUT_KEY } from './devSignedOut';
+
 export type PasskeySummary = {
   id: string;
   friendlyName: string | null;
@@ -41,6 +43,30 @@ export async function signInWithPasskey(
   if (error) throw error;
 }
 
+/**
+ * Development-only sign-in. A passkey is bound to the production origin, so the
+ * Vite dev server mints a one-time token (`apps/web/dev/devSession.ts`) and this
+ * browser exchanges it for a session of its own.
+ */
+export async function signInLocally(
+  client: SupabaseClient<Database> = supabase,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher('/__dev/session', { method: 'POST' });
+  if (response.status === 404) {
+    throw new Error('Local sign-in is not configured on this machine.');
+  }
+  const body = (await response.json().catch(() => ({}))) as {
+    token_hash?: string;
+    error?: string;
+  };
+  if (!response.ok || !body.token_hash) {
+    throw new Error(body.error ?? 'Local sign-in failed.');
+  }
+  const { error } = await client.auth.verifyOtp({ token_hash: body.token_hash, type: 'magiclink' });
+  if (error) throw error;
+}
+
 export async function registerPasskey(
   client: SupabaseClient<Database> = supabase,
 ): Promise<PasskeySummary> {
@@ -66,6 +92,17 @@ export async function deletePasskey(
 }
 
 export async function signOut(client: SupabaseClient<Database> = supabase): Promise<void> {
+  if (import.meta.env.DEV) {
+    // A global sign-out would also end the owner's production sessions.
+    const { error } = await client.auth.signOut({ scope: 'local' });
+    if (error) throw error;
+    try {
+      sessionStorage.setItem(DEV_SIGNED_OUT_KEY, '1');
+    } catch {
+      // Storage can be unavailable in a browser that blocks site data.
+    }
+    return;
+  }
   const { error } = await client.auth.signOut();
   if (error) throw error;
 }

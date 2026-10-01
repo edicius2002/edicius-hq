@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { SevenSegment } from './SevenSegment';
 import styles from './ZoneClock.module.css';
 
 type ZoneClockProps = {
@@ -36,9 +37,13 @@ export function ZoneClock({ label, timeZone }: ZoneClockProps) {
       aria-label={`${label} ${hours}:${minutes}`}
     >
       <span className={styles.digits} aria-hidden="true">
-        {hours}
-        <span className={styles.colon}>:</span>
-        {minutes}
+        {[...(hours ?? '')].map((digit, index) => (
+          <SevenSegment key={`hour-${index}`} digit={digit} />
+        ))}
+        <span className={styles.colon} data-testid="clock-colon" aria-hidden="true" />
+        {[...(minutes ?? '')].map((digit, index) => (
+          <SevenSegment key={`minute-${index}`} digit={digit} />
+        ))}
       </span>
       <span className={styles.label} aria-hidden="true">
         {label}

@@ -39,6 +39,22 @@ it('stops refreshing after unmount', () => {
   expect(vi.getTimerCount()).toBe(0);
 });
 
+it('draws four seven-segment digits and a blinking colon while retaining the time label', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-01T15:04:00Z'));
+
+  const { container } = render(<ZoneClock label="PT" timeZone="America/Los_Angeles" />);
+  const clock = screen.getByLabelText('PT 08:04');
+  const digits = container.querySelectorAll('svg[data-digit]');
+  const colon = container.querySelector('[data-testid="clock-colon"]');
+
+  expect(clock.tagName).toBe('TIME');
+  expect(digits).toHaveLength(4);
+  expect([...digits].map((digit) => digit.getAttribute('data-digit')).join('')).toBe('0804');
+  expect(colon).toHaveAttribute('aria-hidden', 'true');
+  expect(colon?.className).toMatch(/colon/);
+});
+
 it('follows US winter offsets while keeping the EST label', () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-01-01T15:04:00Z'));

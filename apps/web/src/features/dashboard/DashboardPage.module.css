@@ -13,6 +13,10 @@
   text-align: center;
 }
 
+/*
+ * Codex resets fill the left half and the USD/PEN widget docks at the top of
+ * the right half; both stack into one column once the row gets too narrow.
+ */
 .overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

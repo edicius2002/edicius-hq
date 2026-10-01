@@ -57,11 +57,25 @@
   border-radius: 0.75rem;
   background: #27211c;
   box-shadow: 4px 4px 0 #090705;
+  container-type: inline-size;
 }
 
+/*
+ * One fluid cell size shared by the weekday labels and the 53 week columns, so
+ * the labels stay on their rows at any width. Below 8px the grid stops
+ * shrinking and the scroller takes over.
+ */
 .chart {
+  --gap: 0.18rem;
+  --weekdays: 1.4rem;
+  --cell: clamp(
+    8px,
+    calc((100cqw - var(--weekdays) - 0.4rem - 0.3rem - 52 * var(--gap)) / 53),
+    0.78rem
+  );
   display: flex;
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   margin-inline: auto;
   gap: 0.4rem;
 }
@@ -69,8 +83,9 @@
 .weekdays {
   display: grid;
   flex: none;
-  grid-template-rows: 1rem repeat(7, minmax(0, 1fr));
-  gap: 0.18rem;
+  width: var(--weekdays);
+  grid-template-rows: 1rem repeat(7, var(--cell));
+  gap: var(--gap);
   padding-block: 0.15rem 0.55rem;
   color: var(--color-muted);
   font-size: 0.5rem;
@@ -83,7 +98,6 @@
 }
 
 .scroller {
-  flex: 1;
   min-width: 0;
   overflow-x: auto;
   direction: rtl;
@@ -94,12 +108,10 @@
 .grid {
   display: grid;
   direction: ltr;
-  grid-template-columns: repeat(53, minmax(0, 1fr));
-  grid-template-rows: 1rem repeat(7, auto);
-  gap: 0.18rem;
-  width: 100%;
-  min-width: calc(53 * 8px + 52 * 0.18rem);
-  max-width: calc(53 * 0.78rem + 52 * 0.18rem);
+  grid-template-columns: repeat(53, var(--cell));
+  grid-template-rows: 1rem repeat(7, var(--cell));
+  gap: var(--gap);
+  width: max-content;
 }
 
 .month {
@@ -109,11 +121,11 @@
 }
 
 .cell {
-  width: 100%;
-  aspect-ratio: 1;
+  width: var(--cell);
+  height: var(--cell);
   padding: 0;
   border: 0;
-  border-radius: 0.22rem;
+  border-radius: calc(var(--cell) * 0.28);
   background: #4b4339;
   cursor: pointer;
   transition: transform 120ms ease;

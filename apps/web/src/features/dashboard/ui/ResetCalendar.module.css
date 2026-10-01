@@ -61,17 +61,17 @@
 
 .chart {
   display: flex;
-  width: max-content;
+  width: 100%;
   margin-inline: auto;
-  max-width: 100%;
   gap: 0.4rem;
 }
 
 .weekdays {
   display: grid;
   flex: none;
-  grid-template-rows: 1rem repeat(7, 0.78rem);
+  grid-template-rows: 1rem repeat(7, minmax(0, 1fr));
   gap: 0.18rem;
+  padding-block: 0.15rem 0.55rem;
   color: var(--color-muted);
   font-size: 0.5rem;
 }
@@ -83,8 +83,8 @@
 }
 
 .scroller {
+  flex: 1;
   min-width: 0;
-  max-width: 100%;
   overflow-x: auto;
   direction: rtl;
   scrollbar-width: thin;
@@ -94,10 +94,12 @@
 .grid {
   display: grid;
   direction: ltr;
-  grid-template-columns: repeat(53, 0.78rem);
-  grid-template-rows: 1rem repeat(7, 0.78rem);
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  grid-template-rows: 1rem repeat(7, auto);
   gap: 0.18rem;
-  width: max-content;
+  width: 100%;
+  min-width: calc(53 * 8px + 52 * 0.18rem);
+  max-width: calc(53 * 0.78rem + 52 * 0.18rem);
 }
 
 .month {
@@ -107,8 +109,8 @@
 }
 
 .cell {
-  width: 0.78rem;
-  height: 0.78rem;
+  width: 100%;
+  aspect-ratio: 1;
   padding: 0;
   border: 0;
   border-radius: 0.22rem;
@@ -136,7 +138,6 @@
 
 .detailFrame {
   display: grid;
-  min-height: 6rem;
   max-height: 6rem;
   overflow-y: auto;
   margin-top: 0.3rem;

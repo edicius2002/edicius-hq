@@ -150,7 +150,7 @@ it('places live reset summary and calendar above the preserved tweet columns', a
   expect(screen.getByText('6.9d')).toBeInTheDocument();
   expect(screen.getByText('67.7d')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Codex reset history' })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /banked reset.*2026-09-12/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '1 banked reset on 2026-09-12' })).toBeInTheDocument();
   expect(
     screen.queryByText(/Independent tracker; not affiliated with OpenAI/),
   ).not.toBeInTheDocument();

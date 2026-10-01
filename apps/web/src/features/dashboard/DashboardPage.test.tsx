@@ -236,3 +236,18 @@ it('sets the USD/PEN gadget beside the Codex reset cards, above the posts', asyn
     ),
   ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });
+
+it('places PT and EST before the centered title, then PER and ARG after it', () => {
+  stubApi();
+  renderPage();
+
+  const title = screen.getByRole('heading', { level: 1, name: 'Dashboard' });
+  const clocks = ['PT', 'EST', 'PER', 'ARG'].map((label) =>
+    screen.getByLabelText(new RegExp(`^${label} \\d{2}:\\d{2}$`)),
+  );
+
+  expect(clocks[0].compareDocumentPosition(clocks[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(clocks[1].compareDocumentPosition(title)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(title.compareDocumentPosition(clocks[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(clocks[2].compareDocumentPosition(clocks[3])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+});

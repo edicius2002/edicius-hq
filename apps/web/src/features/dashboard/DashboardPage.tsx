@@ -11,6 +11,7 @@ import { fetchTweets, subscribeTweets } from './data/supabaseTweets';
 import { formatBogotaDateTime } from './lib/codexResetCalendar';
 import { UsdPenGadget } from './fx/UsdPenGadget';
 import { CodexResetOverview } from './ui/CodexResetOverview';
+import { ZoneClock } from './ui/ZoneClock';
 import styles from './DashboardPage.module.css';
 
 const HANDLE = 'thsottiaux';
@@ -81,7 +82,17 @@ export function DashboardPage() {
 
   return (
     <section className={styles.page} aria-labelledby="dashboard-title">
-      <PageHeader titleId="dashboard-title" title="Dashboard" className={styles.header} />
+      <div className={styles.titleRow}>
+        <div className={styles.clockPair}>
+          <ZoneClock label="PT" timeZone="America/Los_Angeles" />
+          <ZoneClock label="EST" timeZone="America/New_York" />
+        </div>
+        <PageHeader titleId="dashboard-title" title="Dashboard" className={styles.header} />
+        <div className={styles.clockPair}>
+          <ZoneClock label="PER" timeZone="America/Lima" />
+          <ZoneClock label="ARG" timeZone="America/Argentina/Buenos_Aires" />
+        </div>
+      </div>
       <div className={styles.overview}>
         <CodexResetOverview query={codexResets} now={now} />
         <UsdPenGadget now={now} />

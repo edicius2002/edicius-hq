@@ -54,3 +54,50 @@ it('requests one server page for the latest observation period and refetches on 
   await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(2));
   expect(fetchPage.mock.calls[1][5].minPrice).toBe(100);
 });
+
+it('shows table skeleton rows during the initial request and a later filter request', async () => {
+  fetchPage.mockReset();
+  let settlePage: (value: unknown) => void = () => {};
+  fetchPage.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        settlePage = resolve;
+      }),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <ProjectedFlightTable
+        route={{ origin: 'AQP', destination: 'LIM', months: ['2026-11'], currency: 'USD' }}
+        month="2026-11"
+        revision="1"
+        latestCapture="2026-09-20T10:00:00Z"
+        granularity="day"
+        departure="November 2026"
+        leg={null}
+      />
+    </QueryClientProvider>,
+  );
+  expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
+  expect(document.querySelectorAll('thead th')).toHaveLength(7);
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(1));
+  settlePage({
+    revision: '1',
+    latestCapture: '2026-09-20T10:00:00Z',
+    tracked: 0,
+    inPeriod: 0,
+    shown: 0,
+    page: 1,
+    pageCount: 1,
+    rows: [],
+    facets: { airlines: [], price: null, bands: [], stops: [], durations: [], categories: [] },
+  });
+  await screen.findByText('No itineraries observed yet.');
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Min price' }), {
+    target: { value: '100' },
+  });
+  await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(2));
+  expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
+  expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
+});

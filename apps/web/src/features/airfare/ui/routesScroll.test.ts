@@ -71,6 +71,8 @@ describe('the three-panel airfare row', () => {
     const panelPadding = /padding:\s*var\(--space-3\)/.test(PAGE) ? 15 : 20;
     expect(stage + panelPadding * 2 + 2).toBe(520);
     expect(rule('top', PAGE)).toMatch(/align-items:\s*stretch/);
+    expect(rule('top', PAGE)).toMatch(/height:\s*520px/);
+    expect(rule('top', PAGE)).toMatch(/grid-template-rows:\s*minmax\(0,\s*1fr\)/);
   });
 
   it.each([
@@ -87,7 +89,7 @@ describe('the three-panel airfare row', () => {
     expect(widths[2]).toBeCloseTo(details, 0);
   });
 
-  it('keeps size containment until the phone stack', () => {
+  it('keeps size containment within the fixed desktop row and phone panels', () => {
     const top = rule('top', PAGE);
     expect(top).toMatch(/--airfare-routes-contain:\s*size/);
     expect(top).toMatch(/--airfare-routes-flex:\s*1 1 0/);
@@ -100,8 +102,10 @@ describe('the three-panel airfare row', () => {
     expect(PAGE).not.toContain('@media (max-width: 1080px)');
     const phone = media(PAGE, '(max-width: 640px)');
     expect(phone).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-    expect(phone).toMatch(/--airfare-routes-contain:\s*none/);
-    expect(phone).toMatch(/--airfare-routes-flex:\s*0 1 auto/);
+    expect(phone).toMatch(/--airfare-routes-contain:\s*size/);
+    expect(phone).toMatch(/--airfare-routes-flex:\s*1 1 0/);
+    expect(rule('mapPanel', phone)).toMatch(/height:\s*calc\(100vw \+ 16px\)/);
+    expect(rule('routesPanel', phone)).toMatch(/height:\s*640px/);
   });
 
   it('fits four months inside the narrowest desktop route and form tracks', () => {

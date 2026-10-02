@@ -18,6 +18,7 @@ import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import styles from './RouteList.module.css';
 
@@ -71,6 +72,10 @@ type RouteListProps = {
   onMove: (from: string, to: string) => void;
   transferDisabled?: boolean;
   onImported?: () => void | Promise<void>;
+  /** The stored document is being read, including a later refresh. */
+  loading?: boolean;
+  /** A failed read is not an empty watchlist. */
+  error?: boolean;
 };
 
 /**
@@ -155,6 +160,8 @@ export function RouteList({
   onMove,
   transferDisabled = false,
   onImported = () => undefined,
+  loading = false,
+  error = false,
 }: RouteListProps) {
   /*
    * A press on the panel's own background puts the fields back to adding.
@@ -212,7 +219,9 @@ export function RouteList({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [routes]);
+  }, [routes, loading]);
+
+  const visibleRoutes = loading ? [] : routes;
 
   return (
     <div className={styles.panel} onClick={clearOnBackdrop}>
@@ -235,7 +244,11 @@ export function RouteList({
         onSave={onSave}
       />
 
-      {routes.length === 0 ? (
+      {error && routes.length === 0 ? (
+        <p className={styles.empty} role="alert">
+          Could not load watched routes. Reload to try again.
+        </p>
+      ) : !loading && routes.length === 0 ? (
         <p className={styles.empty} onClick={clearOnBackdrop}>
           No routes watched yet.
         </p>
@@ -245,7 +258,14 @@ export function RouteList({
           a pseudo-element of a scroll container scrolls with its content, and
           a mark pinned to the bottom edge has to stay at the bottom edge.
         */
-        <div className={styles.listBox} data-edge={edge} onClick={clearOnBackdrop}>
+        <div
+          className={styles.listBox}
+          data-edge={loading ? 'none' : edge}
+          onClick={clearOnBackdrop}
+          role={loading ? 'status' : undefined}
+          aria-label={loading ? 'Loading watched routes' : undefined}
+        >
+          {loading ? <span className={styles.sr}>Loading watched routes</span> : null}
           <ul
             className={styles.list}
             ref={scroller}
@@ -261,10 +281,20 @@ export function RouteList({
               scrollable region makes. The name is what that stop announces;
               without it a screen reader reaches an unnamed box.
             */
-            tabIndex={0}
+            tabIndex={loading ? -1 : 0}
+            aria-hidden={loading || undefined}
             aria-label="Watched routes"
           >
-            {routes.map((route) => {
+            {loading
+              ? Array.from({ length: 10 }, (_, index) => (
+                  <li className={styles.skeletonRow} data-testid="route-skeleton" key={index}>
+                    <Skeleton width="40%" height={28} />
+                    <Skeleton width="34%" height={24} />
+                    <Skeleton width="18%" height={24} />
+                  </li>
+                ))
+              : null}
+            {visibleRoutes.map((route) => {
               const id = routeId(route);
               // A month is over only once the calendar has left it. Half a month
               // can be in the past and the rest still worth collecting, which is

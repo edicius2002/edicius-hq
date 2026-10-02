@@ -64,6 +64,20 @@ function rowFor(origin: string, destination: string): HTMLElement {
 }
 
 describe('RouteList', () => {
+  it('fills the list with noninteractive route skeletons while the read is pending', () => {
+    renderList({ routes: [], loading: true });
+    expect(screen.getByRole('status', { name: 'Loading watched routes' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('route-skeleton')).toHaveLength(10);
+    expect(screen.queryByText('No routes watched yet.')).not.toBeInTheDocument();
+    expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
+  });
+
+  it('keeps a failed route read distinct from a settled empty watchlist', () => {
+    renderList({ routes: [], error: true });
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load watched routes');
+    expect(screen.queryByText('No routes watched yet.')).not.toBeInTheDocument();
+  });
+
   it('lists the watched routes', () => {
     renderList();
     expect(rowFor('LIM', 'CUZ')).toBeInTheDocument();

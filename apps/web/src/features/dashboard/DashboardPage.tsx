@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
-import { PageHeader } from '@/shared/ui/PageHeader';
 import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
 
@@ -82,16 +81,15 @@ export function DashboardPage() {
 
   return (
     <section className={styles.page} aria-labelledby="dashboard-title">
+      <h1 id="dashboard-title" className={styles.srOnly}>
+        Dashboard
+      </h1>
       <div className={styles.titleRow}>
-        <div className={styles.clockPair}>
-          <ZoneClock label="PT" timeZone="America/Los_Angeles" />
-          <ZoneClock label="EST" timeZone="America/New_York" />
-        </div>
-        <PageHeader titleId="dashboard-title" title="Dashboard" className={styles.header} />
-        <div className={styles.clockPair}>
-          <ZoneClock label="PER" timeZone="America/Lima" />
-          <ZoneClock label="ARG" timeZone="America/Argentina/Buenos_Aires" />
-        </div>
+        <ZoneClock label="PST" timeZone="Etc/GMT+8" />
+        <ZoneClock label="PT" timeZone="America/Los_Angeles" />
+        <ZoneClock label="PER" timeZone="America/Lima" />
+        <ZoneClock label="EST" timeZone="America/New_York" />
+        <ZoneClock label="ARG" timeZone="America/Argentina/Buenos_Aires" />
       </div>
       <div className={styles.overview}>
         <CodexResetOverview query={codexResets} now={now} />

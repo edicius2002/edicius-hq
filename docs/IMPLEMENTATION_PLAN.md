@@ -192,6 +192,7 @@ D) Airfare archive        → Pi append-only journal → Supabase indexed replic
 | Finance documents                                                  | `finance_documents` in Supabase           | Existing browser RLS read + CAS RPC write contract                                          |
 | Watchlist, prefs, portfolio, alert **rules**, greenlight, drawings | `app_documents` in Supabase               | Revisioned owner documents; Pi holds only last-known-good collector input                   |
 | X posts and operational runs                                       | Supabase `tweet_posts` / `collector_runs` | Browser reads the durable post archive; collector runs remain operational diagnostics       |
+| Dashboard posts and replies                                        | Supabase `tweet_posts`                    | Dashboard shows a rolling 48-hour window; the full archive is kept and nothing is pruned    |
 | CNN Fear & Greed snapshots                                         | Supabase `sentiment_snapshots`            | Durable normalized owner snapshots; Pi cache is disposable                                  |
 | Live quotes / bars                                                 | Supabase `market_quotes` / `market_bars`  | Pi writes replaceable provider cache; client quote bus remains in-memory presentation state |
 | Bars and symbol search                                             | Supabase `collector_requests`             | Owner-scoped request/result queue claimed by the Pi                                         |

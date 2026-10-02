@@ -345,6 +345,20 @@ function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {
 }
 
 describe('RouteMap', () => {
+  it('draws the map at once, with no loading placeholder over the globe', () => {
+    renderMap({ routes: [] });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Map projection' })).toBeInTheDocument();
+  });
+
+  it('offers a retry when airport data fails while the globe stays drawn', async () => {
+    const onRetry = vi.fn();
+    renderMap({ routes: [], error: true, onRetry });
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load map data');
+    await userEvent.click(screen.getByRole('button', { name: 'Retry map' }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it('keeps projection inside the map and leaves zoom to gestures on phones', () => {
     vi.stubGlobal('matchMedia', () => ({
       matches: true,

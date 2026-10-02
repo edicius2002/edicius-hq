@@ -14,6 +14,7 @@ import versor from 'versor';
 import worldAtlas from 'world-atlas/countries-110m.json';
 
 import { useIsNarrow } from '@/app/layout/useIsNarrow';
+import { Button } from '@/shared/ui/Button';
 
 import { flowDelay, polylineLength } from '@/features/airfare/lib/arcFlow';
 import {
@@ -175,10 +176,8 @@ const BOUNDARY_RUNS = cappedRuns(BOUNDARIES as never);
  * this was settled and the globe's radius is `0.42 x min(width, height) x
  * zoom`, so at 460 the short side spanned 1,896 km at 8x and 474 km at 32x,
  * and the ground under one pixel went from 4.12 km to 1.03 km. The short side
- * is 606 at the narrowest viewport and 640 above 1552px since
- * `a-taller-row-is-four-more-routes`, so the ground under one pixel at the
- * ceiling is 0.78 km and 0.74 km — 28% finer than the number this ceiling was
- * chosen against. It is still well inside what the served 1:10m outlines
+ * is now 488px in the fixed desktop row, leaving the ground under one pixel
+ * close to 1 km at the ceiling. It is still inside what the served 1:10m outlines
  * carry, whose own vertices are hundreds of metres apart, so the ceiling holds
  * where it is; what it is not is untouched, and 32x is the rung to look at
  * first if the coastlines ever start to read as polygons.
@@ -307,6 +306,9 @@ type Painted = {
 };
 
 type RouteMapProps = {
+  /** The airport read failed; its retry is owned by the page query. */
+  error?: boolean;
+  onRetry?: () => void;
   routes: RouteGeometry[];
   /** Distinct stop sequences for the selected month, already coordinate-resolved. */
   stopRoutes?: { id: string; points: LngLat[]; viaPoints: string[]; colour: string }[];
@@ -331,6 +333,8 @@ function readToken(element: HTMLElement, name: string): string {
 }
 
 export function RouteMap({
+  error = false,
+  onRetry,
   routes,
   stopRoutes = [],
   selectedId,
@@ -2274,6 +2278,27 @@ export function RouteMap({
             </button>
           ))}
         </div>
+
+        {/*
+          The globe and its outlines are bundled with the page, so the map is
+          drawn at once and never waits behind a placeholder; only the route
+          lines arrive with the data. A failed airport read is a strip along
+          the stage's foot rather than a cover, so the globe stays usable.
+        */}
+        {error ? (
+          <div
+            className={styles.failure}
+            role="alert"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <p>Could not load map data.</p>
+            {onRetry ? (
+              <Button size="small" onClick={onRetry}>
+                Retry map
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
         <svg

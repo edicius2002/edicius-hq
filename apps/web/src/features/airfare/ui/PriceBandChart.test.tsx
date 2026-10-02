@@ -25,9 +25,7 @@ beforeEach(() => {
   // shapes agreeing and not of the chart: `preserveAspectRatio` scales the
   // drawing to fit a box of any other shape and centres it, leaving bars the
   // conversion has to subtract. `crosshair.test.ts` pins that arithmetic, and
-  // the panel this chart lives in currently hands it a box that letterboxes at
-  // every width — measured 373 to 1638 px of chart — so only the vertical
-  // bars are ever non-zero here and this chart reads no `y`. Left at zero the
+  // the panel now gives the wide view the same proportions. Left at zero the
   // component refuses to track — deliberately, because dividing by it would
   // place the crosshair at infinity.
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
@@ -36,13 +34,10 @@ beforeEach(() => {
     top: 0,
     left: 0,
     right: 760,
-    // 284 rather than 260 since 12.232: the plot floor and every point on it
-    // are where they were, but there are twenty-four units of chrome below —
-    // the rail the empty boards are marked on, and a row of its own for the
-    // axis labels.
-    bottom: 284,
+    // Wide columns use the departure chart's 308-unit height.
+    bottom: 308,
     width: 760,
-    height: 284,
+    height: 308,
     toJSON: () => ({}),
   });
 });
@@ -90,26 +85,15 @@ function chart(props: Partial<Parameters<typeof PriceBandChart>[0]> = {}) {
   return screen.getByRole('img');
 }
 
+it('fills the departure plot height in a wide column', () => {
+  const svg = chart();
+  expect(svg).toHaveAttribute('viewBox', '0 0 760 308');
+});
+
 /**
- * A box the drawing does not fill.
- *
- * **This chart's conversion was the same latent bug the departure chart was
- * shipping, and it is correct today only by the luck of the panel's height.**
- * `preserveAspectRatio="xMidYMid meet"` scales a drawing to fit a box of a
- * different shape and centres it, and the blank bars that leaves are not part
- * of the plot. Measured in Chrome on 2026-08-22 by driving the analysis panel's
- * own container query from 300 px of chart width to 1858: this drawing's
- * 760×284 letterboxes at every width from 373 to 1638, so the horizontal bars
- * are zero a side and the old formula and this one agree exactly. **They stop
- * agreeing at about 1658 px of chart** — a stage of roughly 1698 px, which is
- * an ultrawide or a 2560-px monitor at 100% — where the drawing starts to
- * pillarbox and the old formula starts reading a period the reader is not over.
- *
- * That boundary is a fact about `.body`'s `clamp()` and this chart's chrome and
- * not about the chart, so it is not something the chart should be relying on.
- * The pillarboxed case below is the one that is not reachable on the owner's
- * machine today; it is here because the next change to the panel's height
- * decides whether it is.
+ * `preserveAspectRatio="xMidYMid meet"` centers a drawing in a box of another
+ * shape. The empty margins must be removed before mapping a pointer to the
+ * chart's periods.
  */
 describe('a box the drawing does not fill', () => {
   /** Re-mock the box, and hand back where `xMidYMid meet` puts the drawing. */
@@ -125,8 +109,8 @@ describe('a box the drawing does not fill', () => {
       height,
       toJSON: () => ({}),
     });
-    const scale = Math.min(width / 760, height / 284);
-    return { scale, padX: (width - 760 * scale) / 2, padY: (height - 284 * scale) / 2 };
+    const scale = Math.min(width / 760, height / 308);
+    return { scale, padX: (width - 760 * scale) / 2, padY: (height - 308 * scale) / 2 };
   }
 
   it('reads the period the pointer is over in a box wider than the drawing', () => {
@@ -136,7 +120,7 @@ describe('a box the drawing does not fill', () => {
     // own width instead put both of them at about 309, which is period two:
     // the first press read the wrong day and the boundary was 76 units from
     // where it is drawn.
-    const place = boxOf(1400, 284);
+    const place = boxOf(1400, 308);
     expect(place.padX).toBe(320);
     expect(place.padY).toBe(0);
 
@@ -148,14 +132,11 @@ describe('a box the drawing does not fill', () => {
     expect(screen.getByRole('status')).toHaveTextContent('08-18');
   });
 
-  it('is unchanged in a box taller than the drawing, which is every box it gets today', () => {
-    // The measured case, and the reason this change is observably nothing on
-    // this chart: letterboxed, so there is no horizontal bar to subtract and
-    // the two formulas are the same arithmetic. The vertical bar is 68 units
-    // and this chart reads no height — 12.245 — so it costs nothing either.
+  it('reads the same periods in a box taller than the drawing', () => {
+    // Letterboxing adds a vertical margin, but this chart reads no height.
     const place = boxOf(760, 420);
     expect(place.padX).toBe(0);
-    expect(place.padY).toBe(68);
+    expect(place.padY).toBe(56);
 
     const svg = chart();
     fireEvent.pointerMove(svg, { clientX: 248, clientY: 100 });
@@ -167,6 +148,35 @@ describe('a box the drawing does not fill', () => {
 });
 
 describe('PriceBandChart crosshair', () => {
+  it('maps a phone pointer through its compact view', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 640px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 505,
+      bottom: 284,
+      width: 505,
+      height: 284,
+      toJSON: () => ({}),
+    });
+    try {
+      const svg = chart();
+      expect(svg).toHaveAttribute('viewBox', '0 0 505 284');
+      fireEvent.pointerMove(svg, { clientX: 184, clientY: 100 });
+      expect(screen.getByRole('status')).toHaveTextContent('08-17');
+      fireEvent.pointerMove(svg, { clientX: 186, clientY: 100 });
+      expect(screen.getByRole('status')).toHaveTextContent('08-18');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps a phone tap readable after pointerleave without requiring a hover', () => {
     vi.stubGlobal('matchMedia', () => ({
       matches: true,

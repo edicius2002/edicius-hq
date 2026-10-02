@@ -14,10 +14,8 @@
  * outright: size this box as if it were empty.
  *
  * The three values are read from `AirfarePage.module.css` rather than written
- * here, and that is deliberate: containment cannot survive a parent with no
- * height to hand down, so it comes off only on phones, where the panels stack.
- * The page owns that threshold; this file only arranges a row inside its
- * allotted width. Stacked, the rows size themselves up to a ceiling.
+ * here, and that is deliberate: the page gives the panel a fixed height at
+ * every width, so the list remains a scroller even when the panels stack.
  */
 .listBox {
   position: relative;
@@ -100,6 +98,14 @@
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
+}
+
+/* The placeholders use the same row tracks as a watched route at each width. */
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 38.5px;
 }
 
 /* The tab stop the scroller carries needs to be visible when it is taken. */
@@ -550,6 +556,13 @@
 
 /* The narrower desktop track buys room with lines, while the list still scrolls. */
 @media (min-width: 641px) and (max-width: 1400px) {
+  .skeletonRow {
+    display: grid;
+    gap: 3px;
+    min-height: 109.375px;
+    padding-block: 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
   .row {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -577,6 +590,11 @@
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
+  .skeletonRow {
+    min-height: 39px;
+    padding-block: 3px;
+    border-bottom: 1px solid var(--color-border);
+  }
   .panel {
     gap: 8px;
   }

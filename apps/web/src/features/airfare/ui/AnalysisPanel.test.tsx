@@ -175,8 +175,8 @@ beforeEach(() => {
   // clientX is a view unit only where the box shares the drawing's aspect
   // ratio, or where the drawing letterboxes inside it — `preserveAspectRatio`
   // centres a drawing it has to scale, and the bars either side are not part of
-  // the plot. This box is 760×300, which letterboxes chart A's 760×284 with no
-  // horizontal bars at all, and that is the only chart this file points at. It
+  // the plot. This box is 760×308, matching chart A's wide view exactly, and
+  // that is the only chart this file points at. It
   // pillarboxes chart B's 760×338 by 42.7 units a side, so a test that moved a
   // pointer over chart B here would have to place it as the browser paints it,
   // the way 'a box the drawing does not fill' does in `DepartureChart.test.tsx`.
@@ -186,9 +186,9 @@ beforeEach(() => {
     top: 0,
     left: 0,
     right: 760,
-    bottom: 300,
+    bottom: 308,
     width: 760,
-    height: 300,
+    height: 308,
     toJSON: () => ({}),
   });
 });
@@ -239,11 +239,56 @@ it('shows archive loading in both views until existing data arrives', () => {
   const { rerender } = render(
     <Harness historyLoading monthSnapshots={[]} watchedSnapshots={[]} baseline={[]} />,
   );
-  expect(screen.getByText('Loading saved fares…')).toHaveAttribute('role', 'status');
+  expect(screen.getByRole('status')).toHaveTextContent('Loading departure prices');
+  expect(screen.queryByText(/Nothing collected for this route yet/)).not.toBeInTheDocument();
   click(MOVES);
-  expect(screen.getByText('Loading saved fares…')).toHaveAttribute('role', 'status');
+  expect(screen.getByRole('status')).toHaveTextContent('Loading saved fare history');
+  expect(screen.queryByText('No observations yet')).not.toBeInTheDocument();
   rerender(<Harness historyLoading={false} />);
-  expect(screen.queryByText('Loading saved fares…')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('analysis-plot-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByRole('img')).toBeInTheDocument();
+});
+
+it('keeps a plot placeholder while the booking horizon is pending', () => {
+  const { rerender } = render(<Harness curve={null} curveLoading watchedSnapshots={[]} />);
+  expect(screen.getByRole('status')).toHaveTextContent('Loading departure prices');
+  expect(screen.queryByText(/Nothing collected for this route yet/)).not.toBeInTheDocument();
+  rerender(<Harness curveLoading={false} />);
+  expect(screen.queryByTestId('analysis-plot-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByRole('img')).toBeInTheDocument();
+});
+
+it('keeps the desktop departure title and pager footprint through loading', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const { rerender } = render(<Harness historyLoading curveLoading />);
+  expect(screen.getByRole('heading', { name: 'Flights seen · March 2027' })).toBeInTheDocument();
+  expect(screen.getAllByTestId('analysis-plot-skeleton')).toHaveLength(2);
+  expect(screen.getByTestId('analysis-pending-pager')).toBeInTheDocument();
+
+  rerender(<Harness />);
+  expect(screen.getByRole('heading', { name: 'Flights seen · March 2027' })).toBeInTheDocument();
+  expect(screen.queryByTestId('analysis-pending-pager')).not.toBeInTheDocument();
+  expect(screen.getByText(/\d+ \/ \d+/)).toBeInTheDocument();
+});
+
+it('shows the settled empty copy when no route can start a horizon request', () => {
+  render(
+    <Harness
+      route={null}
+      watchedMonths={[]}
+      monthSnapshots={[]}
+      watchedSnapshots={[]}
+      baseline={[]}
+      curve={null}
+      curveLoading
+    />,
+  );
+  expect(screen.queryByTestId('analysis-plot-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByText(/Nothing collected for this route yet/)).toBeInTheDocument();
 });
 
 it('reports a failed archive request and permits retry', () => {
@@ -256,11 +301,11 @@ it('reports a failed archive request and permits retry', () => {
   expect(retry).toHaveBeenCalledOnce();
 });
 
-it('keeps the independently loaded calendar visible while history is pending or unavailable', () => {
+it('keeps the independently loaded calendar visible when history is unavailable', () => {
   const { rerender } = render(
     <Harness historyLoading historyAvailable={false} monthSnapshots={[]} watchedSnapshots={[]} />,
   );
-  expect(screen.getByRole('img')).toHaveAccessibleName(/What each departure date costs/);
+  expect(screen.getByRole('status')).toHaveTextContent('Loading departure prices');
   rerender(
     <Harness
       historyError={new Error('offline')}
@@ -273,6 +318,15 @@ it('keeps the independently loaded calendar visible while history is pending or 
   expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
   click(MOVES);
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
+});
+
+it('keeps settled empty copies in the chart slot', () => {
+  render(<Harness monthSnapshots={[]} watchedSnapshots={[]} baseline={[]} curve={null} />);
+  expect(screen.getByText(/Nothing collected for this route yet/)).toBeInTheDocument();
+  expect(screen.queryByTestId('analysis-plot-skeleton')).not.toBeInTheDocument();
+  click(MOVES);
+  expect(screen.getByText('No observations yet')).toBeInTheDocument();
 });
 
 function click(name: string) {

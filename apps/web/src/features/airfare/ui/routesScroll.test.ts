@@ -119,13 +119,13 @@ describe('the three-panel airfare row', () => {
     expect(narrowForm).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   });
 
-  it('stacks the detail vertically and compacts only its figures on phones', () => {
+  it('fills the detail column while letting the price row wrap in narrow tracks', () => {
     expect(rule('detail', DETAIL)).toMatch(/flex-direction:\s*column/);
-    expect(rule('figures', DETAIL)).toMatch(
-      /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/,
-    );
+    expect(rule('detail', DETAIL)).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rule('body', DETAIL)).toMatch(/justify-content:\s*space-between/);
+    expect(rule('priceLine', DETAIL)).toMatch(/flex-wrap:\s*wrap/);
+    expect(rule('tiles', DETAIL)).toMatch(/display:\s*grid/);
     const phone = media(DETAIL, '(max-width: 640px)');
-    expect(phone).toMatch(/min-height:\s*0/);
-    expect(phone).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) auto/);
+    expect(phone).toMatch(/height:\s*405px/);
   });
 });

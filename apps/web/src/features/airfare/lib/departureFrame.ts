@@ -59,8 +59,8 @@ export type FrameDay = {
  * `onViewportChange` already gives about having one spelling for it.
  *
  * The ranges are deliberately **not** coalesced when two watched months are
- * adjacent. `sourceRuns` below already merges consecutive dates of one source,
- * so joining them here would be a second answer to a question that has one.
+ * adjacent. `sourceSeams` already detects changes between dates,
+ * so joining the ranges here would duplicate that decision.
  */
 export function isWatched(day: string, watched: readonly WatchedRange[]): boolean {
   // String comparison on fixed-width dates, never `Date.parse` — the rule the
@@ -124,176 +124,13 @@ export function sourceSeams(days: FrameDay[]): number[] {
   return seams;
 }
 
-/** A stretch of consecutive dates one archive answers for, in whole days from the frame's start. */
-export type SourceRun = { source: DaySource; from: number; to: number };
-
-/**
- * The frame cut into stretches of one source.
- *
- * `to` is exclusive, so a run's own width is `to - from` days. There can be
- * three of them rather than two, and that is not a curiosity: a watch narrowed
- * to one departure date puts a single board day in the middle of a week, with
- * curve dates on each side of it. `sourceSeams` draws both boundaries; what is
- * labelled is decided by `railLabels`, which does not label runs.
- */
-export function sourceRuns(days: FrameDay[]): SourceRun[] {
-  const runs: SourceRun[] = [];
-  for (const day of days) {
-    const last = runs.at(-1);
-    if (last && last.source === day.source) last.to = day.index + 1;
-    else runs.push({ source: day.source, from: day.index, to: day.index + 1 });
-  }
-  return runs;
-}
-
-/* ------------------------------------------------------------- the rail -- */
-
-/**
- * How wide one glyph of the source rail is, in view units.
- *
- * Measured rather than estimated, in a browser against the live chart: the rail
- * is set at 9px in a 760-unit viewBox, and `getComputedTextLength` reports
- * `one price a date` (16 glyphs) at 87.3 and `every flight, at the hour it
- * departs` (36 glyphs) at 196.3 — 5.456 and 5.453 a glyph. 5.45 is that, and
- * the alternative of measuring at draw time is not available anyway: jsdom does
- * not implement `getComputedTextLength`, so a rule that depended on it could
- * not be tested at all.
- */
-export const RAIL_CHAR_WIDTH = 5.45;
-
-/**
- * What each archive is called on the rail, at two lengths.
- *
- * The short forms are not abbreviations of the long ones for the sake of it:
- * they have to survive being the only thing a reader sees, so each still names
- * the unit its side of the axis is drawn in — an hour on one side, a date on
- * the other, which is the whole distinction the rail exists to carry.
- */
-const RAIL_WORDS: Record<DaySource, { full: string; short: string }> = {
-  board: { full: 'every flight, at the hour it departs', short: 'flights, by hour' },
-  curve: { full: 'one price a date', short: 'one a date' },
-};
-
-export type RailLabel = {
-  source: DaySource;
-  text: string;
-  /** Centre of the label, in view units from the left edge of the plot. */
-  centre: number;
-  /** How wide it will be drawn, so a caller — or a test — can check it fits. */
-  width: number;
-};
-
-function railWidth(text: string): number {
-  return text.length * RAIL_CHAR_WIDTH;
-}
-
-/** Where a centred box of this width sits once it is kept inside the track. */
-function clampCentre(centre: number, width: number, track: number): number {
-  if (width >= track) return track / 2;
-  return Math.min(Math.max(centre, width / 2), track - width / 2);
-}
-
-/**
- * Which archive answered where, as at most one label per archive.
- *
- * **One label per source, not one per run, and that is the fix for a defect
- * found in a browser.** Labelling every run put a second `one price a date`
- * under the tail of `every flight, at the hour it departs` and drew the two
- * through each other: on the owner's own ARI-SCL, whose watch was narrowed to
- * one departure date at the time, the week of 1-7 March is three runs — curve,
- * board, curve — and the third run's label was centred 94 units from the
- * second's, which is 47 units less than half their combined width. No watch can
- * build that frame since 12.260 took the focus away — a watched month is either
- * the whole of a month frame or disjoint from it, so two runs is the most this
- * page produces — and the rule stays written for any number of them, because it
- * is a rule about a run list rather than about what one caller sends today. The rail failed silently there:
- * it did not look broken, it looked like garbled text under the axis, which is
- * worse. Repeating a source's name was never worth anything either — the rail
- * answers "which archive answers where", and saying "one price a date" twice
- * says nothing the seams have not already said.
- *
- * Each label goes on its source's **widest** run, which is the stretch with the
- * most room and the one a reader's eye goes to. It takes the longest wording
- * that fits inside that run, and where even the short form does not fit it is
- * still drawn, overhanging: a label centred on a one-date stretch between two
- * seams still points at it, and dropping the name of the only stretch that is
- * hard to identify from its marks would be the rail failing at its job.
- *
- * What is never allowed is two labels crossing. The guard below is enforced
- * rather than argued from the geometry: shorten both, and if the short forms
- * still cross, keep the source that covers more of the frame — on a tie the
- * boards, because a bar is legible as a whole-date price on its own while a
- * column of dots needs the clock named before it means anything.
- */
-export function railLabels(days: FrameDay[], track: number): RailLabel[] {
-  const runs = sourceRuns(days);
-  if (runs.length === 0 || track <= 0) return [];
-  const unit = track / days.length;
-
-  const chosen = new Map<DaySource, { run: SourceRun; dates: number }>();
-  for (const run of runs) {
-    const dates = run.to - run.from;
-    const held = chosen.get(run.source);
-    // Strictly wider wins, so a tie keeps the earlier run and the rail does not
-    // jump between two equal stretches as the reader steps.
-    if (!held || dates > held.dates) chosen.set(run.source, { run, dates });
-  }
-
-  type Placed = RailLabel & { dates: number };
-  const place = (
-    source: DaySource,
-    entry: { run: SourceRun; dates: number },
-    short: boolean,
-  ): Placed => {
-    const words = RAIL_WORDS[source];
-    const fits = railWidth(words.full) <= entry.dates * unit;
-    const text = !short && fits ? words.full : words.short;
-    const width = railWidth(text);
-    const centre = clampCentre(((entry.run.from + entry.run.to) / 2) * unit, width, track);
-    return { source, text, centre, width, dates: entry.dates };
-  };
-
-  const crossing = (labels: Placed[]) =>
-    labels.some((label, index) => {
-      const next = labels[index + 1];
-      return next !== undefined && next.centre - next.width / 2 < label.centre + label.width / 2;
-    });
-
-  const drawn = (labels: Placed[]): RailLabel[] =>
-    labels.map((label) => ({
-      source: label.source,
-      text: label.text,
-      centre: label.centre,
-      width: label.width,
-    }));
-
-  const laid = (short: boolean) =>
-    [...chosen.entries()]
-      .map(([source, entry]) => place(source, entry, short))
-      .sort((a, b) => a.centre - b.centre);
-
-  const spread = laid(false);
-  if (!crossing(spread)) return drawn(spread);
-
-  const tight = laid(true);
-  if (!crossing(tight)) return drawn(tight);
-
-  return drawn([
-    tight.reduce((best, label) =>
-      label.dates > best.dates || (label.dates === best.dates && label.source === 'board')
-        ? label
-        : best,
-    ),
-  ]);
-}
-
 /**
  * One curve date as it is drawn: a span rather than a point, because the price
  * is for the whole date.
  *
  * `from` and `to` are its own two midnights, so the mark is exactly as wide as
  * the day it is about and claims nothing about an hour inside it. `centre` is
- * for the rail mark and the crosshair's tag, which need one x and not two — the
+ * for the absence mark and the crosshair's tag, which need one x and not two — the
  * same middle-of-the-day placement `absentDays` already uses, and for the same
  * reason: a mark on a midnight sits on the separator between two dates and
  * reads as belonging to neither.

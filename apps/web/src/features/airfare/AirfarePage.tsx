@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   formatFlightMonth,
+  monthOf,
   openingMonth,
   readingMonth,
   routeId,
@@ -15,10 +16,16 @@ import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { useRouteView } from '@/features/airfare/hooks/useRouteView';
+import { bucketKey, periodBounds, type Granularity } from '@/features/airfare/lib/buckets';
 import { airportPoint, legKey, pairKey, routeGeometries } from '@/features/airfare/lib/geo';
 import { routeColour } from '@/features/airfare/lib/palette';
 import { pairReference } from '@/features/airfare/lib/pairReference';
-import { cheapestDeparture, snapshotsFor, snapshotsForMonths } from '@/features/airfare/lib/series';
+import {
+  cheapestDeparture,
+  monthInsights,
+  snapshotsFor,
+  snapshotsForMonths,
+} from '@/features/airfare/lib/series';
 import { AnalysisPanel, ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
@@ -190,6 +197,7 @@ export function AirfarePage() {
     view: routeView,
     openOn,
     openMonthOf,
+    followMonth,
     setGranularity,
     setAnchor,
     setViewport,
@@ -269,6 +277,30 @@ export function AirfarePage() {
     () => snapshotsForMonths([...snapshots, ...secondaryBoards], watchedMonths),
     [snapshots, secondaryBoards, watchedMonths],
   );
+  const collectedMonths = useMemo(
+    () => new Set(watchedSnapshots.map((snapshot) => monthOf(snapshot.flightDate))),
+    [watchedSnapshots],
+  );
+
+  /*
+   * A period belongs to the month of its first day. Chart B may anchor a week
+   * on Tuesday's first saved board, so slicing the anchor itself would call a
+   * 29 March to 4 April week "April" if its first board were on 1 April.
+   * Follow only a watched month with a saved board and a loaded projection:
+   * the curve can lead the frame beyond the archive, and a pending secondary
+   * request has not yet told us whether that month was collected.
+   */
+  const followAnchorMonth = (anchor: string | null, period: Granularity) => {
+    if (anchor === null) return;
+    const frameMonth = monthOf(periodBounds(bucketKey(anchor, period), period).from);
+    if (
+      watchedMonths.includes(frameMonth) &&
+      !unavailableMonths.includes(frameMonth) &&
+      collectedMonths.has(frameMonth)
+    ) {
+      followMonth(frameMonth);
+    }
+  };
   /*
    * What this city pair usually costs — a whole-pair server summary, rather
    * than a calculation over the bounded snapshots used by the charts.
@@ -290,7 +322,7 @@ export function AirfarePage() {
   // one belongs to whichever departure the collector reached last, which says
   // something about the pacing and nothing about the fares.
   const latest = useMemo(() => cheapestDeparture(snapshots), [snapshots]);
-  const insights = latest?.insights ?? null;
+  const insights = useMemo(() => monthInsights(snapshots, latest), [snapshots, latest]);
   const health = history.data?.health ?? null;
   const stopRoutes = useMemo(() => {
     /*
@@ -479,10 +511,9 @@ export function AirfarePage() {
       */}
 
       {/*
-        The map and watchlist share the top row. The panels are grid
-        children rather than two stacked columns, which is what makes the map
-        and the watchlist share a row — and so a height — instead of each
-        column growing to its own content.
+        The map, watchlist and flight details are grid children so the map's
+        stage gives all three panels one height. The list spends that height
+        inside its own scroller rather than making the row taller.
       */}
       <div className={styles.top}>
         <Panel className={`${styles.tall} ${styles.panel} ${styles.visualPanel}`}>
@@ -620,6 +651,20 @@ export function AirfarePage() {
           />
         </Panel>
 
+        <Panel className={`${styles.tall} ${styles.panel}`}>
+          <h2 className={styles.panelTitle}>Flight details</h2>
+          <RouteDetail
+            route={selected}
+            month={reading}
+            latest={latest}
+            insights={insights}
+            health={health}
+            cities={cities}
+            /* A pending archive is not an empty one; keep the detail's loading copy honest. */
+            loading={history.isPending}
+          />
+        </Panel>
+
         {/*
           "Last collection" stood here and is withdrawn with the button that
           filled it. It said what a pass looked at, changed, failed and skipped
@@ -632,31 +677,7 @@ export function AirfarePage() {
       </div>
 
       {/*
-        The route's own figures, across the page and one strip tall. At this
-        width a stacked column of four numbers is mostly empty space with
-        everything below it pushed down.
-      */}
-      <Panel className={styles.panel}>
-        <RouteDetail
-          route={selected}
-          month={reading}
-          latest={latest}
-          insights={insights}
-          health={health}
-          cities={cities}
-          /*
-            The whole panel is derived from `history.data`, and a query whose
-            key has just changed has none — so choosing a second route made the
-            strip claim, for the length of the request, that the first thing it
-            had ever been asked about had never been collected. The same wiring
-            the analysis panel got in 12.237, for the same reason.
-          */
-          loading={history.isPending}
-        />
-      </Panel>
-
-      {/*
-        The analysis runs the full width, under both columns. Its own component
+        The analysis runs the full width, under all three columns. Its own component
         since 12.170: the three views, the two switches and the period the
         reader is on are one mechanism, and the period has to outlive the view
         that shows it — which it cannot do if it is state inside one of them.
@@ -702,9 +723,15 @@ export function AirfarePage() {
           curveError={calendar.error}
           reference={reference}
           granularity={granularity}
-          onGranularityChange={setGranularity}
+          onGranularityChange={(next) => {
+            setGranularity(next);
+            followAnchorMonth(routeView.anchor, next);
+          }}
           anchor={routeView.anchor}
-          onAnchorChange={setAnchor}
+          onAnchorChange={(next) => {
+            setAnchor(next);
+            followAnchorMonth(next, granularity);
+          }}
           viewport={routeView.viewport}
           onViewportChange={setViewport}
           /*

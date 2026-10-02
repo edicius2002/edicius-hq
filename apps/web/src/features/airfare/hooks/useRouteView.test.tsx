@@ -181,6 +181,32 @@ describe('useRouteView', () => {
 });
 
 describe('the month a watch is being read at', () => {
+  it('follows a chart frame without moving its anchor, zoom or period', () => {
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useRouteView(LIM_SCL, '2026-10');
+    });
+
+    act(() => result.current.setGranularity('week'));
+    act(() => result.current.setAnchor('2026-11-03'));
+    act(() => result.current.setViewport({ start: 2880, span: 1440 }));
+    act(() => result.current.followMonth('2026-11'));
+
+    expect(result.current.view).toEqual({
+      month: '2026-11',
+      granularity: 'week',
+      anchor: '2026-11-03',
+      viewport: { start: 2880, span: 1440 },
+    });
+
+    const held = result.current.view;
+    const before = renders;
+    act(() => result.current.followMonth('2026-11'));
+    expect(result.current.view).toBe(held);
+    expect(renders).toBe(before);
+  });
+
   it('re-anchors and drops the zoom, and keeps the period', () => {
     /*
      * `setGranularity`'s two halves, for the same two reasons. A different

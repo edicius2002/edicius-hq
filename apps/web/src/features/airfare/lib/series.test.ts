@@ -13,6 +13,7 @@ import {
   formatStamp,
   latestPerDeparture,
   median,
+  monthInsights,
   priceStats,
   snapshotsFor,
   snapshotsForMonths,
@@ -133,6 +134,108 @@ describe('cheapestDeparture', () => {
     ]);
     expect(best?.flightDate).toBe('2026-10-17');
     expect(cheapestDeparture([])).toBeNull();
+  });
+});
+
+describe('monthInsights', () => {
+  const own = { typical: 49, usualLow: 40, usualHigh: 75 };
+  const fallback = { typical: 55, usualLow: 45, usualHigh: 80 };
+
+  it('keeps the cheapest board’s own insights even when another board is newer', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57], { insights: own });
+    const newer = snapshot('2026-08-19T10:31:00+00:00', [90], {
+      flightDate: '2026-10-17',
+      insights: fallback,
+    });
+
+    expect(monthInsights([newer, cheapest], cheapest)).toEqual(own);
+  });
+
+  it('uses the newest current board with insights when the cheapest board has none', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57]);
+    const older = snapshot('2026-08-19T10:10:00+00:00', [80], {
+      flightDate: '2026-10-17',
+      insights: own,
+    });
+    const newest = snapshot('2026-08-19T10:30:00+00:00', [90], {
+      flightDate: '2026-10-18',
+      insights: fallback,
+    });
+
+    expect(monthInsights([newest, cheapest, older], cheapest)).toEqual(fallback);
+  });
+
+  it('does not revive insights superseded by a newer board for the same departure', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57]);
+    const oldInsight = snapshot('2026-08-19T10:00:00+00:00', [90], {
+      flightDate: '2026-10-17',
+      insights: own,
+    });
+    const newWithoutInsights = snapshot('2026-08-19T10:30:00+00:00', [90], {
+      flightDate: '2026-10-17',
+    });
+
+    expect(monthInsights([oldInsight, newWithoutInsights, cheapest], cheapest)).toBeNull();
+  });
+
+  it('keeps fallback inside the cheapest board’s route and departure month', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57]);
+    const sameMonth = snapshot('2026-08-19T10:20:00+00:00', [90], {
+      flightDate: '2026-10-17',
+      insights: own,
+    });
+    const otherMonth = snapshot('2026-08-19T10:40:00+00:00', [90], {
+      flightDate: '2026-11-17',
+      insights: fallback,
+    });
+    const otherRoute = snapshot('2026-08-19T10:50:00+00:00', [90], {
+      destination: 'BOG',
+      insights: fallback,
+    });
+
+    expect(monthInsights([otherRoute, otherMonth, sameMonth, cheapest], cheapest)).toEqual(own);
+  });
+
+  it('breaks equal capture times by departure date regardless of input order', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57]);
+    const earlierDate = snapshot('2026-08-19T10:30:00+00:00', [90], {
+      flightDate: '2026-10-17',
+      insights: own,
+    });
+    const laterDate = snapshot('2026-08-19T10:30:00+00:00', [90], {
+      flightDate: '2026-10-18',
+      insights: fallback,
+    });
+
+    expect(monthInsights([laterDate, earlierDate, cheapest], cheapest)).toEqual(fallback);
+    expect(monthInsights([earlierDate, laterDate, cheapest], cheapest)).toEqual(fallback);
+  });
+
+  it('chooses an insight-bearing board when the same departure has tied captures', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57]);
+    const withInsights = snapshot('2026-08-19T10:30:00+00:00', [90], {
+      flightDate: '2026-10-17',
+      insights: own,
+    });
+    const withoutInsights = snapshot('2026-08-19T10:30:00+00:00', [90], {
+      flightDate: '2026-10-17',
+    });
+
+    expect(monthInsights([withoutInsights, withInsights, cheapest], cheapest)).toEqual(own);
+    expect(monthInsights([withInsights, withoutInsights, cheapest], cheapest)).toEqual(own);
+  });
+
+  it('can use a scoped month’s insights when no board has a priced offer', () => {
+    const unpriced = snapshot('2026-08-19T10:30:00+00:00', [], { insights: own });
+
+    expect(monthInsights([unpriced], null)).toEqual(own);
+  });
+
+  it('returns null for all-null or empty boards', () => {
+    const cheapest = snapshot('2026-08-19T10:15:00+00:00', [57]);
+
+    expect(monthInsights([cheapest], cheapest)).toBeNull();
+    expect(monthInsights([], null)).toBeNull();
   });
 });
 

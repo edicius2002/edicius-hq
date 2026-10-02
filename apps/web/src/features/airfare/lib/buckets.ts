@@ -157,6 +157,19 @@ export function boundsLabel(bounds: PeriodBounds): string {
   return `between ${formatFlightDate(fromDay)} ${fromClock} and ${formatFlightDate(toDay)} ${toClock}`;
 }
 
+/**
+ * One calendar label for the visible crosshair row. Its spoken counterpart
+ * keeps the full clocks in `boundsLabel`; printing both here duplicates the
+ * axis tag and spends the narrow chart's width on a fixed 00:00–23:59 window.
+ * Keep both years when a week crosses New Year so the shorter range stays clear.
+ */
+export function compactBoundsLabel(bounds: PeriodBounds): string {
+  const from = formatFlightDate(bounds.from.slice(0, 10));
+  const to = formatFlightDate(bounds.to.slice(0, 10));
+  if (from === to) return from;
+  return `${from.slice(6) === to.slice(6) ? from.slice(0, 5) : from}–${to}`;
+}
+
 function labelFor(key: string, granularity: Granularity): string {
   if (granularity === 'month') return key;
   if (granularity === 'week') return key.replace('-W', ' wk ');
@@ -208,8 +221,10 @@ export function summarise(key: string, label: string, prices: number[]): Bucket 
 export type BucketAxis = {
   /** The noun for one bucket, singular and plural — `week`, `lead week`. */
   unit: { one: string; many: string };
-  /** What a key covers, spelled out for the readout and the live region. */
+  /** What a key covers, spelled out for the live region. */
   spell: (key: string) => string;
+  /** One compact visible label for that same period. */
+  compact: (key: string) => string;
   /** The order the keys are drawn in, left to right. */
   order: (a: string, b: string) => number;
   /**
@@ -228,16 +243,6 @@ export type BucketAxis = {
    * while every axis in this app runs forwards left to right.
    */
   position: (key: string) => number;
-  /**
-   * What the second, dashed series is: the two or three words beside its
-   * swatch, and the sentence a reader gets by pointing at it.
-   *
-   * Two fields because the legend became marks rather than sentences — a label
-   * is read by looking from the line on the chart to the same line in the row,
-   * and the explanation is what the reader wants once they have found it.
-   */
-  baselineLegend: string;
-  baselineMeaning: string;
 };
 
 /** `2026-08-17` → whole days since the epoch, by the rule the rest of this file splits dates by. */
@@ -258,14 +263,13 @@ export function calendarAxis(granularity: Granularity): BucketAxis {
   return {
     unit: { one: granularity, many: `${granularity}s` },
     spell: (key) => boundsLabel(periodBounds(key, granularity)),
+    compact: (key) => compactBoundsLabel(periodBounds(key, granularity)),
     order: (a, b) => a.localeCompare(b),
     // The first day of what the key covers, through `periodBounds` rather than
     // through arithmetic of its own — the same inverse of `bucketKey` the
     // caption and the crosshair go through, so no two of them can disagree
     // about which Monday a week starts on.
     position: (key) => dayNumber(periodBounds(key, granularity).from.slice(0, 10)),
-    baselineLegend: 'Usually costs',
-    baselineMeaning: 'What the provider says it usually costs — one rounded figure a day',
   };
 }
 

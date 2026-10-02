@@ -50,7 +50,7 @@ describe('Airfare mobile layout contracts', () => {
   it('keeps chart metadata at the right edge without reserving an empty row', () => {
     expect(rule('AnalysisPanel', '.chartMeta')).toMatch(/justify-content:\s*end/);
     expect(rule('AnalysisPanel', '.chartMeta')).not.toMatch(/min-height/);
-    expect(rule('AnalysisPanel', '.body')).toContain('calc(56.24cqw + 60px)');
+    expect(mobile('AnalysisPanel')).not.toMatch(/44\.99cqw/);
   });
 
   it.each([
@@ -61,6 +61,9 @@ describe('Airfare mobile layout contracts', () => {
     ['RouteEditor', '.monthChip'],
     ['RouteEditor', '.form input'],
     ['FlightTable', '.filter select'],
+    ['FlightTable', '.flightLink'],
+    ['FlightTable', '.sort'],
+    ['FlightTable', '.pager button'],
   ])('%s keeps %s compact but at least 32px tall on phones', (file, selector) => {
     expect(rule(file, selector)).toMatch(/min-height:\s*32px/);
   });
@@ -74,6 +77,7 @@ describe('Airfare mobile layout contracts', () => {
 
   it('keeps the flight table scroll local and filters within their tracks', () => {
     expect(rule('FlightTable', '.scroller')).toMatch(/overflow-x:\s*auto/);
+    expect(rule('FlightTable', '.head')).toMatch(/display:\s*grid/);
     expect(rule('FlightTable', '.filters')).toMatch(/repeat\(2, minmax\(0, 1fr\)\)/);
   });
 
@@ -81,9 +85,9 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule('PriceBandChart', '.chart')).toMatch(/touch-action:\s*pan-y pinch-zoom/);
   });
 
-  it('gives band-chart crosshair readouts their own reserved space', () => {
-    expect(rule('PriceBandChart', '.readout')).toMatch(/position:\s*static/);
-    expect(rule('PriceBandChart', '.readout')).toMatch(/min-height:\s*56px/);
+  it('draws band-chart crosshair readouts over the plot without a reserved row', () => {
+    expect(rule('PriceBandChart', '.readout')).not.toMatch(/position:\s*static/);
+    expect(rule('PriceBandChart', '.readout')).not.toMatch(/min-height/);
   });
   it('keeps airport labels beside their fields and flight filters on compact inline tracks', () => {
     expect(rule('RouteEditor', '.airports > div')).toMatch(
@@ -101,13 +105,11 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule('RouteMap', '.switch')).toMatch(/top:\s*8px/);
     expect(rule('RouteMap', '.switch')).toMatch(/right:\s*8px/);
   });
-  it('places detail labels beside values and gives long carrier and range values a full row', () => {
+  it('pairs detail labels with values and keeps the usual range readable across the row', () => {
     expect(rule('RouteDetail', '.figures > div')).toMatch(
       /grid-template-columns:\s*minmax\(0, 1fr\) auto/,
     );
-    expect(rule('RouteDetail', '.figures > div:nth-last-child(-n + 2)')).toMatch(
-      /grid-column:\s*1 \/ -1/,
-    );
+    expect(rule('RouteDetail', '.range')).toMatch(/grid-template-columns:\s*auto minmax\(0, 1fr\)/);
     expect(rule('RouteDetail', '.figures dt')).toMatch(/margin-bottom:\s*0/);
   });
 });

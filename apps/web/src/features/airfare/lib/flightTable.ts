@@ -1,9 +1,4 @@
-import {
-  boundsLabel,
-  bucketKey,
-  periodBounds,
-  type Granularity,
-} from '@/features/airfare/lib/buckets';
+import { bucketKey, periodBounds, type Granularity } from '@/features/airfare/lib/buckets';
 import {
   flightKey,
   trackFlights,
@@ -59,11 +54,10 @@ export type ObservationWindow = {
  * to find something in.
  *
  * The bounds used to be the first and last observation inside the bucket, and
- * that quietly understated the claim: a week whose only collection landed on
- * the Tuesday was announced as "on 18/08/2026" while the rows underneath were
- * everything the whole Monday-to-Sunday week had seen. Now the sentence and
- * the set are the same set — `periodBounds` gives 00:00 on the first day to
- * 23:59 on the last, and nothing outside those two stamps is counted.
+ * that quietly understated the period: a week whose only collection landed on
+ * Tuesday still covers the whole Monday-to-Sunday week. `periodBounds` gives
+ * 00:00 on the first day to 23:59 on the last, and nothing outside those two
+ * stamps is counted.
  *
  * Keyed through `bucketKey` and bounded through `periodBounds` rather than
  * through date arithmetic of its own, so the table's idea of a week cannot
@@ -83,18 +77,6 @@ export function observationWindow(
   }
   if (key === null) return null;
   return { key, ...periodBounds(key, granularity) };
-}
-
-/**
- * The period, in words, so the reader can check it against what they meant.
- *
- * "The most recent week" is an interpretation of the granularity switch, and
- * an unstated interpretation is one nobody can correct. The wording itself is
- * `buckets.boundsLabel`'s, shared with the chart's crosshair so the two panels
- * cannot describe the same period in two different ways.
- */
-export function windowLabel(period: ObservationWindow | null): string {
-  return period === null ? '' : boundsLabel(period);
 }
 
 /* --------------------------------------------------------------- the rows -- */
@@ -346,8 +328,8 @@ function inBand(hour: number | null, band: TimeBand): boolean {
  *
  * A row that cannot answer a question fails it rather than passing: a flight
  * with no duration is not "under four hours", and a departure with no clock is
- * not an evening flight. Both are dropped, and the caption above the table
- * says how many rows the filters took — decisions 8.8 and 8.41, applied to a
+ * not an evening flight. Both are dropped, and the screen-reader status says
+ * how many rows the filters took — decisions 8.8 and 8.41, applied to a
  * table instead of to a quote.
  */
 export function filterRows(rows: FlightRow[], filters: Filters): FlightRow[] {
@@ -562,38 +544,13 @@ export function pageOf(rows: FlightRow[], page: number, size = PAGE_SIZE): PageS
 
 /* --------------------------------------------------------- what is hidden -- */
 
-export type SummaryFacts = {
-  period: ObservationWindow | null;
-  /** Flights seen in the period, before any filter. */
-  inPeriod: number;
-  /** Flights left after the filters. */
-  shown: number;
-  /** Flights the archive has ever seen on this route. */
-  tracked: number;
-};
-
 /**
- * The caption, which has to say what the table is not showing.
- *
- * A table that reports "3 itineraries" reads as the whole board — decisions
- * 8.8 and 8.41 again: what was dropped travels beside what was kept, and says
- * why it was dropped. Two facts, in the order a reader needs them: which
- * stretch of watching this is, and how much of it the filters took.
- *
- * Where in the pages the reader is used to be a third sentence here, and it is
- * gone with 12.253 — the pager under the table has said `Page 1 of 2` beside
- * its own buttons all along, and one page number is enough. It is the pager's
- * because that is where a reader who wants a different page is looking.
+ * Announce a filter change without reserving a visible line under the board.
+ * The pager already gives the current page; this count describes the filtered
+ * set across all pages, so a screen reader does not mistake ten rows for all
+ * the flights still matching the filters.
  */
-export function tableSummary(facts: SummaryFacts): string {
-  const { period, inPeriod, shown, tracked } = facts;
-  const flights = `${inPeriod} flight${inPeriod === 1 ? '' : 's'}`;
-  const window = period === null ? '' : ` seen ${windowLabel(period)}`;
-  const archive = tracked > inPeriod ? `, of ${tracked} ever observed on this route` : '';
-
-  const sentences = [`${flights}${window}${archive}.`];
-  if (shown < inPeriod) {
-    sentences.push(`${shown} shown, ${inPeriod - shown} hidden by filters.`);
-  }
-  return sentences.join(' ');
+export function filterStatus(inPeriod: number, shown: number): string {
+  const flights = `${shown} flight${shown === 1 ? '' : 's'} shown`;
+  return shown < inPeriod ? `${flights}; ${inPeriod - shown} hidden by filters.` : `${flights}.`;
 }

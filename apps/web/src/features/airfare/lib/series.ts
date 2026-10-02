@@ -1,5 +1,5 @@
 import { monthOf } from '@/features/airfare/data/fareRoutes';
-import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
+import type { FareInsights, FareOffer, FareSnapshot } from '@/shared/api/fares';
 
 /**
  * Turning an archive into something you can read.
@@ -203,6 +203,58 @@ export function cheapestDeparture(snapshots: FareSnapshot[]): FareSnapshot | nul
     bestPrice = offer.price;
   }
   return best;
+}
+
+/**
+ * Provider context for the cheapest board in the month being read.
+ *
+ * Google Flights can omit its insights block on one search even when nearby
+ * departures carry it. Keep the cheapest board's own context when it exists;
+ * otherwise borrow the newest available context from this route and month.
+ * Reduce to the latest board per departure first, so an older insight does not
+ * survive a newer board for that same departure which no longer has one.
+ * Callers pass the reading month's snapshots; the cheapest board also anchors
+ * route and month when present, so an unscoped archive cannot leak another
+ * route or month's figures into the detail panel.
+ */
+export function monthInsights(
+  snapshots: FareSnapshot[],
+  cheapest: FareSnapshot | null,
+): FareInsights | null {
+  if (cheapest?.insights) return cheapest.insights;
+
+  const candidates = cheapest
+    ? snapshots.filter(
+        (snapshot) =>
+          snapshot.origin === cheapest.origin &&
+          snapshot.destination === cheapest.destination &&
+          monthOf(snapshot.flightDate) === monthOf(cheapest.flightDate),
+      )
+    : snapshots;
+  // Equal capture times can occur in repeated archive rows. Put an insight
+  // bearing board first for that departure before the reducer keeps one; the
+  // value key makes even two differing insight blocks independent of file order.
+  const insightKey = (value: FareInsights | null) =>
+    JSON.stringify([value?.typical ?? null, value?.usualLow ?? null, value?.usualHigh ?? null]);
+  const current = latestPerDeparture(
+    [...candidates].sort(
+      (a, b) =>
+        Number(b.insights !== null) - Number(a.insights !== null) ||
+        insightKey(a.insights).localeCompare(insightKey(b.insights)),
+    ),
+  );
+  let newest: FareSnapshot | null = null;
+  for (const snapshot of current) {
+    if (snapshot.insights === null) continue;
+    if (
+      newest === null ||
+      snapshot.capturedAt > newest.capturedAt ||
+      (snapshot.capturedAt === newest.capturedAt && snapshot.flightDate > newest.flightDate)
+    ) {
+      newest = snapshot;
+    }
+  }
+  return newest?.insights ?? null;
 }
 
 /**

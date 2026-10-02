@@ -92,7 +92,7 @@ function bodyRows() {
   return screen.getAllByRole('row').slice(1);
 }
 
-/** The page number beside the buttons, not the one in the caption. */
+/** The page number beside the buttons. */
 function pagerText(): string {
   const pager = screen.getByRole('navigation', { name: 'Flight table pages' });
   return within(pager).getByText(/^Page /).textContent ?? '';
@@ -168,9 +168,7 @@ describe('FlightTable', () => {
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Flights seen');
   });
 
-  it('states the stretch of watching the rows come from', () => {
-    // The period is an interpretation of the switch above the chart, and an
-    // unstated interpretation is one nobody can correct.
+  it('keeps the historical summary off the panel while naming the table accessibly', () => {
     render(
       <FlightTable
         snapshots={[SNAPSHOT, { ...SNAPSHOT, capturedAt: '2026-08-18T12:00:00+00:00' }]}
@@ -179,12 +177,11 @@ describe('FlightTable', () => {
         leg={LEG}
       />,
     );
-    expect(
-      screen.getByText(/2 flights seen between 17\/08\/2026 00:00 and 23\/08\/2026 23:59/),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/flights seen between|ever observed/)).not.toBeInTheDocument();
+    expect(screen.getByText('2 flights shown.')).toHaveClass(/srOnly/);
   });
 
-  it('shows only the flights the newest day saw, and counts the ones it did not', () => {
+  it('shows only the flights the newest day saw without a visible archive sentence', () => {
     render(
       <FlightTable
         snapshots={[
@@ -198,9 +195,8 @@ describe('FlightTable', () => {
     );
 
     expect(bodyRows()).toHaveLength(1);
-    expect(
-      screen.getByText(/1 flight seen on 18\/08\/2026, 00:00 to 23:59, of 2 ever observed/),
-    ).toBeTruthy();
+    expect(screen.queryByText(/ever observed|flight seen on/)).not.toBeInTheDocument();
+    expect(screen.getByText('1 flight shown.')).toHaveClass(/srOnly/);
   });
 
   it('marks every column as sortable and says which one is in force', async () => {
@@ -281,14 +277,14 @@ describe('FlightTable', () => {
     expect(select).toHaveAttribute('title', 'Aerolineas Argentinas');
   });
 
-  it('says how many rows a filter took away, rather than reporting the rest as the board', async () => {
+  it('announces filtered rows without putting a summary sentence on the panel', async () => {
     render(
       <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
     );
 
     await userEvent.selectOptions(screen.getByLabelText('Airline'), 'AV');
     expect(bodyRows()).toHaveLength(1);
-    expect(screen.getByText(/1 shown, 1 hidden by filters/)).toBeInTheDocument();
+    expect(screen.getByText('1 flight shown; 1 hidden by filters.')).toHaveClass(/srOnly/);
   });
 
   it('pages ten at a time and reaches the rest with a labelled control', async () => {
@@ -433,7 +429,7 @@ describe('FlightTable', () => {
     await userEvent.type(screen.getByLabelText('Min price'), '999');
     expect(bodyRows()).toHaveLength(0);
     expect(screen.getByText(/hidden by the filters above/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 shown, 2 hidden by filters/)).toBeInTheDocument();
+    expect(screen.getByText('0 flights shown; 2 hidden by filters.')).toHaveClass(/srOnly/);
   });
 
   /* --------------------------------------------- the link out to the airline -- */

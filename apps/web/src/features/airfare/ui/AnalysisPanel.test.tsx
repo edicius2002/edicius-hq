@@ -163,6 +163,13 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
 }
 
 beforeEach(() => {
+  // Existing interaction tests exercise the phone's one-chart switch. Desktop
+  // tests opt into the wide branch explicitly, since jsdom has no viewport.
+  vi.stubGlobal('matchMedia', () => ({
+    matches: true,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
   // jsdom measures every element as 0x0 and both charts convert a client
   // coordinate into their own viewBox before reading anything from it. A
   // clientX is a view unit only where the box shares the drawing's aspect
@@ -184,6 +191,41 @@ beforeEach(() => {
     height: 300,
     toJSON: () => ({}),
   });
+});
+
+it('shows both charts and the departure controls without a chart toggle on desktop', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  render(<Harness />);
+
+  expect(screen.queryByRole('group', { name: 'Chart' })).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'How the price moved' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Flights seen · March 2027' })).toBeInTheDocument();
+  expect(screen.getAllByRole('img')).toHaveLength(2);
+  expect(
+    screen.getByRole('group', { name: 'How much time one period covers' }),
+  ).toBeInTheDocument();
+  click('Day');
+  press('Next day');
+  expect(screen.getByText('2 / 31')).toBeInTheDocument();
+});
+
+it('keeps the desktop route heading on the selected month while the departure title follows its frame', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  render(<Harness />);
+  click('Next month');
+
+  expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
+  expect(
+    screen.getByRole('heading', { name: 'Cheapest per date · April 2027' }),
+  ).toBeInTheDocument();
 });
 
 function press(label: string, times = 1) {
@@ -485,7 +527,7 @@ describe('the controls that are gone', () => {
     expect(document.querySelector('[inert]')).toBeNull();
   });
 
-  it('draws both charts inside one box that the switch does not replace', () => {
+  it('keeps one phone chart inside the same box as the switch changes', () => {
     /*
      * The structural half of `both-charts-share-one-fixed-box`. **jsdom lays
      * nothing out**, so nothing here can assert the height that decision is
@@ -493,10 +535,9 @@ describe('the controls that are gone', () => {
      * after, and this test cannot see a pixel of it.
      *
      * What it can pin is the arrangement the height rests on: there is one box,
-     * both charts are rendered inside it, and changing chart does not replace
-     * it. A future edit that returns either chart to being a direct child of the
-     * panel would take its height back from the box without failing anything
-     * else, and this is the assertion that notices.
+     * only the chosen chart mounts, and changing chart does not replace the box.
+     * A future edit that mounts both expensive charts on a phone would fail the
+     * count even if CSS kept one of them hidden.
      */
     const { container } = render(<Harness />);
     const box = () => container.querySelector('[class*="body"]');
@@ -504,16 +545,19 @@ describe('the controls that are gone', () => {
     const before = box();
     expect(before).not.toBeNull();
     expect(before).toContainElement(screen.getByRole('img'));
+    expect(screen.getAllByRole('img')).toHaveLength(1);
 
     openDeparture();
     // The same node, not merely another one matching: a box torn down and
     // rebuilt per chart is a box that can be a different size per chart.
     expect(box()).toBe(before);
     expect(before).toContainElement(screen.getByRole('img'));
+    expect(screen.getAllByRole('img')).toHaveLength(1);
 
     click(MOVES);
     expect(box()).toBe(before);
     expect(before).toContainElement(screen.getByRole('img'));
+    expect(screen.getAllByRole('img')).toHaveLength(1);
   });
 
   it('keeps the period the reader chose across a change of chart', () => {
@@ -614,8 +658,8 @@ describe('the name of the chart that follows what it draws', () => {
     press('Next week', 4);
 
     expect(chartName()).toBe('Flights and cheapest per date');
-    expect(screen.getByTestId('source-board')).toBeInTheDocument();
-    expect(screen.getByTestId('source-curve')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('source-curve')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('source-seam')).toHaveLength(1);
   });
 
@@ -680,7 +724,7 @@ describe('where the reader may walk', () => {
     openDeparture();
     click('Month');
     expect(screen.queryByLabelText('Next month')).not.toBeInTheDocument();
-    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent('');
+    expect(screen.queryByTestId('horizon-note')).not.toBeInTheDocument();
   });
 });
 
@@ -779,7 +823,7 @@ describe('a watch on several months, drawn in one chart', () => {
     press('Next month', 2);
 
     expect(chartName()).toBe('Flights seen');
-    expect(screen.getByTestId('source-board')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
     expect(screen.queryByTestId('source-curve')).not.toBeInTheDocument();
   });
 

@@ -11,9 +11,9 @@ import CSS_SOURCE from './RouteDetail.module.css?inline';
  * The panel that answers "what is this route, and should I care today".
  *
  * Two things it has to keep getting right: the header says which route and
- * when in as few words as possible, and every figure lands on one row. This
- * suite pins the wording; the row count is a measured thing and lives in the
- * stylesheet's own comments.
+ * when in as few words as possible, and the five figures follow the reader's
+ * decision order. This suite pins their words and order; fit is measured in
+ * the browser and explained beside the stylesheet rules.
  */
 
 const ROUTE = {
@@ -127,31 +127,33 @@ describe('RouteDetail', () => {
     expect(screen.queryByText(/last look/i)).not.toBeInTheDocument();
   });
 
-  it('carries what the board holds as figures, not as sentences', () => {
+  it('shows five figures in reading order, with the usual range on its own row', () => {
     /*
-     * Four figures, on one row. The board date, the looks taken, the changes
-     * and the failures were asked for and removed; whether the collector is
-     * running is still readable from the "Last look" line in the header above,
-     * which is where it now says so alone.
+     * The price and context lead; the chosen departure follows, and the
+     * baseline range has a whole row. The board date, collector counts and
+     * discarded offer counts do not compete with that decision.
      */
     const { container } = renderDetail();
     const boxes = container.querySelectorAll('dl');
-    // One list, not two: the money and the board share a row.
+    // One definition list keeps each label attached to its value.
     expect(boxes).toHaveLength(1);
     const figures = boxes[0] as HTMLElement;
-    for (const label of [
+    expect(Array.from(figures.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual([
       'Cheapest now',
-      'Dearest on board',
       'Usually',
+      'Cheapest on',
       'Vs usual',
+      'Usual range',
+    ]);
+    for (const gone of [
+      'Dearest on board',
       'Itineraries',
       'Airlines',
-      'Cheapest on',
-      'Usual range',
+      'Board date',
+      'Looks taken',
+      'Changes',
+      'Failed',
     ]) {
-      expect(within(figures).getByText(label)).toBeInTheDocument();
-    }
-    for (const gone of ['Board date', 'Looks taken', 'Changes', 'Failed']) {
       expect(within(figures).queryByText(gone)).not.toBeInTheDocument();
     }
     // The last look stays in the compact header, even before a board exists.
@@ -187,7 +189,11 @@ describe('RouteDetail', () => {
   it('asks for a collection rather than showing empty figures', () => {
     renderDetail({ latest: null, insights: null });
     expect(screen.getByText(/nothing observed yet/i)).toBeInTheDocument();
-    expect(screen.queryByText('Itineraries')).not.toBeInTheDocument();
+    expect(Array.from(document.querySelectorAll('dl dt'), (dt) => dt.textContent)).toEqual([
+      'Cheapest now',
+      'Usually',
+      'Vs usual',
+    ]);
   });
 
   it('says what to do when no route is open at all', () => {
@@ -223,12 +229,12 @@ describe('RouteDetail', () => {
     expect(screen.queryByText(/reading the archive/i)).not.toBeInTheDocument();
   });
 
-  it('puts the waiting sentence in the box the figures would have filled', () => {
+  it('keeps waiting and settled notes in the same reserved detail box', () => {
     /*
-     * Both sentences are `.note .wide`, and `.wide` is what carries the
-     * reserved height — so the strip is the same height whichever of the two
-     * is standing where the board box would be. The last `<p>` in the panel is
-     * that sentence; the ones before it are the header's.
+     * Both sentences occupy the same position in `.detail`. The panel's
+     * height is reserved by the map on desktop and by `.detail` on phones;
+     * changing which sentence is shown cannot change the box's geometry.
+     * The last `<p>` is that sentence; the earlier ones are the header's.
      */
     const noteOf = (loading: boolean) => {
       const paragraphs = renderDetail({
@@ -244,7 +250,7 @@ describe('RouteDetail', () => {
     const settled = noteOf(false);
     expect(waiting.textContent).toMatch(/reading the archive/i);
     expect(settled.textContent).toMatch(/nothing observed yet/i);
-    // Two classes, and the same two: one is the prose, the other is the height.
+    // Both states use the same note treatment inside the reserved detail.
     expect(waiting.className.split(/\s+/)).toHaveLength(2);
     expect(waiting.className).toBe(settled.className);
   });
@@ -315,105 +321,38 @@ function reserved(local: string): number {
   return total;
 }
 
-/** The label above every figure, plus the gap it leaves under itself. */
-function labelBlock(): number {
-  const label = /font-size:\s*([\d.]+)rem/.exec(
-    new RegExp(`\\._figures_[0-9a-z]+ dt\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
-  );
-  expect(label, 'the figure labels must declare a rem font size').not.toBeNull();
-  const margin = /margin-bottom:\s*(\d+)px/.exec(
-    new RegExp(`\\._figures_[0-9a-z]+ dt\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
-  );
-  return Number(label?.[1]) * REM_PX * LINE_HEIGHT + Number(margin?.[1] ?? NaN);
-}
-
-/** Padding at both ends plus a border at both ends, off the `.figures` rule. */
-function boxChrome(): number {
-  const padding = /padding:\s*(\d+)px\s+\d+px/.exec(rule('figures'));
-  expect(padding, '.figures must declare its padding in px').not.toBeNull();
-  const border = /border:\s*(\d+)px solid/.exec(rule('figures'));
-  expect(border, '.figures must declare its border in px').not.toBeNull();
-  return 2 * Number(padding?.[1]) + 2 * Number(border?.[1]);
-}
-
-describe('the height the route strip holds', () => {
-  it('reserves the one figure box a label and two lines of value, which is the fold', () => {
-    /*
-     * One box now, holding the money and the board together on a single row.
-     * Two lines and not one, because `Aerolineas Argentinas · 14:35` folds
-     * between its two words rather than being cut short —
-     * `a-figure-takes-what-it-holds`, which is not withdrawn — and this is the
-     * room that fold spends. The box is the same height whether it is taken or
-     * not.
-     */
-    expect(REM_PX).toBe(20);
-    const value = /font-size:\s*([\d.]+)rem/.exec(
-      new RegExp(`\\._figures_[0-9a-z]+ dd\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
-    );
-    expect(value, '.figures dd must declare a rem font size').not.toBeNull();
-    const twoLines = 2 * Number(value?.[1]) * REM_PX * LINE_HEIGHT;
-
-    expect(reserved('figures')).toBeCloseTo(labelBlock() + twoLines + boxChrome(), 5);
+describe('the vertical flight detail column', () => {
+  it('places route identity, figures and note in one readable flow', () => {
+    expect(rule('detail')).toMatch(/display:\s*flex/);
+    expect(rule('detail')).toMatch(/flex-direction:\s*column/);
+    expect(rule('detail')).toMatch(/overflow-wrap:\s*anywhere/);
   });
 
-  it('keeps the cheapest fare loud enough to cost no height', () => {
-    /*
-     * `.big` was 1.2rem when it set the height of a box of four. The box holds
-     * eight now and has to fit them on one line, so the emphasis is carried by
-     * weight and a little size instead — and this is the check that "a little"
-     * stays inside what the box already reserves. The day it does not, the
-     * strip starts growing under a long carrier name again.
-     */
-    const value = /font-size:\s*([\d.]+)rem/.exec(
-      new RegExp(`\\._figures_[0-9a-z]+ dd\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '',
-    );
-    const twoLines = 2 * Number(value?.[1]) * REM_PX * LINE_HEIGHT;
-
-    expect(fontSize('big')).toBeGreaterThan(Number(value?.[1]) * REM_PX);
-    expect(fontSize('big') * LINE_HEIGHT).toBeLessThanOrEqual(twoLines);
+  it('gives paired figures two shrinking columns and the range a full row', () => {
+    const figures = rule('figures');
+    expect(figures).toMatch(/display:\s*grid/);
+    expect(figures).toMatch(/grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(figures).toMatch(/align-content:\s*start/);
+    expect(figures).not.toMatch(/height:\s*\d/);
+    expect(rule('range')).toMatch(/grid-column:\s*1\s*\/\s*-1/);
   });
 
-  it('reserves the header three lines, so route states never move the figures', () => {
-    /*
-     * "Last look …" is there only where the collector has been, so its line
-     * remains reserved. The board date moves into `.wide`, whose two-line
-     * reserve already holds it, and the header loses one whole line without
-     * making the strip jump between route states.
-     */
+  it('lets a carrier name fold inside its figure instead of touching its neighbor', () => {
+    const value = new RegExp(`\\._figures_[0-9a-z]+ dd\\s*\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
+    expect(value).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rule('clock')).toMatch(/white-space:\s*nowrap/);
+  });
+
+  it('keeps the optional last look from moving the figures', () => {
     const gap = Number(/gap:\s*(\d+)px/.exec(rule('head'))?.[1] ?? NaN);
     const lines = fontSize('pair') * LINE_HEIGHT + 2 * fontSize('cities') * LINE_HEIGHT + 2 * gap;
-
     expect(reserved('head')).toBeCloseTo(lines, 5);
   });
 
-  it('uses 4px vertical padding so both figure boxes stay compact without clipping', () => {
-    expect(boxChrome()).toBe(10);
-  });
-
-  it('keeps only 6px between the detail boxes instead of a loose outer gap', () => {
-    expect(rule('detail')).toMatch(/gap:\s*6px\s+var\(--space-4\)/);
-  });
-
-  it('lets a fold spend the reserve rather than ask for more room', () => {
-    // `align-content: start` packs the flex lines at the top and leaves the
-    // reserve underneath them. Without it the lines spread through the box and
-    // a second one changes where every figure sits.
-    expect(rule('figures')).toMatch(/align-content:\s*start/);
-    expect(rule('figures')).toMatch(/flex-wrap:\s*wrap/);
-  });
-
-  it('reserves rather than caps, so nothing is ever painted outside the box', () => {
-    /*
-     * A ceiling is what `both-charts-share-one-fixed-box` used, and it was
-     * right there because chart B overshot the floor always and by a known
-     * amount. Here the case that overshoots is a value needing a third line at
-     * a width the strip has already stacked at, and a ceiling would put the
-     * overflow outside the border — the ink-on-ink this branch exists to
-     * remove, arriving by a different door.
-     */
-    for (const local of ['figures', 'wide', 'head']) {
-      expect(rule(local)).not.toMatch(/(^|[^-])height:\s/);
-      expect(rule(local)).not.toMatch(/overflow:\s*hidden/);
-    }
+  it('makes the stacked phone detail shorter by dropping its header reserve', () => {
+    const phone = CSS.slice(CSS.indexOf('@media (max-width: 640px)'));
+    expect(phone).toMatch(/min-height:\s*0/);
+    expect(phone).toMatch(/min-height:\s*143px/);
+    expect(phone).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) auto/);
   });
 });

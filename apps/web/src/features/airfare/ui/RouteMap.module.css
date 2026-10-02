@@ -100,6 +100,19 @@
   outline-offset: 2px;
 }
 
+/* The projection switch still fits on a 641px page's narrower map stage. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .switch {
+    top: 8px;
+    right: 8px;
+    padding: 1px;
+  }
+  .switch button {
+    padding: 3px 4px;
+    font-size: 0.55rem;
+  }
+}
+
 .stage {
   /*
    * Nothing in here is text to be read; it is a map to be handled. Without
@@ -110,8 +123,8 @@
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-  /* Keep the map tall enough to size the shared map and watchlist row. */
-  min-height: 710px;
+  /* A 488px stage plus 15px panel gutters and borders sets a 520px row. */
+  min-height: 488px;
   flex: 1;
   overflow: hidden;
   border: 1px solid var(--color-border);

@@ -85,23 +85,23 @@
 }
 
 /*
- * Twelve cells, six across and two down.
+ * Twelve cells, six across and two down at the wider desktop widths.
  *
- * **Six per row and not four**, so a row is half a year: three rows of four
- * would cost one more row of height than two rows of six, and this form is
- * already spending the panel's height budget — see `routesScroll.test`, which
- * holds the arithmetic this strip feeds.
+ * At 1400px and below the watchlist track narrows, so four across take three
+ * rows. The extra row costs 23.82px plus a 5px gap, inside the scroller's
+ * 420px-stage height budget; forcing six across would clip chip labels.
  *
  * Full width rather than the three tracks the label leaves, because twelve
  * cells do not fit in them. Twelve children over six columns is two rows by
  * construction: there is no wrapper to lose count of, and no explicit row
  * template to fall out of step with the number of months in a year.
  *
- * **Measured at the panel's floor**, where the form has 398px of content. Six
- * tracks and five 5px gaps leave (398 − 25) / 6 = 62.17px a cell, against
- * 23.76px for `Jan` at 0.66rem and 12px of padding — 35.76px used, 26px
- * standing. The height is the load-bearing figure: 13.2 × 1.35 line + 4 padding
- * + 2 border = 23.82px a row, so two rows and a 5px gap are 52.64px.
+ * At 1518px the 492px watchlist has 460px after its 15px gutters and borders.
+ * Six tracks and five 5px gaps leave (460 − 25) / 6 = 72.5px per chip; `Jan`
+ * spends 23.76px in type plus 10px of padding and 2px of border. At 641px the
+ * 179px track leaves 147px, and four chips with 2px padding spend 119.04px
+ * plus 15px of gaps. The chip height remains 23.82px, so three rows cost
+ * 81.46px including their two 5px gaps.
  */
 .months {
   grid-column: 1 / -1;
@@ -208,6 +208,51 @@
   margin: 0;
   color: var(--color-danger);
   font-size: 0.85rem;
+}
+
+/* Narrow desktop uses two field columns and three rows of four month tabs. */
+@media (min-width: 641px) and (max-width: 1400px) {
+  .form {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .airports {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .airports > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+  .groupLabel {
+    grid-column: 1;
+  }
+  .year {
+    grid-column: 2;
+    flex-wrap: wrap;
+  }
+  .months {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .monthChip {
+    padding-inline: 2px;
+  }
+  .elsewhere {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* At the 641px edge a half-width field cannot hold "Destination". */
+@media (min-width: 641px) and (max-width: 760px) {
+  .form,
+  .airports {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .groupLabel,
+  .year {
+    grid-column: 1;
+  }
 }
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */

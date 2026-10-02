@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Granularity } from '@/features/airfare/lib/buckets';
-import { anchorFor, framePeriodKeys, RAIL_CHAR_WIDTH } from '@/features/airfare/lib/departureFrame';
+import { anchorFor, framePeriodKeys } from '@/features/airfare/lib/departureFrame';
 import {
   activeKey,
   departureDays,
@@ -33,9 +33,8 @@ import type { CalendarCurve, CalendarPoint, FareOffer, FareSnapshot } from '@/sh
 /**
  * The chart's own viewBox, mirrored so a client coordinate is a view unit.
  *
- * 308 rather than 338: the plot floor is where it always was and every dot with
- * it, but the chrome below it lost a row when the crosshair's plate stopped
- * taking one of its own and moved onto the date labels instead.
+ * 308 rather than 338: the outer drawing stays fixed while the plot takes the
+ * space freed by the removed source captions below its date labels.
  */
 const VIEW = { width: 760, height: 308 };
 
@@ -806,7 +805,7 @@ describe('pinning the reading', () => {
      * `nearestPlaced` has no cut-off, so without `PIN_REACH` this handler would
      * answer every press anywhere on the plot and the reader would lose copy,
      * translate, back and inspect over the whole panel. Below the plot floor is
-     * the axis and the source rail, which are drawn text and nothing else.
+     * the axis, which is drawn text and no flight mark.
      */
     const { container } = chart();
     const svg = container.querySelector('svg')!;
@@ -1130,12 +1129,11 @@ describe('a period that straddles the end of the watched month', () => {
     expect(seams[0].getAttribute('x1')).toBe(third);
   });
 
-  it('names which archive answered on each side of it', () => {
+  it('keeps the seam without visible archive captions', () => {
     straddling();
-    expect(screen.getByTestId('source-board')).toHaveTextContent(
-      'every flight, at the hour it departs',
-    );
-    expect(screen.getByTestId('source-curve')).toHaveTextContent('one price a date');
+    expect(screen.getAllByTestId('source-seam')).toHaveLength(1);
+    expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('source-curve')).not.toBeInTheDocument();
   });
 
   it('spans a curve date across the whole date rather than putting it at an hour', () => {
@@ -1166,7 +1164,7 @@ describe('a period that straddles the end of the watched month', () => {
     // The note says nothing while the horizon is simply collected: the capture
     // stamp was chrome under a chart whose axis already names the month, and
     // the detail strip above still carries the time for anyone who wants it.
-    expect(screen.getByTestId('horizon-note-live')).toHaveTextContent('');
+    expect(screen.queryByTestId('horizon-note')).not.toBeInTheDocument();
   });
 
   it('does not claim the newest collection for a price an older one answered', () => {
@@ -1199,7 +1197,7 @@ describe('a period that straddles the end of the watched month', () => {
 
   it('says nothing about age where every price came from the same collection', () => {
     straddling();
-    expect(screen.getByTestId('horizon-note-live')).not.toHaveTextContent('carried over');
+    expect(screen.queryByTestId('horizon-note')).not.toBeInTheDocument();
     expect(screen.queryByTestId('curve-day-carried')).toBeNull();
   });
 
@@ -1300,7 +1298,7 @@ describe('a frame with no boards in it at all', () => {
     { departureDate: '2027-05-05', price: 91 },
   ]);
 
-  it('draws the curve alone, with no seam and one source named', () => {
+  it('draws the curve alone, with no seam or source caption', () => {
     const { container } = chart({ granularity: 'month', curve: CURVE });
     fireEvent.click(screen.getByLabelText('Next month'));
     fireEvent.click(screen.getByLabelText('Next month'));
@@ -1308,7 +1306,7 @@ describe('a frame with no boards in it at all', () => {
     expect(frameLabel(container)).toContain('between 01/05/2027 00:00 and 31/05/2027 23:59');
     expect(screen.queryByTestId('source-seam')).toBeNull();
     expect(screen.queryByTestId('source-board')).toBeNull();
-    expect(screen.getByTestId('source-curve')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-curve')).not.toBeInTheDocument();
     expect(dots(container)).toHaveLength(0);
     expect(screen.getAllByTestId('curve-day')).toHaveLength(2);
   });
@@ -1326,7 +1324,7 @@ describe('a frame with no boards in it at all', () => {
     // A calendar month is the watched one or it is not, so the mixed case a
     // reader goes looking for here does not exist.
     const { container } = chart({ granularity: 'month', curve: CURVE });
-    expect(screen.getByTestId('source-board')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
     expect(screen.queryByTestId('source-curve')).toBeNull();
     expect(frameLabel(container)).toContain('5 flights');
   });
@@ -1396,8 +1394,8 @@ describe('a departure date in the frame with no flight on it', () => {
     const y = Number(
       screen.getAllByTestId('day-unsold')[0].querySelector('rect')!.getAttribute('y'),
     );
-    // The plot runs from y=14 to y=266; the rail is at 273.
-    expect(y).toBeGreaterThan(266);
+    // The plot runs from y=14 to y=280; the absence rail is at 287.
+    expect(y).toBeGreaterThan(280);
   });
 
   it('says nothing at all about a week every day of which was flown', () => {
@@ -1566,21 +1564,14 @@ describe('a whole month of departures', () => {
 
 describe('a watched range narrower than the frame', () => {
   /**
-   * The frame the rail defect was found in, on the owner's own ARI-SCL.
-   *
-   * That watch carried a focus date at the time, so the page narrowed the
-   * boards to one departure and the week around it was three stretches: curve,
-   * board, curve. Every earlier test here has two, which is exactly why
-   * nothing caught the rail drawing a second `one price a date` through the
-   * board label.
+   * A narrow watch puts curve dates on both sides of a board date, so the
+   * chart needs both source seams even though it no longer captions the runs.
    *
    * **No watch produces this frame since 12.260**, which took the focus away:
    * a watched month is either the whole of a month frame or disjoint from it,
-   * so two stretches is the most the page can build. It is kept because this
-   * component is handed a `watched` range rather than a route, and the rule it
-   * broke is a rule about stretches — one that held only for the ranges one
-   * caller sends today would break the next time a caller sent something else,
-   * and this is the frame that has already caught it out once.
+   * so two stretches is the most the page can build. This component still
+   * accepts an arbitrary watched range, and the seams describe its actual
+   * boundaries rather than assuming the page's current input shape.
    */
   const ONE_DAY = [
     snapshot('2027-03-06', [
@@ -1596,10 +1587,8 @@ describe('a watched range narrower than the frame', () => {
       price: 62.94,
     })),
   );
-  // Kept as a range narrower than a month, which is the whole reason `watched`
-  // is a list of ranges rather than a list of months: no caller can send this
-  // any more, and it is the only frame that produces the three runs
-  // `railLabels`' collision guard exists for.
+  // A range narrower than a month exercises the two-seam case no page watch
+  // currently sends.
   const FOCUS: WatchedRange[] = [{ from: '2027-03-06', to: '2027-03-06' }];
 
   function focused(granularity: Granularity = 'week') {
@@ -1615,44 +1604,8 @@ describe('a watched range narrower than the frame', () => {
   it('marks both boundaries around the single board date', () => {
     focused();
     expect(screen.getAllByTestId('source-seam')).toHaveLength(2);
-  });
-
-  it('names each archive exactly once, however many stretches it holds', () => {
-    // Two labels, not three. `getByTestId` throws on a duplicate, which is the
-    // assertion: before the fix there were two `source-curve` nodes.
-    focused();
-    expect(screen.getByTestId('source-board')).toBeInTheDocument();
-    expect(screen.getByTestId('source-curve')).toBeInTheDocument();
-    expect(screen.getAllByTestId(/^source-(board|curve)$/)).toHaveLength(2);
-  });
-
-  it('draws no two rail labels through each other', () => {
-    const { container } = focused();
-    const labels = [
-      ...container.querySelectorAll('[data-testid^="source-board"], [data-testid^="source-curve"]'),
-    ]
-      .map((node) => {
-        const centre = Number(node.getAttribute('x'));
-        // The same width arithmetic the placement used; jsdom has no
-        // `getComputedTextLength` to measure the rendered glyphs with.
-        const width = (node.textContent ?? '').length * RAIL_CHAR_WIDTH;
-        return { from: centre - width / 2, to: centre + width / 2 };
-      })
-      .sort((a, b) => a.from - b.from);
-
-    for (let index = 1; index < labels.length; index += 1) {
-      expect(labels[index].from).toBeGreaterThanOrEqual(labels[index - 1].to);
-    }
-  });
-
-  it('keeps naming both archives when the boards are one date of a whole month', () => {
-    // The narrowest stretch this chart can produce: one date out of thirty-one
-    // is 21 units of track against 87 of glyphs. The label overhangs rather
-    // than vanishing, because the stretch it names is the one a reader cannot
-    // identify from its marks alone.
-    focused('month');
-    expect(screen.getByTestId('source-board')).toHaveTextContent('flights, by hour');
-    expect(screen.getByTestId('source-curve')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-board')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('source-curve')).not.toBeInTheDocument();
   });
 });
 
@@ -2011,8 +1964,8 @@ describe('the pair median across the plot', () => {
      * shared-scale trade in miniature: it spends the frame's resolution.
      */
     const { container } = chart({ reference: { value: 40, dates: 31, asOf: '2026-08-22' } });
-    // The plot floor is 266 and the rail below it is at 273.
-    expect(referenceY(container)).toBe(266);
+    // The plot floor is 280 and the absence rail below it is at 287.
+    expect(referenceY(container)).toBe(280);
     expect(container.querySelector('[data-testid="pair-reference"]')).toHaveAttribute(
       'data-fall',
       'below',

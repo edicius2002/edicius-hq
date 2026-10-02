@@ -91,7 +91,7 @@ export function ProjectedFlightTable({
         throw new Error('Saved fares changed while loading flights. Retry to refresh.');
       }
       // Retain the labels with their rows while a different month/period loads.
-      return { data: result, period, departure };
+      return { data: result, departure };
     },
     enabled: from !== null && to !== null,
   });
@@ -109,7 +109,6 @@ export function ProjectedFlightTable({
       error={query.error}
       onRetry={() => void query.refetch()}
       remote={{
-        period: shown?.period ?? period,
         data: shown?.data ?? null,
         criteria,
         onCriteriaChange: setCriteria,

@@ -15,10 +15,9 @@
  *
  * The three values are read from `AirfarePage.module.css` rather than written
  * here, and that is deliberate: containment cannot survive a parent with no
- * height to hand down, so it has to come off in the stacked layout — and the
- * width where the page stacks is that file's decision, stated once. A second
- * copy of `1080px` in this file is exactly the number that would drift.
- * Stacked, the rows size themselves again and stop at a ceiling instead.
+ * height to hand down, so it comes off only on phones, where the panels stack.
+ * The page owns that threshold; this file only arranges a row inside its
+ * allotted width. Stacked, the rows size themselves up to a ceiling.
  */
 .listBox {
   position: relative;
@@ -322,49 +321,11 @@
 }
 
 /*
- * The collect control, and why it is a mark rather than a word.
- *
- * Measured, at 1rem = 20px — `tokens.css` sets `--font-size-base: 125%`, so
- * every rem below is twenty pixels and not sixteen. **This is also where the
- * width of the whole panel is decided**, because the row is the widest thing
- * in it: `AirfarePage.module.css` cites the floor below rather than keeping a
- * second copy of it.
- *
- * The panel column is `minmax(22rem, 23rem)`; at its 23rem ceiling that is
- * 460px, less the panel's 1px borders and its `--space-4` (20px) padding
- * either side, leaving 418px of content. Remove is a `small` ghost button:
- * `Remove` at 0.8rem is six monospace advances of 16 × 0.6, so 57.6px, plus
- * 2 × `--space-2` of padding and 2px of border — 79.6px. The collect mark is
- * 12px inside the same padding and border, 34px. With the row's two 10px gaps
- * and the route button's own 22px of padding and border, 155.6px of the row is
- * spoken for before a word of it is drawn, leaving the route button 262.4px.
- *
- * Its content, at the same 0.6em advance: an 8px swatch, a 7px gap, the pair
- * at 0.78rem (`LIM ` 37.44 + `→` at 0.62rem 7.44 + ` CUZ` 37.44 = 82.32), a
- * 7px gap, and **one** leg at 0.66rem — arrow 8.4 + 2px + the month, which
- * 12.110 made a name and a year rather than a date, so `September 2027` is
- * fourteen advances of 7.92 = 110.88, and the leg is 121.28. That is 225.6px
- * used and **36.8px spare**.
- *
- * The two-date row this comment used to be about is gone with 12.113, and with
- * it the 186.2px it spent on legs — which is the whole reason the column could
- * come in from 27rem without the row noticing.
- *
- * A second *text* button still does not fit. `Collect` is seven advances,
- * 67.2px, plus the same 22px of chrome and the row's 10px gap: 99.2px against
- * 36.8, so the mark is not a preference. A 12px mark is 34px, 44px with its
- * gap, and the accessible name carries the whole sentence — nothing is lost
- * but the ink.
- *
- * **The binding row is a departed one, and it is the panel's floor.** A
- * departed route drops the collect control (−34px, and −10 with its gap) but
- * gains a `Departed` span, which is a fourth child of a three-track grid: it
- * lands in a second row under the swatch and widens that `auto` track from 8px
- * to eight advances of 0.65rem, 62.4px. Net +10.4px. So the worst row needs
- * 391.6px of panel content — 433.6px of column, 21.68rem — and 22rem is that
- * rounded up. Below it the `1fr` date track has `min-width: 0` and will not
- * push back: the month simply overruns its track and paints across the
- * control beside it, which is `fix/route-detail-fits` arriving in a new panel.
+ * The collect mark keeps the action compact. Below 1401px the route identity,
+ * four-column month grid, and actions occupy separate lines: the 179px panel
+ * at a 641px viewport has 147px inside its 15px gutters, enough for four
+ * 31.76px month tabs and three 3px gaps (136.04px). Actions use their own
+ * line instead of borrowing those pixels and hiding a tab or a route code.
  */
 .collect {
   /* Square rather than wide: the padding is `.small`'s, and with no text
@@ -585,6 +546,33 @@
 
 .item:active {
   cursor: grabbing;
+}
+
+/* The narrower desktop track buys room with lines, while the list still scrolls. */
+@media (min-width: 641px) and (max-width: 1400px) {
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding-block: 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .route,
+  .months,
+  .actions {
+    grid-column: 1;
+  }
+  .route {
+    width: 100%;
+    min-height: 28px;
+  }
+  .months {
+    grid-template-columns: repeat(4, auto);
+  }
+  .actions {
+    justify-self: end;
+    margin-left: 0;
+  }
 }
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */

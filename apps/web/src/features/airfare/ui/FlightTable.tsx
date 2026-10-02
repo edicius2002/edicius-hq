@@ -13,6 +13,7 @@ import {
   TIME_BANDS,
   durationLabel,
   facetsOf,
+  filterStatus,
   filterRows,
   isFiltered,
   nextSort,
@@ -21,7 +22,6 @@ import {
   sortRows,
   stopsLabel,
   tableRows,
-  tableSummary,
   type ChangeCategory,
   type FlightRow,
   type Filters,
@@ -73,7 +73,6 @@ type FlightTableProps = {
    */
   leg: { origin: string; destination: string; originCountry: string | null } | null;
   remote?: {
-    period: import('@/features/airfare/lib/flightTable').ObservationWindow | null;
     data: FareFlightPage | null;
     criteria: { filters: Filters; sort: Sort; page: number };
     onCriteriaChange: (next: { filters: Filters; sort: Sort; page: number }) => void;
@@ -168,7 +167,7 @@ function SortHeader({
  * 09/03/2027` this replaced. Eleven characters of the row bought back.
  *
  * The date is the *departure* — which day's board these flights were on. The
- * caption under the table carries a different date, the day the collector
+ * chart above carries a different date, the day the collector
  * looked, and the two now sit a table apart saying different things. That is
  * known and deliberately not reconciled here: which of them a heading should
  * carry is a decision about the product, not about this row, and quietly
@@ -396,7 +395,6 @@ export function FlightTable({
     [localRows.rows, localFilters, localSort],
   );
   const rows = remote?.data?.rows ?? (remote ? [] : localRows.rows);
-  const period = remote ? remote.period : localRows.period;
   const tracked = remote ? (remote.data?.tracked ?? 0) : localRows.tracked;
   const inPeriod = remote ? (remote.data?.inPeriod ?? 0) : rows.length;
   const shown = remote ? (remote.data?.shown ?? 0) : localVisible.length;
@@ -442,13 +440,6 @@ export function FlightTable({
       </div>
     );
   }
-
-  const summary = tableSummary({
-    period,
-    inPeriod,
-    shown,
-    tracked,
-  });
 
   return (
     <div className={styles.wrap} aria-busy={updating}>
@@ -631,18 +622,13 @@ export function FlightTable({
             ))}
           </colgroup>
           {/*
-          Under the rows rather than over them — 12.253. It is still the
-          table's `<caption>`, so it is still the thing a screen reader reads
-          when it enters the table, and it is still announced when it changes,
-          because filtering is exactly the moment a reader needs to hear how
-          many rows went away. What moved is where it sits: two lines of prose
-          between the filters and the first flight pushed the board itself off
-          the bottom of the panel, and the reader who came for the board was
-          reading around them.
+          Keep the filtered count in the table's accessible caption and announce
+          changes there. The visible sentence repeated the heading, controls
+          and pager while taking a full row below the flights; the count still
+          matters to someone who cannot scan the filtered rows at once.
         */}
-          <caption className={styles.caption} aria-live="polite">
-            <span className={styles.updateStatus}>{updating ? 'Updating flights…' : '\u00a0'}</span>
-            {summary}
+          <caption className={styles.srOnly} aria-live="polite">
+            {updating ? 'Updating flights…' : filterStatus(inPeriod, shown)}
           </caption>
           <thead>
             <tr>

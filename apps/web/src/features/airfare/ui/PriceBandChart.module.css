@@ -2,7 +2,12 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plotArea {
+  position: relative;
   min-width: 0;
 }
 
@@ -194,30 +199,30 @@
   text-anchor: end;
 }
 
-/*
- * The readout keeps its height whether or not a crosshair is up. A strip that
- * appeared on hover would push the flight table down the page every time the
- * pointer crossed the chart, which is a worse distraction than an empty row.
- */
+/* The readout borrows the axis edge instead of reserving an idle row. */
 .readout {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
   margin: 0;
-  min-height: 1.4rem;
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   align-items: baseline;
   gap: 4px 14px;
+  padding: 2px 6px;
+  background: var(--color-surface);
   font-size: 0.78rem;
   color: var(--color-text);
-  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.readoutIdle {
+  visibility: hidden;
 }
 
 .readout strong {
   font-variant-numeric: tabular-nums;
-}
-
-.period,
-.hint {
-  color: var(--color-muted);
 }
 
 /*
@@ -233,17 +238,6 @@
   text-decoration-thickness: 1px;
 }
 
-/* And the same fact spelled out, because an underline is not a word. */
-.axisNote {
-  color: var(--color-muted);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .readout {
-    transition: none;
-  }
-}
-
 .srOnly {
   position: absolute;
   width: 1px;
@@ -256,16 +250,7 @@
   border: 0;
 }
 
-/*
- * The legend, centred under the plot, as the departure chart's is.
- *
- * Both are `figcaption`s under a full-width figure, and a short row ragged
- * against the left edge reads as something that fell off the bottom of the
- * chart. Centring is also what keeps the two charts reading as one panel: they
- * sit in the same box, one replaces the other, and a legend that jumped from
- * centred to left on the swap would be the panel changing character rather than
- * changing question.
- */
+/* Only an answered but empty board needs a key beside this chart. */
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -286,16 +271,6 @@
   height: 3px;
   border-radius: 2px;
   flex: none;
-}
-
-.keyOurs i {
-  background: var(--color-accent);
-}
-
-.keyBaseline i {
-  height: 0;
-  border-top: 2px dashed var(--color-muted);
-  opacity: 0.7;
 }
 
 /*
@@ -323,21 +298,11 @@
   fill: var(--color-muted);
 }
 
-.absence {
-  color: var(--color-muted);
-}
-
 .keyUnsold i {
   width: 7px;
   height: 7px;
   border-radius: 0;
   background: var(--color-muted);
-}
-
-/* A stretch of nothing, drawn as a stretch of nothing. */
-.keyGap i {
-  height: 0;
-  border-top: 1px dotted var(--color-border);
 }
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
@@ -356,14 +321,10 @@
   .tagEnd {
     font-size: 14px;
   }
-  .hint,
   .legend {
     display: none;
   }
   .readout {
-    position: static;
-    min-height: 56px;
-    align-content: start;
     padding: 2px 10px;
     gap: 2px 8px;
     font-size: 0.6rem;

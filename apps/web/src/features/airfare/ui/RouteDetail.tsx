@@ -41,16 +41,9 @@ type RouteDetailProps = {
  * the way back out of it were all that arrangement's. `route` is still the
  * whole route rather than a month, because the heading names the pair as well.
  *
- * Two boxes of figures. The chart underneath answers "how has it moved"; this
- * answers "what is it, and should I care today" — which is the question a
- * watchlist exists for, and the one a reader should not have to read a chart
- * to get.
- *
- * The first box is money. The second is everything that used to be two
- * sentences underneath: what is on the board, and what the collector has
- * managed. They were prose because there were only two of them; laid out as
- * figures they are read at the same glance as the prices instead of after
- * them.
+ * One list puts the current price beside the provider baseline, then the
+ * chosen departure beside the comparison. The usual range gets the whole
+ * final row so the two endpoints remain legible in a narrow detail column.
  *
  * `vs usual` is the only figure here that is a judgement rather than a
  * measurement, and it leans on the provider's own baseline rather than ours:
@@ -78,12 +71,8 @@ export function RouteDetail({
   const cheapest = pricedOffers.length
     ? pricedOffers.reduce((a, b) => (a.price <= b.price ? a : b))
     : null;
-  const dearest = pricedOffers.length
-    ? pricedOffers.reduce((a, b) => (a.price >= b.price ? a : b))
-    : null;
   const typical = insights?.typical ?? null;
   const vsUsual = cheapest && typical ? variation(typical, cheapest.price) : null;
-  const airlines = new Set(offers.map((offer) => offer.airline)).size;
   const tone =
     vsUsual === null ? 'neutral' : vsUsual <= -8 ? 'cheap' : vsUsual >= 8 ? 'dear' : 'neutral';
 
@@ -121,11 +110,9 @@ export function RouteDetail({
           of and no control to let anyone out of it.
         */}
         {/*
-          The board date belongs with the board figures below rather than this
-          header. `.wide` already reserves its second line for a value that
-          folds, so it can hold this short date without making the strip taller;
-          keeping it here would make this header reserve a fourth line all the
-          time for a fact that only exists with a board.
+          The last look belongs to the route header. Its optional line has a
+          place in the header reserve so fetching the archive does not move
+          the figures beneath it.
         */}
         {health?.lastCheckedAt ? (
           <p className={styles.cities}>Last look {formatInstant(health.lastCheckedAt)}</p>
@@ -134,75 +121,45 @@ export function RouteDetail({
 
       <dl className={styles.figures}>
         <div>
-          {/*
-            Four figures in this box, and all four are money. The reason used
-            to be a width — the row was measured at 8rem a column and a fifth
-            would have fallen onto a line of its own — and since
-            `a-figure-takes-what-it-holds` it is not, because a figure now
-            takes the room it needs and a fifth would simply fit. What is left
-            is the better reason: this box answers "what does it cost", and
-            which day the price belongs to is not a price. It goes in the
-            board box below, with the other facts about that board.
-          */}
           <dt>Cheapest now</dt>
           <dd className={styles.big}>
             {cheapest ? formatMoney(cheapest.price, route.currency) : NO_VALUE}
           </dd>
         </div>
         <div>
-          <dt>Dearest on board</dt>
-          <dd>{dearest ? formatMoney(dearest.price, route.currency) : NO_VALUE}</dd>
-        </div>
-        <div>
           <dt>Usually</dt>
           <dd>{typical ? formatMoney(typical, route.currency) : NO_VALUE}</dd>
         </div>
+        {/* A departure and a range can only be named once a board arrives. */}
+        {cheapest && latest ? (
+          <div>
+            <dt>Cheapest on</dt>
+            {/*
+              Keep the whole carrier name. At the narrowest widths it folds
+              between words, while the separator stays with the clock so the
+              time cannot be mistaken for a second itinerary.
+            */}
+            <dd>
+              {cheapest.airlineName ?? cheapest.airline}{' '}
+              <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>Vs usual</dt>
           <dd className={styles[tone]}>
             {vsUsual === null ? NO_VALUE : `${vsUsual > 0 ? '+' : ''}${vsUsual.toFixed(1)}%`}
           </dd>
         </div>
-        {/*
-          The board's four figures join the money's four in one row, rather
-          than standing in a box of their own under it. Conditional inside the
-          list rather than around it: the money is known from the moment there
-          is a route and the board is not, so the row exists either way and
-          simply carries fewer figures until an archive answers.
-        */}
         {cheapest && latest ? (
-          <>
-            <div>
-              <dt>Itineraries</dt>
-              <dd>{offers.length}</dd>
-            </div>
-            <div>
-              <dt>Airlines</dt>
-              <dd>{airlines}</dd>
-            </div>
-            <div>
-              <dt>Cheapest on</dt>
-              {/*
-              The whole name, never an abbreviation of it: `Aerolineas
-              Argentinas · 14:35` is what this figure says, and if the box is
-              too narrow to hold it on one line it folds between the two words
-              rather than losing either. The separator and the clock are one
-              span so they cannot be parted at a line end.
-            */}
-              <dd>
-                {cheapest.airlineName ?? cheapest.airline}{' '}
-                <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
-              </dd>
-            </div>
-            <div>
-              <dt>Usual range</dt>
-              <dd>
-                {insights?.usualLow && insights.usualHigh
-                  ? `${formatMoney(insights.usualLow, route.currency)}–${formatMoney(insights.usualHigh, route.currency)}`
-                  : NO_VALUE}
-              </dd>
-            </div>
-          </>
+          <div className={styles.range}>
+            <dt>Usual range</dt>
+            <dd>
+              {insights?.usualLow && insights.usualHigh
+                ? `${formatMoney(insights.usualLow, route.currency)}–${formatMoney(insights.usualHigh, route.currency)}`
+                : NO_VALUE}
+            </dd>
+          </div>
         ) : null}
       </dl>
 

@@ -1,6 +1,6 @@
 .wrap {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -11,29 +11,8 @@
  * baseline as the text inside the controls rather than floating in the middle
  * of taller boxes beside it.
  *
- * `wrap`, and measured before being chosen. The heading is 273px and the panel
- * gives the row 1099, so whether it is one line depends on the board, and
- * after the airline cap of 12.258 it is one line for one of the four states
- * this archive can be in:
- *
- *   ARI-SCL, one carrier, unfiltered   1085  fits, 66px tall
- *   ARI-SCL, one carrier, filtered     1164  65 short
- *   LIM-SCL March, unfiltered          1115  16 short
- *   LIM-SCL March, filtered            1193  94 short
- *
- * The last 16px were looked for and are not there. Every control on the row
- * carries the same `5px 10px` padding and both gaps are 10px, so there is no
- * outlier to reclaim, and the middot's 28.2px is already 5px *tighter* than
- * the `space · space` the rest of this page sets the same separator in —
- * taking more would be inventing punctuation rather than finding slack.
- *
- * `nowrap` would close it by shrinking `.filters` until a control fell to a
- * second line, and that is the worse answer: a wrapped filter row costs 66px
- * where the heading's own line costs 33, so forcing the issue makes the panel
- * **taller**, 137px against 104. So the bar keeps the heading on its own line
- * until there is genuinely room for both. Flexbox decides line breaks on
- * hypothetical sizes before it shrinks anything, which is why this reads as
- * one property and not as a fallback.
+ * `wrap` lets the heading take its own line when the filters need the width;
+ * forcing the controls narrower would wrap their labels and cost more height.
  */
 .head {
   display: flex;
@@ -86,10 +65,9 @@
  * one character 9.96px wide — reasoning in 16px rems is what produced the
  * 10rem floor this replaced. On the widest board in the archive, the March
  * 2027 LIM-SCL month, whose airline column holds `Aerolineas Argentinas`, the
- * six controls and their gaps come to 963px; with the clear button showing,
- * 1041. Both fit in 1099. Below 1041 the row takes two lines again.
+ * six controls and their gaps fit in 1099px. Below that the row can wrap.
  *
- * `wrap` and not `nowrap`: this page may never scroll sideways, so a route
+ * `wrap`: this page may never scroll sideways, so a route
  * with an airline name longer than anything on disk today has to be allowed to
  * take a second row. Wrapping is the graceful failure; overflow is not a
  * failure the page is allowed to have. The row's own min-content is 164px —
@@ -103,18 +81,16 @@
      pushed onto a line of its own the moment the six controls stop fitting. */
   flex: 1 1 auto;
   min-width: 0;
-  /* 10px between controls rather than 15: the six gaps at 15 cost 90px, and
-     the 30 saved are the difference between the row holding together down to
-     a 1041px panel and only down to 1071. The label above each control already
-     does the separating. */
-  gap: var(--space-2);
+  /* Labels separate adjacent controls; a smaller gap keeps the bar short at
+     widths where a few pixels otherwise force another line. */
+  gap: 6px;
   align-items: end;
   justify-content: space-between;
 }
 
 .filter {
   display: grid;
-  gap: var(--space-1);
+  gap: 2px;
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -140,7 +116,8 @@
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: var(--space-1) var(--space-2);
+  padding: 3px var(--space-2);
+  min-height: 30px;
   font: inherit;
   font-size: 0.85rem;
   min-width: 0;
@@ -160,6 +137,8 @@
    where the eye expects an action that acts on them. */
 .clear {
   align-self: end;
+  min-height: 32px;
+  padding-block: 3px;
 }
 
 /*
@@ -251,27 +230,23 @@
   width: 16%;
 }
 
-/*
- * Under the table, not over it — 12.253.
- *
- * `caption-side` rather than moving the element out of the table: a `<caption>`
- * is the table's name to anything that reads the document, and a paragraph
- * after a `</table>` is a paragraph. Sized down to 0.8rem to match the pager
- * it now sits beside, since a line that follows the rows is a footnote to them
- * rather than the heading it used to be.
- */
-.caption {
-  caption-side: bottom;
-  text-align: left;
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  padding-top: var(--space-3);
+/* The filtered count remains a live table caption, but its box costs no row. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .table th,
 .table td {
   text-align: left;
-  padding: var(--space-2) var(--space-3);
+  padding: 5px var(--space-3);
   border-bottom: 1px solid var(--color-border);
   /* Every cell is a short token — a time, a flight number, a duration. Letting
      one wrap turns `JA 7031` into two lines and the row into three. */
@@ -331,7 +306,7 @@
   color: inherit;
   font: inherit;
   cursor: pointer;
-  padding: var(--space-2) var(--space-3);
+  padding: 5px var(--space-3);
   text-align: left;
 }
 
@@ -392,7 +367,12 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-3);
+  gap: var(--space-2);
+}
+
+.pager button {
+  min-height: 32px;
+  padding-block: 3px;
 }
 
 .pageOf {
@@ -464,7 +444,13 @@
 @media (max-width: 640px) {
   .wrap {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: 6px;
+  }
+  /* Give the two filter columns the full panel width; flex can put them beside
+     the heading at 390px and leave each 32px control too narrow to read. */
+  .head {
+    display: grid;
+    gap: 4px;
   }
   .title {
     white-space: normal;
@@ -517,7 +503,8 @@
     padding: 0;
   }
   .table td {
-    padding: 8px;
+    height: 32px;
+    padding: 3px 8px;
   }
   .sort {
     min-height: 32px;
@@ -532,24 +519,15 @@
     padding: 3px 6px;
     font-size: 0.6rem;
   }
-  .pageOf,
-  .caption {
+  .pageOf {
     font-size: 0.6rem;
-  }
-  .caption {
-    padding-top: 8px;
-    white-space: normal;
   }
 
   .flightLink {
     display: inline-flex;
     align-items: center;
-    min-height: 24px;
+    min-height: 32px;
     /* Spend the cell's existing padding on the hit area, not taller rows. */
     margin-block: -3px;
   }
-}
-.updateStatus {
-  display: block;
-  min-block-size: 1lh;
 }

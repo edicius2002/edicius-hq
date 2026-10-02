@@ -1,8 +1,9 @@
 import { formatFlightMonth, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import { variation } from '@/features/airfare/lib/flights';
-import { departureClock, formatInstant } from '@/features/airfare/lib/series';
+import { formatInstant } from '@/features/airfare/lib/series';
 import type { FareInsights, FareOffer, FareSnapshot, WatchHealth } from '@/shared/api/fares';
 import { formatMoney, NO_VALUE } from '@/shared/lib/money';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import styles from './RouteDetail.module.css';
 
@@ -14,42 +15,29 @@ type RouteDetailProps = {
   insights: FareInsights | null;
   health: WatchHealth | null;
   cities: { from: string | null; to: string | null };
-  /**
-   * Whether this route's archive is still being fetched.
-   *
-   * Every other prop here is derived from `useFareHistory`'s `data`, and a
-   * query whose key has changed has no data — so without this the panel cannot
-   * tell "this route has nothing collected" from "we have not been told yet",
-   * and says the first about the second. See `a-fetch-is-not-an-empty-archive`.
-   */
+  /** A new route's archive can be pending even though its data is absent. */
   loading?: boolean;
 };
 
 /**
- * What this route costs right now, and whether that is a lot.
- *
- * `latest` is the **cheapest departure in whatever is being read**, as that day
- * was last seen — see `cheapestDeparture`. Since 12.110 the panel describes a
- * month rather than a day, and the honest single board to put in front of the
- * reader is the one they would actually book: the newest snapshot of all would
- * belong to whichever departure the collector happened to reach last, which is
- * a fact about pacing rather than about fares.
- *
- * There is one question again, and it is the month's — 12.260. This panel
- * briefly answered two, because a watch could name one departure inside its
- * month and the page narrowed onto it; the heading, the "cheapest on" line and
- * the way back out of it were all that arrangement's. `route` is still the
- * whole route rather than a month, because the heading names the pair as well.
- *
- * One list puts the current price beside the provider baseline, then the
- * chosen departure beside the comparison. The usual range gets the whole
- * final row so the two endpoints remain legible in a narrow detail column.
- *
- * `vs usual` is the only figure here that is a judgement rather than a
- * measurement, and it leans on the provider's own baseline rather than ours:
- * two months of context on the day a route is added, where our own median needs
- * two months of collecting to mean anything.
+ * The provider's departure is airport wall clock without a zone. Parse only
+ * its calendar date, then use UTC weekday arithmetic so the browser's zone
+ * cannot turn an early departure into the previous day.
  */
+function cheapestDay(departureAt: string): string {
+  const [year, month, day] = departureAt.slice(0, 10).split('-').map(Number);
+  const weekday = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+    new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  ];
+  return `${weekday} · ${String(day).padStart(2, '0')}`;
+}
+
+/** Keep both markers inside the painted track, including outlying offers. */
+function rangePosition(value: number, low: number, high: number): string {
+  return `${Math.max(0, Math.min(100, ((value - low) / (high - low)) * 100))}%`;
+}
+
+/** A monthly price board, the provider's usual range, and the chosen departure. */
 export function RouteDetail({
   route,
   month,
@@ -60,11 +48,14 @@ export function RouteDetail({
   loading = false,
 }: RouteDetailProps) {
   if (!route) {
-    return <p className={styles.empty}>Add a route to start building its history.</p>;
+    return (
+      <div className={styles.detail}>
+        <p className={styles.empty}>Add a route to start building its history.</p>
+      </div>
+    );
   }
 
-  const offers = latest?.offers ?? [];
-  const pricedOffers = offers.filter(
+  const pricedOffers = (latest?.offers ?? []).filter(
     (offer): offer is FareOffer & { price: number } =>
       offer.price !== null && Number.isFinite(offer.price),
   );
@@ -75,109 +66,142 @@ export function RouteDetail({
   const vsUsual = cheapest && typical ? variation(typical, cheapest.price) : null;
   const tone =
     vsUsual === null ? 'neutral' : vsUsual <= -8 ? 'cheap' : vsUsual >= 8 ? 'dear' : 'neutral';
+  const low = insights?.usualLow ?? null;
+  const high = insights?.usualHigh ?? null;
+  const hasRange = low !== null && high !== null && high > low;
+  const isSkeleton = loading && !latest;
 
   return (
     <div className={styles.detail}>
       <header className={styles.head}>
-        {/*
-          The departures sit beside the pair rather than in a sentence under
-          it. "Departs" was doing no work: a route has one month, and it is
-          written next to the two airports it belongs to. A month name rather
-          than `03/2027` — 12.114 — so nothing on this page reads as a day that
-          is not one.
-
-          Always a month, since 12.260 took the focus away. It briefly became
-          the focused day where there was one, and with it went the figures
-          under it, the chart and the flight table.
-
-          *Which* month is the tab the reader has open, handed down rather than
-          taken off the route: a watch holds several and the figures under this
-          heading are one month's, so the two have to come from one value.
-        */}
         <h3 className={styles.pair}>
           {route.origin} <span className={styles.to}>→</span> {route.destination}{' '}
-          {/* The space is deliberate: the gap beside it is a margin, and a
-              margin is not something a screen reader can hear. */}
+          {/* A text space matters to screen readers; CSS margin alone does not. */}
           <span className={styles.when}>{month ? formatFlightMonth(month) : ''}</span>
         </h3>
         <p className={styles.cities}>
           {cities.from ?? route.origin} to {cities.to ?? route.destination}
         </p>
-        {/*
-          "Read the whole month" stood here, and it existed only to clear a
-          focus — 12.182. With the focus gone (12.260) the whole month is the
-          only thing this panel ever reads, so there is no state to be let out
-          of and no control to let anyone out of it.
-        */}
-        {/*
-          The last look belongs to the route header. Its optional line has a
-          place in the header reserve so fetching the archive does not move
-          the figures beneath it.
-        */}
-        {health?.lastCheckedAt ? (
-          <p className={styles.cities}>Last look {formatInstant(health.lastCheckedAt)}</p>
-        ) : null}
       </header>
 
-      <dl className={styles.figures}>
-        <div>
-          <dt>Cheapest now</dt>
-          <dd className={styles.big}>
-            {cheapest ? formatMoney(cheapest.price, route.currency) : NO_VALUE}
-          </dd>
-        </div>
-        <div>
-          <dt>Usually</dt>
-          <dd>{typical ? formatMoney(typical, route.currency) : NO_VALUE}</dd>
-        </div>
-        {/* A departure and a range can only be named once a board arrives. */}
-        {cheapest && latest ? (
-          <div>
-            <dt>Cheapest on</dt>
-            {/*
-              Keep the whole carrier name. At the narrowest widths it folds
-              between words, while the separator stays with the clock so the
-              time cannot be mistaken for a second itinerary.
-            */}
-            <dd>
-              {cheapest.airlineName ?? cheapest.airline}{' '}
-              <span className={styles.clock}>· {departureClock(cheapest.departureAt)}</span>
-            </dd>
+      {isSkeleton ? (
+        <div className={styles.body} role="status">
+          <span className={styles.visuallyHidden}>Loading fares</span>
+          <div className={styles.hero}>
+            <Skeleton width="40%" height={11} />
+            <div className={styles.priceLine}>
+              <Skeleton className={styles.priceSkeleton} height={34} />
+              <div className={styles.meta}>
+                <Skeleton width="100%" height={19} radius={99} />
+                <Skeleton width="80%" height={13} />
+              </div>
+            </div>
           </div>
-        ) : null}
-        <div>
-          <dt>Vs usual</dt>
-          <dd className={styles[tone]}>
-            {vsUsual === null ? NO_VALUE : `${vsUsual > 0 ? '+' : ''}${vsUsual.toFixed(1)}%`}
-          </dd>
-        </div>
-        {cheapest && latest ? (
           <div className={styles.range}>
-            <dt>Usual range</dt>
-            <dd>
-              {insights?.usualLow && insights.usualHigh
-                ? `${formatMoney(insights.usualLow, route.currency)}–${formatMoney(insights.usualHigh, route.currency)}`
-                : NO_VALUE}
-            </dd>
+            <Skeleton width="100%" height={56} />
+            <Skeleton width="100%" height={18} />
           </div>
-        ) : null}
-      </dl>
-
-      {cheapest && latest ? null : loading ? (
-        /*
-          Not "nothing observed yet" — `a-fetch-is-not-an-empty-archive`.
-          Every figure above is derived from one query's `data`, and react-query
-          has none for a key it has not answered yet, so choosing a route the
-          reader has already collected drew a full "Nothing observed yet. Run a
-          collection pass." for the length of the request. That is a fact about
-          our fetch printed as a fact about their route, which is the same
-          mistake 12.237 caught in the booking-horizon chart.
-        */
-        <p className={`${styles.note} ${styles.wide}`}>Reading the archive…</p>
+          <div className={styles.tiles}>
+            <Skeleton className={styles.tileSkeleton} width="100%" radius={9} />
+            <Skeleton className={styles.tileSkeleton} width="100%" radius={9} />
+          </div>
+          <footer className={styles.footer}>
+            <Skeleton width="70%" height={12} />
+          </footer>
+        </div>
       ) : (
-        <p className={`${styles.note} ${styles.wide}`}>
-          Nothing observed yet. Run a collection pass.
-        </p>
+        <div className={styles.body}>
+          <div className={styles.hero}>
+            <span className={styles.label}>Cheapest now</span>
+            <div className={styles.priceLine}>
+              <strong className={styles.price}>
+                {cheapest ? formatMoney(cheapest.price, route.currency) : NO_VALUE}
+              </strong>
+              <div className={styles.meta}>
+                <span className={`${styles.chip} ${styles[tone]}`}>
+                  {vsUsual === null
+                    ? NO_VALUE
+                    : `${vsUsual > 0 ? '+' : ''}${vsUsual.toFixed(1)}% vs usual`}
+                </span>
+                <span className={styles.airline}>
+                  {cheapest ? (
+                    <>
+                      on <b>{cheapest.airlineName ?? cheapest.airline}</b>
+                    </>
+                  ) : (
+                    '\u00a0'
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.range}>
+            <div className={styles.track}>
+              {!cheapest && !loading ? (
+                <p className={styles.emptyNote}>Nothing observed yet. Run a collection pass.</p>
+              ) : null}
+              {hasRange ? (
+                <>
+                  <div className={styles.bar} />
+                  {typical !== null && (
+                    <>
+                      <span
+                        className={styles.usualLabel}
+                        style={{ left: rangePosition(typical, low, high) }}
+                      >
+                        usual
+                      </span>
+                      <span
+                        className={styles.tick}
+                        data-range-marker
+                        style={{ left: rangePosition(typical, low, high) }}
+                      />
+                    </>
+                  )}
+                  {cheapest && (
+                    <>
+                      <span
+                        className={styles.dot}
+                        data-range-marker
+                        style={{ left: rangePosition(cheapest.price, low, high) }}
+                      />
+                      <span
+                        className={styles.nowLabel}
+                        style={{ left: rangePosition(cheapest.price, low, high) }}
+                      >
+                        now
+                      </span>
+                    </>
+                  )}
+                </>
+              ) : null}
+            </div>
+            <div className={styles.ends}>
+              <span>{hasRange ? formatMoney(low, route.currency) : NO_VALUE}</span>
+              <span>{hasRange ? formatMoney(high, route.currency) : NO_VALUE}</span>
+            </div>
+          </div>
+
+          <div className={styles.tiles}>
+            <div className={styles.tile} data-detail-tile>
+              <span className={styles.label}>Usually</span>
+              <strong className={styles.tileValue}>
+                {typical !== null ? formatMoney(typical, route.currency) : NO_VALUE}
+              </strong>
+            </div>
+            <div className={styles.tile} data-detail-tile>
+              <span className={styles.label}>Cheapest day</span>
+              <strong className={styles.tileValue}>
+                {cheapest ? cheapestDay(cheapest.departureAt) : NO_VALUE}
+              </strong>
+            </div>
+          </div>
+
+          <footer className={styles.footer}>
+            {health?.lastCheckedAt ? `Last look ${formatInstant(health.lastCheckedAt)}` : null}
+          </footer>
+        </div>
       )}
     </div>
   );

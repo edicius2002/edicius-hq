@@ -105,11 +105,9 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule('RouteMap', '.switch')).toMatch(/top:\s*8px/);
     expect(rule('RouteMap', '.switch')).toMatch(/right:\s*8px/);
   });
-  it('pairs detail labels with values and keeps the usual range readable across the row', () => {
-    expect(rule('RouteDetail', '.figures > div')).toMatch(
-      /grid-template-columns:\s*minmax\(0, 1fr\) auto/,
-    );
-    expect(rule('RouteDetail', '.range')).toMatch(/grid-template-columns:\s*auto minmax\(0, 1fr\)/);
-    expect(rule('RouteDetail', '.figures dt')).toMatch(/margin-bottom:\s*0/);
+  it('reserves one phone detail height and steps its type down', () => {
+    expect(rule('RouteDetail', '.detail')).toMatch(/height:\s*405px/);
+    expect(rule('RouteDetail', '.price')).toMatch(/font-size:\s*1\.35rem/);
+    expect(rule('RouteDetail', '.tile')).toMatch(/min-height:\s*58px/);
   });
 });

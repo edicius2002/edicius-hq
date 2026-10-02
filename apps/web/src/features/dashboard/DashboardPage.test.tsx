@@ -126,7 +126,10 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
   );
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 it('separates captured posts and replies with links', async () => {
   stubApi();
@@ -237,17 +240,20 @@ it('sets the USD/PEN gadget beside the Codex reset cards, above the posts', asyn
   ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });
 
-it('places PT and EST before the centered title, then PER and ARG after it', () => {
+it('shows five clocks in PST, PT, PER, EST, ARG order and keeps a hidden page heading', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-01T15:04:00Z'));
   stubApi();
   renderPage();
 
   const title = screen.getByRole('heading', { level: 1, name: 'Dashboard' });
-  const clocks = ['PT', 'EST', 'PER', 'ARG'].map((label) =>
-    screen.getByLabelText(new RegExp(`^${label} \\d{2}:\\d{2}$`)),
-  );
-
-  expect(clocks[0].compareDocumentPosition(clocks[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(clocks[1].compareDocumentPosition(title)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(title.compareDocumentPosition(clocks[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(clocks[2].compareDocumentPosition(clocks[3])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(title).toHaveClass(/srOnly/);
+  expect(screen.getByRole('region', { name: 'Dashboard' })).toContainElement(title);
+  expect(screen.getByLabelText('PST 07:04')).toBeInTheDocument();
+  expect(screen.getByLabelText('PT 08:04')).toBeInTheDocument();
+  expect(
+    screen
+      .getAllByLabelText(/^(PST|PT|PER|EST|ARG) \d{2}:\d{2}$/)
+      .map((clock) => clock.getAttribute('aria-label')?.split(' ')[0]),
+  ).toEqual(['PST', 'PT', 'PER', 'EST', 'ARG']);
 });

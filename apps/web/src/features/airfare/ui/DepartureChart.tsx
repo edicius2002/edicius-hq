@@ -34,7 +34,6 @@ import {
   frameDays,
   frameSource,
   isWatched,
-  railLabels,
   sourceSeams,
   type CurveMark,
   type FrameDay,
@@ -97,27 +96,15 @@ const PRICE_GAP = 8;
 
 const MINUTES_PER_DAY = 1440;
 
-/**
- * Fourteen units taller in the bottom margin than the scatter this replaces,
- * and the plot floor has not moved by a unit.
- *
- * The extra row is the source rail: which archive answered for which stretch of
- * the frame, written under the dates it covers. It is drawn on every frame
- * rather than only on the mixed ones, because a row that appeared when a week
- * crossed the end of the month would move everything below it exactly when the
- * reader was trying to read the boundary.
- */
+/** The view stays 308 units tall so pointer coordinates and phone sizing stay stable. */
 const VIEW: Plot = {
   width: 760,
   height: 308,
   /*
-   * `bottom` fell from 72 to 42 when the date labels moved up under the plot
-   * floor. It used to carry four stacked rows — the rail, the crosshair's
-   * plate, the dates and the source rail — each on its own line so none could
-   * overprint. The plate now shares the dates' line rather than sitting above
-   * it, which is one row's worth of nothing the frame no longer buys.
+   * The source-caption row is gone. Moving the floor down by fourteen units
+   * spends that space on the plot while leaving the axis words room to descend.
    */
-  pad: { top: 14, right: 16, bottom: 42, left: marginForPrices(PRICE_GAP) },
+  pad: { top: 14, right: 16, bottom: 28, left: marginForPrices(PRICE_GAP) },
 };
 
 const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
@@ -150,8 +137,6 @@ const RAIL_Y = PLOT_BOTTOM + 7;
  * a row of its own in between.
  */
 const AXIS_BASELINE = PLOT_BOTTOM + 19;
-/** And the source rail below them, so the two never overprint. */
-const SOURCE_BASELINE = AXIS_BASELINE + 16;
 /*
  * The crosshair's plate, on the dates rather than above them.
  *
@@ -664,13 +649,6 @@ export function DepartureChart({
   );
 
   const seams = useMemo(() => sourceSeams(days), [days]);
-  /*
-   * The rail names the archive answering for each stretch *on screen* rather
-   * than for the frame. Its words sit under the dates they cover, so a rail
-   * built from the whole frame would, under a zoom, put "flights, by hour"
-   * under a stretch the reader can see is a row of whole-date spans.
-   */
-  const rail = useMemo(() => railLabels(shownDays, TRACK), [shownDays]);
 
   /*
    * Which of the marks on screen can be reached at their own airline, by key.
@@ -1574,9 +1552,8 @@ export function DepartureChart({
           here rather than filtered: the cheapest-flight line has to run to the
           edge of the plot instead of stopping at the last visible date, or a
           zoom would invent a gap in a series that has none. The box reaches
-          below the plot floor to take in the rail marks, which are placed by
-          date like everything else and would otherwise paint over the axis
-          words either side of the track.
+          below the plot floor to take in the absence marks, which are placed
+          by date and would otherwise paint over the axis words.
         */}
           <clipPath id={clip}>
             <rect x={LEFT} y={VIEW.pad.top} width={TRACK} height={RAIL_Y + 5 - VIEW.pad.top} />
@@ -1680,9 +1657,8 @@ export function DepartureChart({
             {/*
           The seam: where the boards stop and the curve starts, and with it
           where the axis stops being a clock. It runs from the top of the plot
-          past the date labels and stops above the source rail — a statement
-          about the whole column either side of it, but not one that is allowed
-          to rule through the words naming the two sides.
+          past the date labels — a statement about the whole column on either
+          side of it, including the change in axis resolution.
 
           A frame is one day, one ISO week or one calendar month, so it spans at
           most two calendar months and carries at most one seam — and the seam
@@ -1691,12 +1667,10 @@ export function DepartureChart({
           watched months make ordinary rather than rare, it is curve then
           boards.
 
-          Where a watched range is narrower than a calendar month the two seams
-          stand a single date apart, and taken to the rail they crossed
-          `flights, by hour` twice — found on a focused watch, before 12.260
-          stopped one being possible. No caller builds that range now and this
-          still stops above the rail, because the reason is about columns and
-          words rather than about who is calling.
+          A caller can still hand this chart a range narrower than a month;
+          both seams must then survive even though the page currently watches
+          whole months. The line ends just below the date labels so the boundary
+          remains visible without cutting through any text.
         */}
             {seams.map((offset) => (
               <line
@@ -1712,7 +1686,7 @@ export function DepartureChart({
             ))}
           </g>
 
-          {/* The floor the absence marks hang under, so the rail is a place. */}
+          {/* The floor keeps the absence marks visibly outside the price plot. */}
           <line
             x1={VIEW.pad.left}
             x2={VIEW.width - VIEW.pad.right}
@@ -1729,25 +1703,6 @@ export function DepartureChart({
               className={`${styles.axis} ${styles.tagMiddle}`}
             >
               {tick.label}
-            </text>
-          ))}
-
-          {/*
-          The source rail — which archive answered for which stretch of the
-          frame, under the dates it covers. This is the indicator the whole
-          arrangement needs: twenty points in a day becoming one point a day is
-          a change of kind, and a reader who is not told will read it as the
-          flights having vanished.
-        */}
-          {rail.map((label) => (
-            <text
-              key={label.source}
-              x={VIEW.pad.left + label.centre}
-              y={SOURCE_BASELINE}
-              className={`${styles.sourceLabel} ${styles.tagMiddle}`}
-              data-testid={`source-${label.source}`}
-            >
-              {label.text}
             </text>
           ))}
 
@@ -2192,36 +2147,19 @@ export function DepartureChart({
       </p>
 
       {/*
-        Why a stretch of this frame is blank, where the reason is us rather than
-        the route. `role="alert"` on the failure for 12.237's reason: a request
-        that fell over while the reader was looking at the panel is news.
-
-        Every sentence it could be saying is rendered at once and all but one is
-        held open by `visibility`, exactly as the chart's own name is — 12.246.
-        These sentences are different lengths and wrap to different numbers of
-        lines, so a box sized to whichever is showing would push the flight
-        table down the page as the reader stepped out of a watched month. The
-        stack makes the box as tall as the tallest of them by construction,
-        which a `min-height` in ems could only approximate.
+        An idle frame has no note and no empty note row. A change into an error
+        or uncollected frame may move the following table, but those messages
+        need space only while they are actually being said.
       */}
-      <p
-        className={styles.note}
-        data-testid="horizon-note"
-        role={horizonError ? 'alert' : undefined}
-      >
-        <span className={styles.noteStack}>
-          {notes.said.map((sentence, index) => (
-            <span
-              key={sentence}
-              className={index === notes.live ? styles.noteLive : styles.noteGhost}
-              aria-hidden={index === notes.live ? undefined : true}
-              {...(index === notes.live ? { 'data-testid': 'horizon-note-live' } : {})}
-            >
-              {sentence}
-            </span>
-          ))}
-        </span>
-      </p>
+      {notes.said[notes.live] ? (
+        <p
+          className={styles.note}
+          data-testid="horizon-note"
+          role={horizonError ? 'alert' : undefined}
+        >
+          <span data-testid="horizon-note-live">{notes.said[notes.live]}</span>
+        </p>
+      ) : null}
     </figure>
   );
 }

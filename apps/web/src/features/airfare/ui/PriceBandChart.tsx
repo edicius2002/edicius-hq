@@ -18,7 +18,7 @@ import {
   timeAxisTag,
   type TagAnchor,
 } from '@/features/airfare/lib/crosshair';
-import { NO_VALUE, formatMoney } from '@/shared/lib/money';
+import { formatMoney } from '@/shared/lib/money';
 import { useElementSize } from '@/shared/lib/useElementSize';
 
 import styles from './PriceBandChart.module.css';
@@ -392,12 +392,7 @@ export function PriceBandChart({
       : null;
 
   if (!geometry) {
-    return (
-      <p className={styles.empty}>
-        Nothing observed yet for this route. The first collection pass puts a point here — and seeds
-        sixty days of the provider&rsquo;s own history behind it.
-      </p>
-    );
+    return <p className={styles.empty}>No observations yet</p>;
   }
 
   const unit = axis.unit.one;
@@ -451,8 +446,8 @@ export function PriceBandChart({
    * is missing on most dates of this chart — the plate was absent across nearly
    * the whole series, which is a readout nobody learns to read. The baseline
    * has a figure on nearly every date; it is the worse number and it is a real
-   * one, and it was already named in the readout and the live region. What is
-   * new is that it reaches the axis, and that the plate says whose it is.
+   * one, and it is named in the live region. What is new is that it reaches
+   * the axis, and that the plate says whose it is.
    *
    * Still null where neither series reached the period — 12.234 in full, for
    * the pointer and the keyboard alike. The old fallback there was the middle
@@ -474,8 +469,7 @@ export function PriceBandChart({
    * better and there is no room for them: the margin is 76 view units, which
    * `S/12,458.00` fills on its own. So the ink carries the attribution and the
    * words carry it everywhere ink cannot be read — the accessible name states
-   * the rule, the live region names the series on every reading, and the
-   * readout under the plot names it too.
+   * the rule, and the live region names the series on every reading.
    */
   const fromBaseline = hairPrice?.source === 'baseline';
   const timeTag = timeAxisTag(
@@ -520,84 +514,85 @@ export function PriceBandChart({
 
   return (
     <figure className={styles.figure} ref={frame}>
-      <svg
-        className={styles.chart}
-        viewBox={`0 0 ${viewWidth} ${VIEW.height}`}
-        role="img"
-        tabIndex={0}
-        aria-label={accessibleName}
-        aria-describedby={`${help} ${status}`}
-        onPointerMove={trackPointer}
-        onPointerUp={(event) => {
-          if (narrow && event.pointerType === 'touch') trackPointer(event);
-        }}
-        onPointerLeave={(event) => {
-          if (!narrow || event.pointerType !== 'touch') setCursor(null);
-        }}
-        onKeyDown={step}
-        onBlur={() => setCursor(null)}
-      >
-        {geometry.ticks.map((value) => (
-          <g key={value}>
-            <line
-              x1={VIEW.pad.left}
-              x2={viewWidth - VIEW.pad.right}
-              y1={geometry.y(value)}
-              y2={geometry.y(value)}
-              className={styles.grid}
+      <div className={styles.plotArea}>
+        <svg
+          className={styles.chart}
+          viewBox={`0 0 ${viewWidth} ${VIEW.height}`}
+          role="img"
+          tabIndex={0}
+          aria-label={accessibleName}
+          aria-describedby={`${help} ${status}`}
+          onPointerMove={trackPointer}
+          onPointerUp={(event) => {
+            if (narrow && event.pointerType === 'touch') trackPointer(event);
+          }}
+          onPointerLeave={(event) => {
+            if (!narrow || event.pointerType !== 'touch') setCursor(null);
+          }}
+          onKeyDown={step}
+          onBlur={() => setCursor(null)}
+        >
+          {geometry.ticks.map((value) => (
+            <g key={value}>
+              <line
+                x1={VIEW.pad.left}
+                x2={viewWidth - VIEW.pad.right}
+                y1={geometry.y(value)}
+                y2={geometry.y(value)}
+                className={styles.grid}
+              />
+              <text
+                x={VIEW.pad.left - PRICE_GAP}
+                y={geometry.y(value) + 4}
+                className={`${styles.axis} ${styles.tagEnd}`}
+              >
+                {formatMoney(value, currency)}
+              </text>
+            </g>
+          ))}
+
+          {/* The floor the empty-board marks hang under, so the rail is a place rather than loose glyphs. */}
+          <line
+            x1={VIEW.pad.left}
+            x2={viewWidth - VIEW.pad.right}
+            y1={PLOT_BOTTOM}
+            y2={PLOT_BOTTOM}
+            className={styles.floor}
+          />
+
+          {geometry.baseline ? (
+            <path d={geometry.baseline} className={styles.baseline} aria-hidden="true" />
+          ) : null}
+          {geometry.band ? (
+            <path
+              d={geometry.band}
+              className={styles.band}
+              aria-hidden="true"
+              data-testid="ours-band"
             />
-            <text
-              x={VIEW.pad.left - PRICE_GAP}
-              y={geometry.y(value) + 4}
-              className={`${styles.axis} ${styles.tagEnd}`}
-            >
-              {formatMoney(value, currency)}
-            </text>
-          </g>
-        ))}
+          ) : null}
+          {geometry.ours ? (
+            <path
+              d={geometry.ours}
+              className={styles.middle}
+              aria-hidden="true"
+              data-testid="ours-line"
+            />
+          ) : null}
 
-        {/* The floor the empty-board marks hang under, so the rail is a place rather than loose glyphs. */}
-        <line
-          x1={VIEW.pad.left}
-          x2={viewWidth - VIEW.pad.right}
-          y1={PLOT_BOTTOM}
-          y2={PLOT_BOTTOM}
-          className={styles.floor}
-        />
+          {ours.map((bucket) => (
+            <g key={bucket.key} className={styles.point}>
+              <title>
+                {bucket.label}: {formatMoney(bucket.low, currency)}–
+                {formatMoney(bucket.high, currency)}, median {formatMoney(bucket.middle, currency)}{' '}
+                across {bucket.count} observation
+                {bucket.count === 1 ? '' : 's'}
+              </title>
+              <circle cx={geometry.x(bucket.key)} cy={geometry.y(bucket.middle)} r={3} />
+            </g>
+          ))}
 
-        {geometry.baseline ? (
-          <path d={geometry.baseline} className={styles.baseline} aria-hidden="true" />
-        ) : null}
-        {geometry.band ? (
-          <path
-            d={geometry.band}
-            className={styles.band}
-            aria-hidden="true"
-            data-testid="ours-band"
-          />
-        ) : null}
-        {geometry.ours ? (
-          <path
-            d={geometry.ours}
-            className={styles.middle}
-            aria-hidden="true"
-            data-testid="ours-line"
-          />
-        ) : null}
-
-        {ours.map((bucket) => (
-          <g key={bucket.key} className={styles.point}>
-            <title>
-              {bucket.label}: {formatMoney(bucket.low, currency)}–
-              {formatMoney(bucket.high, currency)}, median {formatMoney(bucket.middle, currency)}{' '}
-              across {bucket.count} observation
-              {bucket.count === 1 ? '' : 's'}
-            </title>
-            <circle cx={geometry.x(bucket.key)} cy={geometry.y(bucket.middle)} r={3} />
-          </g>
-        ))}
-
-        {/*
+          {/*
           A period we looked at and found nothing on sale in — 12.232. Under
           the plot floor rather than on it, because a mark inside the plot at
           any height is a price, and "there were no fares" is the one thing that
@@ -605,83 +600,89 @@ export function PriceBandChart({
           something different and now says so by being as wide as it is long:
           nobody looked.
         */}
-        {unsold.map((period) =>
-          geometry.keys.includes(period.key) ? (
-            <g key={period.key} className={styles.hole} data-testid="unsold-mark">
-              <title>
-                {period.label}: nothing on sale — {period.count} board
-                {period.count === 1 ? '' : 's'} came back empty
-              </title>
-              <rect
-                x={geometry.x(period.key) - 1.6}
-                y={RAIL_Y - 1.6}
-                width={3.2}
-                height={3.2}
-                className={styles.unsold}
-              />
-            </g>
-          ) : null,
-        )}
+          {unsold.map((period) =>
+            geometry.keys.includes(period.key) ? (
+              <g key={period.key} className={styles.hole} data-testid="unsold-mark">
+                <title>
+                  {period.label}: nothing on sale — {period.count} board
+                  {period.count === 1 ? '' : 's'} came back empty
+                </title>
+                <rect
+                  x={geometry.x(period.key) - 1.6}
+                  y={RAIL_Y - 1.6}
+                  width={3.2}
+                  height={3.2}
+                  className={styles.unsold}
+                />
+              </g>
+            ) : null,
+          )}
 
-        {geometry.labelled.map((key, index) => (
-          <text
-            key={key}
-            x={geometry.x(key)}
-            y={AXIS_BASELINE}
-            className={`${styles.axis} ${
-              index === 0
-                ? styles.tagStart
-                : index === geometry.labelled.length - 1
-                  ? styles.tagEnd
-                  : styles.tagMiddle
-            }`}
-          >
-            {[...ours, ...baseline, ...unsold].find((entry) => entry.key === key)?.label ?? key}
-          </text>
-        ))}
+          {geometry.labelled.map((key, index) => (
+            <text
+              key={key}
+              x={geometry.x(key)}
+              y={AXIS_BASELINE}
+              className={`${styles.axis} ${
+                index === 0
+                  ? styles.tagStart
+                  : index === geometry.labelled.length - 1
+                    ? styles.tagEnd
+                    : styles.tagMiddle
+              }`}
+            >
+              {[...ours, ...baseline, ...unsold].find((entry) => entry.key === key)?.label ?? key}
+            </text>
+          ))}
 
-        {/*
+          {/*
           The crosshair itself, last so it sits over both series, and
           `aria-hidden` because everything it says is said in words in the live
           region below — a screen reader that walked these nodes would hear the
           same numbers twice, once as geometry.
         */}
-        {reading ? (
-          <g className={styles.crosshair} aria-hidden="true" data-testid="crosshair">
-            <line x1={hairX} x2={hairX} y1={VIEW.pad.top} y2={RAIL_Y + 5} className={styles.hair} />
-            {hairY === null || hairPrice === null ? null : (
-              <>
-                <line
-                  x1={VIEW.pad.left}
-                  x2={viewWidth - VIEW.pad.right}
-                  y1={hairY}
-                  y2={hairY}
-                  className={`${styles.hair}${fromBaseline ? ` ${styles.hairBaseline}` : ''}`}
-                  data-testid="price-hair"
-                  data-source={hairPrice.source}
-                />
-                <rect
-                  x={priceTag.x}
-                  y={priceTagY}
-                  width={priceTag.width}
-                  height={TAG.height}
-                  rx={3}
-                  className={`${styles.tag}${fromBaseline ? ` ${styles.tagBaseline}` : ''}`}
-                  data-testid="price-tag-plate"
-                  data-source={hairPrice.source}
-                />
-                <text
-                  x={priceTag.textX}
-                  y={priceTagY + TAG.baseline}
-                  className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}${
-                    fromBaseline ? ` ${styles.tagTextBaseline}` : ''
-                  }`}
-                  data-testid="price-tag-text"
-                  data-source={hairPrice.source}
-                >
-                  {formatMoney(hairPrice.value, currency)}
-                </text>
-                {/*
+          {reading ? (
+            <g className={styles.crosshair} aria-hidden="true" data-testid="crosshair">
+              <line
+                x1={hairX}
+                x2={hairX}
+                y1={VIEW.pad.top}
+                y2={RAIL_Y + 5}
+                className={styles.hair}
+              />
+              {hairY === null || hairPrice === null ? null : (
+                <>
+                  <line
+                    x1={VIEW.pad.left}
+                    x2={viewWidth - VIEW.pad.right}
+                    y1={hairY}
+                    y2={hairY}
+                    className={`${styles.hair}${fromBaseline ? ` ${styles.hairBaseline}` : ''}`}
+                    data-testid="price-hair"
+                    data-source={hairPrice.source}
+                  />
+                  <rect
+                    x={priceTag.x}
+                    y={priceTagY}
+                    width={priceTag.width}
+                    height={TAG.height}
+                    rx={3}
+                    className={`${styles.tag}${fromBaseline ? ` ${styles.tagBaseline}` : ''}`}
+                    data-testid="price-tag-plate"
+                    data-source={hairPrice.source}
+                  />
+                  <text
+                    x={priceTag.textX}
+                    y={priceTagY + TAG.baseline}
+                    className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}${
+                      fromBaseline ? ` ${styles.tagTextBaseline}` : ''
+                    }`}
+                    data-testid="price-tag-text"
+                    data-source={hairPrice.source}
+                  >
+                    {formatMoney(hairPrice.value, currency)}
+                  </text>
+                  {/*
                   The dot where the two hairlines cross, so they meet on a mark
                   rather than in mid-air. Ours is the filled accent ring the
                   solid line already carries; the provider's is a hollow muted
@@ -690,88 +691,81 @@ export function PriceBandChart({
                   a median of ours reads that median whether or not the provider
                   reached it too — one crossing, one mark.
                 */}
-                {fromBaseline ? (
-                  <circle
-                    cx={hairX}
-                    cy={hairY}
-                    r={3.5}
-                    className={styles.markerBaseline}
-                    data-testid="baseline-marker"
-                  />
-                ) : (
-                  <circle cx={hairX} cy={hairY} r={4.5} className={styles.marker} />
-                )}
-              </>
-            )}
+                  {fromBaseline ? (
+                    <circle
+                      cx={hairX}
+                      cy={hairY}
+                      r={3.5}
+                      className={styles.markerBaseline}
+                      data-testid="baseline-marker"
+                    />
+                  ) : (
+                    <circle cx={hairX} cy={hairY} r={4.5} className={styles.marker} />
+                  )}
+                </>
+              )}
 
-            <rect
-              x={timeTag.x}
-              y={TAG.top}
-              width={timeTag.width}
-              height={TAG.height}
-              rx={3}
-              className={styles.tag}
-              data-testid="time-tag-plate"
-            />
-            <text
-              x={timeTag.textX}
-              y={TAG.top + TAG.baseline}
-              className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
-              data-testid="time-tag-text"
-            >
-              {reading.label}
-            </text>
-          </g>
-        ) : null}
-      </svg>
+              <rect
+                x={timeTag.x}
+                y={TAG.top}
+                width={timeTag.width}
+                height={TAG.height}
+                rx={3}
+                className={styles.tag}
+                data-testid="time-tag-plate"
+              />
+              <text
+                x={timeTag.textX}
+                y={TAG.top + TAG.baseline}
+                className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
+                data-testid="time-tag-text"
+              >
+                {reading.label}
+              </text>
+            </g>
+          ) : null}
+        </svg>
 
-      {/*
+        {/*
         The readout is HTML rather than more SVG so it can wrap, use the app's
-        own type scale, and be a live region. It keeps its height whether or not
-        a crosshair is up: a strip that appears on hover would shove the flight
-        table down the page every time the pointer crossed the chart.
+        own type scale. It sits over the axis only while a crosshair is active:
+        reserving its height when idle leaves an empty row under every plot.
+        The separate status below still speaks the reading to screen readers.
       */}
-      <p className={styles.readout} aria-hidden="true">
-        {reading === null ? (
-          <span className={styles.hint}>
-            Point at the chart, or press the arrow keys, to read a {unit}.
-          </span>
-        ) : (
-          <>
-            <strong>{reading.label}</strong>
-            <span className={styles.period}>{reading.period}</span>
-            <span>
-              {reading.ours
-                ? `${formatMoney(reading.ours.low, currency)}–${formatMoney(reading.ours.high, currency)}`
-                : NO_VALUE}
-            </span>
-            {/*
-              The figure the axis plate is showing is marked here rather than
-              only in the plate's own ink, because that is where a reader looks
-              to check what they just read off the axis. Both figures stay in
-              the row whichever is on the axis: the plate is a readout of one
-              of them, not a reason to hide the other.
+        <p
+          className={`${styles.readout} ${reading === null ? styles.readoutIdle : ''}`}
+          aria-hidden="true"
+          data-testid="price-readout"
+        >
+          {reading === null ? null : (
+            <>
+              <strong>{axis.compact(reading.key)}</strong>
+              {reading.ours ? (
+                <span>
+                  {formatMoney(reading.ours.low, currency)}–
+                  {formatMoney(reading.ours.high, currency)}
+                </span>
+              ) : null}
+              {/*
+              Keep the available figures in the visible row and underline the
+              one on the axis. Missing figures have no placeholder here: the
+              live region describes the absence, while the narrow row stays a
+              compact reading of prices that actually exist.
             */}
-            <span className={hairPrice?.source === 'ours' ? styles.onAxis : undefined}>
-              median {reading.ours ? formatMoney(reading.ours.middle, currency) : NO_VALUE}
-            </span>
-            <span className={fromBaseline ? styles.onAxis : undefined}>
-              baseline{' '}
-              {reading.baseline === null ? NO_VALUE : formatMoney(reading.baseline, currency)}
-            </span>
-            {hairPrice === null ? null : (
-              <span className={styles.axisNote} data-testid="axis-source">
-                on the price axis: {AXIS_PRICE_WORDS[hairPrice.source]}
-              </span>
-            )}
-            {reading.unsold > 0 ? (
-              <span className={styles.absence}>
-                {reading.unsold} board{reading.unsold === 1 ? '' : 's'} with nothing on sale
-              </span>
-            ) : null}
-          </>
-        )}
-      </p>
+              {reading.ours ? (
+                <span className={hairPrice?.source === 'ours' ? styles.onAxis : undefined}>
+                  median {formatMoney(reading.ours.middle, currency)}
+                </span>
+              ) : null}
+              {reading.baseline === null ? null : (
+                <span className={fromBaseline ? styles.onAxis : undefined}>
+                  {formatMoney(reading.baseline, currency)}
+                </span>
+              )}
+            </>
+          )}
+        </p>
+      </div>
 
       <p id={help} className={styles.srOnly}>
         Left and right arrow keys move the crosshair one {unit} at a time and read out that
@@ -783,44 +777,14 @@ export function PriceBandChart({
           : `${readingSentence(reading, currency)} ${axisPriceSentence(hairPrice, currency)}`.trim()}
       </p>
 
-      {/*
-        **Names, not sentences** — the same cut the departure chart's legend
-        took, applied here because two charts in one panel reading as two
-        different products is worse than either of them reading badly. Each
-        entry is a mark and the two or three words that say which mark it is;
-        the clause it used to print is its `title`, which is what a reader wants
-        once they have found the line they were looking for and not before.
-      */}
-      <figcaption className={styles.legend}>
-        <span className={styles.keyOurs} title={`Our observations — range and median per ${unit}`}>
-          <i /> Our observations
-        </span>
-        <span className={styles.keyBaseline} title={axis.baselineMeaning}>
-          <i /> {axis.baselineLegend}
-        </span>
-        {unsold.length > 0 ? (
-          <span
-            className={styles.keyUnsold}
-            title="Nothing on sale — we asked and the board came back empty"
-          >
+      {/* The square marks a board that answered empty; no other key is needed. */}
+      {unsold.length > 0 ? (
+        <figcaption className={styles.legend}>
+          <span className={styles.keyUnsold} title="None on sale">
             <i /> None on sale
           </span>
-        ) : null}
-        {/*
-          The one absence with no glyph, said in words instead — 12.231. There
-          is nothing in the archive that records a day we meant to look and did
-          not, so there is no mark to draw for it; what says it is the axis,
-          which is spaced by time and leaves a stretch nobody reached as wide as
-          it really was. Shortened like the rest, and the words it keeps are the
-          ones that distinguish it: this is not an absence we measured.
-        */}
-        <span
-          className={styles.keyGap}
-          title="A blank stretch is time nobody looked at — the axis is spaced by date"
-        >
-          <i /> Nobody looked
-        </span>
-      </figcaption>
+        </figcaption>
+      ) : null}
     </figure>
   );
 }

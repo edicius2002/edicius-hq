@@ -133,10 +133,9 @@ export type ScatterWindow = {
  * and each reversal would have dragged `isWatched`, `frameDays`, a chart prop
  * and three test files along with it.
  *
- * It also keeps the awkward frames reachable. `railLabels`' three-run collision
- * case is built in two suites from a range narrower than a month; under a month
- * set no caller at any layer could express it, and the only coverage of the
- * hardest thing that side does would have gone with it.
+ * It also keeps the awkward frames reachable: a frame of three source runs —
+ * curve, board, curve — is built in tests from a range narrower than a month,
+ * and under a month set no caller at any layer could express it.
  *
  * Both ends are `YYYY-MM-DD`, and both are inclusive.
  */

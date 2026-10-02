@@ -6,6 +6,7 @@ import {
   PAGE_SIZE,
   departureHour,
   facetsOf,
+  filterStatus,
   filterRows,
   isFiltered,
   nextSort,
@@ -14,8 +15,6 @@ import {
   shortAirline,
   sortRows,
   tableRows,
-  tableSummary,
-  windowLabel,
   type ChangeCategory,
   type FlightRow,
 } from '@/features/airfare/lib/flightTable';
@@ -117,17 +116,6 @@ describe('observationWindow', () => {
   });
 });
 
-describe('windowLabel', () => {
-  it('writes one day as a day and a stretch as a stretch, both with their clocks', () => {
-    expect(
-      windowLabel({ key: '2026-08-18', from: '2026-08-18T00:00', to: '2026-08-18T23:59' }),
-    ).toBe('on 18/08/2026, 00:00 to 23:59');
-    expect(windowLabel({ key: '2026-W34', from: '2026-08-17T00:00', to: '2026-08-23T23:59' })).toBe(
-      'between 17/08/2026 00:00 and 23/08/2026 23:59',
-    );
-  });
-});
-
 describe('departureHour', () => {
   it('reads the hour off the stamp rather than through a Date', () => {
     expect(departureHour('2026-10-16T00:15')).toBe(0);
@@ -165,7 +153,8 @@ describe('tableRows', () => {
     );
 
     expect(rows.map((row) => row.track.flightNumber)).toEqual(['529']);
-    // The one it dropped is still counted, so the caption can say so.
+    // The one it dropped is still counted by the archive, even though the
+    // current board and its filtered count only describe this period.
     expect(tracked).toBe(2);
   });
 
@@ -329,7 +318,7 @@ describe('filterRows', () => {
 
   it('drops a flight whose length is unknown rather than letting it pass', () => {
     // "Under four hours" is a claim, and a flight with no duration cannot
-    // support it. Dropped here, counted in the caption above the table.
+    // support it. Dropped here, counted in the screen-reader filter status.
     const unknown = rowsFor([offer({ flightNumber: '900', durationMinutes: null })]);
     expect(filterRows(unknown, { ...NO_FILTERS, maxDuration: 600 })).toHaveLength(0);
     expect(filterRows(unknown, NO_FILTERS)).toHaveLength(1);
@@ -516,31 +505,14 @@ describe('pageOf', () => {
 
 /* ---------------------------------------------------------- what is hidden -- */
 
-describe('tableSummary', () => {
-  const period = { key: '2026-W34', from: '2026-08-17T00:00', to: '2026-08-23T23:59' };
-
-  it('states the period, and how much of the archive it leaves out', () => {
-    expect(tableSummary({ period, inPeriod: 13, shown: 13, tracked: 41 })).toBe(
-      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59, of 41 ever observed on this route.',
-    );
+describe('filterStatus', () => {
+  it('announces the filtered count without repeating the period or archive', () => {
+    expect(filterStatus(13, 3)).toBe('3 flights shown; 10 hidden by filters.');
+    expect(filterStatus(2, 1)).toBe('1 flight shown; 1 hidden by filters.');
   });
 
-  it('says what the filters took, because a filtered count reads as the board', () => {
-    expect(tableSummary({ period, inPeriod: 13, shown: 3, tracked: 13 })).toBe(
-      '13 flights seen between 17/08/2026 00:00 and 23/08/2026 23:59. 3 shown, 10 hidden by filters.',
-    );
-  });
-
-  it('says nothing about an archive it is already showing all of', () => {
-    expect(tableSummary({ period, inPeriod: 1, shown: 1, tracked: 1 })).toBe(
-      '1 flight seen between 17/08/2026 00:00 and 23/08/2026 23:59.',
-    );
-  });
-
-  it('leaves the page number to the pager, which has always printed one too', () => {
-    // 12.253: the caption said `Page 1 of 2` and so did the control beside the
-    // next-page button, three lines apart. One page number, in the place a
-    // reader who wants a different page is already looking.
-    expect(tableSummary({ period, inPeriod: 13, shown: 13, tracked: 13 })).not.toMatch(/Page/);
+  it('keeps the unfiltered status short, including an empty period', () => {
+    expect(filterStatus(13, 13)).toBe('13 flights shown.');
+    expect(filterStatus(0, 0)).toBe('0 flights shown.');
   });
 });

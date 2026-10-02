@@ -12,53 +12,32 @@
 }
 
 /*
- * The map and its route detail take the room; the watchlist sits beside them;
- * the analysis runs the full width underneath. The map is the widest thing on
- * the page because an arc across an ocean needs the ocean.
+ * The map, watchlist and flight details share one row; analysis fills the
+ * width below it. The owner now wants a smaller globe and a visible detail
+ * column beside the list, even at widths where each panel must wrap its text.
  */
 .top {
   display: grid;
   /*
-   * **The watchlist is narrower than it was and the map has the difference,
-   * pixel for pixel.** The owner: "aumente de forma proporcional el cuadro
-   * donde esta el globe mercator hacia la derecha y reducir el ancho de
-   * watched routes". Those are one change here rather than two — the map's
-   * track is `1fr`, so it is the only place the 80px this column gives up can
-   * go. Measured at this app's 125% root, where 1rem is 20px, against the
-   * stage widths the reader's own windows produce: 526px becomes 606 at a
-   * 1518-pixel viewport, 697 becomes 777 at 1689, 910 becomes 990 at 1902 and
-   * 1550 becomes 1630 at 2542. Proportionally, that is most where the map was
-   * worst off — 15.2% at the narrowest and 5.2% at the widest.
+   * The earlier request to widen the map at the watchlist's expense is
+   * reversed. Three proportional tracks keep every panel present down to
+   * 641px, and the watchlist has the widest share: the owner asked for Flight
+   * details narrower and Watched routes wider to the right, with the map
+   * unchanged — 492/630/256px at a 1518px viewport.
    *
-   * **23rem is not the narrowest this column could be; it is the narrowest
-   * that is still true.** The floor is the longest row the list can draw, and
-   * the arithmetic is written out beside `.collect` in `RouteList.module.css`:
-   * a departed `LIM → CUZ` in `September 2027` needs 391.6px of panel
-   * content, which is 433.6px of column, and 23rem is 460 — 26.4px standing.
-   * The add form underneath wants 381.81px and is no longer the binding case.
-   * `fix/route-detail-fits` is why that is measured rather than eyeballed: a
-   * month painted over the collect control is the same bug arriving in a
-   * different panel.
-   *
-   * The `22.1rem` floor is the measured row rounded up, so it too is a width
-   * every row survives. It does not bind in practice — the `1fr` beside it has
-   * a minimum of zero, so this track takes its maximum at every width down to
-   * the 1080px where the page stacks — and it is set to the measured number
-   * anyway, because a floor that would truncate is worse than no floor at all.
-   *
-   * **It moved from 22rem, and the 2px are the fourth month tab.** A row now
-   * draws every watched month rather than three and a counter, four to a line,
-   * and four three-letter tabs are 136.04px against the 135.08 a 22rem panel
-   * leaves between the city pair and the collect control. Everything else in
-   * this block still holds — see `routesScroll.test`, which does the arithmetic
-   * against the stylesheets rather than trusting this prose.
+   * The details track alone has a floor. Under 12.5rem (250px) its figures
+   * wrap a line and the column, not the map, starts setting the row's height —
+   * 548px rather than 520 at 1080 and 1300, measured. Frozen at the floor, it
+   * hands the shortfall to the other two, which keep a zero minimum so
+   * intrinsic text cannot force horizontal page overflow. Below 900px the
+   * media rule further down takes over with its own shares.
    */
-  grid-template-columns: minmax(0, 1fr) minmax(22.1rem, 23rem);
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.6fr) minmax(12.5rem, 0.65fr);
   gap: var(--space-5);
   /*
-   * Deliberately *not* `align-items: start`. The map and the watchlist are the
-   * two cells of the first row, and letting the row stretch them is the whole
-   * reason they end up the same height.
+   * Stretch all three panels to one height. The map supplies its 520px floor;
+   * detail text can add a little at the narrowest edge. The watchlist keeps
+   * its size-contained scroller, so more rows never increase that height.
    */
   align-items: stretch;
   min-width: 0;
@@ -66,10 +45,10 @@
   /*
    * How the watchlist's rows spend the height of this row — read by
    * `RouteList.module.css`, declared here because the width at which the page
-   * stacks is this file's decision and there must be only one copy of it.
+   * stacks on phones is this file's decision and has one copy here.
    *
-   * Side by side, the map sets the row and the rows scroll inside whatever it
-   * leaves. `contain: size` is what makes that true rather than `flex: 1 1 0`,
+   * Side by side, the stage gives the row its floor and routes scroll inside
+   * the height it gets. `contain: size` makes that true rather than `flex: 1 1 0`,
    * which is the finding 276530a recorded for Investing and the reason this is
    * written down at all — see that stylesheet for the whole argument.
    */
@@ -79,14 +58,19 @@
 }
 
 /*
- * A first-row panel. Whichever of the two has more to say sets the height and
- * the other fills it, rather than one column running long beside a short one.
+ * A top-row panel. The map or detail sets the height and the others fill it;
+ * the watchlist contents remain inside their own scroller.
  */
 .tall {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+/* Smaller top-row gutters return width to all three contents and height to the map. */
+.top > .panel {
+  padding: var(--space-3);
 }
 
 .panelHead {
@@ -101,10 +85,30 @@
   margin: 0;
 }
 
+/* The add and cancel actions can take another line without squeezing the title. */
+@media (min-width: 641px) and (max-width: 1400px) {
+  .panelHead {
+    flex-wrap: wrap;
+  }
+}
+
+/* The detail needs more of the last 501px than the globe does. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .top {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.15fr);
+  }
+}
+
+@media (min-width: 641px) and (max-width: 760px) {
+  .top > .panel .panelTitle {
+    font-size: 0.72rem;
+  }
+}
+
 /* The analysis panel's own head and switches moved to `AnalysisPanel.module.css`
    with the component, 12.170. */
 
-@media (max-width: 1080px) {
+@media (max-width: 640px) {
   .top {
     grid-template-columns: minmax(0, 1fr);
 
@@ -117,7 +121,7 @@
      */
     --airfare-routes-contain: none;
     --airfare-routes-flex: 0 1 auto;
-    --airfare-routes-cap: 32rem;
+    --airfare-routes-cap: min(24rem, 40svh);
   }
 }
 
@@ -270,7 +274,9 @@
   }
   .top {
     gap: 12px;
-    --airfare-routes-cap: min(24rem, 40svh);
+  }
+  .top > .panel {
+    padding: 12px 10px;
   }
   .page .panel {
     padding: 12px 10px;

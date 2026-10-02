@@ -156,6 +156,7 @@ export function useRouteView(
 ): {
   view: RouteView;
   setMonth: (month: string) => void;
+  followMonth: (month: string) => void;
   openOn: (month: string) => void;
   openMonthOf: (route: string, month: string) => void;
   setGranularity: (granularity: Granularity) => void;
@@ -169,7 +170,14 @@ export function useRouteView(
 
   const write = useCallback(
     (change: (held: RouteView) => RouteView) => {
-      setViews((held) => ({ ...held, [key]: change(held[key] ?? opening) }));
+      setViews((held) => {
+        const current = held[key] ?? opening;
+        const next = change(current);
+        // A tab press already on this month also passes through the anchor
+        // follower. Keep the outer record too, so that round trip is truly
+        // silent instead of scheduling a render with an identical view.
+        return next === current ? held : { ...held, [key]: next };
+      });
     },
     [key, opening],
   );
@@ -233,6 +241,21 @@ export function useRouteView(
             },
       ),
     [write],
+  );
+
+  /*
+   * Following chart B changes which month chart A reads without changing the
+   * frame that led the reader there. Reusing `setMonth` would jump the frame
+   * back to day one and discard its zoom on the same arrow press. An already
+   * selected month is a no-op, including after a tab press re-anchors the
+   * frame, so the two controls cannot bounce changes back and forth.
+   */
+  const followMonth = useCallback(
+    (month: string) => {
+      if (view.month === month) return;
+      write((held) => (held.month === month ? held : { ...held, month }));
+    },
+    [view.month, write],
   );
 
   /*
@@ -306,5 +329,14 @@ export function useRouteView(
     [write],
   );
 
-  return { view, setMonth, openOn, openMonthOf, setGranularity, setAnchor, setViewport };
+  return {
+    view,
+    setMonth,
+    followMonth,
+    openOn,
+    openMonthOf,
+    setGranularity,
+    setAnchor,
+    setViewport,
+  };
 }

@@ -186,7 +186,7 @@ describe('PriceBandChart crosshair', () => {
   it('says nothing until the reader points at it', () => {
     chart();
     expect(screen.getByRole('status')).toHaveTextContent('');
-    expect(screen.getByText(/Point at the chart/)).toBeInTheDocument();
+    expect(screen.queryByText(/Point at the chart/)).not.toBeInTheDocument();
   });
 
   it('snaps to the period nearest the pointer rather than reading between two', () => {
@@ -197,6 +197,33 @@ describe('PriceBandChart crosshair', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       '08-18, on 18/08/2026, 00:00 to 23:59. $130.00 to $160.00, median $139.00, across 4 observations. provider baseline $96.00.',
     );
+    expect(screen.getByTestId('price-readout')).toHaveTextContent(
+      '18/08/2026$130.00–$160.00median $139.00$96.00',
+    );
+    expect(screen.getByTestId('price-readout')).not.toHaveTextContent(
+      /on |00:00|baseline|price axis/,
+    );
+  });
+
+  it.each([
+    ['week', '2026-W34', '2026 wk 34', '17/08–23/08/2026'],
+    ['month', '2026-08', '2026-08', '01/08–31/08/2026'],
+  ] as const)('shows one compact %s period and no explanatory prose', (unit, key, label, date) => {
+    const svg = chart({
+      ours: [bucket(key, label, 130, 160, 139)],
+      baseline: [],
+      axis: calendarAxis(unit),
+    });
+    svg.focus();
+    fireEvent.keyDown(svg, { key: 'ArrowRight' });
+
+    expect(screen.getByTestId('price-readout')).toHaveTextContent(
+      `${date}$130.00–$160.00median $139.00`,
+    );
+    expect(screen.getByTestId('price-readout')).not.toHaveTextContent(
+      /on |between |00:00|baseline|price axis/,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(/00:00/);
   });
 
   it('moves to the next period only once the pointer is nearer to it', () => {
@@ -280,6 +307,10 @@ describe('PriceBandChart crosshair', () => {
     const svg = chart();
     fireEvent.pointerMove(svg, { clientX: 84, clientY: 100 });
     expect(screen.getByRole('status')).toHaveTextContent('provider baseline —.');
+    expect(screen.getByTestId('price-readout')).toHaveTextContent(
+      '17/08/2026$118.00–$142.00median $125.00',
+    );
+    expect(screen.getByTestId('price-readout')).not.toHaveTextContent(/baseline|—$/);
   });
 
   it('draws the time label on its own plate, not beside it', () => {
@@ -344,7 +375,7 @@ describe('PriceBandChart crosshair', () => {
     );
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(screen.queryByTestId('crosshair')).not.toBeInTheDocument();
-    expect(screen.getByText(/Nothing observed yet/)).toBeInTheDocument();
+    expect(screen.getByText('No observations yet')).toBeInTheDocument();
   });
 
   it('drops the crosshair when the switch above rebuilds the periods under it', () => {
@@ -641,13 +672,13 @@ describe('the crosshair over a period with no median of ours', () => {
     expect(screen.getByTestId('price-tag-text')).toHaveAttribute('data-source', 'ours');
   });
 
-  it('says which of the two series the plate is showing, in words', () => {
+  it('keeps source words in the live region while the visible row stays numeric', () => {
     /*
      * The plate has room for a figure and nothing else — the margin is 76 view
      * units and a long-haul fare in soles fills it — so the ink carries the
      * attribution and every reading that is not ink has to carry it too. A
-     * screen reader hears the live region; a sighted reader who cannot tell a
-     * dashed outline from a filled one reads the row under the plot.
+     * screen reader hears the live region. The row keeps the available figures
+     * and an underline on the one the plate is showing.
      */
     const svg = chartWithHole();
     svg.focus();
@@ -656,13 +687,15 @@ describe('the crosshair over a period with no median of ours', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       'Price axis shows the provider’s baseline, $96.00.',
     );
-    expect(screen.getByTestId('axis-source')).toHaveTextContent(
-      'on the price axis: the provider’s baseline',
-    );
+    expect(screen.getByTestId('price-readout')).toHaveTextContent('19/08/2026$96.00');
+    expect(screen.getByTestId('price-readout')).not.toHaveTextContent(/axis|baseline|median|—/);
 
     fireEvent.keyDown(svg, { key: 'ArrowLeft' });
     expect(screen.getByRole('status')).toHaveTextContent('Price axis shows our median, $125.00.');
-    expect(screen.getByTestId('axis-source')).toHaveTextContent('on the price axis: our median');
+    expect(screen.getByTestId('price-readout')).toHaveTextContent(
+      '17/08/2026$118.00–$142.00median $125.00',
+    );
+    expect(screen.getByTestId('price-readout')).not.toHaveTextContent(/axis|baseline/);
   });
 
   it('draws the plate in the series it is reading, not one treatment for both', () => {
@@ -723,7 +756,8 @@ describe('the crosshair over a period with no median of ours', () => {
     expect(screen.getByTestId('time-tag-text')).toHaveTextContent('08-19');
     expect(screen.queryByTestId('price-tag-text')).not.toBeInTheDocument();
     expect(screen.queryByTestId('price-hair')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('axis-source')).not.toBeInTheDocument();
+    expect(screen.getByTestId('price-readout')).toHaveTextContent('19/08/2026');
+    expect(screen.getByTestId('price-readout')).not.toHaveTextContent(/axis|baseline|board/);
   });
 
   it('does not follow the hand up and down while it falls back', () => {
@@ -746,14 +780,12 @@ describe('the crosshair over a period with no median of ours', () => {
 });
 
 /**
- * The legend, after the same cut the departure chart's took.
- *
- * The owner's rule for both charts: the line as it is drawn, its colour, and the
- * minimum meaning. Two charts sharing one box and reading as two different
- * products is worse than either of them reading badly, so what this pins is that
- * they now read the same way — and that shortening did not throw a meaning away.
+ * The measured absence still needs a key because its square alone does not
+ * say whether the board was empty or never checked. The series and the gaps
+ * already have names in the chart's accessible description, so their former
+ * legend entries only took space below the axis.
  */
-describe('the legend as marks rather than sentences', () => {
+describe('the remaining absence key', () => {
   const NONE_ON_THE_18TH = [{ key: '2026-08-18', label: '08-18', count: 2 }];
 
   function legend() {
@@ -770,38 +802,32 @@ describe('the legend as marks rather than sentences', () => {
     return [...container.querySelectorAll('figcaption span')];
   }
 
-  it('names every mark in three words or fewer and keeps its sentence', () => {
+  it('keeps only the measured empty-board mark', () => {
     const entries = legend();
-    expect(entries).toHaveLength(4);
-    for (const entry of entries) {
-      expect((entry.textContent ?? '').trim().split(/\s+/).length).toBeLessThanOrEqual(3);
-      // The clause it used to print is what pointing at it now gets.
-      expect(entry.getAttribute('title')).toBeTruthy();
-    }
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toHaveTextContent('None on sale');
+    expect(entries[0]).toHaveAttribute('title', 'None on sale');
   });
 
-  it('keeps our own series distinguishable from the provider figure', () => {
-    // The one distinction this chart is for: what we measured against what the
-    // provider claims. Two labels sharing a word would undo it.
+  it('removes the other legend entries while the chart still describes its series', () => {
     legend();
-    const ours = screen.getByTitle('Our observations — range and median per day');
-    const theirs = screen.getByTitle(
-      'What the provider says it usually costs — one rounded figure a day',
+    expect(screen.queryByText('Our observations')).not.toBeInTheDocument();
+    expect(screen.queryByText('Usually costs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Nobody looked')).not.toBeInTheDocument();
+    expect(screen.getByRole('img').getAttribute('aria-label')).toMatch(/our median/);
+    expect(screen.getByRole('img').getAttribute('aria-label')).toMatch(/provider/);
+  });
+
+  it('omits the caption when there are no empty boards', () => {
+    const { container } = render(
+      <PriceBandChart
+        ours={OURS}
+        baseline={BASELINE}
+        currency="USD"
+        axis={calendarAxis('day')}
+        label="Cheapest fare for LIM to CUZ"
+      />,
     );
-    expect(ours).toHaveTextContent('Our observations');
-    expect(theirs).toHaveTextContent('Usually costs');
-    expect(ours.textContent).not.toBe(theirs.textContent);
-  });
-
-  it('still tells an empty board from a stretch nobody looked at', () => {
-    // 12.231's distinction, carried through the cut: one is an absence we
-    // measured and the other is an absence of measuring.
-    legend();
-    expect(
-      screen.getByTitle('Nothing on sale — we asked and the board came back empty'),
-    ).toHaveTextContent('None on sale');
-    expect(
-      screen.getByTitle('A blank stretch is time nobody looked at — the axis is spaced by date'),
-    ).toHaveTextContent('Nobody looked');
+    expect(container.querySelector('figcaption')).toBeNull();
   });
 });

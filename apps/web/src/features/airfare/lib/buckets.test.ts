@@ -319,4 +319,11 @@ describe('calendarAxis', () => {
     expect(calendarAxis('day').spell('2026-08-18')).toBe('on 18/08/2026, 00:00 to 23:59');
     expect(calendarAxis('week').unit).toEqual({ one: 'week', many: 'weeks' });
   });
+
+  it('keeps one visible calendar label and both years when a week crosses New Year', () => {
+    expect(calendarAxis('day').compact('2026-08-18')).toBe('18/08/2026');
+    expect(calendarAxis('week').compact('2026-W34')).toBe('17/08–23/08/2026');
+    expect(calendarAxis('month').compact('2026-08')).toBe('01/08–31/08/2026');
+    expect(calendarAxis('week').compact('2026-W53')).toBe('28/12/2026–03/01/2027');
+  });
 });

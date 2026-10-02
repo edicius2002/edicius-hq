@@ -6,7 +6,7 @@ import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
 
 import { useCodexResets } from './hooks/useCodexResets';
-import { fetchTweets, subscribeTweets } from './data/supabaseTweets';
+import { fetchTweets, subscribeTweets, TWEET_WINDOW_MS } from './data/supabaseTweets';
 import { formatBogotaDateTime } from './lib/codexResetCalendar';
 import { UsdPenGadget } from './fx/UsdPenGadget';
 import { CodexResetOverview } from './ui/CodexResetOverview';
@@ -24,6 +24,9 @@ function Column({ title, tweets, now }: { title: string; tweets: Tweets; now: Da
     <section className={styles.column}>
       <h2 className={styles.columnTitle}>{title}</h2>
       <div className={styles.rows}>
+        {tweets.length === 0 ? (
+          <p className={styles.emptyColumn}>No {title.toLowerCase()} in the last 48 hours.</p>
+        ) : null}
         {tweets.map((tweet) => (
           <article key={tweet.id} className={styles.tweet}>
             <img
@@ -77,7 +80,8 @@ export function DashboardPage() {
       () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }),
     );
   }, [client]);
-  const tweets = query.data ?? [];
+  const cutoff = now.getTime() - TWEET_WINDOW_MS;
+  const tweets = (query.data ?? []).filter((tweet) => new Date(tweet.date).getTime() >= cutoff);
 
   return (
     <section className={styles.page} aria-labelledby="dashboard-title">
@@ -109,9 +113,7 @@ export function DashboardPage() {
           Could not load captured tweets.
         </Panel>
       ) : tweets.length === 0 ? (
-        <Panel className={styles.statusPanel}>
-          Nothing captured yet. Run the X scraper to populate this dashboard.
-        </Panel>
+        <Panel className={styles.statusPanel}>No posts in the last 48 hours.</Panel>
       ) : (
         <div className={styles.columns}>
           <Column title="Posts" tweets={tweets.filter((tweet) => !tweet.isReply)} now={now} />

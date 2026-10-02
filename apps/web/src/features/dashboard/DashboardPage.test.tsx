@@ -11,6 +11,7 @@ const auth = vi.hoisted(() => ({
   getAccessToken: vi.fn(async () => null),
 }));
 const tweetData = vi.hoisted(() => ({
+  TWEET_WINDOW_MS: 48 * 60 * 60 * 1000,
   fetchTweets: vi.fn(),
   subscribeTweets: vi.fn(() => () => {}),
 }));
@@ -102,7 +103,12 @@ const RESETS = {
  */
 function stubApi(resets: Response | object = RESETS) {
   const calls: string[] = [];
-  tweetData.fetchTweets.mockResolvedValue(TWEETS.tweets);
+  tweetData.fetchTweets.mockResolvedValue(
+    TWEETS.tweets.map((tweet, index) => ({
+      ...tweet,
+      date: new Date(Date.now() - (index + 1) * 60 * 60 * 1000).toISOString(),
+    })),
+  );
   if (resets instanceof Response) {
     codex.fetchCodexResets.mockRejectedValue(new Error(`HTTP ${resets.status}`));
   } else {
@@ -160,7 +166,7 @@ it('places live reset summary and calendar above the preserved tweet columns', a
 });
 
 it('keeps reset cards mounted while external data loads', async () => {
-  tweetData.fetchTweets.mockResolvedValue(TWEETS.tweets);
+  stubApi();
   codex.fetchCodexResets.mockReturnValue(new Promise(() => {}));
   renderPage();
 
@@ -169,6 +175,65 @@ it('keeps reset cards mounted while external data loads', async () => {
   expect(screen.getByText('Avg. miracle interval')).toBeInTheDocument();
   expect(screen.getByRole('status', { name: /loading codex reset history/i })).toBeInTheDocument();
   expect(screen.queryByText('0d')).not.toBeInTheDocument();
+});
+
+it('omits tweets older than 48 hours', async () => {
+  stubApi();
+  tweetData.fetchTweets.mockResolvedValue([
+    { ...TWEETS.tweets[0], date: new Date(Date.now() - 49 * 60 * 60 * 1000).toISOString() },
+    { ...TWEETS.tweets[1], date: new Date(Date.now() - 47 * 60 * 60 * 1000).toISOString() },
+  ]);
+  renderPage();
+
+  expect(await screen.findByText('reply anon')).toBeInTheDocument();
+  expect(screen.queryByText('post anon')).not.toBeInTheDocument();
+});
+
+it('removes a tweet when the live clock passes 48 hours without refetching', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+  stubApi();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  client.setQueryData(
+    ['tweets', 'thsottiaux'],
+    [{ ...TWEETS.tweets[0], date: '2026-09-30T12:00:01Z' }],
+  );
+  renderPage(client);
+
+  expect(screen.getByText('post anon')).toBeInTheDocument();
+  await act(async () => {
+    vi.advanceTimersByTime(30_000);
+  });
+  expect(screen.queryByText('post anon')).not.toBeInTheDocument();
+  expect(screen.getByText('No posts in the last 48 hours.')).toBeInTheDocument();
+  expect(tweetData.fetchTweets).not.toHaveBeenCalled();
+});
+
+it('shows the 48-hour empty state when the query returns no tweets', async () => {
+  stubApi();
+  tweetData.fetchTweets.mockResolvedValue([]);
+  renderPage();
+
+  expect(await screen.findByText('No posts in the last 48 hours.')).toBeInTheDocument();
+  expect(screen.queryByText(/Nothing captured yet/)).not.toBeInTheDocument();
+});
+
+it.each([
+  ['Posts', false, 'No replies in the last 48 hours.'],
+  ['Replies', true, 'No posts in the last 48 hours.'],
+])('keeps both columns when only %s has tweets', async (_title, isReply, emptyLine) => {
+  stubApi();
+  tweetData.fetchTweets.mockResolvedValue([
+    { ...TWEETS.tweets[0], isReply, date: new Date().toISOString() },
+  ]);
+  renderPage();
+
+  expect(await screen.findByText('post anon')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Posts' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Replies' })).toBeInTheDocument();
+  expect(screen.getByText(emptyLine)).toBeInTheDocument();
 });
 
 it('keeps tweets visible while reset data is unavailable instead of showing zero statistics', async () => {

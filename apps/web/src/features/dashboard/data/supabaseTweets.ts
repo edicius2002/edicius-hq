@@ -1,6 +1,8 @@
 import { supabase } from '@/shared/supabase/client';
 import type { Json } from '@/shared/supabase/database.types';
 
+export const TWEET_WINDOW_MS = 48 * 60 * 60 * 1000;
+
 export type Tweet = {
   id: string;
   date: string;
@@ -20,11 +22,12 @@ function tweetFromRow(postId: string, postedAt: string, payload: Json): Tweet {
   };
 }
 
-export async function fetchTweets(handle: string): Promise<Tweet[]> {
+export async function fetchTweets(handle: string, now: Date = new Date()): Promise<Tweet[]> {
   const { data, error } = await supabase
     .from('tweet_posts')
     .select('post_id, posted_at, payload')
     .eq('handle', handle)
+    .gte('posted_at', new Date(now.getTime() - TWEET_WINDOW_MS).toISOString())
     .order('posted_at', { ascending: false })
     .limit(500);
   if (error) throw error;

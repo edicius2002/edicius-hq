@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { from, channel, removeChannel, limit, order, eq, on } = vi.hoisted(() => {
+const { from, channel, removeChannel, limit, order, eq, gte, on } = vi.hoisted(() => {
   const mockedLimit = vi.fn();
   const mockedOrder = vi.fn(() => ({ limit: mockedLimit }));
-  const mockedEq = vi.fn(() => ({ order: mockedOrder }));
+  const mockedGte = vi.fn(() => ({ order: mockedOrder }));
+  const mockedEq = vi.fn(() => ({ gte: mockedGte }));
   const mockedSelect = vi.fn(() => ({ eq: mockedEq }));
   const mockedFrom = vi.fn(() => ({ select: mockedSelect }));
   const mockedSubscribe = vi.fn(() => ({ id: 'tweets' }));
@@ -15,6 +16,7 @@ const { from, channel, removeChannel, limit, order, eq, on } = vi.hoisted(() => 
     limit: mockedLimit,
     order: mockedOrder,
     eq: mockedEq,
+    gte: mockedGte,
     on: mockedOn,
   };
 });
@@ -38,7 +40,7 @@ describe('dashboard tweet data', () => {
       error: null,
     });
 
-    await expect(fetchTweets('thsottiaux')).resolves.toEqual([
+    await expect(fetchTweets('thsottiaux', new Date('2026-09-20T10:00:00Z'))).resolves.toEqual([
       {
         id: 'post-1',
         date: '2026-09-18T10:00:00Z',
@@ -49,6 +51,7 @@ describe('dashboard tweet data', () => {
     ]);
     expect(from).toHaveBeenCalledWith('tweet_posts');
     expect(eq).toHaveBeenCalledWith('handle', 'thsottiaux');
+    expect(gte).toHaveBeenCalledWith('posted_at', '2026-09-18T10:00:00.000Z');
     expect(order).toHaveBeenCalledWith('posted_at', { ascending: false });
     expect(limit).toHaveBeenCalledWith(500);
   });

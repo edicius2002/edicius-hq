@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { FareMonthProjection, FareFlightPage } from './data/fareProjections';
 import type { FareRoute } from './data/fareRoutes';
 import { tableRows } from './lib/flightTable';
+import type { FareSnapshot } from '@/shared/api/fares';
 import { AirfarePage } from './AirfarePage';
 
 const state = vi.hoisted(() => ({
@@ -57,21 +58,67 @@ vi.mock('./ui/RouteMap', () => ({
   },
 }));
 vi.mock('./ui/RouteList', () => ({
-  RouteList: ({ onOpenMonth }: { onOpenMonth: (id: string, month: string) => void }) => (
-    <button onClick={() => onOpenMonth('ARI|SCL', '2027-04')}>Open April</button>
+  RouteList: ({
+    onOpenMonth,
+    activeMonth,
+    routes,
+  }: {
+    onOpenMonth: (id: string, month: string) => void;
+    activeMonth: string | null;
+    routes: FareRoute[];
+  }) => (
+    <div aria-label="Watched routes">
+      {routes[0].months.map((month) => (
+        <button
+          key={month}
+          aria-current={activeMonth === month ? 'true' : undefined}
+          onClick={() => onOpenMonth('ARI|SCL', month)}
+        >
+          {month === '2027-04' ? 'Open April' : month}
+        </button>
+      ))}
+    </div>
   ),
 }));
 
-function projection(month: string): FareMonthProjection {
+function board(month: string): FareSnapshot {
+  return {
+    origin: 'ARI',
+    destination: 'SCL',
+    flightDate: `${month}-01`,
+    returnDate: null,
+    capturedAt: '2026-09-20T10:00:00Z',
+    currency: 'USD',
+    source: 'google-flights',
+    insights: null,
+    offers: [
+      {
+        airline: 'JA',
+        airlineName: 'JetSMART',
+        flightNumber: '100',
+        departureAt: `${month}-01T07:15`,
+        arrivalAt: null,
+        transfers: 0,
+        durationMinutes: 80,
+        price: 100,
+        currency: 'USD',
+      },
+    ],
+  };
+}
+
+function projection(month: string, latestBoards: FareSnapshot[] = []): FareMonthProjection {
   return {
     origin: 'ARI',
     destination: 'SCL',
     month,
     revision: '1',
     latestCapture: '2026-09-20T10:00:00Z',
-    latestBoards: [],
+    latestBoards,
     viaSequences: [],
-    priceDays: [],
+    priceDays: latestBoards.length
+      ? [{ key: '2026-09-20', label: '09-20', low: 100, high: 100, middle: 100, count: 1 }]
+      : [],
     providerDays: [],
     unsoldDays: [],
     health: { lastCheckedAt: null, checks: 0, changes: 0, errors: 0 },
@@ -142,11 +189,116 @@ function renderPage() {
   return client;
 }
 beforeEach(() => {
+  state.routes = [
+    { origin: 'ARI', destination: 'SCL', months: ['2027-03', '2027-04'], currency: 'USD' },
+  ];
+  state.curve.fromDate = '2027-03-01';
+  state.curve.toDate = '2027-04-30';
   state.mapRenders = 0;
   state.fetchMonth
     .mockReset()
     .mockImplementation((_from, _to, month: string) => Promise.resolve(projection(month)));
   state.fetchPage.mockReset().mockResolvedValue(flightPage());
+});
+
+it('follows the next collected watched month into the selected tab and price history', async () => {
+  state.fetchMonth.mockImplementation((_from, _to, month: string) =>
+    Promise.resolve(projection(month, [board(month)])),
+  );
+  const client = renderPage();
+  await waitFor(() => expect(state.fetchMonth).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    Promise.all(
+      state.fetchMonth.mock.results.map((result) => result.value as Promise<FareMonthProjection>),
+    ),
+  );
+  // Resolved is not yet rendered: under a loaded suite the click could land
+  // before April's board reached the page, which is the "not collected" case.
+  await waitFor(() => expect(client.isFetching()).toBe(0));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Open April' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    ),
+  );
+  expect(
+    await screen.findByRole('heading', { name: 'ARI → SCL · April 2027' }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toHaveAccessibleName(/April 2027/);
+});
+
+it('keeps the reading month when the next watched month has no saved board', async () => {
+  state.fetchMonth.mockImplementation((_from, _to, month: string) =>
+    Promise.resolve(projection(month, month === '2027-03' ? [board(month)] : [])),
+  );
+  renderPage();
+  await waitFor(() => expect(state.fetchMonth).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    Promise.all(
+      state.fetchMonth.mock.results.map((result) => result.value as Promise<FareMonthProjection>),
+    ),
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+  expect(screen.getByRole('button', { name: '2027-03' })).toHaveAttribute('aria-current', 'true');
+  expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toHaveAccessibleName(/March 2027/);
+});
+
+it('does not select a watched month whose projection is still unavailable', async () => {
+  const april = deferred<FareMonthProjection>();
+  state.fetchMonth.mockImplementation((_from, _to, month: string) =>
+    month === '2027-04' ? april.promise : Promise.resolve(projection(month, [board(month)])),
+  );
+  renderPage();
+  await waitFor(() => expect(state.fetchMonth).toHaveBeenCalledTimes(2));
+
+  fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+  expect(screen.getByRole('button', { name: '2027-03' })).toHaveAttribute('aria-current', 'true');
+  expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
+  await act(async () => april.resolve(projection('2027-04', [board('2027-04')])));
+});
+
+it('uses the start of a week to choose its month when changing granularity', async () => {
+  state.fetchMonth.mockImplementation((_from, _to, month: string) =>
+    Promise.resolve(projection(month, [board(month)])),
+  );
+  renderPage();
+  await waitFor(() => expect(state.fetchMonth).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    Promise.all(
+      state.fetchMonth.mock.results.map((result) => result.value as Promise<FareMonthProjection>),
+    ),
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open April' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Open April' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Week' }));
+
+  // April 1 belongs to the week beginning March 29; the board on April 1
+  // does not turn that week into an April reading.
+  expect(screen.getByRole('button', { name: '2027-03' })).toHaveAttribute('aria-current', 'true');
+  expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
+});
+
+it('keeps the reading month when the next frame is not watched', async () => {
+  state.routes = [{ ...state.routes[0], months: ['2027-03'] }];
+  state.fetchMonth.mockImplementation((_from, _to, month: string) =>
+    Promise.resolve(projection(month, [board(month)])),
+  );
+  renderPage();
+  await screen.findByRole('table');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+  expect(screen.getByRole('button', { name: '2027-03' })).toHaveAttribute('aria-current', 'true');
+  expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
 });
 
 it('keeps the table, filters, focus and pager while loading the next page', async () => {
@@ -172,8 +324,11 @@ it('chart month navigation skips the unrelated map render', async () => {
   renderPage();
   await screen.findByRole('table');
   const before = state.mapRenders;
+  const departure = screen.getByRole('img', { name: /What each departure date costs/ });
+  const frame = departure.getAttribute('aria-label');
   fireEvent.click(screen.getByRole('button', { name: /next.*month|next period/i }));
-  expect(screen.getByRole('heading', { name: 'ARI → SCL · April 2027' })).toBeInTheDocument();
+  await waitFor(() => expect(departure.getAttribute('aria-label')).not.toBe(frame));
+  expect(departure).toHaveAccessibleName(/01\/04\/2027/);
   expect(state.mapRenders).toBe(before);
 });
 
@@ -186,7 +341,6 @@ it('keeps the displayed month and table until both replacement requests arrive',
   state.fetchPage.mockResolvedValueOnce(flightPage()).mockReturnValueOnce(flights.promise);
   renderPage();
   const table = await screen.findByRole('table');
-  fireEvent.click(screen.getByRole('button', { name: 'How the price moved' }));
   fireEvent.click(screen.getByRole('button', { name: 'Open April' }));
   expect(table).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
@@ -252,8 +406,8 @@ it('keeps departure navigation usable after a replacement month fails', async ()
   await screen.findByRole('table');
   fireEvent.click(screen.getByRole('button', { name: 'Open April' }));
   await screen.findByRole('alert');
-  const heading = screen.getByRole('heading', { name: /ARI.*2027/, level: 2 });
-  const before = heading.textContent;
+  const departure = screen.getByRole('img', { name: /What each departure date costs/ });
+  const before = departure.getAttribute('aria-label');
   const arrows = screen
     .getAllByRole('button')
     .filter(
@@ -263,7 +417,7 @@ it('keeps departure navigation usable after a replacement month fails', async ()
     );
   expect(arrows.length).toBeGreaterThan(0);
   fireEvent.click(arrows[0]);
-  expect(heading.textContent).not.toBe(before);
+  await waitFor(() => expect(departure.getAttribute('aria-label')).not.toBe(before));
 });
 
 it('distinguishes unread departure months from confirmed empty boards', async () => {

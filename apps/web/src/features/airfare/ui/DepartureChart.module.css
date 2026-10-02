@@ -2,7 +2,7 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -152,14 +152,6 @@
   stroke-width: 1.2;
   stroke-dasharray: 2 3;
   opacity: 0.75;
-}
-
-/* Which archive answered for this stretch, under the dates it covers. */
-.sourceLabel {
-  font-family: var(--font-sans);
-  font-size: 9px;
-  fill: var(--color-muted);
-  letter-spacing: 0.02em;
 }
 
 /*
@@ -582,38 +574,13 @@
 
 /*
  * Why part of the frame is blank, when the reason is us rather than the route.
- *
- * A fixed two-line box, for `.head`'s reason: the sentence is longer on a route
- * whose horizon has never been collected than on one where every date is
- * priced, and a paragraph that reflowed from one line to two would push the
- * flight table down the page as the reader stepped out of the month.
+ * The paragraph is mounted only when it says something, so an ordinary frame
+ * never pays for the longest possible error sentence.
  */
 .note {
   margin: 0;
   font-size: 0.76rem;
   color: var(--color-muted);
-}
-
-/*
- * Every sentence the note can be, in one cell.
- *
- * The same mechanism the chart's own name uses, and for the same reason: a
- * `min-height` in ems is a guess about how many lines the longest sentence
- * wraps to at a width nobody has measured, while a stack is as tall as its
- * tallest member by construction. `visibility` and not `display: none`,
- * because a hidden element still takes its space and that space is the point.
- */
-.noteStack {
-  display: grid;
-}
-
-.noteLive,
-.noteGhost {
-  grid-area: 1 / 1;
-}
-
-.noteGhost {
-  visibility: hidden;
 }
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
@@ -655,15 +622,10 @@
     font-size: 18px;
   }
   .axis.tagMiddle {
-    transform: translateY(10px);
-  }
-  .sourceLabel {
-    display: none;
+    /* Hold the phone labels on their old baseline as the plot floor moves down. */
+    transform: translateY(-4px);
   }
   .readout {
-    position: static;
-    min-height: 42px;
-    align-content: start;
     justify-content: start;
     padding: 4px 10px;
     gap: 2px 8px;

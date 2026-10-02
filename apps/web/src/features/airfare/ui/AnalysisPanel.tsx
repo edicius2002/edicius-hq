@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { useIsNarrow } from '@/app/layout/useIsNarrow';
 import {
   formatFlightMonth,
   routeId,
@@ -58,9 +59,9 @@ import { FareHistoryStatus } from './FareHistoryStatus';
  * outside it the booking horizon does, one price a date. A period straddling
  * the boundary is answered by both in one frame.
  *
- * The two charts really are different questions on different units, so nothing
- * here puts two units beside each other: exactly one axis is on screen at a
- * time.
+ * The two charts answer different questions on different units. A wide panel
+ * puts their separately labelled axes beside each other; a phone keeps the
+ * switch so each plot has the width it needs to be read and touched.
  */
 type ChartView = 'moves' | 'days';
 
@@ -70,12 +71,9 @@ const MOVES_NAME = 'How the price moved';
 /**
  * Chart B's name follows what it is drawing — 12.246.
  *
- * Every name it can wear is rendered at once, stacked in one grid cell with the
- * live one visible, so the control is as wide as its widest name whichever is
- * showing. That is the whole mechanism for "the text changes and nothing
- * reflows": a `min-width` in pixels would be a guess that a font change breaks,
- * while the stack is the measurement itself. The order matters only for the
- * screen reader, which is given the live name alone.
+ * On phones every name it can wear is rendered in the switch, stacked in one
+ * grid cell with the live one visible. That keeps the switch's width stable as
+ * the frame changes. On desktop its own chart heading follows the frame month.
  */
 const DAYS_NAMES: Record<FrameSource, string> = {
   none: 'What each date costs',
@@ -90,20 +88,9 @@ const DAYS_NAMES: Record<FrameSource, string> = {
  * Each of these was two or three clauses restating the axis directly above the
  * axis, and the longest ran to three lines at the narrow end of this panel —
  * the single biggest block of prose on the page, and the one the owner quoted
- * first. What a reader cannot get from looking is which of two archives is
- * answering and therefore what one mark means, so that is what survives; how
- * the x axis works is the axis's own business and it is drawn, labelled and
- * railed below.
- *
- * **Which is also why none of them says "at the hour it departs" any more.**
- * Shortened to one clause, `days/boards` came out as `Every itinerary, at the
- * hour it departs.` — and the source rail under the same plot already reads
- * `every flight, at the hour it departs`, per stretch of the frame and with
- * more precision than a line above the chart can have. Two near-identical
- * sentences a few rows apart are worse than the long one they replaced, because
- * a reader now has to work out whether they are being told two things. So these
- * name the archive in the words the panel uses for it elsewhere — the boards,
- * the booking horizon — and leave the hour to the rail that is drawn on it.
+ * first. The surviving line names the archive that answers for the frame,
+ * because a mark's meaning depends on that source. The axis labels and seam
+ * show how the horizontal scale changes inside a mixed frame.
  */
 
 /**
@@ -211,8 +198,7 @@ type AnalysisPanelProps = {
 };
 
 /**
- * The two charts, the switch between them, and the state that says which period
- * is open.
+ * The two charts, their phone switch, and the state that says which period is open.
  *
  * **The period lives here rather than inside the chart — 12.170.** It used to
  * be state of the departure chart, which is the component the chart switch
@@ -255,7 +241,7 @@ export function AnalysisPanel({
   reference = null,
 }: AnalysisPanelProps) {
   /*
-   * The panel opens on chart B — `the-panel-opens-on-flights-seen`.
+   * The phone switch opens on chart B — `the-panel-opens-on-flights-seen`.
    *
    * It used to open on chart A because chart A was the older reading and the
    * one that needed no choosing. What changed is what a reader arrives to
@@ -264,9 +250,11 @@ export function AnalysisPanel({
    * beside it was pressed to ask. Chart A answers what the route has cost over
    * time, which is a second question and is one press away.
    *
-   * The period switch is visible beside the frame controls from the first paint.
+   * On desktop both charts are visible and the switch state is only held for a
+   * later phone layout, so resizing does not reset a choice made there.
    */
   const [view, setView] = useState<ChartView>('days');
+  const narrow = useIsNarrow();
   /*
    * Where the departure chart draws its own head — the frame arrows and pin.
    *
@@ -397,7 +385,50 @@ export function AnalysisPanel({
     route && month ? `${routeLabel(route)} departing in ${formatFlightMonth(month)}` : '';
   const currency = route?.currency ?? 'USD';
   const daysName = DAYS_NAMES[source];
-  const titleMonth = view === 'moves' ? month : (frameMonth ?? month);
+  const departureTitleMonth = frameMonth ?? month;
+  // A wide heading names the selected reading; chart B has its own title and
+  // frame controls. On a phone the heading still follows the visible chart.
+  const titleMonth = narrow && view === 'days' ? departureTitleMonth : month;
+
+  const priceChart =
+    historyLoading || (historyError && !historyAvailable) ? null : (
+      <PriceBandChart
+        ours={ours}
+        baseline={theirs}
+        unsold={oursUnsold}
+        currency={currency}
+        axis={axis}
+        label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
+      />
+    );
+  const departureChart =
+    (historyLoading || (historyError && !historyAvailable)) && curve === null ? null : (
+      <DepartureChart
+        unavailableMonths={unavailableMonths}
+        key={routeKey ?? 'none'}
+        snapshots={watchedSnapshots}
+        curve={curve}
+        watched={watched}
+        granularity={granularity}
+        currency={currency}
+        periodKey={periodKey}
+        keys={keys}
+        onStep={step}
+        onFrameMonthChange={setFrameMonth}
+        metaSlot={chartMeta}
+        viewport={viewport}
+        onViewportChange={onViewportChange}
+        horizonLoading={curveLoading}
+        horizonError={curveError}
+        leg={leg}
+        reference={reference}
+        label={
+          route
+            ? `What each departure date costs for ${routeLabel(route)}`
+            : 'Fares by departure date'
+        }
+      />
+    );
 
   return (
     <>
@@ -413,12 +444,17 @@ export function AnalysisPanel({
             ? `${routeLabel(route)} · ${formatFlightMonth(titleMonth)}`
             : 'Price analysis'}
         </h2>
-        <div className={styles.switches}>
-          <div className={styles.switch} role="group" aria-label="Chart">
-            <button type="button" aria-pressed={view === 'moves'} onClick={() => setView('moves')}>
-              {MOVES_NAME}
-            </button>
-            {/*
+        {narrow && (
+          <div className={styles.switches}>
+            <div className={styles.switch} role="group" aria-label="Chart">
+              <button
+                type="button"
+                aria-pressed={view === 'moves'}
+                onClick={() => setView('moves')}
+              >
+                {MOVES_NAME}
+              </button>
+              {/*
               Chart B's button holds every name it can wear at once. Only the
               live one is visible; the rest are `visibility: hidden` in the same
               grid cell, so the button is as wide as its widest name and the
@@ -426,128 +462,80 @@ export function AnalysisPanel({
               `aria-hidden` on the understudies, or a screen reader would read
               four names for one control.
             */}
-            <button
-              type="button"
-              aria-pressed={view === 'days'}
-              aria-expanded={view === 'days'}
-              aria-label={daysName}
-              onClick={() => setView('days')}
-              data-testid="days-chart-button"
-            >
-              <span className={styles.names}>
-                {Object.entries(DAYS_NAMES).map(([kind, name]) => (
-                  <span
-                    key={kind}
-                    className={kind === source ? styles.nameLive : styles.nameGhost}
-                    aria-hidden={kind === source ? undefined : true}
-                    {...(kind === source ? { 'data-testid': 'days-chart-name' } : {})}
-                  >
-                    {name}
-                  </span>
-                ))}
-              </span>
-            </button>
+              <button
+                type="button"
+                aria-pressed={view === 'days'}
+                aria-expanded={view === 'days'}
+                aria-label={daysName}
+                onClick={() => setView('days')}
+                data-testid="days-chart-button"
+              >
+                <span className={styles.names}>
+                  {Object.entries(DAYS_NAMES).map(([kind, name]) => (
+                    <span
+                      key={kind}
+                      className={kind === source ? styles.nameLive : styles.nameGhost}
+                      aria-hidden={kind === source ? undefined : true}
+                      {...(kind === source ? { 'data-testid': 'days-chart-name' } : {})}
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </span>
+              </button>
+            </div>
           </div>
-        </div>
-        {/* The month switch and frame controls share the top-right corner. */}
-        <div
-          className={`${styles.chartMeta} ${view === 'days' ? styles.chartMetaEnter : styles.chartMetaHidden}`}
-        >
-          {view === 'days' && (
+        )}
+        {narrow && view === 'days' && (
+          <div className={`${styles.chartMeta} ${styles.chartMetaEnter}`}>
             <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-          )}
-          <div ref={setChartMeta} className={styles.chartReading} />
-        </div>
+            <div ref={setChartMeta} className={styles.chartReading} />
+          </div>
+        )}
       </div>
 
       {/*
-        **One box, one height, whichever chart is inside it.**
-
-        The two charts are different shapes and always were: chart A's viewBox is
-        760×284 and chart B's is 760×338, and chart B carries a head, a crosshair
-        readout and a note that chart A has none of. Measured in Chrome at the
-        real panel: chart A stood 719px tall and chart B 869, so switching
-        question moved everything below this panel — the whole flight table — by
-        **150px**. That is the reflow 12.240 refused and
-        `period-switch-follows-its-chart` built a hidden strip to prevent,
-        arriving by a third door: the head was fixed and the body was left free.
-
-        So the body is the fixed thing, and the marks move inside it. A height
-        rather than a `min-height`, because a floor is only half a promise — the
-        taller chart would simply exceed it. The charts' own SVGs carry
-        `preserveAspectRatio` at its default `xMidYMid meet`, so a drawing given a
-        box of the wrong shape scales to fit and centres in it rather than
-        stretching or spilling: what varies between the two is how large the
-        drawing is and where its marks sit, which is exactly what is allowed to
-        vary. It is also what finally centres the plot vertically, which an
-        earlier pass could only do horizontally.
-
-        Chart A is a bare figure in here now. The strip that gave it a corner
-        went with the control that used to stand in it, and it was costing a row
-        of height and a band of letterbox to hold a switch chart A must never
-        have.
+        Loading and retry need a real row, but an idle route does not. Letting
+        those rare states move the plots is preferable to reserving an empty
+        status line on every route and at every width.
       */}
-      <div className={styles.historyStatus}>
-        <FareHistoryStatus loading={historyLoading} error={historyError} onRetry={onHistoryRetry} />
-        {updatingMonth && !historyLoading && !historyError ? (
-          <p role="status">Updating saved fares for {formatFlightMonth(updatingMonth)}…</p>
-        ) : null}
-      </div>
-      <div className={styles.stage}>
-        <div className={styles.body}>
-          {(historyLoading || (historyError && !historyAvailable)) &&
-          (view === 'moves' || curve === null) ? null : view === 'moves' ? (
-            <PriceBandChart
-              ours={ours}
-              baseline={theirs}
-              unsold={oursUnsold}
-              currency={currency}
-              axis={axis}
-              label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
-            />
-          ) : (
-            /*
-            Keyed by route so the crosshair the reader left on a flight resets
-            when they open a different watch. The period does not reset with it —
-            it is held above this component and cleared by the route change.
-          */
-            <DepartureChart
-              unavailableMonths={unavailableMonths}
-              key={routeKey ?? 'none'}
-              snapshots={watchedSnapshots}
-              curve={curve}
-              watched={watched}
-              granularity={granularity}
-              currency={currency}
-              periodKey={periodKey}
-              keys={keys}
-              onStep={step}
-              onFrameMonthChange={setFrameMonth}
-              metaSlot={chartMeta}
-              viewport={viewport}
-              onViewportChange={onViewportChange}
-              horizonLoading={curveLoading}
-              horizonError={curveError}
-              leg={leg}
-              reference={reference}
-              label={
-                /*
-                  The route, and no months at all.
-
-                  `accessibleTail` already appends the frame's own two dates —
-                  `departing 29/03/2027 to 04/04/2027` — which is the true and
-                  useful statement of what is on screen. Naming the watch here
-                  as well would have a screen reader hear the months and then
-                  immediately hear the dates that contradict them.
-                */
-                route
-                  ? `What each departure date costs for ${routeLabel(route)}`
-                  : 'Fares by departure date'
-              }
-            />
-          )}
+      {(historyLoading || historyError || updatingMonth) && (
+        <div className={styles.historyStatus}>
+          <FareHistoryStatus
+            loading={historyLoading}
+            error={historyError}
+            onRetry={onHistoryRetry}
+          />
+          {updatingMonth && !historyLoading && !historyError ? (
+            <p role="status">Updating saved fares for {formatFlightMonth(updatingMonth)}…</p>
+          ) : null}
         </div>
-      </div>
+      )}
+      {narrow ? (
+        <div className={styles.body}>{view === 'moves' ? priceChart : departureChart}</div>
+      ) : (
+        <div className={styles.columns}>
+          <section className={styles.column} aria-labelledby="price-chart-title">
+            <h3 id="price-chart-title" className={styles.chartTitle}>
+              {MOVES_NAME}
+            </h3>
+            <div className={styles.body}>{priceChart}</div>
+          </section>
+          <section className={styles.column} aria-labelledby="departure-chart-title">
+            <div className={styles.columnHead}>
+              <h3 id="departure-chart-title" className={styles.chartTitle}>
+                {daysName}
+                {departureTitleMonth && ` · ${formatFlightMonth(departureTitleMonth)}`}
+              </h3>
+              <div className={styles.chartMeta}>
+                <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
+                <div ref={setChartMeta} className={styles.chartReading} />
+              </div>
+            </div>
+            <div className={styles.body}>{departureChart}</div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

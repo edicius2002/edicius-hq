@@ -96,7 +96,7 @@ export function ProjectedFlightTable({
     enabled: from !== null && to !== null,
   });
   const shown = useRetainedData(scope, latestCapture === null ? null : query.data);
-  const updating = latestCapture !== null && query.isFetching && query.data === undefined;
+  const updating = latestCapture !== null && query.isFetching;
 
   return (
     <FlightTable
@@ -104,7 +104,7 @@ export function ProjectedFlightTable({
       granularity={granularity}
       departure={shown?.departure ?? departure}
       leg={leg}
-      loading={latestCapture !== null && query.isPending && !shown}
+      loading={updating}
       updating={updating}
       error={query.error}
       onRetry={() => void query.refetch()}

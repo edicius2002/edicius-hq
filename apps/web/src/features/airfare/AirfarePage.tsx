@@ -261,6 +261,7 @@ export function AirfarePage() {
   // default map remains a city-pair map and requests no extra coordinates.
   const viaCodes = useMemo(() => [...new Set(viaSequences.flat())].sort(), [viaSequences]);
   const airports = useAirports(viaCodes);
+  const retryAirports = airports.refetch;
 
   /*
    * The same archive narrowed to the whole watch, for chart B.
@@ -476,6 +477,8 @@ export function AirfarePage() {
   const map = useMemo(
     () => (
       <RouteMap
+        error={airports.isError}
+        onRetry={() => void retryAirports()}
         routes={geometries}
         stopRoutes={stopRoutes}
         selectedId={selectedKey}
@@ -486,7 +489,16 @@ export function AirfarePage() {
         onProjectionChange={setProjection}
       />
     ),
-    [geometries, stopRoutes, selectedKey, colours, flow.freshest, projection],
+    [
+      geometries,
+      stopRoutes,
+      selectedKey,
+      colours,
+      flow.freshest,
+      projection,
+      airports.isError,
+      retryAirports,
+    ],
   );
 
   return (
@@ -511,12 +523,14 @@ export function AirfarePage() {
       */}
 
       {/*
-        The map, watchlist and flight details are grid children so the map's
-        stage gives all three panels one height. The list spends that height
+        The map, watchlist and flight details are grid children in a fixed row.
+        The list spends that height
         inside its own scroller rather than making the row taller.
       */}
       <div className={styles.top}>
-        <Panel className={`${styles.tall} ${styles.panel} ${styles.visualPanel}`}>
+        <Panel
+          className={`${styles.tall} ${styles.panel} ${styles.visualPanel} ${styles.mapPanel}`}
+        >
           {map}
           {undrawn > 0 ? (
             <p className={styles.note}>
@@ -526,7 +540,7 @@ export function AirfarePage() {
           ) : null}
         </Panel>
 
-        <Panel className={`${styles.tall} ${styles.panel}`}>
+        <Panel className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}>
           <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
             {/*
@@ -557,6 +571,13 @@ export function AirfarePage() {
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
           )}
           <RouteList
+            /*
+              Placeholder rows only while there are no rows to show: a
+              background refetch of a watchlist already on screen keeps its
+              rows rather than flashing the skeleton over them.
+            */
+            loading={watchlist.isFetching && !watchlist.isError && watchlist.routes.length === 0}
+            error={watchlist.isError}
             routes={watchlist.routes}
             colours={colours}
             selectedId={selectedKey}

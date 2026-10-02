@@ -10,6 +10,7 @@ import {
   CHANGE_LABELS,
   DEFAULT_SORT,
   NO_FILTERS,
+  PAGE_SIZE,
   TIME_BANDS,
   durationLabel,
   facetsOf,
@@ -33,6 +34,7 @@ import { formatDuration, formatStamp } from '@/features/airfare/lib/series';
 import type { FareFlightPage } from '@/features/airfare/data/fareProjections';
 import type { FareSnapshot } from '@/shared/api/fares';
 import { Button } from '@/shared/ui/Button';
+import { Skeleton } from '@/shared/ui/Skeleton';
 import { formatMoney } from '@/shared/lib/money';
 
 import styles from './FlightTable.module.css';
@@ -428,28 +430,14 @@ export function FlightTable({
     }
   }
 
-  if (tracked === 0) {
-    return (
-      <div className={styles.wrap}>
-        <TableHeading departure={departure} />
-        {loading || error ? (
-          <FareHistoryStatus loading={loading} error={error} onRetry={onRetry} />
-        ) : (
-          <p className={styles.empty}>No itineraries observed yet.</p>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.wrap} aria-busy={updating}>
-      <FareHistoryStatus error={error} onRetry={onRetry} />
+    <div className={styles.wrap} aria-busy={updating && !loading}>
       {/*
         Heading, departure and every filter on one line — 12.257, where there
         is room for one line. At the panel's real 1099px a one-carrier board
         has it and a four-carrier one is 16px short: see `.head` in the
-        stylesheet for the four measurements and for why forcing the rest would
-        make this panel taller rather than shorter.
+        stylesheet for why the controls are allowed to wrap inside their
+        reserved height.
 
         The heading is a sibling of the filter group rather than a member of
         it: a group labelled "Filter flights" that contained the panel's `<h2>`
@@ -615,7 +603,14 @@ export function FlightTable({
         stayed at 0 while the page scrolled underneath it.
       */}
       <div className={styles.scroller}>
-        <table className={styles.table}>
+        {loading ? (
+          <span className={styles.srOnly} role="status">
+            Loading saved fares…
+          </span>
+        ) : null}
+        {/* Pending cells are placeholders, so expose their single status
+            announcement rather than an apparent table of ten unnamed flights. */}
+        <table className={styles.table} aria-hidden={loading} inert={loading}>
           <colgroup>
             {COLUMNS.map((column) => (
               <col key={column.column} className={styles[column.column]} />
@@ -628,7 +623,7 @@ export function FlightTable({
           matters to someone who cannot scan the filtered rows at once.
         */}
           <caption className={styles.srOnly} aria-live="polite">
-            {updating ? 'Updating flights…' : filterStatus(inPeriod, shown)}
+            {loading ? '' : updating ? 'Updating flights…' : filterStatus(inPeriod, shown)}
           </caption>
           <thead>
             <tr>
@@ -645,42 +640,69 @@ export function FlightTable({
             </tr>
           </thead>
           <tbody>
-            {slice.rows.map((row) => (
-              <tr key={row.track.key} className={row.track.present ? undefined : styles.gone}>
-                <FlightRowCells row={row} leg={leg} />
-              </tr>
-            ))}
+            {loading ? (
+              Array.from({ length: PAGE_SIZE }, (_, index) => (
+                <tr key={index} className={styles.skeletonRow} data-testid="flight-skeleton-row">
+                  {COLUMNS.map((column, cellIndex) => (
+                    <td key={column.column}>
+                      <Skeleton width={cellIndex === 0 ? '90%' : '75%'} height={12} />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <>
+                {error ? (
+                  <tr>
+                    <td colSpan={COLUMNS.length} className={styles.messageCell}>
+                      <FareHistoryStatus error={error} onRetry={onRetry} />
+                    </td>
+                  </tr>
+                ) : null}
+                {slice.rows.map((row) => (
+                  <tr key={row.track.key} className={row.track.present ? undefined : styles.gone}>
+                    <FlightRowCells row={row} leg={leg} />
+                  </tr>
+                ))}
+                {!error && slice.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={COLUMNS.length} className={styles.messageCell}>
+                      <p className={styles.empty}>
+                        {tracked === 0
+                          ? 'No itineraries observed yet.'
+                          : inPeriod === 0
+                            ? 'No flights were on the board in this period.'
+                            : 'Every flight in this period is hidden by the filters above.'}
+                      </p>
+                    </td>
+                  </tr>
+                ) : null}
+              </>
+            )}
           </tbody>
         </table>
       </div>
-
-      {slice.rows.length === 0 ? (
-        <p className={styles.empty}>
-          {inPeriod === 0
-            ? 'No flights were on the board in this period.'
-            : 'Every flight in this period is hidden by the filters above.'}
-        </p>
-      ) : null}
-
-      {slice.pageCount > 1 ? (
-        <nav className={styles.pager} aria-label="Flight table pages">
-          <Button
-            size="small"
-            disabled={updating || slice.page <= 1}
-            onClick={() => changePage(slice.page - 1)}
-          >
-            Previous page
-          </Button>
-          <span className={styles.pageOf}>{`Page ${slice.page} of ${slice.pageCount}`}</span>
-          <Button
-            size="small"
-            disabled={updating || slice.page >= slice.pageCount}
-            onClick={() => changePage(slice.page + 1)}
-          >
-            Next page
-          </Button>
-        </nav>
-      ) : null}
+      <div className={styles.pagerSlot}>
+        {slice.pageCount > 1 ? (
+          <nav className={styles.pager} aria-label="Flight table pages">
+            <Button
+              size="small"
+              disabled={updating || slice.page <= 1}
+              onClick={() => changePage(slice.page - 1)}
+            >
+              Previous page
+            </Button>
+            <span className={styles.pageOf}>{`Page ${slice.page} of ${slice.pageCount}`}</span>
+            <Button
+              size="small"
+              disabled={updating || slice.page >= slice.pageCount}
+              onClick={() => changePage(slice.page + 1)}
+            >
+              Next page
+            </Button>
+          </nav>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -52,14 +52,15 @@ const VIEW = {
   pad: { top: 14, right: 16, bottom: 48, left: marginForPrices(PRICE_GAP) },
 };
 
+/** Match the departure plot's height when the two charts share wide columns. */
+const WIDE_VIEW_HEIGHT = 308;
+
 /**
  * The horizontal units this chart is drawn in when its box is narrow.
  *
- * **Only the width changes, and that is the whole trick.** Everything below is
- * derived from `VIEW.height` and `VIEW.pad.bottom`, so a narrower view leaves
- * the vertical geometry — the plot floor, the rail, the axis plates — exactly
- * where it was. What it changes is the scale the browser draws at, because the
- * same pixels now carry fewer units.
+ * On a phone the width and height keep their original proportions. In a wide
+ * column the taller 760×308 view fills the same stage as the departure chart.
+ * The plot floor, rail and axis plates derive from that view's height.
  *
  * Measured on a 360px phone before this existed: the figure is 223px wide, so
  * 760 units mapped at 0.293 and the ink stood 73px tall inside a 125px box.
@@ -84,14 +85,6 @@ const COMPACT_VIEW_WIDTH = 505;
  * narrowest desktop column gives.
  */
 const COMPACT_BELOW_PX = 400;
-
-const PLOT_BOTTOM = VIEW.height - VIEW.pad.bottom;
-/** Where a period whose boards came back empty is marked, just under the plot floor. */
-const RAIL_Y = PLOT_BOTTOM + 7;
-/** The pinned axis plates: how tall, where the time one sits, and its baseline. */
-const TAG = { height: 16, top: PLOT_BOTTOM + 16, baseline: 11.5 };
-/** The axis labels sit below the tag, on their own row. */
-const AXIS_BASELINE = VIEW.height - 4;
 
 /**
  * How close two x-axis labels may come before one of them is dropped.
@@ -237,6 +230,14 @@ export function PriceBandChart({
   const narrow = useIsNarrow();
   const compact = narrow || (frameSize.width > 0 && frameSize.width < COMPACT_BELOW_PX);
   const viewWidth = compact ? COMPACT_VIEW_WIDTH : VIEW.width;
+  const viewHeight = compact ? VIEW.height : WIDE_VIEW_HEIGHT;
+  const plotBottom = viewHeight - VIEW.pad.bottom;
+  /** Where a period whose boards came back empty is marked, just under the plot floor. */
+  const railY = plotBottom + 7;
+  /** The pinned axis plates: how tall, where the time one sits, and its baseline. */
+  const tag = { height: 16, top: plotBottom + 16, baseline: 11.5 };
+  /** The axis labels sit below the tag, on their own row. */
+  const axisBaseline = viewHeight - 4;
   const labelMinSpacing = compact ? COMPACT_LABEL_MIN_SPACING : LABEL_MIN_SPACING;
 
   const geometry = useMemo(() => {
@@ -258,7 +259,7 @@ export function PriceBandChart({
     );
     const inner = {
       width: viewWidth - VIEW.pad.left - VIEW.pad.right,
-      height: PLOT_BOTTOM - VIEW.pad.top,
+      height: plotBottom - VIEW.pad.top,
     };
 
     /*
@@ -373,7 +374,7 @@ export function PriceBandChart({
       /** What was actually observed, as opposed to the frame it is drawn in. */
       observed: span,
     };
-  }, [span, ours, baseline, unsold, axis, viewWidth, labelMinSpacing]);
+  }, [span, ours, baseline, unsold, axis, viewWidth, plotBottom, labelMinSpacing]);
 
   /*
    * The crosshair, resolved against the geometry that exists right now.
@@ -457,7 +458,7 @@ export function PriceBandChart({
    */
   const hairPrice = axisPrice(reading);
   const hairY = hairPrice === null ? null : geometry.y(hairPrice.value);
-  const priceTagY = hairY === null ? 0 : clampToTrack(hairY, TAG.height, VIEW.pad.top, PLOT_BOTTOM);
+  const priceTagY = hairY === null ? 0 : clampToTrack(hairY, tag.height, VIEW.pad.top, plotBottom);
   const priceTag = priceAxisTag(
     VIEW.pad.left - PRICE_GAP,
     hairPrice === null ? '' : formatMoney(hairPrice.value, currency),
@@ -482,19 +483,20 @@ export function PriceBandChart({
   /** Pointer position in the units the viewBox is drawn in, never in pixels. */
   const trackPointer = (event: PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    const at = pointerInView(box, VIEW, event.clientX, event.clientY);
+    const at = pointerInView(
+      box,
+      { width: viewWidth, height: viewHeight },
+      event.clientX,
+      event.clientY,
+    );
     if (at === null) return;
     // Only the horizontal position is read. The pointer's height no longer
     // decides anything on this chart — 12.245 — so `y` is computed and
     // discarded rather than being a second thing to keep right.
     //
-    // This chart letterboxes at every chart width from 373 to 1638 px, measured
-    // in Chrome on 2026-08-22, so `pointerInView` returns exactly what dividing
-    // by the box's width used to and the change is a no-op wherever anyone has
-    // looked. It is here anyway. The old formula was the same latent bug chart B
-    // was actually shipping; which way a drawing boxes is a fact about `.body`'s
-    // height rather than about this chart; and this one starts to pillarbox at
-    // about 1658 px of chart, which is a 2560-px monitor and not a fantasy.
+    // A view may letterbox when its box has a different aspect ratio. Subtract
+    // that margin before picking the nearest bucket, including on phones where
+    // the view uses its compact dimensions.
     const index = nearestBucket(geometry.positions, at.x);
     if (index === null) return;
     setCursor(index);
@@ -517,7 +519,7 @@ export function PriceBandChart({
       <div className={styles.plotArea}>
         <svg
           className={styles.chart}
-          viewBox={`0 0 ${viewWidth} ${VIEW.height}`}
+          viewBox={`0 0 ${viewWidth} ${viewHeight}`}
           role="img"
           tabIndex={0}
           aria-label={accessibleName}
@@ -555,8 +557,8 @@ export function PriceBandChart({
           <line
             x1={VIEW.pad.left}
             x2={viewWidth - VIEW.pad.right}
-            y1={PLOT_BOTTOM}
-            y2={PLOT_BOTTOM}
+            y1={plotBottom}
+            y2={plotBottom}
             className={styles.floor}
           />
 
@@ -609,7 +611,7 @@ export function PriceBandChart({
                 </title>
                 <rect
                   x={geometry.x(period.key) - 1.6}
-                  y={RAIL_Y - 1.6}
+                  y={railY - 1.6}
                   width={3.2}
                   height={3.2}
                   className={styles.unsold}
@@ -622,7 +624,7 @@ export function PriceBandChart({
             <text
               key={key}
               x={geometry.x(key)}
-              y={AXIS_BASELINE}
+              y={axisBaseline}
               className={`${styles.axis} ${
                 index === 0
                   ? styles.tagStart
@@ -647,7 +649,7 @@ export function PriceBandChart({
                 x1={hairX}
                 x2={hairX}
                 y1={VIEW.pad.top}
-                y2={RAIL_Y + 5}
+                y2={railY + 5}
                 className={styles.hair}
               />
               {hairY === null || hairPrice === null ? null : (
@@ -665,7 +667,7 @@ export function PriceBandChart({
                     x={priceTag.x}
                     y={priceTagY}
                     width={priceTag.width}
-                    height={TAG.height}
+                    height={tag.height}
                     rx={3}
                     className={`${styles.tag}${fromBaseline ? ` ${styles.tagBaseline}` : ''}`}
                     data-testid="price-tag-plate"
@@ -673,7 +675,7 @@ export function PriceBandChart({
                   />
                   <text
                     x={priceTag.textX}
-                    y={priceTagY + TAG.baseline}
+                    y={priceTagY + tag.baseline}
                     className={`${styles.tagText} ${ANCHOR[priceTag.anchor]}${
                       fromBaseline ? ` ${styles.tagTextBaseline}` : ''
                     }`}
@@ -707,16 +709,16 @@ export function PriceBandChart({
 
               <rect
                 x={timeTag.x}
-                y={TAG.top}
+                y={tag.top}
                 width={timeTag.width}
-                height={TAG.height}
+                height={tag.height}
                 rx={3}
                 className={styles.tag}
                 data-testid="time-tag-plate"
               />
               <text
                 x={timeTag.textX}
-                y={TAG.top + TAG.baseline}
+                y={tag.top + tag.baseline}
                 className={`${styles.tagText} ${ANCHOR[timeTag.anchor]}`}
                 data-testid="time-tag-text"
               >

@@ -4,6 +4,20 @@
   min-width: 0;
 }
 
+/* The header and ten-row body keep their footprint through loading, errors,
+   empty archives and page changes. Both axes scroll inside the panel. */
+.scroller {
+  height: 424px;
+  min-width: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.pagerSlot {
+  min-height: 32px;
+}
+
 /*
  * The heading, the departure and every filter on one line — 12.257.
  *
@@ -18,7 +32,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: end;
+  align-content: start;
   gap: var(--space-2);
+  height: 60px;
+  overflow-y: auto;
 }
 
 /*
@@ -258,6 +275,30 @@
   font-weight: 500;
   /* The button inside carries the padding, so the cell must not double it. */
   padding: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-2);
+}
+
+.table td {
+  height: 38px;
+}
+
+.table td.messageCell {
+  white-space: normal;
+}
+
+.messageCell p {
+  margin-block: 0 var(--space-2);
+}
+
+.messageCell p:last-child {
+  margin-bottom: 0;
+}
+
+.skeletonRow td > span:last-child {
+  display: block;
 }
 
 .table tbody tr:last-child td {
@@ -440,8 +481,25 @@
   border-radius: 2px;
 }
 
-/* Airfare phone layout; desktop declarations above remain unchanged. */
+/* Reserve the number of filter lines the panel needs at each width, even when
+   pending data has no airline or price facets yet. */
+@media (max-width: 1180px) {
+  .head {
+    height: 100px;
+  }
+}
+
+@media (max-width: 800px) {
+  .head {
+    height: 160px;
+  }
+}
+
+/* Airfare phone layout. */
 @media (max-width: 640px) {
+  .scroller {
+    height: 360px;
+  }
   .wrap {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
@@ -451,6 +509,7 @@
   .head {
     display: grid;
     gap: 4px;
+    height: 134px;
   }
   .title {
     white-space: normal;
@@ -494,8 +553,10 @@
     overscroll-behavior-x: contain;
   }
   .table {
-    table-layout: auto;
-    width: max-content;
+    /* A fixed scrollable board gives placeholders and real rows identical
+       columns; 700px leaves room for the longest short tokens. */
+    table-layout: fixed;
+    width: max(100%, 700px);
     min-width: 100%;
     font-size: 0.6rem;
   }
@@ -503,7 +564,7 @@
     padding: 0;
   }
   .table td {
-    height: 32px;
+    height: 33px;
     padding: 3px 8px;
   }
   .sort {

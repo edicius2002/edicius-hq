@@ -378,6 +378,7 @@ it('keeps a price filter focused while newer requests supersede older ones', asy
     .mockReturnValueOnce(slow.promise)
     .mockReturnValueOnce(fast.promise);
   renderPage();
+  await screen.findByRole('table');
   const input = await screen.findByRole('spinbutton', { name: 'Min price' });
   input.focus();
   fireEvent.change(input, { target: { value: '105' } });

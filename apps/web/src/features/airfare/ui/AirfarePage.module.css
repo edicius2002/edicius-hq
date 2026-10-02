@@ -18,6 +18,8 @@
  */
 .top {
   display: grid;
+  height: 520px;
+  grid-template-rows: minmax(0, 1fr);
   /*
    * The earlier request to widen the map at the watchlist's expense is
    * reversed. Three proportional tracks keep every panel present down to
@@ -25,9 +27,9 @@
    * details narrower and Watched routes wider to the right, with the map
    * unchanged — 492/630/256px at a 1518px viewport.
    *
-   * The details track alone has a floor. Under 12.5rem (250px) its figures
-   * wrap a line and the column, not the map, starts setting the row's height —
-   * 548px rather than 520 at 1080 and 1300, measured. Frozen at the floor, it
+   * The details track alone has a 12.5rem (250px) floor so its figures fit
+   * within the fixed row. At 1080 and 1300 the earlier layout reached 548px
+   * when that track shrank and its figures wrapped. Frozen at the floor, it
    * hands the shortfall to the other two, which keep a zero minimum so
    * intrinsic text cannot force horizontal page overflow. Below 900px the
    * media rule further down takes over with its own shares.
@@ -35,9 +37,9 @@
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.6fr) minmax(12.5rem, 0.65fr);
   gap: var(--space-5);
   /*
-   * Stretch all three panels to one height. The map supplies its 520px floor;
-   * detail text can add a little at the narrowest edge. The watchlist keeps
-   * its size-contained scroller, so more rows never increase that height.
+   * The map's 488px stage established this row's 520px height. Keep that
+   * measured size explicit so loading content and later fetches cannot grow
+   * the row. The watchlist keeps its size-contained scroller within it.
    */
   align-items: stretch;
   min-width: 0;
@@ -47,8 +49,8 @@
    * `RouteList.module.css`, declared here because the width at which the page
    * stacks on phones is this file's decision and has one copy here.
    *
-   * Side by side, the stage gives the row its floor and routes scroll inside
-   * the height it gets. `contain: size` makes that true rather than `flex: 1 1 0`,
+   * The fixed panels give routes a height to scroll inside at every width.
+   * `contain: size` makes that true rather than `flex: 1 1 0`,
    * which is the finding 276530a recorded for Investing and the reason this is
    * written down at all — see that stylesheet for the whole argument.
    */
@@ -58,8 +60,8 @@
 }
 
 /*
- * A top-row panel. The map or detail sets the height and the others fill it;
- * the watchlist contents remain inside their own scroller.
+ * A top-row panel. The grid sets its height and the contents fill it;
+ * the watchlist rows remain inside their own scroller.
  */
 .tall {
   display: flex;
@@ -110,18 +112,25 @@
 
 @media (max-width: 640px) {
   .top {
+    height: auto;
+    grid-template-rows: none;
     grid-template-columns: minmax(0, 1fr);
 
     /*
-     * Stacked, there is no row height to share, and that is why the
-     * containment has to come off: a box sized as if it were empty, inside a
-     * panel with no height of its own to hand down, is a box of no height at
-     * all — the rows would vanish rather than scroll. They size themselves
-     * again here and stop at a ceiling instead.
+     * The stacked panels have explicit heights below, so containment can stay
+     * on and the list keeps its own scrollbar while the form remains in view.
      */
-    --airfare-routes-contain: none;
-    --airfare-routes-flex: 0 1 auto;
-    --airfare-routes-cap: min(24rem, 40svh);
+    --airfare-routes-contain: size;
+    --airfare-routes-flex: 1 1 0;
+    --airfare-routes-cap: none;
+  }
+
+  .mapPanel {
+    height: calc(100vw + 16px);
+  }
+
+  .routesPanel {
+    height: 640px;
   }
 }
 

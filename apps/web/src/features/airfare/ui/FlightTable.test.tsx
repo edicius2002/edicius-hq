@@ -1,6 +1,6 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { PriceHistoryChart } from '@/features/airfare/ui/PriceHistoryChart';
@@ -9,10 +9,15 @@ import type { FareOffer, FareSnapshot } from '@/shared/api/fares';
 afterEach(cleanup);
 
 it('does not claim there are no itineraries while loading or after a failed request', () => {
-  const { rerender } = render(
+  const retry = vi.fn();
+  const { container, rerender } = render(
     <FlightTable snapshots={[]} granularity="day" departure={null} leg={null} loading />,
   );
   expect(screen.getByRole('status')).toHaveTextContent('Loading saved fares');
+  expect(screen.getByRole('group', { name: 'Filter flights' })).toBeInTheDocument();
+  expect(container.querySelectorAll('thead th')).toHaveLength(7);
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
   expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
   rerender(
     <FlightTable
@@ -21,10 +26,20 @@ it('does not claim there are no itineraries while loading or after a failed requ
       departure={null}
       leg={null}
       error={new Error('offline')}
+      onRetry={retry}
     />,
   );
   expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
+  expect(screen.getByRole('alert').closest('tbody')).toBeInTheDocument();
+  screen.getByRole('button', { name: 'Retry loading fares' }).click();
+  expect(retry).toHaveBeenCalledOnce();
+  expect(screen.getAllByRole('columnheader')).toHaveLength(7);
+  expect(screen.queryAllByTestId('flight-skeleton-row')).toHaveLength(0);
   expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
+  rerender(<FlightTable snapshots={[]} granularity="day" departure={null} leg={null} />);
+  expect(screen.getByText('No itineraries observed yet.')).toBeInTheDocument();
+  expect(screen.getByText('No itineraries observed yet.').closest('tbody')).toBeInTheDocument();
+  expect(screen.getAllByRole('columnheader')).toHaveLength(7);
 });
 
 const SNAPSHOT: FareSnapshot = {
@@ -89,7 +104,10 @@ function crowded(count: number, capturedAt = '2026-08-18T12:00:00+00:00'): FareS
 const LEG = { origin: 'LIM', destination: 'SCL', originCountry: 'Peru' };
 
 function bodyRows() {
-  return screen.getAllByRole('row').slice(1);
+  return screen
+    .getAllByRole('row')
+    .slice(1)
+    .filter((row) => row.querySelectorAll('td').length === 7);
 }
 
 /** The page number beside the buttons. */

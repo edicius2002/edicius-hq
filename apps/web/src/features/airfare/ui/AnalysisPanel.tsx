@@ -8,6 +8,7 @@ import {
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import {
+  bucketKey,
   bucketBaseline,
   bucketSnapshots,
   calendarAxis,
@@ -37,6 +38,7 @@ import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import styles from './AnalysisPanel.module.css';
 import { FareHistoryStatus } from './FareHistoryStatus';
@@ -81,6 +83,59 @@ const DAYS_NAMES: Record<FrameSource, string> = {
   curve: 'Cheapest per date',
   mixed: 'Flights and cheapest per date',
 };
+
+/** The departure controls take the same space before their frame can mount. */
+function PendingFrameControls() {
+  return (
+    <div className={styles.pendingPager} aria-hidden="true" data-testid="analysis-pending-pager">
+      <Skeleton width={26} height={26} radius={99} />
+      <Skeleton width={32} height={12} />
+      <Skeleton width={26} height={26} radius={99} />
+      <Skeleton width={26} height={26} radius={99} />
+    </div>
+  );
+}
+
+/** The plot slot keeps its footprint while either archive is in flight. */
+function PlotSkeleton({ label, kind }: { label: string; kind: ChartView }) {
+  return (
+    <div
+      className={`${styles.plotSkeleton} ${kind === 'moves' ? styles.skeletonMoves : ''}`}
+      role="status"
+      data-testid="analysis-plot-skeleton"
+    >
+      <span className={styles.srOnly}>Loading {label}</span>
+      <div className={styles.skeletonPriceAxis}>
+        {[0, 1, 2, 3].map((tick) => (
+          <Skeleton key={tick} width="75%" height={9} />
+        ))}
+      </div>
+      <div className={styles.skeletonPlot}>
+        {[0, 1, 2, 3].map((tick) => (
+          <div key={tick} className={styles.skeletonGrid}>
+            <Skeleton width="100%" height={1} />
+          </div>
+        ))}
+        {kind === 'moves' ? (
+          <div className={styles.skeletonLineArea}>
+            <Skeleton className={styles.skeletonLine} width="100%" height="100%" radius={0} />
+          </div>
+        ) : (
+          <div className={styles.skeletonBars}>
+            {[43, 66, 53, 83, 58, 72, 48, 90, 62, 77].map((height, index) => (
+              <Skeleton key={index} width="6%" height={`${height}%`} radius={3} />
+            ))}
+          </div>
+        )}
+      </div>
+      <div className={styles.skeletonTimeAxis}>
+        {[0, 1, 2, 3].map((tick) => (
+          <Skeleton key={tick} width="13%" height={9} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Which archive is answering for the chart under the switch, in one short line.
@@ -355,12 +410,24 @@ export function AnalysisPanel({
    * chart after it — 12.246. Cheap: the window is a `periodBounds` call and the
    * days are at most thirty-one strings compared against two.
    */
+  /* A disabled query can be isPending without a route to fetch. */
+  const archivePending = route !== null && historyLoading;
+  const horizonPending = route !== null && curveLoading;
+  const departurePending = archivePending || horizonPending;
+  /*
+   * Before either archive yields a period, the selected month and anchor still
+   * identify the frame whose source the header should name. Once the keys are
+   * known, the actual frame keeps ownership of that decision.
+   */
+  const sourcePeriodKey =
+    periodKey ??
+    (departurePending && month ? bucketKey(departureAnchor ?? `${month}-01`, granularity) : null);
   const source: FrameSource = useMemo(
     () =>
-      periodKey === null
+      sourcePeriodKey === null
         ? 'none'
-        : frameSource(frameDays(scatterWindow(periodKey, granularity), watched)),
-    [periodKey, granularity, watched],
+        : frameSource(frameDays(scatterWindow(sourcePeriodKey, granularity), watched)),
+    [sourcePeriodKey, granularity, watched],
   );
 
   const step = (direction: -1 | 1) => {
@@ -385,50 +452,62 @@ export function AnalysisPanel({
     route && month ? `${routeLabel(route)} departing in ${formatFlightMonth(month)}` : '';
   const currency = route?.currency ?? 'USD';
   const daysName = DAYS_NAMES[source];
-  const departureTitleMonth = frameMonth ?? month;
+  const departureTitleMonth = departurePending ? month : (frameMonth ?? month);
   // A wide heading names the selected reading; chart B has its own title and
   // frame controls. On a phone the heading still follows the visible chart.
   const titleMonth = narrow && view === 'days' ? departureTitleMonth : month;
 
-  const priceChart =
-    historyLoading || (historyError && !historyAvailable) ? null : (
-      <PriceBandChart
-        ours={ours}
-        baseline={theirs}
-        unsold={oursUnsold}
-        currency={currency}
-        axis={axis}
-        label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
-      />
-    );
-  const departureChart =
-    (historyLoading || (historyError && !historyAvailable)) && curve === null ? null : (
-      <DepartureChart
-        unavailableMonths={unavailableMonths}
-        key={routeKey ?? 'none'}
-        snapshots={watchedSnapshots}
-        curve={curve}
-        watched={watched}
-        granularity={granularity}
-        currency={currency}
-        periodKey={periodKey}
-        keys={keys}
-        onStep={step}
-        onFrameMonthChange={setFrameMonth}
-        metaSlot={chartMeta}
-        viewport={viewport}
-        onViewportChange={onViewportChange}
-        horizonLoading={curveLoading}
-        horizonError={curveError}
-        leg={leg}
-        reference={reference}
-        label={
-          route
-            ? `What each departure date costs for ${routeLabel(route)}`
-            : 'Fares by departure date'
-        }
-      />
-    );
+  const priceChart = archivePending ? (
+    <PlotSkeleton label="saved fare history" kind="moves" />
+  ) : historyError && !historyAvailable ? null : (
+    <PriceBandChart
+      ours={ours}
+      baseline={theirs}
+      unsold={oursUnsold}
+      currency={currency}
+      axis={axis}
+      label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
+    />
+  );
+  const departureChart = departurePending ? (
+    <PlotSkeleton label="departure prices" kind="days" />
+  ) : historyError && !historyAvailable && curve === null ? null : (
+    <DepartureChart
+      unavailableMonths={unavailableMonths}
+      key={routeKey ?? 'none'}
+      snapshots={watchedSnapshots}
+      curve={curve}
+      watched={watched}
+      granularity={granularity}
+      currency={currency}
+      periodKey={periodKey}
+      keys={keys}
+      onStep={step}
+      onFrameMonthChange={setFrameMonth}
+      metaSlot={chartMeta}
+      viewport={viewport}
+      onViewportChange={onViewportChange}
+      horizonLoading={curveLoading}
+      horizonError={curveError}
+      leg={leg}
+      reference={reference}
+      label={
+        route
+          ? `What each departure date costs for ${routeLabel(route)}`
+          : 'Fares by departure date'
+      }
+    />
+  );
+
+  const historyNotice =
+    historyError || updatingMonth ? (
+      <div className={styles.plotNotice}>
+        <FareHistoryStatus error={historyError} onRetry={onHistoryRetry} />
+        {updatingMonth && !historyError ? (
+          <p role="status">Updating saved fares for {formatFlightMonth(updatingMonth)}…</p>
+        ) : null}
+      </div>
+    ) : null;
 
   return (
     <>
@@ -489,37 +568,28 @@ export function AnalysisPanel({
         {narrow && view === 'days' && (
           <div className={`${styles.chartMeta} ${styles.chartMetaEnter}`}>
             <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-            <div ref={setChartMeta} className={styles.chartReading} />
+            <div ref={setChartMeta} className={styles.chartReading}>
+              {departurePending ? <PendingFrameControls /> : null}
+            </div>
           </div>
         )}
       </div>
 
-      {/*
-        Loading and retry need a real row, but an idle route does not. Letting
-        those rare states move the plots is preferable to reserving an empty
-        status line on every route and at every width.
-      */}
-      {(historyLoading || historyError || updatingMonth) && (
-        <div className={styles.historyStatus}>
-          <FareHistoryStatus
-            loading={historyLoading}
-            error={historyError}
-            onRetry={onHistoryRetry}
-          />
-          {updatingMonth && !historyLoading && !historyError ? (
-            <p role="status">Updating saved fares for {formatFlightMonth(updatingMonth)}…</p>
-          ) : null}
-        </div>
-      )}
       {narrow ? (
-        <div className={styles.body}>{view === 'moves' ? priceChart : departureChart}</div>
+        <div className={`${styles.body} ${view === 'moves' ? styles.movesBody : ''}`}>
+          {view === 'moves' ? priceChart : departureChart}
+          {historyNotice}
+        </div>
       ) : (
         <div className={styles.columns}>
           <section className={styles.column} aria-labelledby="price-chart-title">
             <h3 id="price-chart-title" className={styles.chartTitle}>
               {MOVES_NAME}
             </h3>
-            <div className={styles.body}>{priceChart}</div>
+            <div className={`${styles.body} ${styles.movesBody}`}>
+              {priceChart}
+              {historyNotice}
+            </div>
           </section>
           <section className={styles.column} aria-labelledby="departure-chart-title">
             <div className={styles.columnHead}>
@@ -529,7 +599,9 @@ export function AnalysisPanel({
               </h3>
               <div className={styles.chartMeta}>
                 <PeriodSwitch granularity={granularity} onChange={onGranularityChange} />
-                <div ref={setChartMeta} className={styles.chartReading} />
+                <div ref={setChartMeta} className={styles.chartReading}>
+                  {departurePending ? <PendingFrameControls /> : null}
+                </div>
               </div>
             </div>
             <div className={styles.body}>{departureChart}</div>

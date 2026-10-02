@@ -99,13 +99,15 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
-  align-items: start;
+  /* Wrapped departure controls change header height at intermediate widths. */
+  align-items: end;
 }
 
 .column {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .columnHead {
@@ -130,13 +132,127 @@
 }
 
 /*
- * Each SVG already has an aspect ratio. A shared fixed height made its actual
- * drawing letterbox vertically, especially the shorter Flights seen view on a
- * phone. Let the figure determine its height so the following table starts as
- * soon as the last chart ends.
+ * The departure SVG sets the wide plot height. Each pending, loaded and empty
+ * state gets its chart's own aspect ratio, so the stage contains the drawing
+ * without a spare band below its axis.
  */
 .body {
+  position: relative;
   min-width: 0;
+  aspect-ratio: 760 / 308;
+  overflow: hidden;
+}
+
+/* The history chart changes to its readable compact axis below 400px. */
+@container (max-width: 399px) {
+  .movesBody {
+    aspect-ratio: 505 / 284;
+  }
+
+  .skeletonMoves {
+    aspect-ratio: 505 / 284;
+  }
+}
+
+.plotSkeleton {
+  position: absolute;
+  inset: 0 0 auto;
+  box-sizing: border-box;
+  aspect-ratio: 760 / 308;
+  display: grid;
+  grid-template-columns: 12% minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 16px;
+  gap: 4px;
+  padding: 8px 16px 8px 0;
+}
+
+.skeletonMoves {
+  aspect-ratio: 760 / 308;
+}
+
+.skeletonPriceAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.skeletonPlot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.skeletonGrid {
+  width: 100%;
+  opacity: 0.45;
+}
+
+.skeletonBars {
+  position: absolute;
+  inset: 15% 3% 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  opacity: 0.7;
+}
+
+.skeletonLineArea {
+  position: absolute;
+  inset: 18% 3% 12%;
+  opacity: 0.7;
+}
+
+.skeletonLine {
+  clip-path: polygon(
+    0 66%,
+    16% 60%,
+    32% 64%,
+    48% 41%,
+    64% 52%,
+    81% 28%,
+    100% 38%,
+    100% 42%,
+    81% 32%,
+    64% 56%,
+    48% 45%,
+    32% 68%,
+    16% 64%,
+    0 70%
+  );
+}
+
+.skeletonTimeAxis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+}
+
+.plotNotice {
+  position: absolute;
+  inset-inline: 12% 16px;
+  bottom: 8px;
+  padding: 6px 8px;
+  background: var(--color-surface);
+  font-size: 0.88rem;
+}
+
+.plotNotice p {
+  margin: 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* On phones these controls follow the switch; on desktop they sit under B's title. */
@@ -173,11 +289,37 @@
 }
 
 .chartReading {
-  min-width: 0;
+  /* Reserve the portalled frame controls before the departure plot loads. */
+  min-width: 152px;
+  min-height: 26px;
+}
+
+.pendingPager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 152px;
+  height: 26px;
 }
 
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
+  .movesBody {
+    aspect-ratio: 505 / 284;
+  }
+
+  .skeletonMoves {
+    aspect-ratio: 505 / 284;
+  }
+
+  .chartReading {
+    min-height: 32px;
+  }
+
+  .pendingPager {
+    height: 32px;
+  }
+
   .head {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
@@ -229,11 +371,4 @@
     align-items: center;
     flex-wrap: wrap;
   }
-}
-.historyStatus {
-  min-width: 0;
-}
-
-.historyStatus > p {
-  margin: 0;
 }

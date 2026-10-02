@@ -125,7 +125,7 @@
 .rows {
   display: grid;
   gap: 0.7rem;
-  max-height: 48rem;
+  max-height: 24rem;
   padding: 0.2rem 0.3rem 0.45rem 0.05rem;
   overflow: auto;
   scrollbar-width: thin;
@@ -236,7 +236,7 @@
     grid-template-columns: 1fr;
   }
   .rows {
-    max-height: 38rem;
+    max-height: 19rem;
   }
 }
 

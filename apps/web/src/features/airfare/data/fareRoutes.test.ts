@@ -534,6 +534,22 @@ describe('reorderRoutes', () => {
     expect(moved.routes).toHaveLength(LIST.routes.length);
     expect(new Set(ids(moved))).toEqual(new Set(ids(LIST)));
   });
+
+  it('moves both directions together when a reciprocal pair is reordered', () => {
+    const paired = normalizeFareRoutes({
+      routes: [
+        { origin: 'LIM', destination: 'CUZ', months: ['2026-10'] },
+        { origin: 'CUZ', destination: 'LIM', months: ['2026-11'] },
+        { origin: 'LIM', destination: 'SCL', months: ['2026-10'] },
+      ],
+    });
+
+    expect(ids(reorderRoutes(paired, 'LIM|CUZ', 'LIM|SCL'))).toEqual([
+      'LIM|SCL',
+      'LIM|CUZ',
+      'CUZ|LIM',
+    ]);
+  });
 });
 
 describe('formatFlightDate', () => {

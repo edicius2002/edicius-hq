@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import {
   formatFlightMonth,
   formatFlightMonths,
+  groupRoutePairs,
   hasDeparted,
   monthHasDeparted,
   openingMonth,
@@ -184,8 +185,9 @@ export function RouteList({
   // Order is not decoration here: the collector spends its daily request
   // budget down the list, so dragging a route to the top says "poll this one
   // first when there is not enough budget for everything".
+  const routeGroups = groupRoutePairs(routes);
   const { dragging, rowProps } = useReorder({
-    order: routes.map(routeId),
+    order: routeGroups.map((group) => routeId(group[0])),
     onMove,
   });
 
@@ -221,7 +223,7 @@ export function RouteList({
     return () => observer.disconnect();
   }, [routes, loading]);
 
-  const visibleRoutes = loading ? [] : routes;
+  const visibleGroups = loading ? [] : routeGroups;
 
   return (
     <div className={styles.panel} onClick={clearOnBackdrop}>
@@ -294,50 +296,29 @@ export function RouteList({
                   </li>
                 ))
               : null}
-            {visibleRoutes.map((route) => {
+            {visibleGroups.map((group) => {
+              const groupId = routeId(group[0]);
+              const route =
+                group.find((candidate) => routeId(candidate) === selectedId) ?? group[0];
               const id = routeId(route);
-              // A month is over only once the calendar has left it. Half a month
-              // can be in the past and the rest still worth collecting, which is
-              // a distinction the collector draws day by day and this row cannot.
-              // The comparison itself is `hasDeparted`, which used to be a
-              // filter over the whole document for the page-wide collect button
-              // and is a predicate now that a row is its only reader.
+              const inverse = group.find((candidate) => routeId(candidate) !== id);
+              const drawn = [...new Set(group.flatMap((candidate) => candidate.months))].sort();
               const departed = hasDeparted(route, today);
               const busy = collecting.includes(id);
               const bar = progress.get(id) ?? null;
-              // Every month, explicitly. The row used to draw three and count
-              // the rest, which meant the shape of a watch was legible and its
-              // contents were not — the reader could see that a route had more
-              // months than fitted and had to open the editor to learn which.
-              // Four to a line is what the width allows; the lines are what a
-              // watch with nine months costs, and it costs them only on that row.
-              const drawn = route.months;
-              // Where Tab lands in this row's tabs: the month being read where
-              // this is the open row, and the first one otherwise. One stop per
-              // row, so the group walks with the arrows rather than the tab key.
-              /*
-               * The month this row is reading, which is one value serving two
-               * jobs: where Tab lands in its tab strip, and what its collect
-               * button collects.
-               *
-               * The open tab where this is the open row. Otherwise the month it
-               * would open on — `openingMonth`, the earliest that has not
-               * departed — rather than `months[0]`, which on a watch a few
-               * months old is a dead month whose series has stopped. One value
-               * so the control and the keyboard cannot point at different
-               * months of the same row.
-               */
               const reading =
                 id === selectedId && activeMonth !== null && route.months.includes(activeMonth)
                   ? activeMonth
                   : openingMonth(route, today);
-              const tabStop = drawn.includes(reading) ? reading : drawn[0];
-              const monthsLabel = formatFlightMonths(route.months);
+              const tabStop = route.months.includes(reading) ? reading : route.months[0];
+              const monthsLabel = inverse
+                ? `${routeLabel(route)}: ${formatFlightMonths(route.months)}; ${routeLabel(inverse)}: ${formatFlightMonths(inverse.months)}`
+                : formatFlightMonths(route.months);
               return (
                 <li
-                  key={id}
-                  className={`${styles.item} ${dragging === id ? styles.dragging : ''}`}
-                  {...rowProps(id)}
+                  key={groupId}
+                  className={`${styles.item} ${dragging === groupId ? styles.dragging : ''}`}
+                  {...rowProps(groupId)}
                 >
                   <div className={styles.row}>
                     <button
@@ -346,7 +327,8 @@ export function RouteList({
                         id === selectedId ? `${styles.route} ${styles.selected}` : styles.route
                       }
                       aria-current={id === selectedId ? 'true' : undefined}
-                      onClick={() => onSelect(id)}
+                      onClick={() => onSelect(inverse ? routeId(inverse) : id)}
+                      title={inverse ? `Switch to ${routeLabel(inverse)}` : undefined}
                     >
                       {/*
                       The colour this route is drawn in on the map. Eight arcs
@@ -375,13 +357,11 @@ export function RouteList({
                     {/*
                       The months, as tabs.
 
-                      They are siblings of the row button rather than children
-                      of it, because a `<button>` may not contain buttons — so
-                      the whole-row press shrinks to the swatch and the pair.
-                      What compensates is that pressing any tab also selects the
-                      row: `onOpenMonth` does both, so a press anywhere on the
-                      row still opens it and a press on a tab additionally says
-                      which month.
+                       They are siblings of the route button because a `<button>`
+                       may not contain buttons. The route button switches direction
+                       when the inverse watch exists. Only months watched in the
+                       displayed direction open the chart; the inverse-only months
+                       remain visible and disabled until the direction is switched.
 
                       **Not `role="tab"`.** That role obliges a `tablist` whose
                       tabs own `tabpanel`s, and there would be one tablist per
@@ -419,6 +399,7 @@ export function RouteList({
                     >
                       {drawn.map((month) => {
                         const open = id === selectedId && month === activeMonth;
+                        const inverseOnly = !route.months.includes(month);
                         return (
                           <button
                             key={month}
@@ -427,17 +408,21 @@ export function RouteList({
                               styles.monthTab,
                               open ? styles.monthTabOpen : '',
                               monthHasDeparted(month, today) ? styles.monthTabGone : '',
+                              inverseOnly ? styles.monthTabInverse : '',
                             ]
                               .filter(Boolean)
                               .join(' ')}
                             aria-label={
-                              monthHasDeparted(month, today)
-                                ? `${formatFlightMonth(month)} — departed`
-                                : formatFlightMonth(month)
+                              inverseOnly
+                                ? `${formatFlightMonth(month)} — ${routeLabel(inverse!)} only`
+                                : monthHasDeparted(month, today)
+                                  ? `${formatFlightMonth(month)} — departed`
+                                  : formatFlightMonth(month)
                             }
                             aria-current={open ? 'true' : undefined}
-                            aria-controls={ANALYSIS_PANEL_ID}
-                            tabIndex={month === tabStop ? 0 : -1}
+                            aria-controls={inverseOnly ? undefined : ANALYSIS_PANEL_ID}
+                            tabIndex={!inverseOnly && month === tabStop ? 0 : -1}
+                            disabled={inverseOnly}
                             onClick={() => onOpenMonth(id, month)}
                           >
                             {shortMonth(month)}
@@ -486,7 +471,7 @@ export function RouteList({
                         variant="ghost"
                         size="small"
                         onClick={() => onRemove(id)}
-                        // The pair and every month of it. The month name is gone
+                        // This direction and every month of it. The month name is gone
                         // from here on purpose: with tabs in the row, "Stop
                         // watching LIM → CUZ in March 2027" would read as an offer
                         // to drop one month. Dropping one is the editor's job.

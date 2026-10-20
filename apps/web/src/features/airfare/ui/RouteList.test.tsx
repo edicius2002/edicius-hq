@@ -84,6 +84,30 @@ describe('RouteList', () => {
     expect(rowFor('LIM', 'SCL')).toBeInTheDocument();
   });
 
+  it('shows reciprocal watches in one list entry while keeping both directions usable', () => {
+    const reverse: FareRoute = {
+      origin: 'CUZ',
+      destination: 'LIM',
+      months: ['2026-11'],
+      currency: 'USD',
+    };
+    const { props } = renderList({ routes: [ROUTES[0], ROUTES[1], reverse] });
+    const list = screen.getByRole('list', { name: 'Watched routes' });
+    const outward = rowFor('LIM', 'CUZ');
+    const inward = rowFor('CUZ', 'LIM');
+
+    expect(list.querySelectorAll('li')).toHaveLength(2);
+    expect(outward.closest('li')).toBe(inward.closest('li'));
+    expect(
+      within(outward.closest('li')!).getByRole('button', { name: 'November 2026' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(inward);
+    expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop watching CUZ → LIM' }));
+    expect(props.onRemove).toHaveBeenCalledWith('CUZ|LIM');
+  });
+
   it('draws the watched months as their own controls beside the pair', () => {
     /*
      * The months left the row's own button, and they had to: a `<button>` may

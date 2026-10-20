@@ -253,7 +253,7 @@ class ProcessDestination:
             raise TimeoutError("test did not release the paused synchronization")
         self.state["baseline_price"] = rows[0]["price"]
 
-    def rpc(self, name, params):
+    def rpc(self, name, params, *, timeout_seconds=None):
         if name == "list_fare_projection_dirty_routes":
             assert params == {}
             return []
@@ -358,6 +358,140 @@ def test_projection_refresh_allows_a_longer_rpc_than_regular_uploads(source, rem
     )
     assert projection_request.extensions["timeout"]["read"] == 35
     assert upload_request.extensions["timeout"]["read"] == 15
+
+
+@pytest.fixture(autouse=True)
+def immediate_finalization_retries(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.airfare_sync._FINALIZATION_RETRY_DELAYS", (0.0, 0.0), raising=False
+    )
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["refresh_fare_route_projection", "airfare_dataset_manifest", "complete_run"]
+)
+def test_transient_finalization_failure_recovers_without_reuploading(source, endpoint, caplog):
+    server = Destination()
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+    attempts = 0
+
+    def handle(request):
+        nonlocal attempts
+        name = request.url.path.split("/")[-1]
+        body = json.loads(request.content)
+        is_target = name == endpoint or (
+            endpoint == "complete_run"
+            and name == "airfare_import_runs"
+            and body[0]["status"] == "complete"
+        )
+        if is_target:
+            attempts += 1
+            if attempts == 1:
+                # A committed final write with a lost response is safe to repeat.
+                if endpoint == "complete_run":
+                    server.handle(request)
+                return httpx.Response(
+                    500, json={"code": "57014", "message": "sb_secret_DO_NOT_REPORT"}
+                )
+        return server.handle(request)
+
+    client = SupabaseAirfare(
+        "https://testproject.supabase.co",
+        "sb_secret_test",
+        transport=httpx.MockTransport(handle),
+    )
+    try:
+        report = AirfareSync(source, client).apply("incremental")
+    finally:
+        client.close()
+
+    assert report.status == "complete"
+    assert attempts == 2
+    assert report.uploaded["snapshots"] == report.uploaded["baseline"] == 1
+    assert sum(r.url.path.endswith("/fare_snapshots") for r in server.requests) == 1
+    assert sum(r.url.path.endswith("/fare_baseline_points") for r in server.requests) == 1
+    assert len(server.tables["airfare_import_runs"]) == 1
+    run = next(iter(server.tables["airfare_import_runs"].values()))
+    assert run["status"] == "complete" and run["destination_manifest"]
+    assert "57014" in caplog.text
+    assert "sb_secret_DO_NOT_REPORT" not in caplog.text
+
+
+@pytest.mark.parametrize("status,expected_attempts", [(500, 3), (403, 1)])
+def test_finalization_failure_is_bounded_and_never_claims_success(
+    source, status, expected_attempts, caplog
+):
+    server = Destination()
+    attempts = 0
+    failing = True
+
+    def handle(request):
+        nonlocal attempts
+        if failing and request.url.path.endswith("/rpc/airfare_dataset_manifest"):
+            attempts += 1
+            return httpx.Response(
+                status, json={"code": "57014", "message": "sb_secret_DO_NOT_REPORT"}
+            )
+        return server.handle(request)
+
+    client = SupabaseAirfare(
+        "https://testproject.supabase.co",
+        "sb_secret_test",
+        transport=httpx.MockTransport(handle),
+    )
+    try:
+        sync = AirfareSync(source, client)
+        report = sync.apply("incremental")
+        assert report.status == "failed" and attempts == expected_attempts
+        assert next(iter(server.tables["airfare_import_runs"].values()))["status"] == "failed"
+        assert "57014" in caplog.text
+        assert "sb_secret_DO_NOT_REPORT" not in caplog.text + report.error
+        failing = False
+        resumed = sync.apply("incremental")
+        assert resumed.status == "complete" and resumed.uploaded["snapshots"] == 0
+    finally:
+        client.close()
+
+
+def test_lost_final_write_responses_never_claim_confirmed_success(source, caplog):
+    server = Destination()
+    final_attempts = []
+
+    def handle(request):
+        if request.url.path.endswith("/airfare_import_runs"):
+            run = json.loads(request.content)[0]
+            if run["status"] == "complete":
+                final_attempts.append(run["run_id"])
+                server.handle(request)  # Commit before the response is lost.
+                raise httpx.ReadTimeout("sb_secret_DO_NOT_REPORT", request=request)
+            if run["status"] == "failed":
+                return httpx.Response(503, text="sb_secret_DO_NOT_REPORT")
+        return server.handle(request)
+
+    client = SupabaseAirfare(
+        "https://testproject.supabase.co",
+        "sb_secret_test",
+        transport=httpx.MockTransport(handle),
+    )
+    try:
+        report = AirfareSync(source, client).apply("incremental")
+    finally:
+        client.close()
+    assert report.status == "failed"
+    assert "import-run status could not be recorded" in report.error
+    assert len(final_attempts) == 3 and len(set(final_attempts)) == 1
+    assert len(server.tables["airfare_import_runs"]) == 1
+    assert sum(r.url.path.endswith("/fare_snapshots") for r in server.requests) == 1
+    assert "sb_secret_DO_NOT_REPORT" not in caplog.text + report.error
+
+
+def test_manifest_timeout_exceeds_its_database_deadline(source, remote):
+    server, client = remote
+    assert AirfareSync(source, client).apply("incremental").status == "complete"
+    request = next(
+        r for r in server.requests if r.url.path.endswith("/rpc/airfare_dataset_manifest")
+    )
+    assert request.extensions["timeout"]["read"] == 35
 
 
 def test_failed_projection_refresh_is_retried_after_cursors_advance(source, remote):

@@ -182,6 +182,37 @@ def test_real_manual_sync_accepts_partial_results_when_some_departures_were_read
     assert data.sync_incremental.call_count == 2
 
 
+def test_real_manual_sync_keeps_a_minority_of_successful_departures(monkeypatch):
+    from app.services import airfare_request_worker as module
+    from app.services.collection_sync import sync_completed_pass
+
+    data = Mock()
+    data.sync_incremental.return_value = Mock(status="complete")
+    monkeypatch.setattr(module, "AIRFARE_DATA", data)
+    for failed in (1, 2):
+        collected = CollectionReport(
+            "start",
+            "finish",
+            "google",
+            [RouteResult("LIM", "CUZ", "2026-11-01", None, True)]
+            + [
+                RouteResult(
+                    "LIM", "CUZ", f"2026-11-{day:02d}", None, False, error_code="upstream-error"
+                )
+                for day in range(2, failed + 2)
+            ],
+            [],
+        )
+        assert sync_completed_pass(data, collected) is False
+        remote = Mock(owner_id=OWNER)
+        remote.claim_request.side_effect = [request(), None]
+        worker = worker_for(remote, collect_route=AsyncMock(return_value=collected))
+        assert asyncio.run(worker.reconcile_once()) is True
+        result = remote.complete_request.call_args.args[1]
+        assert result["synced"] is True and result["failed"] == failed
+    assert data.sync_incremental.call_count == 2
+
+
 def test_a_collection_that_got_nothing_fails_without_syncing():
     nothing_read = CollectionReport(
         "start",

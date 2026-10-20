@@ -53,7 +53,7 @@ def _is_complete(
     """A manual pass may publish successful departures alongside reported misses."""
     return (
         bool(reports)
-        and any(report.collected > report.failed for report in reports)
+        and any(report.collected > 0 for report in reports)
         # A lock refusal is represented in `skipped`, so it remains a completed
         # no-op companion. A provider failure is a failed result instead and
         # makes the combined scheduled pass ineligible.

@@ -304,7 +304,7 @@
   cursor: pointer;
 }
 
-.monthTab:hover {
+.monthTab:hover:not(:disabled) {
   color: var(--color-text);
   border-color: var(--color-border);
 }
@@ -324,6 +324,12 @@
 .monthTabGone {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+/* Watched only in the opposite direction, still visible in this row. */
+.monthTabInverse {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /*

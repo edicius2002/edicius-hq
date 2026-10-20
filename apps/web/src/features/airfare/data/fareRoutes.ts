@@ -250,6 +250,23 @@ export function routeId(route: Pick<FareRoute, 'origin' | 'destination'>): strin
   return [route.origin, route.destination].join('|');
 }
 
+/** Keep reciprocal watches together without merging their directional data. */
+export function groupRoutePairs(routes: readonly FareRoute[]): FareRoute[][] {
+  const groups: FareRoute[][] = [];
+  const positions = new Map<string, number>();
+  for (const route of routes) {
+    const pair = [route.origin, route.destination].sort().join('|');
+    let position = positions.get(pair);
+    if (position === undefined) {
+      position = groups.length;
+      positions.set(pair, position);
+      groups.push([]);
+    }
+    groups[position].push(route);
+  }
+  return groups;
+}
+
 export function routeLabel(route: Pick<FareRoute, 'origin' | 'destination'>): string {
   return `${route.origin} → ${route.destination}`;
 }
@@ -669,22 +686,22 @@ export function collidesWith(document: FareRoutes, id: string, next: FareRoute):
  * down the list, so a route the reader dragged to the top is one they have
  * said should be polled first when the budget will not cover everything.
  *
- * A drag moves every month of a pair at once, which is what that argument
- * wanted all along: a pair's months are collected together, in one pass, so
- * they are one thing to prioritise rather than several that could be
- * interleaved with somebody else's.
+ * A drag moves every month of a route and its reciprocal watch together.
+ * Each direction still has its own months and collection, but both appear
+ * in one list entry and therefore share a place in the priority order.
  */
 export function reorderRoutes(document: FareRoutes, from: string, to: string): FareRoutes {
   if (from === to) return document;
 
-  const fromIndex = document.routes.findIndex((route) => routeId(route) === from);
-  const toIndex = document.routes.findIndex((route) => routeId(route) === to);
+  const groups = groupRoutePairs(document.routes);
+  const fromIndex = groups.findIndex((group) => group.some((route) => routeId(route) === from));
+  const toIndex = groups.findIndex((group) => group.some((route) => routeId(route) === to));
   if (fromIndex < 0 || toIndex < 0) return document;
+  if (fromIndex === toIndex) return document;
 
-  const routes = [...document.routes];
-  const [moved] = routes.splice(fromIndex, 1);
-  routes.splice(toIndex, 0, moved);
-  return { ...document, routes };
+  const [moved] = groups.splice(fromIndex, 1);
+  groups.splice(toIndex, 0, moved);
+  return { ...document, routes: groups.flat() };
 }
 
 /**

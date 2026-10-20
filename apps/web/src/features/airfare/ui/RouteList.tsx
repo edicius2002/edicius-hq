@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import {
   formatFlightMonth,
   formatFlightMonths,
+  groupRoutePairs,
   hasDeparted,
   monthHasDeparted,
   openingMonth,
@@ -184,8 +185,9 @@ export function RouteList({
   // Order is not decoration here: the collector spends its daily request
   // budget down the list, so dragging a route to the top says "poll this one
   // first when there is not enough budget for everything".
+  const routeGroups = groupRoutePairs(routes);
   const { dragging, rowProps } = useReorder({
-    order: routes.map(routeId),
+    order: routeGroups.map((group) => routeId(group[0])),
     onMove,
   });
 
@@ -221,7 +223,7 @@ export function RouteList({
     return () => observer.disconnect();
   }, [routes, loading]);
 
-  const visibleRoutes = loading ? [] : routes;
+  const visibleGroups = loading ? [] : routeGroups;
 
   return (
     <div className={styles.panel} onClick={clearOnBackdrop}>
@@ -294,85 +296,99 @@ export function RouteList({
                   </li>
                 ))
               : null}
-            {visibleRoutes.map((route) => {
-              const id = routeId(route);
-              // A month is over only once the calendar has left it. Half a month
-              // can be in the past and the rest still worth collecting, which is
-              // a distinction the collector draws day by day and this row cannot.
-              // The comparison itself is `hasDeparted`, which used to be a
-              // filter over the whole document for the page-wide collect button
-              // and is a predicate now that a row is its only reader.
-              const departed = hasDeparted(route, today);
-              const busy = collecting.includes(id);
-              const bar = progress.get(id) ?? null;
-              // Every month, explicitly. The row used to draw three and count
-              // the rest, which meant the shape of a watch was legible and its
-              // contents were not — the reader could see that a route had more
-              // months than fitted and had to open the editor to learn which.
-              // Four to a line is what the width allows; the lines are what a
-              // watch with nine months costs, and it costs them only on that row.
-              const drawn = route.months;
-              // Where Tab lands in this row's tabs: the month being read where
-              // this is the open row, and the first one otherwise. One stop per
-              // row, so the group walks with the arrows rather than the tab key.
-              /*
-               * The month this row is reading, which is one value serving two
-               * jobs: where Tab lands in its tab strip, and what its collect
-               * button collects.
-               *
-               * The open tab where this is the open row. Otherwise the month it
-               * would open on — `openingMonth`, the earliest that has not
-               * departed — rather than `months[0]`, which on a watch a few
-               * months old is a dead month whose series has stopped. One value
-               * so the control and the keyboard cannot point at different
-               * months of the same row.
-               */
-              const reading =
-                id === selectedId && activeMonth !== null && route.months.includes(activeMonth)
-                  ? activeMonth
-                  : openingMonth(route, today);
-              const tabStop = drawn.includes(reading) ? reading : drawn[0];
-              const monthsLabel = formatFlightMonths(route.months);
+            {visibleGroups.map((group) => {
+              const groupId = routeId(group[0]);
               return (
                 <li
-                  key={id}
-                  className={`${styles.item} ${dragging === id ? styles.dragging : ''}`}
-                  {...rowProps(id)}
+                  key={groupId}
+                  className={`${styles.item} ${dragging === groupId ? styles.dragging : ''}`}
+                  {...rowProps(groupId)}
                 >
-                  <div className={styles.row}>
-                    <button
-                      type="button"
-                      className={
-                        id === selectedId ? `${styles.route} ${styles.selected}` : styles.route
-                      }
-                      aria-current={id === selectedId ? 'true' : undefined}
-                      onClick={() => onSelect(id)}
-                    >
-                      {/*
+                  <div className={group.length > 1 ? styles.paired : undefined}>
+                    {group.length > 1 ? (
+                      <span className={styles.pairHeading}>
+                        {group[0].origin} ↔ {group[0].destination}
+                      </span>
+                    ) : null}
+                    {group.map((route) => {
+                      const id = routeId(route);
+                      // A month is over only once the calendar has left it. Half a month
+                      // can be in the past and the rest still worth collecting, which is
+                      // a distinction the collector draws day by day and this row cannot.
+                      // The comparison itself is `hasDeparted`, which used to be a
+                      // filter over the whole document for the page-wide collect button
+                      // and is a predicate now that a row is its only reader.
+                      const departed = hasDeparted(route, today);
+                      const busy = collecting.includes(id);
+                      const bar = progress.get(id) ?? null;
+                      // Every month, explicitly. The row used to draw three and count
+                      // the rest, which meant the shape of a watch was legible and its
+                      // contents were not — the reader could see that a route had more
+                      // months than fitted and had to open the editor to learn which.
+                      // Four to a line is what the width allows; the lines are what a
+                      // watch with nine months costs, and it costs them only on that row.
+                      const drawn = route.months;
+                      // Where Tab lands in this row's tabs: the month being read where
+                      // this is the open row, and the first one otherwise. One stop per
+                      // row, so the group walks with the arrows rather than the tab key.
+                      /*
+                       * The month this row is reading, which is one value serving two
+                       * jobs: where Tab lands in its tab strip, and what its collect
+                       * button collects.
+                       *
+                       * The open tab where this is the open row. Otherwise the month it
+                       * would open on — `openingMonth`, the earliest that has not
+                       * departed — rather than `months[0]`, which on a watch a few
+                       * months old is a dead month whose series has stopped. One value
+                       * so the control and the keyboard cannot point at different
+                       * months of the same row.
+                       */
+                      const reading =
+                        id === selectedId &&
+                        activeMonth !== null &&
+                        route.months.includes(activeMonth)
+                          ? activeMonth
+                          : openingMonth(route, today);
+                      const tabStop = drawn.includes(reading) ? reading : drawn[0];
+                      const monthsLabel = formatFlightMonths(route.months);
+                      return (
+                        <div key={id} className={styles.direction}>
+                          <div className={styles.row}>
+                            <button
+                              type="button"
+                              className={
+                                id === selectedId
+                                  ? `${styles.route} ${styles.selected}`
+                                  : styles.route
+                              }
+                              aria-current={id === selectedId ? 'true' : undefined}
+                              onClick={() => onSelect(id)}
+                            >
+                              {/*
                       The colour this route is drawn in on the map. Eight arcs
                       leave Lima together, and without this the reader has no
                       way to tell which line is the row they are looking at.
                     */}
-                      <span
-                        className={styles.swatch}
-                        style={{ background: colours.get(id) ?? 'var(--color-muted)' }}
-                        aria-hidden="true"
-                      />
-                      {/*
+                              <span
+                                className={styles.swatch}
+                                style={{ background: colours.get(id) ?? 'var(--color-muted)' }}
+                                aria-hidden="true"
+                              />
+                              {/*
                       Split so the arrow can be smaller and quieter than the
                       two codes — it is punctuation, not information. Read
                       aloud it becomes the word, because "LIM right-arrow CUZ"
                       is not how anyone says a route.
                     */}
-                      <span className={styles.pair}>
-                        {route.origin}{' '}
-                        <span className={styles.to} aria-hidden="true">
-                          →
-                        </span>
-                        <span className={styles.sr}>to</span> {route.destination}
-                      </span>
-                    </button>
-                    {/*
+                              <span className={styles.pair}>
+                                {route.origin}{' '}
+                                <span className={styles.to} aria-hidden="true">
+                                  →
+                                </span>
+                                <span className={styles.sr}>to</span> {route.destination}
+                              </span>
+                            </button>
+                            {/*
                       The months, as tabs.
 
                       They are siblings of the row button rather than children
@@ -398,61 +414,65 @@ export function RouteList({
                       immediately without it, while this returns immediately
                       *with* it.
                     */}
-                    <span
-                      className={styles.months}
-                      role="group"
-                      aria-label={`Months watched for ${routeLabel(route)}`}
-                      // Where the year lives, since a three-letter tab cannot
-                      // carry one — see `shortMonth`.
-                      title={monthsLabel}
-                      onKeyDown={(event) => {
-                        if (event.altKey) return;
-                        const step =
-                          event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-                        if (step === 0) return;
-                        event.preventDefault();
-                        const from = route.months.indexOf(tabStop);
-                        const next = route.months[from + step];
-                        if (next === undefined) return;
-                        onOpenMonth(id, next);
-                      }}
-                    >
-                      {drawn.map((month) => {
-                        const open = id === selectedId && month === activeMonth;
-                        return (
-                          <button
-                            key={month}
-                            type="button"
-                            className={[
-                              styles.monthTab,
-                              open ? styles.monthTabOpen : '',
-                              monthHasDeparted(month, today) ? styles.monthTabGone : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            aria-label={
-                              monthHasDeparted(month, today)
-                                ? `${formatFlightMonth(month)} — departed`
-                                : formatFlightMonth(month)
-                            }
-                            aria-current={open ? 'true' : undefined}
-                            aria-controls={ANALYSIS_PANEL_ID}
-                            tabIndex={month === tabStop ? 0 : -1}
-                            onClick={() => onOpenMonth(id, month)}
-                          >
-                            {shortMonth(month)}
-                          </button>
-                        );
-                      })}
-                    </span>
-                    {/*
+                            <span
+                              className={styles.months}
+                              role="group"
+                              aria-label={`Months watched for ${routeLabel(route)}`}
+                              // Where the year lives, since a three-letter tab cannot
+                              // carry one — see `shortMonth`.
+                              title={monthsLabel}
+                              onKeyDown={(event) => {
+                                if (event.altKey) return;
+                                const step =
+                                  event.key === 'ArrowRight'
+                                    ? 1
+                                    : event.key === 'ArrowLeft'
+                                      ? -1
+                                      : 0;
+                                if (step === 0) return;
+                                event.preventDefault();
+                                const from = route.months.indexOf(tabStop);
+                                const next = route.months[from + step];
+                                if (next === undefined) return;
+                                onOpenMonth(id, next);
+                              }}
+                            >
+                              {drawn.map((month) => {
+                                const open = id === selectedId && month === activeMonth;
+                                return (
+                                  <button
+                                    key={month}
+                                    type="button"
+                                    className={[
+                                      styles.monthTab,
+                                      open ? styles.monthTabOpen : '',
+                                      monthHasDeparted(month, today) ? styles.monthTabGone : '',
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' ')}
+                                    aria-label={
+                                      monthHasDeparted(month, today)
+                                        ? `${formatFlightMonth(month)} — departed`
+                                        : formatFlightMonth(month)
+                                    }
+                                    aria-current={open ? 'true' : undefined}
+                                    aria-controls={ANALYSIS_PANEL_ID}
+                                    tabIndex={month === tabStop ? 0 : -1}
+                                    onClick={() => onOpenMonth(id, month)}
+                                  >
+                                    {shortMonth(month)}
+                                  </button>
+                                );
+                              })}
+                            </span>
+                            {/*
                       Every month has been and gone. Its history stays — that is
                       the point of an archive — but nothing more will be
                       collected, and saying so is cheaper than letting the reader
                       wonder why the series stopped. A watch with one stale month
                       beside two live ones is not this, and keeps its press.
                     */}
-                    {/*
+                            {/*
                     Collect this one route, now, without waiting for a pass
                     over the whole list. Absent rather than disabled on a
                     departed route: the provider answers nothing about a flight
@@ -460,76 +480,80 @@ export function RouteList({
                     already says "Departed", and a greyed control beside it
                     would only make the reader wonder what would happen.
                   */}
-                    <div className={styles.actions}>
-                      {departed || !onCollect ? null : (
-                        <Button
-                          variant="ghost"
-                          size="small"
-                          className={styles.collect}
-                          onClick={() => onCollect(route, reading)}
-                          disabled={busy}
-                          aria-busy={busy || undefined}
-                          // One press, one month — the one this row is reading, so
-                          // the name says which rather than how many. A control
-                          // that collected three months while naming none of them
-                          // was doing more than the reader could see it do.
-                          aria-label={
-                            busy
-                              ? `Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`
-                              : `Collect ${routeLabel(route)} now, ${formatFlightMonth(reading)}`
-                          }
-                        >
-                          <CollectMark busy={busy} />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="small"
-                        onClick={() => onRemove(id)}
-                        // The pair and every month of it. The month name is gone
-                        // from here on purpose: with tabs in the row, "Stop
-                        // watching LIM → CUZ in March 2027" would read as an offer
-                        // to drop one month. Dropping one is the editor's job.
-                        aria-label={`Stop watching ${routeLabel(route)}`}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                  {departed ? <span className={styles.departed}>Departed</span> : null}
-                  {/* The bar and its count are the row's progress surface; terminal
+                            <div className={styles.actions}>
+                              {departed || !onCollect ? null : (
+                                <Button
+                                  variant="ghost"
+                                  size="small"
+                                  className={styles.collect}
+                                  onClick={() => onCollect(route, reading)}
+                                  disabled={busy}
+                                  aria-busy={busy || undefined}
+                                  // One press, one month — the one this row is reading, so
+                                  // the name says which rather than how many. A control
+                                  // that collected three months while naming none of them
+                                  // was doing more than the reader could see it do.
+                                  aria-label={
+                                    busy
+                                      ? `Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`
+                                      : `Collect ${routeLabel(route)} now, ${formatFlightMonth(reading)}`
+                                  }
+                                >
+                                  <CollectMark busy={busy} />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="small"
+                                onClick={() => onRemove(id)}
+                                // The pair and every month of it. The month name is gone
+                                // from here on purpose: with tabs in the row, "Stop
+                                // watching LIM → CUZ in March 2027" would read as an offer
+                                // to drop one month. Dropping one is the editor's job.
+                                aria-label={`Stop watching ${routeLabel(route)}`}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                          {departed ? <span className={styles.departed}>Departed</span> : null}
+                          {/* The bar and its count are the row's progress surface; terminal
                       text is announced by the toast stack instead of repeated here. */}
-                  {bar ? (
-                    <div className={styles.progressLine}>
-                      <div
-                        className={
-                          bar.fraction === null
-                            ? `${styles.progress} ${styles.unplanned}`
-                            : styles.progress
-                        }
-                        role="progressbar"
-                        aria-label={`Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`}
-                        aria-valuemin={0}
-                        aria-valuemax={bar.polling ?? undefined}
-                        aria-valuenow={bar.polling === null ? undefined : bar.completed}
-                        aria-valuetext={progressText(bar)}
-                        data-testid={`collect-progress-${id}`}
-                      >
-                        <span
-                          className={styles.fill}
-                          style={
-                            bar.fraction === null
-                              ? undefined
-                              : { width: `${Math.min(1, bar.fraction) * 100}%` }
-                          }
-                        />
-                      </div>
-                      {/* Hidden from assistive tech: the bar's value text says it. */}
-                      <span className={styles.progressCount} aria-hidden="true">
-                        {progressText(bar)}
-                      </span>
-                    </div>
-                  ) : null}
+                          {bar ? (
+                            <div className={styles.progressLine}>
+                              <div
+                                className={
+                                  bar.fraction === null
+                                    ? `${styles.progress} ${styles.unplanned}`
+                                    : styles.progress
+                                }
+                                role="progressbar"
+                                aria-label={`Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`}
+                                aria-valuemin={0}
+                                aria-valuemax={bar.polling ?? undefined}
+                                aria-valuenow={bar.polling === null ? undefined : bar.completed}
+                                aria-valuetext={progressText(bar)}
+                                data-testid={`collect-progress-${id}`}
+                              >
+                                <span
+                                  className={styles.fill}
+                                  style={
+                                    bar.fraction === null
+                                      ? undefined
+                                      : { width: `${Math.min(1, bar.fraction) * 100}%` }
+                                  }
+                                />
+                              </div>
+                              {/* Hidden from assistive tech: the bar's value text says it. */}
+                              <span className={styles.progressCount} aria-hidden="true">
+                                {progressText(bar)}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </li>
               );
             })}

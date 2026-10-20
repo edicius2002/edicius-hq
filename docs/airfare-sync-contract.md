@@ -64,3 +64,20 @@ resolved authoritative roots are protected, including consumed source files
 behind nested directory aliases. Existing report targets are also compared by
 filesystem identity against every authoritative file the scanner can consume,
 so hardlinks cannot overwrite journals or the watch document indirectly.
+
+
+## Finalization retries and deadlines
+
+After acknowledged source batches, finalization drains dirty route projections,
+reads the full destination manifest and upserts the same import-run ID as complete.
+A transient remote/network failure retries this phase at most twice, after 1 and
+2 seconds. It does not recollect departures or replay acknowledged source uploads.
+Permanent rejections fail immediately; exhaustion still reports a failed sync.
+Errors record the sanitized HTTP status/SQLSTATE, never the response body or key.
+
+Both projection refresh and manifest RPCs have 30-second database deadlines and
+35-second client deadlines. The manifest override is service-role-only and must
+be followed by a PostgREST schema-cache reload; no global timeout is increased.
+An explicit manual partial pass publishes any successful departures, even if
+failures are the majority, while retaining the failed-day counts. Scheduled
+passes continue to require their existing clean-pass conditions.

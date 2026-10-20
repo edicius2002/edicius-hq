@@ -1371,3 +1371,23 @@ Current-state reconciliation (2026-09-07): FastAPI and the five green dependency
 Historical implementation before the Pi/Supabase data-plane change: live last-reset summary, reset statistics, and a 53-week calendar above the preserved Posts and Replies timelines. Its authenticated local endpoint read public upstream data through a separate client, followed pagination, deduplicated records, and retained stale cached data during transient failures. Dates use America/Bogota.
 
 Owner review approved compact announcement-style cards, centered history content, removal of the attribution footer, and a card height reserved from the longest daily detail at the current viewport width. See [implementation results](dashboard-codex-resets-result.md) for behavior, validation, sources, and limitations.
+
+
+## Airfare manual collection and sync finalization - 2026-10-20
+
+Manual month collection may overlap two departure requests while retaining the
+shared 3-second Google start gap and the existing budget/pass lock. Scheduled
+collection remains sequential. Pass records separate `collectionMs` and `syncMs`.
+Overlap helps slow responses; it does not improve a month already limited by the
+start gap. The controlled four-date fixture measured 9.236s sequential versus
+9.249s overlapped at a 3s gap and 200ms response time.
+
+The BOG-NRT August 2027 request collected all 31 dates in approximately 91s but
+failed at the destination manifest after uploading. Its observed queue was 20s,
+sync phase 49s, total 160s. The authenticator has an 8s statement timeout and the
+same manifest query measured 8.224s. Scope a 30s deadline to that RPC, use a 35s
+client timeout, and retry only idempotent finalization twice with 1s/2s delays.
+Retain acknowledgement cursors and report permanent or exhausted failures.
+Manual partial sync accepts any successful day; `collected` already excludes
+failed results and must not have `failed` subtracted again. Scheduled eligibility
+and provider cadence remain unchanged.

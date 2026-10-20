@@ -1731,6 +1731,51 @@ describe('reaching the airline from the chart', () => {
     );
   }
 
+  it.each([
+    [
+      'IB',
+      'Iberia',
+      'SCL',
+      'MAD',
+      'https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/',
+    ],
+    ['AV', 'Avianca', 'SCL', 'MAD', 'https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid'],
+    [
+      'UX',
+      'Air Europa',
+      'SCL',
+      'MAD',
+      'https://www.aireuropa.com/es-cl/ofertas-de-vuelos-desde-santiago-de-chile-a-madrid',
+    ],
+    [
+      'H2',
+      'Sky Airline',
+      'LIM',
+      'AQP',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa',
+    ],
+  ])(
+    'links the %s flight number on its published route',
+    (airline, airlineName, origin, destination, url) => {
+      const board = {
+        ...snapshot('2027-03-09', [
+          offer({ airline, airlineName, flightNumber: '812', departureAt: '2027-03-09T19:55' }),
+        ]),
+        destination,
+      };
+      const { container } = chart({
+        snapshots: [board],
+        granularity: 'day',
+        leg: { origin, destination, originCountry: origin === 'SCL' ? 'Chile' : 'Peru' },
+      });
+      const mark = dots(container)[0];
+      expect(mark).toHaveAttribute('data-linked', 'true');
+      point(container, mark);
+      const link = screen.getByRole('link', { name: new RegExp(`^${airline} 812 —`) });
+      expect(link).toHaveAttribute('href', url);
+    },
+  );
+
   it('makes the flight number in the readout a link to that airline’s own search', () => {
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
     point(container, board(container)[0]);

@@ -282,9 +282,16 @@ class PassRecorder:
         self._started = now if now is not None else datetime.now(UTC)
         self._began = self._clock()
 
-    def finish(self, *, exit_code: int) -> None:
+    def finish(
+        self, *, exit_code: int, collection_ms: int | None = None, sync_ms: int | None = None
+    ) -> None:
         """
         Write the line.
+
+        Manual Airfare passes also record collection and final replica-sync
+        durations. `syncMs` is absent if sync was never attempted; it ends when
+        the sync call returns its acknowledgement (or raises). Scheduled passes
+        retain their existing row shape.
 
         `exit_code` is the process's own code from the command line, and the
         same 0-or-1 for a pass that has no process — a runner's task that raised
@@ -307,4 +314,8 @@ class PassRecorder:
             "wallMs": round((self._clock() - self._began) * 1000),
             "exit": exit_code,
         }
+        if collection_ms is not None:
+            row["collectionMs"] = collection_ms
+        if sync_ms is not None:
+            row["syncMs"] = sync_ms
         self._ledger.append(row, day=started.date())

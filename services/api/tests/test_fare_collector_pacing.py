@@ -35,3 +35,21 @@ def test_deadline_pacer_counts_the_request_time_toward_the_next_gap():
 
     assert starts == [0.0, 3.0]
     assert clock.sleeps == [2.37]
+
+
+def test_concurrent_waiters_share_one_google_start_deadline():
+    clock = Clock()
+    starts: list[float] = []
+
+    async def scenario() -> None:
+        pacer = fare_collector.DeadlinePacer(clock=clock.monotonic, sleep=clock.sleep)
+
+        async def start():
+            await pacer.wait(gap_seconds=3.0)
+            starts.append(clock.now)
+
+        await asyncio.gather(start(), start(), start())
+
+    asyncio.run(scenario())
+    assert starts == [0.0, 3.0, 6.0]
+    assert clock.sleeps == [3.0, 3.0]

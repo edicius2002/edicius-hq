@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import threading
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, call
@@ -11,6 +13,7 @@ from uuid import UUID
 from app.services.airfare_request_worker import AirfareRequestWorker
 from app.services.collector_cloud import CollectorRequest
 from app.services.fare_collector import CollectionReport, RouteResult
+from app.services.fare_passes import PassLedger, PassRecorder
 from app.services.process_lock import ProcessLockUnavailable
 
 OWNER = UUID("11111111-1111-1111-1111-111111111111")
@@ -50,11 +53,12 @@ def available_lock(_name: str):
 
 def worker_for(remote: Mock, **kwargs) -> AirfareRequestWorker:
     recorder = Mock(pass_id="test-pass")
+    recorder_factory = kwargs.pop("recorder_factory", Mock(return_value=recorder))
     return AirfareRequestWorker(
         remote,
         lock_factory=available_lock,
         today=lambda: date(2026, 9, 19),
-        recorder_factory=Mock(return_value=recorder),
+        recorder_factory=recorder_factory,
         **kwargs,
     )
 
@@ -339,9 +343,9 @@ def test_the_real_route_collection_announces_its_total_before_the_first_departur
 
     events: list[tuple[str, int]] = []
 
-    async def fake_collect(queries, *, observer, pass_id):
+    async def fake_collect(queries, *, observer, pass_id, max_in_flight):
         del pass_id
-        events.append(("collect", len(queries)))
+        events.append(("collect", len(queries), max_in_flight))
         return report()
 
     class Observer:
@@ -358,4 +362,48 @@ def test_the_real_route_collection_announces_its_total_before_the_first_departur
     asyncio.run(module._collect_route(watch, Observer(), "pass"))
 
     # November has 30 departures, and the total is known before any is polled.
-    assert events == [("planned", 30), ("collect", 30)]
+    assert events == [("planned", 30), ("collect", 30, 2)]
+
+
+def test_manual_pass_records_collection_and_acknowledged_sync_durations(tmp_path):
+    remote = Mock(owner_id=OWNER)
+    sync_started = threading.Event()
+    sync_ack = threading.Event()
+    ledger = PassLedger(tmp_path / "passes")
+
+    async def slow_collection(_watch, observer, _pass_id):
+        observer.planned(polling=3, skipped=[])
+        await asyncio.sleep(0.02)
+        return report()
+
+    def slow_sync(_report):
+        sync_started.set()
+        assert sync_ack.wait(1)
+        return True
+
+    def recorder_factory(**kwargs):
+        return PassRecorder(**kwargs, ledger=ledger)
+
+    ticks = iter((1.0, 1.025, 2.0, 2.04))
+    worker = worker_for(
+        remote,
+        collect_route=slow_collection,
+        sync_pass=slow_sync,
+        recorder_factory=recorder_factory,
+        clock=lambda: next(ticks),
+    )
+
+    async def scenario():
+        task = asyncio.create_task(worker.serve_request(request()))
+        assert await asyncio.to_thread(sync_started.wait, 1)
+        assert not remote.complete_request.called
+        await asyncio.sleep(0.02)
+        sync_ack.set()
+        assert await asyncio.wait_for(task, 1)
+
+    asyncio.run(scenario())
+    rows = list((tmp_path / "passes").glob("*.jsonl"))
+    entry = json.loads(rows[0].read_text(encoding="utf-8").splitlines()[0])
+    assert entry["collectionMs"] == 25
+    assert entry["syncMs"] == 40
+    assert remote.complete_request.called

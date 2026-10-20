@@ -20,9 +20,9 @@ decisions 8.8 and 8.41. A collector that quietly skipped a route would look
 identical to a route with no price change.
 
 **Requests are spaced.** The upstream is unmetered and undocumented, which
-makes pacing our responsibility rather than theirs. Sequential with a gap, not
-concurrent: there is nothing to gain by going faster and an address to lose by
-it.
+makes pacing our responsibility rather than theirs. Scheduled boards remain
+sequential; a manual month may overlap two slow replies, while all Google
+request starts still share the same process-wide gap.
 
 **And they are counted, once each, against the day rather than the pass.** The
 gap decides how tightly a day's requests are packed and not how many there are;
@@ -392,6 +392,7 @@ async def collect(
     lock: PassLock | None = None,
     pass_id: str | None = None,
     deadline_seconds: float | None = None,
+    max_in_flight: int = 1,
 ) -> CollectionReport:
     """
     Fetch every query once and append what came back.
@@ -430,7 +431,12 @@ async def collect(
     pass ledger. When a budget arrives from above it already carries the id and
     the pace, and this parameter is for the caller that hands over queries
     without one.
+    Manual route collection sets `max_in_flight=2` to overlap slow provider
+    replies. The default remains one for scheduled passes. Starts still pass
+    through the same pacer, and each task reserves its budget before fetching.
     """
+    if max_in_flight not in (1, 2):
+        raise ValueError("max_in_flight must be 1 or 2")
     store = history if history is not None else HISTORY
     started_at = _now()
     results: list[RouteResult] = []
@@ -460,39 +466,99 @@ async def collect(
     request_pacer = pacer if pacer is not None else GOOGLE_PACER
     began = perf_counter()
     try:
-        for index, query in enumerate(queries):
-            # Beside the budget check and shaped like it, because they are the
-            # same kind of stop: wanted, and refused before it was sent.
-            if deadline_seconds is not None and perf_counter() - began >= deadline_seconds:
-                declined = [
-                    (f"{later.route} {later.flight_date}", WINDOW_FULL) for later in queries[index:]
-                ]
-                logger.warning(
-                    "fare collection stopped on the scheduler's window: %d of %d departure(s) left",
-                    len(declined),
-                    len(queries),
-                )
-                break
-            if not allowance.affords():
-                declined = [
-                    (f"{later.route} {later.flight_date}", "over-budget")
-                    for later in queries[index:]
-                ]
+        if max_in_flight == 2:
+            # Tasks waiting on the pacer are not in the ledger yet. Count them
+            # against available capacity while planning, then recheck the real
+            # ledger at each start in case the calendar spent meanwhile.
+            unreserved = 0
+
+            async def fetch_one(query: FareQuery) -> RouteResult | None:
+                nonlocal unreserved
+                try:
+                    await request_pacer.wait(gap_seconds=gap_seconds)
+                    # A calendar request may have spent the last allowance while
+                    # this date waited for the global Google start slot.
+                    if not allowance.affords():
+                        return None
+                    allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
+                finally:
+                    unreserved -= 1
+                result, written = await _collect_one(session, query, provider, store)
+                if observer is not None:
+                    observer.collected(result, written)
+                return result
+
+            in_flight: dict[asyncio.Task[RouteResult | None], int] = {}
+            ordered: dict[int, RouteResult | None] = {}
+            next_index = 0
+            try:
+                while next_index < len(queries) or in_flight:
+                    while next_index < len(queries) and len(in_flight) < max_in_flight:
+                        if not allowance.affords(unreserved + 1):
+                            next_index = len(queries)
+                            break
+                        query = queries[next_index]
+                        unreserved += 1
+                        task = asyncio.create_task(fetch_one(query))
+                        in_flight[task] = next_index
+                        next_index += 1
+                    if in_flight:
+                        done, _ = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+                        for task in done:
+                            ordered[in_flight.pop(task)] = task.result()
+            finally:
+                for task in in_flight:
+                    task.cancel()
+                if in_flight:
+                    await asyncio.gather(*in_flight, return_exceptions=True)
+            results = [item for index in sorted(ordered) if (item := ordered[index]) is not None]
+            sent = {index for index, item in ordered.items() if item is not None}
+            declined = [
+                (f"{query.route} {query.flight_date}", "over-budget")
+                for index, query in enumerate(queries)
+                if index not in sent
+            ]
+            if declined:
                 logger.warning(
                     "fare collection stopped on the day's budget: %d of %d departure(s) left",
                     len(declined),
                     len(queries),
                 )
-                break
-            await request_pacer.wait(gap_seconds=gap_seconds)
-            # Before the request rather than after it. The budget protects how
-            # much this address has been seen to send, so a request recorded and
-            # then failing to leave is the error to make, not the reverse.
-            allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
-            result, written = await _collect_one(session, query, provider, store)
-            results.append(result)
-            if observer is not None:
-                observer.collected(result, written)
+        else:
+            for index, query in enumerate(queries):
+                # Beside the budget check and shaped like it, because they are the
+                # same kind of stop: wanted, and refused before it was sent.
+                if deadline_seconds is not None and perf_counter() - began >= deadline_seconds:
+                    declined = [
+                        (f"{later.route} {later.flight_date}", WINDOW_FULL)
+                        for later in queries[index:]
+                    ]
+                    logger.warning(
+                        "fare collection stopped on the scheduler's window: %d of %d departure(s) left",
+                        len(declined),
+                        len(queries),
+                    )
+                    break
+                if not allowance.affords():
+                    declined = [
+                        (f"{later.route} {later.flight_date}", "over-budget")
+                        for later in queries[index:]
+                    ]
+                    logger.warning(
+                        "fare collection stopped on the day's budget: %d of %d departure(s) left",
+                        len(declined),
+                        len(queries),
+                    )
+                    break
+                await request_pacer.wait(gap_seconds=gap_seconds)
+                # Before the request rather than after it. The budget protects how
+                # much this address has been seen to send, so a request recorded and
+                # then failing to leave is the error to make, not the reverse.
+                allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
+                result, written = await _collect_one(session, query, provider, store)
+                results.append(result)
+                if observer is not None:
+                    observer.collected(result, written)
     finally:
         if owned:
             await session.aclose()

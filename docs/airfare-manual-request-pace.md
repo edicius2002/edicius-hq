@@ -2,7 +2,7 @@
 
 The Pi worker for owner-initiated `airfare-route` requests starts Google requests at least **0.05 seconds** apart and allows up to **16** in flight. It still uses the shared Airfare process lock, the daily request ledger, the canonical Pi archive, and the normal replica sync. Scheduled collection and the existing board/calendar UI jobs retain their 3-second default and sequential board collection.
 
-The change follows a bounded Pi probe on 2026-10-20 using the same 24 previously covered SCL→HND/NRT departure dates in each setting. The temporary collector copy used the same parallel branch as production. Each setting produced 24 HTTP 200 responses and 24 successful canonical checks:
+The change follows a bounded Pi probe on 2026-10-20 using the same 24 previously covered SCL→HND/NRT departure dates in each setting. The temporary collector copy used the parallel algorithm now enabled for 16 slots in this branch. Each setting produced 24 HTTP 200 responses and 24 successful canonical checks:
 
 | Start gap / slots | Observed peak | Minimum start gap | Collection time |
 | --- | ---: | ---: | ---: |

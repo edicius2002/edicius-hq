@@ -210,7 +210,7 @@ const HELP =
   'two fingers pinch to do it on a touchscreen. ' +
   'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
   'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
-  'plot does both. Where the airline that flies a mark has a booking search we can reach, that ' +
+  'plot does both. Where the airline that flies a mark has an official flight page we can reach, that ' +
   'mark is drawn with a coloured centre and the flight number in the line under the plot is a ' +
   'link to it, which Tab reaches from here.';
 

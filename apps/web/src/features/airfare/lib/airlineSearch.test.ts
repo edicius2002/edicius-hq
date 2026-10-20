@@ -14,10 +14,9 @@ import {
  * Every expectation here is a whole URL rather than a parameter fished out of
  * one, because a booking engine's deep link is only ever right or wrong as a
  * whole: `trip=OW` without `/pe/es/` is a 404, and a `culture` without a `cur`
- * is a New Skies session with no currency. Three of these four hosts sit behind
- * bot protection that will not answer a test runner, so a whole-string
- * expectation is also the only alarm that fires when somebody edits one of
- * these builders by hand.
+ * is a New Skies session with no currency. Several hosts block an automated
+ * test runner, so a whole-string expectation also catches accidental changes
+ * to a URL builder without depending on a live airline site.
  */
 
 const LIM_CUZ: FlightSearch = {
@@ -141,13 +140,37 @@ describe('airlineSearchUrl', () => {
     ).toContain('leg=AEP-GRU-20260925');
   });
 
-  it('gives Avianca nothing, because nobody has loaded a URL for it', () => {
-    /*
-     * 88 offers, about 2% of the archive. The site is behind Akamai and the
-     * investigation that opened the other three cold could not open it at all,
-     * so any URL here would be a guess — and 2% of rows quietly linking to a
-     * 404 costs more than 2% of rows linking to nothing.
-     */
+  it('opens Plus Ultra selection with the route and departure date', () => {
+    expect(
+      airlineSearchUrl({
+        airline: 'PU',
+        origin: 'LIM',
+        destination: 'MAD',
+        date: '2026-11-11',
+        originCountry: 'Peru',
+      }),
+    ).toBe(
+      'https://www.plusultra.com/es-es/booking/select/?adt1=1&chd1=0&currency=EUR&departure1=2026-11-11&destination1=MAD&inf1=0&origin1=LIM',
+    );
+  });
+
+  it.each([
+    ['H2', 'LIM', 'CUZ', 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-cusco'],
+    ['H2', 'CUZ', 'LIM', 'https://www.skyairline.com/flights/es-pe/vuelos-desde-cusco-a-lima'],
+    ['H2', 'LIM', 'SCL', 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-santiago'],
+    ['AV', 'LIM', 'BOG', 'https://www.avianca.com/us/en/flights-from-lima-to-bogota'],
+    ['AV', 'LIM', 'MAD', 'https://www.avianca.com/us/es/vuelos-desde-lima-a-madrid'],
+    ['IB', 'LIM', 'MAD', 'https://www.iberia.com/pe/vuelos-baratos/Lima-Madrid/'],
+    ['IB', 'MAD', 'LIM', 'https://www.iberia.com/es/vuelos-baratos/Madrid-Lima/'],
+    ['UX', 'LIM', 'MAD', 'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-madrid'],
+    ['UX', 'MAD', 'LIM', 'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-lima'],
+  ])('opens the published %s route page for %s–%s', (airline, origin, destination, url) => {
+    expect(
+      airlineSearchUrl({ airline, origin, destination, date: '2026-11-11', originCountry: null }),
+    ).toBe(url);
+  });
+
+  it('does not invent a route page for a pair we have not verified', () => {
     expect(
       airlineSearchUrl({
         airline: 'AV',
@@ -157,10 +180,7 @@ describe('airlineSearchUrl', () => {
         originCountry: 'Peru',
       }),
     ).toBeNull();
-  });
-
-  it('gives a carrier nobody has a URL for nothing, rather than a guess', () => {
-    expect(airlineSearchUrl({ ...LIM_CUZ, airline: 'H2' })).toBeNull();
+    expect(airlineSearchUrl({ ...LIM_CUZ, airline: 'H2', destination: 'AQP' })).toBeNull();
   });
 
   it('gives nothing where the origin country has no storefront', () => {
@@ -193,6 +213,12 @@ describe('searchLabel', () => {
 
   it('falls back to the IATA code where the archive has no carrier name', () => {
     expect(searchLabel(LIM_CUZ, null)).toBe('Search LA for LIM to CUZ on 12/09/2026');
+  });
+
+  it('asks for a date on route pages that cannot preselect one', () => {
+    expect(searchLabel({ ...LIM_CUZ, airline: 'H2' }, 'SKY')).toBe(
+      'View SKY flights from LIM to CUZ; choose a departure date on the airline site',
+    );
   });
 });
 

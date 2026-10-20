@@ -234,12 +234,21 @@ const ROUTE_PAGES: Record<string, string> = {
   'H2:LIM:CUZ': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-cusco',
   'H2:CUZ:LIM': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-cusco-a-lima',
   'H2:LIM:SCL': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-santiago',
+  'H2:LIM:AQP': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa',
   'AV:LIM:BOG': 'https://www.avianca.com/us/en/flights-from-lima-to-bogota',
   'AV:LIM:MAD': 'https://www.avianca.com/us/es/vuelos-desde-lima-a-madrid',
+  'AV:SCL:MAD': 'https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid',
+  'AV:MAD:SCL': 'https://www.avianca.com/es/es/vuelos-desde-madrid-a-santiago',
   'IB:LIM:MAD': 'https://www.iberia.com/pe/vuelos-baratos/Lima-Madrid/',
   'IB:MAD:LIM': 'https://www.iberia.com/es/vuelos-baratos/Madrid-Lima/',
+  'IB:SCL:MAD': 'https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/',
+  'IB:MAD:SCL': 'https://www.iberia.com/es/vuelos-baratos/Madrid-Santiago-de-Chile/',
   'UX:LIM:MAD': 'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-madrid',
   'UX:MAD:LIM': 'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-lima',
+  'UX:SCL:MAD':
+    'https://www.aireuropa.com/es-cl/ofertas-de-vuelos-desde-santiago-de-chile-a-madrid',
+  'UX:MAD:SCL':
+    'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-santiago-de-chile',
 };
 
 function routePage(search: FlightSearch): string | null {

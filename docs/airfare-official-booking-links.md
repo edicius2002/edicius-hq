@@ -15,6 +15,10 @@ Investigación del 20 de octubre de 2026. La pregunta es hasta dónde puede lleg
 
 ## Alcance práctico
 
+### Rutas incorporadas tras comprobar «Flights seen»
+
+El gráfico mostraba vuelos de Santiago de Chile a Madrid sin enlace porque esa ruta no figuraba en la lista de páginas verificadas. Se comprobaron las páginas oficiales de [Iberia SCL–MAD](https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/), [Avianca SCL–MAD](https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid) y [Air Europa SCL–MAD](https://www.aireuropa.com/es-cl/ofertas-de-vuelos-desde-santiago-de-chile-a-madrid), así como sus páginas de vuelta: [Iberia MAD–SCL](https://www.iberia.com/es/vuelos-baratos/Madrid-Santiago-de-Chile/), [Avianca MAD–SCL](https://www.avianca.com/es/es/vuelos-desde-madrid-a-santiago) y [Air Europa MAD–SCL](https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-santiago-de-chile). También se incorporó [SKY Lima–Arequipa](https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa), otra ruta observada sin enlace. Las páginas de ruta no preseleccionan la fecha ni un número de vuelo.
+
 - Plus Ultra se incorporó al generador de enlaces con fecha. JetSMART y Aerolíneas Argentinas quedaron confirmadas en navegador. LATAM permanece sin verificar por el bloqueo de su sitio al navegador automatizado.
 - Para SKY, Avianca, Iberia y Air Europa se incorporaron solo páginas de rutas publicadas. No se construye una URL suponiendo que cualquier par IATA tendrá página. Sus etiquetas indican que el usuario debe escoger la fecha en el sitio.
 - Ninguna URL de esta tabla identifica de manera comprobada el número de vuelo y la tarifa exacta de una fila de Airfare. La disponibilidad y el precio se confirman de nuevo en la aerolínea; incluso las [tarifas mostradas por Air Europa](https://www.aireuropa.com/es-pe/ofertas-de-vuelos-a-madrid) advierten que pueden haber dejado de estar disponibles.

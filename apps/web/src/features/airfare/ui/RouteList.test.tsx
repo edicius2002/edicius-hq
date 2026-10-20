@@ -84,28 +84,94 @@ describe('RouteList', () => {
     expect(rowFor('LIM', 'SCL')).toBeInTheDocument();
   });
 
-  it('shows reciprocal watches in one list entry while keeping both directions usable', () => {
+  it('keeps reciprocal watches in one compact row and switches direction on press', () => {
     const reverse: FareRoute = {
       origin: 'CUZ',
       destination: 'LIM',
       months: ['2026-11'],
       currency: 'USD',
     };
-    const { props } = renderList({ routes: [ROUTES[0], ROUTES[1], reverse] });
+    const routes = [ROUTES[0], ROUTES[1], reverse];
+    const { props, rerender } = renderList({ routes });
     const list = screen.getByRole('list', { name: 'Watched routes' });
     const outward = rowFor('LIM', 'CUZ');
-    const inward = rowFor('CUZ', 'LIM');
 
     expect(list.querySelectorAll('li')).toHaveLength(2);
-    expect(outward.closest('li')).toBe(inward.closest('li'));
-    expect(
-      within(outward.closest('li')!).getByRole('button', { name: 'November 2026' }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /CUZ\s+to\s+LIM/ })).not.toBeInTheDocument();
+    const outwardMonths = screen.getByRole('group', { name: 'Months watched for LIM → CUZ' });
+    expect(within(outwardMonths).getByRole('button', { name: 'October 2026' })).toBeEnabled();
+    const reverseMonth = within(outwardMonths).getByRole('button', {
+      name: 'November 2026 — CUZ → LIM only',
+    });
+    expect(reverseMonth).toBeDisabled();
+    fireEvent.click(reverseMonth);
+    expect(props.onOpenMonth).not.toHaveBeenCalled();
 
-    fireEvent.click(inward);
+    fireEvent.click(outward);
     expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
+    rerender(
+      <>
+        <RouteList {...props} selectedId="CUZ|LIM" activeMonth="2026-11" />
+        <button type="submit" form={ADD_ROUTE_FORM_ID}>
+          Add route
+        </button>
+      </>,
+    );
+    expect(rowFor('CUZ', 'LIM')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /LIM\s+to\s+CUZ/ })).not.toBeInTheDocument();
+    const inwardMonths = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
+    expect(within(inwardMonths).getByRole('button', { name: 'November 2026' })).toBeEnabled();
+    expect(
+      within(inwardMonths).getByRole('button', { name: 'October 2026 — LIM → CUZ only' }),
+    ).toBeDisabled();
+    fireEvent.click(within(inwardMonths).getByRole('button', { name: 'November 2026' }));
+    expect(props.onOpenMonth).toHaveBeenCalledWith('CUZ|LIM', '2026-11');
+    fireEvent.click(screen.getByRole('button', { name: 'Collect CUZ → LIM now, November 2026' }));
+    expect(props.onCollect).toHaveBeenCalledWith(reverse, '2026-11');
     fireEvent.click(screen.getByRole('button', { name: 'Stop watching CUZ → LIM' }));
     expect(props.onRemove).toHaveBeenCalledWith('CUZ|LIM');
+    fireEvent.click(rowFor('CUZ', 'LIM'));
+    expect(props.onSelect).toHaveBeenLastCalledWith('LIM|CUZ');
+  });
+
+  it('keeps shared months clickable in either direction but uses that direction as the target', () => {
+    const reverse: FareRoute = {
+      origin: 'CUZ',
+      destination: 'LIM',
+      months: ['2026-10', '2026-11'],
+      currency: 'USD',
+    };
+    const routes = [{ ...ROUTES[0], months: ['2026-10', '2026-12'] }, reverse];
+    const { props, rerender } = renderList({ routes, selectedId: 'LIM|CUZ' });
+    let months = screen.getByRole('group', { name: 'Months watched for LIM → CUZ' });
+    expect(within(months).getByRole('button', { name: 'October 2026' })).toBeEnabled();
+    expect(within(months).getByRole('button', { name: 'December 2026' })).toBeEnabled();
+    expect(
+      within(months).getByRole('button', { name: 'November 2026 — CUZ → LIM only' }),
+    ).toBeDisabled();
+    fireEvent.keyDown(months, { key: 'ArrowRight' });
+    expect(props.onOpenMonth).toHaveBeenCalledWith('LIM|CUZ', '2026-12');
+
+    fireEvent.click(within(months).getByRole('button', { name: 'October 2026' }));
+    expect(props.onOpenMonth).toHaveBeenCalledWith('LIM|CUZ', '2026-10');
+    fireEvent.click(rowFor('LIM', 'CUZ'));
+    expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
+    rerender(
+      <>
+        <RouteList {...props} selectedId="CUZ|LIM" />
+        <button type="submit" form={ADD_ROUTE_FORM_ID}>
+          Add route
+        </button>
+      </>,
+    );
+    months = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
+    expect(within(months).getByRole('button', { name: 'October 2026' })).toBeEnabled();
+    expect(within(months).getByRole('button', { name: 'November 2026' })).toBeEnabled();
+    expect(
+      within(months).getByRole('button', { name: 'December 2026 — LIM → CUZ only' }),
+    ).toBeDisabled();
+    fireEvent.click(within(months).getByRole('button', { name: 'October 2026' }));
+    expect(props.onOpenMonth).toHaveBeenLastCalledWith('CUZ|LIM', '2026-10');
   });
 
   it('draws the watched months as their own controls beside the pair', () => {

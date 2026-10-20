@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from app.services.airfare_supabase import AirfareRemoteError, AirfareRemoteRejected, SupabaseAirfare
+from app.services.airfare_supabase import (
+    AirfareRemoteError,
+    AirfareRemoteRejected,
+    AirfareRemoteUnavailable,
+    SupabaseAirfare,
+)
 from app.services.fare_calendar import _curve_from
 from app.services.fare_history import _snapshot_from, route_stem
 
@@ -38,6 +43,8 @@ _TABLES = {
     "documents": "airfare_documents",
 }
 _PROJECTION_TIMEOUT_SECONDS = 35.0
+_MANIFEST_TIMEOUT_SECONDS = 35.0
+_FINALIZATION_RETRY_DELAYS = (1.0, 2.0)
 _KINDS = {
     "snapshots": "snapshot",
     "baseline": "baseline",
@@ -517,14 +524,14 @@ class AirfareSync:
                     batch = rows[index : index + self.batch_size]
                     client.upsert(_TABLES[name], batch, on_conflict=key)
                     uploaded[name] += len(batch)
-            self._refresh_projections(client)
-            run.update(
-                status="complete",
-                completed_at=datetime.now(UTC).isoformat(),
-                destination_manifest=self._remote_groups(),
+            self._finish_run(client, run)
+        except (AirfareRemoteError, OSError) as failure:
+            # The HTTP boundary sanitizes remote errors; filesystem messages can
+            # contain private paths, so log only their type.
+            logger.warning(
+                "Airfare synchronization failed: %s",
+                failure if isinstance(failure, AirfareRemoteError) else type(failure).__name__,
             )
-            client.upsert("airfare_import_runs", [run], on_conflict="run_id")
-        except (AirfareRemoteError, OSError):
             error = "Airfare synchronization failed; retry with the retained source journals"
             run.update(status="failed", completed_at=datetime.now(UTC).isoformat(), error=error)
             try:
@@ -532,6 +539,36 @@ class AirfareSync:
             except AirfareRemoteError:
                 error += "; import-run status could not be recorded"
         return SyncReport(mode, "failed" if error else "complete", source, uploaded, error)
+
+    def _finish_run(self, client: SupabaseAirfare, run: dict[str, Any]) -> None:
+        """Retry idempotent finalization, without collecting or uploading again.
+
+        Dirty projection rows survive failed refreshes; successful refreshes
+        remove them. Manifest reads and upserting the same run ID are also safe
+        after a lost response. Permanent rejections are never retried.
+        """
+        for attempt in range(len(_FINALIZATION_RETRY_DELAYS) + 1):
+            try:
+                self._refresh_projections(client)
+                manifest = self._remote_groups()
+                run.update(
+                    status="complete",
+                    completed_at=datetime.now(UTC).isoformat(),
+                    destination_manifest=manifest,
+                )
+                client.upsert("airfare_import_runs", [run], on_conflict="run_id")
+                return
+            except AirfareRemoteUnavailable as error:
+                if attempt == len(_FINALIZATION_RETRY_DELAYS):
+                    raise
+                delay = _FINALIZATION_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "Airfare finalization attempt %d failed; retrying in %.1fs: %s",
+                    attempt + 1,
+                    delay,
+                    error,
+                )
+                time.sleep(delay)
 
     def _refresh_projections(self, client: SupabaseAirfare) -> None:
         """Drain DB-owned dirty routes after all source batches have arrived.
@@ -570,7 +607,9 @@ class AirfareSync:
                 raise AirfareRemoteRejected("Invalid Airfare projection refresh result")
 
     def _remote_groups(self) -> list[dict[str, Any]]:
-        groups = self._client().rpc("airfare_dataset_manifest", {})
+        groups = self._client().rpc(
+            "airfare_dataset_manifest", {}, timeout_seconds=_MANIFEST_TIMEOUT_SECONDS
+        )
         if not isinstance(groups, list):
             raise AirfareRemoteRejected("Supabase returned an invalid manifest")
         cleaned = []

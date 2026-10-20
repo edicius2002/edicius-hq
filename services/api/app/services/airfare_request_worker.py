@@ -18,7 +18,6 @@ from app.services.airfare_data import AIRFARE_DATA
 from app.services.collection_sync import sync_completed_pass
 from app.services.collector_cloud import CollectorCloud, CollectorRequest
 from app.services.fare_collector import (
-    REQUEST_GAP_SECONDS,
     CollectionReport,
     FareWatch,
     PassObserver,
@@ -35,6 +34,8 @@ from app.services.process_lock import (
 LOGGER = logging.getLogger(__name__)
 RECONCILE_SECONDS = 30.0
 PROGRESS_SECONDS = 2.0
+MANUAL_REQUEST_GAP_SECONDS = 0.05
+MANUAL_MAX_IN_FLIGHT = 16
 _IATA = re.compile(r"^[A-Z]{3}$")
 _MONTH = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
 
@@ -43,7 +44,9 @@ class Recorder(Protocol):
     pass_id: str
     tally: Any
 
-    def finish(self, *, exit_code: int) -> None: ...
+    def finish(
+        self, *, exit_code: int, collection_ms: int | None = None, sync_ms: int | None = None
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +108,13 @@ async def _collect_route(
     # `collect` directly, so it has to say how many departures it means to poll
     # itself — otherwise the row's bar has no denominator until the pass is over.
     observer.planned(polling=len(queries), skipped=[])
-    return await collect(list(queries.values()), observer=observer, pass_id=pass_id)
+    return await collect(
+        list(queries.values()),
+        observer=observer,
+        pass_id=pass_id,
+        gap_seconds=MANUAL_REQUEST_GAP_SECONDS,
+        max_in_flight=MANUAL_MAX_IN_FLIGHT,
+    )
 
 
 def _sync_pass(report: CollectionReport) -> bool:
@@ -186,6 +195,7 @@ class AirfareRequestWorker:
         lock_factory: Callable[[str], AbstractContextManager[None]] = exclusive_process_lock,
         recorder_factory: Callable[..., Recorder] = PassRecorder,
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.cloud = cloud
         self.owner_id = cloud.owner_id
@@ -194,6 +204,7 @@ class AirfareRequestWorker:
         self._lock_factory = lock_factory
         self._recorder_factory = recorder_factory
         self._today = today
+        self._clock = clock
         self._wake = asyncio.Event()
         self._run_stats = AirfareRunStats()
 
@@ -210,17 +221,23 @@ class AirfareRequestWorker:
             self._fail(request.id, "invalid-request")
             return False
 
-        recorder = self._recorder_factory(source="ui", kind="board", gap=REQUEST_GAP_SECONDS)
+        recorder = self._recorder_factory(source="ui", kind="board", gap=MANUAL_REQUEST_GAP_SECONDS)
         progress = RequestProgress(self.cloud, request.id)
         report: CollectionReport | None = None
+        collection_ms: int | None = None
+        sync_ms: int | None = None
         try:
-            report = await self._collect_route(parsed.watch(), progress, recorder.pass_id)
+            collection_started = self._clock()
+            try:
+                report = await self._collect_route(parsed.watch(), progress, recorder.pass_id)
+            finally:
+                collection_ms = round((self._clock() - collection_started) * 1000)
             await progress.flush_collection(report)
         except Exception:
             LOGGER.exception("manual Airfare collection failed")
             self._run_stats.failed += 1
             self._fail(request.id, "collection-failed")
-            recorder.finish(exit_code=1)
+            recorder.finish(exit_code=1, collection_ms=collection_ms)
             return False
 
         recorder.tally.boards(report)
@@ -232,18 +249,22 @@ class AirfareRequestWorker:
         if len(report.results) - report.failed == 0:
             self._run_stats.failed += 1
             self._fail(request.id, "collection-failed")
-            recorder.finish(exit_code=1)
+            recorder.finish(exit_code=1, collection_ms=collection_ms)
             return False
 
         try:
             await progress.syncing()
-            synced = await asyncio.to_thread(self._sync_pass, report)
+            sync_started = self._clock()
+            try:
+                synced = await asyncio.to_thread(self._sync_pass, report)
+            finally:
+                sync_ms = round((self._clock() - sync_started) * 1000)
         except Exception:  # noqa: BLE001 - no internal sync detail crosses the queue
             synced = False
         if not synced:
             self._run_stats.failed += 1
             self._fail(request.id, "sync-failed")
-            recorder.finish(exit_code=1)
+            recorder.finish(exit_code=1, collection_ms=collection_ms, sync_ms=sync_ms)
             return False
 
         result = {
@@ -260,10 +281,10 @@ class AirfareRequestWorker:
             self.cloud.complete_request(request.id, result)
         except Exception:  # noqa: BLE001 - completion may already have committed
             LOGGER.warning("manual Airfare worker could not confirm request completion")
-            recorder.finish(exit_code=1)
+            recorder.finish(exit_code=1, collection_ms=collection_ms, sync_ms=sync_ms)
             self._run_stats.failed += 1
             return False
-        recorder.finish(exit_code=0)
+        recorder.finish(exit_code=0, collection_ms=collection_ms, sync_ms=sync_ms)
         self._run_stats.written += 1
         return True
 

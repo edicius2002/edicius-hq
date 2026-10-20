@@ -65,7 +65,6 @@ behind nested directory aliases. Existing report targets are also compared by
 filesystem identity against every authoritative file the scanner can consume,
 so hardlinks cannot overwrite journals or the watch document indirectly.
 
-
 ## Finalization retries and deadlines
 
 After acknowledged source batches, finalization drains dirty route projections,

@@ -129,12 +129,13 @@ def test_manual_collection_rechecks_budget_after_waiting_for_shared_pacer(monkey
     class Pacer:
         calls = 0
 
-        async def wait(self, *, gap_seconds):
+        async def wait(self, *, gap_seconds, before_start):
             assert gap_seconds == 3
             self.calls += 1
             if self.calls == 2:
                 waiting.set()
                 await release.wait()
+            return before_start()
 
     async def fetch(_session, query, _provider, _store):
         fetched.append(query.flight_date)
@@ -212,13 +213,62 @@ def test_slow_budget_write_cannot_compress_google_start_gap(monkeypatch, tmp_pat
     assert starts[1] - starts[0] >= 3.0
 
 
+def test_one_slow_budget_write_cannot_compress_50ms_http_starts(monkeypatch, tmp_path):
+    class Clock:
+        now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        async def sleep(self, seconds):
+            self.now += seconds
+
+    clock = Clock()
+    starts: list[float] = []
+
+    async def fetch(_session, query, _provider, _store):
+        starts.append(clock.now)
+        return result(query), None
+
+    monkeypatch.setattr(fare_collector, "_collect_one", fetch)
+    budget, _ledger = allowance(tmp_path, 2)
+    original_take = budget.take
+    calls = 0
+
+    def uneven_take(*, kind, what):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            clock.now += 0.2
+        original_take(kind=kind, what=what)
+
+    budget.take = uneven_take
+
+    async def scenario():
+        async with httpx.AsyncClient() as client:
+            await fare_collector.collect(
+                queries(2),
+                client=client,
+                history=object(),
+                gap_seconds=0.05,
+                pacer=fare_collector.DeadlinePacer(clock=clock.monotonic, sleep=clock.sleep),
+                budget=budget,
+                max_in_flight=16,
+            )
+
+    asyncio.run(scenario())
+    assert len(starts) == 2
+    assert starts[1] - starts[0] >= 0.05 - 1e-9
+
+
 def test_one_remaining_budget_slot_does_not_reserve_an_unused_pacer_slot(monkeypatch, tmp_path):
     class Pacer:
         calls = 0
 
-        async def wait(self, *, gap_seconds):
+        async def wait(self, *, gap_seconds, before_start):
             del gap_seconds
             self.calls += 1
+            return before_start()
 
     async def fetch(_session, query, _provider, _store):
         return result(query), None

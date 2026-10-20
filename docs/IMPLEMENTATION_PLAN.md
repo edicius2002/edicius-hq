@@ -1372,7 +1372,6 @@ Historical implementation before the Pi/Supabase data-plane change: live last-re
 
 Owner review approved compact announcement-style cards, centered history content, removal of the attribution footer, and a card height reserved from the longest daily detail at the current viewport width. See [implementation results](dashboard-codex-resets-result.md) for behavior, validation, sources, and limitations.
 
-
 ## Airfare manual collection and sync finalization - 2026-10-20
 
 Manual month collection may overlap two departure requests while retaining the

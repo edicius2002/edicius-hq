@@ -134,14 +134,22 @@ class DeadlinePacer:
         self._last_request_at: float | None = None
         self._lock = asyncio.Lock()
 
-    async def wait(self, *, gap_seconds: float) -> None:
-        """Reserve the next Google request start at least `gap_seconds` apart."""
+    async def wait(
+        self, *, gap_seconds: float, before_start: Callable[[], bool] | None = None
+    ) -> bool:
+        """Run optional ledger work, then mark the spaced Google start."""
         async with self._lock:
             if self._last_request_at is not None:
                 wait = self._last_request_at + gap_seconds - self._clock()
                 if wait > 0:
                     await self._sleep(wait)
+            # Ledger I/O can be slower than the manual 50ms gap. Keep it under
+            # the slot lock and mark the deadline after the write, immediately
+            # before the caller starts its HTTP request.
+            if before_start is not None and not before_start():
+                return False
             self._last_request_at = self._clock()
+            return True
 
     def reset(self) -> None:
         """
@@ -473,13 +481,18 @@ async def collect(
 
             async def fetch_one(query: FareQuery) -> RouteResult | None:
                 nonlocal unreserved
-                try:
-                    await request_pacer.wait(gap_seconds=gap_seconds)
-                    # A calendar request may have spent the last allowance while
-                    # this date waited for the global Google start slot.
+
+                def reserve() -> bool:
+                    # A calendar request may have spent the last allowance
+                    # while this date waited for the Google start slot.
                     if not allowance.affords():
-                        return None
+                        return False
                     allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
+                    return True
+
+                try:
+                    if not await request_pacer.wait(gap_seconds=gap_seconds, before_start=reserve):
+                        return None
                 finally:
                     unreserved -= 1
                 result, written = await _collect_one(session, query, provider, store)

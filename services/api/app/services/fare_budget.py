@@ -23,7 +23,8 @@ scraper running from a residential address, because 12.9 records that Google
 fingerprints datacenter ones and there is no second provider to fall back to.
 
 What protects that address today is not a count. `REQUEST_GAP_SECONDS` paces
-every request three seconds apart, `PassLock` below allows one board pass and
+scheduled requests three seconds apart; the manual Pi request worker supplies
+its own measured gap. `PassLock` below allows one board pass and
 one calendar pass on this machine at a time, and the cadence table decides how
 often a departure is worth looking at at all. Those bound the rate, which is
 what an unmetered endpoint can actually notice. The ceiling bounded a total,
@@ -75,7 +76,7 @@ bounds a day only *eventually*, because two passes starting together each read a
 day with room in it, each size a whole day's work against that, and each begin
 spending before either can see the other. That argument is retired with the
 default ceiling and the lock is not, because the other half of what it does was
-never about the count: two passes running at once halve `REQUEST_GAP_SECONDS`
+never about the count: two passes running at once can compress the start gap
 without anybody deciding to. Pace is what this address is actually protected by,
 so the lock is now the load-bearing one of the pair rather than the support.
 
@@ -345,7 +346,7 @@ class PassLock:
     **What it protects is the pace, and it is taken around planning-plus-spending
     rather than around the append.** A lock held only over `RequestLedger.spend`
     would serialise the writes and nothing else, leaving two passes talking to
-    the upstream at once — which halves `REQUEST_GAP_SECONDS` without anybody
+    the upstream at once — which compresses the start gap without anybody
     deciding to, and pace is what this address is actually protected by.
 
     It was also the thing that made a ceiling enforceable, and that is the half

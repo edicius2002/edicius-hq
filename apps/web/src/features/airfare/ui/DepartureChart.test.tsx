@@ -1813,11 +1813,9 @@ describe('reaching the airline from the chart', () => {
 
   it('marks the flights that have a link and no others', () => {
     /*
-     * The marker, and the number that makes it worth stating: LATAM 2912,
-     * JetSMART 839 and Aerolíneas 205 of 4044 offers are reachable and only
-     * Avianca's 88 are not, so this mark lands on roughly 98% of the archive
-     * and draws the normal state rather than the exception. Marked the other
-     * way round it would be the same set with this test inverted.
+     * The marker belongs to a flight only when this route has an official URL
+     * for its carrier. This board's LATAM flight has one; its Avianca flight
+     * on LIM–SCL does not have a published route page in our verified map.
      *
      * One node and not two, still: the mark is a single `<circle>` with a fill
      * and a stroke, so ~899 marks are ~899 elements.
@@ -1860,8 +1858,8 @@ describe('reaching the airline from the chart', () => {
   });
 
   it('gives a carrier we cannot reach plain text and no mark', () => {
-    // Avianca is behind Akamai and was never loaded cold, so there is no URL to
-    // send anyone to. Nothing stands in its place — no greyed link, no marker.
+    // No verified Avianca page exists for LIM–SCL. Nothing stands in its place
+    // here: no greyed link, no marker.
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
     point(container, board(container)[1]);
 

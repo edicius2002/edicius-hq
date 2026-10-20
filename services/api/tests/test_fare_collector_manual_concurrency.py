@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime
+from itertools import pairwise
 
 import httpx
 import pytest
@@ -245,7 +246,8 @@ def test_one_remaining_budget_slot_does_not_reserve_an_unused_pacer_slot(monkeyp
     assert report.skipped == [("LIM-CUZ 2026-11-02", "over-budget")]
 
 
-def test_cancelling_manual_collection_drains_in_flight_dates(monkeypatch, tmp_path):
+@pytest.mark.parametrize("slots", [2, 16])
+def test_cancelling_manual_collection_drains_in_flight_dates(monkeypatch, tmp_path, slots):
     entered = asyncio.Event()
     cancelled: list[str] = []
     active = 0
@@ -253,7 +255,7 @@ def test_cancelling_manual_collection_drains_in_flight_dates(monkeypatch, tmp_pa
     async def fetch(_session, query, _provider, _store):
         nonlocal active
         active += 1
-        if active == 2:
+        if active == slots:
             entered.set()
         try:
             await asyncio.Event().wait()
@@ -282,7 +284,7 @@ def test_cancelling_manual_collection_drains_in_flight_dates(monkeypatch, tmp_pa
         fare_collector,
         "daily_budget",
         lambda **kwargs: daily_budget(
-            ceiling=3,
+            ceiling=slots + 1,
             ledger=ledger,
             now=datetime(2026, 8, 21, tzinfo=UTC),
             lock=kwargs["lock"],
@@ -292,11 +294,11 @@ def test_cancelling_manual_collection_drains_in_flight_dates(monkeypatch, tmp_pa
     async def scenario():
         task = asyncio.create_task(
             fare_collector.collect(
-                queries(3),
+                queries(slots + 1),
                 history=object(),
                 gap_seconds=0,
                 lock=pass_lock,
-                max_in_flight=2,
+                max_in_flight=slots,
             )
         )
         await asyncio.wait_for(entered.wait(), 1)
@@ -306,8 +308,8 @@ def test_cancelling_manual_collection_drains_in_flight_dates(monkeypatch, tmp_pa
 
     asyncio.run(scenario())
     assert active == 0
-    assert set(cancelled) == {"2026-11-01", "2026-11-02"}
-    assert ledger.spent(datetime(2026, 8, 21, tzinfo=UTC).date()) == 2
+    assert set(cancelled) == {q.flight_date for q in queries(slots)}
+    assert ledger.spent(datetime(2026, 8, 21, tzinfo=UTC).date()) == slots
     assert clients[0].closed
     assert not pass_lock.held()
     assert not pass_lock.path.exists()
@@ -343,3 +345,86 @@ def test_default_collection_stays_sequential(monkeypatch, tmp_path):
 
     report = asyncio.run(scenario())
     assert [item.flight_date for item in report.results] == ["2026-11-01", "2026-11-02"]
+
+
+def test_sixteen_manual_slots_are_bounded_and_accounted(monkeypatch, tmp_path):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    active = peak = 0
+
+    async def fetch(_session, query, _provider, _store):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == 16:
+            entered.set()
+        try:
+            await release.wait()
+        finally:
+            active -= 1
+        return result(query), None
+
+    monkeypatch.setattr(fare_collector, "_collect_one", fetch)
+    budget, ledger = allowance(tmp_path, 18)
+
+    async def scenario():
+        async with httpx.AsyncClient() as client:
+            task = asyncio.create_task(
+                fare_collector.collect(
+                    queries(18),
+                    client=client,
+                    history=object(),
+                    gap_seconds=0,
+                    budget=budget,
+                    max_in_flight=16,
+                )
+            )
+            await asyncio.wait_for(entered.wait(), 1)
+            assert peak == 16
+            assert ledger.spent(budget.day) == 16
+            release.set()
+            return await asyncio.wait_for(task, 1)
+
+    report = asyncio.run(scenario())
+    assert active == 0
+    assert peak == 16
+    assert [item.flight_date for item in report.results] == [q.flight_date for q in queries(18)]
+    assert ledger.spent(budget.day) == 18
+
+
+def test_sixteen_manual_slots_keep_50ms_start_spacing(monkeypatch, tmp_path):
+    class Clock:
+        now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        async def sleep(self, seconds):
+            self.now += seconds
+
+    clock = Clock()
+    starts: list[float] = []
+
+    async def fetch(_session, query, _provider, _store):
+        starts.append(clock.now)
+        return result(query), None
+
+    monkeypatch.setattr(fare_collector, "_collect_one", fetch)
+    budget, _ledger = allowance(tmp_path, 18)
+
+    async def scenario():
+        async with httpx.AsyncClient() as client:
+            return await fare_collector.collect(
+                queries(18),
+                client=client,
+                history=object(),
+                gap_seconds=0.05,
+                pacer=fare_collector.DeadlinePacer(clock=clock.monotonic, sleep=clock.sleep),
+                budget=budget,
+                max_in_flight=16,
+            )
+
+    report = asyncio.run(scenario())
+    assert report.collected == 18
+    assert len(starts) == 18
+    assert all(b - a >= 0.05 - 1e-9 for a, b in pairwise(starts))

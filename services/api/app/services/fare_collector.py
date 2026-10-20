@@ -94,8 +94,8 @@ from app.services.fare_schedule import due_now, month_dates
 
 logger = logging.getLogger(__name__)
 
-# Seconds between upstream requests. Slow enough to look like a person browsing,
-# fast enough that a twenty-route watchlist finishes in a couple of minutes.
+# Default seconds between upstream starts for scheduled and legacy UI passes.
+# The Pi manual request worker passes its own measured gap explicitly.
 #
 # **Six until 12.211, and the six was never measured.** Timing a real pass put
 # 86.5% of its wall clock inside the old flat sleep: ten paced requests took
@@ -397,9 +397,8 @@ async def collect(
     """
     Fetch every query once and append what came back.
 
-    `gap_seconds` is injectable so tests do not sleep; nothing else about the
-    pacing is configurable, because the point of a floor is that callers cannot
-    lower it by accident.
+    `gap_seconds` is explicit for callers with a separately measured pace and
+    injectable so tests do not sleep. Scheduled callers keep the 3s default.
 
     **This is the one place a board request is sent, so it is the one place a
     board request is counted.** Every query is written to the day's ledger
@@ -431,12 +430,12 @@ async def collect(
     pass ledger. When a budget arrives from above it already carries the id and
     the pace, and this parameter is for the caller that hands over queries
     without one.
-    Manual route collection sets `max_in_flight=2` to overlap slow provider
+    Manual route collection sets `max_in_flight=16` to overlap slow provider
     replies. The default remains one for scheduled passes. Starts still pass
     through the same pacer, and each task reserves its budget before fetching.
     """
-    if max_in_flight not in (1, 2):
-        raise ValueError("max_in_flight must be 1 or 2")
+    if max_in_flight not in range(1, 17):
+        raise ValueError("max_in_flight must be between 1 and 16")
     store = history if history is not None else HISTORY
     started_at = _now()
     results: list[RouteResult] = []
@@ -466,7 +465,7 @@ async def collect(
     request_pacer = pacer if pacer is not None else GOOGLE_PACER
     began = perf_counter()
     try:
-        if max_in_flight == 2:
+        if max_in_flight > 1:
             # Tasks waiting on the pacer are not in the ledger yet. Count them
             # against available capacity while planning, then recheck the real
             # ledger at each start in case the calendar spent meanwhile.

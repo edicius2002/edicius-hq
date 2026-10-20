@@ -374,9 +374,9 @@ def test_the_real_route_collection_announces_its_total_before_the_first_departur
 
     events: list[tuple[str, int]] = []
 
-    async def fake_collect(queries, *, observer, pass_id, max_in_flight):
+    async def fake_collect(queries, *, observer, pass_id, gap_seconds, max_in_flight):
         del pass_id
-        events.append(("collect", len(queries), max_in_flight))
+        events.append(("collect", len(queries), gap_seconds, max_in_flight))
         return report()
 
     class Observer:
@@ -393,7 +393,7 @@ def test_the_real_route_collection_announces_its_total_before_the_first_departur
     asyncio.run(module._collect_route(watch, Observer(), "pass"))
 
     # November has 30 departures, and the total is known before any is polled.
-    assert events == [("planned", 30), ("collect", 30, 2)]
+    assert events == [("planned", 30), ("collect", 30, 0.05, 16)]
 
 
 def test_manual_pass_records_collection_and_acknowledged_sync_durations(tmp_path):
@@ -435,6 +435,7 @@ def test_manual_pass_records_collection_and_acknowledged_sync_durations(tmp_path
     asyncio.run(scenario())
     rows = list((tmp_path / "passes").glob("*.jsonl"))
     entry = json.loads(rows[0].read_text(encoding="utf-8").splitlines()[0])
+    assert entry["gap"] == 0.05
     assert entry["collectionMs"] == 25
     assert entry["syncMs"] == 40
     assert remote.complete_request.called

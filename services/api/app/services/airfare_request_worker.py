@@ -18,7 +18,6 @@ from app.services.airfare_data import AIRFARE_DATA
 from app.services.collection_sync import sync_completed_pass
 from app.services.collector_cloud import CollectorCloud, CollectorRequest
 from app.services.fare_collector import (
-    REQUEST_GAP_SECONDS,
     CollectionReport,
     FareWatch,
     PassObserver,
@@ -35,6 +34,8 @@ from app.services.process_lock import (
 LOGGER = logging.getLogger(__name__)
 RECONCILE_SECONDS = 30.0
 PROGRESS_SECONDS = 2.0
+MANUAL_REQUEST_GAP_SECONDS = 0.05
+MANUAL_MAX_IN_FLIGHT = 16
 _IATA = re.compile(r"^[A-Z]{3}$")
 _MONTH = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
 
@@ -108,7 +109,11 @@ async def _collect_route(
     # itself — otherwise the row's bar has no denominator until the pass is over.
     observer.planned(polling=len(queries), skipped=[])
     return await collect(
-        list(queries.values()), observer=observer, pass_id=pass_id, max_in_flight=2
+        list(queries.values()),
+        observer=observer,
+        pass_id=pass_id,
+        gap_seconds=MANUAL_REQUEST_GAP_SECONDS,
+        max_in_flight=MANUAL_MAX_IN_FLIGHT,
     )
 
 
@@ -216,7 +221,7 @@ class AirfareRequestWorker:
             self._fail(request.id, "invalid-request")
             return False
 
-        recorder = self._recorder_factory(source="ui", kind="board", gap=REQUEST_GAP_SECONDS)
+        recorder = self._recorder_factory(source="ui", kind="board", gap=MANUAL_REQUEST_GAP_SECONDS)
         progress = RequestProgress(self.cloud, request.id)
         report: CollectionReport | None = None
         collection_ms: int | None = None

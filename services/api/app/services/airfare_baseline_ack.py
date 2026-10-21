@@ -39,6 +39,7 @@ class BaselineAcknowledgements:
         self._path = path
         self._replica_id = hashlib.sha256(replica_id.encode("utf-8")).hexdigest()
         self._writer_cursor = writer_cursor
+        self.valid = False
         self._acknowledged = self._load()
 
     def needed(self, current: Mapping[BaselineKey, str]) -> set[BaselineKey]:
@@ -91,6 +92,7 @@ class BaselineAcknowledgements:
             if key in acknowledged:
                 return {}
             acknowledged[key] = row[2]
+        self.valid = True
         return acknowledged
 
     def _persist(

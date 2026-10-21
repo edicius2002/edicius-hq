@@ -1,0 +1,23 @@
+[Unit]
+Description=Reconcile the Edicius Airfare replica independently of collection
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=10min
+User=edicius-collector
+Group=edicius-collector
+WorkingDirectory=/opt/edicius-hq/current
+EnvironmentFile=/etc/edicius-hq/collectors.env
+Environment=HOME=/var/lib/edicius-hq
+Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq
+# Share the collection/manual lock; busy passes retry on the next timer tick.
+ExecStart=/usr/bin/flock -n -E 75 /var/lib/edicius-hq/locks/airfare.lock /opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/fares-supabase.py --apply --incremental
+SuccessExitStatus=75
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/edicius-hq
+UMask=0077

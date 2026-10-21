@@ -456,9 +456,8 @@
  * "the cheapest thing here" on both charts on this page, and one colour saying
  * two things is one of them unread. Its contrast is in `tokens.css`.
  *
- * Rows with no link — Avianca, and any origin whose country has no storefront we
- * have loaded — render no anchor at all rather than a greyed one, so the column
- * holds a live link or plain text and never a dead one.
+ * Rows with no known carrier or usable route render no anchor at all rather
+ * than a greyed one, so the column holds a live link or plain text.
  *
  * `0.15em` of underline offset keeps the rule clear of the descenders in a
  * column that is otherwise all figures, and the column's width is unchanged: the

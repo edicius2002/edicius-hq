@@ -18,6 +18,10 @@ identity, size, modification time when size is unchanged, and a 4 KiB boundary
 window. They read and parse only bytes after the indexed newline, including any
 previously incomplete line. The full route manifest is recomputed from indexed
 IDs plus the new IDs; run records and published rows retain their prior shape.
+The fast cursor also carries a rolling CRC32 of the acknowledged prefix. Manual
+Syncing extends it from new bytes; the global full scan recalculates it over the
+whole prefix before trusting that cursor, retaining its historical-change
+detection.
 
 The route falls back to a complete scan if the index is absent or invalid, a
 journal is replaced or truncated, an alias set changes, cursors differ, or a
@@ -37,11 +41,11 @@ Python 3.12 on the Windows development machine produced:
 
 | Path        | Journal bytes read | Rows parsed | Scan and manifest time |
 | ----------- | -----------------: | ----------: | ---------------------: |
-| Full        |        125,829,166 |     954,093 |               16.263 s |
-| Incremental |             11,888 |          28 |                2.034 s |
+| Full        |        125,829,166 |     954,093 |               16.241 s |
+| Incremental |             11,888 |          28 |                1.885 s |
 
 The incremental byte count includes two 4 KiB boundary reads and 3,696 bytes
-of appended JSONL. It excludes reading the derived index; the 2.034 seconds
+of appended JSONL. It excludes reading the derived index; the 1.885 seconds
 includes parsing that index and recomputing the exact sorted-ID digest. The
 initial index build is a one-time full-scan cost. These are local synthetic
 measurements, not a Pi end-to-end Syncing result. Network uploads and the
@@ -49,7 +53,9 @@ measurements, not a Pi end-to-end Syncing result. Network uploads and the
 
 The fast path assumes a growing file with a stable identity is append-only,
 as the journal writer's contract requires. An arbitrary in-place edit far
-before the boundary followed by an append cannot be proven absent without
-reading or hashing the entire prefix. File replacement, truncation, same-size
-edits, and cursor/ACK changes trigger a full scan. The periodic global scan
-continues to read and reconcile the complete archive.
+before the boundary followed by an append cannot be proven absent during the
+manual fast path without reading the entire prefix. File replacement,
+truncation, same-size edits, and cursor/ACK changes trigger a full scan. The
+periodic global scan recalculates the rolling checksum and continues to read
+and reconcile the complete archive. CRC32 is a change detector, not a
+cryptographic integrity proof against deliberate collisions.

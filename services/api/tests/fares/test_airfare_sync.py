@@ -1796,8 +1796,7 @@ def test_manual_route_replays_partial_delta_batch_after_network_failure(tmp_path
     with path.open("ab") as handle:
         for day in (2, 3):
             handle.write(
-                json.dumps({**SNAPSHOT, "flightDate": f"2027-03-{day:02d}"}).encode()
-                + b"\n"
+                json.dumps({**SNAPSHOT, "flightDate": f"2027-03-{day:02d}"}).encode() + b"\n"
             )
     server.fail_table, server.fail_after = "fare_snapshots", 1
     assert sync.apply_manual_route("AQP", "LIM").status == "failed"
@@ -1805,3 +1804,19 @@ def test_manual_route_replays_partial_delta_batch_after_network_failure(tmp_path
     assert sync.apply_manual_route("AQP", "LIM").uploaded["snapshots"] == 1
     assert sync.apply_manual_route("AQP", "LIM").uploaded["snapshots"] == 0
     assert len(server.tables["fare_snapshots"]) == 3
+
+
+def test_global_sync_checks_full_prefix_after_manual_fast_cursor(tmp_path, remote):
+    server, client = remote
+    path = write_lines(tmp_path, "fares/AQP-LIM.jsonl", [SNAPSHOT] * 100)
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["snapshots"] == 1
+    with path.open("ab") as handle:
+        handle.write(json.dumps({**SNAPSHOT, "flightDate": "2027-03-02"}).encode() + b"\n")
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["snapshots"] == 1
+    content = path.read_bytes().replace(b'"price": 123', b'"price": 124', 1)
+    path.write_bytes(content)
+    with path.open("ab") as handle:
+        handle.write(json.dumps({**SNAPSHOT, "flightDate": "2027-03-03"}).encode() + b"\n")
+    assert sync.apply("incremental").uploaded["snapshots"] == 4
+    assert any(row["cheapest_price"] == 124 for row in server.tables["fare_snapshots"].values())

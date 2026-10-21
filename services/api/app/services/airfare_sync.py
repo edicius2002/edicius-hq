@@ -8,6 +8,7 @@ import re
 import sys
 import tempfile
 import time
+import zlib
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -196,6 +197,7 @@ class _Journal:
     base_offset: int = 0
     positions: list[tuple[str, str, str, int]] = field(default_factory=list)
     read_bytes: int = 0
+    prefix_crc32: int = 0
 
 
 def _window_digest(handle: Any, offset: int) -> str:
@@ -334,6 +336,7 @@ class AirfareSync:
                 "window": hashlib.sha256(
                     journal.content[max(0, journal.end - 4096) : journal.end]
                 ).hexdigest(),
+                "crc32": zlib.crc32(journal.content[: journal.end]),
             }
         return {
             "version": 1,
@@ -419,6 +422,7 @@ class AirfareSync:
                 with path.open("rb") as handle:
                     stat = os.fstat(handle.fileno())
                     offset = meta["offset"]
+                    prefix_crc32 = meta["crc32"]
                     if (
                         stat.st_ino != meta["inode"]
                         or stat.st_size < meta["size"]
@@ -465,6 +469,7 @@ class AirfareSync:
                 data["ids"].extend(identity for _, identity in entries)
                 data["physical"] += len(entries)
                 data["skipped"] += skipped
+                meta["crc32"] = zlib.crc32(content[: end - offset], prefix_crc32)
                 meta.update(
                     offset=end,
                     size=stat.st_size,
@@ -485,6 +490,7 @@ class AirfareSync:
                         offset,
                         journal_positions,
                         len(content) + min(offset, 4096) + min(end, 4096),
+                        prefix_crc32,
                     )
                 )
             return datasets, journals, index
@@ -678,8 +684,11 @@ class AirfareSync:
             or journal.content[offset - 1 : offset] != b"\n"
             or cursor.get("inode") != journal.stat.st_ino
             or (
-                cursor.get("window_digest")
-                != hashlib.sha256(journal.content[max(0, offset - 4096) : offset]).hexdigest()
+                (
+                    cursor.get("window_digest")
+                    != hashlib.sha256(journal.content[max(0, offset - 4096) : offset]).hexdigest()
+                    or cursor.get("prefix_crc32") != zlib.crc32(journal.content[:offset])
+                )
                 if "window_digest" in cursor
                 else cursor.get("prefix_digest")
                 != hashlib.sha256(journal.content[:offset]).hexdigest()
@@ -702,6 +711,9 @@ class AirfareSync:
         if journal.base_offset:
             with journal.path.open("rb") as handle:
                 cursors[relative]["window_digest"] = _window_digest(handle, end)
+            cursors[relative]["prefix_crc32"] = zlib.crc32(
+                journal.content[: end - journal.base_offset], journal.prefix_crc32
+            )
         else:
             cursors[relative]["prefix_digest"] = hashlib.sha256(journal.content[:end]).hexdigest()
         if baseline_ack:

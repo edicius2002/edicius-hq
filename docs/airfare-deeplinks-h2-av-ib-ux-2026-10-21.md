@@ -1,6 +1,12 @@
 # Profundidad comprobable de enlaces oficiales: SKY, Avianca, Iberia y Air Europa
 
-Investigación del 21 de octubre de 2026. Partimos de una fila con aerolínea, aeropuerto de origen, aeropuerto de destino y fecha (`YYYY-MM-DD`). El código actual solo enlaza pares enumerados en [`airlineSearch.ts`](../apps/web/src/features/airfare/lib/airlineSearch.ts); el contexto previo está en [enlaces oficiales de compra](airfare-official-booking-links.md).
+Investigación del 21 de octubre de 2026. Partimos de una fila con aerolínea, aeropuerto de origen, aeropuerto de destino y fecha (`YYYY-MM-DD`). Al comenzar, el código solo enlazaba pares enumerados en [`airlineSearch.ts`](../apps/web/src/features/airfare/lib/airlineSearch.ts); la implementación posterior se resume en [enlaces oficiales de compra](airfare-official-booking-links.md).
+
+## Comprobación posterior del buscador general de SKY
+
+Chrome headless mostró origen, destino y `mié. 11 nov.` en tres buscadores generales con `em_dd=2026-11-11`: [Lima–Cusco en `es-pe`](https://www.skyairline.com/flights/es-pe/?em_o=LIM&em_d=CUZ&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1), [Santiago–Cusco en `es-cl`](https://www.skyairline.com/flights/es-cl/?em_o=SCL&em_d=CUZ&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1) y [Santiago–Cusco en `es`](https://www.skyairline.com/flights/es/?em_o=SCL&em_d=CUZ&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1). Son páginas de búsqueda con los campos preseleccionados; no se comprobó que cualquier par devuelva vuelos al pulsar «Buscar».
+
+También se comprobaron páginas específicas adicionales de [SKY SCL–CUZ](https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-cusco), [Iberia LIM–BCN](https://www.iberia.com/pe/vuelos-baratos/Lima-Barcelona/) y [Air Europa LIM–BCN](https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-barcelona).
 
 ## Resultado
 

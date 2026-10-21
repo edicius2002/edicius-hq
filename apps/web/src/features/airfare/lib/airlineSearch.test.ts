@@ -185,6 +185,12 @@ describe('airlineSearchUrl', () => {
       'LIM',
       'https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-lima?em_o=SCL&em_d=LIM&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
     ],
+    [
+      'H2',
+      'SCL',
+      'CUZ',
+      'https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-cusco?em_o=SCL&em_d=CUZ&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
     ['AV', 'LIM', 'BOG', 'https://www.avianca.com/us/en/flights-from-lima-to-bogota'],
     ['AV', 'LIM', 'MAD', 'https://www.avianca.com/us/es/vuelos-desde-lima-a-madrid'],
     ['AV', 'SCL', 'MAD', 'https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid'],
@@ -194,6 +200,7 @@ describe('airlineSearchUrl', () => {
     ['IB', 'MAD', 'LIM', 'https://www.iberia.com/es/vuelos-baratos/Madrid-Lima/'],
     ['IB', 'SCL', 'MAD', 'https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/'],
     ['IB', 'MAD', 'SCL', 'https://www.iberia.com/es/vuelos-baratos/Madrid-Santiago-de-Chile/'],
+    ['IB', 'LIM', 'BCN', 'https://www.iberia.com/pe/vuelos-baratos/Lima-Barcelona/'],
     ['UX', 'LIM', 'MAD', 'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-madrid'],
     ['UX', 'MAD', 'LIM', 'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-lima'],
     [
@@ -207,6 +214,12 @@ describe('airlineSearchUrl', () => {
       'MAD',
       'SCL',
       'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-santiago-de-chile',
+    ],
+    [
+      'UX',
+      'LIM',
+      'BCN',
+      'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-barcelona',
     ],
   ])('opens the published %s route page for %s–%s', (airline, origin, destination, url) => {
     expect(

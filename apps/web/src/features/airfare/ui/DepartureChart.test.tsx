@@ -1812,6 +1812,20 @@ describe('reaching the airline from the chart', () => {
     expect(link).toHaveAttribute('rel', 'noreferrer');
   });
 
+  it('keeps the link while the pointer moves from the plot to the flight number', () => {
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const svg = container.querySelector('svg')!;
+    point(container, board(container)[0]);
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+
+    fireEvent.pointerLeave(svg, { relatedTarget: link });
+    expect(link).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^LA 4 —/ })).toBe(link);
+
+    fireEvent.pointerOut(link, { relatedTarget: document.body });
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
   it('names the link after what it does, not after what its text implies', () => {
     /*
      * The tension this change accepts on purpose. `LA 4` drawn blue and

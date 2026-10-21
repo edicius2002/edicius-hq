@@ -1384,6 +1384,13 @@ export function DepartureChart({
         rel="noreferrer"
         title={flightLinkLabel(name, search, point.airlineName)}
         aria-label={flightLinkLabel(name, search, point.airlineName)}
+        onPointerLeave={(event) => {
+          if (pinned) return;
+          const to = event.relatedTarget;
+          if (to instanceof Node && svg.current?.contains(to) === true) return;
+          if (to instanceof Node && readout.current?.contains(to) === true) return;
+          setCursor(null);
+        }}
         /*
           Focus leaving the link for somewhere that is neither the plot nor this
           line takes the reading with it, which is the rule the chart already
@@ -1503,7 +1510,9 @@ export function DepartureChart({
           the plot. Clearing the crosshair on the way out would be right for a
           hand that has left and wrong for a hand that is still working.
         */
-          onPointerLeave={() => {
+          onPointerLeave={(event) => {
+            const to = event.relatedTarget;
+            if (to instanceof Node && readout.current?.contains(to) === true) return;
             if (drag.current === null && !pinned) setCursor(null);
           }}
           onKeyDown={walk}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule independent Edicius Airfare replica reconciliation
+
+[Timer]
+OnCalendar=*-*-* *:07,37:00
+OnBootSec=3min
+Persistent=true
+RandomizedDelaySec=30
+Unit=edicius-airfare-sync.service
+
+[Install]
+WantedBy=timers.target

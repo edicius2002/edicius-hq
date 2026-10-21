@@ -1390,3 +1390,21 @@ Retain acknowledgement cursors and report permanent or exhausted failures.
 Manual partial sync accepts any successful day; `collected` already excludes
 failed results and must not have `failed` subtracted again. Scheduled eligibility
 and provider cadence remain unchanged.
+
+## Airfare manual sync scope and reconciliation - 2026-10-21
+
+Eight completed Pi requests showed a median 55.189s Syncing stage (41.642-65.915s).
+The log boundaries include lock wait, parsing, transport and finalization, so
+they do not isolate the archive scan. A manual request now publishes only its
+validated route, refreshes that projection, and omits the global destination
+manifest read. A separate half-hourly Pi timer performs global incremental
+reconciliation and preserves full verification. Baseline acknowledgements skip
+unchanged points, bind to replica and route cursor state, and are invalidated on
+release changes for safe replay after an older writer. The sync lock is stored
+under the shared archive so private `/tmp` namespaces cannot split it. On the
+deployed Pi commit `883db1e`, eight `LIM-AQP` manual requests had a 2.600s
+median database Syncing interval and a 2.463s median worker `syncMs`; the
+first request uploaded 1,730 baseline rows. One larger `AQP-LIM` request took
+21.887s in `syncMs`, including 13.004s to scan 128.65 MB of route history.
+All nine completed without failure. See
+`docs/airfare-sync-latency-measurement-2026-10-20.md` for method and limits.

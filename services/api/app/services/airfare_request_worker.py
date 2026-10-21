@@ -15,7 +15,6 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from app.services.airfare_data import AIRFARE_DATA
-from app.services.collection_sync import sync_completed_pass
 from app.services.collector_cloud import CollectorCloud, CollectorRequest
 from app.services.fare_collector import (
     CollectionReport,
@@ -117,8 +116,8 @@ async def _collect_route(
     )
 
 
-def _sync_pass(report: CollectionReport) -> bool:
-    return sync_completed_pass(AIRFARE_DATA, report, allow_partial=True)
+def _sync_pass(origin: str, destination: str) -> bool:
+    return AIRFARE_DATA.sync_manual_route(origin, destination).status == "complete"
 
 
 class RequestProgress(PassObserver):
@@ -191,7 +190,7 @@ class AirfareRequestWorker:
         collect_route: Callable[
             [FareWatch, PassObserver, str], Awaitable[CollectionReport]
         ] = _collect_route,
-        sync_pass: Callable[[CollectionReport], bool] = _sync_pass,
+        sync_pass: Callable[[CollectionReport], bool] | None = None,
         lock_factory: Callable[[str], AbstractContextManager[None]] = exclusive_process_lock,
         recorder_factory: Callable[..., Recorder] = PassRecorder,
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
@@ -256,7 +255,11 @@ class AirfareRequestWorker:
             await progress.syncing()
             sync_started = self._clock()
             try:
-                synced = await asyncio.to_thread(self._sync_pass, report)
+                synced = await (
+                    asyncio.to_thread(self._sync_pass, report)
+                    if self._sync_pass is not None
+                    else asyncio.to_thread(_sync_pass, parsed.origin, parsed.destination)
+                )
             finally:
                 sync_ms = round((self._clock() - sync_started) * 1000)
         except Exception:  # noqa: BLE001 - no internal sync detail crosses the queue

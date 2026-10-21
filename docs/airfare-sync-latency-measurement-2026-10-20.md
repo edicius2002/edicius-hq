@@ -5,12 +5,12 @@ Syncing durations of 41.642–65.915 seconds, with a median of 55.189 seconds.
 These timings were read from `edicius-airfare-requests.service`; no production
 fetch or write was triggered for the measurement.
 
-| Interval inferred from service log boundaries | Median | Observed range |
-| --- | ---: | ---: |
-| Last progress response to first `airfare_import_runs` POST response | 26.3 s | 25.5–28.0 s |
-| Upload/preparation through dirty-route list response | 12.45 s | 1.5–18.8 s |
-| Dirty projection refresh | 0.7 s | 0.3–29.2 s |
-| Last projection response to global manifest response | 8.95 s | 6.7–14.0 s |
+| Interval inferred from service log boundaries                       |  Median | Observed range |
+| ------------------------------------------------------------------- | ------: | -------------: |
+| Last progress response to first `airfare_import_runs` POST response |  26.3 s |    25.5–28.0 s |
+| Upload/preparation through dirty-route list response                | 12.45 s |     1.5–18.8 s |
+| Dirty projection refresh                                            |   0.7 s |     0.3–29.2 s |
+| Last projection response to global manifest response                |  8.95 s |     6.7–14.0 s |
 
 The first interval includes process-lock wait, the whole source scan and
 manifest construction, plus the first HTTP request. It does **not** isolate

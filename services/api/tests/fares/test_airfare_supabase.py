@@ -25,6 +25,25 @@ SNAPSHOT_ROW = {
 
 
 @pytest.mark.parametrize(
+    ("url", "secret", "expected"),
+    [
+        ("https://EXAMPLE.supabase.co/", "sb_secret_original", "example.supabase.co"),
+        ("https://example.supabase.co", "sb_secret_rotated", "example.supabase.co"),
+        ("https://another.supabase.co", "sb_secret_other_project", "another.supabase.co"),
+    ],
+)
+def test_replica_id_identifies_the_normalized_project_without_credentials(url, secret, expected):
+    client = SupabaseAirfare(
+        url, secret, transport=httpx.MockTransport(lambda request: httpx.Response(200))
+    )
+    try:
+        assert client.replica_id == expected
+        assert secret not in client.replica_id
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
     ("status", "code", "message", "expected"),
     [
         (409, "PT409", "airfare_history_revision_changed", AirfareHistoryRevisionChanged),

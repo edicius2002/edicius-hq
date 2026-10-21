@@ -14,6 +14,8 @@ and bolting the two signatures together would be worse than the homonym.
 
 import json
 
+import pytest
+
 from app.adapters.fares.models import FareInsights, FareOffer, FareSnapshot, PricePoint
 from app.services.fare_history import BaselinePoint, FareHistory
 
@@ -278,6 +280,84 @@ def test_a_day_answered_twice_is_updated_rather_than_duplicated(tmp_path):
     assert history.read_baseline("LIM", "CUZ", "2026-10-17") == [
         BaselinePoint("2026-10-17", "2026-06-19", 48.0)
     ]
+
+
+@pytest.mark.parametrize(
+    "points",
+    [
+        [PricePoint("2026-06-20", 44.0)],
+        [PricePoint("2026-06-20", 99.0), PricePoint("2026-06-20", 44.0)],
+    ],
+    ids=["unchanged-subset", "last-answer-unchanged"],
+)
+def test_an_unchanged_baseline_merge_preserves_the_file(tmp_path, points):
+    history = FareHistory(tmp_path)
+    history.merge_baseline(
+        "LIM",
+        "CUZ",
+        "2026-10-17",
+        [PricePoint("2026-06-19", 46.0), PricePoint("2026-06-20", 44.0)],
+        source="google-flights-history",
+        currency="USD",
+    )
+    path = tmp_path / "baseline" / "LIM-CUZ.jsonl"
+    before = path.stat()
+    content = path.read_bytes()
+
+    assert (
+        history.merge_baseline(
+            "LIM", "CUZ", "2026-10-17", points, source="google-flights-history", currency="USD"
+        )
+        == 0
+    )
+
+    after = path.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert path.read_bytes() == content
+
+
+@pytest.mark.parametrize(
+    ("price", "source", "currency"),
+    [
+        (48.0, "google-flights-history", "USD"),
+        (46.0, "revised-history", "USD"),
+        (46.0, "google-flights-history", "PEN"),
+    ],
+    ids=["price", "source", "currency"],
+)
+def test_a_baseline_correction_is_saved_without_counting_a_new_day(
+    tmp_path, price, source, currency
+):
+    history = FareHistory(tmp_path)
+    history.merge_baseline(
+        "LIM",
+        "CUZ",
+        "2026-10-17",
+        [PricePoint("2026-06-19", 46.0)],
+        source="google-flights-history",
+        currency="USD",
+    )
+
+    assert (
+        history.merge_baseline(
+            "LIM",
+            "CUZ",
+            "2026-10-17",
+            [PricePoint("2026-06-19", price)],
+            source=source,
+            currency=currency,
+        )
+        == 0
+    )
+
+    path = tmp_path / "baseline" / "LIM-CUZ.jsonl"
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "flightDate": "2026-10-17",
+        "date": "2026-06-19",
+        "price": price,
+        "source": source,
+        "currency": currency,
+    }
 
 
 def test_two_departures_keep_separate_baselines(tmp_path):

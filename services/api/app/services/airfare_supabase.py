@@ -148,6 +148,12 @@ class SupabaseAirfare:
         )
 
     @property
+    def replica_id(self) -> str:
+        """The normalized project host, stable across secret-key rotation."""
+        assert self._project_host is not None  # Guaranteed by _project_url validation.
+        return self._project_host
+
+    @property
     def is_closed(self) -> bool:
         return self._client.is_closed
 

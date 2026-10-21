@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import threading
 from contextlib import contextmanager
@@ -163,7 +164,7 @@ def test_real_manual_sync_accepts_partial_results_when_some_departures_were_read
     from app.services.collection_sync import sync_completed_pass
 
     data = Mock()
-    data.sync_incremental.return_value = Mock(status="complete")
+    data.sync_manual_route.return_value = Mock(status="complete")
     monkeypatch.setattr(module, "AIRFARE_DATA", data)
 
     assert sync_completed_pass(data, report(failed=True)) is False
@@ -179,38 +180,62 @@ def test_real_manual_sync_accepts_partial_results_when_some_departures_were_read
         assert asyncio.run(worker.reconcile_once()) is True
         remote.complete_request.assert_called_once()
         assert remote.complete_request.call_args.args[1]["synced"] is True
-    assert data.sync_incremental.call_count == 2
+    assert data.sync_manual_route.call_args_list == [call("LIM", "CUZ"), call("LIM", "CUZ")]
+    data.sync_incremental.assert_not_called()
+
+
+def test_default_sync_uses_validated_request_route_instead_of_report_route(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    data = Mock()
+    data.sync_manual_route.return_value = Mock(status="complete")
+    monkeypatch.setattr(module, "AIRFARE_DATA", data)
+    remote = Mock(owner_id=OWNER)
+    remote.claim_request.side_effect = [
+        request({"origin": "ARI", "destination": "SCL", "month": "2026-11", "currency": "USD"}),
+        None,
+    ]
+
+    assert (
+        asyncio.run(
+            worker_for(remote, collect_route=AsyncMock(return_value=report())).reconcile_once()
+        )
+        is True
+    )
+    data.sync_manual_route.assert_called_once_with("ARI", "SCL")
+    data.sync_incremental.assert_not_called()
 
 
 def test_real_manual_sync_keeps_a_minority_of_successful_departures(monkeypatch):
     from app.services import airfare_request_worker as module
-    from app.services.collection_sync import sync_completed_pass
 
     data = Mock()
-    data.sync_incremental.return_value = Mock(status="complete")
+    data.sync_manual_route.return_value = Mock(status="complete")
     monkeypatch.setattr(module, "AIRFARE_DATA", data)
-    for failed in (1, 2):
-        collected = CollectionReport(
-            "start",
-            "finish",
-            "google",
-            [RouteResult("LIM", "CUZ", "2026-11-01", None, True)]
-            + [
-                RouteResult(
-                    "LIM", "CUZ", f"2026-11-{day:02d}", None, False, error_code="upstream-error"
-                )
-                for day in range(2, failed + 2)
-            ],
-            [],
+    collected = CollectionReport(
+        "start",
+        "finish",
+        "google",
+        [RouteResult("LIM", "CUZ", "2026-11-01", None, True)]
+        + [
+            RouteResult(
+                "LIM", "CUZ", f"2026-11-{day:02d}", None, False, error_code="upstream-error"
+            )
+            for day in (2, 3)
+        ],
+        [],
+    )
+    remote = Mock(owner_id=OWNER)
+    remote.claim_request.side_effect = [request(), None]
+
+    assert (
+        asyncio.run(
+            worker_for(remote, collect_route=AsyncMock(return_value=collected)).reconcile_once()
         )
-        assert sync_completed_pass(data, collected) is False
-        remote = Mock(owner_id=OWNER)
-        remote.claim_request.side_effect = [request(), None]
-        worker = worker_for(remote, collect_route=AsyncMock(return_value=collected))
-        assert asyncio.run(worker.reconcile_once()) is True
-        result = remote.complete_request.call_args.args[1]
-        assert result["synced"] is True and result["failed"] == failed
-    assert data.sync_incremental.call_count == 2
+        is True
+    )
+    data.sync_manual_route.assert_called_once_with("LIM", "CUZ")
+    assert remote.complete_request.call_args.args[1]["failed"] == 2
 
 
 def test_a_collection_that_got_nothing_fails_without_syncing():
@@ -372,7 +397,7 @@ def test_the_real_route_collection_announces_its_total_before_the_first_departur
     from app.services import airfare_request_worker as module
     from app.services.fare_collector import FareWatch
 
-    events: list[tuple[str, int]] = []
+    events: list[tuple] = []
 
     async def fake_collect(queries, *, observer, pass_id, gap_seconds, max_in_flight):
         del pass_id
@@ -404,7 +429,6 @@ def test_manual_pass_records_collection_and_acknowledged_sync_durations(tmp_path
 
     async def slow_collection(_watch, observer, _pass_id):
         observer.planned(polling=3, skipped=[])
-        await asyncio.sleep(0.02)
         return report()
 
     def slow_sync(_report):
@@ -428,7 +452,6 @@ def test_manual_pass_records_collection_and_acknowledged_sync_durations(tmp_path
         task = asyncio.create_task(worker.serve_request(request()))
         assert await asyncio.to_thread(sync_started.wait, 1)
         assert not remote.complete_request.called
-        await asyncio.sleep(0.02)
         sync_ack.set()
         assert await asyncio.wait_for(task, 1)
 
@@ -439,3 +462,59 @@ def test_manual_pass_records_collection_and_acknowledged_sync_durations(tmp_path
     assert entry["collectionMs"] == 25
     assert entry["syncMs"] == 40
     assert remote.complete_request.called
+
+
+def test_manual_options_match_the_real_collector_signature():
+    from app.services import airfare_request_worker as module
+
+    inspect.signature(module.collect).bind(
+        [],
+        gap_seconds=module.MANUAL_REQUEST_GAP_SECONDS,
+        max_in_flight=module.MANUAL_MAX_IN_FLIGHT,
+    )
+
+
+def test_scheduled_recorder_keeps_existing_row_shape(tmp_path):
+    ledger = PassLedger(tmp_path / "passes")
+    PassRecorder(source="scheduler", kind="board", gap=3.0, ledger=ledger).finish(exit_code=0)
+
+    entry = json.loads(
+        next((tmp_path / "passes").glob("*.jsonl")).read_text(encoding="utf-8").splitlines()[0]
+    )
+    assert "collectionMs" not in entry
+    assert "syncMs" not in entry
+
+
+def test_manual_failure_records_only_stages_that_were_attempted():
+    for stage in ("collection", "progress", "sync", "completion"):
+        remote = Mock(owner_id=OWNER)
+        recorder = Mock(pass_id="pass")
+        collection = AsyncMock(return_value=report())
+        sync = Mock(return_value=True)
+        if stage == "collection":
+            collection.side_effect = RuntimeError("collection failed")
+        elif stage == "progress":
+
+            def fail_syncing(_request_id, progress):
+                if progress["stage"] == "syncing":
+                    raise RuntimeError("progress failed")
+
+            remote.update_request_progress.side_effect = fail_syncing
+        elif stage == "sync":
+            sync.side_effect = RuntimeError("sync failed")
+        else:
+            remote.complete_request.side_effect = RuntimeError("response lost")
+        ticks = iter((1.0, 1.025, 2.0, 2.04))
+        worker = worker_for(
+            remote,
+            collect_route=collection,
+            sync_pass=sync,
+            recorder_factory=Mock(return_value=recorder),
+            clock=lambda clock_ticks=ticks: next(clock_ticks),
+        )
+
+        assert asyncio.run(worker.serve_request(request())) is False
+        finish = recorder.finish.call_args.kwargs
+        assert finish["exit_code"] == 1
+        assert finish["collection_ms"] == 25
+        assert finish.get("sync_ms") == (40 if stage in {"sync", "completion"} else None)

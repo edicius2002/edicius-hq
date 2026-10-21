@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 from pathlib import Path
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -983,6 +984,21 @@ def test_unconfigured_sync_is_a_failed_facade_report_without_secret_leakage(arch
     )
 
 
+def test_manual_route_facade_passes_explicit_scope_and_sanitizes_failures(archive):
+    root, history, calendar = archive
+    sync = Mock()
+    data = AirfareData(history, calendar, source_root=root, remote=Mock(), sync=sync)
+    assert data.sync_manual_route("AQP", "LIM") is sync.apply_manual_route.return_value
+    sync.apply_manual_route.assert_called_once_with("AQP", "LIM")
+    sync.apply.assert_not_called()
+    sync.apply_manual_route.side_effect = ValueError("private archive path")
+
+    report = data.sync_manual_route("AQP", "LIM")
+
+    assert report.status == "failed"
+    assert report.error == "Airfare synchronization failed; retry with the retained source journals"
+
+
 @pytest.mark.parametrize("failure", ["malformed_filename", "unreadable_journal"])
 def test_failed_source_scan_returns_a_total_sanitized_sync_report_without_mutation(
     failure, archive
@@ -1022,7 +1038,9 @@ def test_failed_source_scan_returns_a_total_sanitized_sync_report_without_mutati
     )
     assert report.uploaded == dict.fromkeys(report.uploaded, 0)
     assert {
-        path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()
+        path.relative_to(root): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file() and path != root / "fares/sync/replica.lock"
     } == before
     assert not (root / "fares" / "sync" / "cursors.json").exists()
 

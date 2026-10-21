@@ -1360,18 +1360,16 @@ export function DepartureChart({
    * muted `↗` in the flight table that worked and that they could not find.
    *
    * **The visible text overpromises and the accessible name does not.** `AR
-   * 1281` in link blue reads as a link to AR 1281; the destination is that
-   * carrier's own search filled in with the route and the date, and the reader
-   * matches their departure by the clock. That gap is wider than the arrow's
-   * was and is taken on purpose, so the truth is carried where a wrong reading
-   * would cost money: `flightLinkLabel` gives the anchor the name and the
+   * 1281` in link blue reads as a link to AR 1281; the destination is the
+   * carrier's search, route page or general form, depending on what the airline
+   * supports. The truth is carried where a wrong reading would cost money:
+   * `flightLinkLabel` gives the anchor the name and the
    * tooltip `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on
    * 02/03/2027`, which starts with the words on screen (WCAG 2.5.3) and then
    * says, in a verb, what pressing it actually does.
    *
-   * **Nothing stands where there is no link.** Avianca and any origin outside
-   * the three countries with a loaded storefront get plain text — no marker, no
-   * greyed anchor, no tooltip explaining an absence.
+   * **Nothing stands where there is no link.** An unknown carrier gets plain
+   * text, with no marker or greyed anchor.
    */
   const flightNameNode = (point: ScatterPoint) => {
     const name = flightName(point);

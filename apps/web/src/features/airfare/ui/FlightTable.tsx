@@ -261,10 +261,8 @@ function FlightName({ track, leg }: { track: FlightRow['track']; leg: FlightTabl
     originCountry: leg.originCountry,
   };
   const url = airlineSearchUrl(search);
-  // Avianca, and any origin whose country has no storefront we have loaded:
-  // plain text, no marker and no greyed affordance. A link nobody has opened is
-  // a guess, and 2% of rows quietly reaching a 404 costs more than 2% reaching
-  // nothing.
+  // Only an unknown carrier or an unusable route stays plain text. Known
+  // carriers have a general official search page when a deeper link is absent.
   if (url === null) return <>{name}</>;
 
   const label = flightLinkLabel(name, search, track.airlineName);

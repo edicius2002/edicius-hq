@@ -1702,13 +1702,13 @@ describe('reaching the airline from the chart', () => {
   /** LIM is in Peru, which is what picks LATAM's storefront. */
   const LEG = { origin: 'LIM', destination: 'SCL', originCountry: 'Peru' };
 
-  /** One reachable carrier and one that is not, on the same date. */
+  /** One known carrier and one unknown carrier, on the same date. */
   const BOARD = [
     snapshot('2027-03-09', [
       offer({ flightNumber: '4', departureAt: '2027-03-09T06:30', price: 195 }),
       offer({
-        airline: 'AV',
-        airlineName: 'Avianca',
+        airline: 'ZZ',
+        airlineName: 'Unknown airline',
         flightNumber: '812',
         departureAt: '2027-03-09T19:55',
         price: 260,
@@ -1724,7 +1724,7 @@ describe('reaching the airline from the chart', () => {
     });
   }
 
-  /** That board's two dots in clock order — LA 4 at 06:30, then AV 812. */
+  /** That board's two dots in clock order — LA 4 at 06:30, then ZZ 812. */
   function board(container: HTMLElement) {
     return dots(container).sort(
       (a, b) => Number(a.getAttribute('cx')) - Number(b.getAttribute('cx')),
@@ -1752,7 +1752,7 @@ describe('reaching the airline from the chart', () => {
       'Sky Airline',
       'LIM',
       'AQP',
-      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa?em_o=LIM&em_d=AQP&em_dd=2027-03-09&em_jt=ONE_WAY&em_pc=1',
     ],
   ])(
     'links the %s flight number on its published route',
@@ -1775,6 +1775,25 @@ describe('reaching the airline from the chart', () => {
       expect(link).toHaveAttribute('href', url);
     },
   );
+
+  it('links an Avianca flight outside the published route list to its official search', () => {
+    const snapshotWithAvianca = snapshot('2027-03-09', [
+      offer({ airline: 'AV', airlineName: 'Avianca', flightNumber: '812' }),
+    ]);
+    const { container } = chart({
+      snapshots: [snapshotWithAvianca],
+      granularity: 'day',
+      leg: { origin: 'LIM', destination: 'DFW', originCountry: 'Peru' },
+    });
+    const mark = dots(container)[0];
+    expect(mark).toHaveAttribute('data-linked', 'true');
+    point(container, mark);
+    const link = screen.getByRole('link', { name: /^AV 812 —/ });
+    expect(link).toHaveAttribute('href', 'https://www.avianca.com/us/en/');
+    expect(link).toHaveAccessibleName(
+      'AV 812 — Open Avianca flight search; choose LIM to DFW and a departure date on the airline site',
+    );
+  });
 
   it('makes the flight number in the readout a link to that airline’s own search', () => {
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
@@ -1858,18 +1877,17 @@ describe('reaching the airline from the chart', () => {
 
   it('marks the flights that have a link and no others', () => {
     /*
-     * The marker belongs to a flight only when this route has an official URL
-     * for its carrier. This board's LATAM flight has one; its Avianca flight
-     * on LIM–SCL does not have a published route page in our verified map.
+     * The marker belongs to a flight only when its carrier has an official URL.
+     * This board's LATAM flight has one; the unknown carrier does not.
      *
      * One node and not two, still: the mark is a single `<circle>` with a fill
      * and a stroke, so ~899 marks are ~899 elements.
      */
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
-    const [latam, avianca] = board(container);
+    const [latam, unknown] = board(container);
 
     expect(latam.getAttribute('data-linked')).toBe('true');
-    expect(avianca.getAttribute('data-linked')).toBeNull();
+    expect(unknown.getAttribute('data-linked')).toBeNull();
     expect(latam.tagName).toBe('circle');
   });
 
@@ -1891,24 +1909,23 @@ describe('reaching the airline from the chart', () => {
      * against 2.6, which is 27%.
      */
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
-    const [latam, avianca] = board(container);
+    const [latam, unknown] = board(container);
     const across = (mark: SVGCircleElement) =>
       Number(mark.getAttribute('r')) + Number(mark.getAttribute('stroke-width') ?? 0) / 2;
 
-    expect(across(latam)).toBeLessThanOrEqual(across(avianca) * 0.75);
+    expect(across(latam)).toBeLessThanOrEqual(across(unknown) * 0.75);
     // And it is still a dot inside a collar rather than a bare disc, because the
     // owner asked for a colour *in the middle* of the circles.
     expect(Number(latam.getAttribute('stroke-width'))).toBeGreaterThan(0);
-    expect(avianca.getAttribute('stroke-width')).toBeNull();
+    expect(unknown.getAttribute('stroke-width')).toBeNull();
   });
 
   it('gives a carrier we cannot reach plain text and no mark', () => {
-    // No verified Avianca page exists for LIM–SCL. Nothing stands in its place
-    // here: no greyed link, no marker.
+    // The carrier code is not known, so there is no official site to link.
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
     point(container, board(container)[1]);
 
-    expect(container.textContent).toContain('AV 812');
+    expect(container.textContent).toContain('ZZ 812');
     expect(screen.queryByRole('link')).toBeNull();
   });
 

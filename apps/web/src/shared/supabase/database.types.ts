@@ -28,6 +28,72 @@ export type Database = {
   };
   public: {
     Tables: {
+      seace_records: {
+        Row: {
+          owner_id: string;
+          kind: string;
+          record_key: string;
+          region: string;
+          year: number;
+          published_at: string | null;
+          payload: Json;
+          last_seen_at: string;
+        };
+        Insert: {
+          owner_id: string;
+          kind: string;
+          record_key: string;
+          region: string;
+          year: number;
+          published_at?: string | null;
+          payload: Json;
+          last_seen_at?: string;
+        };
+        Update: {
+          owner_id?: string;
+          kind?: string;
+          record_key?: string;
+          region?: string;
+          year?: number;
+          published_at?: string | null;
+          payload?: Json;
+          last_seen_at?: string;
+        };
+        Relationships: [];
+      };
+      seace_sync_state: {
+        Row: {
+          owner_id: string;
+          region: string;
+          year: number;
+          kind: string;
+          fetched_at: string;
+          record_count: number;
+        };
+        Insert: {
+          owner_id: string;
+          region: string;
+          year: number;
+          kind: string;
+          fetched_at: string;
+          record_count: number;
+        };
+        Update: {
+          owner_id?: string;
+          region?: string;
+          year?: number;
+          kind?: string;
+          fetched_at?: string;
+          record_count?: number;
+        };
+        Relationships: [];
+      };
+      seace_exclusions: {
+        Row: { owner_id: string; record_key: string; excluded_at: string };
+        Insert: { owner_id?: string; record_key: string; excluded_at?: string };
+        Update: { owner_id?: string; record_key?: string; excluded_at?: string };
+        Relationships: [];
+      };
       fx_observations: {
         Row: {
           owner_id: string;
@@ -670,6 +736,8 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      enqueue_seace_refresh: { Args: { p_region: string; p_year: number }; Returns: Json };
+      claim_seace_refresh_request: { Args: { p_owner_id: string }; Returns: Json };
       read_fx_latest: { Args: Record<PropertyKey, never>; Returns: Json };
       read_fx_history: { Args: { p_source: string; p_range: string }; Returns: Json };
       airfare_dataset_manifest: { Args: never; Returns: Json };

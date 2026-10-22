@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll Edicius SEACE manual refresh requests
+
+[Timer]
+OnCalendar=*-*-* *:0/2:00
+OnBootSec=2min
+Persistent=true
+RandomizedDelaySec=15
+Unit=edicius-seace-requests.service
+
+[Install]
+WantedBy=timers.target

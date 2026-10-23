@@ -41,6 +41,9 @@ MAX_CONCURRENCY = int(os.getenv("SEACE_MAX_CONCURRENCY", "3"))
 PROD6_MAX_CONCURRENCY = int(os.getenv("SEACE_PROD6_MAX_CONCURRENCY", "5"))
 if PROD6_MAX_CONCURRENCY < 1:
     raise ValueError("SEACE_PROD6_MAX_CONCURRENCY debe ser un entero positivo")
+PROD6_MIN_INTERVAL_SECONDS = float(os.getenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", "1"))
+if not 0 <= PROD6_MIN_INTERVAL_SECONDS < float("inf"):
+    raise ValueError("SEACE_PROD6_MIN_INTERVAL_SECONDS debe ser un numero finito no negativo")
 INFLIGHT_CAP = int(os.getenv("SEACE_INFLIGHT_CAP", "12"))
 SESION_TTL = int(os.getenv("SEACE_SESION_TTL", "900"))
 SESION_MAX = int(os.getenv("SEACE_SESION_MAX", "12"))
@@ -1309,6 +1312,8 @@ async def api4_json(path: str, params: Optional[dict] = None) -> Any:
 
 
 _PROD6_SEM: Optional[asyncio.Semaphore] = None
+_PROD6_PACE_LOCK: Optional[asyncio.Lock] = None
+_PROD6_NEXT_START = 0.0
 _PROD6_INFLIGHT = 0
 _PROD6_LOG_KEY = uuid.uuid4().bytes
 _PROD6_LOG = logging.getLogger("seace.prod6")
@@ -1388,16 +1393,23 @@ def _prod6_retry_after(value: Optional[str]) -> Optional[float]:
 
 async def api6_json(client: httpx.AsyncClient, service: str, path: str,
                     params: Optional[dict] = None) -> Any:
-    """Bound all prod6 attempts across tools on the server's event loop."""
-    global _PROD6_SEM, _PROD6_INFLIGHT
+    """Bound and pace all prod6 attempts across tools on the server's event loop."""
+    global _PROD6_SEM, _PROD6_PACE_LOCK, _PROD6_NEXT_START, _PROD6_INFLIGHT
     if _PROD6_SEM is None:
         _PROD6_SEM = asyncio.Semaphore(PROD6_MAX_CONCURRENCY)
+    if _PROD6_PACE_LOCK is None:
+        _PROD6_PACE_LOCK = asyncio.Lock()
     endpoint, phase, reference = _prod6_context(service, path, params)
     url = f"{API6}/{service}{path}"
     for attempt in range(1, 4):
         queued = time.monotonic()
         status, retry_after, kind = None, None, "cancelled"
         async with _PROD6_SEM:
+            async with _PROD6_PACE_LOCK:
+                delay = max(0.0, _PROD6_NEXT_START - time.monotonic())
+                if delay:
+                    await asyncio.sleep(delay)
+                _PROD6_NEXT_START = time.monotonic() + PROD6_MIN_INTERVAL_SECONDS
             started = time.monotonic()
             _PROD6_INFLIGHT += 1
             concurrency = _PROD6_INFLIGHT
@@ -1437,6 +1449,7 @@ async def api6_json(client: httpx.AsyncClient, service: str, path: str,
                     "latency_ms": round((time.monotonic() - started) * 1000, 3),
                     "wait_ms": round((started - queued) * 1000, 3),
                     "in_flight": concurrency, "limit": PROD6_MAX_CONCURRENCY,
+                    "min_interval_seconds": PROD6_MIN_INTERVAL_SECONDS,
                     "retry_after_seconds": retry_after,
                 }))
         error = Prod6Error(phase, kind, status, attempt, retry_after)

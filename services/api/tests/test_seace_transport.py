@@ -4,8 +4,10 @@ import asyncio
 import importlib.util
 import json
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,10 +21,12 @@ DETAIL_PAYLOAD = {"uitContratoCompletoProjection": {"idContrato": 111}}
 def server(monkeypatch):
     monkeypatch.setenv("SEACE_UPDATE_CHECK", "0")
     monkeypatch.delenv("SEACE_PROD6_MAX_CONCURRENCY", raising=False)
+    monkeypatch.delenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", raising=False)
     path = Path(__file__).resolve().parents[2] / "seace/vendor/seace_mcp/server.py"
     spec = importlib.util.spec_from_file_location("seace_transport_test", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "PROD6_MIN_INTERVAL_SECONDS", 0, raising=False)
     return module
 
 
@@ -33,6 +37,39 @@ def mock_clients(monkeypatch, server, handler):
         "AsyncClient",
         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
     )
+
+
+def test_prod6_request_starts_are_spaced_across_concurrent_callers(server, monkeypatch):
+    monkeypatch.setattr(server, "PROD6_MIN_INTERVAL_SECONDS", 0.025, raising=False)
+    started = []
+    active = peak = 0
+
+    async def handler(request):
+        nonlocal active, peak
+        started.append(time.monotonic())
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.06)
+        active -= 1
+        if "/archivo/" in request.url.path:
+            return httpx.Response(200, json=[])
+        if "/listar-completo" in request.url.path:
+            return httpx.Response(200, json=DETAIL_PAYLOAD)
+        return httpx.Response(200, json={"data": []})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await asyncio.gather(
+                server.api6_json(client, "buscadorpublico", "/contrataciones/buscador"),
+                server.api6_json(client, "buscadorpublico", "/contrataciones/listar-completo", {"id_contrato": "111"}),
+                server.api6_json(client, "archivo", "/archivos-publico/listar-archivos-contrato/111/1"),
+                server.api6_json(client, "buscadorpublico", "/contrataciones/buscador"),
+                server.api6_json(client, "buscadorpublico", "/contrataciones/listar-completo", {"id_contrato": "222"}),
+            )
+
+    assert len(asyncio.run(run())) == 5
+    assert min(right - left for left, right in pairwise(started)) >= 0.02
+    assert peak > 1
 
 
 @pytest.mark.parametrize("limit", [None, 2])
@@ -397,6 +434,19 @@ def test_invalid_limit_fails_at_startup(server, monkeypatch, value):
     monkeypatch.setenv("SEACE_PROD6_MAX_CONCURRENCY", value)
     with pytest.raises(ValueError):
         server.__spec__.loader.exec_module(server)
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "invalid"])
+def test_invalid_prod6_interval_fails_at_startup(server, monkeypatch, value):
+    monkeypatch.setenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", value)
+    with pytest.raises(ValueError):
+        server.__spec__.loader.exec_module(server)
+
+
+def test_prod6_interval_is_loaded_from_environment(server, monkeypatch):
+    monkeypatch.setenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", "0.125")
+    server.__spec__.loader.exec_module(server)
+    assert server.PROD6_MIN_INTERVAL_SECONDS == 0.125
 
 
 def test_limit_is_loaded_from_environment(server, monkeypatch):

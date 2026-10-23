@@ -604,7 +604,7 @@ def test_projection_refresh_allows_a_longer_rpc_than_regular_uploads(source, rem
     upload_request = next(
         request for request in server.requests if request.url.path.endswith("/fare_snapshots")
     )
-    assert projection_request.extensions["timeout"]["read"] == 35
+    assert projection_request.extensions["timeout"]["read"] == 65
     assert upload_request.extensions["timeout"]["read"] == 15
 
 

@@ -315,7 +315,7 @@ class MarketWorker:
                     and fetched >= _last_stock_close(now, extended)
                 ):
                     continue
-            due.append((2, expires, key))
+            due.append((2 if key in default_keys else 3, expires, key))
         for key in default_keys - present:
             due.append((0 if key[0] == "AAPL" else 1, datetime.min.replace(tzinfo=UTC), key))
         for _, _, key in sorted(due):

@@ -44,7 +44,7 @@ _TABLES = {
     "airports": "fare_airports",
     "documents": "airfare_documents",
 }
-_PROJECTION_TIMEOUT_SECONDS = 35.0
+_PROJECTION_TIMEOUT_SECONDS = 65.0
 _MANIFEST_TIMEOUT_SECONDS = 35.0
 _FINALIZATION_RETRY_DELAYS = (1.0, 2.0)
 _KINDS = {

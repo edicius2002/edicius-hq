@@ -1,15 +1,16 @@
 import { Suspense } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 
 import { TopNav } from '@/app/layout/TopNav';
 
 import styles from './AppShell.module.css';
 
 export function AppShell() {
+  const isSeace = useLocation().pathname.startsWith('/seace');
   return (
     <div className={styles.shell}>
       <TopNav />
-      <main className={styles.main}>
+      <main className={`${styles.main} ${isSeace ? styles.fullBleed : ''}`}>
         <Suspense fallback={<p className={styles.fallback}>Loading…</p>}>
           <Outlet />
         </Suspense>

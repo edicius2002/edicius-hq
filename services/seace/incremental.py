@@ -285,7 +285,8 @@ async def refresh_region(region, year, full=False, publisher=None,
             # Publish the same preserved fields as the local merge, including
             # old documents when a later archive request failed.
             rows = [row for row in merged[kind][0]["records"] if record_key(row, kind) in keys]
-            publisher(kind, rows, fetched_at, merged[kind][1]["total"])
+            publisher(kind, rows, fetched_at,
+                      merged[kind][1]["total"], merged[kind][1]["added"])
     for path, variable, kind in selected_sources:
         write_snapshot(path, variable, merged[kind][0])
     if publisher is not None and pending is not None:

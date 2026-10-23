@@ -1,18 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 import {
-  enqueueRefresh,
   exclusionKey,
   loadExclusions,
   loadSeace,
   loadSeaceSync,
-  refreshStatus,
   setExcludedMany,
   type SeaceRow,
   type SeaceSync,
 } from './data';
-import { parseExclusionKeys } from './exclusions';
 import styles from './SeacePage.module.css';
 
 const regions = [
@@ -43,13 +40,42 @@ const regions = [
   'Ucayali',
 ];
 const views = [
-  { path: '/seace/recent', label: 'Last 24h' },
-  { path: '/seace/all-open', label: 'All open' },
-  { path: '/seace/closed', label: 'Closed notices' },
-  { path: '/seace/published', label: 'Published contracts' },
+  { path: '/seace/recent', navLabel: '24h' },
+  { path: '/seace/all-open', navLabel: 'Open' },
+  { path: '/seace/closed', navLabel: 'Closed' },
+  { path: '/seace/published', navLabel: 'Publi' },
 ];
 type SeaceView = 'recent' | 'open' | 'closed' | 'published';
 const pageSizes = [5, 10, 20, 50, 100];
+const columnWidths: Record<string, number> = {
+  code: 120,
+  entity: 185,
+  description: 450,
+  object: 90,
+  published: 105,
+  start: 105,
+  end: 105,
+  amount: 120,
+  links: 125,
+  signed: 105,
+  termStart: 105,
+  termEnd: 105,
+};
+const mobileColumnWidths: Record<string, number> = {
+  code: 102,
+  entity: 0,
+  description: 280,
+  object: 82,
+  published: 90,
+  start: 126,
+  end: 0,
+  amount: 100,
+  links: 110,
+  signed: 90,
+  termStart: 126,
+  termEnd: 0,
+};
+const mobileHiddenFields = new Set(['entity', 'end', 'termEnd']);
 const objectOptions = ['Todos', 'Bien', 'Servicio', 'Obra', 'Consultoría de Obra'];
 const objectLabels: Record<string, string> = {
   Todos: 'All',
@@ -111,10 +137,6 @@ const safeUrl = (candidate: unknown): string | null => {
     return null;
   }
 };
-const codeUrl = (row: SeaceRow) =>
-  row.kind === 'notices' && /^\d+$/.test(text(row, 'id'))
-    ? `https://prod6.seace.gob.pe/cotizacion/contrataciones/contratacion-detalle/${text(row, 'id')}`
-    : safeUrl(row.payload.source);
 const plainDate = (value: string) => {
   if (!value) return '—';
   const [day, ...time] = value.split(' ');
@@ -124,6 +146,12 @@ const plainDate = (value: string) => {
       {time.length > 0 && <small>{time.join(' ')}</small>}
     </span>
   );
+};
+const compactDate = (value: string) => {
+  const match = value.match(/^(\d{1,2})\/(\d{1,2})\/\d{4}(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!match) return value || '—';
+  const date = `${match[1].padStart(2, '0')}/${match[2].padStart(2, '0')}`;
+  return match[3] ? `${date} ${match[3].padStart(2, '0')}:${match[4]}` : date;
 };
 const money = (row: SeaceRow) => {
   const raw = text(row, 'amount');
@@ -140,24 +168,30 @@ const money = (row: SeaceRow) => {
       : '';
   return `${symbol ? `${symbol} ` : ''}${amount}`;
 };
-const itemText = (row: SeaceRow) => {
-  const items = row.payload.items;
-  if (!Array.isArray(items) || !items.length) return '—';
-  return items.map(String).join(items.length === 1 ? '' : '; ');
+const itemLines = (row: SeaceRow): string[] => {
+  const value = row.payload.items;
+  const items = Array.isArray(value) ? value : [value];
+  return items
+    .filter((item): item is string | number => typeof item === 'string' || typeof item === 'number')
+    .map((item) => String(item).trim())
+    .filter(Boolean);
 };
+const isPdfLink = (name: string, url: string) =>
+  /\.pdf$/i.test(name) || /\bPDF$/i.test(name) || /\.pdf$/i.test(new URL(url).pathname);
 const links = (row: SeaceRow) => {
   const result: { name: string; url: string }[] = [];
-  const source = row.kind === 'notices' ? codeUrl(row) : safeUrl(row.payload.source);
-  if (source) result.push({ name: 'Official record', url: source });
   const primary = safeUrl(row.payload.documentUrl);
-  if (primary) result.push({ name: text(row, 'documentName') || 'PDF', url: primary });
+  const primaryName = text(row, 'documentName');
+  if (primary && isPdfLink(primaryName, primary))
+    result.push({ name: primaryName || 'PDF', url: primary });
   if (Array.isArray(row.payload.documents)) {
     for (const item of row.payload.documents) {
       if (item && typeof item === 'object' && !Array.isArray(item)) {
         const doc = item as Record<string, unknown>;
         const url = safeUrl(doc.url);
-        if (url && !result.some((link) => link.url === url)) {
-          result.push({ name: typeof doc.name === 'string' ? doc.name : 'Document', url });
+        const name = typeof doc.name === 'string' ? doc.name.trim() : '';
+        if (url && isPdfLink(name, url) && !result.some((link) => link.url === url)) {
+          result.push({ name: name || 'PDF', url });
         }
       }
     }
@@ -183,14 +217,12 @@ export function SeacePage() {
   const [region, setRegion] = useState('Arequipa');
   const [minorOnly, setMinorOnly] = useState(true);
   const [objectFilter, setObjectFilter] = useState('Todos');
-  const [entityFilter, setEntityFilter] = useState('Todas');
   const [records, setRecords] = useState<SeaceRow[]>([]);
-  const [sync, setSync] = useState<SeaceSync[]>([]);
+  const [syncs, setSyncs] = useState<SeaceSync[]>([]);
   const [exclusions, setExclusions] = useState<Set<string>>(new Set());
   const [exclusionsReady, setExclusionsReady] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [savingExclusions, setSavingExclusions] = useState(false);
-  const [importKeys, setImportKeys] = useState<string[] | null>(null);
   const [excludedByView, setExcludedByView] = useState<Record<SeaceView, boolean>>({
     recent: false,
     open: false,
@@ -207,20 +239,26 @@ export function SeacePage() {
   const [pageSize, setPageSize] = useState(50);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [detailModal, setDetailModal] = useState<
+    | { kind: 'items'; code: string; items: string[] }
+    | { kind: 'entity'; code: string; entity: string }
+    | null
+  >(null);
+  const detailDialogRef = useRef<HTMLDialogElement>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setExclusionsReady(false);
+    setSyncs([]);
     try {
-      const [rows, states, excluded] = await Promise.all([
+      const [rows, excluded, sync] = await Promise.all([
         loadSeace(region, year),
-        loadSeaceSync(region, year),
         loadExclusions(),
+        loadSeaceSync(region, year).catch(() => []),
       ]);
       setRecords(rows);
-      setSync(states);
       setExclusions(excluded);
+      setSyncs(sync);
       setExclusionsReady(true);
       setSelectedKeys(new Set());
       setMessage('');
@@ -237,23 +275,29 @@ export function SeacePage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [reload]);
-  useEffect(() => {
-    if (!pendingId) return;
-    const timer = window.setInterval(() => {
-      void refreshStatus(pendingId)
-        .then((status) => {
-          if (status === 'complete') {
-            setPendingId(null);
-            void reload();
-          } else if (status === 'failed' || status === 'expired') {
-            setPendingId(null);
-            setMessage(`Refresh ${status}`);
-          }
-        })
-        .catch(() => setMessage('Refresh status unavailable'));
-    }, 10_000);
-    return () => window.clearInterval(timer);
-  }, [pendingId, reload]);
+
+  const latestFetchedAt = syncs.reduce<string | null>(
+    (latest, sync) =>
+      !latest || Date.parse(sync.fetched_at) > Date.parse(latest) ? sync.fetched_at : latest,
+    null,
+  );
+  const latestSyncs = syncs.filter((sync) => sync.fetched_at === latestFetchedAt);
+  const newCount =
+    latestSyncs.length > 0 && latestSyncs.every((sync) => typeof sync.new_count === 'number')
+      ? latestSyncs.reduce((total, sync) => total + sync.new_count!, 0)
+      : null;
+  const fetchTime = latestFetchedAt
+    ? new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Lima',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      })
+        .format(new Date(latestFetchedAt))
+        .replace(',', ' ·')
+    : '—';
 
   const rows = useMemo(
     () =>
@@ -269,7 +313,6 @@ export function SeacePage() {
             )
           )
             return false;
-          if (entityFilter !== 'Todas' && text(row, 'entity') !== entityFilter) return false;
           if (view === 'recent' && (!isOpen(row) || !isRecent(row))) return false;
           if (view === 'open' && (!isOpen(row) || isRecent(row))) return false;
           if (view === 'closed' && isOpen(row)) return false;
@@ -296,14 +339,7 @@ export function SeacePage() {
           const comparison = first < second ? -1 : first > second ? 1 : 0;
           return sort.ascending ? comparison : -comparison;
         }),
-    [records, view, minorOnly, objectFilter, entityFilter, exclusions, excludedView, search, sort],
-  );
-  const entities = useMemo(
-    () =>
-      [...new Set(records.map((row) => text(row, 'entity')).filter(Boolean))].sort((a, b) =>
-        a.localeCompare(b, 'es'),
-      ),
-    [records],
+    [records, view, minorOnly, objectFilter, exclusions, excludedView, search, sort],
   );
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pages);
@@ -311,11 +347,6 @@ export function SeacePage() {
   const visibleKeys = visible.map(exclusionKey);
   const allVisibleSelected =
     visibleKeys.length > 0 && visibleKeys.every((key) => selectedKeys.has(key));
-  const lastFetch = sync
-    .map((item) => item.fetched_at)
-    .sort()
-    .at(-1);
-  const count = records.length;
   const columns =
     view === 'published'
       ? [
@@ -323,42 +354,29 @@ export function SeacePage() {
           'entity',
           'description',
           'object',
-          'contractor',
           'signed',
           'termStart',
           'termEnd',
           'amount',
           'links',
         ]
-      : [
-          'code',
-          'entity',
-          'description',
-          'object',
-          'items',
-          'published',
-          'start',
-          'end',
-          'amount',
-          'state',
-          'links',
-        ];
+      : ['code', 'entity', 'description', 'object', 'published', 'start', 'end', 'links'];
+  const tableWidth = 42 + columns.reduce((width, field) => width + columnWidths[field], 0);
+  const mobileTableWidth =
+    42 + columns.reduce((width, field) => width + mobileColumnWidths[field], 0);
   const labels: Record<string, string> = {
     code: 'Code',
     entity: 'Entity',
     description: 'Description',
     object: 'Object',
-    contractor: 'Supplier',
     signed: 'Signed',
     termStart: 'Term start',
     termEnd: 'Term end',
     amount: 'Amount',
     links: 'Links',
-    items: 'Items',
     published: 'Published',
     start: 'Start',
     end: 'End',
-    state: 'Status',
   };
 
   const toggleSort = (field: string) => {
@@ -388,248 +406,203 @@ export function SeacePage() {
       setSavingExclusions(false);
     }
   };
-  const readImport = async (file: File | undefined) => {
-    setImportKeys(null);
-    if (!file) return;
-    try {
-      if (file.size > 2_000_000) throw new Error('The JSON file is too large.');
-      setImportKeys(parseExclusionKeys(await file.text()));
-      setMessage('');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not read the JSON file.');
-    }
+  const openItems = (row: SeaceRow) => {
+    const items = itemLines(row);
+    if (!items.length) return;
+    setDetailModal({ kind: 'items', code: text(row, 'code'), items });
+    detailDialogRef.current?.showModal();
   };
-  const importExclusions = async () => {
-    if (!importKeys || !exclusionsReady || savingExclusions) return;
-    setSavingExclusions(true);
-    try {
-      await setExcludedMany(importKeys, true);
-      setExclusions((current) => new Set([...current, ...importKeys]));
-      setMessage(`Imported ${importKeys.length} exclusion codes.`);
-      setImportKeys(null);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not import the JSON file.');
-    } finally {
-      setSavingExclusions(false);
-    }
+  const openEntity = (row: SeaceRow) => {
+    const entity = text(row, 'entity');
+    if (!entity) return;
+    setDetailModal({ kind: 'entity', code: text(row, 'code'), entity });
+    detailDialogRef.current?.showModal();
   };
-  const refresh = async () => {
-    try {
-      setPendingId(await enqueueRefresh(region, year));
-      setMessage('Refresh queued');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Refresh unavailable');
-    }
+  const closeDetails = () => {
+    detailDialogRef.current?.close();
+    setDetailModal(null);
   };
 
   return (
-    <main className={styles.page}>
-      <aside className={styles.sidebar}>
-        <h1>SEACE</h1>
-        <nav aria-label="SEACE views">
-          {views.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              onClick={() => {
-                setPage(1);
-                setSelectedKeys(new Set());
-              }}
-              className={({ isActive }) => (isActive ? styles.active : '')}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-        <label htmlFor="seace-region">Region</label>
-        <div className={styles.regionControl}>
-          <select
-            id="seace-region"
-            value={region}
-            onChange={(event) => {
-              setRegion(event.target.value);
-              setEntityFilter('Todas');
-              setPage(1);
-              setSelectedKeys(new Set());
-            }}
-          >
-            {regions.map((item) => (
-              <option key={item}>{item}</option>
+    <div className={styles.page}>
+      <div className={styles.topPanel}>
+        <div className={styles.sidebar}>
+          <nav aria-label="SEACE views">
+            {views.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                onClick={() => {
+                  setPage(1);
+                  setSelectedKeys(new Set());
+                }}
+                className={({ isActive }) => (isActive ? styles.active : '')}
+              >
+                {item.navLabel}
+              </NavLink>
             ))}
-          </select>
-          <button
-            type="button"
-            aria-label="Refresh region"
-            title="Refresh region"
-            onClick={() => void refresh()}
-            disabled={Boolean(pendingId)}
-          >
-            ↻
-          </button>
-        </div>
-        <small>{count.toLocaleString()} records</small>
-        <small>
-          {exclusions.size.toLocaleString()}{' '}
-          {exclusions.size === 1 ? 'excluded code' : 'excluded codes'}
-        </small>
-        <small>
-          {lastFetch ? `Last fetch ${new Date(lastFetch).toLocaleString()}` : 'Never fetched'}
-        </small>
-        <label className={styles.check}>
-          <input
-            type="checkbox"
-            checked={minorOnly}
-            onChange={(event) => {
-              setMinorOnly(event.target.checked);
-              setSelectedKeys(new Set());
-            }}
-          />
-          Minor contracts only
-        </label>
-        <label htmlFor="seace-object">Object</label>
-        <select
-          id="seace-object"
-          value={objectFilter}
-          onChange={(event) => {
-            setObjectFilter(event.target.value);
-            setPage(1);
-            setSelectedKeys(new Set());
-          }}
-        >
-          {objectOptions.map((item) => (
-            <option key={item} value={item}>
-              {objectLabels[item]}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="seace-entity">Entity</label>
-        <select
-          id="seace-entity"
-          value={entityFilter}
-          onChange={(event) => {
-            setEntityFilter(event.target.value);
-            setPage(1);
-            setSelectedKeys(new Set());
-          }}
-        >
-          <option value="Todas">All</option>
-          {entities.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className={styles.resetFilters}
-          onClick={() => {
-            setRegion('Arequipa');
-            setMinorOnly(true);
-            setObjectFilter('Todos');
-            setEntityFilter('Todas');
-            setSearch('');
-            setSort({ field: 'published', ascending: false });
-            setPage(1);
-            setSelectedKeys(new Set());
-          }}
-        >
-          Reset filters
-        </button>
-        <div className={styles.importBox}>
-          <label htmlFor="seace-exclusions-file">Exclusion JSON file</label>
-          <input
-            id="seace-exclusions-file"
-            type="file"
-            accept=".json,application/json"
-            onChange={(event) => {
-              void readImport(event.target.files?.[0]);
-              event.target.value = '';
-            }}
-          />
-          {importKeys ? (
-            <button
-              type="button"
-              disabled={!exclusionsReady || savingExclusions}
-              onClick={() => void importExclusions()}
-            >
-              Import {importKeys.length} {importKeys.length === 1 ? 'code' : 'codes'}
-            </button>
-          ) : null}
-          <small>Adds codes from the local file without removing saved exclusions.</small>
-        </div>
-        {pendingId && <small>Refresh running or queued</small>}
-      </aside>
-      <section className={styles.content}>
-        <div className={styles.toolbar}>
-          <div>
-            <h2>{views.find((item) => item.path === location.pathname)?.label ?? 'Last 24h'}</h2>
-            <span>{rows.length.toLocaleString()} records</span>
-          </div>
-          <div className={styles.controls}>
-            <input
-              aria-label="Search records"
-              placeholder="Search"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-                setSelectedKeys(new Set());
-              }}
-            />
-            <select
-              aria-label="Sort"
-              value={`${sort.field}:${sort.ascending ? 'asc' : 'desc'}`}
-              onChange={(event) => {
-                const [field, direction] = event.target.value.split(':');
-                setSort({ field, ascending: direction === 'asc' });
-                setSelectedKeys(new Set());
-              }}
-            >
-              <option value="published:desc">Newest</option>
-              <option value="published:asc">Oldest</option>
-              <option value="code:asc">Code A–Z</option>
-              <option value="entity:asc">Entity A–Z</option>
-            </select>
-            <div className={styles.tableSwitch} role="group" aria-label="Exclusion view">
-              <button
-                type="button"
-                aria-pressed={!excludedView}
-                className={!excludedView ? styles.selected : ''}
-                onClick={() => {
-                  setExcludedByView((current) => ({ ...current, [view]: false }));
+          </nav>
+          <div className={styles.filters}>
+            <div className={styles.field}>
+              <div className={styles.regionControl}>
+                <select
+                  id="seace-region"
+                  aria-label="Region"
+                  value={region}
+                  onChange={(event) => {
+                    setRegion(event.target.value);
+                    setPage(1);
+                    setSelectedKeys(new Set());
+                  }}
+                >
+                  {regions.map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+                <div className={styles.fetchInfo} aria-label="Last SEACE fetch">
+                  <span>{newCount === null ? '—' : newCount.toLocaleString()} new</span>
+                  <time dateTime={latestFetchedAt ?? undefined}>{fetchTime}</time>
+                </div>
+              </div>
+            </div>
+            <label className={styles.toggleRow}>
+              <strong>Minor</strong>
+              <input
+                type="checkbox"
+                aria-label="Minor"
+                checked={minorOnly}
+                onChange={(event) => {
+                  setMinorOnly(event.target.checked);
+                  setSelectedKeys(new Set());
+                }}
+              />
+            </label>
+            <div className={styles.field}>
+              <select
+                id="seace-object"
+                aria-label="Object"
+                value={objectFilter}
+                onChange={(event) => {
+                  setObjectFilter(event.target.value);
                   setPage(1);
                   setSelectedKeys(new Set());
                 }}
               >
-                Not excluded
-              </button>
-              <button
-                type="button"
-                aria-pressed={excludedView}
-                className={excludedView ? styles.selected : ''}
-                onClick={() => {
-                  setExcludedByView((current) => ({ ...current, [view]: true }));
-                  setPage(1);
-                  setSelectedKeys(new Set());
-                }}
-              >
-                Excluded
-              </button>
+                {objectOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {objectLabels[item]}
+                  </option>
+                ))}
+              </select>
             </div>
             <button
               type="button"
-              disabled={!exclusionsReady || savingExclusions || selectedKeys.size === 0}
-              onClick={() => void changeExclusion()}
+              className={styles.resetFilters}
+              aria-label="Reset filters"
+              title="Reset filters"
+              onClick={() => {
+                setRegion('Arequipa');
+                setMinorOnly(true);
+                setObjectFilter('Todos');
+                setSearch('');
+                setSort({ field: 'published', ascending: false });
+                setPage(1);
+                setSelectedKeys(new Set());
+              }}
             >
-              {excludedView ? 'Restore' : 'Exclude'} selected ({selectedKeys.size})
+              ×
             </button>
           </div>
         </div>
+        <div className={styles.toolbar}>
+          <div className={styles.tableControls}>
+            <label className={styles.searchField}>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m15.5 15.5 5 5" />
+              </svg>
+              <input
+                aria-label="Search records"
+                type="search"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                  setSelectedKeys(new Set());
+                }}
+              />
+            </label>
+            <div className={styles.actions}>
+              <div className={styles.tableSwitch} role="group" aria-label="Exclusion view">
+                <button
+                  type="button"
+                  aria-pressed={!excludedView}
+                  className={!excludedView ? styles.selected : ''}
+                  onClick={() => {
+                    setExcludedByView((current) => ({ ...current, [view]: false }));
+                    setPage(1);
+                    setSelectedKeys(new Set());
+                  }}
+                >
+                  Not excluded
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={excludedView}
+                  className={excludedView ? styles.selected : ''}
+                  onClick={() => {
+                    setExcludedByView((current) => ({ ...current, [view]: true }));
+                    setPage(1);
+                    setSelectedKeys(new Set());
+                  }}
+                >
+                  Excluded
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={!exclusionsReady || savingExclusions || selectedKeys.size === 0}
+                onClick={() => void changeExclusion()}
+              >
+                {excludedView ? 'Restore' : 'Exclude'} selected ({selectedKeys.size})
+              </button>
+            </div>
+          </div>
+        </div>
+        <strong className={styles.tableCount}>
+          {rows.length.toLocaleString()} {rows.length === 1 ? 'record' : 'records'}
+        </strong>
+      </div>
+      <section className={styles.content} aria-label="SEACE records">
         {message && <p role="status">{message}</p>}
         {loading && <p role="status">Loading…</p>}
-        <div className={styles.tableWrap}>
-          <table>
+        <div className={styles.tableWrap} tabIndex={0} aria-label="SEACE records table">
+          <table
+            style={
+              {
+                '--desktop-table-width': `max(100%, ${tableWidth}px)`,
+                '--mobile-table-width': `max(100%, ${mobileTableWidth}px)`,
+              } as CSSProperties
+            }
+          >
+            <colgroup>
+              <col style={{ width: 42 }} />
+              {columns.map((field) => (
+                <col
+                  key={field}
+                  className={`${styles.dataColumn} ${mobileHiddenFields.has(field) ? styles.mobileHiddenColumn : ''}`}
+                  style={
+                    {
+                      '--desktop-column-width': `${columnWidths[field]}px`,
+                      '--mobile-column-width': `${mobileColumnWidths[field]}px`,
+                    } as CSSProperties
+                  }
+                />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th scope="col">
+                <th scope="col" className={styles.selectCell}>
                   <input
                     type="checkbox"
                     aria-label="Select visible page"
@@ -646,9 +619,24 @@ export function SeacePage() {
                   />
                 </th>
                 {columns.map((field) => (
-                  <th key={field} scope="col">
+                  <th
+                    key={field}
+                    scope="col"
+                    className={mobileHiddenFields.has(field) ? styles.mobileHiddenColumn : ''}
+                    aria-sort={
+                      sort.field === field ? (sort.ascending ? 'ascending' : 'descending') : 'none'
+                    }
+                  >
                     <button type="button" onClick={() => toggleSort(field)}>
-                      {labels[field]} {sort.field === field ? (sort.ascending ? '↑' : '↓') : '↕'}
+                      {field === 'start' || field === 'termStart' ? (
+                        <>
+                          <span className={styles.desktopOnly}>{labels[field]}</span>
+                          <span className={styles.mobileOnly}>Period</span>
+                        </>
+                      ) : (
+                        labels[field]
+                      )}{' '}
+                      {sort.field === field ? (sort.ascending ? '↑' : '↓') : '↕'}
                     </button>
                   </th>
                 ))}
@@ -657,7 +645,7 @@ export function SeacePage() {
             <tbody>
               {visible.map((row) => (
                 <tr key={`${row.kind}:${row.recordKey}`}>
-                  <td>
+                  <td className={styles.selectCell}>
                     <input
                       type="checkbox"
                       aria-label={`Select ${text(row, 'code')}`}
@@ -673,17 +661,45 @@ export function SeacePage() {
                     />
                   </td>
                   {columns.map((field) => (
-                    <td key={field}>
+                    <td
+                      key={field}
+                      className={[
+                        field === 'code'
+                          ? styles.codeCell
+                          : field === 'entity'
+                            ? styles.entityCell
+                            : field === 'description'
+                              ? styles.descriptionCell
+                              : field === 'amount'
+                                ? styles.amountCell
+                                : '',
+                        mobileHiddenFields.has(field) ? styles.mobileHiddenColumn : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
                       {field === 'code' ? (
-                        codeUrl(row) ? (
-                          <a href={codeUrl(row)!} target="_blank" rel="noopener noreferrer">
-                            {text(row, field) || '—'}
-                          </a>
-                        ) : (
-                          text(row, field) || '—'
-                        )
+                        text(row, field) || '—'
                       ) : field === 'links' ? (
                         <span className={styles.links}>
+                          {itemLines(row).length > 0 && (
+                            <button type="button" onClick={() => openItems(row)}>
+                              Items
+                            </button>
+                          )}
+                          {text(row, 'entity') && (
+                            <a
+                              className={styles.mobileEntityLink}
+                              href="#seace-detail-dialog"
+                              aria-haspopup="dialog"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                openEntity(row);
+                              }}
+                            >
+                              Entity
+                            </a>
+                          )}
                           {links(row).map((link) => (
                             <a
                               key={link.url}
@@ -695,10 +711,22 @@ export function SeacePage() {
                             </a>
                           ))}
                         </span>
-                      ) : field === 'items' ? (
-                        itemText(row)
                       ) : field === 'amount' ? (
                         money(row)
+                      ) : field === 'start' || field === 'termStart' ? (
+                        <>
+                          <span className={styles.desktopOnly}>{plainDate(text(row, field))}</span>
+                          <span className={styles.mobilePeriod}>
+                            <span>
+                              <strong>Start</strong>
+                              {compactDate(text(row, field))}
+                            </span>
+                            <span>
+                              <strong>End</strong>
+                              {compactDate(text(row, field === 'start' ? 'end' : 'termEnd'))}
+                            </span>
+                          </span>
+                        </>
                       ) : ['published', 'start', 'end', 'signed', 'termStart', 'termEnd'].includes(
                           field,
                         ) ? (
@@ -712,7 +740,11 @@ export function SeacePage() {
               ))}
               {visible.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length + 1}>No records</td>
+                  <td className={styles.emptyCell} colSpan={columns.length + 1}>
+                    <span className={styles.emptyMessage}>
+                      No records match this view and these filters.
+                    </span>
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -724,45 +756,83 @@ export function SeacePage() {
               ? `${(currentPage - 1) * pageSize + 1}–${(currentPage - 1) * pageSize + visible.length} of ${rows.length}`
               : '0 records'}
           </span>
-          <button
-            type="button"
-            disabled={currentPage <= 1}
-            onClick={() => {
-              setPage(currentPage - 1);
-              setSelectedKeys(new Set());
-            }}
-          >
-            Previous
-          </button>
-          <span>
-            Page {currentPage} of {pages}
-          </span>
-          <button
-            type="button"
-            disabled={currentPage >= pages}
-            onClick={() => {
-              setPage(currentPage + 1);
-              setSelectedKeys(new Set());
-            }}
-          >
-            Next
-          </button>
-          <label htmlFor="seace-page-size">Rows per page</label>
-          <select
-            id="seace-page-size"
-            value={pageSize}
-            onChange={(event) => {
-              setPageSize(Number(event.target.value));
-              setPage(1);
-              setSelectedKeys(new Set());
-            }}
-          >
-            {pageSizes.map((size) => (
-              <option key={size}>{size}</option>
-            ))}
-          </select>
+          <div className={styles.pagerControls}>
+            <div className={styles.pageNavigation}>
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => {
+                  setPage(currentPage - 1);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                Previous
+              </button>
+              <span>
+                Page {currentPage} of {pages}
+              </span>
+              <button
+                type="button"
+                disabled={currentPage >= pages}
+                onClick={() => {
+                  setPage(currentPage + 1);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                Next
+              </button>
+            </div>
+            <div className={styles.pageSize}>
+              <label htmlFor="seace-page-size">Rows per page</label>
+              <select
+                id="seace-page-size"
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                {pageSizes.map((size) => (
+                  <option key={size}>{size}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
       </section>
-    </main>
+      <dialog
+        id="seace-detail-dialog"
+        ref={detailDialogRef}
+        className={styles.itemsDialog}
+        aria-labelledby="seace-detail-title"
+        onClose={() => setDetailModal(null)}
+      >
+        <div className={styles.itemsDialogHeader}>
+          <h2 id="seace-detail-title">{detailModal?.kind === 'entity' ? 'Entity' : 'Items'}</h2>
+          <button
+            type="button"
+            aria-label={`Close ${detailModal?.kind ?? 'items'}`}
+            onClick={closeDetails}
+          >
+            ×
+          </button>
+        </div>
+        {detailModal && (
+          <>
+            <p className={styles.itemsDialogCode}>{detailModal.code}</p>
+            {detailModal.kind === 'items' ? (
+              <ul className={styles.itemsDialogList}>
+                {detailModal.items.map((item, index) => (
+                  <li key={`${index}:${item}`}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className={styles.entityDialogText}>{detailModal.entity}</p>
+            )}
+          </>
+        )}
+      </dialog>
+    </div>
   );
 }

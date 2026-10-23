@@ -11,7 +11,7 @@ def stable_key(row, kind):
     return json.dumps(key, ensure_ascii=False, separators=(",", ":"))
 
 
-def publish_updates(cloud, region, year, kind, updates, fetched_at, total):
+def publish_updates(cloud, region, year, kind, updates, fetched_at, total, added):
     """Upload rows before the local snapshot checkpoint is advanced."""
     seen_at = datetime.fromisoformat(fetched_at).astimezone(timezone.utc).isoformat()
     rows = []
@@ -30,6 +30,6 @@ def publish_updates(cloud, region, year, kind, updates, fetched_at, total):
         cloud.upsert_seace_records(rows[offset:offset + 100])
     cloud.upsert_seace_sync_state({
         "region": region, "year": year, "kind": kind,
-        "fetched_at": seen_at, "record_count": total,
+        "fetched_at": seen_at, "record_count": total, "new_count": added,
     })
     return len(rows)

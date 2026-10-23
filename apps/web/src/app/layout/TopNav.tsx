@@ -49,7 +49,11 @@ export function TopNav() {
   const menuId = useId();
   const location = useLocation();
   const narrow = useIsNarrow();
-  const activeItem = navItems.find((item) => item.to === location.pathname);
+  const activeItem = navItems.find(
+    (item) =>
+      item.to === location.pathname ||
+      (item.label === 'SEACE' && location.pathname.startsWith('/seace/')),
+  );
   const topbarRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 

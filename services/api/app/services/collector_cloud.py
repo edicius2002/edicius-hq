@@ -268,6 +268,27 @@ class CollectorCloud:
     def upsert_bars(self, row: dict[str, Any]) -> None:
         self._upsert("market_bars", [row], "owner_id,symbol,timeframe,extended")
 
+    def list_cached_bars(self) -> list[dict[str, Any]]:
+        """Read only cache metadata so the market worker can refresh due series."""
+        rows: list[dict[str, Any]] = []
+        while True:
+            result = self._request(
+                "GET",
+                "market_bars",
+                params={
+                    "select": "symbol,timeframe,extended,fetched_at,expires_at",
+                    "owner_id": f"eq.{self._owner_id}",
+                    "order": "expires_at.asc,symbol.asc,timeframe.asc,extended.asc",
+                    "limit": "1000",
+                    "offset": str(len(rows)),
+                },
+            )
+            if not isinstance(result, list) or any(not isinstance(row, dict) for row in result):
+                raise CollectorCloudRejected("Supabase returned invalid market bar metadata")
+            rows.extend(result)
+            if len(result) < 1000:
+                return rows
+
     def upsert_seace_records(self, rows: Sequence[dict[str, Any]]) -> int:
         return self._upsert("seace_records", rows, "owner_id,kind,record_key")
 

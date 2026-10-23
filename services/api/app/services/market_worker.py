@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from datetime import time as clock_time
 from typing import Any
 
 import httpx
@@ -18,8 +19,9 @@ from app.adapters.binance_bar_stream import BinanceBarStream
 from app.adapters.live_bars import CompositeBarStream
 from app.adapters.models import Bar, LiveBar, ProviderError, Quote, SymbolHit, Tick
 from app.adapters.streams import CompositeStream
+from app.adapters.yahoo_buckets import NEW_YORK, session_at
 from app.adapters.yahoo_live_bars import YahooLiveBarClient
-from app.config import TIMEFRAMES, UPSTREAM_TIMEOUT_SECONDS
+from app.config import DEFAULT_TIMEFRAME, TIMEFRAMES, UPSTREAM_TIMEOUT_SECONDS
 from app.services.chart_focus import ChartFocusBook
 from app.services.collector_cloud import CollectorCloud, CollectorCloudError, CollectorRequest
 
@@ -29,7 +31,11 @@ CHART_FOCUS_TTL_SECONDS = 45.0
 MAX_CHART_FOCUSES = 8
 QUOTE_FLUSH_SECONDS = 60.0
 QUOTE_RECOVERY_SECONDS = 60.0
+DEFAULT_QUOTE_RECOVERY_SECONDS = 900.0
 RECONCILE_SECONDS = 30.0
+BACKGROUND_DAILY_BAR_LIMIT = 60
+BACKGROUND_DAILY_BAR_INTERVAL = 4 * 3600
+BACKGROUND_INTRADAY_BAR_INTERVAL = 3600
 _DOCUMENT_KEYS = ("watchlist", "portfolio", "alert-rules")
 
 
@@ -162,6 +168,18 @@ def _market_time(value: float | None) -> int | None:
     return int(value) if value is not None else None
 
 
+def _last_stock_close(now: datetime, extended: bool) -> datetime:
+    """Last weekday close for the requested Yahoo bar variant, in UTC."""
+    local = now.astimezone(NEW_YORK)
+    close = clock_time(20 if extended else 16)
+    day = local.date()
+    if local.time() < close:
+        day -= timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return datetime.combine(day, close, tzinfo=NEW_YORK).astimezone(UTC)
+
+
 class MarketWorker:
     def __init__(
         self,
@@ -172,6 +190,7 @@ class MarketWorker:
         focus_book: ChartFocusBook | None = None,
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.cloud = cloud
         self.owner_id = cloud.owner_id
@@ -181,6 +200,7 @@ class MarketWorker:
         )
         self._owns_client = client is None
         self._clock = clock
+        self._wall_clock = wall_clock
         self.bar_stream = bar_stream or CompositeBarStream(
             BinanceBarStream(), YahooLiveBarClient(self.client)
         )
@@ -195,6 +215,14 @@ class MarketWorker:
         ] = {}
         self._last_broadcast: dict[str, tuple[float, str | None, bool]] = {}
         self._last_write: dict[str, float] = {}
+        self._bar_results: dict[
+            tuple[str, str, bool], tuple[float, dict[str, Any], dict[str, Any]]
+        ] = {}
+        self._watched_symbols: tuple[str, ...] = ()
+        self._bar_retry_after: dict[tuple[str, str, bool], float] = {}
+        self._market_states: dict[str, tuple[str, datetime]] = {}
+        self._last_default_quote_recovery = float("-inf")
+        self._background_bar_attempts: list[datetime] = []
         self._last_recovery = float("-inf")
         self._wake = asyncio.Event()
         self._focus_wake = asyncio.Event()
@@ -208,13 +236,117 @@ class MarketWorker:
         return desired_symbols(self.cloud.documents(_DOCUMENT_KEYS))
 
     async def refresh_symbols(self) -> tuple[str, ...]:
-        symbols = self.desired_symbols()
-        await self.stream.watch(set(symbols))
+        symbols = await asyncio.to_thread(self.desired_symbols)
+        await self.stream.watch({"AAPL", *symbols})
+        self._watched_symbols = symbols
         return symbols
+
+    async def refresh_cached_bars(self) -> None:
+        """Refresh one due chart series per cycle, without waiting for a browser."""
+        now = self._wall_clock()
+        self._background_bar_attempts = [
+            attempted
+            for attempted in self._background_bar_attempts
+            if now - attempted < timedelta(days=1)
+        ]
+        if len(self._background_bar_attempts) >= BACKGROUND_DAILY_BAR_LIMIT:
+            return
+        try:
+            metadata = await asyncio.to_thread(self.cloud.list_cached_bars)
+        except CollectorCloudError as error:
+            self._run_stats.failed += 1
+            LOGGER.warning("market bar metadata unavailable: %s", type(error).__name__)
+            return
+        symbols = {"AAPL", *self._watched_symbols}
+        default_keys = {
+            (symbol, DEFAULT_TIMEFRAME, extended)
+            for symbol in symbols
+            for extended in ((False, True) if registry.has_session(symbol) else (False,))
+        }
+        present: set[tuple[str, str, bool]] = set()
+        due: list[tuple[int, datetime, tuple[str, str, bool]]] = []
+        for item in metadata:
+            symbol = item.get("symbol")
+            timeframe = item.get("timeframe")
+            extended = item.get("extended")
+            if (
+                symbol not in symbols
+                or timeframe not in TIMEFRAMES
+                or not isinstance(extended, bool)
+            ):
+                continue
+            key = (symbol, timeframe, extended)
+            present.add(key)
+            try:
+                expires = datetime.fromisoformat(item["expires_at"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if expires.tzinfo is None or expires > now:
+                continue
+            try:
+                fetched = datetime.fromisoformat(item["fetched_at"])
+            except (KeyError, TypeError, ValueError):
+                fetched = None
+            interval = (
+                BACKGROUND_DAILY_BAR_INTERVAL
+                if timeframe in {"1d", "1w", "1M"}
+                else BACKGROUND_INTRADAY_BAR_INTERVAL
+            )
+            if (
+                fetched is not None
+                and fetched.tzinfo
+                and now - fetched < timedelta(seconds=interval)
+            ):
+                continue
+            if registry.has_session(symbol):
+                session = session_at(now.timestamp())
+                reported = self._market_states.get(symbol)
+                if (
+                    reported is not None
+                    and reported[0] == "CLOSED"
+                    and 0 <= (now - reported[1]).total_seconds() <= 120
+                ):
+                    session = "CLOSED"
+                active = session == "REGULAR" or (extended and session in {"PRE", "POST"})
+                if (
+                    not active
+                    and fetched is not None
+                    and fetched.tzinfo
+                    and fetched >= _last_stock_close(now, extended)
+                ):
+                    continue
+            due.append((2, expires, key))
+        for key in default_keys - present:
+            due.append((0 if key[0] == "AAPL" else 1, datetime.min.replace(tzinfo=UTC), key))
+        for _, _, key in sorted(due):
+            if self._clock() < self._bar_retry_after.get(key, float("-inf")):
+                continue
+            symbol, timeframe, extended = key
+            self._background_bar_attempts.append(now)
+            self._run_stats.seen += 1
+            try:
+                row, _ = await self._bars(
+                    {"symbol": symbol, "timeframe": timeframe, "extended": extended}
+                )
+                await asyncio.to_thread(self.cloud.upsert_bars, row)
+            except ProviderError as error:
+                self._run_stats.failed += 1
+                LOGGER.warning("market background bars failed: %s", error.code)
+                self._bar_retry_after[key] = self._clock() + 60
+            except Exception:  # noqa: BLE001 - a failed prefetch must not stop request service
+                self._run_stats.failed += 1
+                LOGGER.warning("market background bars unavailable")
+                self._bar_retry_after[key] = self._clock() + 60
+            else:
+                self._run_stats.written += 1
+                self._bar_retry_after[key] = self._clock() + TIMEFRAMES[timeframe].ttl
+            return
 
     def accept(self, tick: Tick) -> None:
         self._pending[tick.symbol] = tick
         self._live_pending[tick.symbol] = tick
+        if tick.market_state is not None:
+            self._market_states[tick.symbol] = (tick.market_state, self._wall_clock())
 
     def accept_focus(self, payload: object) -> bool:
         accepted = self._focus_book.accept(payload, self._clock())
@@ -303,11 +435,43 @@ class MarketWorker:
                 self._pending.pop(row["symbol"], None)
         return len(rows)
 
+    async def flush_quotes_async(self) -> int:
+        """Snapshot ticks on the loop; only the blocking cloud call runs in a thread."""
+        now = self._clock()
+        pending = {
+            symbol: tick
+            for symbol, tick in self._pending.items()
+            if now - self._last_write.get(symbol, float("-inf")) >= QUOTE_FLUSH_SECONDS
+        }
+        if not pending:
+            return 0
+        rows = [self._tick_row(tick) for tick in pending.values()]
+        self._run_stats.seen += len(rows)
+        try:
+            await asyncio.to_thread(self.cloud.merge_quote_ticks, rows)
+        except Exception:
+            self._run_stats.failed += len(rows)
+            raise
+        self._run_stats.written += len(rows)
+        for symbol, tick in pending.items():
+            self._last_write[symbol] = now
+            if self._pending.get(symbol) is tick:
+                self._pending.pop(symbol, None)
+        return len(rows)
+
     async def recover_quotes(self) -> None:
         if self._clock() - self._last_recovery < QUOTE_RECOVERY_SECONDS:
             return
         self._last_recovery = self._clock()
-        symbols = list(self.desired_symbols())
+        symbols = list(await asyncio.to_thread(self.desired_symbols))
+        now = self._wall_clock()
+        if (
+            "AAPL" not in symbols
+            and session_at(now.timestamp()) != "CLOSED"
+            and self._clock() - self._last_default_quote_recovery >= DEFAULT_QUOTE_RECOVERY_SECONDS
+        ):
+            symbols.append("AAPL")
+            self._last_default_quote_recovery = self._clock()
         if not symbols:
             return
         try:
@@ -322,8 +486,13 @@ class MarketWorker:
             self._run_stats.failed += len(failures)
             LOGGER.warning("market quote recovery had %d failed symbols", len(failures))
         if quotes:
+            for quote in quotes:
+                if quote.market_state is not None:
+                    self._market_states[quote.symbol] = (quote.market_state, self._wall_clock())
             try:
-                self.cloud.upsert_quotes([self._quote_row(quote) for quote in quotes])
+                await asyncio.to_thread(
+                    self.cloud.upsert_quotes, [self._quote_row(quote) for quote in quotes]
+                )
             except Exception:
                 self._run_stats.failed += len(quotes)
                 raise
@@ -335,20 +504,20 @@ class MarketWorker:
         if request.operation == "market-bars":
             try:
                 row, result = await self._bars(request.payload)
-                self.cloud.upsert_bars(row)
+                await asyncio.to_thread(self.cloud.upsert_bars, row)
             except ProviderError as error:
                 self._run_stats.failed += 1
-                self._fail(request, error.code)
+                await asyncio.to_thread(self._fail, request, error.code)
                 return
             except (TypeError, ValueError):
                 self._run_stats.failed += 1
-                self._fail(request, "invalid-request")
+                await asyncio.to_thread(self._fail, request, "invalid-request")
                 return
             except Exception:  # noqa: BLE001 - terminal cloud/provider boundary is sanitized
                 self._run_stats.failed += 1
-                self._fail(request, "market-unavailable")
+                await asyncio.to_thread(self._fail, request, "market-unavailable")
                 return
-            self._complete(request, result)
+            await asyncio.to_thread(self._complete, request, result)
             self._run_stats.written += 1
             return
         if request.operation == "market-search":
@@ -356,27 +525,43 @@ class MarketWorker:
                 result = await self._search(request.payload)
             except ProviderError as error:
                 self._run_stats.failed += 1
-                self._fail(request, error.code)
+                await asyncio.to_thread(self._fail, request, error.code)
                 return
             except (TypeError, ValueError):
                 self._run_stats.failed += 1
-                self._fail(request, "invalid-request")
+                await asyncio.to_thread(self._fail, request, "invalid-request")
                 return
             except Exception:  # noqa: BLE001 - terminal cloud/provider boundary is sanitized
                 self._run_stats.failed += 1
-                self._fail(request, "market-unavailable")
+                await asyncio.to_thread(self._fail, request, "market-unavailable")
                 return
-            self._complete(request, result)
+            await asyncio.to_thread(self._complete, request, result)
             self._run_stats.written += 1
             return
         self._run_stats.failed += 1
-        self._fail(request, "invalid-request")
+        await asyncio.to_thread(self._fail, request, "invalid-request")
 
     async def claim_until_empty(self) -> int:
         claimed = 0
-        while (request := self.cloud.claim_request(("market-bars", "market-search"))) is not None:
+        while (
+            request := await asyncio.to_thread(
+                self.cloud.claim_request, ("market-bars", "market-search")
+            )
+        ) is not None:
             claimed += 1
+            if request.created_at is not None and request.claimed_at is not None:
+                LOGGER.info(
+                    "market request claimed operation=%s queue_seconds=%.3f",
+                    request.operation,
+                    max(0.0, (request.claimed_at - request.created_at).total_seconds()),
+                )
+            started = self._clock()
             await self.serve_request(request)
+            LOGGER.info(
+                "market request served operation=%s execution_seconds=%.3f",
+                request.operation,
+                max(0.0, self._clock() - started),
+            )
         return claimed
 
     async def run(
@@ -403,7 +588,7 @@ class MarketWorker:
             while not stop_event.is_set():
                 healthy = await self.reconcile_once()
                 if healthy and cycle_completed is not None:
-                    cycle_completed(self.run_records)
+                    await asyncio.to_thread(cycle_completed, self.run_records)
                 await self._wait_for_wake_or_stop(stop_event)
                 if not stop_event.is_set():
                     self._raise_background_failure(*tasks)
@@ -411,7 +596,7 @@ class MarketWorker:
             for task in tasks:
                 task.cancel()
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            self.flush_quotes()
+            await self.flush_quotes_async()
             if self._owns_client:
                 await self.client.aclose()
             for result in results:
@@ -426,7 +611,8 @@ class MarketWorker:
         await self.refresh_symbols()
         await self.claim_until_empty()
         await self.recover_quotes()
-        self.flush_quotes()
+        await self.refresh_cached_bars()
+        await self.flush_quotes_async()
         return self._run_stats.failed == failures_before
 
     def wake_requests(self) -> None:
@@ -535,6 +721,10 @@ class MarketWorker:
             raise ValueError("invalid bars request")
         if not isinstance(extended, bool):
             raise ValueError("invalid bars request")
+        key = (symbol, timeframe, extended)
+        cached = self._bar_results.get(key)
+        if cached is not None and cached[0] > self._clock():
+            return cached[1], cached[2]
         bars = await registry.fetch_bars(
             self.client, symbol, TIMEFRAMES[timeframe], extended=extended
         )
@@ -558,6 +748,9 @@ class MarketWorker:
             "expires_at": (now + timedelta(seconds=TIMEFRAMES[timeframe].ttl)).isoformat(),
             "payload": response,
         }
+        if len(self._bar_results) >= 64:
+            self._bar_results.pop(next(iter(self._bar_results)))
+        self._bar_results[key] = (self._clock() + TIMEFRAMES[timeframe].ttl, row, response)
         return row, response
 
     async def _search(self, payload: Mapping[str, Any]) -> dict[str, Any]:

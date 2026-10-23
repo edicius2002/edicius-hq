@@ -95,7 +95,7 @@ def test_deployment_activates_global_sync_after_verification_and_tracks_existing
     None
 ):
     deploy = (PI_ROOT / "deploy-release.sh").read_text(encoding="utf-8")
-    assert "optional_timers+=(edicius-airfare-sync.timer)" in deploy
+    assert "optional_timers+=(edicius-airfare-sync.timer " in deploy
     activate = deploy.index("systemctl enable edicius-airfare-sync.timer")
     assert deploy.index('"$release/ops/pi/verify.sh"') < activate
     assert activate < deploy.rindex('systemctl start "${workers[@]}" "${timers[@]}"')

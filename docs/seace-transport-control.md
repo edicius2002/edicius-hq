@@ -9,15 +9,15 @@ La alternativa de reducir concurrencia o imponer una tasa requiere mediciones;
 un semáforo local por lote no limita llamadas simultáneas de distintos tools.
 
 - [x] Probar con HTTP simulado dos lotes y búsqueda concurrentes, errores por
-  fase, Retry-After, cancelación y ausencia de secretos.
+      fase, Retry-After, cancelación y ausencia de secretos.
 - [x] Añadir un semáforo prod6 compartido, configurable mediante
-  `SEACE_PROD6_MAX_CONCURRENCY` (entero positivo, predeterminado 5).
+      `SEACE_PROD6_MAX_CONCURRENCY` (entero positivo, predeterminado 5).
 - [x] Emitir eventos JSON por intento con endpoint normalizado, fase, estado,
-  duración, espera, concurrencia y referencia opaca del ID; sanear errores.
+      duración, espera, concurrencia y referencia opaca del ID; sanear errores.
 - [x] Conservar tres intentos para 429, 5xx y errores de red/timeout, sin
-  reintentar 403; conservar `faltas` con ID y añadir clasificación por fase.
+      reintentar 403; conservar `faltas` con ID y añadir clasificación por fase.
 - [x] Ejecutar pruebas y revisión de diff, documentar observación pasiva y
-  entregar commit en la rama existente, sin push, merge ni acceso a la Pi.
+      entregar commit en la rama existente, sin push, merge ni acceso a la Pi.
 
 ## Configuración y compatibilidad
 
@@ -28,11 +28,19 @@ positivo; valor predeterminado **5**. Es independiente de
 semáforo del proceso. La capacidad se libera al terminar o cancelar la solicitud,
 y antes de esperar un reintento. El límite no aumenta tras éxitos.
 
+Desde la medición real del 23 de octubre, `SEACE_PROD6_MIN_INTERVAL_SECONDS`
+exige un número finito no negativo y tiene valor predeterminado de **1 segundo
+entre inicios** de solicitudes prod6 del mismo proceso. Cero desactiva el
+espaciado. El candado compartido cubre búsqueda, detalle, archivos y reintentos.
+Las respuestas lentas aún pueden solaparse hasta el máximo de cinco. Es una
+cadencia inicial medida en `bodas`, no una cuota oficial publicada por SEACE;
+véase `seace-prod6-cadence-analysis.md`.
+
 El lote mantiene además su ocupación local de cinco IDs por defecto: conserva
 las dos consultas secuenciales por ID y la ocupación durante backoff. Un lote
-aislado saludable conserva su paralelismo anterior; llamadas solapadas comparten
-ahora el techo de cinco peticiones. No se introduce una cuota por minuto, pausa
-entre éxitos, breaker, ajuste adaptativo ni coordinación entre procesos. El MCP
+aislado puede solapar respuestas lentas; llamadas solapadas comparten el techo
+de cinco peticiones y el turno de inicio de un segundo. No se introduce una
+cuota fija por minuto, breaker, ajuste adaptativo ni coordinación entre procesos. El MCP
 usa un único event loop; el semáforo dura toda su vida, incluso al crear clientes
 HTTP y lotes nuevos. Reiniciar el MCP reinicia su estado.
 
@@ -56,15 +64,15 @@ Las faltas mantienen `id` y `error`, y añaden `fase` (`detail`/`files`), `tipo`
 `status`, `intentos` y `retry_after_seconds`. Los IDs completos se conservan en
 la respuesta funcional para reconciliar trabajo, nunca en los eventos.
 
-| Respuesta | Clasificación y política |
-| --- | --- |
-| 403 | `forbidden`; un intento, sin reintento inmediato |
-| 429 | `rate_limited`; máximo tres intentos, Retry-After largo se devuelve para reprogramación |
-| 5xx | `server_error`; máximo tres intentos, respeta también Retry-After |
-| Timeout | `timeout`; máximo tres intentos, status nulo si no hubo respuesta |
-| Otro error de red | `network_error`; máximo tres intentos |
-| Otros estados HTTP | `http_error`; un intento |
-| JSON inválido/forma incompatible | `invalid_json`/`invalid_payload`; un intento |
+| Respuesta                        | Clasificación y política                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| 403                              | `forbidden`; un intento, sin reintento inmediato                                        |
+| 429                              | `rate_limited`; máximo tres intentos, Retry-After largo se devuelve para reprogramación |
+| 5xx                              | `server_error`; máximo tres intentos, respeta también Retry-After                       |
+| Timeout                          | `timeout`; máximo tres intentos, status nulo si no hubo respuesta                       |
+| Otro error de red                | `network_error`; máximo tres intentos                                                   |
+| Otros estados HTTP               | `http_error`; un intento                                                                |
+| JSON inválido/forma incompatible | `invalid_json`/`invalid_payload`; un intento                                            |
 
 Las esperas breves existentes son 0,5 y 1 s. Para 429 y 5xx se usa el máximo
 entre esa espera y `Retry-After`, que acepta segundos enteros o fecha HTTP; un
@@ -84,11 +92,27 @@ también se devuelve el Retry-After del último intento.
 Logger `seace.prod6`, nivel INFO, un objeto JSON por intento terminado o cancelado:
 
 ```json
-{"event":"prod6_request","timestamp":1792759013.9,"endpoint":"/archivo/archivos-publico/listar-archivos-contrato/{id}/1","phase":"files","id_ref":"41d94d5e246c9f4b","status":403,"outcome":"forbidden","attempt":1,"latency_ms":120.5,"wait_ms":0.2,"in_flight":5,"limit":5,"retry_after_seconds":null}
+{
+  "event": "prod6_request",
+  "timestamp": 1792759013.9,
+  "endpoint": "/archivo/archivos-publico/listar-archivos-contrato/{id}/1",
+  "phase": "files",
+  "id_ref": "41d94d5e246c9f4b",
+  "status": 403,
+  "outcome": "forbidden",
+  "attempt": 1,
+  "latency_ms": 120.5,
+  "wait_ms": 0.2,
+  "in_flight": 5,
+  "limit": 5,
+  "min_interval_seconds": 1.0,
+  "retry_after_seconds": null
+}
 ```
 
-`latency_ms` incluye lectura y validación JSON, excluye espera del semáforo y
-backoff; `wait_ms` mide espera del semáforo de ese intento. `in_flight` es el
+`latency_ms` incluye lectura y validación JSON, excluye espera del semáforo,
+espaciado y backoff; `wait_ms` mide espera del semáforo y del espaciado de ese
+intento. `min_interval_seconds` indica el espaciado configurado. `in_flight` es el
 número de solicitudes activas al comenzar ese intento. `timestamp` es la hora
 Unix de finalización; las duraciones usan reloj monotónico. Los endpoints están
 en una lista permitida, con etiquetas `search`, `detail`, `files`; rutas nuevas

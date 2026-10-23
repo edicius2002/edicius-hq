@@ -2,10 +2,11 @@ begin;
 set local role postgres;
 grant usage on schema extensions to authenticated;
 set local search_path = public, extensions;
-select plan(26);
+select plan(27);
 
 select has_table('public'::name, 'seace_records'::name);
 select has_table('public'::name, 'seace_sync_state'::name);
+select has_column('public'::name, 'seace_sync_state'::name, 'new_count'::name);
 select has_table('public'::name, 'seace_exclusions'::name);
 select col_is_pk('public', 'seace_records', array['owner_id', 'kind', 'record_key']);
 select col_is_pk('public', 'seace_sync_state', array['owner_id', 'region', 'year', 'kind']);

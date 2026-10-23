@@ -35,9 +35,9 @@ def run_pass(cloud, region, year, scope="all"):
     written = 0
     try:
 
-        def publisher(kind, updates, fetched_at, total):
+        def publisher(kind, updates, fetched_at, total, added):
             nonlocal written
-            written += publish_updates(cloud, region, year, kind, updates, fetched_at, total)
+            written += publish_updates(cloud, region, year, kind, updates, fetched_at, total, added)
 
         counts = asyncio.run(refresh_region(region, year, publisher=publisher, kinds=SCOPES[scope]))
         cloud.finish_run(

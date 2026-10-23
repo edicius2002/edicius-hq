@@ -1,7 +1,7 @@
 # Implementation Plan and Decision Log
 
 > **Status:** Delivery steps 0–5 and 7 are implemented; Step 6 Investing remains under way with INV-07 pending. Raspberry Pi collector/data-plane Tasks 1–10 and the pre-production Task 11 safety repairs are implemented; production cutover (Task 11) and post-observation PC-route retirement (Task 12) remain pending. Airfare remains open for its explicitly pending product slice.
-> **Last updated:** 2026-09-21
+> **Last updated:** 2026-10-23
 > **Review status:** The approved Pi/Supabase design and ADR 0004 are implemented in this change set. This records repository state, not a production deployment or observation result.
 > **Phase closure:** Supabase Auth remains the browser identity boundary. Finance documents and the owner-document/collector data plane are implemented in Supabase; provider acquisition is implemented for Raspberry Pi collectors. The Pi cutover has not been executed.
 > **Next delivery:** Task 11 staged production migration and collector cutover, followed by Task 12 after its observation window. Also pending: INV-07 and AIR-03.
@@ -1408,3 +1408,16 @@ first request uploaded 1,730 baseline rows. One larger `AQP-LIM` request took
 21.887s in `syncMs`, including 13.004s to scan 128.65 MB of route history.
 All nine completed without failure. See
 `docs/airfare-sync-latency-measurement-2026-10-20.md` for method and limits.
+
+## SEACE explorer layout and fetch counts - 2026-10-23
+
+The SEACE explorer uses the full page width for its filters and records table.
+Records keep direct document links; item details and, on mobile, entity names
+open in dialogs. Mobile combines start and end dates in one period column and
+keeps only the selection checkbox column fixed during horizontal scrolling.
+Table body text remains selectable, while headers and controls do not.
+
+The collector stores each source pass's newly added record count in the nullable
+`seace_sync_state.new_count` column. The interface shows the count for the latest
+fetch alongside its Peru date and time. Legacy rows have an unknown count until
+their next fetch. Apply the migration before deploying the collector change.

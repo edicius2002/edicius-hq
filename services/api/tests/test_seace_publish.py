@@ -34,7 +34,7 @@ def test_uploads_in_batches_then_advances_checkpoint():
         for index in range(205)
     ]
     count = publish_updates(
-        cloud, "Arequipa", 2026, "notices", rows, "2026-10-22T09:00:00-05:00", 7307
+        cloud, "Arequipa", 2026, "notices", rows, "2026-10-22T09:00:00-05:00", 7307, 15
     )
     assert count == 205
     assert [len(batch) for batch in cloud.batches] == [100, 100, 5]
@@ -45,6 +45,7 @@ def test_uploads_in_batches_then_advances_checkpoint():
             "kind": "notices",
             "fetched_at": "2026-10-22T14:00:00+00:00",
             "record_count": 7307,
+            "new_count": 15,
         }
     ]
     assert cloud.batches[0][0]["published_at"] == "2026-10-22T13:00:00+00:00"
@@ -55,12 +56,13 @@ def test_failed_batch_does_not_advance_checkpoint_and_retry_is_stable():
     cloud = FakeCloud(fail_on_batch=1)
     with pytest.raises(RuntimeError, match="network lost"):
         publish_updates(
-            cloud, "Arequipa", 2026, "contracts", rows, "2026-10-22T09:00:00-05:00", 101
+            cloud, "Arequipa", 2026, "contracts", rows, "2026-10-22T09:00:00-05:00", 101, 8
         )
     assert cloud.states == []
     retry = FakeCloud()
-    publish_updates(retry, "Arequipa", 2026, "contracts", rows, "2026-10-22T09:00:00-05:00", 101)
+    publish_updates(retry, "Arequipa", 2026, "contracts", rows, "2026-10-22T09:00:00-05:00", 101, 8)
     assert retry.states[0]["record_count"] == 101
+    assert retry.states[0]["new_count"] == 8
     assert stable_key(rows[0], "contracts") == retry.batches[0][0]["record_key"]
 
 

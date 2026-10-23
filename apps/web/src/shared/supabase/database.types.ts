@@ -69,6 +69,7 @@ export type Database = {
           kind: string;
           fetched_at: string;
           record_count: number;
+          new_count: number | null;
         };
         Insert: {
           owner_id: string;
@@ -77,6 +78,7 @@ export type Database = {
           kind: string;
           fetched_at: string;
           record_count: number;
+          new_count?: number | null;
         };
         Update: {
           owner_id?: string;
@@ -85,6 +87,7 @@ export type Database = {
           kind?: string;
           fetched_at?: string;
           record_count?: number;
+          new_count?: number | null;
         };
         Relationships: [];
       };

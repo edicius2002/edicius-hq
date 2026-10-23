@@ -100,6 +100,11 @@ describe('the narrow shell', () => {
     expect(heading).toHaveAttribute('id', 'page-title');
   });
 
+  it('names every SEACE view in the shared header', () => {
+    renderNav('/seace/published');
+    expect(screen.getByRole('heading', { name: 'SEACE' })).toHaveAttribute('id', 'page-title');
+  });
+
   it('opens the drawer when the brand is tapped', async () => {
     const user = userEvent.setup();
     renderNav();

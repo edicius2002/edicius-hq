@@ -79,15 +79,15 @@ def test_scope_fetches_publishes_and_checkpoints_only_selected_sources(
     before = {kind: path.read_bytes() for path, _, kind in sources}
     published = []
 
-    def publish(kind, rows, fetched_at, total):
-        published.append(kind)
+    def publish(kind, rows, fetched_at, total, added):
+        published.append((kind, added))
 
     counts = asyncio.run(
         incremental.refresh_region("Arequipa", 2026, kinds=selected, publisher=publish)
     )
 
     assert calls == expected
-    assert published == expected
+    assert published == [(kind, 0) for kind in expected]
     assert list(counts) == expected
     for path, _, kind in sources:
         assert (path.read_bytes() != before[kind]) == (kind in expected)

@@ -6,7 +6,12 @@ export type SeaceRow = {
   recordKey: string;
   payload: Record<string, unknown>;
 };
-export type SeaceSync = { kind: string; fetched_at: string; record_count: number };
+export type SeaceSync = {
+  kind: string;
+  fetched_at: string;
+  record_count: number;
+  new_count: number | null;
+};
 
 const kinds: SeaceKind[] = ['notices', 'processes', 'contracts'];
 
@@ -37,11 +42,19 @@ export async function loadSeace(region: string, year: number): Promise<SeaceRow[
 export async function loadSeaceSync(region: string, year: number): Promise<SeaceSync[]> {
   const { data, error } = await supabase
     .from('seace_sync_state')
+    .select('kind,fetched_at,record_count,new_count')
+    .eq('region', region)
+    .eq('year', year);
+  if (!error) return data ?? [];
+
+  // The UI can still show the timestamp before the new_count migration is applied.
+  const legacy = await supabase
+    .from('seace_sync_state')
     .select('kind,fetched_at,record_count')
     .eq('region', region)
     .eq('year', year);
-  if (error) throw new Error('SEACE sync status unavailable');
-  return data ?? [];
+  if (legacy.error) throw new Error('SEACE sync status unavailable');
+  return (legacy.data ?? []).map((row) => ({ ...row, new_count: null }));
 }
 
 export async function loadExclusions(): Promise<Set<string>> {
@@ -86,33 +99,6 @@ export async function setExcludedMany(keys: string[], excluded: boolean): Promis
     const { error } = await supabase.from('seace_exclusions').delete().in('record_key', keys);
     if (error) throw new Error('Could not restore selected records');
   }
-}
-
-export async function enqueueRefresh(region: string, year: number): Promise<string> {
-  const { data, error } = await supabase.rpc('enqueue_seace_refresh', {
-    p_region: region,
-    p_year: year,
-  });
-  if (
-    error ||
-    !data ||
-    typeof data !== 'object' ||
-    Array.isArray(data) ||
-    typeof data.request_id !== 'string'
-  )
-    throw new Error('Could not queue SEACE refresh');
-  return data.request_id;
-}
-
-export async function refreshStatus(requestId: string): Promise<string> {
-  const { data, error } = await supabase
-    .from('collector_requests')
-    .select('status')
-    .eq('request_id', requestId)
-    .eq('operation', 'seace-refresh')
-    .single();
-  if (error) throw new Error('SEACE refresh status unavailable');
-  return data.status;
 }
 
 export function exclusionKey(row: SeaceRow): string {

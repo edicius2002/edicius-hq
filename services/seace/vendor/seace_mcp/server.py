@@ -8,6 +8,8 @@ Proyecto NO oficial, sin afiliacion con el OECE ni el Estado peruano.
 """
 
 import asyncio
+import hashlib
+import hmac
 import html as html_mod
 import json
 import logging
@@ -16,6 +18,8 @@ import re
 import time
 import unicodedata
 import uuid
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode, quote
@@ -34,6 +38,12 @@ API6 = "https://prod6.seace.gob.pe/v1/s8uit-services"
 
 TIMEOUT = float(os.getenv("SEACE_TIMEOUT", "150"))
 MAX_CONCURRENCY = int(os.getenv("SEACE_MAX_CONCURRENCY", "3"))
+PROD6_MAX_CONCURRENCY = int(os.getenv("SEACE_PROD6_MAX_CONCURRENCY", "5"))
+if PROD6_MAX_CONCURRENCY < 1:
+    raise ValueError("SEACE_PROD6_MAX_CONCURRENCY debe ser un entero positivo")
+PROD6_MIN_INTERVAL_SECONDS = float(os.getenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", "1"))
+if not 0 <= PROD6_MIN_INTERVAL_SECONDS < float("inf"):
+    raise ValueError("SEACE_PROD6_MIN_INTERVAL_SECONDS debe ser un numero finito no negativo")
 INFLIGHT_CAP = int(os.getenv("SEACE_INFLIGHT_CAP", "12"))
 SESION_TTL = int(os.getenv("SEACE_SESION_TTL", "900"))
 SESION_MAX = int(os.getenv("SEACE_SESION_MAX", "12"))
@@ -1301,23 +1311,156 @@ async def api4_json(path: str, params: Optional[dict] = None) -> Any:
     return r.json() if r.text else None
 
 
+_PROD6_SEM: Optional[asyncio.Semaphore] = None
+_PROD6_PACE_LOCK: Optional[asyncio.Lock] = None
+_PROD6_NEXT_START = 0.0
+_PROD6_INFLIGHT = 0
+_PROD6_LOG_KEY = uuid.uuid4().bytes
+_PROD6_LOG = logging.getLogger("seace.prod6")
+_PROD6_LOG.setLevel(logging.INFO)
+# Longer delays belong to the collector's durable pending queue.
+_PROD6_MAX_INLINE_RETRY_SECONDS = 2.0
+
+
+class Prod6Error(RuntimeError):
+    """Safe transport failure; never retain response bodies or request URLs."""
+
+    def __init__(self, phase: str, kind: str, status: Optional[int], attempts: int,
+                 retry_after: Optional[float] = None):
+        self.phase = phase
+        self.kind = kind
+        self.status = status
+        self.attempts = attempts
+        self.retry_after = retry_after
+        super().__init__(f"API de convocatorias menores: {phase} {kind}"
+                         f" (HTTP {status}, intentos {attempts})")
+
+
+def _prod6_context(service: str, path: str, params: Optional[dict]) -> tuple:
+    """Allowlist labels and salt ID references for correlation within this process."""
+    identifier = None
+    if service == "buscadorpublico" and path == "/contrataciones/buscador":
+        endpoint, phase = "/buscadorpublico/contrataciones/buscador", "search"
+    elif service == "buscadorpublico" and path == "/contrataciones/listar-completo":
+        endpoint, phase = "/buscadorpublico/contrataciones/listar-completo", "detail"
+        identifier = (params or {}).get("id_contrato")
+    elif service == "archivo" and re.fullmatch(
+            r"/archivos-publico/listar-archivos-contrato/\d+/1", path):
+        endpoint = "/archivo/archivos-publico/listar-archivos-contrato/{id}/1"
+        phase, identifier = "files", path.split("/")[-2]
+    else:
+        endpoint, phase = "other", "other"
+    reference = None
+    if identifier is not None:
+        reference = hmac.new(
+            _PROD6_LOG_KEY, str(identifier).encode(), hashlib.sha256
+        ).hexdigest()[:16]
+    return endpoint, phase, reference
+
+
+def _prod6_valid_payload(phase: str, result: Any) -> bool:
+    if phase == "files":
+        return isinstance(result, list) and all(isinstance(item, dict) for item in result)
+    if not isinstance(result, dict):
+        return False
+    if phase == "detail":
+        header = result.get("uitContratoCompletoProjection")
+        if not isinstance(header, dict) or not header:
+            return False
+        for key in ("uitContratoEtapaProjectionList", "uitContratoItemProjectionList"):
+            values = result.get(key)
+            if values is not None and (
+                    not isinstance(values, list) or
+                    not all(isinstance(item, dict) for item in values)):
+                return False
+    return True
+
+
+def _prod6_retry_after(value: Optional[str]) -> Optional[float]:
+    """Parse delta-seconds or an HTTP date; never log a raw header."""
+    if not value:
+        return None
+    if re.fullmatch(r"\d{1,10}", value.strip()):
+        return float(value.strip())
+    try:
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is None:
+            return None
+        return max(0.0, (deadline - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 async def api6_json(client: httpx.AsyncClient, service: str, path: str,
                     params: Optional[dict] = None) -> Any:
-    """Read the public minor-contract notice API used by prod6's search page."""
+    """Bound and pace all prod6 attempts across tools on the server's event loop."""
+    global _PROD6_SEM, _PROD6_PACE_LOCK, _PROD6_NEXT_START, _PROD6_INFLIGHT
+    if _PROD6_SEM is None:
+        _PROD6_SEM = asyncio.Semaphore(PROD6_MAX_CONCURRENCY)
+    if _PROD6_PACE_LOCK is None:
+        _PROD6_PACE_LOCK = asyncio.Lock()
+    endpoint, phase, reference = _prod6_context(service, path, params)
     url = f"{API6}/{service}{path}"
-    for attempt in range(3):
-        try:
-            response = await client.get(url, params=params)
-            if response.status_code == 200:
-                return response.json()
-            if response.status_code not in (429, 500, 502, 503, 504):
-                raise RuntimeError(f"API de convocatorias menores HTTP {response.status_code}: {response.text[:140]}")
-            error = f"HTTP {response.status_code}"
-        except httpx.RequestError as exc:
-            error = str(exc)
-        if attempt < 2:
-            await asyncio.sleep(0.5 * (attempt + 1))
-    raise RuntimeError(f"API de convocatorias menores no disponible: {error}")
+    for attempt in range(1, 4):
+        queued = time.monotonic()
+        status, retry_after, kind = None, None, "cancelled"
+        async with _PROD6_SEM:
+            async with _PROD6_PACE_LOCK:
+                delay = max(0.0, _PROD6_NEXT_START - time.monotonic())
+                if delay:
+                    await asyncio.sleep(delay)
+                _PROD6_NEXT_START = time.monotonic() + PROD6_MIN_INTERVAL_SECONDS
+            started = time.monotonic()
+            _PROD6_INFLIGHT += 1
+            concurrency = _PROD6_INFLIGHT
+            try:
+                response = await client.get(url, params=params)
+                status = response.status_code
+                if status == 200:
+                    try:
+                        result = response.json()
+                    except ValueError:
+                        kind = "invalid_json"
+                    else:
+                        if _prod6_valid_payload(phase, result):
+                            kind = "success"
+                            return result
+                        kind = "invalid_payload"
+                elif status == 403:
+                    kind = "forbidden"
+                elif status == 429:
+                    kind = "rate_limited"
+                    retry_after = _prod6_retry_after(response.headers.get("Retry-After"))
+                elif 500 <= status < 600:
+                    kind = "server_error"
+                    retry_after = _prod6_retry_after(response.headers.get("Retry-After"))
+                else:
+                    kind = "http_error"
+            except httpx.TimeoutException:
+                kind = "timeout"
+            except httpx.RequestError:
+                kind = "network_error"
+            finally:
+                _PROD6_INFLIGHT -= 1
+                _PROD6_LOG.info(json.dumps({
+                    "event": "prod6_request", "timestamp": time.time(),
+                    "endpoint": endpoint, "phase": phase, "id_ref": reference,
+                    "status": status, "outcome": kind, "attempt": attempt,
+                    "latency_ms": round((time.monotonic() - started) * 1000, 3),
+                    "wait_ms": round((started - queued) * 1000, 3),
+                    "in_flight": concurrency, "limit": PROD6_MAX_CONCURRENCY,
+                    "min_interval_seconds": PROD6_MIN_INTERVAL_SECONDS,
+                    "retry_after_seconds": retry_after,
+                }))
+        error = Prod6Error(phase, kind, status, attempt, retry_after)
+        if kind not in ("rate_limited", "server_error", "timeout", "network_error") or attempt == 3:
+            raise error from None
+        delay = max(0.5 * attempt, retry_after or 0.0)
+        if delay > _PROD6_MAX_INLINE_RETRY_SECONDS:
+            # Preserve the full server deadline; never cap it and retry early.
+            raise error from None
+        # Release capacity during backoff; the retry must acquire it again.
+        await asyncio.sleep(delay)
 
 
 _RE_ALF = re.compile(r"\(([\s\S]*)\)\s*;")
@@ -2416,11 +2559,25 @@ async def buscar_convocatorias_menores(anio: str, depa: str = "04",
 
 
 @mcp.tool(title="Leyendo detalles de convocatorias menores")
-async def detalles_convocatorias_menores(ids: list[str]) -> dict:
-    """Lee ítems, cronograma y documentos de hasta 20 convocatorias menores."""
+async def detalles_convocatorias_menores(ids: list[str], fase: str = "all") -> dict:
+    """Lee hasta 20 convocatorias; fase all/detail/files permite recuperar pendientes.
+
+    `fases_completadas` distingue una lista vacia valida de una fase no consultada.
+    Si archivos falla, conserva detalle y devuelve la falta por ID/fase.
+    """
     if not ids or len(ids) > 20 or any(not str(value).isdigit() for value in ids):
         return {"ok": False, "error": "ids debe contener entre 1 y 20 IDs numericos"}
-    semaphore = asyncio.Semaphore(5)
+    if fase not in ("all", "detail", "files"):
+        return {"ok": False, "error": "fase debe ser all, detail o files"}
+    missing = []
+
+    def failure(contract_id: str, error: Prod6Error) -> dict:
+        return {"id": contract_id, "error": str(error), "fase": error.phase,
+                "tipo": error.kind, "status": error.status, "intentos": error.attempts,
+                "retry_after_seconds": error.retry_after}
+
+    # Keep the existing per-batch occupancy while sharing HTTP capacity globally.
+    semaphore = asyncio.Semaphore(PROD6_MAX_CONCURRENCY)
     async with httpx.AsyncClient(timeout=TIMEOUT, headers={
         "User-Agent": HDRS["User-Agent"],
         "Accept": "application/json, text/plain, */*",
@@ -2428,26 +2585,38 @@ async def detalles_convocatorias_menores(ids: list[str]) -> dict:
     }) as client:
         async def one(contract_id: str) -> dict:
             async with semaphore:
-                detail = await api6_json(client, "buscadorpublico", "/contrataciones/listar-completo",
-                                         {"id_contrato": contract_id})
-                files = await api6_json(client, "archivo",
-                                        f"/archivos-publico/listar-archivos-contrato/{contract_id}/1")
-                return {
-                    "id": contract_id,
-                    "cabecera": detail.get("uitContratoCompletoProjection") or {},
-                    "etapas": detail.get("uitContratoEtapaProjectionList") or [],
-                    "items": detail.get("uitContratoItemProjectionList") or [],
-                    "documentos": [{
+                result = {"id": contract_id, "fases_completadas": []}
+                if fase in ("all", "detail"):
+                    detail = await api6_json(client, "buscadorpublico", "/contrataciones/listar-completo",
+                                             {"id_contrato": contract_id})
+                    result.update(cabecera=detail.get("uitContratoCompletoProjection") or {},
+                                  etapas=detail.get("uitContratoEtapaProjectionList") or [],
+                                  items=detail.get("uitContratoItemProjectionList") or [])
+                    result["fases_completadas"].append("detail")
+                if fase in ("all", "files"):
+                    try:
+                        files = await api6_json(client, "archivo",
+                                                f"/archivos-publico/listar-archivos-contrato/{contract_id}/1")
+                    except Prod6Error as exc:
+                        if not result["fases_completadas"]:
+                            raise
+                        missing.append(failure(contract_id, exc))
+                        return result
+                    result["documentos"] = [{
                         "nombre": item.get("nombre") or "",
                         "url": f"{API6}/archivo/archivos-publico/descargar-archivo-contrato/{item['idContratoArchivo']}",
-                    } for item in files if item.get("idContratoArchivo")],
-                }
+                    } for item in files if item.get("idContratoArchivo")]
+                    result["fases_completadas"].append("files")
+                return result
 
         values = await asyncio.gather(*(one(str(value)) for value in ids), return_exceptions=True)
-    details, missing = {}, []
+    details = {}
     for contract_id, value in zip(ids, values):
         if isinstance(value, Exception):
-            missing.append({"id": str(contract_id), "error": str(value)})
+            if isinstance(value, Prod6Error):
+                missing.append(failure(str(contract_id), value))
+            else:
+                missing.append({"id": str(contract_id), "error": "respuesta de detalle invalida"})
         else:
             details[str(contract_id)] = value
     return {"ok": True, "detalles": details, "faltas": missing}

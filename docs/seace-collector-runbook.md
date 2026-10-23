@@ -72,6 +72,71 @@ earlier kind, but the local snapshots do not advance until all three kinds
 upload. The next pass replays the overlap and upserts the same stable keys.
 Exclusions live in a separate table and are never changed by a refresh.
 
+## Persistent minor-notice enrichment queue
+
+Minor-notice discovery commits every returned ID to
+`$SEACE_STATE_DIR/notice-pending.sqlite3` before requesting details or advancing
+the search checkpoint. The key is `(region, year, notice ID)`; repeated search
+rows update the same entry. Both systemd services already set `SEACE_STATE_DIR`
+to `/var/lib/edicius-hq/seace`, outside the versioned release, and allow writes
+there with `ReadWritePaths`. The installer creates the directory for
+`edicius-collector`. These are repository configuration checks; verify the
+installed units and directory permissions before a later deployment.
+
+The queue retains the discovered source row, saved enrichment responses,
+discovery time, per-phase attempt counters, last errors and `next_attempt_at`.
+Detail and files
+each have independent `deferred`, `pending`, `ready`, and `complete` states. All
+IDs are recorded, but only notices initially `Vigente` with a future deadline
+automatically enter `pending`; closed historical IDs remain `deferred`. `ready` means
+a valid response is saved locally and awaits publication. Only a successful
+publisher followed by successful writes of all snapshots acknowledges those
+phases as `complete`. A crash or partial upload replays saved responses through
+the same stable record keys; it does not refetch a `ready` phase. The snapshot
+and published record carry an additive `enrichment` field with `detail` and
+`files` availability; existing UI fields and exclusions keep their contracts.
+An empty list from a successful files request is valid; a failed files request
+is never interpreted as an empty list. The publisher sends merged rows so
+previous items and documents survive partial failures in Supabase as well as
+in the local snapshot.
+
+First attempts retain the previous open-notice eligibility. Retries are limited
+to 20 previously attempted IDs per collection pass, choosing the least recently
+attempted first across all phases. Each selected phase gets at most one tool
+attempt, in sequential batches of at most 20 IDs. The MCP retains its existing HTTP retry
+policy and default concurrency; there is no immediate collector retry loop
+for 403 responses. A numeric positive `retry_after_seconds` from the MCP sets a
+durable minimum next-attempt time for that phase, including after a restart;
+waiting phases do not consume the retry budget or block a different due phase.
+There is no collector sleep for a long `Retry-After`. A failed or missing phase remains pending after the notice
+closes. An archive-only retry uses `fase=files`, and a detail-only retry uses
+`fase=detail`; install the companion MCP transport change with that interface
+before deploying this queue. The older all-phases response format remains
+readable, but does not preserve detail when its archive request fails.
+
+Keep the database and snapshots across releases and rollback. If the database
+is absent, the collector seeds pending work from the selected region/year's
+notice snapshot, preserving its items and documents. Snapshot enrichment
+metadata restores enrollment even after closure; eligible open legacy rows are
+also enrolled, while closed legacy rows without enrollment evidence remain
+deferred. Enrolled rows conservatively recheck both phases. A corrupt database stops the pass; it is not silently
+replaced. IDs discovered since the last snapshot exist only in SQLite, so
+losing both the queue and those uncommitted discoveries requires another full
+source search (`refresh_region(..., full=True)`). Source data that has also
+disappeared cannot be reconstructed locally. No Supabase schema migration is
+needed for this Pi-local queue.
+
+Pending entries do not expire or get deleted automatically. Retries are scoped
+to the region/year being collected: older years require an explicit pass for
+that year after the calendar rolls over. Historical backfill requires explicit
+activation of a selected small set of IDs through
+`PendingNotices().activate(region, year, identifiers)` under the same pass lock;
+it does not run automatically at first startup. No throughput or completion-time
+guarantee has been measured on `bodas`. There are no queue
+leases: the existing shared `seace.lock` is the single-writer boundary, so do
+not invoke the standalone prototype refresher concurrently with the collector.
+Standalone refresh without a publisher leaves fetched phases `ready`.
+
 ## Rollback
 
 Disable and stop both SEACE timers and services, then restore the previous

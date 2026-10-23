@@ -49,15 +49,15 @@
 - [ ] Implement and wire the collector, request worker, and systemd units.
 - [ ] Run focused tests and lint.
 
-### Task 3: Connect the prototype to Supabase
+### Task 3: Connect the Edicius HQ web app to Supabase
 
-**Files:** Modify `D:/Work/war_dogs/prototype-seace` server and browser code; add focused tests.
+**Files:** Add `apps/web/src/features/seace/`; extend the route table, navigation, and Supabase types.
 
 **Interfaces:** Read region pages and exclusions from owner-gated Supabase data. Manual refresh queues a Pi job and reports its status.
 
-- [ ] Write tests for pagination, exclusion persistence, and manual request handling.
-- [ ] Implement Supabase data access and UI refresh logic.
-- [ ] Verify the four views with real Arequipa records.
+- [x] Write tests for recent/open separation and reversible exclusions.
+- [x] Implement paginated Supabase reads, manual queue, and the four views.
+- [ ] Verify the four views with real Arequipa records after the initial Pi pass.
 
 ### Task 4: Stage and verify remote deployment
 

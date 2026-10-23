@@ -10,11 +10,9 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import refresh
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
-import refresh
-
 
 SOURCES = (
     (refresh.OUTPUT, "SEACE_DATA", "processes"),
@@ -63,6 +61,16 @@ def record_key(row, kind):
     if kind == "processes":
         return (row.get("region"), row.get("code"), row.get("published"), row.get("entity"))
     return str(row["id"])
+
+
+def rows_for_year(snapshot, region, year):
+    """Keep a later year's pass from closing or retagging old open rows."""
+    selected = []
+    for row in snapshot.get("records", []):
+        dated = source_date(row.get("published") or row.get("signed"))
+        if row.get("region") == region and dated is not None and dated.year == year:
+            selected.append(row)
+    return selected
 
 
 def merge(snapshot, region, year, kind, updates, fetched_at):
@@ -178,7 +186,7 @@ async def minor_notice_updates(session, region, year, previous, existing):
 
 
 def potentially_open(row, now):
-    if re.search(r"adjudicad|desiert|cancelad|anulad|contratad|finalizad", row.get("state") or "", re.I):
+    if re.search(r"adjudicad|desiert|cancelad|anulad|contratad|finalizad", row.get("state") or "", re.IGNORECASE):
         return False
     dates = [source_date(row.get(field)) for field in ("registrationEnd", "end")]
     return any(value and value > now for value in dates)
@@ -245,7 +253,7 @@ async def refresh_region(region, year, full=False, publisher=None):
     if year < 2024 or year > datetime.now(refresh.PERU_TIME).year:
         raise ValueError("Choose a valid year")
     snapshots = {kind: read_snapshot(path) for path, _, kind in SOURCES}
-    existing = {kind: [row for row in snapshot.get("records", []) if row.get("region") == region]
+    existing = {kind: rows_for_year(snapshot, region, year)
                 for kind, snapshot in snapshots.items()}
     previous = {kind: checkpoint(snapshot, region, year) for kind, snapshot in snapshots.items()}
     updates = {}
@@ -254,15 +262,14 @@ async def refresh_region(region, year, full=False, publisher=None):
         args=[str(refresh.ROOT / "vendor" / "seace_mcp" / "server.py")],
         env={**os.environ, "SEACE_UPDATE_CHECK": "0"},
     )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            updates["notices"] = (await minor_notice_updates(session, region, year, previous["notices"], existing["notices"])
-                                  if previous["notices"] and not full else (await refresh.fetch_minor_notices(region, year, with_open_details=True))["records"])
-            updates["processes"] = (await process_updates(session, region, year, previous["processes"], existing["processes"])
-                                    if previous["processes"] and not full else (await refresh.fetch(region, year, 0))["records"])
-            updates["contracts"] = (await contract_updates(session, region, year, previous["contracts"])
-                                    if previous["contracts"] and not full else (await refresh.fetch_minor_contracts(region, year))["records"])
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        updates["notices"] = (await minor_notice_updates(session, region, year, previous["notices"], existing["notices"])
+                              if previous["notices"] and not full else (await refresh.fetch_minor_notices(region, year, with_open_details=True))["records"])
+        updates["processes"] = (await process_updates(session, region, year, previous["processes"], existing["processes"])
+                                if previous["processes"] and not full else (await refresh.fetch(region, year, 0))["records"])
+        updates["contracts"] = (await contract_updates(session, region, year, previous["contracts"])
+                                if previous["contracts"] and not full else (await refresh.fetch_minor_contracts(region, year))["records"])
     fetched_at = datetime.now(refresh.PERU_TIME).isoformat(timespec="seconds")
     merged = {kind: merge(snapshots[kind], region, year, kind, updates[kind], fetched_at)
               for _, _, kind in SOURCES}

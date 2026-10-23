@@ -1,9 +1,9 @@
 begin;
-select plan(22);
+select plan(26);
 
-select has_table('public', 'seace_records');
-select has_table('public', 'seace_sync_state');
-select has_table('public', 'seace_exclusions');
+select has_table('public'::name, 'seace_records'::name);
+select has_table('public'::name, 'seace_sync_state'::name);
+select has_table('public'::name, 'seace_exclusions'::name);
 select col_is_pk('public', 'seace_records', array['owner_id', 'kind', 'record_key']);
 select col_is_pk('public', 'seace_sync_state', array['owner_id', 'region', 'year', 'kind']);
 select col_is_pk('public', 'seace_exclusions', array['owner_id', 'record_key']);
@@ -47,6 +47,19 @@ select lives_ok($$select public.enqueue_seace_refresh('Arequipa',extract(year fr
                 'owner may queue valid region');
 select throws_ok($$select public.enqueue_seace_refresh('Invented',2026)$$, '22023',
                  'invalid_seace_refresh', 'invalid region is rejected');
+
+insert into public.seace_exclusions(record_key) values ('minor:["Arequipa","CM-42"]');
+select is((select count(*) from public.seace_exclusions), 1::bigint,
+          'owner can exclude a record');
+reset role;
+update public.seace_records set payload = '{"code":"CM-42","state":"Vigente"}'
+ where record_key = '42';
+set local role authenticated;
+select is((select count(*) from public.seace_exclusions), 1::bigint,
+          'source update does not remove exclusion');
+delete from public.seace_exclusions where record_key = 'minor:["Arequipa","CM-42"]';
+select is((select count(*) from public.seace_exclusions), 0::bigint,
+          'owner can restore a record');
 
 select * from finish();
 rollback;

@@ -159,7 +159,12 @@ export function SeacePage() {
       : location.pathname.endsWith('/all-open')
         ? 'open'
         : 'recent';
-  const year = new Date().getFullYear();
+  const year = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Lima',
+      year: 'numeric',
+    }).format(new Date()),
+  );
   const [region, setRegion] = useState('Arequipa');
   const [minorOnly, setMinorOnly] = useState(true);
   const [records, setRecords] = useState<SeaceRow[]>([]);

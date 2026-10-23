@@ -45,9 +45,18 @@ export async function loadSeaceSync(region: string, year: number): Promise<Seace
 }
 
 export async function loadExclusions(): Promise<Set<string>> {
-  const { data, error } = await supabase.from('seace_exclusions').select('record_key');
-  if (error) throw new Error('SEACE exclusions unavailable');
-  return new Set((data ?? []).map((row) => row.record_key));
+  const result = new Set<string>();
+  for (let start = 0; ; start += 500) {
+    const { data, error } = await supabase
+      .from('seace_exclusions')
+      .select('record_key')
+      .order('record_key')
+      .range(start, start + 499);
+    if (error) throw new Error('SEACE exclusions unavailable');
+    for (const row of data ?? []) result.add(row.record_key);
+    if ((data ?? []).length < 500) break;
+  }
+  return result;
 }
 
 export async function setExcluded(key: string, excluded: boolean): Promise<void> {

@@ -13,7 +13,6 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-
 ROOT = Path(__file__).resolve().parent
 STATE_DIR = Path(os.environ.get("SEACE_STATE_DIR", str(ROOT / "state")))
 OUTPUT = STATE_DIR / "data.js"
@@ -227,13 +226,13 @@ async def fetch_minor_notices(region, year, with_open_details=False):
                 raise RuntimeError(f"Minor notice search returned {len(rows)} rows and {len(unique)} IDs of {total}")
             details = {}
             if with_open_details:
-                now = datetime.now(PERU_TIME).replace(tzinfo=None)
+                now = datetime.now(PERU_TIME)
                 open_ids = []
                 for contract_id, row in unique.items():
                     if row.get("nomEstadoContrato") != "Vigente":
                         continue
                     try:
-                        deadline = datetime.strptime(row["fecFinCotizacion"], "%d/%m/%Y %H:%M:%S")
+                        deadline = datetime.strptime(row["fecFinCotizacion"], "%d/%m/%Y %H:%M:%S").replace(tzinfo=PERU_TIME)
                     except (KeyError, TypeError, ValueError):
                         continue
                     if deadline > now:
@@ -267,7 +266,7 @@ async def fetch_minor_contracts(region, year):
     else:
         params = StdioServerParameters(
             command=sys.executable,
-            args=[str(ROOT / "vendor" / "seace_mcp" / "server.py")],
+        args=[str(ROOT / "vendor" / "seace_mcp" / "server.py")],
             env={**os.environ, "SEACE_UPDATE_CHECK": "0"},
         )
         async with stdio_client(params) as (read, write):

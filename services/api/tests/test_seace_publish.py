@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "seace"))
 
+from incremental import rows_for_year
 from publish import publish_updates, stable_key
 
 
@@ -58,3 +59,12 @@ def test_process_key_includes_region_publication_and_entity():
              "entity": "Entidad A"}
     second = {**first, "entity": "Entidad B"}
     assert stable_key(first, "processes") != stable_key(second, "processes")
+
+
+def test_new_year_refresh_does_not_reconcile_previous_year_rows():
+    snapshot = {"records": [
+        {"region": "Arequipa", "published": "31/12/2026", "state": "Vigente"},
+        {"region": "Arequipa", "published": "01/01/2027", "state": "Vigente"},
+        {"region": "Lima", "published": "01/01/2027", "state": "Vigente"},
+    ]}
+    assert rows_for_year(snapshot, "Arequipa", 2027) == [snapshot["records"][1]]

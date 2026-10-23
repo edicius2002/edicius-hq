@@ -21,10 +21,17 @@ that was tested on `bodas`. Keep that modification when updating the vendor.
    only `20261022000000_seace_data_plane.sql`. The remote already contains
    `20261020000000_airfare_manifest_timeout.sql`; that migration is present in
    this branch to match remote history.
-3. Apply the migration with the authenticated Supabase CLI using
-   `supabase db push --project-ref abndifkxpfppmllgxfnu --skip-vault`. Then run
-   `supabase test db --project-ref abndifkxpfppmllgxfnu supabase/tests/seace_data_plane.sql`.
-   The test file rolls back its own test records.
+3. The migration was applied to project `abndifkxpfppmllgxfnu` on 2026-10-22.
+   Verify it appears in the migration list, then run the remote test:
+
+   ```powershell
+   supabase migration list --project-ref abndifkxpfppmllgxfnu
+   supabase test db --linked --project-ref abndifkxpfppmllgxfnu supabase/tests/seace_data_plane.sql
+   ```
+
+   The remote test passed with 26 assertions. It rolls back its own records and
+   temporary schema grant.
+
 4. Deploy an exact clean Edicius commit to the Pi with the existing
    `deploy-pi.cmd -Commit <full-40-character-sha>` workflow. The Pi installer
    creates `/var/lib/edicius-hq/seace` and installs four disabled SEACE units.

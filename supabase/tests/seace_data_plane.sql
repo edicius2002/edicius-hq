@@ -1,4 +1,7 @@
 begin;
+set local role postgres;
+grant usage on schema extensions to authenticated;
+set local search_path = public, extensions;
 select plan(26);
 
 select has_table('public'::name, 'seace_records'::name);
@@ -51,7 +54,7 @@ select throws_ok($$select public.enqueue_seace_refresh('Invented',2026)$$, '2202
 insert into public.seace_exclusions(record_key) values ('minor:["Arequipa","CM-42"]');
 select is((select count(*) from public.seace_exclusions), 1::bigint,
           'owner can exclude a record');
-reset role;
+set local role postgres;
 update public.seace_records set payload = '{"code":"CM-42","state":"Vigente"}'
  where record_key = '42';
 set local role authenticated;

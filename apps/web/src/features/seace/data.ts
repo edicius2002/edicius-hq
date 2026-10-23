@@ -70,6 +70,23 @@ export async function setExcluded(key: string, excluded: boolean): Promise<void>
   }
 }
 
+export async function setExcludedMany(keys: string[], excluded: boolean): Promise<void> {
+  if (!keys.length) return;
+  if (excluded) {
+    const { error } = await supabase.from('seace_exclusions').upsert(
+      keys.map((record_key) => ({ record_key })),
+      {
+        onConflict: 'owner_id,record_key',
+        ignoreDuplicates: true,
+      },
+    );
+    if (error) throw new Error('Could not exclude selected records');
+  } else {
+    const { error } = await supabase.from('seace_exclusions').delete().in('record_key', keys);
+    if (error) throw new Error('Could not restore selected records');
+  }
+}
+
 export async function enqueueRefresh(region: string, year: number): Promise<string> {
   const { data, error } = await supabase.rpc('enqueue_seace_refresh', {
     p_region: region,

@@ -54,11 +54,47 @@
   width: 32px;
   font-size: 19px;
 }
+.sidebar > select,
+.resetFilters {
+  border: 1px solid #b9ccc5;
+  border-radius: 6px;
+  background: white;
+  color: #1d403a;
+  padding: 7px;
+}
+.resetFilters {
+  cursor: pointer;
+  font-weight: 700;
+}
 .check {
   display: flex;
   align-items: center;
   gap: 7px;
   margin-top: 12px;
+}
+.importBox {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #d5e2dc;
+}
+.importBox input {
+  width: 100%;
+  font-size: 11px;
+}
+.importBox button {
+  border: 1px solid #9dbbb3;
+  border-radius: 6px;
+  background: #fff;
+  color: #145e56;
+  padding: 7px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.importBox button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .content {
   min-width: 0;
@@ -83,6 +119,25 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.tableSwitch {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #b9ccc5;
+  border-radius: 8px;
+  background: #e5eeeb;
+}
+.controls .tableSwitch button {
+  border: 0;
+  background: transparent;
+  color: #506c6d;
+  font-weight: 700;
+}
+.controls .tableSwitch button.selected {
+  background: #fff;
+  color: #145e56;
+  box-shadow: 0 1px 5px #244a441c;
 }
 .controls input {
   min-width: 150px;

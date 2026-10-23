@@ -20,9 +20,9 @@ decisions 8.8 and 8.41. A collector that quietly skipped a route would look
 identical to a route with no price change.
 
 **Requests are spaced.** The upstream is unmetered and undocumented, which
-makes pacing our responsibility rather than theirs. Scheduled boards remain
-sequential; a manual month may overlap two slow replies, while all Google
-request starts still share the same process-wide gap.
+makes pacing our responsibility rather than theirs. Scheduled and manual boards
+may overlap slow replies; their Google request starts still share the same
+process-wide gap.
 
 **And they are counted, once each, against the day rather than the pass.** The
 gap decides how tightly a day's requests are packed and not how many there are;
@@ -94,30 +94,10 @@ from app.services.fare_schedule import due_now, month_dates
 
 logger = logging.getLogger(__name__)
 
-# Seconds between upstream requests. Slow enough to look like a person browsing,
-# fast enough that a twenty-route watchlist finishes in a couple of minutes.
-#
-# **Six until 12.211, and the six was never measured.** Timing a real pass put
-# 86.5% of its wall clock inside the old flat sleep: ten paced requests took
-# 62.5s, of which 54.1s was sleep, 6.3s was the upstream and 0.03s was parsing.
-# That made each board 3.63s (3.00s sleep plus 0.63s request). The pacer below
-# counts from the prior request start instead, so the same board cadence is
-# 3.00s. The 1.07s optional SKY lookup fits inside that already-existing gap;
-# it adds no board-to-board pacing cost and sends no extra Google request.
-#
-# Three is what was measured rather than what was hoped for. Twelve requests at
-# three seconds and twelve more at two came back clean — no 429, no consent
-# redirect, no `ErrorResponse`, and mean latency that *fell* as the gap closed
-# (0.630s at six, 0.421s at three, 0.394s at two) because a warm connection is
-# the only thing the spacing was changing. A throttle looks like the opposite.
-# Two was clean too and is deliberately not taken: three is the pace with the
-# most evidence behind it, and leaving the measured floor unused is the margin.
-#
-# What this does **not** rest on is daily volume, which nobody here has probed.
-# The saving grace is that it does not have to: the pace changes how tightly the
-# day's requests are packed and not how many there are. A watchlist that spent
-# 66 requests a day at six seconds spends the same 66 at three.
-DEFAULT_REQUEST_GAP_SECONDS = 3.0
+# Scheduled and manual passes use the same minimum between Google starts.
+# The pacer is process-local; the archive lock serializes separate Pi services.
+DEFAULT_REQUEST_GAP_SECONDS = 0.05
+MAX_BOARD_IN_FLIGHT = 16
 
 
 class DeadlinePacer:
@@ -134,14 +114,21 @@ class DeadlinePacer:
         self._last_request_at: float | None = None
         self._lock = asyncio.Lock()
 
-    async def wait(self, *, gap_seconds: float) -> None:
-        """Reserve the next Google request start at least `gap_seconds` apart."""
+    async def wait(
+        self, *, gap_seconds: float, before_start: Callable[[], bool] | None = None
+    ) -> bool:
+        """Run optional ledger work, then mark the spaced Google start."""
         async with self._lock:
             if self._last_request_at is not None:
                 wait = self._last_request_at + gap_seconds - self._clock()
                 if wait > 0:
                     await self._sleep(wait)
+            # Keep ledger I/O inside the slot lock so a slow write cannot
+            # compress the gap between actual HTTP request starts.
+            if before_start is not None and not before_start():
+                return False
             self._last_request_at = self._clock()
+            return True
 
     def reset(self) -> None:
         """
@@ -167,24 +154,15 @@ GOOGLE_PACER = DeadlinePacer()
 
 def _request_gap_seconds() -> float:
     """
-    The paced gap, with an override for deliberately probing below the floor.
+    Use one configurable minimum for automatic and manual provider starts.
 
-    The default stays at the measured 3.0 and is what every unset environment
-    gets. `FARES_REQUEST_GAP_SECONDS` exists so that an experiment below the
-    measured floor lives in the thing that launches the collector rather than
-    in this file: unset the variable and the pace is the one 12.211 argued for,
-    with nothing to revert and nothing to remember.
-
-    Floored at 0.25s. Not because 0.25 is safe — nothing under 2.0 has ever
-    been observed — but because a zero or a negative here would remove the
-    pacing altogether by typo, and the one failure this whole module is built
-    to avoid is the one nobody meant to cause.
+    The 0.05-second floor prevents an accidental zero or negative override.
     """
     raw = os.getenv("FARES_REQUEST_GAP_SECONDS", "").strip()
     if not raw:
         return DEFAULT_REQUEST_GAP_SECONDS
     try:
-        return max(0.25, float(raw))
+        return max(0.05, float(raw))
     except ValueError:
         return DEFAULT_REQUEST_GAP_SECONDS
 
@@ -393,13 +371,13 @@ async def collect(
     pass_id: str | None = None,
     deadline_seconds: float | None = None,
     max_in_flight: int = 1,
+    request_slots: asyncio.Semaphore | None = None,
 ) -> CollectionReport:
     """
     Fetch every query once and append what came back.
 
-    `gap_seconds` is injectable so tests do not sleep; nothing else about the
-    pacing is configurable, because the point of a floor is that callers cannot
-    lower it by accident.
+    `gap_seconds` is explicit for callers with a separately measured pace and
+    injectable so tests do not sleep. Scheduled and manual callers share 0.05s by default.
 
     **This is the one place a board request is sent, so it is the one place a
     board request is counted.** Every query is written to the day's ledger
@@ -431,12 +409,12 @@ async def collect(
     pass ledger. When a budget arrives from above it already carries the id and
     the pace, and this parameter is for the caller that hands over queries
     without one.
-    Manual route collection sets `max_in_flight=2` to overlap slow provider
-    replies. The default remains one for scheduled passes. Starts still pass
-    through the same pacer, and each task reserves its budget before fetching.
+    The Pi manual worker and scheduled command supply bounded concurrency.
+    Other callers default to one. Starts still pass through the same pacer,
+    and each task reserves its budget before fetching.
     """
-    if max_in_flight not in (1, 2):
-        raise ValueError("max_in_flight must be 1 or 2")
+    if max_in_flight not in range(1, MAX_BOARD_IN_FLIGHT + 1):
+        raise ValueError("max_in_flight must be between 1 and 16")
     store = history if history is not None else HISTORY
     started_at = _now()
     results: list[RouteResult] = []
@@ -466,27 +444,46 @@ async def collect(
     request_pacer = pacer if pacer is not None else GOOGLE_PACER
     began = perf_counter()
     try:
-        if max_in_flight == 2:
-            # Tasks waiting on the pacer are not in the ledger yet. Count them
-            # against available capacity while planning, then recheck the real
-            # ledger at each start in case the calendar spent meanwhile.
+        if max_in_flight > 1:
+            # Pending pacer waiters count against capacity before they reach
+            # the ledger. Recheck the ledger under the pacer lock at each start.
             unreserved = 0
+            stop_reason: str | None = None
 
             async def fetch_one(query: FareQuery) -> RouteResult | None:
-                nonlocal unreserved
-                try:
-                    await request_pacer.wait(gap_seconds=gap_seconds)
-                    # A calendar request may have spent the last allowance while
-                    # this date waited for the global Google start slot.
+                nonlocal unreserved, stop_reason
+
+                if request_slots is not None:
+                    await request_slots.acquire()
+
+                def reserve() -> bool:
+                    nonlocal stop_reason
+                    if deadline_seconds is not None and perf_counter() - began >= deadline_seconds:
+                        stop_reason = WINDOW_FULL
+                        return False
                     if not allowance.affords():
-                        return None
-                    allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
+                        stop_reason = "over-budget"
+                        return False
+                    allowance.take(
+                        kind="board", what=f"{query.route} {query.flight_date}", pass_id=pass_id
+                    )
+                    return True
+
+                try:
+                    try:
+                        if not await request_pacer.wait(
+                            gap_seconds=gap_seconds, before_start=reserve
+                        ):
+                            return None
+                    finally:
+                        unreserved -= 1
+                    result, written = await _collect_one(session, query, provider, store)
+                    if observer is not None:
+                        observer.collected(result, written)
+                    return result
                 finally:
-                    unreserved -= 1
-                result, written = await _collect_one(session, query, provider, store)
-                if observer is not None:
-                    observer.collected(result, written)
-                return result
+                    if request_slots is not None:
+                        request_slots.release()
 
             in_flight: dict[asyncio.Task[RouteResult | None], int] = {}
             ordered: dict[int, RouteResult | None] = {}
@@ -494,7 +491,15 @@ async def collect(
             try:
                 while next_index < len(queries) or in_flight:
                     while next_index < len(queries) and len(in_flight) < max_in_flight:
+                        if (
+                            deadline_seconds is not None
+                            and perf_counter() - began >= deadline_seconds
+                        ):
+                            stop_reason = WINDOW_FULL
+                            next_index = len(queries)
+                            break
                         if not allowance.affords(unreserved + 1):
+                            stop_reason = "over-budget"
                             next_index = len(queries)
                             break
                         query = queries[next_index]
@@ -514,13 +519,13 @@ async def collect(
             results = [item for index in sorted(ordered) if (item := ordered[index]) is not None]
             sent = {index for index, item in ordered.items() if item is not None}
             declined = [
-                (f"{query.route} {query.flight_date}", "over-budget")
+                (f"{query.route} {query.flight_date}", stop_reason or "over-budget")
                 for index, query in enumerate(queries)
                 if index not in sent
             ]
             if declined:
                 logger.warning(
-                    "fare collection stopped on the day's budget: %d of %d departure(s) left",
+                    "fare collection stopped on the pass limit: %d of %d departure(s) left",
                     len(declined),
                     len(queries),
                 )
@@ -554,7 +559,9 @@ async def collect(
                 # Before the request rather than after it. The budget protects how
                 # much this address has been seen to send, so a request recorded and
                 # then failing to leave is the error to make, not the reverse.
-                allowance.take(kind="board", what=f"{query.route} {query.flight_date}")
+                allowance.take(
+                    kind="board", what=f"{query.route} {query.flight_date}", pass_id=pass_id
+                )
                 result, written = await _collect_one(session, query, provider, store)
                 results.append(result)
                 if observer is not None:
@@ -630,6 +637,7 @@ async def collect_due(
     force: bool = False,
     pass_id: str | None = None,
     deadline_seconds: float | None = None,
+    max_in_flight: int = 1,
 ) -> CollectionReport:
     """
     One pass over only the departures that are actually due.
@@ -704,7 +712,7 @@ async def collect_due(
     `over-budget` thirty-one times; the cadence is a judgement about pace that a
     reader may overrule, and the budget is a bound on what this address sends
     that nobody may. And the pacing is untouched, so a forced month is still
-    thirty-one requests three seconds apart rather than a burst.
+    thirty-one requests at the configured start interval rather than an unpaced burst.
 
     What it costs is bounded by its caller rather than by anything here: the one
     thing that sets it is a press on a single route's row, which is one watch,
@@ -776,6 +784,7 @@ async def collect_due(
             # `None` for everything except the scheduled command — see
             # `WINDOW_FULL`. A press is not on a scheduler and is not truncated.
             deadline_seconds=deadline_seconds,
+            max_in_flight=max_in_flight,
         )
     finally:
         pass_lock.release()

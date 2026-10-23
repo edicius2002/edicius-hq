@@ -211,6 +211,18 @@ class AirfareData:
                     else "Airfare synchronization failed; retry with the retained source journals"
                 )
 
+    def sync_manual_route(self, origin: str, destination: str) -> SyncReport:
+        """Publish a manual request's route without scanning unrelated history."""
+        with _SYNC_LOCK:
+            try:
+                return self._sync.apply_manual_route(origin, destination)
+            except (AirfareRemoteError, OSError, ValueError):
+                return self._failed_sync_report(
+                    "Airfare synchronization is unavailable; configure Supabase before retrying"
+                    if self._remote is None
+                    else "Airfare synchronization failed; retry with the retained source journals"
+                )
+
     def _local_history(self, query: HistoryQuery) -> HistoryRead:
         whole_pair = self._history.read(query.origin, query.destination)
         snapshots = [

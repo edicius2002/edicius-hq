@@ -12,6 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.services.airfare_baseline_ack import BaselineAcknowledgements
 from app.services.airfare_supabase import (
     AirfareRemoteRejected,
     AirfareRemoteUnavailable,
@@ -342,24 +343,6 @@ def test_sync_refreshes_dirty_route_projection_after_upload(source, remote):
     assert server.dirty_routes == []
 
 
-def test_projection_refresh_allows_a_longer_rpc_than_regular_uploads(source, remote):
-    server, client = remote
-    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
-
-    assert AirfareSync(source, client).apply("incremental").status == "complete"
-
-    projection_request = next(
-        request
-        for request in server.requests
-        if request.url.path.endswith("/rpc/refresh_fare_route_projection")
-    )
-    upload_request = next(
-        request for request in server.requests if request.url.path.endswith("/fare_snapshots")
-    )
-    assert projection_request.extensions["timeout"]["read"] == 35
-    assert upload_request.extensions["timeout"]["read"] == 15
-
-
 @pytest.fixture(autouse=True)
 def immediate_finalization_retries(monkeypatch):
     monkeypatch.setattr(
@@ -368,12 +351,29 @@ def immediate_finalization_retries(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "endpoint", ["refresh_fare_route_projection", "airfare_dataset_manifest", "complete_run"]
+    "manual,endpoint",
+    [
+        (False, "refresh_fare_route_projection"),
+        (False, "airfare_dataset_manifest"),
+        (False, "complete_run"),
+        (True, "refresh_fare_route_projection"),
+        (True, "complete_run"),
+    ],
 )
-def test_transient_finalization_failure_recovers_without_reuploading(source, endpoint, caplog):
+def test_transient_finalization_failure_recovers_without_reuploading(
+    source, manual, endpoint, caplog, monkeypatch
+):
     server = Destination()
     server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
     attempts = 0
+    baseline_confirmations = []
+    confirm = BaselineAcknowledgements.confirm
+
+    def record_confirm(checkpoint, records, **kwargs):
+        baseline_confirmations.append(dict(records))
+        confirm(checkpoint, records, **kwargs)
+
+    monkeypatch.setattr(BaselineAcknowledgements, "confirm", record_confirm)
 
     def handle(request):
         nonlocal attempts
@@ -387,7 +387,7 @@ def test_transient_finalization_failure_recovers_without_reuploading(source, end
         if is_target:
             attempts += 1
             if attempts == 1:
-                # A committed final write with a lost response is safe to repeat.
+                # A remote commit followed by a lost response must be safe.
                 if endpoint == "complete_run":
                     server.handle(request)
                 return httpx.Response(
@@ -401,7 +401,8 @@ def test_transient_finalization_failure_recovers_without_reuploading(source, end
         transport=httpx.MockTransport(handle),
     )
     try:
-        report = AirfareSync(source, client).apply("incremental")
+        sync = AirfareSync(source, client)
+        report = sync.apply_manual_route("AQP", "LIM") if manual else sync.apply("incremental")
     finally:
         client.close()
 
@@ -410,9 +411,22 @@ def test_transient_finalization_failure_recovers_without_reuploading(source, end
     assert report.uploaded["snapshots"] == report.uploaded["baseline"] == 1
     assert sum(r.url.path.endswith("/fare_snapshots") for r in server.requests) == 1
     assert sum(r.url.path.endswith("/fare_baseline_points") for r in server.requests) == 1
+    assert len(baseline_confirmations) == 1
     assert len(server.tables["airfare_import_runs"]) == 1
     run = next(iter(server.tables["airfare_import_runs"].values()))
-    assert run["status"] == "complete" and run["destination_manifest"]
+    assert run["status"] == "complete"
+    if manual:
+        assert run["destination_manifest"] == {}
+        assert not any(
+            r.url.path.endswith(
+                ("/rpc/airfare_dataset_manifest", "/rpc/list_fare_projection_dirty_routes")
+            )
+            for r in server.requests
+        )
+        expected_refreshes = 1 if endpoint == "refresh_fare_route_projection" else 2
+        assert server.projection_refreshes == [("AQP", "LIM")] * expected_refreshes
+    else:
+        assert run["destination_manifest"]
     assert "57014" in caplog.text
     assert "sb_secret_DO_NOT_REPORT" not in caplog.text
 
@@ -449,6 +463,7 @@ def test_finalization_failure_is_bounded_and_never_claims_success(
         failing = False
         resumed = sync.apply("incremental")
         assert resumed.status == "complete" and resumed.uploaded["snapshots"] == 0
+        assert resumed.uploaded["baseline"] == 0
     finally:
         client.close()
 
@@ -462,7 +477,7 @@ def test_lost_final_write_responses_never_claim_confirmed_success(source, caplog
             run = json.loads(request.content)[0]
             if run["status"] == "complete":
                 final_attempts.append(run["run_id"])
-                server.handle(request)  # Commit before the response is lost.
+                server.handle(request)
                 raise httpx.ReadTimeout("sb_secret_DO_NOT_REPORT", request=request)
             if run["status"] == "failed":
                 return httpx.Response(503, text="sb_secret_DO_NOT_REPORT")
@@ -492,6 +507,105 @@ def test_manifest_timeout_exceeds_its_database_deadline(source, remote):
         r for r in server.requests if r.url.path.endswith("/rpc/airfare_dataset_manifest")
     )
     assert request.extensions["timeout"]["read"] == 35
+
+
+def test_scoped_sync_skips_global_manifest_and_dirty_route_list(source, remote):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+
+    report = AirfareSync(source, client).apply(
+        "incremental",
+        collect_destination_manifest=False,
+        projection_routes=frozenset({("AQP", "LIM")}),
+    )
+
+    assert report.status == "complete"
+    assert server.projection_refreshes == [("AQP", "LIM")]
+    assert {
+        request.url.path.split("/")[-1]
+        for request in server.requests
+        if "/rpc/" in request.url.path
+    } == {"refresh_fare_route_projection"}
+    run = next(iter(server.tables["airfare_import_runs"].values()))
+    assert run["status"] == "complete"
+    assert run["destination_manifest"] == {}
+
+
+def test_scoped_sync_refreshes_dirty_route_without_new_uploads(tmp_path, remote):
+    server, client = remote
+    write_lines(tmp_path, "fares/AQP-LIM.jsonl", [SNAPSHOT])
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply("incremental").status == "complete"
+    server.requests.clear()
+    server.projection_refreshes.clear()
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+
+    report = sync.apply(
+        "incremental",
+        collect_destination_manifest=False,
+        projection_routes=frozenset({("AQP", "LIM")}),
+    )
+
+    assert report.status == "complete"
+    assert all(count == 0 for count in report.uploaded.values())
+    assert server.projection_refreshes == [("AQP", "LIM")]
+    assert server.dirty_routes == []
+
+
+def test_scoped_sync_preserves_unrelated_dirty_route(source, remote):
+    server, client = remote
+    unrelated = {"origin": "LIM", "destination": "CUZ"}
+    server.dirty_routes = [unrelated, {"origin": "AQP", "destination": "LIM"}]
+
+    report = AirfareSync(source, client).apply(
+        "incremental",
+        collect_destination_manifest=False,
+        projection_routes=frozenset({("AQP", "LIM")}),
+    )
+
+    assert report.status == "complete"
+    assert server.projection_refreshes == [("AQP", "LIM")]
+    assert server.dirty_routes == [unrelated]
+
+
+def test_scoped_sync_still_fails_when_required_projection_refresh_fails(source, remote):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+    server.fail_table = "refresh_fare_route_projection"
+
+    report = AirfareSync(source, client).apply(
+        "incremental",
+        collect_destination_manifest=False,
+        projection_routes=frozenset({("AQP", "LIM")}),
+    )
+
+    assert report.status == "failed"
+    assert server.dirty_routes == [{"origin": "AQP", "destination": "LIM"}]
+    run = next(iter(server.tables["airfare_import_runs"].values()))
+    assert run["status"] == "failed"
+    assert run["destination_manifest"] == {}
+    assert any(
+        request.url.path.endswith("/rpc/refresh_fare_route_projection")
+        for request in server.requests
+    )
+
+
+def test_projection_refresh_allows_a_longer_rpc_than_regular_uploads(source, remote):
+    server, client = remote
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+
+    assert AirfareSync(source, client).apply("incremental").status == "complete"
+
+    projection_request = next(
+        request
+        for request in server.requests
+        if request.url.path.endswith("/rpc/refresh_fare_route_projection")
+    )
+    upload_request = next(
+        request for request in server.requests if request.url.path.endswith("/fare_snapshots")
+    )
+    assert projection_request.extensions["timeout"]["read"] == 35
+    assert upload_request.extensions["timeout"]["read"] == 15
 
 
 def test_failed_projection_refresh_is_retried_after_cursors_advance(source, remote):
@@ -565,6 +679,12 @@ def test_apply_serializes_processes_before_scanning_a_rewritten_baseline(tmp_pat
         assert overlapped is False
         assert first.exitcode == second.exitcode == 0
         assert state["baseline_price"] == 175
+
+
+def test_process_lock_lives_with_the_shared_archive_across_private_tmp_namespaces(tmp_path):
+    sync = AirfareSync(tmp_path)
+
+    assert sync.process_lock_path == tmp_path / "fares/sync/replica.lock"
 
 
 def test_failed_batch_cursor_retry_partial_tail_and_replacement(tmp_path, remote):
@@ -1007,6 +1127,58 @@ def test_rewritten_baseline_reuploads_only_its_route(source, remote):
     assert json.loads(uploads[0].content)[0]["origin"] == "AQP"
 
 
+def test_rewritten_baseline_uploads_only_new_natural_keys(source, remote):
+    server, client = remote
+    old = {**BASELINE, "date": "2026-09-02", "price": 151}
+    added = {**BASELINE, "date": "2026-09-03", "price": 152}
+    write_lines(source, "fares/baseline/AQP-LIM.jsonl", [BASELINE, old])
+    sync = AirfareSync(source, client)
+    assert sync.apply("incremental").uploaded["baseline"] == 2
+
+    replacement = write_lines(source, "baseline-replacement.tmp", [BASELINE, old, added])
+    os.replace(replacement, source / "fares/baseline/AQP-LIM.jsonl")
+    server.requests.clear()
+    report = sync.apply("incremental")
+
+    assert report.status == "complete"
+    assert report.uploaded["baseline"] == 1
+    uploads = [
+        request for request in server.requests if request.url.path.endswith("fare_baseline_points")
+    ]
+    assert len(uploads) == 1
+    assert [row["price_date"] for row in json.loads(uploads[0].content)] == ["2026-09-03"]
+
+
+def test_baseline_delta_retries_source_reversion_after_lost_response(tmp_path, remote, monkeypatch):
+    server, client = remote
+    path = write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply("incremental").status == "complete"
+    revised = {**BASELINE, "price": 160}
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [revised])
+    assert path.stat().st_size == len(json.dumps(BASELINE).encode()) + 1
+    original_upsert = client.upsert
+    lost = False
+
+    def lose_baseline_response(table, rows, *, on_conflict):
+        nonlocal lost
+        original_upsert(table, rows, on_conflict=on_conflict)
+        if table == "fare_baseline_points" and not lost:
+            lost = True
+            raise AirfareRemoteUnavailable("lost response after commit")
+
+    monkeypatch.setattr(client, "upsert", lose_baseline_response)
+    assert sync.apply("incremental").status == "failed"
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    server.requests.clear()
+
+    report = sync.apply("incremental")
+
+    assert report.status == "complete"
+    assert report.uploaded["baseline"] == 1
+    assert next(iter(server.tables["fare_baseline_points"].values()))["price"] == 150
+
+
 def test_failed_baseline_batch_resumes_after_the_last_confirmed_line(tmp_path, remote):
     server, client = remote
     next_point = {**BASELINE, "date": "2026-09-02", "price": 160}
@@ -1034,6 +1206,114 @@ def test_successful_import_run_records_destination_route_manifest(source, remote
     assert run["destination_manifest"]
     assert run["destination_manifest"][0]["dataset"] == "baseline"
     assert "payload" not in json.dumps(run)
+
+
+def test_manual_route_leaves_other_route_backlog_for_global_sync(source, remote):
+    server, client = remote
+    write_lines(
+        source, "fares/LIM-CUZ.jsonl", [{**SNAPSHOT, "origin": "LIM", "destination": "CUZ"}]
+    )
+    sync = AirfareSync(source, client)
+
+    report = sync.apply_manual_route("AQP", "LIM")
+
+    assert report.status == "complete"
+    assert report.uploaded == {
+        "snapshots": 1,
+        "baseline": 1,
+        "calendar": 1,
+        "board_checks": 1,
+        "calendar_checks": 1,
+        "airports": 0,
+        "documents": 0,
+    }
+    cursor = json.loads(sync.cursor_path.read_text())
+    assert "fares/AQP-LIM.jsonl" in cursor
+    assert "fares/LIM-CUZ.jsonl" not in cursor
+    assert server.projection_refreshes == [("AQP", "LIM")]
+    assert not any(
+        request.url.path.endswith(("airfare_dataset_manifest", "list_fare_projection_dirty_routes"))
+        for request in server.requests
+    )
+    run = next(iter(server.tables["airfare_import_runs"].values()))
+    assert run["source_manifest"]["scope"] == {
+        "kind": "route",
+        "origin": "AQP",
+        "destination": "LIM",
+    }
+    assert set(run["source_manifest"]["datasets"]) == {
+        "snapshots",
+        "baseline",
+        "calendar",
+        "board_checks",
+        "calendar_checks",
+    }
+    assert run["source_manifest"]["datasets"]["snapshots"]["logical_unique"] == 1
+    assert run["destination_manifest"] == {}
+
+    assert sync.apply("incremental").uploaded["snapshots"] == 1
+    assert len(server.tables["fare_snapshots"]) == 2
+    assert sync.verify(sync.scan()).matches
+
+
+def test_manual_route_does_not_read_unrelated_journals_or_json_documents(source, remote):
+    _, client = remote
+    # Directories would fail when opened, proving the scoped scan never opens them.
+    (source / "fares/LIM-CUZ.jsonl").mkdir()
+    (source / "fares/airports.json").unlink()
+    (source / "fares/airports.json").mkdir()
+    (source / "kv/airfare-routes.json").unlink()
+    (source / "kv/airfare-routes.json").mkdir()
+
+    assert AirfareSync(source, client).apply_manual_route("AQP", "LIM").status == "complete"
+
+
+def test_manual_route_includes_aliases_and_rejects_ambiguous_positions_before_network(
+    tmp_path, remote
+):
+    server, client = remote
+    write_lines(tmp_path, "fares/AQP-LIM.jsonl", [SNAPSHOT])
+    alias = write_lines(tmp_path, "fares/A!QP-LIM.jsonl", [{**SNAPSHOT, "currency": "PEN"}])
+    sync = AirfareSync(tmp_path, client)
+
+    with pytest.raises(ValueError, match="ambiguous"):
+        sync.apply_manual_route("AQP", "LIM")
+    assert server.requests == []
+
+    # A nonambiguous alias is part of the same route and keeps physical positions.
+    alias.write_bytes(b"\n" + alias.read_bytes())
+    report = sync.apply_manual_route("AQP", "LIM")
+    assert report.uploaded["snapshots"] == 2
+    assert sorted(row["source_line"] for row in server.tables["fare_snapshots"].values()) == [1, 2]
+    assert report.source.snapshots == sync.scan().snapshots
+
+
+def test_manual_route_retries_failed_batch_and_replays_replaced_baseline(tmp_path, remote):
+    server, client = remote
+    write_lines(
+        tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE, {**BASELINE, "date": "2026-09-02"}]
+    )
+    sync = AirfareSync(tmp_path, client, batch_size=1)
+    server.fail_table, server.fail_after = "fare_baseline_points", 1
+
+    assert sync.apply_manual_route("AQP", "LIM").status == "failed"
+    server.fail_table = None
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 1
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 0
+
+    replacement = tmp_path / "replacement.jsonl"
+    replacement.write_text(json.dumps({**BASELINE, "price": 90}) + "\n", encoding="utf-8")
+    replacement.replace(tmp_path / "fares/baseline/AQP-LIM.jsonl")
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 1
+    assert any(row["price"] == 90 for row in server.tables["fare_baseline_points"].values())
+
+
+@pytest.mark.parametrize("route", [("aqp", "LIM"), ("A!QP", "LIM"), ("AQP", "AQP"), (None, "LIM")])
+def test_manual_route_rejects_invalid_scope_before_network(tmp_path, remote, route):
+    server, client = remote
+    with pytest.raises(ValueError, match="route"):
+        AirfareSync(tmp_path, client).apply_manual_route(*route)
+    assert server.requests == []
 
 
 def test_ambiguous_baseline_natural_keys_are_rejected_before_upload(tmp_path, remote):
@@ -1292,3 +1572,103 @@ def test_dangling_source_alias_does_not_block_an_unrelated_report(tmp_path, exis
     assert run.returncode == 0
     assert json.loads(report.read_text())["status"] == "complete"
     assert not target.exists() and source_link.is_symlink()
+
+
+@pytest.mark.parametrize(
+    "relative", ["fares/baseline/AQP-LIM.jsonl", "fares/baseline/A!QP-LIM.jsonl"]
+)
+@pytest.mark.parametrize("manual", [False, True])
+def test_baseline_ack_recovers_legacy_writer_after_source_returns_to_old_content(
+    tmp_path, remote, relative, manual
+):
+    server, client = remote
+    path = write_lines(tmp_path, relative, [BASELINE])
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply("incremental").uploaded["baseline"] == 1
+
+    # f2b6481 rewrites a confirmed cursor after each baseline batch, without
+    # maintaining the new ACK checkpoint. Exercise that same persisted boundary.
+    write_lines(tmp_path, relative, [{**BASELINE, "price": 160}])
+    datasets, journals = sync._collect()
+    client.upsert(
+        "fare_baseline_points",
+        list(datasets["baseline"].rows.values()),
+        on_conflict="origin,destination,flight_date,price_date",
+    )
+    sync._acknowledge(journals[0], journals[0].end, sync._cursors())
+    write_lines(tmp_path, relative, [BASELINE])
+    assert path.exists()
+
+    report = sync.apply_manual_route("AQP", "LIM") if manual else sync.apply("incremental")
+    assert report.status == "complete"
+    assert report.uploaded["baseline"] == 1
+    assert next(iter(server.tables["fare_baseline_points"].values()))["price"] == 150
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 0
+
+
+def test_baseline_ack_detects_legacy_cursor_for_a_removed_route_alias(tmp_path, remote):
+    server, client = remote
+    canonical = write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply("incremental").uploaded["baseline"] == 1
+
+    canonical.unlink()
+    alias = write_lines(tmp_path, "fares/baseline/A!QP-LIM.jsonl", [{**BASELINE, "price": 160}])
+    datasets, journals = sync._collect()
+    client.upsert(
+        "fare_baseline_points",
+        list(datasets["baseline"].rows.values()),
+        on_conflict="origin,destination,flight_date,price_date",
+    )
+    sync._acknowledge(journals[0], journals[0].end, sync._cursors())
+    alias.unlink()
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 1
+    assert next(iter(server.tables["fare_baseline_points"].values()))["price"] == 150
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 0
+
+
+@pytest.mark.parametrize("crash_boundary", ["cursor", "confirmation"])
+def test_baseline_ack_replays_after_crash_between_remote_cursor_and_confirmation(
+    tmp_path, remote, monkeypatch, crash_boundary
+):
+    server, client = remote
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply("incremental").uploaded["baseline"] == 1
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [{**BASELINE, "price": 160}])
+
+    def crash(*args, **kwargs):
+        raise OSError("simulated crash at local commit boundary")
+
+    with monkeypatch.context() as patch:
+        if crash_boundary == "cursor":
+            patch.setattr(sync, "_acknowledge", crash)
+        else:
+            patch.setattr(BaselineAcknowledgements, "confirm", crash)
+        assert sync.apply_manual_route("AQP", "LIM").status == "failed"
+    assert next(iter(server.tables["fare_baseline_points"].values()))["price"] == 160
+
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 1
+    assert next(iter(server.tables["fare_baseline_points"].values()))["price"] == 150
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 0
+
+
+def test_baseline_cursor_binding_preserves_delta_uploads_across_coexisting_aliases(
+    tmp_path, remote
+):
+    _, client = remote
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", [BASELINE])
+    second = {**BASELINE, "date": "2026-09-02"}
+    write_lines(tmp_path, "fares/baseline/A!QP-LIM.jsonl", [second])
+    sync = AirfareSync(tmp_path, client)
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 2
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 0
+
+    third = {**BASELINE, "date": "2026-09-03"}
+    replacement = write_lines(tmp_path, "replacement.jsonl", [second, third])
+    replacement.replace(tmp_path / "fares/baseline/A!QP-LIM.jsonl")
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 1
+    assert sync.apply_manual_route("AQP", "LIM").uploaded["baseline"] == 0

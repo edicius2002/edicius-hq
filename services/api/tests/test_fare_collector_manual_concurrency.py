@@ -190,9 +190,9 @@ def test_slow_budget_write_cannot_compress_google_start_gap(monkeypatch, tmp_pat
     budget, _ledger = allowance(tmp_path, 2)
     original_take = budget.take
 
-    def slow_take(*, kind, what):
+    def slow_take(*, kind, what, pass_id=None):
         clock.now += 4.0  # Synchronous ledger work between a pace slot and a fetch.
-        original_take(kind=kind, what=what)
+        original_take(kind=kind, what=what, pass_id=pass_id)
 
     budget.take = slow_take
 
@@ -235,12 +235,12 @@ def test_one_slow_budget_write_cannot_compress_50ms_http_starts(monkeypatch, tmp
     original_take = budget.take
     calls = 0
 
-    def uneven_take(*, kind, what):
+    def uneven_take(*, kind, what, pass_id=None):
         nonlocal calls
         calls += 1
         if calls == 1:
             clock.now += 0.2
-        original_take(kind=kind, what=what)
+        original_take(kind=kind, what=what, pass_id=pass_id)
 
     budget.take = uneven_take
 
@@ -440,6 +440,100 @@ def test_sixteen_manual_slots_are_bounded_and_accounted(monkeypatch, tmp_path):
     assert peak == 16
     assert [item.flight_date for item in report.results] == [q.flight_date for q in queries(18)]
     assert ledger.spent(budget.day) == 18
+
+
+def test_two_route_passes_share_one_sixteen_request_limit(monkeypatch, tmp_path):
+    reached_limit = asyncio.Event()
+    release = asyncio.Event()
+    active = peak = 0
+
+    async def fetch(_session, query, _provider, _store):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == 16:
+            reached_limit.set()
+        try:
+            await release.wait()
+        finally:
+            active -= 1
+        return result(query), None
+
+    monkeypatch.setattr(fare_collector, "_collect_one", fetch)
+    first_budget, ledger = allowance(tmp_path, 32)
+    second_budget, _ = allowance(tmp_path, 32)
+
+    async def scenario():
+        slots = asyncio.Semaphore(16)
+        pacer = fare_collector.DeadlinePacer()
+        async with httpx.AsyncClient() as client:
+            first = asyncio.create_task(
+                fare_collector.collect(
+                    queries(16),
+                    client=client,
+                    history=object(),
+                    gap_seconds=0,
+                    pacer=pacer,
+                    budget=first_budget,
+                    max_in_flight=16,
+                    request_slots=slots,
+                )
+            )
+            second = asyncio.create_task(
+                fare_collector.collect(
+                    queries(16),
+                    client=client,
+                    history=object(),
+                    gap_seconds=0,
+                    pacer=pacer,
+                    budget=second_budget,
+                    max_in_flight=16,
+                    request_slots=slots,
+                )
+            )
+            await asyncio.wait_for(reached_limit.wait(), 1)
+            await asyncio.sleep(0)
+            assert peak == 16
+            release.set()
+            return await asyncio.wait_for(asyncio.gather(first, second), 1)
+
+    reports = asyncio.run(scenario())
+    assert [report.collected for report in reports] == [16, 16]
+    assert peak == 16
+    assert ledger.spent(first_budget.day) == 32
+
+
+def test_parallel_scheduled_pass_stops_launching_at_its_deadline(monkeypatch, tmp_path):
+    clock = [0.0]
+
+    async def fetch(_session, query, _provider, _store):
+        return result(query), None
+
+    async def pace(seconds):
+        clock[0] += seconds
+
+    monkeypatch.setattr(fare_collector, "_collect_one", fetch)
+    monkeypatch.setattr(fare_collector, "perf_counter", lambda: clock[0])
+    budget, ledger = allowance(tmp_path, 4)
+
+    async def scenario():
+        async with httpx.AsyncClient() as client:
+            return await fare_collector.collect(
+                queries(4),
+                client=client,
+                history=object(),
+                gap_seconds=0.05,
+                pacer=fare_collector.DeadlinePacer(clock=lambda: clock[0], sleep=pace),
+                budget=budget,
+                max_in_flight=2,
+                deadline_seconds=0.04,
+            )
+
+    report = asyncio.run(scenario())
+    assert report.collected == 1
+    assert len(report.skipped) == 3
+    assert all(reason == fare_collector.WINDOW_FULL for _, reason in report.skipped)
+    assert ledger.spent(budget.day) == 1
 
 
 def test_sixteen_manual_slots_keep_50ms_start_spacing(monkeypatch, tmp_path):

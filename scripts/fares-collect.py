@@ -120,6 +120,7 @@ from app.services.collection_sync import sync_completed_pass  # noqa: E402
 from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
 from app.services.fare_budget import daily_budget  # noqa: E402
 from app.services.fare_collector import (  # noqa: E402
+    MAX_BOARD_IN_FLIGHT,
     REQUEST_GAP_SECONDS,
     FareWatch,
     calendar_windows,
@@ -328,7 +329,7 @@ def collect_main() -> int:
         action="store_true",
         help=(
             "Ignore the cadence and poll every departure in every watched "
-            "month. One month is up to 31 requests and three minutes of pacing."
+            "month. One month is up to 31 provider requests."
         ),
     )
     parser.add_argument(
@@ -572,6 +573,7 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
                 watches,
                 pass_id=recorder.pass_id,
                 deadline_seconds=board_window,
+                max_in_flight=MAX_BOARD_IN_FLIGHT,
                 **kwargs,
             )
         )

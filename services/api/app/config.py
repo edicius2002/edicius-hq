@@ -343,9 +343,8 @@ MAX_POLL_MINUTES = 24 * 60
 # it would.
 #
 # So a bound nobody has measured no longer stops a pass. What still does is
-# real and is untouched for scheduled passes: `REQUEST_GAP_SECONDS` paces their
-# requests three seconds apart. `PassLock` allows one board pass and one
-# calendar pass on this address
+# real and is untouched: `REQUEST_GAP_SECONDS` paces request starts, while
+# `PassLock` allows one board pass and one calendar pass on this address
 # at a time, and the cadence table above is what decides that a far month is
 # looked at daily rather than half-hourly. Those bound the *rate*, which is what
 # an unmetered endpoint actually notices; the ceiling bounded a *count*, which
@@ -366,8 +365,8 @@ DEFAULT_DAILY_REQUEST_BUDGET: int | None = None
 # reads one after its own day, so what accumulates is a directory, not a disk
 # problem: 365 files a year, forever, none of them ever opened again. It used to
 # be bounded by the ceiling above; with no ceiling it is bounded by the cadence
-# table and pacing; a continuously sending scheduled pass at three seconds
-# would write at most 28,800 lines, about 1.7 MB. Still a directory
+# table and the configured gap, which permits about 1.7 million lines in the
+# pathological case of nonstop starts at 0.05 seconds, roughly 100 MB. Still a directory
 # problem rather than a disk one.
 #
 # **Ninety days, and this is the one bound in the airfare feature that is

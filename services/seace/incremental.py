@@ -123,18 +123,25 @@ def write_snapshot(path, variable, snapshot):
         temporary.unlink(missing_ok=True)
 
 
-async def minor_notice_updates(session, region, year, previous, existing):
+async def minor_notice_updates(session, region, year, previous, existing, pending=None):
+    pending = pending if pending is not None else refresh.PendingNotices()
+    pending.seed(region, year, existing)
     department = refresh.department_code(region)
     cutoff = previous - timedelta(days=OVERLAP_DAYS)
     found = {}
     page = 1
+    received = 0
     while True:
         result = refresh.unpack(await session.call_tool("buscar_convocatorias_menores", {
             "anio": str(year), "depa": department, "pagina": page, "tamano": 200,
         }))
         batch = result["filas"]
+        pending.discover(region, year, batch)
         if not batch:
+            if received < result["total"]:
+                raise RuntimeError("Minor notice search ended before all records were received")
             break
+        received += len(batch)
         older = False
         for row in batch:
             published = source_date(row.get("fecPublica"))
@@ -144,47 +151,33 @@ async def minor_notice_updates(session, region, year, previous, existing):
                 older = True
                 break
             found[str(row["idContrato"])] = row
-        if older or page * 200 >= result["total"]:
+        if older or received >= result["total"]:
             break
         page += 1
 
     active = {}
     for status in ("2", "3"):
         page = 1
+        received = 0
         while True:
             result = refresh.unpack(await session.call_tool("buscar_convocatorias_menores", {
                 "anio": str(year), "depa": department, "estado": status,
                 "pagina": page, "tamano": 10000,
             }))
             batch = result["filas"]
-            if not batch and page * 10000 <= result["total"]:
+            pending.discover(region, year, batch)
+            if not batch and received < result["total"]:
                 raise RuntimeError("Minor notice status search ended before all records were received")
+            received += len(batch)
             active.update((str(row["idContrato"]), row) for row in batch)
-            if page * 10000 >= result["total"]:
+            if received >= result["total"]:
                 break
             page += 1
     found.update(active)
-    known_by_id = {str(row.get("id")): row for row in existing}
-    detail_ids = []
-    now = datetime.now(refresh.PERU_TIME)
-    for contract_id, row in found.items():
-        deadline = source_date(row.get("fecFinCotizacion"))
-        prior = known_by_id.get(contract_id)
-        missing_detail = prior is None or not (prior.get("items") or prior.get("documents"))
-        if missing_detail and row.get("nomEstadoContrato") == "Vigente" and deadline and deadline > now:
-            detail_ids.append(contract_id)
-    details = {}
-    for offset in range(0, len(detail_ids), 20):
-        result = refresh.unpack(await session.call_tool("detalles_convocatorias_menores", {
-            "ids": detail_ids[offset:offset + 20],
-        }))
-        details.update(result.get("detalles", {}))
-    updates = [refresh.minor_notice_record(row, region, details.get(contract_id))
-               for contract_id, row in found.items()]
-    for row in existing:
+    for row in pending.records(region, year):
         if row.get("state") in ("Vigente", "En Evaluación") and str(row.get("id")) not in active and str(row.get("id")) not in found:
-            updates.append({**row, "state": "Culminado"})
-    return updates
+            pending.discover(region, year, [{"idContrato": str(row["id"]), "nomEstadoContrato": "Culminado"}])
+    return await pending.enrich(session, region, year)
 
 
 def potentially_open(row, now):
@@ -258,6 +251,8 @@ async def refresh_region(region, year, full=False, publisher=None):
     existing = {kind: rows_for_year(snapshot, region, year)
                 for kind, snapshot in snapshots.items()}
     previous = {kind: checkpoint(snapshot, region, year) for kind, snapshot in snapshots.items()}
+    pending = refresh.PendingNotices()
+    pending.seed(region, year, existing["notices"])
     updates = {}
     params = StdioServerParameters(
         command=sys.executable,
@@ -266,8 +261,8 @@ async def refresh_region(region, year, full=False, publisher=None):
     )
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
-        updates["notices"] = (await minor_notice_updates(session, region, year, previous["notices"], existing["notices"])
-                              if previous["notices"] and not full else (await refresh.fetch_minor_notices(region, year, with_open_details=True))["records"])
+        updates["notices"] = (await minor_notice_updates(session, region, year, previous["notices"], existing["notices"], pending=pending)
+                              if previous["notices"] and not full else (await refresh.fetch_minor_notices(region, year, with_open_details=True, pending=pending))["records"])
         updates["processes"] = (await process_updates(session, region, year, previous["processes"], existing["processes"])
                                 if previous["processes"] and not full else (await refresh.fetch(region, year, 0))["records"])
         updates["contracts"] = (await contract_updates(session, region, year, previous["contracts"])
@@ -277,9 +272,15 @@ async def refresh_region(region, year, full=False, publisher=None):
               for _, _, kind in SOURCES}
     if publisher is not None:
         for _, _, kind in SOURCES:
-            publisher(kind, updates[kind], fetched_at, merged[kind][1]["total"])
+            keys = {record_key(row, kind) for row in updates[kind]}
+            # Publish the same preserved fields as the local merge, including
+            # old documents when a later archive request failed.
+            rows = [row for row in merged[kind][0]["records"] if record_key(row, kind) in keys]
+            publisher(kind, rows, fetched_at, merged[kind][1]["total"])
     for path, variable, kind in SOURCES:
         write_snapshot(path, variable, merged[kind][0])
+    if publisher is not None:
+        pending.acknowledge(region, year)
     return {kind: merged[kind][1] for _, _, kind in SOURCES}
 
 

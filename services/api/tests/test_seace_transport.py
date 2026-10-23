@@ -4,11 +4,15 @@ import asyncio
 import importlib.util
 import json
 import logging
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
+
+DETAIL_PAYLOAD = {"uitContratoCompletoProjection": {"idContrato": 111}}
 
 
 @pytest.fixture
@@ -43,7 +47,8 @@ def test_shared_limit_covers_batches_search_and_later_calls(server, monkeypatch,
         peak = max(peak, active)
         await asyncio.sleep(0.005)
         active -= 1
-        return httpx.Response(200, json=[] if "/archivo/" in request.url.path else {})
+        payload = [] if "/archivo/" in request.url.path else DETAIL_PAYLOAD
+        return httpx.Response(200, json=payload)
 
     mock_clients(monkeypatch, server, handler)
 
@@ -71,7 +76,11 @@ def test_forbidden_is_not_retried_and_preserves_id_and_phase(server, monkeypatch
     async def handler(request):
         calls.append(request)
         failing = (phase == "detail") or "/archivo/" in request.url.path
-        return httpx.Response(403, text=secret) if failing else httpx.Response(200, json={})
+        return (
+            httpx.Response(403, text=secret)
+            if failing
+            else httpx.Response(200, json=DETAIL_PAYLOAD)
+        )
 
     mock_clients(monkeypatch, server, handler)
     with caplog.at_level(logging.INFO):
@@ -155,7 +164,8 @@ def test_errors_are_bounded_classified_and_sanitized(
     assert error.attempts == expected_attempts
     assert secret not in str(error) + caplog.text
     assert "12345678987654" not in caplog.text
-    assert delays == ([] if failure == "invalid" else [2.0, 2.0] if failure == 429 else [0.5, 1.0])
+    expected_delays = [2.0, 2.0] if isinstance(failure, int) else [0.5, 1.0]
+    assert delays == ([] if failure == "invalid" else expected_delays)
     events = [json.loads(r.message) for r in caplog.records if r.name == "seace.prod6"]
     assert [event["attempt"] for event in events] == list(range(1, expected_attempts + 1))
     assert all(event["outcome"] == kind for event in events)
@@ -226,7 +236,7 @@ def test_can_request_only_pending_phase(server, monkeypatch, phase):
 
     async def handler(request):
         paths.append(request.url.path)
-        return httpx.Response(200, json=[] if phase == "files" else {})
+        return httpx.Response(200, json=[] if phase == "files" else DETAIL_PAYLOAD)
 
     mock_clients(monkeypatch, server, handler)
     result = asyncio.run(server.detalles_convocatorias_menores(["111"], fase=phase))
@@ -243,31 +253,118 @@ def test_can_request_only_pending_phase(server, monkeypatch, phase):
     "phase,payload",
     [
         ("detail", []),
+        ("detail", {}),
+        ("detail", {"message": "No result"}),
+        ("detail", {"uitContratoCompletoProjection": None}),
+        ("detail", {"uitContratoCompletoProjection": {}}),
+        ("detail", {"uitContratoItemProjectionList": [{"descripcionItem": "Item"}]}),
         ("files", {}),
         ("files", [None]),
         ("detail", {"uitContratoItemProjectionList": {"invalid": "shape"}}),
         ("detail", {"uitContratoCompletoProjection": "invalid"}),
+        ("detail", {**DETAIL_PAYLOAD, "uitContratoItemProjectionList": [None]}),
+        ("detail", {**DETAIL_PAYLOAD, "uitContratoEtapaProjectionList": ["invalid"]}),
     ],
 )
 def test_invalid_payload_cannot_mark_phase_complete(server, monkeypatch, phase, payload):
+    paths = []
+
     async def handler(request):
+        paths.append(request.url.path)
         return httpx.Response(200, json=payload)
 
     mock_clients(monkeypatch, server, handler)
-    result = asyncio.run(server.detalles_convocatorias_menores(["111"], fase=phase))
+    result = asyncio.run(
+        server.detalles_convocatorias_menores(["111"], fase="all" if phase == "detail" else phase)
+    )
     assert result["detalles"] == {}
     assert result["faltas"][0]["fase"] == phase
     assert result["faltas"][0]["tipo"] == "invalid_payload"
+    assert result["faltas"][0]["status"] == 200
+    assert result["faltas"][0]["intentos"] == 1
+    assert len(paths) == 1
+
+
+@pytest.mark.parametrize(
+    "lists",
+    [
+        {},
+        {"uitContratoItemProjectionList": []},
+        {
+            "uitContratoItemProjectionList": None,
+            "uitContratoEtapaProjectionList": [],
+        },
+    ],
+)
+def test_detail_header_with_empty_or_absent_lists_is_complete(server, monkeypatch, lists):
+    async def handler(request):
+        return httpx.Response(200, json={**DETAIL_PAYLOAD, **lists})
+
+    mock_clients(monkeypatch, server, handler)
+    result = asyncio.run(server.detalles_convocatorias_menores(["111"], fase="detail"))
+    assert result["faltas"] == []
+    assert result["detalles"]["111"] == {
+        "id": "111",
+        "fases_completadas": ["detail"],
+        "cabecera": DETAIL_PAYLOAD["uitContratoCompletoProjection"],
+        "items": [],
+        "etapas": [],
+    }
+
+
+@pytest.mark.parametrize("status", [429, 503])
+@pytest.mark.parametrize("phase", ["detail", "files"])
+@pytest.mark.parametrize("header_kind", ["seconds", "http_date"])
+@pytest.mark.parametrize("seconds", [3, 3600])
+def test_long_retry_after_returns_pending_phase_without_sleep_or_early_retry(
+    server, monkeypatch, status, phase, header_kind, seconds
+):
+    now = datetime(2026, 10, 23, 12, tzinfo=UTC)
+    monkeypatch.setattr(server, "datetime", SimpleNamespace(now=lambda tz: now))
+    header = (
+        str(seconds)
+        if header_kind == "seconds"
+        else format_datetime(now + timedelta(seconds=seconds), usegmt=True)
+    )
+    paths, delays = [], []
+
+    async def handler(request):
+        paths.append(request.url.path)
+        if phase == "files" and "/archivo/" not in request.url.path:
+            return httpx.Response(200, json=DETAIL_PAYLOAD)
+        return httpx.Response(status, headers={"Retry-After": header})
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(server.asyncio, "sleep", sleep)
+    mock_clients(monkeypatch, server, handler)
+    result = asyncio.run(server.detalles_convocatorias_menores(["111"]))
+    assert delays == []
+    assert len(paths) == (1 if phase == "detail" else 2)
+    assert len(result["faltas"]) == 1
+    assert result["faltas"][0] == {
+        "id": "111",
+        "fase": phase,
+        "status": status,
+        "intentos": 1,
+        "tipo": "rate_limited" if status == 429 else "server_error",
+        "retry_after_seconds": seconds,
+        "error": f"API de convocatorias menores: {phase} "
+        f"{'rate_limited' if status == 429 else 'server_error'} (HTTP {status}, intentos 1)",
+    }
+    if phase == "detail":
+        assert result["detalles"] == {}
+    else:
+        assert result["detalles"]["111"]["fases_completadas"] == ["detail"]
+        assert "documentos" not in result["detalles"]["111"]
 
 
 def test_retry_after_http_date_and_invalid_header(server, monkeypatch, caplog):
-    from datetime import datetime, timedelta
-    from email.utils import format_datetime
-
     delays = []
     headers = iter(
         [
-            format_datetime(datetime.now(UTC) + timedelta(seconds=30)),
+            format_datetime(datetime.now(UTC) + timedelta(seconds=2)),
             "SECRET-malformed-header",
         ]
     )
@@ -290,7 +387,7 @@ def test_retry_after_http_date_and_invalid_header(server, monkeypatch, caplog):
 
     with caplog.at_level(logging.INFO):
         assert asyncio.run(run()) == {}
-    assert 28 <= delays[0] <= 30
+    assert 0.5 <= delays[0] <= 2
     assert delays[1] == 1.0
     assert "SECRET" not in caplog.text
 

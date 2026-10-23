@@ -1313,6 +1313,8 @@ _PROD6_INFLIGHT = 0
 _PROD6_LOG_KEY = uuid.uuid4().bytes
 _PROD6_LOG = logging.getLogger("seace.prod6")
 _PROD6_LOG.setLevel(logging.INFO)
+# Longer delays belong to the collector's durable pending queue.
+_PROD6_MAX_INLINE_RETRY_SECONDS = 2.0
 
 
 class Prod6Error(RuntimeError):
@@ -1357,10 +1359,14 @@ def _prod6_valid_payload(phase: str, result: Any) -> bool:
     if not isinstance(result, dict):
         return False
     if phase == "detail":
-        for key, expected in (("uitContratoCompletoProjection", dict),
-                              ("uitContratoEtapaProjectionList", list),
-                              ("uitContratoItemProjectionList", list)):
-            if result.get(key) is not None and not isinstance(result[key], expected):
+        header = result.get("uitContratoCompletoProjection")
+        if not isinstance(header, dict) or not header:
+            return False
+        for key in ("uitContratoEtapaProjectionList", "uitContratoItemProjectionList"):
+            values = result.get(key)
+            if values is not None and (
+                    not isinstance(values, list) or
+                    not all(isinstance(item, dict) for item in values)):
                 return False
     return True
 
@@ -1415,6 +1421,7 @@ async def api6_json(client: httpx.AsyncClient, service: str, path: str,
                     retry_after = _prod6_retry_after(response.headers.get("Retry-After"))
                 elif 500 <= status < 600:
                     kind = "server_error"
+                    retry_after = _prod6_retry_after(response.headers.get("Retry-After"))
                 else:
                     kind = "http_error"
             except httpx.TimeoutException:
@@ -1435,8 +1442,12 @@ async def api6_json(client: httpx.AsyncClient, service: str, path: str,
         error = Prod6Error(phase, kind, status, attempt, retry_after)
         if kind not in ("rate_limited", "server_error", "timeout", "network_error") or attempt == 3:
             raise error from None
+        delay = max(0.5 * attempt, retry_after or 0.0)
+        if delay > _PROD6_MAX_INLINE_RETRY_SECONDS:
+            # Preserve the full server deadline; never cap it and retry early.
+            raise error from None
         # Release capacity during backoff; the retry must acquire it again.
-        await asyncio.sleep(max(0.5 * attempt, retry_after or 0.0))
+        await asyncio.sleep(delay)
 
 
 _RE_ALF = re.compile(r"\(([\s\S]*)\)\s*;")

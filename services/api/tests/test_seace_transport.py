@@ -61,10 +61,22 @@ def test_prod6_request_starts_are_spaced_across_concurrent_callers(server, monke
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             return await asyncio.gather(
                 server.api6_json(client, "buscadorpublico", "/contrataciones/buscador"),
-                server.api6_json(client, "buscadorpublico", "/contrataciones/listar-completo", {"id_contrato": "111"}),
-                server.api6_json(client, "archivo", "/archivos-publico/listar-archivos-contrato/111/1"),
+                server.api6_json(
+                    client,
+                    "buscadorpublico",
+                    "/contrataciones/listar-completo",
+                    {"id_contrato": "111"},
+                ),
+                server.api6_json(
+                    client, "archivo", "/archivos-publico/listar-archivos-contrato/111/1"
+                ),
                 server.api6_json(client, "buscadorpublico", "/contrataciones/buscador"),
-                server.api6_json(client, "buscadorpublico", "/contrataciones/listar-completo", {"id_contrato": "222"}),
+                server.api6_json(
+                    client,
+                    "buscadorpublico",
+                    "/contrataciones/listar-completo",
+                    {"id_contrato": "222"},
+                ),
             )
 
     assert len(asyncio.run(run())) == 5

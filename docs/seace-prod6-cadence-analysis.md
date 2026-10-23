@@ -39,6 +39,14 @@ el espaciado. Se detuvo temporalmente solo el timer programado de SEACE
 para evitar otra rafaga mientras se integran ambas ramas. El timer de
 solicitudes manuales sigue activo.
 
+En ambas rafagas sin espaciado, el primer 403 fue la respuesta numero 16:
+antes hubo 15 respuestas 200, y el rechazo aparecio a los 7,29 s y 7,72 s
+del primer resultado, respectivamente. Los inicios estimados de esos primeros
+403 estaban a 8,30 s y 8,78 s del primer inicio. Esta repeticion apunta a un
+umbral de rafaga de corta ventana. No permite afirmar una regla exacta como
+"15 solicitudes cada 10 segundos": las respuestas concurrentes pueden llegar
+desordenadas y el servidor no publica la ventana ni la identidad de la cuota.
+
 ## Verificacion operativa
 
 - Contar respuestas por estado y fase en los eventos seace.prod6 de cada pasada.

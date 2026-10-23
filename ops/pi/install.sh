@@ -115,7 +115,7 @@ ensure_runtime() {
 
 install_units() {
   local unit
-  for unit in edicius-airfare.service edicius-airfare.timer edicius-airfare-requests.service edicius-sentiment.service edicius-sentiment.timer edicius-tweets.service edicius-market.service edicius-fx.service edicius-fx.timer; do
+  for unit in edicius-airfare.service edicius-airfare.timer edicius-airfare-requests.service edicius-airfare-sync.service edicius-airfare-sync.timer edicius-sentiment.service edicius-sentiment.timer edicius-tweets.service edicius-market.service edicius-fx.service edicius-fx.timer; do
     install -m 0644 "$RELEASE_DIR/ops/pi/systemd/$unit" "$UNIT_DIR/$unit"
   done
   systemctl daemon-reload

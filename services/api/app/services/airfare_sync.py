@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+from app.services.airfare_baseline_ack import BaselineAcknowledgements
 from app.services.airfare_supabase import (
     AirfareRemoteError,
     AirfareRemoteRejected,
@@ -60,7 +61,6 @@ _JOURNALS = {
     "calendar_checks": "fares/calendar/checks",
 }
 _HEX = re.compile(r"^[0-9a-f]{64}$")
-_PROCESS_LOCK_PATH = Path(tempfile.gettempdir()) / "edicius-hq-airfare-replica.lock"
 
 
 @contextmanager
@@ -280,8 +280,11 @@ class AirfareSync:
         self.remote = remote
         self.batch_size = batch_size
         self.cursor_path = self.source_root / "fares/sync/cursors.json"
+        self.process_lock_path = self.source_root / "fares/sync/replica.lock"
 
-    def _collect(self) -> tuple[dict[str, _Dataset], list[_Journal]]:
+    def _collect(
+        self, *, route_scope: str | None = None
+    ) -> tuple[dict[str, _Dataset], list[_Journal]]:
         datasets = {name: _Dataset() for name in _TABLES}
         journals = []
         positions: set[tuple[str, str, str, int]] = set()
@@ -290,6 +293,8 @@ class AirfareSync:
             for path in sorted((self.source_root / directory).glob("*.jsonl")):
                 origin, separator, destination = path.stem.partition("-")
                 route = route_stem(origin, destination)
+                if route_scope is not None and route != route_scope:
+                    continue
                 if not separator or not re.fullmatch(r"[A-Z0-9]{3}-[A-Z0-9]{3}", route):
                     raise ValueError("invalid airfare source route filename")
                 with path.open("rb") as handle:
@@ -328,6 +333,8 @@ class AirfareSync:
                 journals.append(
                     _Journal(path, name, content, stat, entries, content.rfind(b"\n") + 1)
                 )
+        if route_scope is not None:
+            return datasets, journals
         airports = self.source_root / "fares/airports.json"
         if airports.exists():
             try:
@@ -453,7 +460,9 @@ class AirfareSync:
             return 0
         return offset
 
-    def _acknowledge(self, journal: _Journal, end: int, cursors: dict[str, Any]) -> None:
+    def _acknowledge(
+        self, journal: _Journal, end: int, cursors: dict[str, Any], *, baseline_ack: bool = False
+    ) -> None:
         relative = journal.path.relative_to(self.source_root).as_posix()
         cursors[relative] = {
             "path": relative,
@@ -463,6 +472,10 @@ class AirfareSync:
             "inode": journal.stat.st_ino,
             "prefix_digest": hashlib.sha256(journal.content[:end]).hexdigest(),
         }
+        if baseline_ack:
+            # Legacy importers replace the entire entry and drop this marker,
+            # even when they eventually restore identical source metadata.
+            cursors[relative]["baseline_ack_version"] = 2
         self.cursor_path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=self.cursor_path.parent, suffix=".tmp", delete=False
@@ -476,30 +489,118 @@ class AirfareSync:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def apply(self, mode: SyncMode = "incremental") -> SyncReport:
+    def apply(
+        self,
+        mode: SyncMode = "incremental",
+        *,
+        collect_destination_manifest: bool = True,
+        projection_routes: frozenset[tuple[str, str]] | None = None,
+    ) -> SyncReport:
         self._check_mode(mode)
-        with _exclusive_process_lock(_PROCESS_LOCK_PATH):
-            return self._apply_locked(mode)
+        if not isinstance(collect_destination_manifest, bool):
+            raise ValueError("invalid destination manifest option")
+        if projection_routes is not None and (
+            not isinstance(projection_routes, frozenset)
+            or not projection_routes
+            or any(
+                not isinstance(route, tuple)
+                or len(route) != 2
+                or any(
+                    not isinstance(code, str) or not re.fullmatch(r"[A-Z0-9]{3}", code)
+                    for code in route
+                )
+                for route in projection_routes
+            )
+        ):
+            raise ValueError("invalid Airfare projection routes")
+        lock_started = time.perf_counter()
+        with _exclusive_process_lock(self.process_lock_path):
+            logger.info(
+                "Airfare sync lock acquired mode=%s wait_ms=%d",
+                mode,
+                round((time.perf_counter() - lock_started) * 1000),
+            )
+            return self._apply_locked(mode, collect_destination_manifest, projection_routes)
 
-    def _apply_locked(self, mode: SyncMode) -> SyncReport:
+    def apply_manual_route(self, origin: str, destination: str) -> SyncReport:
+        """Publish one validated route; global reconciliation handles other journals."""
+        if (
+            any(
+                not isinstance(code, str) or not re.fullmatch(r"[A-Z0-9]{3}", code)
+                for code in (origin, destination)
+            )
+            or origin == destination
+        ):
+            raise ValueError("invalid Airfare manual route")
+        route = (origin, destination)
+        lock_started = time.perf_counter()
+        with _exclusive_process_lock(self.process_lock_path):
+            logger.info(
+                "Airfare manual sync lock acquired route=%s-%s wait_ms=%d",
+                origin,
+                destination,
+                round((time.perf_counter() - lock_started) * 1000),
+            )
+            return self._apply_locked("incremental", False, frozenset({route}), source_route=route)
+
+    def _apply_locked(
+        self,
+        mode: SyncMode,
+        collect_destination_manifest: bool,
+        projection_routes: frozenset[tuple[str, str]] | None,
+        *,
+        source_route: tuple[str, str] | None = None,
+    ) -> SyncReport:
         client = self._client()
-        datasets, journals = self._collect()
+        run_id = str(uuid4())
+        scan_started = time.perf_counter()
+        datasets, journals = (
+            self._collect(route_scope="-".join(source_route))
+            if source_route is not None
+            else self._collect()
+        )
         source = self._manifest(datasets)
+        logger.info(
+            "Airfare sync scan run_id=%s scope=%s journals=%d bytes=%d scan_ms=%d",
+            run_id,
+            "-".join(source_route) if source_route is not None else "global",
+            len(journals),
+            sum(len(journal.content) for journal in journals),
+            round((time.perf_counter() - scan_started) * 1000),
+        )
+        source_manifest = (
+            {
+                "scope": {
+                    "kind": "route",
+                    "origin": source_route[0],
+                    "destination": source_route[1],
+                },
+                "datasets": {name: asdict(getattr(source, name)) for name in _JOURNALS},
+            }
+            if source_route is not None
+            else asdict(source)
+        )
         uploaded = dict.fromkeys(_TABLES, 0)
         cursors = self._cursors()
         run: dict[str, Any] = {
-            "run_id": str(uuid4()),
+            "run_id": run_id,
             "mode": mode,
             "started_at": datetime.now(UTC).isoformat(),
             "status": "running",
-            "source_manifest": asdict(source),
+            "source_manifest": source_manifest,
             "destination_manifest": {},
             "error": None,
         }
         error = None
         try:
+            upload_started = time.perf_counter()
             client.upsert("airfare_import_runs", [run], on_conflict="run_id")
             for journal in journals:
+                if journal.dataset == "baseline" and getattr(client, "replica_id", None):
+                    self._upload_baseline(
+                        journal, datasets["baseline"], client, mode, cursors, uploaded
+                    )
+                    continue
                 start = self._start(journal, cursors, mode)
                 # Select the last physical occurrence per content ID: calendar
                 # duplicates at a later position must still win equal-time ties.
@@ -524,10 +625,16 @@ class AirfareSync:
                     batch = rows[index : index + self.batch_size]
                     client.upsert(_TABLES[name], batch, on_conflict=key)
                     uploaded[name] += len(batch)
-            self._finish_run(client, run)
+            logger.info(
+                "Airfare sync upload run_id=%s rows=%s upload_ms=%d",
+                run_id,
+                uploaded,
+                round((time.perf_counter() - upload_started) * 1000),
+            )
+            self._finish_run(client, run, collect_destination_manifest, projection_routes)
         except (AirfareRemoteError, OSError) as failure:
-            # The HTTP boundary sanitizes remote errors; filesystem messages can
-            # contain private paths, so log only their type.
+            # Remote errors are sanitized by the HTTP boundary. Filesystem
+            # messages may contain private paths, so log only their type.
             logger.warning(
                 "Airfare synchronization failed: %s",
                 failure if isinstance(failure, AirfareRemoteError) else type(failure).__name__,
@@ -540,23 +647,57 @@ class AirfareSync:
                 error += "; import-run status could not be recorded"
         return SyncReport(mode, "failed" if error else "complete", source, uploaded, error)
 
-    def _finish_run(self, client: SupabaseAirfare, run: dict[str, Any]) -> None:
-        """Retry idempotent finalization, without collecting or uploading again.
+    def _finish_run(
+        self,
+        client: SupabaseAirfare,
+        run: dict[str, Any],
+        collect_destination_manifest: bool,
+        projection_routes: frozenset[tuple[str, str]] | None,
+    ) -> None:
+        """Retry idempotent finalization without repeating uploads or local ACKs.
 
-        Dirty projection rows survive failed refreshes; successful refreshes
-        remove them. Manifest reads and upserting the same run ID are also safe
-        after a lost response. Permanent rejections are never retried.
+        Failed projection transactions retain their dirty rows. Manifest reads
+        and final writes to the same run ID are safe after a lost response too.
+        Every manual retry keeps its explicit route and omits the global read.
         """
         for attempt in range(len(_FINALIZATION_RETRY_DELAYS) + 1):
             try:
-                self._refresh_projections(client)
-                manifest = self._remote_groups()
+                projection_started = time.perf_counter()
+                try:
+                    self._refresh_projections(client, projection_routes)
+                finally:
+                    logger.info(
+                        "Airfare sync projection run_id=%s attempt=%d projection_ms=%d",
+                        run["run_id"],
+                        attempt + 1,
+                        round((time.perf_counter() - projection_started) * 1000),
+                    )
+                manifest_started = time.perf_counter()
+                try:
+                    manifest = self._remote_groups() if collect_destination_manifest else {}
+                finally:
+                    logger.info(
+                        "Airfare sync manifest run_id=%s attempt=%d collected=%s manifest_ms=%d",
+                        run["run_id"],
+                        attempt + 1,
+                        collect_destination_manifest,
+                        round((time.perf_counter() - manifest_started) * 1000),
+                    )
                 run.update(
                     status="complete",
                     completed_at=datetime.now(UTC).isoformat(),
                     destination_manifest=manifest,
                 )
-                client.upsert("airfare_import_runs", [run], on_conflict="run_id")
+                finish_started = time.perf_counter()
+                try:
+                    client.upsert("airfare_import_runs", [run], on_conflict="run_id")
+                finally:
+                    logger.info(
+                        "Airfare sync final write run_id=%s attempt=%d write_ms=%d",
+                        run["run_id"],
+                        attempt + 1,
+                        round((time.perf_counter() - finish_started) * 1000),
+                    )
                 return
             except AirfareRemoteUnavailable as error:
                 if attempt == len(_FINALIZATION_RETRY_DELAYS):
@@ -570,13 +711,92 @@ class AirfareSync:
                 )
                 time.sleep(delay)
 
-    def _refresh_projections(self, client: SupabaseAirfare) -> None:
+    def _upload_baseline(
+        self,
+        journal: _Journal,
+        dataset: _Dataset,
+        client: SupabaseAirfare,
+        mode: SyncMode,
+        cursors: dict[str, Any],
+        uploaded: dict[str, int],
+    ) -> None:
+        origin, _, destination = journal.path.stem.partition("-")
+        route = route_stem(origin, destination)
+        last_acknowledged = self._start(journal, cursors, mode)
+        checkpoint = BaselineAcknowledgements(
+            self.source_root / "fares/sync/baseline-ack" / f"{route}.json",
+            replica_id=client.replica_id,
+            writer_cursor=self._baseline_writer_cursor(route, cursors),
+        )
+        latest: dict[tuple[str, str], tuple[int, str]] = {}
+        for end, identity in journal.entries:
+            row = dataset.rows[identity]
+            latest[(row["flight_date"], row["price_date"])] = (end, identity)
+        needed = (
+            set(latest)
+            if mode == "full"
+            else checkpoint.needed({key: identity for key, (_, identity) in latest.items()})
+        )
+        pending = sorted(
+            ((end, key, identity) for key, (end, identity) in latest.items() if key in needed),
+            key=lambda item: item[0],
+        )
+        if pending:
+            checkpoint.pending(key for _, key, _ in pending)
+        for index in range(0, len(pending), self.batch_size):
+            batch = pending[index : index + self.batch_size]
+            client.upsert(
+                _TABLES["baseline"],
+                [dataset.rows[identity] for _, _, identity in batch],
+                on_conflict="origin,destination,flight_date,price_date",
+            )
+            end = journal.end if index + self.batch_size >= len(pending) else batch[-1][0]
+            self._acknowledge(journal, end, cursors, baseline_ack=True)
+            checkpoint.confirm(
+                {key: identity for _, key, identity in batch},
+                writer_cursor=self._baseline_writer_cursor(route, cursors),
+            )
+            uploaded["baseline"] += len(batch)
+            last_acknowledged = end
+        if journal.end > last_acknowledged:
+            self._acknowledge(journal, journal.end, cursors, baseline_ack=True)
+            checkpoint.confirm({}, writer_cursor=self._baseline_writer_cursor(route, cursors))
+
+    @staticmethod
+    def _baseline_writer_cursor(route: str, cursors: dict[str, Any]) -> str:
+        """Include current and removed aliases so legacy writes cannot hide."""
+        entries = {}
+        for relative, cursor in cursors.items():
+            prefix = "fares/baseline/"
+            if not relative.startswith(prefix):
+                continue
+            name = relative.removeprefix(prefix)
+            if "/" in name or not name.endswith(".jsonl"):
+                continue
+            origin, _, destination = name.removesuffix(".jsonl").partition("-")
+            if route_stem(origin, destination) == route:
+                entries[relative] = cursor
+        content = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _refresh_projections(
+        self,
+        client: SupabaseAirfare,
+        projection_routes: frozenset[tuple[str, str]] | None = None,
+    ) -> None:
         """Drain DB-owned dirty routes after all source batches have arrived.
 
         A failed refresh leaves its dirty row in Postgres, so the next ordinary
         synchronization retries even when its source cursors have advanced.
         """
-        routes = client.rpc("list_fare_projection_dirty_routes", {})
+        routes = (
+            [
+                {"origin": origin, "destination": destination}
+                for origin, destination in sorted(projection_routes)
+            ]
+            if projection_routes is not None
+            else client.rpc("list_fare_projection_dirty_routes", {})
+        )
         if not isinstance(routes, list):
             raise AirfareRemoteRejected("Invalid dirty Airfare projection list")
         for route in routes:

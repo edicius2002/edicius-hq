@@ -266,6 +266,20 @@ def test_claim_request_calls_the_owner_scoped_rpc_and_returns_immutable_request(
         claimed.operation = "market-search"
 
 
+def test_claim_request_can_skip_a_city_pair_already_collecting(secret_config):
+    request = captured_request_for(
+        lambda cloud: cloud.claim_request(("airfare-route",), exclude_pairs=("LIM-CUZ",)),
+        secret_config,
+        httpx.Response(200, json={"request_id": None}),
+    )
+    assert request.url.path.endswith("/rpc/claim_collector_request")
+    assert json.loads(request.content) == {
+        "p_owner_id": str(OWNER_ID),
+        "p_operations": ["airfare-route"],
+        "p_excluded_pairs": ["LIM-CUZ"],
+    }
+
+
 def test_claim_request_accepts_postgrest_empty_composite_as_an_empty_queue(secret_config):
     body = {
         "request_id": None,

@@ -21,11 +21,13 @@ workers=(edicius-airfare-requests.service edicius-tweets.service edicius-market.
 timers=(edicius-airfare.timer edicius-sentiment.timer)
 # Collectors activated after their first release; pause them only once enabled.
 optional_timers=(edicius-fx.timer)
+optional_timers+=(edicius-airfare-sync.timer)
 for unit in "${optional_timers[@]}"; do
   if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
     timers+=("$unit")
   fi
 done
+previous_timers=("${timers[@]}")
 paused=0
 switched=0
 
@@ -36,10 +38,32 @@ drop_timers_missing_from() {
     if [[ -e "$root/ops/pi/systemd/$unit" ]]; then
       kept+=("$unit")
     else
+      systemctl disable "$unit"
       echo "Leaving $unit stopped; the restored release does not ship it." >&2
     fi
   done
   timers=("${kept[@]}")
+}
+
+# A previous release may have written remote baseline rows without updating the
+# new checkpoint (including a crash before its cursor write). Force one replay
+# after every release transition, in either direction.
+invalidate_baseline_ack() {
+  local state_root=/var/lib/edicius-hq
+  local checkpoint_root="$state_root/fares/sync/baseline-ack"
+  local component
+  for component in "$state_root" "$state_root/fares" "$state_root/fares/sync" "$checkpoint_root"; do
+    [[ ! -L "$component" ]] || {
+      echo "Refusing baseline checkpoint cleanup through symlink: $component" >&2
+      return 1
+    }
+  done
+  [[ -e "$checkpoint_root" ]] || return 0
+  [[ -d "$checkpoint_root" ]] || {
+    echo 'Baseline checkpoint path is not a directory.' >&2
+    return 1
+  }
+  rm -f -- "$checkpoint_root"/*.json
 }
 
 restore_previous_release() {
@@ -53,9 +77,26 @@ restore_previous_release() {
         systemctl start "${workers[@]}" "${timers[@]}" || true
         exit "$status"
       fi
+      # Stopping a timer does not stop an already running oneshot. Never switch
+      # its working tree back while the new reconciliation CLI is still alive.
+      if systemctl cat edicius-airfare-sync.service >/dev/null 2>&1; then
+        systemctl stop edicius-airfare-sync.service || {
+          echo 'Could not stop replica reconciliation; keeping the new release for recovery.' >&2
+          exit "$status"
+        }
+      fi
       ln -sfn -- "$previous_release" "$current_link" || echo 'Could not restore the release link.' >&2
       "$previous_release/ops/pi/install.sh" || echo 'Could not reinstall the previous units.' >&2
+      # A failed downgrade may have disabled a timer shipped by the original
+      # release. Restore its prior activation before dropping new-only timers.
+      for unit in "${previous_timers[@]}"; do
+        if [[ " ${timers[*]} " != *" $unit "* ]]; then
+          timers+=("$unit")
+        fi
+        systemctl enable "$unit" || echo "Could not re-enable $unit." >&2
+      done
       drop_timers_missing_from "$previous_release"
+      invalidate_baseline_ack
     fi
     systemctl start "${workers[@]}" "${timers[@]}" || echo 'Could not restart every collector unit.' >&2
   fi
@@ -79,6 +120,13 @@ fi
 }
 
 if [[ "$previous_release" == "$release" ]]; then
+  if [[ -f "$release/ops/pi/systemd/edicius-airfare-sync.service" &&
+        -f "$release/ops/pi/systemd/edicius-airfare-sync.timer" ]]; then
+    [[ "$(systemctl is-enabled edicius-airfare-sync.timer 2>/dev/null || true)" == enabled ]] || {
+      echo 'Replica reconciliation timer is not enabled; complete its controlled activation.' >&2
+      exit 1
+    }
+  fi
   for unit in "${workers[@]}" "${timers[@]}"; do
     systemctl is-active --quiet "$unit" || { echo "$unit is not active." >&2; exit 1; }
   done
@@ -123,10 +171,21 @@ flock -n "$lock_path" systemctl stop edicius-airfare-requests.service || {
 }
 systemctl stop edicius-tweets.service edicius-market.service
 
+invalidate_baseline_ack
 switched=1
 ln -sfn -- "$release" "$current_link"
 "$release/ops/pi/install.sh"
 "$release/ops/pi/verify.sh"
+drop_timers_missing_from "$release"
+# First installation needs no pre-existing timer. Activate only after the new
+# pinned units have been installed and checked, and track it for rollback.
+if [[ -f "$release/ops/pi/systemd/edicius-airfare-sync.service" &&
+      -f "$release/ops/pi/systemd/edicius-airfare-sync.timer" ]]; then
+  if [[ " ${timers[*]} " != *" edicius-airfare-sync.timer "* ]]; then
+    timers+=(edicius-airfare-sync.timer)
+  fi
+  systemctl enable edicius-airfare-sync.timer
+fi
 systemctl start "${workers[@]}" "${timers[@]}"
 
 [[ "$(readlink -f -- "$current_link")" == "$release" ]]

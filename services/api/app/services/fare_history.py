@@ -605,7 +605,7 @@ class FareHistory:
         Returns how many days are new to us. A day we already hold is
         overwritten by the fresh value rather than duplicated: it is the same
         provider answering about the same day, so the later answer is the one
-        to keep.
+        to keep. An identical merge leaves the archive file untouched.
         """
         if not points:
             return 0
@@ -614,14 +614,19 @@ class FareHistory:
             for row in self._read_baseline_rows(origin, destination)
         }
         before = len(existing)
-        for point in points:
-            existing[(flight_date, point.date)] = {
+        incoming = {
+            (flight_date, point.date): {
                 "flightDate": flight_date,
                 "date": point.date,
                 "price": point.price,
                 "currency": currency,
                 "source": source,
             }
+            for point in points
+        }
+        if all(existing.get(key) == row for key, row in incoming.items()):
+            return 0
+        existing.update(incoming)
         rows = sorted(existing.values(), key=lambda row: (str(row["flightDate"]), str(row["date"])))
 
         path = self._baseline_path(origin, destination)

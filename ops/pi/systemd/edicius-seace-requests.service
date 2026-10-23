@@ -1,0 +1,21 @@
+[Unit]
+Description=Edicius SEACE manual refresh queue
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=90min
+User=edicius-collector
+Group=edicius-collector
+WorkingDirectory=/opt/edicius-hq/current
+EnvironmentFile=/etc/edicius-hq/collectors.env
+Environment=HOME=/var/lib/edicius-hq
+Environment=SEACE_STATE_DIR=/var/lib/edicius-hq/seace
+ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/seace-collect.py --mode requests
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/edicius-hq/seace
+UMask=0077

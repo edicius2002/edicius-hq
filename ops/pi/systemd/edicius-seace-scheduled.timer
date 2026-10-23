@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Edicius SEACE incremental collection
+
+[Timer]
+OnCalendar=hourly
+OnBootSec=5min
+Persistent=true
+RandomizedDelaySec=2min
+Unit=edicius-seace-scheduled.service
+
+[Install]
+WantedBy=timers.target

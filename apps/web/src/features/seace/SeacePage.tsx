@@ -396,7 +396,7 @@ export function SeacePage() {
       setImportKeys(parseExclusionKeys(await file.text()));
       setMessage('');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo leer el JSON.');
+      setMessage(error instanceof Error ? error.message : 'Could not read the JSON file.');
     }
   };
   const importExclusions = async () => {
@@ -408,7 +408,7 @@ export function SeacePage() {
       setMessage(`Imported ${importKeys.length} exclusion codes.`);
       setImportKeys(null);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo importar el JSON.');
+      setMessage(error instanceof Error ? error.message : 'Could not import the JSON file.');
     } finally {
       setSavingExclusions(false);
     }

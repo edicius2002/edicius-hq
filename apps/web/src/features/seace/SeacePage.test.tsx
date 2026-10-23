@@ -125,6 +125,20 @@ describe('SEACE views', () => {
     );
   });
 
+  it('restores a saved exclusion and returns the record to Not excluded', async () => {
+    const key = 'minor:["Arequipa","CM-RECENT"]';
+    mocks.loadExclusions.mockResolvedValue(new Set([key]));
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Excluded' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore selected (1)' }));
+
+    await waitFor(() => expect(mocks.setExcludedMany).toHaveBeenCalledWith([key], false));
+    expect(screen.queryByRole('link', { name: 'CM-RECENT' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Not excluded' }));
+    expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+  });
+
   it('excludes selected rows together and moves them to the excluded view', async () => {
     const rows = await mocks.loadSeace();
     mocks.loadSeace.mockResolvedValue([

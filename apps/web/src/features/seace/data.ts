@@ -78,6 +78,7 @@ export async function setExcludedMany(keys: string[], excluded: boolean): Promis
       {
         onConflict: 'owner_id,record_key',
         ignoreDuplicates: true,
+        defaultToNull: false,
       },
     );
     if (error) throw new Error('Could not exclude selected records');

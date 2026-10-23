@@ -37,4 +37,4 @@
 - [x] Run the test and confirm it fails against the current transport.
 - [x] Implement the shared pacing lock and validated interval.
 - [x] Run targeted transport and collector tests, then lints and type checks.
-- [ ] Commit, publish, deploy the exact commit, and inspect a real pass for 403 and start spacing.
+- [x] Commit, publish, deploy the exact commit, and inspect a real pass for 403 and start spacing.

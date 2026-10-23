@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
+import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
@@ -102,6 +103,7 @@ def focus_payload(
 def cloud() -> Mock:
     result = Mock()
     result.owner_id = OWNER
+    result.list_cached_bars.return_value = []
     result.documents.return_value = {
         "watchlist": {"entries": [{"symbol": " AAPL "}, {"symbol": {}}]},
         "portfolio": {
@@ -150,6 +152,329 @@ def test_partial_portfolio_position_still_owns_its_symbol():
     remote.documents.return_value["portfolio"] = {"positions": [{"symbol": "  msft  "}]}
 
     assert MarketWorker(remote).desired_symbols() == ("AAPL", "MSFT")
+
+
+def test_slow_cloud_claim_does_not_block_event_loop():
+    async def scenario():
+        remote = cloud()
+
+        def slow_claim(_operations):
+            time.sleep(0.15)
+            return None
+
+        remote.claim_request.side_effect = slow_claim
+        worker = MarketWorker(remote, stream=IdleStream(), bar_stream=IdleBarStream())
+        task = asyncio.create_task(worker.claim_until_empty())
+        await asyncio.wait_for(asyncio.sleep(0.01), timeout=0.1)
+        assert not task.done()
+        await task
+
+    asyncio.run(scenario())
+
+
+def test_duplicate_queued_bars_reuse_one_fresh_provider_result(monkeypatch):
+    async def scenario():
+        remote = cloud()
+        clock = Clock()
+        worker = MarketWorker(remote, clock=clock, client=Mock())
+        fetched = AsyncMock(return_value=[Bar(1, 1, 2, 1, 2, 3)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+        payload = {"symbol": "AAPL", "timeframe": "1m", "extended": False}
+
+        first = await worker._bars(payload)
+        second = await worker._bars(payload)
+        assert first == second
+        fetched.assert_awaited_once()
+
+        clock.advance(11)
+        await worker._bars(payload)
+        assert fetched.await_count == 2
+
+    asyncio.run(scenario())
+
+
+def test_reconciliation_updates_a_watched_daily_candle_without_a_browser_request(monkeypatch):
+    """A closed Investing tab must not stop the Pi from warming its chart cache."""
+
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {"watchlist": {"entries": [{"symbol": "AAPL"}]}}
+        remote.claim_request.return_value = None
+        worker = MarketWorker(
+            remote, stream=IdleStream(), bar_stream=IdleBarStream(), client=Mock()
+        )
+        worker.recover_quotes = AsyncMock()
+        fetched = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+
+        await worker.reconcile_once()
+
+        fetched.assert_awaited_once()
+        assert fetched.await_args.args[1] == "AAPL"
+        assert fetched.await_args.args[2].key == "1d"
+        row = remote.upsert_bars.call_args.args[0]
+        assert row["symbol"] == "AAPL"
+        assert row["timeframe"] == "1d"
+        assert row["payload"]["bars"] == [
+            {"time": 100, "open": 99, "high": 101, "low": 98, "close": 100, "volume": 10}
+        ]
+        remote.claim_request.assert_called_once_with(("market-bars", "market-search"))
+
+    asyncio.run(scenario())
+
+
+def test_reconciliation_refreshes_an_expired_viewed_timeframe_without_a_browser(monkeypatch):
+    """A previously viewed 15m series stays current after the tab is closed."""
+
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {"watchlist": {"entries": [{"symbol": "AAPL"}]}}
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": False,
+                "expires_at": "2099-10-23T10:05:00+00:00",
+            },
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": True,
+                "expires_at": "2099-10-23T10:05:00+00:00",
+            },
+            {
+                "symbol": "AAPL",
+                "timeframe": "15m",
+                "extended": True,
+                "expires_at": "2020-10-23T10:00:30+00:00",
+            },
+        ]
+        worker = MarketWorker(
+            remote, stream=IdleStream(), bar_stream=IdleBarStream(), client=Mock()
+        )
+        worker.recover_quotes = AsyncMock()
+        fetched = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+
+        await worker.reconcile_once()
+
+        fetched.assert_awaited_once()
+        assert fetched.await_args.args[1] == "AAPL"
+        assert fetched.await_args.args[2].key == "15m"
+        assert fetched.await_args.kwargs == {"extended": True}
+        assert remote.upsert_bars.call_args.args[0]["extended"] is True
+
+    asyncio.run(scenario())
+
+
+def test_new_watched_daily_chart_is_not_starved_by_an_expiring_one_minute_chart(monkeypatch):
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {
+            "watchlist": {"entries": [{"symbol": "AAPL"}, {"symbol": "QQQ"}]}
+        }
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": extended,
+                "expires_at": "2099-10-23T10:05:00+00:00",
+            }
+            for extended in (False, True)
+        ] + [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1m",
+                "extended": False,
+                "expires_at": "2020-10-23T10:00:00+00:00",
+            }
+        ]
+        worker = MarketWorker(
+            remote, stream=IdleStream(), bar_stream=IdleBarStream(), client=Mock()
+        )
+        worker.recover_quotes = AsyncMock()
+        fetched = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+
+        await worker.reconcile_once()
+
+        assert fetched.await_args.args[1] == "QQQ"
+        assert fetched.await_args.args[2].key == "1d"
+
+    asyncio.run(scenario())
+
+
+def test_background_candles_rest_after_the_final_stock_session(monkeypatch):
+    """Expired TTLs alone must not hammer Yahoo all night or over a weekend."""
+
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {"watchlist": {"entries": [{"symbol": "AAPL"}]}}
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": extended,
+                "fetched_at": "2026-10-24T00:05:00+00:00",
+                "expires_at": "2026-10-24T00:10:00+00:00",
+            }
+            for extended in (False, True)
+        ]
+        worker = MarketWorker(
+            remote,
+            stream=IdleStream(),
+            bar_stream=IdleBarStream(),
+            client=Mock(),
+            wall_clock=lambda: datetime(2026, 10, 24, 1, tzinfo=UTC),
+        )
+        worker.recover_quotes = AsyncMock()
+        fetched = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+
+        await worker.reconcile_once()
+
+        fetched.assert_not_awaited()
+        remote.upsert_bars.assert_not_called()
+
+    asyncio.run(scenario())
+
+
+def test_provider_closed_state_prevents_repeated_holiday_bar_fetches(monkeypatch):
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {"watchlist": {"entries": [{"symbol": "AAPL"}]}}
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": extended,
+                "fetched_at": "2026-10-23T00:05:00+00:00",
+                "expires_at": "2026-10-23T00:10:00+00:00",
+            }
+            for extended in (False, True)
+        ]
+        worker = MarketWorker(
+            remote,
+            stream=IdleStream(),
+            bar_stream=IdleBarStream(),
+            client=Mock(),
+            wall_clock=lambda: datetime(2026, 10, 23, 15, tzinfo=UTC),
+        )
+        worker.recover_quotes = AsyncMock()
+        worker.accept(Tick("AAPL", 100, "yahoo", market_state="CLOSED", time=1))
+        fetched = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+
+        await worker.reconcile_once()
+
+        fetched.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+def test_default_aapl_chart_uses_provider_closed_state_without_watchlist(monkeypatch):
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {}
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": extended,
+                "fetched_at": "2026-10-23T00:05:00+00:00",
+                "expires_at": "2026-10-23T00:10:00+00:00",
+            }
+            for extended in (False, True)
+        ]
+        worker = MarketWorker(
+            remote,
+            stream=IdleStream(),
+            bar_stream=IdleBarStream(),
+            client=Mock(),
+            wall_clock=lambda: datetime(2026, 10, 23, 15, tzinfo=UTC),
+        )
+        quotes = AsyncMock(
+            return_value=([Quote("AAPL", 100, "USD", 99, "yahoo", market_state="CLOSED")], [])
+        )
+        bars = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_quotes", quotes)
+        monkeypatch.setattr(registry, "fetch_bars", bars)
+
+        await worker.reconcile_once()
+
+        quotes.assert_awaited_once()
+        assert quotes.await_args.args[1] == ["AAPL"]
+        bars.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+def test_background_refresh_respects_a_slower_daily_cadence(monkeypatch):
+    async def scenario():
+        remote = cloud()
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": "AAPL",
+                "timeframe": "1d",
+                "extended": extended,
+                "fetched_at": "2026-10-23T14:30:00+00:00",
+                "expires_at": "2026-10-23T14:35:00+00:00",
+            }
+            for extended in (False, True)
+        ]
+        worker = MarketWorker(
+            remote, client=Mock(), wall_clock=lambda: datetime(2026, 10, 23, 15, tzinfo=UTC)
+        )
+        bars = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", bars)
+
+        await worker.refresh_cached_bars()
+        bars.assert_not_awaited()
+
+        remote.list_cached_bars.return_value[0]["fetched_at"] = "2026-10-23T10:30:00+00:00"
+        await worker.refresh_cached_bars()
+        bars.assert_awaited_once()
+
+    asyncio.run(scenario())
+
+
+def test_background_refresh_has_a_daily_provider_budget(monkeypatch):
+    async def scenario():
+        monkeypatch.setattr(market_worker, "BACKGROUND_DAILY_BAR_LIMIT", 1)
+        remote = cloud()
+        worker = MarketWorker(remote, client=Mock())
+        bars = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", bars)
+
+        await worker.refresh_cached_bars()
+        await worker.refresh_cached_bars()
+
+        bars.assert_awaited_once()
+
+    asyncio.run(scenario())
+
+
+def test_background_bar_metadata_outage_does_not_stop_quote_reconciliation():
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {}
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.side_effect = CollectorCloudUnavailable("offline")
+        worker = MarketWorker(
+            remote, stream=IdleStream(), bar_stream=IdleBarStream(), client=Mock()
+        )
+        worker.recover_quotes = AsyncMock()
+        worker.flush_quotes_async = AsyncMock()
+
+        assert await worker.reconcile_once() is False
+        worker.flush_quotes_async.assert_awaited_once()
+
+    asyncio.run(scenario())
 
 
 def test_many_ticks_flush_one_latest_quote_per_window():
@@ -532,6 +857,7 @@ def test_quiet_market_makes_no_broadcast_request_and_still_reconciles(monkeypatc
         worker.refresh_symbols = AsyncMock()
         worker.claim_until_empty = AsyncMock(return_value=0)
         worker.recover_quotes = AsyncMock()
+        worker.refresh_cached_bars = AsyncMock()
         stopped = asyncio.Event()
 
         asyncio.get_running_loop().call_later(0.035, stopped.set)
@@ -568,6 +894,7 @@ def test_stop_event_interrupts_reconciliation_wait_without_waiting_thirty_second
         remote.claim_request.return_value = None
         stopped = asyncio.Event()
         worker = MarketWorker(remote, stream=IdleStream(), client=Mock())
+        worker.recover_quotes = AsyncMock()
         task = asyncio.create_task(worker.run(stopped))
         await asyncio.sleep(0)
         stopped.set()
@@ -598,11 +925,12 @@ def test_one_reconciliation_drains_requests_recovers_and_flushes_in_order():
     worker.refresh_symbols = AsyncMock(side_effect=lambda: calls.append("documents"))
     worker.claim_until_empty = AsyncMock(side_effect=lambda: calls.append("requests"))
     worker.recover_quotes = AsyncMock(side_effect=lambda: calls.append("recovery"))
-    worker.flush_quotes = Mock(side_effect=lambda: calls.append("flush"))
+    worker.refresh_cached_bars = AsyncMock(side_effect=lambda: calls.append("bars"))
+    worker.flush_quotes_async = AsyncMock(side_effect=lambda: calls.append("flush"))
 
     assert asyncio.run(worker.reconcile_once()) is True
 
-    assert calls == ["documents", "requests", "recovery", "flush"]
+    assert calls == ["documents", "requests", "recovery", "bars", "flush"]
 
 
 def test_reconciliation_is_unhealthy_when_provider_work_failed():
@@ -610,6 +938,7 @@ def test_reconciliation_is_unhealthy_when_provider_work_failed():
     worker.refresh_symbols = AsyncMock()
     worker.claim_until_empty = AsyncMock()
     worker.recover_quotes = AsyncMock(side_effect=lambda: setattr(worker._run_stats, "failed", 1))
+    worker.refresh_cached_bars = AsyncMock()
     worker.flush_quotes = Mock()
 
     assert asyncio.run(worker.reconcile_once()) is False

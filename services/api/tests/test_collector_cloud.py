@@ -85,6 +85,33 @@ def test_quote_upsert_uses_owner_symbol_conflict_and_never_authorization(secret_
     assert json.loads(request.content) == [{**QUOTE, "owner_id": str(OWNER_ID)}]
 
 
+def test_cached_bar_metadata_read_is_owner_scoped_and_omits_payload(secret_config):
+    request = captured_request_for(
+        lambda cloud: cloud.list_cached_bars(),
+        secret_config,
+        httpx.Response(200, json=[]),
+    )
+
+    assert request.method == "GET"
+    assert request.url.path.endswith("/market_bars")
+    assert request.url.params["owner_id"] == f"eq.{OWNER_ID}"
+    assert request.url.params["select"] == "symbol,timeframe,extended,fetched_at,expires_at"
+    assert request.url.params["limit"] == "1000"
+
+
+def test_cached_bar_metadata_read_continues_past_first_page(secret_config):
+    offsets: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        offsets.append(request.url.params["offset"])
+        return httpx.Response(200, json=[{}] * 1000 if len(offsets) == 1 else [{}])
+
+    cloud = CollectorCloud(secret_config, transport=httpx.MockTransport(handle))
+
+    assert len(cloud.list_cached_bars()) == 1001
+    assert offsets == ["0", "1000"]
+
+
 def test_quote_tick_merge_uses_owner_scoped_rpc(secret_config):
     """Live ticks must merge into, rather than replace, the complete quote payload."""
     request = captured_request_for(

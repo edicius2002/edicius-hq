@@ -21,7 +21,7 @@ workers=(edicius-airfare-requests.service edicius-tweets.service edicius-market.
 timers=(edicius-airfare.timer edicius-sentiment.timer)
 # Collectors activated after their first release; pause them only once enabled.
 optional_timers=(edicius-fx.timer)
-optional_timers+=(edicius-airfare-sync.timer edicius-seace-scheduled.timer edicius-seace-requests.timer)
+optional_timers+=(edicius-airfare-sync.timer edicius-seace-scheduled.timer edicius-seace-notices.timer edicius-seace-requests.timer)
 for unit in "${optional_timers[@]}"; do
   if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
     timers+=("$unit")
@@ -82,6 +82,12 @@ restore_previous_release() {
       if systemctl cat edicius-airfare-sync.service >/dev/null 2>&1; then
         systemctl stop edicius-airfare-sync.service || {
           echo 'Could not stop replica reconciliation; keeping the new release for recovery.' >&2
+          exit "$status"
+        }
+      fi
+      if systemctl cat edicius-seace-notices.service >/dev/null 2>&1; then
+        systemctl stop edicius-seace-notices.service || {
+          echo 'Could not stop SEACE notice collection; keeping the new release for recovery.' >&2
           exit "$status"
         }
       fi
@@ -185,6 +191,13 @@ if [[ -f "$release/ops/pi/systemd/edicius-airfare-sync.service" &&
     timers+=(edicius-airfare-sync.timer)
   fi
   systemctl enable edicius-airfare-sync.timer
+fi
+if [[ -f "$release/ops/pi/systemd/edicius-seace-notices.service" &&
+      -f "$release/ops/pi/systemd/edicius-seace-notices.timer" ]]; then
+  if [[ " ${timers[*]} " != *" edicius-seace-notices.timer "* ]]; then
+    timers+=(edicius-seace-notices.timer)
+  fi
+  systemctl enable edicius-seace-notices.timer
 fi
 systemctl start "${workers[@]}" "${timers[@]}"
 

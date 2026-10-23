@@ -177,7 +177,7 @@ async def minor_notice_updates(session, region, year, previous, existing, pendin
     for row in pending.records(region, year):
         if row.get("state") in ("Vigente", "En Evaluación") and str(row.get("id")) not in active and str(row.get("id")) not in found:
             pending.discover(region, year, [{"idContrato": str(row["id"]), "nomEstadoContrato": "Culminado"}])
-    return await pending.enrich(session, region, year)
+    return await pending.enrich(session, region, year, max_ids=20)
 
 
 def potentially_open(row, now):
@@ -243,16 +243,22 @@ async def contract_updates(session, region, year, previous):
     return [refresh.minor_record(row, region, details.get(contract_id)) for contract_id, row in unique.items()]
 
 
-async def refresh_region(region, year, full=False, publisher=None):
+async def refresh_region(region, year, full=False, publisher=None,
+                         kinds=("notices", "processes", "contracts")):
     region = region_name(region)
     if year < 2024 or year > datetime.now(refresh.PERU_TIME).year:
         raise ValueError("Choose a valid year")
-    snapshots = {kind: read_snapshot(path) for path, _, kind in SOURCES}
+    allowed = {kind for _, _, kind in SOURCES}
+    if not kinds or len(set(kinds)) != len(kinds) or set(kinds) - allowed:
+        raise ValueError("Choose valid, distinct source kinds")
+    selected_sources = tuple(source for source in SOURCES if source[2] in kinds)
+    snapshots = {kind: read_snapshot(path) for path, _, kind in selected_sources}
     existing = {kind: rows_for_year(snapshot, region, year)
                 for kind, snapshot in snapshots.items()}
     previous = {kind: checkpoint(snapshot, region, year) for kind, snapshot in snapshots.items()}
-    pending = refresh.PendingNotices()
-    pending.seed(region, year, existing["notices"])
+    pending = refresh.PendingNotices() if "notices" in kinds else None
+    if pending is not None:
+        pending.seed(region, year, existing["notices"])
     updates = {}
     params = StdioServerParameters(
         command=sys.executable,
@@ -261,27 +267,30 @@ async def refresh_region(region, year, full=False, publisher=None):
     )
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
-        updates["notices"] = (await minor_notice_updates(session, region, year, previous["notices"], existing["notices"], pending=pending)
-                              if previous["notices"] and not full else (await refresh.fetch_minor_notices(region, year, with_open_details=True, pending=pending))["records"])
-        updates["processes"] = (await process_updates(session, region, year, previous["processes"], existing["processes"])
-                                if previous["processes"] and not full else (await refresh.fetch(region, year, 0))["records"])
-        updates["contracts"] = (await contract_updates(session, region, year, previous["contracts"])
-                                if previous["contracts"] and not full else (await refresh.fetch_minor_contracts(region, year))["records"])
+        if pending is not None:
+            updates["notices"] = (await minor_notice_updates(session, region, year, previous["notices"], existing["notices"], pending=pending)
+                                  if previous["notices"] and not full else (await refresh.fetch_minor_notices(region, year, with_open_details=True, pending=pending))["records"])
+        if "processes" in kinds:
+            updates["processes"] = (await process_updates(session, region, year, previous["processes"], existing["processes"])
+                                    if previous["processes"] and not full else (await refresh.fetch(region, year, 0))["records"])
+        if "contracts" in kinds:
+            updates["contracts"] = (await contract_updates(session, region, year, previous["contracts"])
+                                    if previous["contracts"] and not full else (await refresh.fetch_minor_contracts(region, year))["records"])
     fetched_at = datetime.now(refresh.PERU_TIME).isoformat(timespec="seconds")
     merged = {kind: merge(snapshots[kind], region, year, kind, updates[kind], fetched_at)
-              for _, _, kind in SOURCES}
+              for _, _, kind in selected_sources}
     if publisher is not None:
-        for _, _, kind in SOURCES:
+        for _, _, kind in selected_sources:
             keys = {record_key(row, kind) for row in updates[kind]}
             # Publish the same preserved fields as the local merge, including
             # old documents when a later archive request failed.
             rows = [row for row in merged[kind][0]["records"] if record_key(row, kind) in keys]
             publisher(kind, rows, fetched_at, merged[kind][1]["total"])
-    for path, variable, kind in SOURCES:
+    for path, variable, kind in selected_sources:
         write_snapshot(path, variable, merged[kind][0])
-    if publisher is not None:
+    if publisher is not None and pending is not None:
         pending.acknowledge(region, year)
-    return {kind: merged[kind][1] for _, _, kind in SOURCES}
+    return {kind: merged[kind][1] for _, _, kind in selected_sources}
 
 
 if __name__ == "__main__":

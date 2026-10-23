@@ -18,8 +18,9 @@ DETAIL_PAYLOAD = {"uitContratoCompletoProjection": {"idContrato": 111}}
 
 
 @pytest.fixture
-def server(monkeypatch):
+def server(monkeypatch, tmp_path):
     monkeypatch.setenv("SEACE_UPDATE_CHECK", "0")
+    monkeypatch.setenv("SEACE_STATE_DIR", str(tmp_path))
     monkeypatch.delenv("SEACE_PROD6_MAX_CONCURRENCY", raising=False)
     monkeypatch.delenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", raising=False)
     path = Path(__file__).resolve().parents[2] / "seace/vendor/seace_mcp/server.py"
@@ -28,6 +29,42 @@ def server(monkeypatch):
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "PROD6_MIN_INTERVAL_SECONDS", 0, raising=False)
     return module
+
+
+def test_403_cooldown_skips_queued_requests_and_survives_restart(server, monkeypatch):
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        return httpx.Response(403 if len(calls) == 1 else 200, json={})
+
+    async def run(module):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            with pytest.raises(module.Prod6Error) as caught:
+                await module.api6_json(client, "buscadorpublico", "/contrataciones/buscador")
+            return caught.value
+
+    first = asyncio.run(run(server))
+    assert first.kind == "forbidden"
+    assert first.retry_after >= 890
+    second = asyncio.run(run(server))
+    assert second.kind == "cooldown"
+    assert len(calls) == 1
+
+    path = Path(server.__file__)
+    spec = importlib.util.spec_from_file_location("seace_transport_restarted", path)
+    restarted = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(restarted)
+    assert asyncio.run(run(restarted)).kind == "cooldown"
+    assert len(calls) == 1
+    server.PROD6_COOLDOWN_PATH.write_text(str(time.time() - 1), encoding="ascii")
+
+    async def resume():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await restarted.api6_json(client, "buscadorpublico", "/contrataciones/buscador")
+
+    assert asyncio.run(resume()) == {}
+    assert len(calls) == 2
 
 
 def mock_clients(monkeypatch, server, handler):
@@ -253,7 +290,7 @@ def test_cancelled_request_releases_shared_capacity(server, monkeypatch):
     asyncio.run(run())
 
 
-def test_file_failure_keeps_completed_detail_and_other_ids(server, monkeypatch):
+def test_file_failure_keeps_completed_detail_and_cools_queued_ids(server, monkeypatch):
     async def handler(request):
         if "/archivo/" in request.url.path:
             if "/111/" in request.url.path:
@@ -274,9 +311,8 @@ def test_file_failure_keeps_completed_detail_and_other_ids(server, monkeypatch):
     assert partial["cabecera"] == {"nombre": "Public notice"}
     assert partial["fases_completadas"] == ["detail"]
     assert "documentos" not in partial
-    assert result["detalles"]["222"]["fases_completadas"] == ["detail", "files"]
-    assert result["detalles"]["222"]["documentos"] == []
-    assert [(f["id"], f["fase"]) for f in result["faltas"]] == [("111", "files")]
+    assert "222" not in result["detalles"]
+    assert [(f["id"], f["fase"]) for f in result["faltas"]] == [("111", "files"), ("222", "detail")]
 
 
 @pytest.mark.parametrize("phase", ["detail", "files"])

@@ -5,6 +5,7 @@ import asyncio
 import fcntl
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,9 +20,14 @@ from app.config import collector_config  # noqa: E402
 from app.services.collector_cloud import CollectorCloud  # noqa: E402
 
 PERU_TIME = timezone(timedelta(hours=-5))
+SCOPES = {
+    "all": ("notices", "processes", "contracts"),
+    "notices": ("notices",),
+    "core": ("processes", "contracts"),
+}
 
 
-def run_pass(cloud, region, year):
+def run_pass(cloud, region, year, scope="all"):
     region = region_name(region)
     if isinstance(year, bool) or not isinstance(year, int):
         raise TypeError("invalid SEACE year")
@@ -33,7 +39,7 @@ def run_pass(cloud, region, year):
             nonlocal written
             written += publish_updates(cloud, region, year, kind, updates, fetched_at, total)
 
-        counts = asyncio.run(refresh_region(region, year, publisher=publisher))
+        counts = asyncio.run(refresh_region(region, year, publisher=publisher, kinds=SCOPES[scope]))
         cloud.finish_run(
             run_id,
             {
@@ -51,9 +57,12 @@ def run_pass(cloud, region, year):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("scheduled", "requests"), required=True)
+    parser.add_argument("--scope", choices=tuple(SCOPES), default="all")
     parser.add_argument("--region", default="Arequipa")
     parser.add_argument("--year", type=int, default=datetime.now(PERU_TIME).year)
     args = parser.parse_args()
+    if args.mode == "requests" and args.scope != "all":
+        parser.error("queued owner refreshes always update all SEACE sources")
     state_dir = Path(os.environ.get("SEACE_STATE_DIR", "/var/lib/edicius-hq/seace"))
     state_dir.mkdir(parents=True, exist_ok=True)
     lock_path = state_dir / "seace.lock"
@@ -62,10 +71,16 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return 0  # the next timer tick will retry a queued request
+        cooldown_path = state_dir / "prod6-cooldown-until"
+        if args.mode == "scheduled" and args.scope == "notices" and cooldown_path.exists():
+            remaining = float(cooldown_path.read_text(encoding="ascii")) - time.time()
+            if remaining > 0:
+                print(f"SEACE prod6 cooldown active; retry after {remaining:.0f}s", flush=True)
+                return 0
         cloud = CollectorCloud(collector_config())
         try:
             if args.mode == "scheduled":
-                run_pass(cloud, args.region, args.year)
+                run_pass(cloud, args.region, args.year, scope=args.scope)
             else:
                 request = cloud.claim_seace_refresh_request()
                 if request is None:

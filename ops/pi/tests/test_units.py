@@ -21,6 +21,23 @@ SERVICES = tuple(
 TIMERS = tuple(SYSTEMD / f"edicius-{name}.timer" for name in ("airfare", "sentiment", "fx"))
 
 
+def test_seace_notice_and_core_schedule_are_separate() -> None:
+    notice_service = (SYSTEMD / "edicius-seace-notices.service").read_text(encoding="utf-8")
+    notice_timer = (SYSTEMD / "edicius-seace-notices.timer").read_text(encoding="utf-8")
+    core_service = (SYSTEMD / "edicius-seace-scheduled.service").read_text(encoding="utf-8")
+    core_timer = (SYSTEMD / "edicius-seace-scheduled.timer").read_text(encoding="utf-8")
+    assert "--mode scheduled --scope notices --region Arequipa" in notice_service
+    assert "--mode scheduled --scope core --region Arequipa" in core_service
+    assert "OnCalendar=*-*-* *:0/5:00" in notice_timer
+    assert "OnCalendar=hourly" in core_timer
+    assert "SEACE_STATE_DIR=/var/lib/edicius-hq/seace" in notice_service
+    assert "ReadWritePaths=/var/lib/edicius-hq/seace" in notice_service
+    for script in (INSTALL, VERIFY, PI_ROOT / "deploy-release.sh"):
+        text = script.read_text(encoding="utf-8")
+        assert "edicius-seace-notices.service" in text or script.name == "deploy-release.sh"
+        assert "edicius-seace-notices.timer" in text
+
+
 @pytest.mark.parametrize("unit", SERVICES)
 def test_services_are_unprivileged_network_aware_and_secret_file_backed(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")

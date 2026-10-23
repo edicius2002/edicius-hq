@@ -54,22 +54,43 @@ since the previous import, so use it as a one-time migration.
 
 ## First pass and scheduled operation
 
-Run `sudo systemctl start edicius-seace-scheduled.service` once and inspect its
-exit state and `collector_runs` row. The first pass fetches all current-year
+Run `sudo systemctl start edicius-seace-notices.service` and
+`sudo systemctl start edicius-seace-scheduled.service` once and inspect their
+exit states and `collector_runs` rows. Together they fetch current-year
 Arequipa records; later passes use source-specific overlap windows and reread
-open notices. Confirm the three `seace_sync_state` rows have a recent
+open notices. Confirm all three `seace_sync_state` rows have a recent
 `fetched_at` and nonzero counts, and sample the new `/seace/recent` page.
 
 Enable `edicius-seace-requests.timer` for owner-triggered refreshes. It polls
 the request queue every two minutes. Enable `edicius-seace-scheduled.timer`
-after the first pass is correct. Its initial cadence is hourly and can be
-changed later. Both modes use the same nonblocking state-directory lock, so a
+after the first pass is correct. It refreshes general processes and published
+contracts hourly. `edicius-seace-notices.timer` refreshes minor notices every
+five minutes and is enabled by the pinned release deployment. All three modes
+use the same nonblocking state-directory lock, so a
 manual request never overlaps a scheduled pass. A queued request expires
 after two hours; a later click can enqueue another.
 
+The notice pass searches for new and changed minor notices, rereads active
+statuses and enriches at most 20 IDs per pass. Changed, still-open source rows
+reenroll completed detail and file phases while preserving the last successful
+items and documents until replacement data arrives. Manual refreshes still
+include all three sources. Each source publishes and advances its own snapshot
+only when selected by that pass.
+
+The prod6 MCP keeps one second between HTTP starts and a maximum of five
+in-flight requests. On the first HTTP 403 it writes an epoch deadline to
+`$SEACE_STATE_DIR/prod6-cooldown-until` and rejects queued prod6 requests
+without another HTTP attempt. The default cooldown is 900 seconds, adjustable
+with `SEACE_PROD6_403_COOLDOWN_SECONDS`. The five-minute notice service skips
+scheduled passes while that deadline is active; the hourly core service remains
+independent. After expiry the next scheduled notice pass resumes automatically.
+Inspect `journalctl -u edicius-seace-notices.service` and the cooldown deadline
+if a notice snapshot stops advancing. The cooldown file is Pi-local state and
+must be retained across releases.
+
 If a pass fails after some rows upload, `seace_sync_state` may advance for an
-earlier kind, but the local snapshots do not advance until all three kinds
-upload. The next pass replays the overlap and upserts the same stable keys.
+earlier selected kind, but the local snapshots do not advance until all selected
+kinds upload. The next pass replays the overlap and upserts the same stable keys.
 Exclusions live in a separate table and are never changed by a refresh.
 
 ## Persistent minor-notice enrichment queue
@@ -139,7 +160,7 @@ Standalone refresh without a publisher leaves fetched phases `ready`.
 
 ## Rollback
 
-Disable and stop both SEACE timers and services, then restore the previous
+Disable and stop the three SEACE timers and services, then restore the previous
 exact Edicius release through the normal Pi rollback. Leave SEACE tables and
 Pi snapshots intact. Do not run `db reset`, truncate, or delete existing rows.
 The web route can be removed or hidden independently of source data.

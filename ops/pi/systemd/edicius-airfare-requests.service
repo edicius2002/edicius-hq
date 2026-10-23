@@ -14,7 +14,7 @@ Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq
 ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/airfare-request-worker.py
 Restart=on-failure
 RestartSec=15
-TimeoutStopSec=60
+TimeoutStopSec=5min
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

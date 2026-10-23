@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-
 PI_ROOT = Path(__file__).resolve().parents[1]
 SYSTEMD = PI_ROOT / "systemd"
 INSTALL = PI_ROOT / "install.sh"
@@ -98,7 +97,8 @@ def test_workers_restart_with_bounded_systemd_backoff(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")
     assert "Restart=on-failure" in text
     assert "RestartSec=15" in text
-    assert "TimeoutStopSec=60" in text
+    expected_stop = "5min" if unit.name == "edicius-airfare-requests.service" else "60"
+    assert f"TimeoutStopSec={expected_stop}" in text
 
 
 @pytest.mark.parametrize(

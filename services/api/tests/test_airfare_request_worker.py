@@ -8,11 +8,13 @@ import json
 import threading
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
+from itertools import chain, repeat
 from unittest.mock import AsyncMock, Mock, call
 from uuid import UUID
 
 from app.services.airfare_request_worker import AirfareRequestWorker
 from app.services.collector_cloud import CollectorRequest
+from app.services.fare_budget import DailyBudget
 from app.services.fare_collector import CollectionReport, RouteResult
 from app.services.fare_passes import PassLedger, PassRecorder
 from app.services.process_lock import ProcessLockUnavailable
@@ -53,12 +55,19 @@ def available_lock(_name: str):
 
 
 def worker_for(remote: Mock, **kwargs) -> AirfareRequestWorker:
+    # A real empty queue keeps returning no row; list-backed mocks should too.
+    effect = remote.claim_request.side_effect
+    if effect is not None and not callable(effect):
+        remote.claim_request.side_effect = chain(effect, repeat(None))
     recorder = Mock(pass_id="test-pass")
     recorder_factory = kwargs.pop("recorder_factory", Mock(return_value=recorder))
+    pass_lock = Mock()
+    pass_lock.acquire.return_value = True
     return AirfareRequestWorker(
         remote,
         lock_factory=available_lock,
-        today=lambda: date(2026, 9, 19),
+        pass_lock_factory=lambda: pass_lock,
+        today=kwargs.pop("today", lambda: date(2026, 9, 19)),
         recorder_factory=recorder_factory,
         **kwargs,
     )
@@ -69,7 +78,7 @@ def test_success_completes_only_after_progress_and_sync():
     remote.claim_request.side_effect = [request(), None]
     order: list[str] = []
 
-    async def collect_route(_watch, observer, _pass_id):
+    async def collect_route(_watch, observer, _pass_id, **_options):
         observer.planned(polling=3, skipped=[])
         for result in report().results:
             observer.collected(result)
@@ -86,7 +95,9 @@ def test_success_completes_only_after_progress_and_sync():
     assert asyncio.run(worker.reconcile_once()) is True
 
     assert order == ["collected", "synced", "complete"]
-    remote.claim_request.assert_has_calls([call(("airfare-route",)), call(("airfare-route",))])
+    remote.claim_request.assert_has_calls(
+        [call(("airfare-route",)), call(("airfare-route",), exclude_pairs=("LIM-CUZ",))]
+    )
     remote.complete_request.assert_called_once_with(
         REQUEST_ID,
         {
@@ -353,6 +364,387 @@ def test_one_lock_drains_the_airfare_queue_in_order():
     )
 
     assert collect_route.await_count == 2
+
+
+def test_two_manual_routes_collect_at_once_and_finish_independently():
+    remote = Mock(owner_id=OWNER)
+    second = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), second, None]
+    both_started = asyncio.Event()
+    release = asyncio.Event()
+    started: set[str] = set()
+
+    async def collect_route(watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        started.add(watch.destination)
+        if len(started) == 2:
+            both_started.set()
+        await release.wait()
+        if watch.destination == "CUZ":
+            raise RuntimeError("one route failed")
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        task = asyncio.create_task(worker.reconcile_once())
+        await asyncio.wait_for(both_started.wait(), 1)
+        release.set()
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) is False
+    remote.fail_request.assert_called_once_with(REQUEST_ID, "collection-failed")
+    assert remote.complete_request.call_args.args[0] == second.id
+
+
+def test_queued_second_month_of_same_pair_does_not_block_another_pair():
+    first = request()
+    second_month = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "CUZ", "month": "2026-12", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    other_pair = CollectorRequest(
+        UUID("44444444-4444-4444-4444-444444444444"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    queued = [first, second_month, other_pair]
+    remote = Mock(owner_id=OWNER)
+
+    def claim(_operations, *, exclude_pairs=()):
+        for index, item in enumerate(queued):
+            pair = f"{item.payload['origin']}-{item.payload['destination']}"
+            if pair not in exclude_pairs:
+                return queued.pop(index)
+        return None
+
+    remote.claim_request.side_effect = claim
+    first_started = asyncio.Event()
+    other_started = asyncio.Event()
+    release_first = asyncio.Event()
+    started: list[tuple[str, str]] = []
+
+    async def collect_route(watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        started.append((watch.destination, watch.month))
+        if watch.destination == "CUZ" and watch.month == "2026-11":
+            first_started.set()
+            await release_first.wait()
+        if watch.destination == "AQP":
+            other_started.set()
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        task = asyncio.create_task(worker.reconcile_once())
+        try:
+            await asyncio.wait_for(first_started.wait(), 1)
+            await asyncio.wait_for(other_started.wait(), 0.2)
+            assert ("CUZ", "2026-12") not in started
+        finally:
+            release_first.set()
+            await asyncio.wait_for(task, 1)
+
+    asyncio.run(scenario())
+    assert not queued
+    assert remote.complete_request.call_count == 3
+
+
+def test_parallel_routes_share_fail_closed_daily_budget(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    remote = Mock(owner_id=OWNER)
+    other_pair = CollectorRequest(
+        UUID("44444444-4444-4444-4444-444444444444"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), other_pair, None]
+    ledger = Mock()
+    ledger.spent.return_value = 0  # Readable ledger; append silently fails.
+    budgets: list[DailyBudget] = []
+
+    def budget_factory(**_kwargs):
+        budget = DailyBudget(ledger=ledger, ceiling=1, day=date(2026, 9, 19))
+        budgets.append(budget)
+        return budget
+
+    monkeypatch.setattr(module, "daily_budget", budget_factory)
+    sent: list[str] = []
+
+    async def collect_route(watch, observer, _pass_id, **options):
+        observer.planned(polling=3, skipped=[])
+        budget = options["budget"]
+        if budget.affords():
+            budget.take(kind="board", what=watch.destination)
+            sent.append(watch.destination)
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+    assert asyncio.run(worker.reconcile_once()) is True
+    assert len(sent) == 1
+    assert len(budgets) == 1
+
+
+def test_route_claimed_after_utc_midnight_uses_new_daily_budget(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    current_day = date(2026, 9, 19)
+    remote = Mock(owner_id=OWNER)
+    other_pair = CollectorRequest(
+        UUID("44444444-4444-4444-4444-444444444444"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), None, other_pair, None]
+    ledger = Mock()
+    ledger.spent.return_value = 0
+
+    def budget_factory(**options):
+        day = options["now"].date() if options.get("now") is not None else current_day
+        return DailyBudget(ledger=ledger, ceiling=2, day=day)
+
+    monkeypatch.setattr(module, "daily_budget", budget_factory)
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    release_first = asyncio.Event()
+    budgets: dict[str, DailyBudget] = {}
+
+    async def collect_route(watch, observer, _pass_id, **options):
+        observer.planned(polling=3, skipped=[])
+        budgets[watch.destination] = options["budget"]
+        if watch.destination == "CUZ":
+            first_started.set()
+            await release_first.wait()
+        else:
+            second_started.set()
+        return report()
+
+    worker = worker_for(
+        remote,
+        collect_route=collect_route,
+        sync_pass=Mock(return_value=True),
+        today=lambda: current_day,
+    )
+
+    async def scenario():
+        nonlocal current_day
+        task = asyncio.create_task(worker.reconcile_once())
+        try:
+            await asyncio.wait_for(first_started.wait(), 1)
+            current_day = date(2026, 9, 20)
+            worker.wake_requests()
+            await asyncio.wait_for(second_started.wait(), 1)
+        finally:
+            release_first.set()
+            await asyncio.wait_for(task, 1)
+
+    asyncio.run(scenario())
+    assert budgets["CUZ"].day == date(2026, 9, 19)
+    assert budgets["AQP"].day == date(2026, 9, 20)
+
+
+def test_two_months_of_one_pair_do_not_write_and_sync_together():
+    remote = Mock(owner_id=OWNER)
+    second = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "CUZ", "month": "2026-12", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), second, None]
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    started: list[str] = []
+
+    async def collect_route(watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        started.append(watch.month)
+        if watch.month == "2026-11":
+            first_started.set()
+            await release_first.wait()
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        task = asyncio.create_task(worker.reconcile_once())
+        await asyncio.wait_for(first_started.wait(), 1)
+        await asyncio.sleep(0)
+        assert started == ["2026-11"]
+        release_first.set()
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) is True
+    assert started == ["2026-11", "2026-12"]
+
+
+def test_second_route_enqueued_during_first_route_starts_before_first_finishes():
+    remote = Mock(owner_id=OWNER)
+    second = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), None, second, None]
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def collect_route(watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        if watch.destination == "CUZ":
+            first_started.set()
+            await release_first.wait()
+        else:
+            second_started.set()
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        task = asyncio.create_task(worker.reconcile_once())
+        await asyncio.wait_for(first_started.wait(), 1)
+        worker.wake_requests()
+        await asyncio.wait_for(second_started.wait(), 1)
+        release_first.set()
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) is True
+    assert remote.complete_request.call_count == 2
+
+
+def test_second_route_starts_after_poll_when_realtime_wake_is_missed(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    monkeypatch.setattr(module, "RECONCILE_SECONDS", 0.01)
+    remote = Mock(owner_id=OWNER)
+    second = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), None, second, None]
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def collect_route(watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        if watch.destination == "CUZ":
+            first_started.set()
+            await release_first.wait()
+        else:
+            second_started.set()
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        task = asyncio.create_task(worker.reconcile_once())
+        await asyncio.wait_for(first_started.wait(), 1)
+        await asyncio.wait_for(second_started.wait(), 1)
+        release_first.set()
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) is True
+    assert remote.complete_request.call_count == 2
+
+
+def test_slow_completion_of_one_route_does_not_block_the_other_route():
+    remote = Mock(owner_id=OWNER)
+    second = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), second, None]
+    first_completing = threading.Event()
+    release_first = threading.Event()
+    second_completed = threading.Event()
+
+    async def collect_route(watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        if watch.destination == "AQP":
+            assert await asyncio.to_thread(first_completing.wait, 1)
+        return report()
+
+    def complete(request_id, _result):
+        if request_id == REQUEST_ID:
+            first_completing.set()
+            assert release_first.wait(2)
+        else:
+            second_completed.set()
+
+    remote.complete_request.side_effect = complete
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        task = asyncio.create_task(worker.reconcile_once())
+        try:
+            assert await asyncio.to_thread(second_completed.wait, 0.5)
+        finally:
+            release_first.set()
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_shutdown_drains_active_route_without_claiming_another():
+    remote = Mock(owner_id=OWNER)
+    second = CollectorRequest(
+        UUID("33333333-3333-3333-3333-333333333333"),
+        OWNER,
+        "airfare-route",
+        {"origin": "LIM", "destination": "AQP", "month": "2026-11", "currency": "USD"},
+        datetime.now(UTC) + timedelta(minutes=30),
+    )
+    remote.claim_request.side_effect = [request(), None, second, None]
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def collect_route(_watch, observer, _pass_id, **_options):
+        observer.planned(polling=3, skipped=[])
+        started.set()
+        await release.wait()
+        return report()
+
+    worker = worker_for(remote, collect_route=collect_route, sync_pass=Mock(return_value=True))
+
+    async def scenario():
+        stopped = asyncio.Event()
+        task = asyncio.create_task(worker.reconcile_once(stop_event=stopped))
+        await asyncio.wait_for(started.wait(), 1)
+        stopped.set()
+        release.set()
+        return await asyncio.wait_for(task, 1)
+
+    assert asyncio.run(scenario()) is True
+    assert remote.claim_request.call_count == 2
+    remote.complete_request.assert_called_once()
 
 
 def test_run_wakes_immediately_and_stops_without_waiting_for_poll_interval():

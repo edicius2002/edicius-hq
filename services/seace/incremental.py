@@ -164,12 +164,14 @@ async def minor_notice_updates(session, region, year, previous, existing):
                 break
             page += 1
     found.update(active)
-    known_ids = {str(row.get("id")) for row in existing}
+    known_by_id = {str(row.get("id")): row for row in existing}
     detail_ids = []
     now = datetime.now(refresh.PERU_TIME)
     for contract_id, row in found.items():
         deadline = source_date(row.get("fecFinCotizacion"))
-        if contract_id not in known_ids and row.get("nomEstadoContrato") == "Vigente" and deadline and deadline > now:
+        prior = known_by_id.get(contract_id)
+        missing_detail = prior is None or not (prior.get("items") or prior.get("documents"))
+        if missing_detail and row.get("nomEstadoContrato") == "Vigente" and deadline and deadline > now:
             detail_ids.append(contract_id)
     details = {}
     for offset in range(0, len(detail_ids), 20):

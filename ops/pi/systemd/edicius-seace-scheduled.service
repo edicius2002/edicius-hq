@@ -12,7 +12,7 @@ WorkingDirectory=/opt/edicius-hq/current
 EnvironmentFile=/etc/edicius-hq/collectors.env
 Environment=HOME=/var/lib/edicius-hq
 Environment=SEACE_STATE_DIR=/var/lib/edicius-hq/seace
-ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/seace-collect.py --mode scheduled --region Arequipa
+ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/scripts/seace-collect.py --mode scheduled --scope core --region Arequipa
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

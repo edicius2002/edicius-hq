@@ -44,6 +44,11 @@ if PROD6_MAX_CONCURRENCY < 1:
 PROD6_MIN_INTERVAL_SECONDS = float(os.getenv("SEACE_PROD6_MIN_INTERVAL_SECONDS", "1"))
 if not 0 <= PROD6_MIN_INTERVAL_SECONDS < float("inf"):
     raise ValueError("SEACE_PROD6_MIN_INTERVAL_SECONDS debe ser un numero finito no negativo")
+PROD6_403_COOLDOWN_SECONDS = float(os.getenv("SEACE_PROD6_403_COOLDOWN_SECONDS", "900"))
+if not 0 < PROD6_403_COOLDOWN_SECONDS < float("inf"):
+    raise ValueError("SEACE_PROD6_403_COOLDOWN_SECONDS debe ser positivo y finito")
+_prod6_state_dir = os.getenv("SEACE_STATE_DIR")
+PROD6_COOLDOWN_PATH = Path(_prod6_state_dir) / "prod6-cooldown-until" if _prod6_state_dir else None
 INFLIGHT_CAP = int(os.getenv("SEACE_INFLIGHT_CAP", "12"))
 SESION_TTL = int(os.getenv("SEACE_SESION_TTL", "900"))
 SESION_MAX = int(os.getenv("SEACE_SESION_MAX", "12"))
@@ -1315,6 +1320,7 @@ _PROD6_SEM: Optional[asyncio.Semaphore] = None
 _PROD6_PACE_LOCK: Optional[asyncio.Lock] = None
 _PROD6_NEXT_START = 0.0
 _PROD6_INFLIGHT = 0
+_PROD6_COOLDOWN_UNTIL = 0.0
 _PROD6_LOG_KEY = uuid.uuid4().bytes
 _PROD6_LOG = logging.getLogger("seace.prod6")
 _PROD6_LOG.setLevel(logging.INFO)
@@ -1334,6 +1340,34 @@ class Prod6Error(RuntimeError):
         self.retry_after = retry_after
         super().__init__(f"API de convocatorias menores: {phase} {kind}"
                          f" (HTTP {status}, intentos {attempts})")
+
+
+def _prod6_cooldown_remaining() -> float:
+    if PROD6_COOLDOWN_PATH is not None:
+        try:
+            until = float(PROD6_COOLDOWN_PATH.read_text(encoding="ascii"))
+        except FileNotFoundError:
+            until = 0.0
+        return max(0.0, until - time.time())
+    return max(0.0, _PROD6_COOLDOWN_UNTIL - time.time())
+
+
+def _prod6_start_cooldown() -> float:
+    global _PROD6_COOLDOWN_UNTIL
+    until = time.time() + PROD6_403_COOLDOWN_SECONDS
+    if PROD6_COOLDOWN_PATH is not None:
+        PROD6_COOLDOWN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = PROD6_COOLDOWN_PATH.with_name(
+            f"{PROD6_COOLDOWN_PATH.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            temporary.write_text(str(until), encoding="ascii")
+            os.replace(temporary, PROD6_COOLDOWN_PATH)
+        finally:
+            temporary.unlink(missing_ok=True)
+    else:
+        _PROD6_COOLDOWN_UNTIL = until
+    return PROD6_403_COOLDOWN_SECONDS
 
 
 def _prod6_context(service: str, path: str, params: Optional[dict]) -> tuple:
@@ -1402,6 +1436,9 @@ async def api6_json(client: httpx.AsyncClient, service: str, path: str,
     endpoint, phase, reference = _prod6_context(service, path, params)
     url = f"{API6}/{service}{path}"
     for attempt in range(1, 4):
+        remaining = _prod6_cooldown_remaining()
+        if remaining:
+            raise Prod6Error(phase, "cooldown", 403, 0, remaining)
         queued = time.monotonic()
         status, retry_after, kind = None, None, "cancelled"
         async with _PROD6_SEM:
@@ -1409,6 +1446,9 @@ async def api6_json(client: httpx.AsyncClient, service: str, path: str,
                 delay = max(0.0, _PROD6_NEXT_START - time.monotonic())
                 if delay:
                     await asyncio.sleep(delay)
+                remaining = _prod6_cooldown_remaining()
+                if remaining:
+                    raise Prod6Error(phase, "cooldown", 403, 0, remaining)
                 _PROD6_NEXT_START = time.monotonic() + PROD6_MIN_INTERVAL_SECONDS
             started = time.monotonic()
             _PROD6_INFLIGHT += 1
@@ -1428,6 +1468,7 @@ async def api6_json(client: httpx.AsyncClient, service: str, path: str,
                         kind = "invalid_payload"
                 elif status == 403:
                     kind = "forbidden"
+                    retry_after = _prod6_start_cooldown()
                 elif status == 429:
                     kind = "rate_limited"
                     retry_after = _prod6_retry_after(response.headers.get("Retry-After"))

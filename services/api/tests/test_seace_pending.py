@@ -537,6 +537,52 @@ def test_initial_discovery_keeps_thousands_of_closed_notices_out_of_http_backlog
     assert rows[0]["enrichment"] == {"detail": "deferred", "files": "deferred"}
 
 
+def test_changed_open_notice_rechecks_completed_phases_and_preserves_old_fields(tmp_path):
+    pending = queue(tmp_path / "pending.sqlite3")
+    pending.discover("Arequipa", 2026, [notice(desObjetoContrato="Original")])
+    complete = Session(
+        {
+            "ok": True,
+            "detalles": {
+                "103550": {
+                    "items": [{"descripcionItem": "Original item"}],
+                    "documentos": [],
+                    "fases_completadas": ["detail", "files"],
+                }
+            },
+            "faltas": [],
+        }
+    )
+    asyncio.run(pending.enrich(complete, "Arequipa", 2026))
+    pending.acknowledge("Arequipa", 2026)
+    pending.discover("Arequipa", 2026, [notice(desObjetoContrato="Original")])
+    assert asyncio.run(pending.enrich(Session({"ok": True}), "Arequipa", 2026)) == []
+    pending.discover("Arequipa", 2026, [notice(desObjetoContrato="Revised")])
+    failed = Session({"ok": True, "detalles": {}, "faltas": []})
+    rows = asyncio.run(pending.enrich(failed, "Arequipa", 2026))
+    assert failed.calls == [{"ids": ["103550"]}]
+    assert rows[0]["items"] == ["Original item"]
+    assert rows[0]["enrichment"] == {"detail": "pending", "files": "pending"}
+
+
+def test_bounded_enrichment_prioritizes_new_ids_and_leaves_others_pending(tmp_path):
+    pending = queue(tmp_path / "pending.sqlite3")
+    pending.discover("Arequipa", 2026, [notice(str(index)) for index in range(5)])
+    session = Session({"ok": True, "detalles": {}, "faltas": []})
+    asyncio.run(pending.enrich(session, "Arequipa", 2026, max_ids=2))
+    assert session.calls == [{"ids": ["0", "1"]}]
+    assert (
+        len(
+            [
+                entry
+                for entry in pending._entries("Arequipa", 2026).values()
+                if entry["attempts"]["detail"]
+            ]
+        )
+        == 2
+    )
+
+
 def test_retry_budget_is_fair_and_survives_notice_closure(tmp_path):
     pending = queue(tmp_path / "pending.sqlite3")
     pending.discover("Arequipa", 2026, [notice(str(index)) for index in range(5)])

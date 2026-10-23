@@ -271,6 +271,12 @@ class PendingNotices:
                             }
                         break
                 if source != entry["source"]:
+                    if entry["source"] and source.get("nomEstadoContrato") == "Vigente":
+                        entry["states"] = {
+                            phase: "pending" if state in ("ready", "complete") else state
+                            for phase, state in entry["states"].items()
+                        }
+                        entry.pop("next_attempt_at", None)
                     entry["source"] = source
                     entry["dirty"] = True
                 self._save(connection, region, year, identifier, entry)
@@ -344,9 +350,11 @@ class PendingNotices:
             records.append(record)
         return records
 
-    async def enrich(self, session, region, year, retry_limit=20):
+    async def enrich(self, session, region, year, retry_limit=20, max_ids=None):
         if retry_limit < 0:
             raise ValueError("retry_limit must be nonnegative")
+        if max_ids is not None and max_ids < 1:
+            raise ValueError("max_ids must be positive")
         entries = self._entries(region, year)
         now = datetime.now(PERU_TIME).timestamp()
         due = {
@@ -367,9 +375,14 @@ class PendingNotices:
                 "last_attempt_at", entries[identifier]["discovered_at"]
             ),
         )[:retry_limit]
+        first_attempts = [
+            identifier for identifier, entry in entries.items()
+            if due[identifier] and not any(entry["attempts"].values())
+        ]
+        selected = set((first_attempts + retrying)[:max_ids])
         groups = {"all": [], "detail": [], "files": []}
         for identifier, entry in entries.items():
-            if any(entry["attempts"].values()) and identifier not in retrying:
+            if identifier not in selected:
                 continue
             phases = due[identifier]
             if phases:
@@ -451,6 +464,8 @@ class PendingNotices:
                                     )
                         entry["dirty"] = True
                     self._save(connection, region, year, identifier, entry)
+            if any(failure.get("status") == 403 for failure in result.get("faltas", [])):
+                break
         return self.records(region, year, dirty_only=True)
 
     def acknowledge(self, region, year):
@@ -502,7 +517,7 @@ async def fetch_minor_notices(region, year, with_open_details=False, pending=Non
         if len(rows) != total:
             raise RuntimeError(f"Minor notice search returned {len(rows)} rows of {total}")
         if with_open_details:
-            await pending.enrich(session, region, year)
+            await pending.enrich(session, region, year, max_ids=20)
         records = pending.records(region, year)
     return {
         "fetchedAt": datetime.now(PERU_TIME).isoformat(timespec="seconds"),

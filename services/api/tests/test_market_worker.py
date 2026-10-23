@@ -306,6 +306,53 @@ def test_new_watched_daily_chart_is_not_starved_by_an_expiring_one_minute_chart(
     asyncio.run(scenario())
 
 
+def test_expired_watched_daily_chart_precedes_older_intraday_cache(monkeypatch):
+    async def scenario():
+        remote = cloud()
+        remote.documents.return_value = {
+            "watchlist": {"entries": [{"symbol": "AAPL"}, {"symbol": "QQQ"}]}
+        }
+        remote.claim_request.return_value = None
+        remote.list_cached_bars.return_value = [
+            {
+                "symbol": symbol,
+                "timeframe": "1d",
+                "extended": extended,
+                "expires_at": "2099-10-23T10:05:00+00:00",
+            }
+            for symbol in ("AAPL", "QQQ")
+            for extended in (False, True)
+            if (symbol, extended) != ("QQQ", True)
+        ] + [
+            {
+                "symbol": "QQQ",
+                "timeframe": "1d",
+                "extended": True,
+                "expires_at": "2023-10-23T10:00:00+00:00",
+            },
+            {
+                "symbol": "AAPL",
+                "timeframe": "1m",
+                "extended": False,
+                "expires_at": "2020-10-23T10:00:00+00:00",
+            },
+        ]
+        worker = MarketWorker(
+            remote, stream=IdleStream(), bar_stream=IdleBarStream(), client=Mock()
+        )
+        worker.recover_quotes = AsyncMock()
+        fetched = AsyncMock(return_value=[Bar(100, 99, 101, 98, 100, 10)])
+        monkeypatch.setattr(registry, "fetch_bars", fetched)
+
+        await worker.reconcile_once()
+
+        assert fetched.await_args.args[1] == "QQQ"
+        assert fetched.await_args.args[2].key == "1d"
+        assert fetched.await_args.kwargs == {"extended": True}
+
+    asyncio.run(scenario())
+
+
 def test_background_candles_rest_after_the_final_stock_session(monkeypatch):
     """Expired TTLs alone must not hammer Yahoo all night or over a weekend."""
 

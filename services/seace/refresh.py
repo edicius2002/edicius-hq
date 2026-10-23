@@ -3,10 +3,13 @@
 import argparse
 import asyncio
 import json
+import math
 import os
 import re
+import sqlite3
 import sys
 import unicodedata
+from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -197,63 +200,321 @@ def minor_notice_record(row, region, detail=None):
     }
 
 
-async def fetch_minor_notices(region, year, with_open_details=False):
+class PendingNotices:
+    """Pi-local outbox, used under the collector's existing single-pass lock.
+
+    Discovery commits before any enrichment request. A successful phase is
+    `ready` until the publisher confirms the pass; a crash replays its saved
+    response without fetching it again. Historical closed notices stay deferred
+    until explicitly activated. Previously enrolled pending work survives closure
+    and is retried within a bounded, fair budget. No work expires silently.
+    """
+
+    def __init__(self, path=None):
+        self.path = Path(path) if path is not None else STATE_DIR / "notice-pending.sqlite3"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("""
+                create table if not exists notices (
+                    region text not null, year integer not null, id text not null,
+                    value text not null, primary key (region, year, id)
+                )
+            """)
+
+    def _entries(self, region, year):
+        with closing(sqlite3.connect(self.path)) as connection:
+            return {
+                identifier: json.loads(value)
+                for identifier, value in connection.execute(
+                    "select id, value from notices where region = ? and year = ? order by rowid",
+                    (region, year),
+                )
+            }
+
+    def _save(self, connection, region, year, identifier, value):
+        connection.execute(
+            "insert into notices values (?, ?, ?, ?) "
+            "on conflict(region, year, id) do update set value = excluded.value",
+            (region, year, identifier, json.dumps(value, ensure_ascii=False)),
+        )
+
+    def discover(self, region, year, rows):
+        entries = self._entries(region, year)
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            for row in rows:
+                identifier = str(row["idContrato"])
+                entry = entries.get(identifier)
+                if entry is None:
+                    entry = {
+                        "source": {},
+                        "detail": {},
+                        "states": {"detail": "deferred", "files": "deferred"},
+                        "attempts": {"detail": 0, "files": 0},
+                        "errors": {},
+                        "discovered_at": datetime.now(PERU_TIME).isoformat(),
+                        "dirty": True,
+                    }
+                    entries[identifier] = entry
+                source = {**entry["source"], **row}
+                if source.get("nomEstadoContrato") == "Vigente":
+                    for date_format in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
+                        try:
+                            deadline = datetime.strptime(
+                                source.get("fecFinCotizacion") or "", date_format
+                            ).replace(tzinfo=PERU_TIME)
+                        except ValueError:
+                            continue
+                        if deadline > datetime.now(PERU_TIME):
+                            entry["states"] = {
+                                phase: "pending" if state == "deferred" else state
+                                for phase, state in entry["states"].items()
+                            }
+                        break
+                if source != entry["source"]:
+                    entry["source"] = source
+                    entry["dirty"] = True
+                self._save(connection, region, year, identifier, entry)
+
+    def seed(self, region, year, records):
+        """Reconcile legacy snapshots without inferring success from nonempty items."""
+        entries = self._entries(region, year)
+        missing = [record for record in records if str(record["id"]) not in entries]
+        if not missing:
+            return
+        self.discover(
+            region,
+            year,
+            [
+                {
+                    "idContrato": str(record["id"]),
+                    "desContratacion": record.get("code", ""),
+                    "fecPublica": record.get("published", ""),
+                    "nomEntidad": record.get("entity", ""),
+                    "desObjetoContrato": record.get("description", ""),
+                    "nomObjetoContrato": record.get("object", ""),
+                    "fecIniCotizacion": record.get("start", ""),
+                    "fecFinCotizacion": record.get("end", ""),
+                    "nomEstadoContrato": record.get("state", ""),
+                }
+                for record in missing
+            ],
+        )
+        entries = self._entries(region, year)
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            for record in missing:
+                identifier = str(record["id"])
+                entry = entries[identifier]
+                entry["previous"] = record
+                if any(
+                    state in ("pending", "complete")
+                    for state in record.get("enrichment", {}).values()
+                ):
+                    entry["states"] = {
+                        phase: "pending" if state == "deferred" else state
+                        for phase, state in entry["states"].items()
+                    }
+                self._save(connection, region, year, identifier, entry)
+
+    def activate(self, region, year, identifiers):
+        """Explicitly enroll a selected, operator-bounded historical backfill."""
+        entries = self._entries(region, year)
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            for identifier in identifiers:
+                entry = entries[str(identifier)]
+                entry["states"] = {
+                    phase: "pending" if state == "deferred" else state
+                    for phase, state in entry["states"].items()
+                }
+                entry["dirty"] = True
+                self._save(connection, region, year, str(identifier), entry)
+
+    def records(self, region, year, dirty_only=False):
+        records = []
+        for entry in self._entries(region, year).values():
+            if dirty_only and not entry["dirty"]:
+                continue
+            record = minor_notice_record(entry["source"], region, entry["detail"])
+            for field in ("items", "documents"):
+                if not record[field] and entry.get("previous", {}).get(field):
+                    record[field] = entry["previous"][field]
+            record["enrichment"] = {
+                phase: "complete" if state in ("ready", "complete") else state
+                for phase, state in entry["states"].items()
+            }
+            records.append(record)
+        return records
+
+    async def enrich(self, session, region, year, retry_limit=20):
+        if retry_limit < 0:
+            raise ValueError("retry_limit must be nonnegative")
+        entries = self._entries(region, year)
+        now = datetime.now(PERU_TIME).timestamp()
+        due = {
+            identifier: [
+                phase
+                for phase, state in entry["states"].items()
+                if state == "pending" and entry.get("next_attempt_at", {}).get(phase, 0) <= now
+            ]
+            for identifier, entry in entries.items()
+        }
+        retrying = sorted(
+            (
+                identifier
+                for identifier, entry in entries.items()
+                if due[identifier] and any(entry["attempts"].values())
+            ),
+            key=lambda identifier: entries[identifier].get(
+                "last_attempt_at", entries[identifier]["discovered_at"]
+            ),
+        )[:retry_limit]
+        groups = {"all": [], "detail": [], "files": []}
+        for identifier, entry in entries.items():
+            if any(entry["attempts"].values()) and identifier not in retrying:
+                continue
+            phases = due[identifier]
+            if phases:
+                groups["all" if len(phases) == 2 else phases[0]].append(identifier)
+        batches = [
+            (phase, identifiers[offset : offset + 20])
+            for phase, identifiers in groups.items()
+            for offset in range(0, len(identifiers), 20)
+        ]
+        for requested_phase, batch in batches:
+            arguments = {"ids": batch}
+            if requested_phase != "all":
+                arguments["fase"] = requested_phase
+            try:
+                result = unpack(
+                    await session.call_tool("detalles_convocatorias_menores", arguments)
+                )
+            except Exception as exc:  # noqa: BLE001 -- MCP failure must leave discovered IDs retryable
+                result = {
+                    "detalles": {},
+                    "faltas": [{"id": identifier, "error": str(exc)} for identifier in batch],
+                }
+            with closing(sqlite3.connect(self.path)) as connection, connection:
+                for identifier in batch:
+                    entry = entries[identifier]
+                    entry["last_attempt_at"] = datetime.now(PERU_TIME).isoformat()
+                    detail = result.get("detalles", {}).get(identifier) or {}
+                    failures = [
+                        failure
+                        for failure in result.get("faltas", [])
+                        if str(failure.get("id")) == identifier
+                    ]
+                    for phase, fields in (
+                        ("detail", ("cabecera", "etapas", "items")),
+                        ("files", ("documentos",)),
+                    ):
+                        if entry["states"][phase] != "pending":
+                            continue
+                        if requested_phase != "all" and phase != requested_phase:
+                            continue
+                        entry["attempts"][phase] += 1
+                        failed = any(
+                            failure.get("fase", failure.get("phase", phase)) == phase
+                            for failure in failures
+                        )
+                        key = "items" if phase == "detail" else "documentos"
+                        valid = isinstance(detail.get(key), list) and all(
+                            isinstance(item, dict) for item in detail[key]
+                        )
+                        if "fases_completadas" in detail:
+                            valid = valid and phase in detail["fases_completadas"]
+                        if not failed and valid:
+                            for field in fields:
+                                if field in detail:
+                                    entry["detail"][field] = detail[field]
+                            entry["states"][phase] = "ready"
+                            entry["errors"].pop(phase, None)
+                            entry.setdefault("next_attempt_at", {}).pop(phase, None)
+                        else:
+                            entry["errors"][phase] = next(
+                                (
+                                    failure.get("error")
+                                    for failure in failures
+                                    if failure.get("fase", failure.get("phase", phase)) == phase
+                                ),
+                                "missing_phase_response",
+                            )
+                            for failure in failures:
+                                delay = failure.get("retry_after_seconds")
+                                if (
+                                    failure.get("fase", failure.get("phase", phase)) == phase
+                                    and isinstance(delay, (int, float))
+                                    and not isinstance(delay, bool)
+                                    and math.isfinite(delay)
+                                    and delay > 0
+                                ):
+                                    entry.setdefault("next_attempt_at", {})[phase] = (
+                                        datetime.now(PERU_TIME).timestamp() + delay
+                                    )
+                        entry["dirty"] = True
+                    self._save(connection, region, year, identifier, entry)
+        return self.records(region, year, dirty_only=True)
+
+    def acknowledge(self, region, year):
+        """Call only after all uploads and snapshots in this pass succeed."""
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            for identifier, entry in self._entries(region, year).items():
+                entry["states"] = {
+                    phase: "complete" if state == "ready" else state
+                    for phase, state in entry["states"].items()
+                }
+                entry["dirty"] = False
+                self._save(connection, region, year, identifier, entry)
+
+
+async def fetch_minor_notices(region, year, with_open_details=False, pending=None):
     department = department_code(region)
+    region = next(name for name in DEPARTMENT_NAMES if plain(name) == plain(region))
+    pending = pending if pending is not None else PendingNotices()
     params = StdioServerParameters(
         command=sys.executable,
         args=[str(ROOT / "vendor" / "seace_mcp" / "server.py")],
         env={**os.environ, "SEACE_UPDATE_CHECK": "0"},
     )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            rows = []
-            page = 1
-            total = None
-            while total is None or len(rows) < total:
-                result = unpack(await session.call_tool("buscar_convocatorias_menores", {
-                    "anio": str(year), "depa": department, "pagina": page, "tamano": 10000,
-                }))
-                total = result["total"]
-                batch = result["filas"]
-                if not batch and len(rows) < total:
-                    raise RuntimeError(f"Minor notice search stopped at {len(rows)} of {total}")
-                rows.extend(batch)
-                print(f"Minor notices {len(rows)}/{total}", flush=True)
-                page += 1
-            unique = {str(row["idContrato"]): row for row in rows}
-            if len(rows) != total or len(unique) != total:
-                raise RuntimeError(f"Minor notice search returned {len(rows)} rows and {len(unique)} IDs of {total}")
-            details = {}
-            if with_open_details:
-                now = datetime.now(PERU_TIME)
-                open_ids = []
-                for contract_id, row in unique.items():
-                    if row.get("nomEstadoContrato") != "Vigente":
-                        continue
-                    try:
-                        deadline = datetime.strptime(row["fecFinCotizacion"], "%d/%m/%Y %H:%M:%S").replace(tzinfo=PERU_TIME)
-                    except (KeyError, TypeError, ValueError):
-                        continue
-                    if deadline > now:
-                        open_ids.append(contract_id)
-                for offset in range(0, len(open_ids), 20):
-                    ids = open_ids[offset:offset + 20]
-                    result = unpack(await session.call_tool("detalles_convocatorias_menores", {"ids": ids}))
-                    details.update(result["detalles"])
-                    if result.get("faltas"):
-                        print(f"Details unavailable for {len(result['faltas'])} notices; official links remain available", flush=True)
-                    print(f"Minor notice details {min(offset + 20, len(open_ids))}/{len(open_ids)}", flush=True)
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
+        rows = []
+        page = 1
+        total = None
+        while total is None or len(rows) < total:
+            result = unpack(
+                await session.call_tool(
+                    "buscar_convocatorias_menores",
+                    {
+                        "anio": str(year),
+                        "depa": department,
+                        "pagina": page,
+                        "tamano": 10000,
+                    },
+                )
+            )
+            total = result["total"]
+            batch = result["filas"]
+            pending.discover(region, year, batch)
+            if not batch and len(rows) < total:
+                raise RuntimeError(f"Minor notice search stopped at {len(rows)} of {total}")
+            rows.extend(batch)
+            print(f"Minor notices {len(rows)}/{total}", flush=True)
+            page += 1
+        if len(rows) != total:
+            raise RuntimeError(f"Minor notice search returned {len(rows)} rows of {total}")
+        if with_open_details:
+            await pending.enrich(session, region, year)
+        records = pending.records(region, year)
     return {
         "fetchedAt": datetime.now(PERU_TIME).isoformat(timespec="seconds"),
         "source": "Minor contract notices via seace-mcp buscar_convocatorias_menores",
-        "region": region.title(),
+        "region": region,
         "year": year,
-        "complete": True,
-        "count": len(unique),
-        "detailsFetched": len(details),
-        "records": [minor_notice_record(row, region.title(), details.get(contract_id))
-                    for contract_id, row in unique.items()],
+        "complete": all(
+            all(state == "complete" for state in row["enrichment"].values()) for row in records
+        ),
+        "count": len(records),
+        "detailsFetched": sum(row["enrichment"]["detail"] == "complete" for row in records),
+        "records": records,
     }
 
 
@@ -266,18 +527,29 @@ async def fetch_minor_contracts(region, year):
     else:
         params = StdioServerParameters(
             command=sys.executable,
-        args=[str(ROOT / "vendor" / "seace_mcp" / "server.py")],
+            args=[str(ROOT / "vendor" / "seace_mcp" / "server.py")],
             env={**os.environ, "SEACE_UPDATE_CHECK": "0"},
         )
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                rows = await collect_minor_range(session, year, department, date(year, 1, 1), date(year + 1, 1, 1))
+                rows = await collect_minor_range(
+                    session, year, department, date(year, 1, 1), date(year + 1, 1, 1)
+                )
                 ids = list(dict.fromkeys(row["id_contrato"] for row in rows))
                 for offset in range(0, len(ids), 10):
-                    result = unpack(await session.call_tool("detalles_contratos", {"ids": ids[offset:offset + 10]}))
-                    details.update({item["cabecera"]["id_contrato"]: item for item in result.get("detalles", [])
-                                    if item.get("cabecera", {}).get("id_contrato")})
+                    result = unpack(
+                        await session.call_tool(
+                            "detalles_contratos", {"ids": ids[offset : offset + 10]}
+                        )
+                    )
+                    details.update(
+                        {
+                            item["cabecera"]["id_contrato"]: item
+                            for item in result.get("detalles", [])
+                            if item.get("cabecera", {}).get("id_contrato")
+                        }
+                    )
                     print(f"Contract details {min(offset + 10, len(ids))}/{len(ids)}", flush=True)
     unique = {row["id_contrato"]: row for row in rows}
     return {
@@ -289,7 +561,10 @@ async def fetch_minor_contracts(region, year):
         "dateBasis": "fecha_suscripcion",
         "count": len(unique),
         "detailsFetched": len(details),
-        "records": [minor_record(row, region.title(), details.get(row["id_contrato"])) for row in unique.values()],
+        "records": [
+            minor_record(row, region.title(), details.get(row["id_contrato"]))
+            for row in unique.values()
+        ],
     }
 
 

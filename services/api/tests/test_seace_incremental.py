@@ -9,9 +9,10 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "seace"))
 
 from incremental import minor_notice_updates
+from refresh import PendingNotices
 
 
-def test_incremental_retries_missing_details_for_still_open_notices():
+def test_incremental_retries_missing_details_for_still_open_notices(tmp_path):
     future = (datetime.now(timezone(timedelta(hours=-5))) + timedelta(days=2)).strftime(
         "%d/%m/%Y %H:%M:%S"
     )
@@ -63,9 +64,12 @@ def test_incremental_retries_missing_details_for_still_open_notices():
             2026,
             datetime.now(timezone(timedelta(hours=-5))),
             existing,
+            pending=PendingNotices(tmp_path / "pending.sqlite3"),
         )
     )
-    assert session.detail_ids == ["103550"]
+    # A known item does not prove that the independent archive request succeeded.
+    assert session.detail_ids == ["103550", "103551"]
     assert next(row for row in updates if row["id"] == "103550")["documents"] == [
         {"name": "Bases", "url": "https://prod6.seace.gob.pe/doc.pdf"}
     ]
+    assert next(row for row in updates if row["id"] == "103551")["items"] == ["Known"]

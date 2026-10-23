@@ -11,6 +11,19 @@ of the locally modified `pipaacebedo/seace-mcp` project, version 0.2.2, under
 its bundled Apache-2.0 license. It contains the minor-contract notice filter
 that was tested on `bodas`. Keep that modification when updating the vendor.
 
+## Import the existing local exclusions
+
+The older prototype keeps its decisions in `D:\Work\war_dogs\.seace-exclusions.json`.
+That file is not included in the public Edicius repository or web bundle. After
+the web release, sign in to `/seace/recent`, choose that JSON in **Exclusion JSON
+file**, and review the number of codes shown by the **Import**
+button before applying it. The authenticated browser adds those keys to
+`seace_exclusions`; existing saved exclusions remain. The sidebar then shows
+the total number of excluded codes. Use **Not excluded** and **Excluded** on
+each SEACE page to inspect the split. Later exclude and restore actions are
+saved in Supabase. Importing the same file again re-adds any keys restored
+since the previous import, so use it as a one-time migration.
+
 ## Before deployment
 
 1. Review the branch against the active Edicius checkout. The active Pi release

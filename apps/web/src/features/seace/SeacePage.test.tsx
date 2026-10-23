@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   loadSeaceSync: vi.fn(),
   loadExclusions: vi.fn(),
   setExcluded: vi.fn(),
+  setExcludedMany: vi.fn(),
   enqueueRefresh: vi.fn(),
   refreshStatus: vi.fn(),
 }));
@@ -77,6 +78,7 @@ describe('SEACE views', () => {
     mocks.loadSeaceSync.mockResolvedValue([]);
     mocks.loadExclusions.mockResolvedValue(new Set());
     mocks.setExcluded.mockResolvedValue(undefined);
+    mocks.setExcludedMany.mockResolvedValue(undefined);
   });
 
   it('shows the number of loaded records when the source checkpoint differs', async () => {
@@ -100,11 +102,119 @@ describe('SEACE views', () => {
   it('moves an excluded record into the same view’s excluded table', async () => {
     mount();
     expect(await screen.findByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Exclude CM-RECENT' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
     await waitFor(() =>
-      expect(mocks.setExcluded).toHaveBeenCalledWith('minor:["Arequipa","CM-RECENT"]', true),
+      expect(mocks.setExcludedMany).toHaveBeenCalledWith(['minor:["Arequipa","CM-RECENT"]'], true),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Current' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
     expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+  });
+
+  it('shows separate included and excluded views from saved exclusion keys', async () => {
+    mocks.loadExclusions.mockResolvedValue(new Set(['minor:["Arequipa","CM-RECENT"]']));
+    mount();
+    await screen.findByRole('button', { name: 'Not excluded' });
+
+    expect(screen.queryByRole('link', { name: 'CM-RECENT' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Excluded' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('restores a saved exclusion and returns the record to Not excluded', async () => {
+    const key = 'minor:["Arequipa","CM-RECENT"]';
+    mocks.loadExclusions.mockResolvedValue(new Set([key]));
+    mount();
+    fireEvent.click(await screen.findByRole('button', { name: 'Excluded' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore selected (1)' }));
+
+    await waitFor(() => expect(mocks.setExcludedMany).toHaveBeenCalledWith([key], false));
+    expect(screen.queryByRole('link', { name: 'CM-RECENT' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Not excluded' }));
+    expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+  });
+
+  it('excludes selected rows together and moves them to the excluded view', async () => {
+    const rows = await mocks.loadSeace();
+    mocks.loadSeace.mockResolvedValue([
+      rows[0],
+      { ...rows[0], recordKey: '3', payload: { ...rows[0].payload, id: '3', code: 'CM-SECOND' } },
+    ]);
+    mount();
+    await screen.findByRole('link', { name: 'CM-RECENT' });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-SECOND' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (2)' }));
+
+    await waitFor(() =>
+      expect(mocks.setExcludedMany).toHaveBeenCalledWith(
+        ['minor:["Arequipa","CM-RECENT"]', 'minor:["Arequipa","CM-SECOND"]'],
+        true,
+      ),
+    );
+    expect(screen.queryByRole('link', { name: 'CM-RECENT' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'CM-SECOND' })).toBeInTheDocument();
+  });
+
+  it('imports exclusion keys from a local JSON file into the saved list', async () => {
+    mount();
+    await screen.findByRole('link', { name: 'CM-RECENT' });
+    const key = 'minor:["Arequipa","CM-RECENT"]';
+    const file = new File([JSON.stringify([key])], '.seace-exclusions.json', {
+      type: 'application/json',
+    });
+    fireEvent.change(screen.getByLabelText('Exclusion JSON file'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 1 code' }));
+
+    await waitFor(() => expect(mocks.setExcludedMany).toHaveBeenCalledWith([key], true));
+    expect(screen.getByText('1 excluded code')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'CM-RECENT' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+  });
+
+  it('filters the current view by object and entity and can reset the filters', async () => {
+    const rows = await mocks.loadSeace();
+    mocks.loadSeace.mockResolvedValue([
+      { ...rows[0], payload: { ...rows[0].payload, object: 'Bien', entity: 'Entidad A' } },
+      {
+        ...rows[0],
+        recordKey: '3',
+        payload: {
+          ...rows[0].payload,
+          id: '3',
+          code: 'CM-SERVICIO',
+          object: 'Servicio',
+          entity: 'Entidad B',
+        },
+      },
+    ]);
+    mount();
+    await screen.findByRole('link', { name: 'CM-RECENT' });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Object' }), {
+      target: { value: 'Servicio' },
+    });
+    expect(screen.queryByRole('link', { name: 'CM-RECENT' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'CM-SERVICIO' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Entity' }), {
+      target: { value: 'Entidad A' },
+    });
+    expect(screen.queryByRole('link', { name: 'CM-SERVICIO' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    expect(screen.getByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'CM-SERVICIO' })).toBeInTheDocument();
   });
 });

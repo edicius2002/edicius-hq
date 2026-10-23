@@ -8,10 +8,11 @@ import {
   loadSeace,
   loadSeaceSync,
   refreshStatus,
-  setExcluded,
+  setExcludedMany,
   type SeaceRow,
   type SeaceSync,
 } from './data';
+import { parseExclusionKeys } from './exclusions';
 import styles from './SeacePage.module.css';
 
 const regions = [
@@ -47,7 +48,21 @@ const views = [
   { path: '/seace/closed', label: 'Closed notices' },
   { path: '/seace/published', label: 'Published contracts' },
 ];
+type SeaceView = 'recent' | 'open' | 'closed' | 'published';
 const pageSizes = [5, 10, 20, 50, 100];
+const objectOptions = ['Todos', 'Bien', 'Servicio', 'Obra', 'Consultoría de Obra'];
+const objectLabels: Record<string, string> = {
+  Todos: 'All',
+  Bien: 'Goods',
+  Servicio: 'Services',
+  Obra: 'Works',
+  'Consultoría de Obra': 'Works consulting',
+};
+const objectKey = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
 const text = (row: SeaceRow, field: string) => {
   const value = row.payload[field];
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -152,7 +167,7 @@ const links = (row: SeaceRow) => {
 
 export function SeacePage() {
   const location = useLocation();
-  const view = location.pathname.endsWith('/published')
+  const view: SeaceView = location.pathname.endsWith('/published')
     ? 'published'
     : location.pathname.endsWith('/closed')
       ? 'closed'
@@ -167,10 +182,22 @@ export function SeacePage() {
   );
   const [region, setRegion] = useState('Arequipa');
   const [minorOnly, setMinorOnly] = useState(true);
+  const [objectFilter, setObjectFilter] = useState('Todos');
+  const [entityFilter, setEntityFilter] = useState('Todas');
   const [records, setRecords] = useState<SeaceRow[]>([]);
   const [sync, setSync] = useState<SeaceSync[]>([]);
   const [exclusions, setExclusions] = useState<Set<string>>(new Set());
-  const [excludedView, setExcludedView] = useState(false);
+  const [exclusionsReady, setExclusionsReady] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [savingExclusions, setSavingExclusions] = useState(false);
+  const [importKeys, setImportKeys] = useState<string[] | null>(null);
+  const [excludedByView, setExcludedByView] = useState<Record<SeaceView, boolean>>({
+    recent: false,
+    open: false,
+    closed: false,
+    published: false,
+  });
+  const excludedView = excludedByView[view];
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<{ field: string; ascending: boolean }>({
     field: 'published',
@@ -184,6 +211,7 @@ export function SeacePage() {
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setExclusionsReady(false);
     try {
       const [rows, states, excluded] = await Promise.all([
         loadSeace(region, year),
@@ -193,6 +221,8 @@ export function SeacePage() {
       setRecords(rows);
       setSync(states);
       setExclusions(excluded);
+      setExclusionsReady(true);
+      setSelectedKeys(new Set());
       setMessage('');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'SEACE data unavailable');
@@ -232,6 +262,14 @@ export function SeacePage() {
           if (view === 'published' ? row.kind !== 'contracts' : row.kind === 'contracts')
             return false;
           if (minorOnly && !row.payload.minor) return false;
+          if (
+            objectFilter !== 'Todos' &&
+            !objectKey(text(row, 'object')).startsWith(
+              objectFilter === 'Consultoría de Obra' ? 'CONSULTORIA' : objectKey(objectFilter),
+            )
+          )
+            return false;
+          if (entityFilter !== 'Todas' && text(row, 'entity') !== entityFilter) return false;
           if (view === 'recent' && (!isOpen(row) || !isRecent(row))) return false;
           if (view === 'open' && (!isOpen(row) || isRecent(row))) return false;
           if (view === 'closed' && isOpen(row)) return false;
@@ -258,11 +296,21 @@ export function SeacePage() {
           const comparison = first < second ? -1 : first > second ? 1 : 0;
           return sort.ascending ? comparison : -comparison;
         }),
-    [records, view, minorOnly, exclusions, excludedView, search, sort],
+    [records, view, minorOnly, objectFilter, entityFilter, exclusions, excludedView, search, sort],
+  );
+  const entities = useMemo(
+    () =>
+      [...new Set(records.map((row) => text(row, 'entity')).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, 'es'),
+      ),
+    [records],
   );
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pages);
   const visible = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const visibleKeys = visible.map(exclusionKey);
+  const allVisibleSelected =
+    visibleKeys.length > 0 && visibleKeys.every((key) => selectedKeys.has(key));
   const lastFetch = sync
     .map((item) => item.fetched_at)
     .sort()
@@ -274,6 +322,7 @@ export function SeacePage() {
           'code',
           'entity',
           'description',
+          'object',
           'contractor',
           'signed',
           'termStart',
@@ -285,6 +334,7 @@ export function SeacePage() {
           'code',
           'entity',
           'description',
+          'object',
           'items',
           'published',
           'start',
@@ -297,6 +347,7 @@ export function SeacePage() {
     code: 'Code',
     entity: 'Entity',
     description: 'Description',
+    object: 'Object',
     contractor: 'Supplier',
     signed: 'Signed',
     termStart: 'Term start',
@@ -312,20 +363,54 @@ export function SeacePage() {
 
   const toggleSort = (field: string) => {
     setSort((value) => ({ field, ascending: value.field === field ? !value.ascending : true }));
+    setSelectedKeys(new Set());
   };
-  const changeExclusion = async (row: SeaceRow) => {
-    const key = exclusionKey(row);
-    const excluded = !exclusions.has(key);
+  const changeExclusion = async () => {
+    if (!exclusionsReady || !selectedKeys.size || savingExclusions) return;
+    const keys = [...selectedKeys];
+    const excluded = !excludedView;
+    setSavingExclusions(true);
     try {
-      await setExcluded(key, excluded);
+      await setExcludedMany(keys, excluded);
       setExclusions((current) => {
         const next = new Set(current);
-        if (excluded) next.add(key);
-        else next.delete(key);
+        for (const key of keys) {
+          if (excluded) next.add(key);
+          else next.delete(key);
+        }
         return next;
       });
+      setSelectedKeys(new Set());
+      setMessage('');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not update');
+    } finally {
+      setSavingExclusions(false);
+    }
+  };
+  const readImport = async (file: File | undefined) => {
+    setImportKeys(null);
+    if (!file) return;
+    try {
+      if (file.size > 2_000_000) throw new Error('The JSON file is too large.');
+      setImportKeys(parseExclusionKeys(await file.text()));
+      setMessage('');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not read the JSON file.');
+    }
+  };
+  const importExclusions = async () => {
+    if (!importKeys || !exclusionsReady || savingExclusions) return;
+    setSavingExclusions(true);
+    try {
+      await setExcludedMany(importKeys, true);
+      setExclusions((current) => new Set([...current, ...importKeys]));
+      setMessage(`Imported ${importKeys.length} exclusion codes.`);
+      setImportKeys(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not import the JSON file.');
+    } finally {
+      setSavingExclusions(false);
     }
   };
   const refresh = async () => {
@@ -348,7 +433,7 @@ export function SeacePage() {
               to={item.path}
               onClick={() => {
                 setPage(1);
-                setExcludedView(false);
+                setSelectedKeys(new Set());
               }}
               className={({ isActive }) => (isActive ? styles.active : '')}
             >
@@ -363,8 +448,9 @@ export function SeacePage() {
             value={region}
             onChange={(event) => {
               setRegion(event.target.value);
+              setEntityFilter('Todas');
               setPage(1);
-              setExcludedView(false);
+              setSelectedKeys(new Set());
             }}
           >
             {regions.map((item) => (
@@ -383,16 +469,92 @@ export function SeacePage() {
         </div>
         <small>{count.toLocaleString()} records</small>
         <small>
+          {exclusions.size.toLocaleString()}{' '}
+          {exclusions.size === 1 ? 'excluded code' : 'excluded codes'}
+        </small>
+        <small>
           {lastFetch ? `Last fetch ${new Date(lastFetch).toLocaleString()}` : 'Never fetched'}
         </small>
         <label className={styles.check}>
           <input
             type="checkbox"
             checked={minorOnly}
-            onChange={(event) => setMinorOnly(event.target.checked)}
+            onChange={(event) => {
+              setMinorOnly(event.target.checked);
+              setSelectedKeys(new Set());
+            }}
           />
           Minor contracts only
         </label>
+        <label htmlFor="seace-object">Object</label>
+        <select
+          id="seace-object"
+          value={objectFilter}
+          onChange={(event) => {
+            setObjectFilter(event.target.value);
+            setPage(1);
+            setSelectedKeys(new Set());
+          }}
+        >
+          {objectOptions.map((item) => (
+            <option key={item} value={item}>
+              {objectLabels[item]}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="seace-entity">Entity</label>
+        <select
+          id="seace-entity"
+          value={entityFilter}
+          onChange={(event) => {
+            setEntityFilter(event.target.value);
+            setPage(1);
+            setSelectedKeys(new Set());
+          }}
+        >
+          <option value="Todas">All</option>
+          {entities.map((item) => (
+            <option key={item}>{item}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={styles.resetFilters}
+          onClick={() => {
+            setRegion('Arequipa');
+            setMinorOnly(true);
+            setObjectFilter('Todos');
+            setEntityFilter('Todas');
+            setSearch('');
+            setSort({ field: 'published', ascending: false });
+            setPage(1);
+            setSelectedKeys(new Set());
+          }}
+        >
+          Reset filters
+        </button>
+        <div className={styles.importBox}>
+          <label htmlFor="seace-exclusions-file">Exclusion JSON file</label>
+          <input
+            id="seace-exclusions-file"
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => {
+              void readImport(event.target.files?.[0]);
+              event.target.value = '';
+            }}
+          />
+          {importKeys ? (
+            <button
+              type="button"
+              disabled={!exclusionsReady || savingExclusions}
+              onClick={() => void importExclusions()}
+            >
+              Import {importKeys.length} {importKeys.length === 1 ? 'code' : 'codes'}
+            </button>
+          ) : null}
+          <small>Adds codes from the local file without removing saved exclusions.</small>
+        </div>
         {pendingId && <small>Refresh running or queued</small>}
       </aside>
       <section className={styles.content}>
@@ -409,6 +571,7 @@ export function SeacePage() {
               onChange={(event) => {
                 setSearch(event.target.value);
                 setPage(1);
+                setSelectedKeys(new Set());
               }}
             />
             <select
@@ -417,6 +580,7 @@ export function SeacePage() {
               onChange={(event) => {
                 const [field, direction] = event.target.value.split(':');
                 setSort({ field, ascending: direction === 'asc' });
+                setSelectedKeys(new Set());
               }}
             >
               <option value="published:desc">Newest</option>
@@ -424,14 +588,38 @@ export function SeacePage() {
               <option value="code:asc">Code A–Z</option>
               <option value="entity:asc">Entity A–Z</option>
             </select>
+            <div className={styles.tableSwitch} role="group" aria-label="Exclusion view">
+              <button
+                type="button"
+                aria-pressed={!excludedView}
+                className={!excludedView ? styles.selected : ''}
+                onClick={() => {
+                  setExcludedByView((current) => ({ ...current, [view]: false }));
+                  setPage(1);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                Not excluded
+              </button>
+              <button
+                type="button"
+                aria-pressed={excludedView}
+                className={excludedView ? styles.selected : ''}
+                onClick={() => {
+                  setExcludedByView((current) => ({ ...current, [view]: true }));
+                  setPage(1);
+                  setSelectedKeys(new Set());
+                }}
+              >
+                Excluded
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => {
-                setExcludedView(!excludedView);
-                setPage(1);
-              }}
+              disabled={!exclusionsReady || savingExclusions || selectedKeys.size === 0}
+              onClick={() => void changeExclusion()}
             >
-              {excludedView ? 'Excluded' : 'Current'}
+              {excludedView ? 'Restore' : 'Exclude'} selected ({selectedKeys.size})
             </button>
           </div>
         </div>
@@ -441,7 +629,22 @@ export function SeacePage() {
           <table>
             <thead>
               <tr>
-                <th scope="col">Exclude</th>
+                <th scope="col">
+                  <input
+                    type="checkbox"
+                    aria-label="Select visible page"
+                    checked={allVisibleSelected}
+                    disabled={!exclusionsReady || savingExclusions || visibleKeys.length === 0}
+                    onChange={(event) => {
+                      const next = new Set(selectedKeys);
+                      for (const key of visibleKeys) {
+                        if (event.target.checked) next.add(key);
+                        else next.delete(key);
+                      }
+                      setSelectedKeys(next);
+                    }}
+                  />
+                </th>
                 {columns.map((field) => (
                   <th key={field} scope="col">
                     <button type="button" onClick={() => toggleSort(field)}>
@@ -457,9 +660,16 @@ export function SeacePage() {
                   <td>
                     <input
                       type="checkbox"
-                      aria-label={`Exclude ${text(row, 'code')}`}
-                      checked={exclusions.has(exclusionKey(row))}
-                      onChange={() => void changeExclusion(row)}
+                      aria-label={`Select ${text(row, 'code')}`}
+                      checked={selectedKeys.has(exclusionKey(row))}
+                      disabled={!exclusionsReady || savingExclusions}
+                      onChange={(event) => {
+                        const key = exclusionKey(row);
+                        const next = new Set(selectedKeys);
+                        if (event.target.checked) next.add(key);
+                        else next.delete(key);
+                        setSelectedKeys(next);
+                      }}
                     />
                   </td>
                   {columns.map((field) => (
@@ -517,7 +727,10 @@ export function SeacePage() {
           <button
             type="button"
             disabled={currentPage <= 1}
-            onClick={() => setPage(currentPage - 1)}
+            onClick={() => {
+              setPage(currentPage - 1);
+              setSelectedKeys(new Set());
+            }}
           >
             Previous
           </button>
@@ -527,7 +740,10 @@ export function SeacePage() {
           <button
             type="button"
             disabled={currentPage >= pages}
-            onClick={() => setPage(currentPage + 1)}
+            onClick={() => {
+              setPage(currentPage + 1);
+              setSelectedKeys(new Set());
+            }}
           >
             Next
           </button>
@@ -538,6 +754,7 @@ export function SeacePage() {
             onChange={(event) => {
               setPageSize(Number(event.target.value));
               setPage(1);
+              setSelectedKeys(new Set());
             }}
           >
             {pageSizes.map((size) => (

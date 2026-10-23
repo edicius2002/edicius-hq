@@ -12,10 +12,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "services" / "api"))
 sys.path.insert(0, str(ROOT / "services" / "seace"))
 
-from app.config import collector_config
-from app.services.collector_cloud import CollectorCloud
-from incremental import refresh_region, region_name
-from publish import publish_updates
+from incremental import refresh_region, region_name  # noqa: E402
+from publish import publish_updates  # noqa: E402
+
+from app.config import collector_config  # noqa: E402
+from app.services.collector_cloud import CollectorCloud  # noqa: E402
 
 PERU_TIME = timezone(timedelta(hours=-5))
 
@@ -27,13 +28,20 @@ def run_pass(cloud, region, year):
     run_id = cloud.begin_run("seace")
     written = 0
     try:
+
         def publisher(kind, updates, fetched_at, total):
             nonlocal written
             written += publish_updates(cloud, region, year, kind, updates, fetched_at, total)
 
         counts = asyncio.run(refresh_region(region, year, publisher=publisher))
-        cloud.finish_run(run_id, {"seen": sum(v["total"] for v in counts.values()),
-                                  "written": written, "failed": 0})
+        cloud.finish_run(
+            run_id,
+            {
+                "seen": sum(v["total"] for v in counts.values()),
+                "written": written,
+                "failed": 0,
+            },
+        )
         return counts
     except Exception:
         cloud.fail_run(run_id, "seace_refresh_failed")
@@ -68,8 +76,9 @@ def main():
                     if not isinstance(region, str):
                         raise TypeError("invalid SEACE request region")
                     counts = run_pass(cloud, region, year)
-                    cloud.complete_request(request.id, {"region": region, "year": year,
-                                                        "counts": counts})
+                    cloud.complete_request(
+                        request.id, {"region": region, "year": year, "counts": counts}
+                    )
                 except Exception:
                     cloud.fail_request(request.id, "seace_refresh_failed")
                     raise

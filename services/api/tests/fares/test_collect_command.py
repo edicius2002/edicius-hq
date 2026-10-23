@@ -627,6 +627,8 @@ def test_the_scheduled_command_is_given_the_window_it_has_to_fit_inside(tmp_path
     # It is the scheduler's own interval, and the boards get all of it here
     # because `--no-calendar` means there is no horizon share to subtract.
     assert seen["deadline_seconds"] == SCHEDULER_INTERVAL_MINUTES * 60
+    assert seen["max_in_flight"] == 16
+    assert script.REQUEST_GAP_SECONDS == 0.05
 
 
 def test_the_scheduled_command_syncs_once_only_after_its_successful_local_pass(

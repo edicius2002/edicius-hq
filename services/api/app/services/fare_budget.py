@@ -23,8 +23,7 @@ scraper running from a residential address, because 12.9 records that Google
 fingerprints datacenter ones and there is no second provider to fall back to.
 
 What protects that address today is not a count. `REQUEST_GAP_SECONDS` paces
-scheduled requests three seconds apart; the manual Pi request worker supplies
-its own measured gap. `PassLock` below allows one board pass and
+request starts at the configured interval, `PassLock` below allows one board pass and
 one calendar pass on this machine at a time, and the cadence table decides how
 often a departure is worth looking at at all. Those bound the rate, which is
 what an unmetered endpoint can actually notice. The ceiling bounded a total,
@@ -324,8 +323,8 @@ CALENDAR_LOCK_NAME = "collect-calendar.lock"
 #:
 #: The holder refreshes it before **every request it sends**, so the longest
 #: silence a living pass can produce is one paced gap plus one upstream timeout:
-#: `REQUEST_GAP_SECONDS` is 3 and `UPSTREAM_TIMEOUT_SECONDS` is 12, so fifteen
-#: seconds. Five minutes is twenty times that.
+#: `REQUEST_GAP_SECONDS` defaults to 0.05 and `UPSTREAM_TIMEOUT_SECONDS` is 12,
+#: so a live pass normally touches its lock within about twelve seconds.
 #:
 #: The alternative — age the lock against how long a whole pass may take — was
 #: already bad when a ceiling bounded a pass: 600 requests times fifteen seconds
@@ -688,10 +687,16 @@ class DailyBudget:
         left = self.remaining()
         return True if left is None else left >= cost
 
-    def take(self, *, kind: str, what: str) -> None:
+    def take(self, *, kind: str, what: str, pass_id: str | None = None) -> None:
         """Spend one request, before it is sent."""
         self.witnessed = self.spent() + 1
-        self.ledger.spend(self.day, kind=kind, what=what, gap=self.gap, pass_id=self.pass_id)
+        self.ledger.spend(
+            self.day,
+            kind=kind,
+            what=what,
+            gap=self.gap,
+            pass_id=pass_id if pass_id is not None else self.pass_id,
+        )
         if self.lock is not None:
             self.lock.touch()
 

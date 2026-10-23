@@ -22,6 +22,7 @@ from app.config import CollectorConfig, collector_config
 LOGGER = logging.getLogger(__name__)
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _ERROR_CODE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_ROUTE_PAIR = re.compile(r"^[A-Z0-9]{3}-[A-Z0-9]{3}$")
 _COLLECTORS = frozenset(
     {"airfare", "airfare-requests", "x-posts", "sentiment", "market", "fx", "seace"}
 )
@@ -71,6 +72,8 @@ class CollectorRequest:
     operation: str
     payload: Mapping[str, Any] = field(repr=False)
     expires_at: datetime
+    created_at: datetime | None = None
+    claimed_at: datetime | None = None
 
 
 def _project_url(url: str) -> str:
@@ -290,7 +293,9 @@ class CollectorCloud:
             raise CollectorCloudRejected("Supabase returned an invalid SEACE request")
         return request
 
-    def claim_request(self, operations: Collection[str]) -> CollectorRequest | None:
+    def claim_request(
+        self, operations: Collection[str], *, exclude_pairs: Collection[str] | None = None
+    ) -> CollectorRequest | None:
         requested = tuple(operations)
         if (
             not requested
@@ -298,10 +303,24 @@ class CollectorCloud:
             or any(operation not in _OPERATIONS for operation in requested)
         ):
             raise CollectorCloudRejected("invalid collector request operations")
+        excluded = tuple(exclude_pairs) if exclude_pairs is not None else None
+        if excluded is not None and (
+            requested != ("airfare-route",)
+            or any(
+                not isinstance(pair, str) or not _ROUTE_PAIR.fullmatch(pair) for pair in excluded
+            )
+        ):
+            raise CollectorCloudRejected("invalid excluded Airfare pairs")
         allowed = frozenset(requested)
+        arguments: dict[str, Any] = {
+            "p_owner_id": str(self._owner_id),
+            "p_operations": list(requested),
+        }
+        if excluded is not None:
+            arguments["p_excluded_pairs"] = list(excluded)
         result = self._rpc(
             "claim_collector_request",
-            {"p_owner_id": str(self._owner_id), "p_operations": list(requested)},
+            arguments,
         )
         if result is None:
             return None
@@ -318,6 +337,16 @@ class CollectorCloud:
                 operation=str(row["operation"]),
                 payload=_freeze(_object(row["payload"], "collector request payload")),
                 expires_at=datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")),
+                created_at=(
+                    datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+                    if row.get("created_at") is not None
+                    else None
+                ),
+                claimed_at=(
+                    datetime.fromisoformat(str(row["claimed_at"]).replace("Z", "+00:00"))
+                    if row.get("claimed_at") is not None
+                    else None
+                ),
             )
         except (KeyError, TypeError, ValueError):
             raise CollectorCloudRejected("Supabase returned an invalid collector request") from None

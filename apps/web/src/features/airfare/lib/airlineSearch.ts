@@ -10,15 +10,13 @@ import { formatFlightDate } from '@/features/airfare/data/fareRoutes';
  * baggage-policy pages — and the one token that does resolve to a booking
  * resolves to a Google-hosted POST redirect, which is both an aggregator hop
  * and a POST, so it could not be an `<a href>` even if the hop were acceptable.
- * On the carriers' own sites there is nothing better waiting: none of the four
- * accepts a flight number in a URL, and three of them do not print flight
- * numbers on the results page at all, because what they sell is a priced option
- * bound to a shopping session that expires.
+ * The URLs below start a fresh airline search or show a published route page;
+ * none is a checkout URL for the observed flight or its archived fare.
  *
- * So what a reader gets is the same route on the same date, in the airline's own
- * engine, and they match the departure time by eye. That is a smaller promise
- * than "book LA 191", and every name this module writes is sized to it — see
- * `searchLabel`. The owner chose it over no link at all.
+ * Where the airline accepts search parameters, the reader gets the route and
+ * date and matches the departure time by eye. Published route pages and general
+ * search forms are used elsewhere; their names say which details still need
+ * to be chosen on the airline's site.
  */
 
 /**
@@ -56,13 +54,10 @@ export type PointOfSale = {
  * are the same key and a provider that starts writing one instead of the other
  * does not silently drop every Peruvian link.
  *
- * Deliberately short. Both carriers sell in Brazil, Colombia, Ecuador, Paraguay
- * and Uruguay, and every one of those storefronts has a path slug and a culture
- * string that nobody here has loaded, so guessing them would ship links that
- * 404 in the reader's face — the failure this whole module is arranged to
- * avoid. An origin outside these three gets no LATAM and no JetSMART link, which
- * is the same answer Avianca gets and for the same reason: we do not know the
- * URL.
+ * Deliberately short. Both carriers sell in other countries, but those
+ * storefront paths and cultures have not been verified here. An origin outside
+ * these three opens the carrier's general site so the reader can choose a
+ * point of sale, route and date there.
  */
 const POINTS_OF_SALE: Record<string, PointOfSale> = {
   peru: {
@@ -215,43 +210,125 @@ function aerolineas(search: FlightSearch): string {
 }
 
 /**
- * Where this route and date can be searched on the airline's own site, or
- * `null` where there is nowhere we know of to send the reader.
- *
- * **Null is a real answer and the caller must render nothing for it**, not a
- * dead link and not a disabled one. Avianca is the standing case: its site is
- * behind Akamai, the investigation that loaded the other three cold could not
- * load it at all, and a URL nobody has opened is a guess. It is 88 offers,
- * about 2% of the archive, and 2% of rows quietly linking to a 404 would cost
- * more trust than 2% of rows linking to nothing costs convenience.
- *
- * The other way to get null is an origin in a country with no storefront in
- * `POINTS_OF_SALE`, which is every country but three.
+ * Plus Ultra's selection step accepts the route and departure date. Its Spanish
+ * storefront quotes in EUR for both directions of LIM–MAD. It is a fresh search,
+ * not a saved fare or a flight-number checkout link.
  */
-export function airlineSearchUrl(search: FlightSearch): string | null {
+function plusUltra(search: FlightSearch): string {
+  const query = new URLSearchParams();
+  query.set('adt1', '1');
+  query.set('chd1', '0');
+  query.set('currency', 'EUR');
+  query.set('departure1', search.date);
+  query.set('destination1', search.destination);
+  query.set('inf1', '0');
+  query.set('origin1', search.origin);
+  return `https://www.plusultra.com/es-es/booking/select/?${query.toString()}`;
+}
+
+/** Published official route pages. SKY additionally accepts date parameters. */
+const ROUTE_PAGES: Record<string, string> = {
+  'H2:LIM:CUZ': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-cusco',
+  'H2:CUZ:LIM': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-cusco-a-lima',
+  'H2:LIM:SCL': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-santiago',
+  'H2:LIM:AQP': 'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa',
+  'H2:SCL:LIM': 'https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-lima',
+  'H2:SCL:CUZ': 'https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-cusco',
+  'AV:LIM:BOG': 'https://www.avianca.com/us/en/flights-from-lima-to-bogota',
+  'AV:LIM:MAD': 'https://www.avianca.com/us/es/vuelos-desde-lima-a-madrid',
+  'AV:SCL:MAD': 'https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid',
+  'AV:MAD:SCL': 'https://www.avianca.com/es/es/vuelos-desde-madrid-a-santiago',
+  'AV:LIM:SCL': 'https://www.avianca.com/us/es/vuelos-desde-lima-a-santiago',
+  'IB:LIM:MAD': 'https://www.iberia.com/pe/vuelos-baratos/Lima-Madrid/',
+  'IB:MAD:LIM': 'https://www.iberia.com/es/vuelos-baratos/Madrid-Lima/',
+  'IB:SCL:MAD': 'https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/',
+  'IB:MAD:SCL': 'https://www.iberia.com/es/vuelos-baratos/Madrid-Santiago-de-Chile/',
+  'IB:LIM:BCN': 'https://www.iberia.com/pe/vuelos-baratos/Lima-Barcelona/',
+  'UX:LIM:MAD': 'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-madrid',
+  'UX:MAD:LIM': 'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-lima',
+  'UX:SCL:MAD':
+    'https://www.aireuropa.com/es-cl/ofertas-de-vuelos-desde-santiago-de-chile-a-madrid',
+  'UX:MAD:SCL':
+    'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-santiago-de-chile',
+  'UX:LIM:BCN': 'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-barcelona',
+};
+
+function routePage(search: FlightSearch): string | null {
+  return ROUTE_PAGES[`${search.airline}:${search.origin}:${search.destination}`] ?? null;
+}
+
+/** SKY's flight-search panel accepts these route and date parameters. */
+function sky(search: FlightSearch, sale: PointOfSale | null): string {
+  const base =
+    routePage(search) ??
+    `https://www.skyairline.com/flights/${sale === null ? 'es' : `es-${sale.country}`}/`;
+  const query = new URLSearchParams();
+  query.set('em_o', search.origin);
+  query.set('em_d', search.destination);
+  query.set('em_dd', search.date);
+  query.set('em_jt', 'ONE_WAY');
+  query.set('em_pc', '1');
+  return `${base}?${query.toString()}`;
+}
+
+/** A form or homepage where the reader must choose both route and date. */
+const GENERAL_SEARCH_PAGES: Record<string, string> = {
+  AV: 'https://www.avianca.com/us/en/',
+  IB: 'https://www.iberia.com/pe/buscador-vuelos/',
+  UX: 'https://www.aireuropa.com/es-es/',
+  LA: 'https://www.latamairlines.com/',
+  JA: 'https://www.jetsmart.com/',
+};
+
+type OfficialLink = { url: string; detail: 'date' | 'route' | 'form' };
+
+/**
+ * The deepest official page we can identify for this carrier and route. A form
+ * fallback is still useful, but does not claim the route or date was selected.
+ */
+function officialLink(search: FlightSearch): OfficialLink | null {
   if (!usable(search)) return null;
-  if (search.airline === 'AR') return aerolineas(search);
+  if (search.airline === 'AR') return { url: aerolineas(search), detail: 'date' };
+  if (search.airline === 'PU') return { url: plusUltra(search), detail: 'date' };
 
   const sale = pointOfSale(search.originCountry);
-  if (sale === null) return null;
-  if (search.airline === 'LA') return latam(search, sale);
-  if (search.airline === 'JA') return jetsmart(search, sale);
-  return null;
+  if (search.airline === 'H2') return { url: sky(search, sale), detail: 'date' };
+  const publishedRoute = routePage(search);
+  if (publishedRoute !== null) return { url: publishedRoute, detail: 'route' };
+
+  if (sale !== null && search.airline === 'LA') {
+    return { url: latam(search, sale), detail: 'date' };
+  }
+  if (sale !== null && search.airline === 'JA') {
+    return { url: jetsmart(search, sale), detail: 'date' };
+  }
+
+  const generalSearch = Object.hasOwn(GENERAL_SEARCH_PAGES, search.airline)
+    ? GENERAL_SEARCH_PAGES[search.airline]
+    : undefined;
+  return generalSearch === undefined ? null : { url: generalSearch, detail: 'form' };
+}
+
+export function airlineSearchUrl(search: FlightSearch): string | null {
+  return officialLink(search)?.url ?? null;
 }
 
 /**
  * What the link is called, to a screen reader and to a pointer resting on it.
  *
- * `Search LATAM for LIM to CUZ on 16/10/2026` — a verb the link can keep. It
- * names the carrier, the route and the date, and it deliberately does not name
- * the flight, because the flight is the one thing the destination page will not
- * be filtered to: the reader lands on a list of that day's departures and finds
- * theirs by the clock. `RouteList.module.css` holds this repository's rule
- * against text that reads as a fact and is not one; a link called "Book LA 191"
- * would be exactly that, in the one place where a wrong reading costs money.
+ * Date-aware destinations name the date. A published route page asks the
+ * reader to choose a date; a general form asks for route and date. No label
+ * promises the observed flight or its archived fare.
  */
 export function searchLabel(search: FlightSearch, airlineName: string | null): string {
   const carrier = airlineName ?? search.airline;
+  const detail = officialLink(search)?.detail;
+  if (detail === 'route') {
+    return `View ${carrier} flights from ${search.origin} to ${search.destination}; choose a departure date on the airline site`;
+  }
+  if (detail === 'form') {
+    return `Open ${carrier} flight search; choose ${search.origin} to ${search.destination} and a departure date on the airline site`;
+  }
   return `Search ${carrier} for ${search.origin} to ${search.destination} on ${formatFlightDate(search.date)}`;
 }
 
@@ -259,8 +336,8 @@ export function searchLabel(search: FlightSearch, airlineName: string | null): s
  * The same name with the flight in front of it, for the link whose *visible*
  * text is the flight number.
  *
- * `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on 02/03/2027`, and
- * both halves are load-bearing.
+ * `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on 02/03/2027` is one
+ * example. Route pages use the same flight prefix but ask for a date.
  *
  * **The flight is there because the visible label is.** WCAG 2.5.3 asks that a
  * control's accessible name contain the words a reader can see on it, so a
@@ -271,13 +348,12 @@ export function searchLabel(search: FlightSearch, airlineName: string | null): s
  * on screen.
  *
  * **And it is a label rather than a promise, because of what follows it.** The
- * verb is still `Search`, its object is still a carrier, a city pair and a date,
- * and nothing here says "book AR 1281" — which is the claim this module cannot
- * keep and `.report` in `RouteList.module.css` refuses in general. The flight
+ * verb describes the actual destination: searching a carrier for a city pair
+ * and date, or viewing a route page and choosing the date. Nothing here says
+ * "book AR 1281" — which is the claim this module cannot keep. The flight
  * number is the reader's own place-marker for which row they pressed; the
  * sentence after the dash is what pressing it does. That order matters: read
- * out, it is the flight, a pause, then an honest account of a route-and-date
- * search, so the last thing heard before the press is the smaller promise.
+ * out, it is the flight, a pause, then an honest account of the destination.
  */
 export function flightLinkLabel(
   flight: string,

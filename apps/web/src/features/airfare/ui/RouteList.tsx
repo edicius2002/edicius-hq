@@ -327,8 +327,12 @@ export function RouteList({
                         id === selectedId ? `${styles.route} ${styles.selected}` : styles.route
                       }
                       aria-current={id === selectedId ? 'true' : undefined}
-                      onClick={() => onSelect(inverse ? routeId(inverse) : id)}
-                      title={inverse ? `Switch to ${routeLabel(inverse)}` : undefined}
+                      onClick={() => onSelect(id === selectedId && inverse ? routeId(inverse) : id)}
+                      title={
+                        id === selectedId && inverse
+                          ? `Switch to ${routeLabel(inverse)}`
+                          : undefined
+                      }
                     >
                       {/*
                       The colour this route is drawn in on the map. Eight arcs
@@ -358,8 +362,9 @@ export function RouteList({
                       The months, as tabs.
 
                        They are siblings of the route button because a `<button>`
-                       may not contain buttons. The route button switches direction
-                       when the inverse watch exists. Only months watched in the
+                       may not contain buttons. The route button first selects an
+                       unopened row, then switches direction on another press when
+                       the inverse watch exists. Only months watched in the
                        displayed direction open the chart; the inverse-only months
                        remain visible and disabled until the direction is switched.
 

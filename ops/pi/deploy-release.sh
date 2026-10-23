@@ -21,7 +21,7 @@ workers=(edicius-airfare-requests.service edicius-tweets.service edicius-market.
 timers=(edicius-airfare.timer edicius-sentiment.timer)
 # Collectors activated after their first release; pause them only once enabled.
 optional_timers=(edicius-fx.timer)
-optional_timers+=(edicius-airfare-sync.timer)
+optional_timers+=(edicius-airfare-sync.timer edicius-seace-scheduled.timer edicius-seace-requests.timer)
 for unit in "${optional_timers[@]}"; do
   if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
     timers+=("$unit")

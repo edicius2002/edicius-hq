@@ -84,6 +84,29 @@ describe('RouteList', () => {
     expect(rowFor('LIM', 'SCL')).toBeInTheDocument();
   });
 
+  it('selects another paired route before switching its direction on a later press', () => {
+    const reverse: FareRoute = {
+      origin: 'CUZ',
+      destination: 'LIM',
+      months: ['2026-11'],
+      currency: 'USD',
+    };
+    const { props, rerender } = renderList({
+      routes: [ROUTES[0], ROUTES[1], reverse],
+      selectedId: 'LIM|SCL',
+    });
+
+    const outward = rowFor('LIM', 'CUZ');
+    fireEvent.click(outward);
+    expect(props.onSelect).toHaveBeenLastCalledWith('LIM|CUZ');
+    expect(outward).not.toHaveAttribute('title', 'Switch to CUZ → LIM');
+
+    rerender(<RouteList {...props} selectedId="LIM|CUZ" />);
+    expect(rowFor('LIM', 'CUZ')).toHaveAttribute('title', 'Switch to CUZ → LIM');
+    fireEvent.click(rowFor('LIM', 'CUZ'));
+    expect(props.onSelect).toHaveBeenLastCalledWith('CUZ|LIM');
+  });
+
   it('keeps reciprocal watches in one compact row and switches direction on press', () => {
     const reverse: FareRoute = {
       origin: 'CUZ',
@@ -92,7 +115,7 @@ describe('RouteList', () => {
       currency: 'USD',
     };
     const routes = [ROUTES[0], ROUTES[1], reverse];
-    const { props, rerender } = renderList({ routes });
+    const { props, rerender } = renderList({ routes, selectedId: 'LIM|CUZ' });
     const list = screen.getByRole('list', { name: 'Watched routes' });
     const outward = rowFor('LIM', 'CUZ');
 

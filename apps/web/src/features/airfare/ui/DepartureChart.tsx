@@ -210,7 +210,7 @@ const HELP =
   'two fingers pinch to do it on a touchscreen. ' +
   'P pins the reading where it is, so it stays put while you look elsewhere, and P again or ' +
   'Escape lets it go; a right-click on a mark pins it the same way, and the pin button above the ' +
-  'plot does both. Where the airline that flies a mark has a booking search we can reach, that ' +
+  'plot does both. Where the airline that flies a mark has an official flight page we can reach, that ' +
   'mark is drawn with a coloured centre and the flight number in the line under the plot is a ' +
   'link to it, which Tab reaches from here.';
 
@@ -1360,18 +1360,16 @@ export function DepartureChart({
    * muted `↗` in the flight table that worked and that they could not find.
    *
    * **The visible text overpromises and the accessible name does not.** `AR
-   * 1281` in link blue reads as a link to AR 1281; the destination is that
-   * carrier's own search filled in with the route and the date, and the reader
-   * matches their departure by the clock. That gap is wider than the arrow's
-   * was and is taken on purpose, so the truth is carried where a wrong reading
-   * would cost money: `flightLinkLabel` gives the anchor the name and the
+   * 1281` in link blue reads as a link to AR 1281; the destination is the
+   * carrier's search, route page or general form, depending on what the airline
+   * supports. The truth is carried where a wrong reading would cost money:
+   * `flightLinkLabel` gives the anchor the name and the
    * tooltip `AR 1281 — Search Aerolíneas Argentinas for AEP to MDZ on
    * 02/03/2027`, which starts with the words on screen (WCAG 2.5.3) and then
    * says, in a verb, what pressing it actually does.
    *
-   * **Nothing stands where there is no link.** Avianca and any origin outside
-   * the three countries with a loaded storefront get plain text — no marker, no
-   * greyed anchor, no tooltip explaining an absence.
+   * **Nothing stands where there is no link.** An unknown carrier gets plain
+   * text, with no marker or greyed anchor.
    */
   const flightNameNode = (point: ScatterPoint) => {
     const name = flightName(point);
@@ -1386,6 +1384,13 @@ export function DepartureChart({
         rel="noreferrer"
         title={flightLinkLabel(name, search, point.airlineName)}
         aria-label={flightLinkLabel(name, search, point.airlineName)}
+        onPointerLeave={(event) => {
+          if (pinned) return;
+          const to = event.relatedTarget;
+          if (to instanceof Node && svg.current?.contains(to) === true) return;
+          if (to instanceof Node && readout.current?.contains(to) === true) return;
+          setCursor(null);
+        }}
         /*
           Focus leaving the link for somewhere that is neither the plot nor this
           line takes the reading with it, which is the rule the chart already
@@ -1505,7 +1510,9 @@ export function DepartureChart({
           the plot. Clearing the crosshair on the way out would be right for a
           hand that has left and wrong for a hand that is still working.
         */
-          onPointerLeave={() => {
+          onPointerLeave={(event) => {
+            const to = event.relatedTarget;
+            if (to instanceof Node && readout.current?.contains(to) === true) return;
             if (drag.current === null && !pinned) setCursor(null);
           }}
           onKeyDown={walk}

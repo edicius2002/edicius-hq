@@ -23,7 +23,9 @@ LOGGER = logging.getLogger(__name__)
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
 _ERROR_CODE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _ROUTE_PAIR = re.compile(r"^[A-Z0-9]{3}-[A-Z0-9]{3}$")
-_COLLECTORS = frozenset({"airfare", "airfare-requests", "x-posts", "sentiment", "market", "fx"})
+_COLLECTORS = frozenset(
+    {"airfare", "airfare-requests", "x-posts", "sentiment", "market", "fx", "seace"}
+)
 _OPERATIONS = frozenset({"market-bars", "market-search", "airfare-route"})
 _PROGRESS_STAGES = frozenset({"queued", "collecting", "syncing"})
 _TABLES = frozenset(
@@ -35,6 +37,8 @@ _TABLES = frozenset(
         "market_quotes",
         "fx_observations",
         "market_bars",
+        "seace_records",
+        "seace_sync_state",
     }
 )
 _RPCS = frozenset(
@@ -44,6 +48,7 @@ _RPCS = frozenset(
         "fail_collector_request",
         "merge_market_quote_ticks",
         "update_collector_request_progress",
+        "claim_seace_refresh_request",
     }
 )
 
@@ -262,6 +267,31 @@ class CollectorCloud:
 
     def upsert_bars(self, row: dict[str, Any]) -> None:
         self._upsert("market_bars", [row], "owner_id,symbol,timeframe,extended")
+
+    def upsert_seace_records(self, rows: Sequence[dict[str, Any]]) -> int:
+        return self._upsert("seace_records", rows, "owner_id,kind,record_key")
+
+    def upsert_seace_sync_state(self, row: dict[str, Any]) -> None:
+        self._upsert("seace_sync_state", [row], "owner_id,region,year,kind")
+
+    def claim_seace_refresh_request(self) -> CollectorRequest | None:
+        result = self._rpc("claim_seace_refresh_request", {"p_owner_id": str(self._owner_id)})
+        if result is None or (isinstance(result, dict) and result.get("request_id") is None):
+            return None
+        row = self._one_row(result, "SEACE request")
+        try:
+            request = CollectorRequest(
+                id=UUID(str(row["request_id"])),
+                owner_id=UUID(str(row["owner_id"])),
+                operation=str(row["operation"]),
+                payload=_freeze(_object(row["payload"], "SEACE request payload")),
+                expires_at=datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise CollectorCloudRejected("Supabase returned an invalid SEACE request") from None
+        if request.owner_id != self._owner_id or request.operation != "seace-refresh":
+            raise CollectorCloudRejected("Supabase returned an invalid SEACE request")
+        return request
 
     def claim_request(
         self, operations: Collection[str], *, exclude_pairs: Collection[str] | None = None

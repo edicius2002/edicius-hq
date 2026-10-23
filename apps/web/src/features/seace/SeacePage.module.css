@@ -1,0 +1,255 @@
+.page {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: calc(100vh - 74px);
+  color: #163435;
+  background: #f5f8f7;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 15px;
+  background: #e9f1ee;
+  border-right: 1px solid #d5e2dc;
+}
+.sidebar h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+.sidebar nav {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 15px;
+}
+.sidebar nav a {
+  padding: 9px 10px;
+  border-radius: 7px;
+  color: #345452;
+  text-decoration: none;
+  font-size: 13px;
+}
+.sidebar nav a.active {
+  background: #d0e9df;
+  color: #075b48;
+  font-weight: 700;
+}
+.sidebar label {
+  font-size: 12px;
+  font-weight: 700;
+}
+.sidebar small {
+  color: #58736e;
+  font-size: 11px;
+}
+.regionControl {
+  display: flex;
+  gap: 5px;
+}
+.regionControl select {
+  min-width: 0;
+  flex: 1;
+}
+.regionControl button {
+  width: 32px;
+  font-size: 19px;
+}
+.sidebar > select,
+.resetFilters {
+  border: 1px solid #b9ccc5;
+  border-radius: 6px;
+  background: white;
+  color: #1d403a;
+  padding: 7px;
+}
+.resetFilters {
+  cursor: pointer;
+  font-weight: 700;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+}
+.importBox {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #d5e2dc;
+}
+.importBox input {
+  width: 100%;
+  font-size: 11px;
+}
+.importBox button {
+  border: 1px solid #9dbbb3;
+  border-radius: 6px;
+  background: #fff;
+  color: #145e56;
+  padding: 7px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.importBox button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.content {
+  min-width: 0;
+  padding: 22px;
+}
+.toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+.toolbar h2 {
+  margin: 0 0 3px;
+  font-size: 21px;
+}
+.toolbar span {
+  color: #637e79;
+  font-size: 12px;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tableSwitch {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #b9ccc5;
+  border-radius: 8px;
+  background: #e5eeeb;
+}
+.controls .tableSwitch button {
+  border: 0;
+  background: transparent;
+  color: #506c6d;
+  font-weight: 700;
+}
+.controls .tableSwitch button.selected {
+  background: #fff;
+  color: #145e56;
+  box-shadow: 0 1px 5px #244a441c;
+}
+.controls input {
+  min-width: 150px;
+}
+.controls input,
+.controls select,
+.controls button,
+.regionControl select,
+.regionControl button,
+.pager select,
+.pager button {
+  border: 1px solid #b9ccc5;
+  border-radius: 6px;
+  background: white;
+  color: #1d403a;
+  padding: 7px;
+}
+.tableWrap {
+  overflow: auto;
+  max-height: 73vh;
+  background: white;
+  border: 1px solid #dbe6e1;
+  border-radius: 8px;
+}
+.tableWrap table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 1450px;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.tableWrap th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #e4efea;
+  text-align: center;
+  color: #315751;
+}
+.tableWrap th button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+}
+.tableWrap th,
+.tableWrap td {
+  padding: 8px 7px;
+  border-bottom: 1px solid #e7eeeb;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.tableWrap th:first-child {
+  width: 65px;
+}
+.tableWrap th:nth-child(2) {
+  width: 135px;
+}
+.tableWrap th:nth-child(3) {
+  width: 125px;
+}
+.tableWrap th:nth-child(4) {
+  width: 205px;
+}
+.tableWrap a {
+  color: #087566;
+}
+.date {
+  display: inline-flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+.date small {
+  color: #637e79;
+}
+.links {
+  display: grid;
+  gap: 4px;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  padding-top: 12px;
+  font-size: 12px;
+}
+.pager button:disabled {
+  opacity: 0.45;
+}
+@media (max-width: 800px) {
+  .page {
+    display: block;
+  }
+  .sidebar {
+    gap: 8px;
+  }
+  .sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0;
+  }
+  .content {
+    padding: 14px;
+  }
+  .toolbar {
+    align-items: start;
+    flex-direction: column;
+  }
+  .pager {
+    flex-wrap: wrap;
+  }
+}

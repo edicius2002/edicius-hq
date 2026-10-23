@@ -43,6 +43,12 @@ Si falla archivos después de detalle, conserva el detalle válido, omite
 `documentos` y devuelve también la falta de archivos. Una respuesta válida de
 archivos sin documentos sí devuelve `documentos: []`. Los ítems son una lista,
 incluso cuando no hay ítems; una forma JSON incompatible no completa la fase.
+El detalle requiere `uitContratoCompletoProjection` como objeto no vacío:
+`{}`, una cabecera ausente/nula/vacía o listas sin cabecera van a `faltas`
+como `invalid_payload`, sin marcar `detail` completada ni consultar archivos.
+Las listas de etapas e ítems pueden faltar, ser nulas o vacías; cuando contienen
+elementos, estos deben ser objetos. No se exige un campo específico de cabecera
+que el contrato vendorizado no garantice.
 El transporte no guarda pendientes ni confirma la publicación: eso corresponde
 al colector. El contrato por fases se coordinó con el trabajador de la cola.
 
@@ -53,18 +59,25 @@ la respuesta funcional para reconciliar trabajo, nunca en los eventos.
 | Respuesta | Clasificación y política |
 | --- | --- |
 | 403 | `forbidden`; un intento, sin reintento inmediato |
-| 429 | `rate_limited`; máximo tres intentos, espera al menos Retry-After válido |
-| 5xx | `server_error`; máximo tres intentos |
+| 429 | `rate_limited`; máximo tres intentos, Retry-After largo se devuelve para reprogramación |
+| 5xx | `server_error`; máximo tres intentos, respeta también Retry-After |
 | Timeout | `timeout`; máximo tres intentos, status nulo si no hubo respuesta |
 | Otro error de red | `network_error`; máximo tres intentos |
 | Otros estados HTTP | `http_error`; un intento |
 | JSON inválido/forma incompatible | `invalid_json`/`invalid_payload`; un intento |
 
-Las esperas breves existentes son 0,5 y 1 s. Para 429 se usa el máximo entre
-esa espera y `Retry-After`, que acepta segundos enteros o fecha HTTP; un header
-inválido usa la espera existente. Esta espera corresponde a la petición que
-recibió 429, no congela otras solicitudes. Tras agotar intentos se devuelve la
-falta, incluido el Retry-After del último intento para que el colector decida.
+Las esperas breves existentes son 0,5 y 1 s. Para 429 y 5xx se usa el máximo
+entre esa espera y `Retry-After`, que acepta segundos enteros o fecha HTTP; un
+header inválido usa la espera existente. Se espera dentro del tool únicamente
+si el plazo es **menor o igual a 2 s**. Si supera 2 s, se devuelve inmediatamente
+el error del intento actual, sin dormir ni enviar otro intento antes del plazo.
+No se recorta el plazo a 2 s para reintentar: se conserva completo en
+`retry_after_seconds`, un número de segundos desde la respuesta (o nulo sin
+header válido), tanto en el evento como en la falta por ID/fase. El colector
+debe reprogramar esa fase para una fecha no anterior a su recepción más ese
+intervalo; puede aplicar un backoff mayor. La espera breve corresponde a la
+petición fallida y no congela otras solicitudes. Tras agotar los tres intentos
+también se devuelve el Retry-After del último intento.
 
 ## Eventos y métricas derivadas
 
@@ -154,3 +167,25 @@ Desde `services/api`:
 
 Pendiente operativo: revisar/integrar el commit y decidir por separado cualquier
 despliegue o medición desde `bodas`. No se midió ni se afirma una cuota segura.
+
+### Revisión correctiva de `d2843cc`
+
+Ambos defectos quedaron reproducidos mediante HTTP simulado. La validación
+anterior aceptaba `{}` y completaba `detail` con cabecera e ítems vacíos;
+el backoff anterior pedía dos `asyncio.sleep(3600)` ante un Retry-After de una
+hora, manteniendo ocupada la llamada y la pasada. Además, un 5xx ignoraba el
+plazo indicado y reintentaba a los 0,5 y 1 s.
+
+Las regresiones fallaron antes de modificar el transporte (17 fallidas,
+27 pasadas) y pasaron después. Cubren proyecciones ausentes/nulas/vacías,
+listas mal formadas, cabecera válida con listas vacías, Retry-After en segundos
+y fecha HTTP (3 s y 1 h), 429/503, ambas fases y conservación del detalle si falla archivos.
+Las pruebas de esperas breves y liberación de capacidad siguen cubriendo el
+reintento dentro del tool. No se hicieron solicitudes reales a SEACE.
+
+Validación desde `services/api`:
+
+- `python -m pytest tests/test_seace_transport.py tests/test_seace_incremental.py tests/test_seace_publish.py -q`:
+  57 pasadas; una advertencia existente de Starlette.
+- `python -m ruff check . ../../scripts`: sin problemas.
+- `python -m ruff format --check . ../../scripts`: 173 archivos conformes.

@@ -510,17 +510,18 @@ describe('FlightTable', () => {
     expect(link).toHaveAttribute('title', 'LA 529 — Search LATAM for LIM to SCL on 16/10/2026');
   });
 
-  it('gives an Avianca flight no link at all rather than a guessed one', () => {
+  it('links an Avianca flight to its published route page', () => {
     render(
       <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
     );
 
     const row = bodyRows().find((each) => within(each).queryByText('AV 812'))!;
-    expect(within(row).queryByRole('link')).toBeNull();
-    // And nothing stands in its place: no marker, no greyed affordance, no
-    // tooltip explaining an absence. Plain text, as the number always was.
-    expect(within(row).getByText('AV 812').textContent).toBe('AV 812');
-    expect(within(row).getByText('AV 812').tagName).not.toBe('A');
+    const link = within(row).getByRole('link', { name: /^AV 812 —/ });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.avianca.com/us/es/vuelos-desde-lima-a-santiago',
+    );
+    expect(link.textContent).toBe('AV 812');
   });
 
   it('draws no links at all while the route or its country is unknown', () => {
@@ -530,7 +531,7 @@ describe('FlightTable', () => {
     expect(screen.queryByRole('link')).toBeNull();
   });
 
-  it('draws no link where the origin country has no storefront we have loaded', () => {
+  it('links to the general official site where the origin has no configured storefront', () => {
     render(
       <FlightTable
         snapshots={[SNAPSHOT]}
@@ -539,7 +540,11 @@ describe('FlightTable', () => {
         leg={{ origin: 'LIM', destination: 'SCL', originCountry: 'Brazil' }}
       />,
     );
-    expect(screen.queryByRole('link')).toBeNull();
+    const latam = screen.getByRole('link', { name: /^LA 529 —/ });
+    expect(latam).toHaveAttribute('href', 'https://www.latamairlines.com/');
+    expect(latam).toHaveAccessibleName(
+      'LA 529 — Open LATAM flight search; choose LIM to SCL and a departure date on the airline site',
+    );
   });
 });
 

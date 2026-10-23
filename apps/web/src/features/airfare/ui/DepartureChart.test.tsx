@@ -1702,13 +1702,13 @@ describe('reaching the airline from the chart', () => {
   /** LIM is in Peru, which is what picks LATAM's storefront. */
   const LEG = { origin: 'LIM', destination: 'SCL', originCountry: 'Peru' };
 
-  /** One reachable carrier and one that is not, on the same date. */
+  /** One known carrier and one unknown carrier, on the same date. */
   const BOARD = [
     snapshot('2027-03-09', [
       offer({ flightNumber: '4', departureAt: '2027-03-09T06:30', price: 195 }),
       offer({
-        airline: 'AV',
-        airlineName: 'Avianca',
+        airline: 'ZZ',
+        airlineName: 'Unknown airline',
         flightNumber: '812',
         departureAt: '2027-03-09T19:55',
         price: 260,
@@ -1724,12 +1724,76 @@ describe('reaching the airline from the chart', () => {
     });
   }
 
-  /** That board's two dots in clock order — LA 4 at 06:30, then AV 812. */
+  /** That board's two dots in clock order — LA 4 at 06:30, then ZZ 812. */
   function board(container: HTMLElement) {
     return dots(container).sort(
       (a, b) => Number(a.getAttribute('cx')) - Number(b.getAttribute('cx')),
     );
   }
+
+  it.each([
+    [
+      'IB',
+      'Iberia',
+      'SCL',
+      'MAD',
+      'https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/',
+    ],
+    ['AV', 'Avianca', 'SCL', 'MAD', 'https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid'],
+    [
+      'UX',
+      'Air Europa',
+      'SCL',
+      'MAD',
+      'https://www.aireuropa.com/es-cl/ofertas-de-vuelos-desde-santiago-de-chile-a-madrid',
+    ],
+    [
+      'H2',
+      'Sky Airline',
+      'LIM',
+      'AQP',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa?em_o=LIM&em_d=AQP&em_dd=2027-03-09&em_jt=ONE_WAY&em_pc=1',
+    ],
+  ])(
+    'links the %s flight number on its published route',
+    (airline, airlineName, origin, destination, url) => {
+      const board = {
+        ...snapshot('2027-03-09', [
+          offer({ airline, airlineName, flightNumber: '812', departureAt: '2027-03-09T19:55' }),
+        ]),
+        destination,
+      };
+      const { container } = chart({
+        snapshots: [board],
+        granularity: 'day',
+        leg: { origin, destination, originCountry: origin === 'SCL' ? 'Chile' : 'Peru' },
+      });
+      const mark = dots(container)[0];
+      expect(mark).toHaveAttribute('data-linked', 'true');
+      point(container, mark);
+      const link = screen.getByRole('link', { name: new RegExp(`^${airline} 812 —`) });
+      expect(link).toHaveAttribute('href', url);
+    },
+  );
+
+  it('links an Avianca flight outside the published route list to its official search', () => {
+    const snapshotWithAvianca = snapshot('2027-03-09', [
+      offer({ airline: 'AV', airlineName: 'Avianca', flightNumber: '812' }),
+    ]);
+    const { container } = chart({
+      snapshots: [snapshotWithAvianca],
+      granularity: 'day',
+      leg: { origin: 'LIM', destination: 'DFW', originCountry: 'Peru' },
+    });
+    const mark = dots(container)[0];
+    expect(mark).toHaveAttribute('data-linked', 'true');
+    point(container, mark);
+    const link = screen.getByRole('link', { name: /^AV 812 —/ });
+    expect(link).toHaveAttribute('href', 'https://www.avianca.com/us/en/');
+    expect(link).toHaveAccessibleName(
+      'AV 812 — Open Avianca flight search; choose LIM to DFW and a departure date on the airline site',
+    );
+  });
 
   it('makes the flight number in the readout a link to that airline’s own search', () => {
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
@@ -1746,6 +1810,20 @@ describe('reaching the airline from the chart', () => {
     );
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('keeps the link while the pointer moves from the plot to the flight number', () => {
+    const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
+    const svg = container.querySelector('svg')!;
+    point(container, board(container)[0]);
+    const link = screen.getByRole('link', { name: /^LA 4 —/ });
+
+    fireEvent.pointerLeave(svg, { relatedTarget: link });
+    expect(link).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^LA 4 —/ })).toBe(link);
+
+    fireEvent.pointerOut(link, { relatedTarget: document.body });
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('names the link after what it does, not after what its text implies', () => {
@@ -1813,20 +1891,17 @@ describe('reaching the airline from the chart', () => {
 
   it('marks the flights that have a link and no others', () => {
     /*
-     * The marker, and the number that makes it worth stating: LATAM 2912,
-     * JetSMART 839 and Aerolíneas 205 of 4044 offers are reachable and only
-     * Avianca's 88 are not, so this mark lands on roughly 98% of the archive
-     * and draws the normal state rather than the exception. Marked the other
-     * way round it would be the same set with this test inverted.
+     * The marker belongs to a flight only when its carrier has an official URL.
+     * This board's LATAM flight has one; the unknown carrier does not.
      *
      * One node and not two, still: the mark is a single `<circle>` with a fill
      * and a stroke, so ~899 marks are ~899 elements.
      */
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
-    const [latam, avianca] = board(container);
+    const [latam, unknown] = board(container);
 
     expect(latam.getAttribute('data-linked')).toBe('true');
-    expect(avianca.getAttribute('data-linked')).toBeNull();
+    expect(unknown.getAttribute('data-linked')).toBeNull();
     expect(latam.tagName).toBe('circle');
   });
 
@@ -1848,24 +1923,23 @@ describe('reaching the airline from the chart', () => {
      * against 2.6, which is 27%.
      */
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
-    const [latam, avianca] = board(container);
+    const [latam, unknown] = board(container);
     const across = (mark: SVGCircleElement) =>
       Number(mark.getAttribute('r')) + Number(mark.getAttribute('stroke-width') ?? 0) / 2;
 
-    expect(across(latam)).toBeLessThanOrEqual(across(avianca) * 0.75);
+    expect(across(latam)).toBeLessThanOrEqual(across(unknown) * 0.75);
     // And it is still a dot inside a collar rather than a bare disc, because the
     // owner asked for a colour *in the middle* of the circles.
     expect(Number(latam.getAttribute('stroke-width'))).toBeGreaterThan(0);
-    expect(avianca.getAttribute('stroke-width')).toBeNull();
+    expect(unknown.getAttribute('stroke-width')).toBeNull();
   });
 
   it('gives a carrier we cannot reach plain text and no mark', () => {
-    // Avianca is behind Akamai and was never loaded cold, so there is no URL to
-    // send anyone to. Nothing stands in its place — no greyed link, no marker.
+    // The carrier code is not known, so there is no official site to link.
     const { container } = chart({ snapshots: BOARD, granularity: 'day', leg: LEG });
     point(container, board(container)[1]);
 
-    expect(container.textContent).toContain('AV 812');
+    expect(container.textContent).toContain('ZZ 812');
     expect(screen.queryByRole('link')).toBeNull();
   });
 

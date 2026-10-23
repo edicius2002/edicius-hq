@@ -89,8 +89,10 @@ so hardlinks cannot overwrite journals or the watch document indirectly.
 
 ## Finalization retries and deadlines
 
-After acknowledged source batches, finalization drains dirty route projections,
-reads the full destination manifest and upserts the same import-run ID as complete.
+After acknowledged source batches, global finalization drains dirty route
+projections, reads the full destination manifest and upserts the same import-run
+ID as complete. Manual finalization refreshes only its requested route and
+omits the global manifest read.
 A transient remote/network failure retries this phase at most twice, after 1 and
 2 seconds. It does not recollect departures or replay acknowledged source uploads.
 Permanent rejections fail immediately; exhaustion still reports a failed sync.

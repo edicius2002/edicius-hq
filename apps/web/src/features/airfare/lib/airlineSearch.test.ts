@@ -14,10 +14,9 @@ import {
  * Every expectation here is a whole URL rather than a parameter fished out of
  * one, because a booking engine's deep link is only ever right or wrong as a
  * whole: `trip=OW` without `/pe/es/` is a 404, and a `culture` without a `cur`
- * is a New Skies session with no currency. Three of these four hosts sit behind
- * bot protection that will not answer a test runner, so a whole-string
- * expectation is also the only alarm that fires when somebody edits one of
- * these builders by hand.
+ * is a New Skies session with no currency. Several hosts block an automated
+ * test runner, so a whole-string expectation also catches accidental changes
+ * to a URL builder without depending on a live airline site.
  */
 
 const LIM_CUZ: FlightSearch = {
@@ -141,33 +140,125 @@ describe('airlineSearchUrl', () => {
     ).toContain('leg=AEP-GRU-20260925');
   });
 
-  it('gives Avianca nothing, because nobody has loaded a URL for it', () => {
-    /*
-     * 88 offers, about 2% of the archive. The site is behind Akamai and the
-     * investigation that opened the other three cold could not open it at all,
-     * so any URL here would be a guess — and 2% of rows quietly linking to a
-     * 404 costs more than 2% of rows linking to nothing.
-     */
+  it('opens Plus Ultra selection with the route and departure date', () => {
     expect(
       airlineSearchUrl({
-        airline: 'AV',
+        airline: 'PU',
         origin: 'LIM',
-        destination: 'SCL',
-        date: '2026-10-16',
+        destination: 'MAD',
+        date: '2026-11-11',
         originCountry: 'Peru',
       }),
-    ).toBeNull();
+    ).toBe(
+      'https://www.plusultra.com/es-es/booking/select/?adt1=1&chd1=0&currency=EUR&departure1=2026-11-11&destination1=MAD&inf1=0&origin1=LIM',
+    );
   });
 
-  it('gives a carrier nobody has a URL for nothing, rather than a guess', () => {
-    expect(airlineSearchUrl({ ...LIM_CUZ, airline: 'H2' })).toBeNull();
+  it.each([
+    [
+      'H2',
+      'LIM',
+      'CUZ',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-cusco?em_o=LIM&em_d=CUZ&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
+    [
+      'H2',
+      'CUZ',
+      'LIM',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-cusco-a-lima?em_o=CUZ&em_d=LIM&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
+    [
+      'H2',
+      'LIM',
+      'SCL',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-santiago?em_o=LIM&em_d=SCL&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
+    [
+      'H2',
+      'LIM',
+      'AQP',
+      'https://www.skyairline.com/flights/es-pe/vuelos-desde-lima-a-arequipa?em_o=LIM&em_d=AQP&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
+    [
+      'H2',
+      'SCL',
+      'LIM',
+      'https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-lima?em_o=SCL&em_d=LIM&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
+    [
+      'H2',
+      'SCL',
+      'CUZ',
+      'https://www.skyairline.com/flights/es-cl/vuelos-desde-santiago-a-cusco?em_o=SCL&em_d=CUZ&em_dd=2026-11-11&em_jt=ONE_WAY&em_pc=1',
+    ],
+    ['AV', 'LIM', 'BOG', 'https://www.avianca.com/us/en/flights-from-lima-to-bogota'],
+    ['AV', 'LIM', 'MAD', 'https://www.avianca.com/us/es/vuelos-desde-lima-a-madrid'],
+    ['AV', 'SCL', 'MAD', 'https://www.avianca.com/es/es/vuelos-desde-santiago-a-madrid'],
+    ['AV', 'MAD', 'SCL', 'https://www.avianca.com/es/es/vuelos-desde-madrid-a-santiago'],
+    ['AV', 'LIM', 'SCL', 'https://www.avianca.com/us/es/vuelos-desde-lima-a-santiago'],
+    ['IB', 'LIM', 'MAD', 'https://www.iberia.com/pe/vuelos-baratos/Lima-Madrid/'],
+    ['IB', 'MAD', 'LIM', 'https://www.iberia.com/es/vuelos-baratos/Madrid-Lima/'],
+    ['IB', 'SCL', 'MAD', 'https://www.iberia.com/cl/vuelos-baratos/Santiago-de-Chile-Madrid/'],
+    ['IB', 'MAD', 'SCL', 'https://www.iberia.com/es/vuelos-baratos/Madrid-Santiago-de-Chile/'],
+    ['IB', 'LIM', 'BCN', 'https://www.iberia.com/pe/vuelos-baratos/Lima-Barcelona/'],
+    ['UX', 'LIM', 'MAD', 'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-madrid'],
+    ['UX', 'MAD', 'LIM', 'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-lima'],
+    [
+      'UX',
+      'SCL',
+      'MAD',
+      'https://www.aireuropa.com/es-cl/ofertas-de-vuelos-desde-santiago-de-chile-a-madrid',
+    ],
+    [
+      'UX',
+      'MAD',
+      'SCL',
+      'https://www.aireuropa.com/es-es/ofertas-de-vuelos-desde-madrid-a-santiago-de-chile',
+    ],
+    [
+      'UX',
+      'LIM',
+      'BCN',
+      'https://www.aireuropa.com/es-pe/ofertas-de-vuelos-desde-lima-a-barcelona',
+    ],
+  ])('opens the published %s route page for %s–%s', (airline, origin, destination, url) => {
+    expect(
+      airlineSearchUrl({ airline, origin, destination, date: '2026-11-11', originCountry: null }),
+    ).toBe(url);
   });
 
-  it('gives nothing where the origin country has no storefront', () => {
-    // Not a dead link and not a wrong-currency one: LATAM does sell in Brazil,
-    // and the path that reaches its Brazilian offers page is not known here.
-    expect(airlineSearchUrl({ ...LIM_CUZ, originCountry: 'Brazil' })).toBeNull();
-    expect(airlineSearchUrl({ ...LIM_CUZ, originCountry: null })).toBeNull();
+  it('prefills route and date on SKY search even without a published route page', () => {
+    expect(airlineSearchUrl({ ...LIM_CUZ, airline: 'H2', destination: 'BOG' })).toBe(
+      'https://www.skyairline.com/flights/es-pe/?em_o=LIM&em_d=BOG&em_dd=2026-09-12&em_jt=ONE_WAY&em_pc=1',
+    );
+  });
+
+  it.each([
+    ['AV', 'https://www.avianca.com/us/en/'],
+    ['IB', 'https://www.iberia.com/pe/buscador-vuelos/'],
+    ['UX', 'https://www.aireuropa.com/es-es/'],
+  ])('opens %s official flight search for an uncatalogued route', (airline, url) => {
+    expect(airlineSearchUrl({ ...LIM_CUZ, airline, destination: 'DFW' })).toBe(url);
+    expect(searchLabel({ ...LIM_CUZ, airline, destination: 'DFW' }, airline)).toBe(
+      `Open ${airline} flight search; choose LIM to DFW and a departure date on the airline site`,
+    );
+  });
+
+  it('opens a general official site when LATAM or JetSMART has no configured storefront', () => {
+    expect(airlineSearchUrl({ ...LIM_CUZ, originCountry: 'Brazil' })).toBe(
+      'https://www.latamairlines.com/',
+    );
+    expect(airlineSearchUrl({ ...LIM_CUZ, airline: 'JA', originCountry: null })).toBe(
+      'https://www.jetsmart.com/',
+    );
+    expect(searchLabel({ ...LIM_CUZ, originCountry: 'Brazil' }, 'LATAM')).toContain(
+      'choose LIM to CUZ and a departure date',
+    );
+  });
+
+  it('keeps unknown carriers as plain text', () => {
+    expect(airlineSearchUrl({ ...LIM_CUZ, airline: 'ZZ' })).toBeNull();
+    expect(airlineSearchUrl({ ...LIM_CUZ, airline: '__proto__' })).toBeNull();
   });
 
   it('refuses a code or a date that is not one', () => {
@@ -193,6 +284,12 @@ describe('searchLabel', () => {
 
   it('falls back to the IATA code where the archive has no carrier name', () => {
     expect(searchLabel(LIM_CUZ, null)).toBe('Search LA for LIM to CUZ on 12/09/2026');
+  });
+
+  it('names the prefilled date on SKY links', () => {
+    expect(searchLabel({ ...LIM_CUZ, airline: 'H2' }, 'SKY')).toBe(
+      'Search SKY for LIM to CUZ on 12/09/2026',
+    );
   });
 });
 

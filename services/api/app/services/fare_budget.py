@@ -75,7 +75,7 @@ bounds a day only *eventually*, because two passes starting together each read a
 day with room in it, each size a whole day's work against that, and each begin
 spending before either can see the other. That argument is retired with the
 default ceiling and the lock is not, because the other half of what it does was
-never about the count: two passes running at once halve `REQUEST_GAP_SECONDS`
+never about the count: two passes running at once can compress the start gap
 without anybody deciding to. Pace is what this address is actually protected by,
 so the lock is now the load-bearing one of the pair rather than the support.
 
@@ -345,7 +345,7 @@ class PassLock:
     **What it protects is the pace, and it is taken around planning-plus-spending
     rather than around the append.** A lock held only over `RequestLedger.spend`
     would serialise the writes and nothing else, leaving two passes talking to
-    the upstream at once — which halves `REQUEST_GAP_SECONDS` without anybody
+    the upstream at once — which compresses the start gap without anybody
     deciding to, and pace is what this address is actually protected by.
 
     It was also the thing that made a ceiling enforceable, and that is the half

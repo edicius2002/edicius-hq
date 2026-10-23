@@ -8,6 +8,7 @@ import re
 import sys
 import tempfile
 import time
+import zlib
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -193,6 +194,16 @@ class _Journal:
     # are acknowledged only alongside the preceding successful batch.
     entries: list[tuple[int, str]]
     end: int
+    base_offset: int = 0
+    positions: list[tuple[str, str, str, int]] = field(default_factory=list)
+    read_bytes: int = 0
+    prefix_crc32: int = 0
+
+
+def _window_digest(handle: Any, offset: int) -> str:
+    """Fingerprint the boundary of an append-only journal without reading its history."""
+    handle.seek(max(0, offset - 4096))
+    return hashlib.sha256(handle.read(min(offset, 4096))).hexdigest()
 
 
 def _json(content: bytes) -> Any:
@@ -280,7 +291,211 @@ class AirfareSync:
         self.remote = remote
         self.batch_size = batch_size
         self.cursor_path = self.source_root / "fares/sync/cursors.json"
+        self.route_index_dir = self.source_root / "fares/sync/route-index"
         self.process_lock_path = self.source_root / "fares/sync/replica.lock"
+
+    def _route_index_path(self, route: str) -> Path:
+        return self.route_index_dir / f"{route}.json"
+
+    def _read_route_index(self, route: str) -> dict[str, Any] | None:
+        try:
+            wrapper = _json(self._route_index_path(route).read_bytes())
+            payload = wrapper["payload"]
+            encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            if wrapper["digest"] != hashlib.sha256(encoded).hexdigest() or payload["version"] != 1:
+                return None
+            return payload if isinstance(payload, dict) else None
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _write_route_index(self, route: str, payload: dict[str, Any]) -> None:
+        self.route_index_dir.mkdir(parents=True, exist_ok=True)
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        wrapper = {"payload": payload, "digest": hashlib.sha256(encoded).hexdigest()}
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=self.route_index_dir, suffix=".tmp", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            json.dump(wrapper, handle, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, self._route_index_path(route))
+
+    def _index_from_scan(
+        self, route: str, datasets: dict[str, _Dataset], journals: list[_Journal]
+    ) -> dict[str, Any]:
+        files = {}
+        for journal in journals:
+            relative = journal.path.relative_to(self.source_root).as_posix()
+            files[relative] = {
+                "offset": journal.end,
+                "size": journal.stat.st_size,
+                "inode": journal.stat.st_ino,
+                "mtime_ns": journal.stat.st_mtime_ns,
+                "lines": journal.content[: journal.end].count(b"\n"),
+                "window": hashlib.sha256(
+                    journal.content[max(0, journal.end - 4096) : journal.end]
+                ).hexdigest(),
+                "crc32": zlib.crc32(journal.content[: journal.end]),
+            }
+        return {
+            "version": 1,
+            "files": files,
+            "datasets": {
+                name: {
+                    "ids": list(datasets[name].rows),
+                    "physical": datasets[name].physical,
+                    "skipped": datasets[name].skipped,
+                }
+                for name in _JOURNALS
+            },
+            "baseline_keys": {
+                f"{row['flight_date']}|{row['price_date']}": identity
+                for identity, row in datasets["baseline"].rows.items()
+            },
+            "positions": [list(position) for journal in journals for position in journal.positions],
+            "cursors": {},
+        }
+
+    @staticmethod
+    def _index_manifest(index: dict[str, Any], route: str) -> SourceManifest:
+        empty = _Dataset().manifest()
+        manifests = {}
+        for name in _JOURNALS:
+            dataset = index["datasets"][name]
+            digest = _digest(dataset["ids"])
+            manifests[name] = DatasetManifest(
+                dataset["physical"],
+                digest.records,
+                dataset["skipped"],
+                digest.digest,
+                {route: digest} if digest.records else {},
+            )
+        return SourceManifest(**manifests, airports=empty, documents=empty)
+
+    def _collect_manual_delta(
+        self, route: str, cursors: dict[str, Any], client: SupabaseAirfare | None
+    ) -> tuple[dict[str, _Dataset], list[_Journal], dict[str, Any]] | None:
+        index = self._read_route_index(route)
+        if index is None:
+            return None
+        paths = [
+            path
+            for directory in _JOURNALS.values()
+            for path in sorted((self.source_root / directory).glob("*.jsonl"))
+            if route_stem(*path.stem.partition("-")[::2]) == route
+        ]
+        relatives = {path.relative_to(self.source_root).as_posix() for path in paths}
+        try:
+            if relatives != set(index["files"]):
+                return None
+            if any(
+                cursors.get(relative) != index["cursors"].get(relative) for relative in relatives
+            ):
+                return None
+            for relative in relatives:
+                if (
+                    relative.startswith("fares/baseline/")
+                    and client is not None
+                    and client.replica_id
+                ):
+                    checkpoint = BaselineAcknowledgements(
+                        self.source_root / "fares/sync/baseline-ack" / f"{route}.json",
+                        replica_id=client.replica_id,
+                        writer_cursor=self._baseline_writer_cursor(route, cursors),
+                    )
+                    if not checkpoint.valid:
+                        return None
+            datasets = {name: _Dataset() for name in _TABLES}
+            journals = []
+            positions = {tuple(item) for item in index["positions"]}
+            baseline_keys = index["baseline_keys"]
+            for path in paths:
+                relative = path.relative_to(self.source_root).as_posix()
+                meta = index["files"][relative]
+                name = next(
+                    name
+                    for name, directory in _JOURNALS.items()
+                    if relative.startswith(directory + "/")
+                    and relative[len(directory) + 1 :].count("/") == 0
+                )
+                with path.open("rb") as handle:
+                    stat = os.fstat(handle.fileno())
+                    offset = meta["offset"]
+                    prefix_crc32 = meta["crc32"]
+                    if (
+                        stat.st_ino != meta["inode"]
+                        or stat.st_size < meta["size"]
+                        or (stat.st_size == meta["size"] and stat.st_mtime_ns != meta["mtime_ns"])
+                        or _window_digest(handle, offset) != meta["window"]
+                    ):
+                        return None
+                    handle.seek(offset)
+                    content = handle.read(stat.st_size - offset)
+                end = offset + content.rfind(b"\n") + 1
+                line_offset = offset
+                entries = []
+                journal_positions = []
+                skipped = 0
+                for line, raw in enumerate(content.split(b"\n")[:-1], meta["lines"] + 1):
+                    line_offset += len(raw) + 1
+                    if not raw.strip():
+                        continue
+                    try:
+                        row = _json(raw)
+                        record = _record(name, route, row, line) if isinstance(row, dict) else None
+                    except (ValueError, KeyError, TypeError, OverflowError):
+                        record = None
+                    if record is None:
+                        datasets[name].skipped += 1
+                        skipped += 1
+                        continue
+                    if name in {"snapshots", "calendar"}:
+                        position = (name, route, str(row["capturedAt"]), line)
+                        if position in positions:
+                            raise ValueError("ambiguous airfare source observation position")
+                        positions.add(position)
+                        index["positions"].append(list(position))
+                        journal_positions.append(position)
+                    identity = record["record_id"]
+                    if name == "baseline":
+                        key = f"{record['flight_date']}|{record['price_date']}"
+                        if key in baseline_keys and baseline_keys[key] != identity:
+                            raise ValueError("ambiguous airfare baseline natural key")
+                        baseline_keys[key] = identity
+                    datasets[name].add(identity, record, route)
+                    entries.append((line_offset, identity))
+                data = index["datasets"][name]
+                data["ids"].extend(identity for _, identity in entries)
+                data["physical"] += len(entries)
+                data["skipped"] += skipped
+                meta["crc32"] = zlib.crc32(content[: end - offset], prefix_crc32)
+                meta.update(
+                    offset=end,
+                    size=stat.st_size,
+                    inode=stat.st_ino,
+                    mtime_ns=stat.st_mtime_ns,
+                    lines=meta["lines"] + content[: end - offset].count(b"\n"),
+                )
+                with path.open("rb") as handle:
+                    meta["window"] = _window_digest(handle, end)
+                journals.append(
+                    _Journal(
+                        path,
+                        name,
+                        content,
+                        stat,
+                        entries,
+                        end,
+                        offset,
+                        journal_positions,
+                        len(content) + min(offset, 4096) + min(end, 4096),
+                        prefix_crc32,
+                    )
+                )
+            return datasets, journals, index
+        except (KeyError, TypeError, IndexError, OSError, StopIteration):
+            return None
 
     def _collect(
         self, *, route_scope: str | None = None
@@ -301,6 +516,7 @@ class AirfareSync:
                     stat = os.fstat(handle.fileno())
                     content = handle.read(stat.st_size)
                 entries = []
+                journal_positions = []
                 offset = 0
                 for line, raw in enumerate(content.split(b"\n")[:-1], 1):
                     offset += len(raw) + 1
@@ -319,6 +535,7 @@ class AirfareSync:
                         if position in positions:
                             raise ValueError("ambiguous airfare source observation position")
                         positions.add(position)
+                        journal_positions.append(position)
                     identity = record["record_id"]
                     if name == "baseline":
                         baseline_key = (route, record["flight_date"], record["price_date"])
@@ -331,7 +548,16 @@ class AirfareSync:
                     datasets[name].add(identity, record, route)
                     entries.append((offset, identity))
                 journals.append(
-                    _Journal(path, name, content, stat, entries, content.rfind(b"\n") + 1)
+                    _Journal(
+                        path,
+                        name,
+                        content,
+                        stat,
+                        entries,
+                        content.rfind(b"\n") + 1,
+                        0,
+                        journal_positions,
+                    )
                 )
         if route_scope is not None:
             return datasets, journals
@@ -445,6 +671,8 @@ class AirfareSync:
         cursor = cursors.get(journal.path.relative_to(self.source_root).as_posix(), {})
         if mode == "full" or not isinstance(cursor, dict):
             return 0
+        if journal.base_offset and cursor.get("offset") == journal.base_offset:
+            return journal.base_offset
         offset = cursor.get("offset", 0)
         previous_size = cursor.get("size")
         if (
@@ -455,7 +683,16 @@ class AirfareSync:
             or offset > journal.end
             or journal.content[offset - 1 : offset] != b"\n"
             or cursor.get("inode") != journal.stat.st_ino
-            or cursor.get("prefix_digest") != hashlib.sha256(journal.content[:offset]).hexdigest()
+            or (
+                (
+                    cursor.get("window_digest")
+                    != hashlib.sha256(journal.content[max(0, offset - 4096) : offset]).hexdigest()
+                    or cursor.get("prefix_crc32") != zlib.crc32(journal.content[:offset])
+                )
+                if "window_digest" in cursor
+                else cursor.get("prefix_digest")
+                != hashlib.sha256(journal.content[:offset]).hexdigest()
+            )
         ):
             return 0
         return offset
@@ -470,8 +707,15 @@ class AirfareSync:
             "size": journal.stat.st_size,
             "mtime_ns": journal.stat.st_mtime_ns,
             "inode": journal.stat.st_ino,
-            "prefix_digest": hashlib.sha256(journal.content[:end]).hexdigest(),
         }
+        if journal.base_offset:
+            with journal.path.open("rb") as handle:
+                cursors[relative]["window_digest"] = _window_digest(handle, end)
+            cursors[relative]["prefix_crc32"] = zlib.crc32(
+                journal.content[: end - journal.base_offset], journal.prefix_crc32
+            )
+        else:
+            cursors[relative]["prefix_digest"] = hashlib.sha256(journal.content[:end]).hexdigest()
         if baseline_ack:
             # Legacy importers replace the entire entry and drop this marker,
             # even when they eventually restore identical source metadata.
@@ -554,18 +798,27 @@ class AirfareSync:
         client = self._client()
         run_id = str(uuid4())
         scan_started = time.perf_counter()
-        datasets, journals = (
-            self._collect(route_scope="-".join(source_route))
-            if source_route is not None
-            else self._collect()
-        )
-        source = self._manifest(datasets)
+        cursors = self._cursors()
+        route_index = None
+        if source_route is not None:
+            route = "-".join(source_route)
+            collected = self._collect_manual_delta(route, cursors, client)
+            if collected is None:
+                datasets, journals = self._collect(route_scope=route)
+                route_index = self._index_from_scan(route, datasets, journals)
+            else:
+                datasets, journals, route_index = collected
+            source = self._index_manifest(route_index, route)
+        else:
+            datasets, journals = self._collect()
+            source = self._manifest(datasets)
         logger.info(
-            "Airfare sync scan run_id=%s scope=%s journals=%d bytes=%d scan_ms=%d",
+            "Airfare sync scan run_id=%s scope=%s journals=%d bytes=%d rows=%d scan_ms=%d",
             run_id,
             "-".join(source_route) if source_route is not None else "global",
             len(journals),
-            sum(len(journal.content) for journal in journals),
+            sum(journal.read_bytes or len(journal.content) for journal in journals),
+            sum(data.physical + data.skipped for data in datasets.values()),
             round((time.perf_counter() - scan_started) * 1000),
         )
         source_manifest = (
@@ -581,7 +834,6 @@ class AirfareSync:
             else asdict(source)
         )
         uploaded = dict.fromkeys(_TABLES, 0)
-        cursors = self._cursors()
         run: dict[str, Any] = {
             "run_id": run_id,
             "mode": mode,
@@ -632,6 +884,11 @@ class AirfareSync:
                 round((time.perf_counter() - upload_started) * 1000),
             )
             self._finish_run(client, run, collect_destination_manifest, projection_routes)
+            if route_index is not None and source_route is not None:
+                route_index["cursors"] = {
+                    relative: cursors.get(relative) for relative in route_index["files"]
+                }
+                self._write_route_index("-".join(source_route), route_index)
         except (AirfareRemoteError, OSError) as failure:
             # Remote errors are sanitized by the HTTP boundary. Filesystem
             # messages may contain private paths, so log only their type.

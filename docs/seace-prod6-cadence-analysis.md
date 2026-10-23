@@ -47,6 +47,18 @@ umbral de rafaga de corta ventana. No permite afirmar una regla exacta como
 "15 solicitudes cada 10 segundos": las respuestas concurrentes pueden llegar
 desordenadas y el servidor no publica la ventana ni la identidad de la cuota.
 
+## Segunda validacion con espaciado
+
+Despues de combinar el commit de Airfare presente en `main`, se desplego
+`8c786b302a580a442de4f98bc16f7213be486245` y se inicio otra pasada
+real. Sus 41 solicitudes prod6 (tres search, 17 detail, 21 files) fueron
+HTTP 200. La distancia minima inferida entre inicios fue 1,0008 s. Sumadas
+a la primera pasada espaciada, son 86/86 respuestas HTTP 200. Inmediatamente
+despues, otro despliegue desde la rama de Airfare sustituyo esta release;
+el commit posterior de esa rama se incorporo tambien a la integracion SEACE.
+La cadencia de un segundo sigue siendo provisional hasta observar varias
+ejecuciones programadas consecutivas con la version integrada.
+
 ## Verificacion operativa
 
 - Contar respuestas por estado y fase en los eventos seace.prod6 de cada pasada.

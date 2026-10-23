@@ -79,6 +79,15 @@ describe('SEACE views', () => {
     mocks.setExcluded.mockResolvedValue(undefined);
   });
 
+  it('shows the number of loaded records when the source checkpoint differs', async () => {
+    mocks.loadSeaceSync.mockResolvedValue([
+      { kind: 'notices', fetched_at: '2026-10-23T01:47:17Z', record_count: 1 },
+    ]);
+    mount();
+    expect(await screen.findByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();
+    expect(screen.getByText('2 records')).toBeInTheDocument();
+  });
+
   it('keeps last 24h notices out of All open', async () => {
     mount();
     expect(await screen.findByRole('link', { name: 'CM-RECENT' })).toBeInTheDocument();

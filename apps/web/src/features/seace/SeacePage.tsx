@@ -267,7 +267,7 @@ export function SeacePage() {
     .map((item) => item.fetched_at)
     .sort()
     .at(-1);
-  const count = sync.reduce((sum, item) => sum + item.record_count, 0);
+  const count = records.length;
   const columns =
     view === 'published'
       ? [

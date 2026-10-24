@@ -236,6 +236,54 @@ describe('SEACE views', () => {
     ).toHaveLength(1);
   });
 
+  it('prefetches both Minor settings and exclusion states for Published contracts', async () => {
+    fixtureRows = [
+      {
+        kind: 'contracts',
+        recordKey: 'MINOR',
+        payload: { region: 'Arequipa', code: 'CM-MINOR', minor: true },
+      },
+      {
+        kind: 'contracts',
+        recordKey: 'OTHER',
+        payload: { region: 'Arequipa', code: 'CM-OTHER', minor: false },
+      },
+      {
+        kind: 'contracts',
+        recordKey: 'HIDDEN',
+        payload: { region: 'Arequipa', code: 'CM-HIDDEN', minor: false },
+      },
+    ];
+    excludedKeys = new Set(['minor:["Arequipa","CM-HIDDEN"]']);
+
+    mount('/seace/published');
+    await screen.findByText('CM-MINOR');
+    await waitFor(() =>
+      expect(
+        [
+          { minorOnly: true, excluded: true },
+          { minorOnly: false, excluded: false },
+          { minorOnly: false, excluded: true },
+        ].every((variant) =>
+          mocks.loadSeacePage.mock.calls.some(
+            ([query]) =>
+              query.view === 'published' &&
+              query.page === 1 &&
+              query.minorOnly === variant.minorOnly &&
+              query.excluded === variant.excluded,
+          ),
+        ),
+      ).toBe(true),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Minor' }));
+    expect(screen.getByText('CM-OTHER')).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    expect(screen.getByText('CM-HIDDEN')).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  });
+
   it('ignores a stale recent response after switching to Open', async () => {
     let finishRecent!: (value: { rows: SeaceRow[]; total: number }) => void;
     mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) =>

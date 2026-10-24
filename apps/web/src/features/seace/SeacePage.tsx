@@ -205,29 +205,32 @@ export function SeacePage() {
     | null
   >(null);
   const detailDialogRef = useRef<HTMLDialogElement>(null);
-  const filterKeyFor = (excluded: boolean) =>
-    JSON.stringify([
-      region,
-      year,
-      view,
-      minorOnly,
-      objectFilter,
-      excluded,
-      search,
-      sort.field,
-      sort.ascending,
-      pageSize,
-    ]);
-  const filterKey = filterKeyFor(excludedView);
-  const oppositeFilterKey = filterKeyFor(!excludedView);
+  const filterKeyFor = useCallback(
+    (excluded: boolean, minor: boolean) =>
+      JSON.stringify([
+        region,
+        year,
+        view,
+        minor,
+        objectFilter,
+        excluded,
+        search,
+        sort.field,
+        sort.ascending,
+        pageSize,
+      ]),
+    [region, year, view, objectFilter, search, sort.field, sort.ascending, pageSize],
+  );
+  const filterKey = filterKeyFor(excludedView, minorOnly);
+  const oppositeFilterKey = filterKeyFor(!excludedView, minorOnly);
   const syncKey = `${region}:${year}`;
   const loadPage = useCallback(
-    async (targetPage: number, targetExcluded: boolean) => ({
+    async (targetPage: number, targetExcluded: boolean, targetMinor: boolean) => ({
       ...(await loadSeacePage({
         region,
         year,
         view,
-        minorOnly,
+        minorOnly: targetMinor,
         objectFilter,
         excluded: targetExcluded,
         search,
@@ -239,11 +242,11 @@ export function SeacePage() {
       })),
       page: targetPage,
     }),
-    [region, year, view, minorOnly, objectFilter, search, sort.field, sort.ascending, pageSize],
+    [region, year, view, objectFilter, search, sort.field, sort.ascending, pageSize],
   );
   const pageQuery = useQuery({
     queryKey: ['seace', 'page', filterKey, page],
-    queryFn: () => loadPage(page, excludedView),
+    queryFn: () => loadPage(page, excludedView, minorOnly),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[2] === filterKey ? previousData : undefined,
@@ -260,15 +263,24 @@ export function SeacePage() {
     const lastPage = Math.max(1, Math.ceil(pageQuery.data.total / pageSize));
     void queryClient.prefetchQuery({
       queryKey: ['seace', 'page', oppositeFilterKey, 1],
-      queryFn: () => loadPage(1, !excludedView),
+      queryFn: () => loadPage(1, !excludedView, minorOnly),
       staleTime: 30_000,
     });
+    if (view === 'published') {
+      for (const targetExcluded of [excludedView, !excludedView]) {
+        void queryClient.prefetchQuery({
+          queryKey: ['seace', 'page', filterKeyFor(targetExcluded, !minorOnly), 1],
+          queryFn: () => loadPage(1, targetExcluded, !minorOnly),
+          staleTime: 30_000,
+        });
+      }
+    }
     if (page > lastPage) {
       queueMicrotask(() => setPage((current) => Math.min(current, lastPage)));
     } else if (page < lastPage) {
       void queryClient.prefetchQuery({
         queryKey: ['seace', 'page', filterKey, page + 1],
-        queryFn: () => loadPage(page + 1, excludedView),
+        queryFn: () => loadPage(page + 1, excludedView, minorOnly),
         staleTime: 30_000,
       });
     }
@@ -280,8 +292,11 @@ export function SeacePage() {
     queryClient,
     filterKey,
     oppositeFilterKey,
+    filterKeyFor,
     loadPage,
     excludedView,
+    minorOnly,
+    view,
   ]);
 
   useEffect(() => {

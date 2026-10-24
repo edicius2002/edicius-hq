@@ -368,7 +368,7 @@ describe('Investing chart-first workspace', () => {
     renderAt('/investing');
     await arrivesAt('Investing');
     const watchlist = await screen.findByRole('list', { name: 'Watchlist' });
-    const watchRow = within(watchlist).getByRole('button', { name: /AAPL\s+Apple/ });
+    const watchRow = within(watchlist).getByRole('button', { name: /AAPL\s*Apple/ });
     await waitFor(() => expect(watchRow).toHaveTextContent('100.00'));
     await user.click(screen.getByRole('button', { name: 'Show data table' }));
     const table = screen.getByRole('table', { name: /AAPL 1d visible candle data/ });

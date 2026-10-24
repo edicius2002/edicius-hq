@@ -261,6 +261,32 @@ def test_document_returns_none_for_a_not_found_document(secret_config):
     assert cloud.document("watchlist") is None
 
 
+def test_documents_reads_requested_keys_in_one_owner_scoped_request(secret_config):
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json=[
+                {"document_key": "watchlist", "payload": {"entries": []}},
+                {"document_key": "portfolio", "payload": {"positions": []}},
+            ],
+        )
+
+    cloud = CollectorCloud(secret_config, transport=httpx.MockTransport(handle))
+
+    assert cloud.documents(("watchlist", "portfolio", "alert-rules")) == {
+        "watchlist": {"entries": []},
+        "portfolio": {"positions": []},
+    }
+    assert len(requests) == 1
+    assert requests[0].url.path.endswith("/app_documents")
+    assert requests[0].url.params["owner_id"] == f"eq.{OWNER_ID}"
+    assert requests[0].url.params["select"] == "document_key,payload"
+    assert requests[0].url.params["document_key"] == "in.(watchlist,portfolio,alert-rules)"
+
+
 def test_claim_request_calls_the_owner_scoped_rpc_and_returns_immutable_request(secret_config):
     """Claiming must use the atomic RPC, rather than a racy table update."""
     body = {

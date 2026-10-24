@@ -1,0 +1,69 @@
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+
+const publisher = vi.hoisted(() => ({
+  publish: vi.fn().mockResolvedValue(undefined),
+  close: vi.fn().mockResolvedValue(undefined),
+}));
+const openMarketInterest = vi.hoisted(() => vi.fn().mockResolvedValue(publisher));
+
+vi.mock('@/features/investing/data/supabaseMarket', () => ({ openMarketInterest }));
+
+import { MARKET_INTEREST_HEARTBEAT_MS, useMarketInterest } from './useMarketInterest';
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+});
+
+it('leases live quotes only while the investing page needs them', async () => {
+  vi.useFakeTimers();
+  const { result, rerender, unmount } = renderHook(({ active }) => useMarketInterest(active), {
+    initialProps: { active: false },
+  });
+  expect(result.current).toBe(false);
+  expect(openMarketInterest).not.toHaveBeenCalled();
+
+  rerender({ active: true });
+  await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+  expect(result.current).toBe(true);
+  expect(publisher.publish).toHaveBeenCalledWith({
+    clientId: expect.any(String),
+    active: true,
+  });
+
+  await act(async () => void (await vi.advanceTimersByTimeAsync(MARKET_INTEREST_HEARTBEAT_MS)));
+  expect(publisher.publish).toHaveBeenCalledTimes(2);
+
+  unmount();
+  await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+  expect(publisher.publish).toHaveBeenLastCalledWith({
+    clientId: expect.any(String),
+    active: false,
+  });
+  expect(publisher.close).toHaveBeenCalledOnce();
+});
+
+it('releases the lease when the tab is hidden and renews it when shown', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  const { result, unmount } = renderHook(() => useMarketInterest(true));
+  await act(async () => void (await Promise.resolve()));
+  expect(result.current).toBe(true);
+
+  visibility.mockReturnValue('hidden');
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await act(async () => void (await Promise.resolve()));
+  expect(result.current).toBe(false);
+  expect(publisher.publish).toHaveBeenLastCalledWith({
+    clientId: expect.any(String),
+    active: false,
+  });
+
+  visibility.mockReturnValue('visible');
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await act(async () => void (await Promise.resolve()));
+  expect(result.current).toBe(true);
+  expect(openMarketInterest).toHaveBeenCalledTimes(2);
+  unmount();
+});

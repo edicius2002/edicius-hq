@@ -83,11 +83,16 @@ async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None
             payload = envelope.get("payload") if isinstance(envelope, dict) else None
             worker.accept_focus(payload)
 
+        def on_interest(envelope: object) -> None:
+            payload = envelope.get("payload") if isinstance(envelope, dict) else None
+            worker.accept_quote_interest(payload)
+
         # RealtimeChannelConfig declares omitted defaultable config entries as
         # required in its TypedDict, though the SDK accepts this partial config.
         focus_options = cast(RealtimeChannelOptions, {"config": {"private": True}})
         focus_channel = client.channel(f"market-focus:{worker.owner_id}", focus_options)
         focus_channel.on_broadcast("focus", on_focus)
+        focus_channel.on_broadcast("interest", on_interest)
 
         # The SDK returns from subscribe while the channel is still JOINING.
         # Wait for its acknowledgement before exposing it to the health monitor.

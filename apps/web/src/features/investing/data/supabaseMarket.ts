@@ -407,7 +407,28 @@ export type ChartFocusPublisher = {
   close: () => Promise<void>;
 };
 
-export async function openChartFocus(): Promise<ChartFocusPublisher> {
+export type MarketInterestMessage = {
+  clientId: string;
+  active: boolean;
+};
+
+export type MarketInterestPublisher = {
+  publish: (interest: MarketInterestMessage) => Promise<void>;
+  close: () => Promise<void>;
+};
+
+export function openChartFocus(): Promise<ChartFocusPublisher> {
+  return openMarketPublisher<ChartFocusMessage>('focus');
+}
+
+export function openMarketInterest(): Promise<MarketInterestPublisher> {
+  return openMarketPublisher<MarketInterestMessage>('interest');
+}
+
+async function openMarketPublisher<T>(event: 'focus' | 'interest'): Promise<{
+  publish: (payload: T) => Promise<void>;
+  close: () => Promise<void>;
+}> {
   let data: Awaited<ReturnType<typeof supabase.auth.getSession>>['data'];
   let error: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'];
   try {
@@ -445,9 +466,7 @@ export async function openChartFocus(): Promise<ChartFocusPublisher> {
   return {
     publish: async (payload) => {
       if (closed) throw new CollectorRequestError('focus_unavailable');
-      const result = await focusDeadline(
-        channel.send({ type: 'broadcast', event: 'focus', payload }),
-      );
+      const result = await focusDeadline(channel.send({ type: 'broadcast', event, payload }));
       if (result !== 'ok') throw new CollectorRequestError('focus_unavailable');
     },
     close: async () => {

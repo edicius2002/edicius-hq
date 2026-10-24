@@ -770,6 +770,7 @@ export type Database = {
       read_fx_latest: { Args: Record<PropertyKey, never>; Returns: Json };
       read_fx_history: { Args: { p_source: string; p_range: string }; Returns: Json };
       airfare_dataset_manifest: { Args: never; Returns: Json };
+      cancel_market_request: { Args: { p_request_id: string }; Returns: boolean };
       claim_collector_request: {
         Args: { p_operations: string[]; p_owner_id: string };
         Returns: {

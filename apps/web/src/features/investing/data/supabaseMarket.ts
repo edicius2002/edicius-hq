@@ -1,5 +1,4 @@
 import { supabase } from '@/shared/supabase/client';
-import { REALTIME_SUBSCRIBE_STATES } from '@supabase/realtime-js';
 import type { Json } from '@/shared/supabase/database.types';
 import type { BarsResponse, Quote, QuotesResponse, SymbolHit } from '@/shared/api/market';
 import type { Tick } from './quoteStream';
@@ -8,7 +7,11 @@ import type { LiveBarUpdate } from './liveBars';
 type CollectorOperation = 'market-bars' | 'market-search';
 type RequestRow = { status: string; result: Json | null; error_code: string | null };
 
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 90_000;
+const FAST_RECONCILE_INTERVAL_MS = 750;
+const FAST_RECONCILE_DURATION_MS = 8_000;
+const RECONCILE_INTERVAL_MS = 2_000;
+const FOCUS_TIMEOUT_MS = 8_000;
 const ERROR_CODE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export class CollectorRequestError extends Error {
@@ -20,16 +23,74 @@ export class CollectorRequestError extends Error {
   }
 }
 
+function withDeadline<T>(
+  work: (signal: AbortSignal, deadline: number) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) return Promise.reject(new CollectorRequestError('aborted'));
+  const controller = new AbortController();
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (result: { value: T } | { error: unknown }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      controller.abort();
+      if ('error' in result) {
+        reject(
+          result.error instanceof Error
+            ? result.error
+            : new CollectorRequestError('request_unavailable'),
+        );
+      } else resolve(result.value);
+    };
+    const abort = () => finish({ error: new CollectorRequestError('aborted') });
+    const timer = setTimeout(
+      () => finish({ error: new CollectorRequestError('request_timeout') }),
+      REQUEST_TIMEOUT_MS,
+    );
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    void work(controller.signal, deadline).then(
+      (value) => finish({ value }),
+      (error) =>
+        finish({ error: controller.signal.aborted ? new CollectorRequestError('aborted') : error }),
+    );
+  });
+}
+
+function focusDeadline<T>(work: Promise<T>): Promise<T> {
+  let timer!: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    work,
+    new Promise<T>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new CollectorRequestError('focus_unavailable')),
+        FOCUS_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 export async function getQuotes(symbols: string[], signal?: AbortSignal): Promise<QuotesResponse> {
-  if (signal?.aborted) throw new CollectorRequestError('aborted');
-  const wanted = [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))];
-  if (!wanted.length) return { quotes: [], failed: [] };
-  const { data, error } = await supabase
-    .from('market_quotes')
-    .select('symbol, provider, market_time, payload')
-    .in('symbol', wanted);
-  if (error) throw new CollectorRequestError('quotes_unavailable');
-  return { quotes: (data ?? []).flatMap(quoteFromRow), failed: [] };
+  return withDeadline(async (requestSignal) => {
+    const wanted = [
+      ...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
+    ];
+    if (!wanted.length) return { quotes: [], failed: [] };
+    const { data, error } = await supabase
+      .from('market_quotes')
+      .select('symbol, provider, market_time, payload')
+      .in('symbol', wanted)
+      .abortSignal(requestSignal);
+    if (error) throw new CollectorRequestError('quotes_unavailable');
+    return { quotes: (data ?? []).flatMap(quoteFromRow), failed: [] };
+  }, signal);
 }
 
 export async function getBars(
@@ -39,65 +100,140 @@ export async function getBars(
   signal?: AbortSignal,
   onStored?: (bars: BarsResponse) => void,
 ): Promise<BarsResponse> {
-  const request = supabase
-    .from('market_bars')
-    .select('provider, payload, fetched_at, expires_at')
-    .eq('symbol', symbol)
-    .eq('timeframe', timeframe)
-    .eq('extended', extended);
-  const { data, error } = await (signal ? request.abortSignal(signal) : request).maybeSingle();
-  signal?.throwIfAborted();
-  if (error) throw new CollectorRequestError('bars_unavailable');
-  if (data) {
-    const cached = barsFromJson(data.payload);
-    if (cached) {
-      const saved = { ...cached, provider: data.provider, capturedAt: Date.parse(data.fetched_at) };
-      if (Date.parse(data.expires_at) > Date.now()) return saved;
-      onStored?.({ ...saved, stale: true });
+  return withDeadline(async (requestSignal, deadline) => {
+    const request = supabase
+      .from('market_bars')
+      .select('provider, payload, fetched_at, expires_at')
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .eq('extended', extended);
+    const { data, error } = await request.abortSignal(requestSignal).maybeSingle();
+    requestSignal.throwIfAborted();
+    if (error) throw new CollectorRequestError('bars_unavailable');
+    if (data) {
+      const cached = barsFromJson(data.payload);
+      if (cached) {
+        const saved = {
+          ...cached,
+          provider: data.provider,
+          capturedAt: Date.parse(data.fetched_at),
+        };
+        if (Date.parse(data.expires_at) > Date.now()) return saved;
+        onStored?.({ ...saved, stale: true });
+      }
     }
-  }
-  return enqueue('market-bars', { symbol, timeframe, extended }, barsFromJson, signal);
+    return enqueue(
+      'market-bars',
+      { symbol, timeframe, extended },
+      barsFromJson,
+      requestSignal,
+      deadline,
+    );
+  }, signal);
+}
+
+/** Read every saved variant for a symbol without starting provider work. */
+export async function getStoredBars(
+  symbol: string,
+  extended: boolean,
+  signal?: AbortSignal,
+): Promise<BarsResponse[]> {
+  return withDeadline(async (requestSignal) => {
+    const { data, error } = await supabase
+      .from('market_bars')
+      .select('timeframe, provider, payload, fetched_at, expires_at')
+      .eq('symbol', symbol)
+      .eq('extended', extended)
+      .abortSignal(requestSignal);
+    requestSignal.throwIfAborted();
+    if (error) throw new CollectorRequestError('bars_unavailable');
+    const now = Date.now();
+    return (data ?? []).flatMap((row) => {
+      const bars = barsFromJson(row.payload);
+      const capturedAt = Date.parse(row.fetched_at);
+      const expiresAt = Date.parse(row.expires_at);
+      if (
+        !bars ||
+        bars.symbol !== symbol ||
+        bars.timeframe !== row.timeframe ||
+        bars.extended !== extended ||
+        !Number.isFinite(capturedAt)
+      )
+        return [];
+      return [
+        {
+          ...bars,
+          provider: row.provider,
+          capturedAt,
+          stale: !Number.isFinite(expiresAt) || expiresAt <= now,
+        },
+      ];
+    });
+  }, signal);
 }
 
 export async function searchSymbols(
   query: string,
   signal?: AbortSignal,
 ): Promise<{ results: SymbolHit[] }> {
-  return enqueue('market-search', { query }, searchFromJson, signal);
+  return withDeadline(
+    (requestSignal, deadline) =>
+      enqueue('market-search', { query }, searchFromJson, requestSignal, deadline),
+    signal,
+  );
 }
 
 async function enqueue<T>(
   operation: CollectorOperation,
   payload: Json,
   decode: (value: Json) => T | null,
-  signal?: AbortSignal,
+  signal: AbortSignal,
+  deadline: number,
 ): Promise<T> {
+  signal.throwIfAborted();
   const { data, error } = await supabase
     .from('collector_requests')
     // owner_id intentionally omitted: database default + RLS bind this request to auth.uid().
     .insert({ operation, payload })
     .select('request_id')
+    .abortSignal(signal)
     .single();
-  if (error) throw new CollectorRequestError('request_unavailable');
-  return waitForCollectorResult(data.request_id, decode, signal);
+  if (signal.aborted) {
+    if (data?.request_id) cancelQueuedRequest(data.request_id);
+    throw new CollectorRequestError('aborted');
+  }
+  if (error || !data?.request_id) throw new CollectorRequestError('request_unavailable');
+  return waitForCollectorResult(data.request_id, decode, signal, deadline);
 }
 
 function waitForCollectorResult<T>(
   requestId: string,
   decode: (value: Json) => T | null,
-  signal?: AbortSignal,
+  signal: AbortSignal,
+  deadline: number,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let closed = false;
-    const timer = setTimeout(() => fail('request_timeout'), REQUEST_TIMEOUT_MS);
+    let reading = false;
+    let interval = setInterval(() => void reconcile(), FAST_RECONCILE_INTERVAL_MS);
+    const slowdown = setTimeout(() => {
+      clearInterval(interval);
+      interval = setInterval(() => void reconcile(), RECONCILE_INTERVAL_MS);
+    }, FAST_RECONCILE_DURATION_MS);
+    const finalTimer = setTimeout(
+      () => void reconcile(),
+      Math.max(0, deadline - Date.now() - 5_000),
+    );
     const subscription: { channel: ReturnType<typeof supabase.channel> | undefined } = {
       channel: undefined,
     };
     const close = () => {
       if (closed) return;
       closed = true;
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
+      clearInterval(interval);
+      clearTimeout(slowdown);
+      clearTimeout(finalTimer);
+      signal.removeEventListener('abort', abort);
       if (subscription.channel) void supabase.removeChannel(subscription.channel);
     };
     const fail = (code: string) => {
@@ -117,21 +253,35 @@ function waitForCollectorResult<T>(
       else if (row.status === 'expired') fail('request_expired');
     };
     const reconcile = async () => {
-      const { data, error } = await supabase
-        .from('collector_requests')
-        .select('status, result, error_code')
-        .eq('request_id', requestId)
-        .single();
-      if (closed) return;
-      if (error) fail('request_unavailable');
-      else accept(data);
+      if (closed || reading || signal.aborted) return;
+      reading = true;
+      try {
+        const { data, error } = await supabase
+          .from('collector_requests')
+          .select('status, result, error_code')
+          .eq('request_id', requestId)
+          .abortSignal(signal)
+          .single();
+        if (closed || signal.aborted) return;
+        if (error?.code === '42501') {
+          fail('request_unavailable');
+        } else if (!error) accept(data);
+      } catch {
+        // Transient HTTP failure: another bounded reconciliation can still
+        // recover a completed row, even if the Realtime channel is down.
+      } finally {
+        reading = false;
+      }
     };
-    const abort = () => fail('aborted');
+    const abort = () => {
+      cancelQueuedRequest(requestId);
+      fail('aborted');
+    };
     if (signal?.aborted) {
       abort();
       return;
     }
-    signal?.addEventListener('abort', abort, { once: true });
+    signal.addEventListener('abort', abort, { once: true });
     subscription.channel = supabase
       .channel(`collector-request:${requestId}`)
       .on(
@@ -145,9 +295,20 @@ function waitForCollectorResult<T>(
         (event) => accept(event.new as RequestRow),
       )
       .subscribe((status) => {
-        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) void reconcile();
+        if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status))
+          void reconcile();
       });
+    void reconcile();
   });
+}
+
+function cancelQueuedRequest(requestId: string): void {
+  // The RPC only marks this authenticated owner's still-queued market row.
+  // A claimed request is left for the worker to settle normally.
+  void supabase.rpc('cancel_market_request', { p_request_id: requestId }).then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 export type QuoteSubscriptionStatus = string;
@@ -164,7 +325,7 @@ export function subscribeMarketUpdates(
     disposed = true;
     if (channel) void supabase.removeChannel(channel);
   };
-  void supabase.auth.getSession().then(
+  void focusDeadline(supabase.auth.getSession()).then(
     ({ data, error }) => {
       if (disposed) return;
       const owner = data.session?.user.id;
@@ -211,7 +372,7 @@ export async function openChartFocus(): Promise<ChartFocusPublisher> {
   let data: Awaited<ReturnType<typeof supabase.auth.getSession>>['data'];
   let error: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'];
   try {
-    ({ data, error } = await supabase.auth.getSession());
+    ({ data, error } = await focusDeadline(supabase.auth.getSession()));
   } catch {
     throw new CollectorRequestError('focus_unavailable');
   }
@@ -220,23 +381,22 @@ export async function openChartFocus(): Promise<ChartFocusPublisher> {
 
   const channel = supabase.channel(`market-focus:${owner}`, { config: { private: true } });
   try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      channel.subscribe((status) => {
-        if (settled) return;
-        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
-          settled = true;
-          resolve();
-        } else if (
-          status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
-          status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
-          status === REALTIME_SUBSCRIBE_STATES.CLOSED
-        ) {
-          settled = true;
-          reject(new CollectorRequestError('focus_unavailable'));
-        }
-      });
-    });
+    await focusDeadline(
+      new Promise<void>((resolve, reject) => {
+        let settled = false;
+        channel.subscribe((status) => {
+          if (settled) return;
+          const name: string = status;
+          if (name === 'SUBSCRIBED') {
+            settled = true;
+            resolve();
+          } else if (name === 'CHANNEL_ERROR' || name === 'TIMED_OUT' || name === 'CLOSED') {
+            settled = true;
+            reject(new CollectorRequestError('focus_unavailable'));
+          }
+        });
+      }),
+    );
   } catch {
     await supabase.removeChannel(channel);
     throw new CollectorRequestError('focus_unavailable');
@@ -246,7 +406,9 @@ export async function openChartFocus(): Promise<ChartFocusPublisher> {
   return {
     publish: async (payload) => {
       if (closed) throw new CollectorRequestError('focus_unavailable');
-      const result = await channel.send({ type: 'broadcast', event: 'focus', payload });
+      const result = await focusDeadline(
+        channel.send({ type: 'broadcast', event: 'focus', payload }),
+      );
       if (result !== 'ok') throw new CollectorRequestError('focus_unavailable');
     },
     close: async () => {

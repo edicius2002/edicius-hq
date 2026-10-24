@@ -38,6 +38,6 @@ it('drops market bar memory and browser history when the signed-in owner changes
   act(() => emit('SIGNED_OUT', null));
   expect(client.getQueryData(['market', 'bars', 'AAPL', '1d', false])).toBeUndefined();
   expect(client.getQueryData(['seace', 'page', 'recent', 1])).toBeUndefined();
-  expect(client.getQueryData(['storage', 'investing-watchlist'])).toBeDefined();
+  expect(client.getQueryData(['storage', 'investing-watchlist'])).toBeUndefined();
   expect(clearBars).toHaveBeenCalledOnce();
 });

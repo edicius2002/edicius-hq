@@ -28,8 +28,9 @@ export function QueryProvider({ children }: QueryProviderProps) {
     return subscribeToAuth((_event, session) => {
       const nextOwner = session?.user.id ?? null;
       if (initialized && nextOwner !== ownerId) {
-        client.removeQueries({ queryKey: ['market', 'bars'] });
-        client.removeQueries({ queryKey: ['seace'] });
+        // All pages share this client; unscoped document keys must not survive
+        // a change of authenticated owner. Removal also cancels active reads.
+        client.removeQueries();
         void marketBarCache.clear();
       }
       ownerId = nextOwner;

@@ -31,6 +31,7 @@ export function ResetCalendar({
     .filter((day) => day.resets.length > 0)
     .at(-1);
   const [selectedKey, setSelectedKey] = useState<string | null>(latestDay?.key ?? null);
+  const [active, setActive] = useState(false);
   const selected =
     calendar.weeks.flat().find((day) => day.key === selectedKey) ?? latestDay ?? null;
 
@@ -54,7 +55,7 @@ export function ResetCalendar({
         </div>
       </div>
       <div className={styles.card}>
-        <div className={styles.chart}>
+        <div className={styles.chart} onMouseLeave={() => setActive(false)}>
           <div className={styles.weekdays} aria-hidden="true">
             <span />
             {WEEKDAYS.map((weekday, index) => (
@@ -87,11 +88,19 @@ export function ResetCalendar({
                     data-future={day.future || undefined}
                     aria-label={labelFor(day)}
                     aria-pressed={selected?.key === day.key}
+                    data-active={(active && selected?.key === day.key) || undefined}
                     aria-hidden={loading || unavailable || undefined}
                     disabled={loading || unavailable}
                     style={{ gridColumn: column + 1, gridRow: weekday + 2 }}
-                    onFocus={() => setSelectedKey(day.key)}
-                    onMouseEnter={() => setSelectedKey(day.key)}
+                    onFocus={() => {
+                      setSelectedKey(day.key);
+                      setActive(true);
+                    }}
+                    onBlur={() => setActive(false)}
+                    onMouseEnter={() => {
+                      setSelectedKey(day.key);
+                      setActive(true);
+                    }}
                     onClick={() => setSelectedKey(day.key)}
                   />
                 )),
@@ -120,16 +129,14 @@ export function ResetCalendar({
               </strong>
             ) : unavailable ? (
               <strong role="status">Codex reset data unavailable.</strong>
-            ) : selected ? (
+            ) : active && selected ? (
               <>
                 <strong>{labelFor(selected)}</strong>
                 {selected.resets.map((reset) => (
                   <small key={reset.id}>{formatBogotaDateTime(reset.announcedAt)}</small>
                 ))}
               </>
-            ) : (
-              <strong>No confirmed resets in this window.</strong>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

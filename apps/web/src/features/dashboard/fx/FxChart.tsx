@@ -5,6 +5,7 @@ import { price, time } from './model';
 import styles from './FxChart.module.css';
 export function FxChart({ history, sourceName }: { history: History; sourceName: string }) {
   const [selected, setSelected] = useState<number | null>(null);
+  const [active, setActive] = useState(false);
   const [container, size] = useElementSize<HTMLDivElement>();
   const width = size.width || 320;
   const height = size.height || 120;
@@ -33,7 +34,10 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
   // A move-only path segment has no visible stroke. Preserve its capture with
   // markers, without adding a circle for every point in a continuous history.
   const isolated = points.filter(
-    (_, i) => i !== index && startsSegment(i) && (i === points.length - 1 || startsSegment(i + 1)),
+    (_, i) =>
+      (!active || i !== index) &&
+      startsSegment(i) &&
+      (i === points.length - 1 || startsSegment(i + 1)),
   );
   const path = (side: 'buy' | 'sell') =>
     points.map((p, i) => `${startsSegment(i) ? 'M' : 'L'}${x(p)},${y(p[side])}`).join(' ');
@@ -52,6 +56,7 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
         nearest = i;
     });
     setSelected(nearest);
+    setActive(true);
   }
   return (
     <div className={styles.chart} role="region" aria-label={`${sourceName} USD/PEN history`}>
@@ -67,6 +72,9 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
           tabIndex={0}
           onPointerMove={(e) => select(e.clientX, e.currentTarget)}
           onPointerDown={(e) => select(e.clientX, e.currentTarget)}
+          onPointerLeave={() => setActive(false)}
+          onFocus={() => setActive(true)}
+          onBlur={() => setActive(false)}
           onKeyDown={(e) => {
             const next =
               e.key === 'Home'
@@ -100,9 +108,27 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
               <circle cx={x(capture)} cy={y(capture.sell)} r="4" fill="#e9ab88" />
             </g>
           ))}
-          <line x1={x(point)} x2={x(point)} y1="8" y2={height - 18} className={styles.cursor} />
-          <circle cx={x(point)} cy={y(point.buy)} r="4" fill="#9bcba6" />
-          <circle cx={x(point)} cy={y(point.sell)} r="4" fill="#e9ab88" />
+          {active ? (
+            <g className={styles.cursorGroup} style={{ transform: `translateX(${x(point)}px)` }}>
+              <line x1="0" x2="0" y1="8" y2={height - 18} className={styles.cursor} />
+              <circle
+                className={styles.cursorPoint}
+                style={{ transform: `translateY(${y(point.buy)}px)` }}
+                cx="0"
+                cy="0"
+                r="4"
+                fill="#9bcba6"
+              />
+              <circle
+                className={styles.cursorPoint}
+                style={{ transform: `translateY(${y(point.sell)}px)` }}
+                cx="0"
+                cy="0"
+                r="4"
+                fill="#e9ab88"
+              />
+            </g>
+          ) : null}
           <text x="50" y={height - 7}>
             {new Date(first).toLocaleDateString('en-US', {
               timeZone: 'America/Lima',
@@ -120,10 +146,14 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
         </svg>
       </div>
       <div className={styles.detail} data-testid="point-detail" aria-live="polite">
-        <span>{time(point.effective_at)}</span>
-        <strong title={`Exact quote: buy ${point.buy}; sell ${point.sell}`}>
-          Buy {price(point.buy)} · Sell {price(point.sell)}
-        </strong>
+        {active ? (
+          <>
+            <span>{time(point.effective_at)}</span>
+            <strong title={`Exact quote: buy ${point.buy}; sell ${point.sell}`}>
+              Buy {price(point.buy)} · Sell {price(point.sell)}
+            </strong>
+          </>
+        ) : null}
       </div>
     </div>
   );

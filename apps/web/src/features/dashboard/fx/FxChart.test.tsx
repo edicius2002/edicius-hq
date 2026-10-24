@@ -45,6 +45,42 @@ it('uses the measured plot size for SVG coordinates as the card grows', () => {
   );
 });
 
+it('shows the chart cursor only while the pointer is over the plot', () => {
+  const history: History = {
+    aggregation: 'observations',
+    points: [
+      {
+        owner_id: 'owner',
+        source: 'kambista',
+        effective_at: '2026-09-29T10:00:00Z',
+        observed_at: '2026-09-29T10:00:00Z',
+        buy: 3.71,
+        sell: 3.73,
+        context: {},
+      },
+    ],
+  };
+  render(<FxChart history={history} sourceName="Kambista" />);
+  const chart = screen.getByRole('slider', { name: 'History point' });
+  const detail = screen.getByTestId('point-detail');
+
+  expect(chart.querySelector('line[class*="cursor"]')).toBeNull();
+  expect(detail).toBeEmptyDOMElement();
+  fireEvent.pointerMove(chart, { clientX: 50 });
+  expect(chart.querySelector('line[class*="cursor"]')).toBeInTheDocument();
+  expect(detail).toHaveTextContent('Buy 3.710');
+  fireEvent.pointerLeave(chart);
+  expect(chart.querySelector('line[class*="cursor"]')).toBeNull();
+  expect(detail).toBeEmptyDOMElement();
+
+  fireEvent.focus(chart);
+  expect(chart.querySelector('line[class*="cursor"]')).toBeInTheDocument();
+  expect(detail).toHaveTextContent('Buy 3.710');
+  fireEvent.blur(chart);
+  expect(chart.querySelector('line[class*="cursor"]')).toBeNull();
+  expect(detail).toBeEmptyDOMElement();
+});
+
 it.each([
   {
     aggregation: 'daily' as const,

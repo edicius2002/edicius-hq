@@ -32,6 +32,7 @@ it('shows reset dates and times without location suffixes, post text, or post li
 
   const detail = history.querySelector('[aria-live="polite"]');
   expect(detail).not.toBeNull();
+  fireEvent.mouseEnter(selectedDay);
   expect(detail).toHaveTextContent('1 banked reset on 2026-09-29');
   expect(detail).toHaveTextContent('Sep 29, 2026, 2:00 PM GMT-5');
   expect(Array.from(detail?.children ?? [], (item) => item.tagName)).toEqual(['STRONG', 'SMALL']);
@@ -57,6 +58,7 @@ it('keeps multiple reset times alongside the selected day label without text sep
   };
   render(<ResetCalendar resets={[earlierReset, reset]} now={new Date('2026-09-29T20:00:00Z')} />);
 
+  fireEvent.mouseEnter(screen.getByRole('button', { name: '2 banked resets on 2026-09-29' }));
   const detail = screen
     .getByRole('region', { name: 'Codex reset history' })
     .querySelector('[aria-live="polite"]');
@@ -76,4 +78,29 @@ it('omits a month label when the following month starts in the same week', () =>
 
   const history = screen.getByRole('region', { name: 'Codex reset history' });
   expect(history.querySelector('span[style*="grid-row: 1"]')).toHaveTextContent('Oct');
+});
+
+it('highlights a reset day only while the calendar is hovered or focused', () => {
+  render(<ResetCalendar resets={[reset]} now={new Date('2026-09-29T20:00:00Z')} />);
+
+  const history = screen.getByRole('region', { name: 'Codex reset history' });
+  const day = within(history).getByRole('button', { name: '1 banked reset on 2026-09-29' });
+  const chart = day.closest('[class*="chart"]')!;
+  const detail = history.querySelector('[aria-live="polite"]');
+
+  expect(day).not.toHaveAttribute('data-active');
+  expect(detail).toBeEmptyDOMElement();
+  fireEvent.mouseEnter(day);
+  expect(day).toHaveAttribute('data-active', 'true');
+  expect(detail).toHaveTextContent('1 banked reset on 2026-09-29');
+  fireEvent.mouseLeave(chart);
+  expect(day).not.toHaveAttribute('data-active');
+  expect(detail).toBeEmptyDOMElement();
+
+  fireEvent.focus(day);
+  expect(day).toHaveAttribute('data-active', 'true');
+  expect(detail).toHaveTextContent('1 banked reset on 2026-09-29');
+  fireEvent.blur(day);
+  expect(day).not.toHaveAttribute('data-active');
+  expect(detail).toBeEmptyDOMElement();
 });

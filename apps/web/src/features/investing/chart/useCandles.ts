@@ -1,5 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   cadenceFor,
@@ -16,7 +16,7 @@ import {
 import type { Tick } from '@/features/investing/data/quoteStream';
 import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
 import { marketBarCache } from '@/features/investing/data/marketBarCache';
-import { getBars, type Bar, type BarsResponse } from '@/shared/api/market';
+import { getBars, getStoredBars, type Bar, type BarsResponse } from '@/shared/api/market';
 import { supabase } from '@/shared/supabase/client';
 
 /**
@@ -47,6 +47,18 @@ const POLL_MS: Record<string, number> = {
   '1w': 600_000,
   '1M': 1_800_000,
 };
+const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] as const;
+const PREFETCH_GC_MS = 30 * 60_000;
+const PREFETCH_FRAME_TIMEOUT_MS = 12_000;
+
+// The first query needs the same session hint as the API's Binance routing.
+// Once history arrives, its hasSession field remains authoritative.
+function initiallySessionless(symbol: string): boolean {
+  const upper = symbol.trim().toUpperCase();
+  return ['USDT', 'USDC', 'BUSD', 'FDUSD'].some(
+    (quote) => upper.endsWith(quote) && upper.length > quote.length,
+  );
+}
 
 function captureTime(): number {
   return Date.now();
@@ -95,23 +107,78 @@ export type Candles = {
   refetch: () => void;
 };
 
+type ChartBars = BarsResponse & { historyAsOf?: number };
+type ChartKey = readonly ['market', 'bars', string, string, boolean];
+
+function chartKey(symbol: string, timeframe: string, extended: boolean): ChartKey {
+  return ['market', 'bars', symbol, timeframe, extended];
+}
+
+function savedBoundary(response: BarsResponse): number {
+  return response.capturedAt === undefined ? -Infinity : response.capturedAt / 1000;
+}
+
+async function loadChartBars(
+  queryClient: QueryClient,
+  symbol: string,
+  timeframe: string,
+  extended: boolean,
+  signal: AbortSignal,
+): Promise<ChartBars> {
+  const startedAt = Date.now();
+  const key = chartKey(symbol, timeframe, extended);
+  const publishSaved = (saved: BarsResponse) => {
+    if (signal.aborted) return;
+    const timed: ChartBars = { ...saved, historyAsOf: savedBoundary(saved) };
+    const current = queryClient.getQueryData<ChartBars>(key);
+    if (current && (current.capturedAt ?? 0) >= (saved.capturedAt ?? 0)) return;
+    queryClient.setQueryData<ChartBars>(key, timed, { updatedAt: saved.capturedAt ?? 0 });
+  };
+  const ownerId = await supabase.auth.getSession().then(
+    ({ data }) => data.session?.user.id ?? null,
+    () => null,
+  );
+  if (ownerId && queryClient.getQueryData(key) === undefined) {
+    const local = await marketBarCache.read(ownerId, symbol, timeframe, extended);
+    if (local) publishSaved(local);
+  }
+  signal.throwIfAborted();
+  const fresh = await getBars(symbol, timeframe, extended, signal, publishSaved);
+  signal.throwIfAborted();
+  const dated = { ...fresh, capturedAt: fresh.capturedAt ?? captureTime() };
+  const current = queryClient.getQueryData<ChartBars>(key);
+  const response: ChartBars =
+    current && (current.capturedAt ?? 0) > dated.capturedAt
+      ? current
+      : { ...dated, historyAsOf: Math.min(startedAt, dated.capturedAt) / 1000 };
+  if (ownerId) {
+    const stored = { ...response };
+    delete stored.historyAsOf;
+    void marketBarCache.write(ownerId, stored);
+  }
+  return response;
+}
+
 export function useCandles(
   symbol: string,
   timeframe: string,
   tick: Tick | undefined,
   liveBars: Map<string, LiveBarUpdate>,
+  options?: { preloadTimeframes?: boolean },
 ): Candles {
   const clockRegime = useRegime();
   const regime = regimeFromMarketState(tick?.marketState) ?? clockRegime;
   const queryClient = useQueryClient();
-  const cachedRegular = queryClient.getQueryData<BarsResponse>([
+  const startPreload = useRef<((activeFrame: string) => void) | null>(null);
+  const selectedChart = useRef({ symbol, timeframe, extended: false });
+  const cachedRegular = queryClient.getQueryData<ChartBars>([
     'market',
     'bars',
     symbol,
     timeframe,
     false,
   ]);
-  const cachedExtended = queryClient.getQueryData<BarsResponse>([
+  const cachedExtended = queryClient.getQueryData<ChartBars>([
     'market',
     'bars',
     symbol,
@@ -119,8 +186,11 @@ export function useCandles(
     true,
   ]);
   const cachedSeries = cachedRegular ?? cachedExtended;
-  const hasSession = cachedSeries?.hasSession ?? true;
+  const hasSession = cachedSeries?.hasSession ?? !initiallySessionless(symbol);
   const wantExtended = hasSession && regime !== 'regular';
+  useLayoutEffect(() => {
+    selectedChart.current = { symbol, timeframe, extended: wantExtended };
+  }, [symbol, timeframe, wantExtended]);
   useChartFocus({
     symbol,
     timeframe,
@@ -131,39 +201,102 @@ export function useCandles(
   const query = useQuery({
     // The flag is part of the key: the two variants are different series, and
     // one must not be served from the other's cache entry.
-    queryKey: ['market', 'bars', symbol, timeframe, wantExtended],
-    queryFn: async ({ signal }) => {
-      const key = ['market', 'bars', symbol, timeframe, wantExtended] as const;
-      const publishSaved = (saved: BarsResponse) => {
-        if (signal.aborted) return;
-        queryClient.setQueryData<BarsResponse>(key, (current) => {
-          if (!current) return saved;
-          if ((saved.capturedAt ?? 0) > (current.capturedAt ?? 0)) return saved;
-          return current;
-        });
-      };
-      const ownerId = await supabase.auth.getSession().then(
-        ({ data }) => data.session?.user.id ?? null,
-        () => null,
-      );
-      if (ownerId && queryClient.getQueryData(key) === undefined) {
-        const local = await marketBarCache.read(ownerId, symbol, timeframe, wantExtended);
-        if (local) publishSaved(local);
-      }
-      signal.throwIfAborted();
-      const fresh = await getBars(symbol, timeframe, wantExtended, signal, publishSaved);
-      signal.throwIfAborted();
-      const dated = { ...fresh, capturedAt: fresh.capturedAt ?? captureTime() };
-      const current = queryClient.getQueryData<BarsResponse>(key);
-      const response = current && (current.capturedAt ?? 0) > dated.capturedAt ? current : dated;
-      if (ownerId) void marketBarCache.write(ownerId, response);
-      return response;
-    },
+    queryKey: chartKey(symbol, timeframe, wantExtended),
+    queryFn: ({ signal }) => loadChartBars(queryClient, symbol, timeframe, wantExtended, signal),
     enabled: Boolean(symbol),
     staleTime: POLL_MS[timeframe] ?? 60_000,
     gcTime: Infinity,
     refetchInterval: candleRefetchInterval(regime, timeframe, hasSession),
   });
+
+  const stored = useQuery({
+    queryKey: ['market', 'stored-bars', symbol, wantExtended],
+    queryFn: ({ signal }) => getStoredBars(symbol, wantExtended, signal),
+    enabled: Boolean(symbol && options?.preloadTimeframes),
+    staleTime: 0,
+    // The individual chart queries retain the bars; do not retain a second bundle.
+    gcTime: 0,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!options?.preloadTimeframes || !stored.data) return;
+    for (const saved of stored.data) {
+      if (
+        saved.symbol !== symbol ||
+        saved.extended !== wantExtended ||
+        !TIMEFRAMES.includes(saved.timeframe as (typeof TIMEFRAMES)[number])
+      )
+        continue;
+      const key = chartKey(symbol, saved.timeframe, wantExtended);
+      const current = queryClient.getQueryData<ChartBars>(key);
+      if (current && (current.capturedAt ?? 0) >= (saved.capturedAt ?? 0)) continue;
+      queryClient.setQueryData<ChartBars>(
+        key,
+        { ...saved, historyAsOf: savedBoundary(saved) },
+        { updatedAt: saved.stale ? saved.capturedAt : Date.now() },
+      );
+    }
+  }, [options?.preloadTimeframes, queryClient, stored.data, symbol, wantExtended]);
+
+  useEffect(() => {
+    if (!options?.preloadTimeframes || !symbol) {
+      startPreload.current = null;
+      return;
+    }
+    let stopped = false;
+    let started = false;
+    let inFlight: ChartKey | null = null;
+    startPreload.current = (activeFrame) => {
+      if (started) return;
+      started = true;
+      void (async () => {
+        for (const frame of TIMEFRAMES) {
+          if (stopped) return;
+          if (frame === activeFrame) continue;
+          const key = chartKey(symbol, frame, wantExtended);
+          inFlight = key;
+          const timeout = setTimeout(() => {
+            if (queryClient.getQueryCache().find({ queryKey: key })?.getObserversCount() === 0)
+              void queryClient.cancelQueries({ queryKey: key, exact: true });
+          }, PREFETCH_FRAME_TIMEOUT_MS);
+          try {
+            await queryClient.prefetchQuery({
+              queryKey: key,
+              queryFn: ({ signal }) =>
+                loadChartBars(queryClient, symbol, frame, wantExtended, signal),
+              staleTime: POLL_MS[frame],
+              gcTime: PREFETCH_GC_MS,
+              retry: false,
+            });
+          } finally {
+            clearTimeout(timeout);
+          }
+          inFlight = null;
+        }
+      })();
+    };
+    return () => {
+      stopped = true;
+      startPreload.current = null;
+      if (inFlight) {
+        const selected = selectedChart.current;
+        const becameVisible =
+          selected.symbol === inFlight[2] &&
+          selected.timeframe === inFlight[3] &&
+          selected.extended === inFlight[4];
+        if (
+          !becameVisible &&
+          queryClient.getQueryCache().find({ queryKey: inFlight })?.getObserversCount() === 0
+        )
+          void queryClient.cancelQueries({ queryKey: inFlight, exact: true });
+      }
+    };
+  }, [symbol, timeframe, wantExtended, options?.preloadTimeframes, queryClient]);
+
+  useEffect(() => {
+    if (query.data !== undefined && !query.isFetching) startPreload.current?.(timeframe);
+  }, [query.data, query.isFetching, timeframe]);
 
   // Session changes use another query key for good cache separation. Keep the
   // last successful history for this same chart visible until that variant
@@ -177,8 +310,8 @@ export function useCandles(
     [symbol, timeframe, wantExtended, hasSession],
   );
   const bars = useMemo(
-    () => mergeLiveBars(response?.bars ?? [], authoritative, tick, context),
-    [response?.bars, authoritative, tick, context],
+    () => mergeLiveBars(response?.bars ?? [], authoritative, tick, context, response?.historyAsOf),
+    [response?.bars, response?.historyAsOf, authoritative, tick, context],
   );
 
   const isGhost = useMemo(() => {

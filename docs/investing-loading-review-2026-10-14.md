@@ -1,0 +1,254 @@
+# Revisión de Investing y contexto para continuar
+
+Este Markdown es el documento de referencia para continuar la revisión del 14 de octubre de 2026. Incluye íntegramente el informe anterior en `.txt`, con su evidencia y limitaciones. El `.txt` queda como copia histórica.
+
+## Estado para el siguiente agente
+
+- Trabajo terminado: revisión de código, pruebas y validación autenticada desde Chromium contra Supabase y el worker real de la Raspberry Pi.
+- Trabajo pendiente: implementar y verificar correcciones. No se modificó código de producto, no se desplegaron cambios ni se reiniciaron servicios.
+- Alcance: Investing y su recorrido de datos compartido. Dashboard, Finance, Greenlight, Airfare y Sentiment no recibieron esta revisión profunda; no extrapolarles los fallos encontrados.
+- La causa exacta de la falta de despertar inmediato del worker por Realtime sigue sin aislar. El retraso en cola y los timeouts del navegador sí están medidos.
+- La entrega de ticks con mercado estadounidense abierto sigue pendiente de validación.
+- Evidencia de navegador: [JSON sanitizado](investing-loading-browser-evidence-2026-10-14.json). No contiene credenciales.
+- Los scripts temporales de reproducción y sus dependencias aisladas fueron retirados. Los resultados documentados no implican que esas pruebas adicionales estén incorporadas al repositorio.
+- La autenticación del CLI se completó en esta máquina. Comprobar su vigencia con `npx --yes supabase projects list --output json`; el acceso puede cambiar entre sesiones. El archivo habitual `C:\Users\edicius\.edicius-hq\dev-auth.env` no existía. El flujo de sesión temporal utilizado está descrito en el informe y en `apps/web/dev/devSession.ts`.
+- Antes de editar, leer `AGENTS.md`, `CONTEXT.md` y los ADR pertinentes y comprobar `git status`. Había otros documentos sin seguimiento del usuario; conservarlos. Esta revisión no produjo commits.
+
+## Mapa por pantalla y problemas generales
+
+| Área                                 | Hallazgos del informe                                                                                                                                                                                                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Investing: buscador Search a symbol  | A6: selección/resultados antiguos; M1: errores y espera presentados como Nothing found; M5: pares Binance ausentes de la búsqueda.                                                                                                                             |
+| Investing: gráficos y temporalidades | A4: vela antigua reemplaza histórico reciente; A5: calendarios incorrectos; M4: doble carga cripto; M6: recuperación limitada. También truncamiento Binance a 1000 velas y timeouts reales descritos en la validación autenticada.                             |
+| Investing: cotizaciones y streaming  | A3: no se resuscribe tras interrupción; apertura del foco sin reintento.                                                                                                                                                                                       |
+| General del recorrido de Investing   | A1: falta timeout total; A2: falta consulta de respaldo y plazos incompatibles; M2: cola serial con trabajos cancelados/duplicados; M3: I/O bloqueante. Validación autenticada: despertar inmediato inefectivo y diagnóstico limitado por errores silenciados. |
+| Otras páginas                        | Sin revisión profunda en este trabajo; impacto aún no comprobado.                                                                                                                                                                                              |
+
+## Orden recomendado para continuar
+
+1. Reproducir de forma acotada e instrumentar la recepción de INSERT, estados de suscripción y despertar del worker. Conservar separados tiempo en cola, tiempo de ejecución y tiempo del navegador.
+2. Corregir timeout extremo a extremo, cancelación y reconciliación HTTP; coordinar el plazo del cliente con la recuperación del worker.
+3. Corregir identidad/estados del buscador y reconexión del streaming.
+4. Corregir precedencia de frescura de velas y calendarios por instrumento.
+5. Reducir trabajo duplicado, desbloquear I/O del worker y mejorar recuperación visible y profundidad del histórico.
+6. Añadir pruebas de regresión que fallen antes de cada corrección y repetir una matriz acotada de búsqueda y siete temporalidades. Verificar caché, cambios rápidos y desconexión/reconexión.
+
+El siguiente agente debe seguir el alcance que le indique el usuario. Este documento entrega contexto; las recomendaciones todavía no son cambios implementados.
+
+---
+
+## ALCANCE Y LÍMITES
+
+Se revisaron buscador, selección, transporte Supabase, cola SQL, worker, Yahoo/Binance, caché React Query/IndexedDB, fusión de velas, sesiones, streaming y renderizado.
+Se ejecutaron las pruebas existentes, reproducciones específicas y consultas públicas desde la Raspberry Pi real.
+No se modificó código de producto ni se reiniciaron servicios. Tras la autenticación autorizada del CLI se ejecutaron solicitudes normales de búsqueda/gráficos en producción desde Chromium temporal, sin modificar cartera, watchlist ni posiciones.
+Se cerró la cobertura autenticada navegador → Supabase → cola → worker → Realtime, con consultas SQL de solo lectura a políticas, publicación y tiempos reales. Se usó el flujo local de magic link definido en apps/web/dev/devSession.ts para el único usuario existente; sin enviar correo ni guardar claves en archivos. Las sesiones temporales se cerraron al terminar.
+Las mediciones siguientes son muestras acotadas de una sesión; no representan percentiles ni una tasa histórica de fallos. La causa interna de la falta de despertar inmediato del worker queda sin aislar.
+
+## VERSIONES Y OPERACIÓN
+
+Checkout: b0f3d8f0305415aae4196cc9b3e6a8051115432a.
+Pi: /opt/edicius-hq/releases/1850b8797ef31f970a25691c4a7b0d31fdfbd778.
+Aunque los commits son distintos, git diff entre ellos no mostró diferencias en apps/web/src/features/investing, market_worker.py, collector_cloud.py ni adapters.
+Host configurado en esta máquina: bodas; el alias pi-bodas del runbook no resuelve.
+edicius-market.service: active; NRestarts=0; activo desde 2026-10-12 18:20:34 BST.
+Los últimos doce mensajes del journal eran errores de publicación de cotizaciones, pero al acotar a las últimas dos horas solo apareció uno. No prueba una caída continua. CollectorCloudUnavailable agrupa errores de red, timeout, 429 y 5xx; el mensaje observado no permite distinguirlos.
+
+## HALLAZGOS PRIORIZADOS
+
+### A1 — ALTA — El transporte puede permanecer pendiente sin límite de la aplicación.
+
+Archivo: apps/web/src/features/investing/data/supabaseMarket.ts:75.
+Los 20 s se cuentan solo después de terminar la inserción en collector_requests. La inserción no recibe AbortSignal y tampoco comprueba previamente si está cancelado.
+Reproducción nueva: promesa de inserción sin resolver; abort inmediato; avance de 120000 ms con reloj simulado. Resultado: sigue pending, no se abre canal y no ocurre timeout.
+Impacto: Searching/Loading persistente antes incluso de comenzar la espera del worker. La lectura inicial de market_bars tampoco tiene un timeout total propio, aunque sí acepta abort.
+Cambio requerido: plazo extremo a extremo, cancelación desde el comienzo y abort en cada operación HTTP.
+
+### A2 — ALTA — Pérdida de Realtime produce timeout pese a que el resultado exista.
+
+Archivo: apps/web/src/features/investing/data/supabaseMarket.ts:119-149.
+Solo se hace SELECT al recibir SUBSCRIBED. No se consulta de respaldo al fallar el canal ni durante la espera.
+Reproducción nueva: inserción exitosa, canal CHANNEL_ERROR, resultado complete disponible para lectura. Tras 20000 ms devuelve request_timeout y hace cero lecturas del resultado.
+La primera revisión también reprodujo una única lectura inicial sin actualización posterior y timeout.
+El worker reconcilia de respaldo cada 30 s (market_worker.py:495), superior al plazo del navegador. Si pierde la notificación de inserción, puede atender cuando el navegador ya desistió.
+Cambio requerido: reconciliación por HTTP mientras espera, tras reconexión y antes de declarar timeout; presupuesto compatible con la cola.
+
+### A3 — ALTA — Un stream cerrado por error transitorio no se recupera con la misma selección.
+
+Archivos: data/quoteStream.ts:145-160; hooks/useQuoteStream.ts:85-169.
+CHANNEL_ERROR/TIMED_OUT/CLOSED llama stop(), elimina la suscripción y marca terminated. El hook solo vuelve a suscribirse cuando cambia la lista de símbolos o se remonta.
+Reproducción nueva: SUBSCRIBED → CHANNEL_ERROR → 120 s simulados → rerender con AAPL. Una sola suscripción, una eliminación, live=false; incluso un SUBSCRIBED posterior del callback viejo se ignora.
+El polling de cotizaciones/históricos puede continuar, pero no recupera la actualización por streaming.
+Cambio requerido: reconexión controlada y renovación del foco. useChartFocus también carece de retry si falla su apertura inicial.
+
+### A4 — ALTA — Vela de streaming antigua reemplaza un histórico más reciente.
+
+Archivos: data/liveBars.ts:211; chart/useCandles.ts:174-181.
+applyAuthoritative reemplaza por igualdad de bucket sin comparar la frescura del histórico con asOf de la actualización.
+Reproducción en la primera revisión: histórico nuevo con volumen 500 y cierre 1.95; UI conserva volumen 80 y cierre 1.7 de una actualización anterior, con isStale=false.
+Cambio requerido: ordenar histórico y overlay con marcas temporales comparables, y descartar overlays supersedidos sin perder ticks realmente posteriores.
+
+### A5 — ALTA — El buscador ofrece instrumentos cuyo calendario el gráfico normaliza incorrectamente.
+
+Archivos: services/api/app/adapters/registry.py:26-46; yahoo.py:191-222; yahoo_buckets.py:28-81; frontend data/liveBars.ts.
+Solo Binance se considera 24/7. Todo Yahoo se normaliza con America/New_York y sus horarios; se ignora exchangeTimezoneName del proveedor.
+Medición real desde la Pi: 7203.T / 1h recibió 1679 filas OHLC válidas y terminó con 68 velas. El recorte configurado permitiría 1500; la pérdida ocurre por normalización de sesión, no por ese límite.
+BTC-USD, devuelto por Yahoo, tiene timezone UTC pero hasSession=true: la lógica de horarios y fines de semana de acciones se aplica a un activo 24/7. Forex e instrumentos europeos también entran en el mismo camino.
+Cambio requerido: calendario y zona por instrumento, o limitar explícitamente el catálogo a instrumentos soportados hasta implementarlo. Mantener la misma definición en histórico y live.
+
+### A6 — ALTA — Resultados anteriores pueden seleccionarse o borrar los actuales.
+
+Archivo: ui/SymbolSearch.tsx:48-69 y 95-105.
+Primera reproducción: buscar ms, recibir MSFT, escribir AAPL y Enter antes de completar la nueva búsqueda selecciona MSFT.
+Nueva reproducción: búsqueda vieja pendiente; búsqueda actual devuelve AAPL; rechazo tardío por cancelación de la vieja borra AAPL y muestra Nothing found.
+AbortController no sustituye una verificación de identidad/generación antes de setHits/setSearching. La inserción vieja puede tardar y rechazar después de una búsqueda nueva exitosa.
+Cambio requerido: resultados vinculados a la consulta actual y guardas para resolución, rechazo y finally; Enter solo usa coincidencias vigentes.
+
+### M1 — MEDIA — Espera, error y ausencia de resultados son indistinguibles.
+
+Archivo: ui/SymbolSearch.tsx:57-62 y 109-112.
+Reproducciones previas: Nothing found durante los 300 ms previos a la primera solicitud, y el mismo mensaje ante request_timeout.
+Cambio requerido: estados debounce/loading/success-empty/error separados y opción de reintento.
+
+### M2 — MEDIA — Trabajo cancelado permanece en una cola compartida y serial.
+
+Archivos: supabaseMarket.ts:75; market_worker.py:375-379; migraciones de collector_requests.
+Cancelar el navegador no cancela la fila. La expiración por defecto es 5 minutos; búsquedas y barras se atienden en orden de creación, una a una. El worker vuelve a pedir al proveedor por cada solicitud y no coalesce solicitudes idénticas ni reconsulta su caché antes de ejecutar la siguiente.
+La primera revisión reprodujo inserción incluso con señal previamente abortada. La lectura del bucle confirma serialización; no se simuló una carga masiva en producción.
+Cambio requerido: deduplicación/coalescencia y descarte/prioridad de trabajos obsoletos; concurrencia acotada con respeto a presupuestos del proveedor.
+
+### M3 — MEDIA — Operaciones HTTP síncronas bloquean el event loop del worker.
+
+Archivos: market_worker.py:210, 338, 377, 423; collector_cloud.py:128 y 377.
+Aunque publicaciones usan asyncio.to_thread, lectura de documentos, claim y escrituras del camino de solicitudes usan httpx.Client directamente dentro de corrutinas.
+Nueva reproducción con worker real y cloud simulado: dos llamadas bloqueantes de 150 ms interrumpieron un ticker de 10 ms durante 301.9 ms. Es una prueba de bloqueo, no una medida de latencia real de Supabase.
+Impacto: bajo lentitud de Supabase, retrasa recepción de eventos, foco y publicaciones; la meta de 500 ms no está aislada de ese trabajo.
+Cambio requerido: I/O asíncrono o sacar las operaciones síncronas del event loop, preservando orden y seguridad del cliente.
+
+### M4 — MEDIA — Doble carga inicial de cripto fuera de horario estadounidense.
+
+Archivo: chart/useCandles.ts:121-134.
+Reproducido en las siete temporalidades: se asume hasSession=true, pide extended=true, aprende hasSession=false y pide extended=false.
+Cambio requerido: identificar el tipo de sesión antes de elegir la clave, o canonicalizar variantes sin sesión.
+
+### M5 — MEDIA — La búsqueda de pares Binance no coincide con lo que puede graficarse.
+
+Archivo: services/api/app/adapters/registry.py:178.
+La búsqueda solo consulta Yahoo. Medición real: BTCUSDT devolvió cero resultados, mientras las siete temporalidades de BTCUSDT cargaron desde Binance.
+Enter permite selección manual, pero el dropdown dice Nothing found y no explica que el símbolo sí está soportado.
+Cambio requerido: búsqueda coherente con el enrutamiento de proveedores, o presentación explícita del ingreso manual de pares.
+
+### M6 — MEDIA — Recuperación del gráfico tras fallo inicial fuera de sesión es limitada.
+
+Archivos: chart/useCandles.ts:55-63, 198-203; InvestingPage.tsx:293-310; app/providers/QueryProvider.tsx:18-19.
+Con mercado cerrado se desactiva el polling; el proveedor global permite un retry y desactiva refetchOnWindowFocus. La UI de error no usa el refetch expuesto por el hook.
+Si se agota el retry, volver a enfocar la ventana no recupera por sí solo el gráfico; un cambio de selección, remonte o evento de reconexión puede hacerlo.
+Hallazgo de lectura de código; no se midió en una sesión de producción autenticada.
+Cambio requerido: reintento explícito y recuperación al volver online/foco según política.
+
+## PRECISIONES DE LA PRIMERA REVISIÓN
+
+Binance: el límite documentado de klines Spot es 1000; el código solicita 1500 para intradía y 1825 para diario. En las pruebas reales no devolvió error: devolvió 1000 en cada caso. Clasificar como truncamiento/límite de profundidad, no como fallo confirmado de carga. Semanal y mensual devolvieron menos por historial disponible.
+Documentación: https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#klinecandlestick-data
+El frontend duplica sin necesidad las variantes extended para cripto, pero las pruebas del proveedor directo no incluyen esa doble ida por Supabase.
+
+## MEDICIONES PÚBLICAS DESDE LA PI
+
+Una observación por caso; no son p50/p95 ni tiempos completos de la interfaz. Incluyen fetch y parsing del adaptador, excluyen autenticación, cola, Supabase y renderizado.
+Búsqueda AAPL: 0.639 s; 7 resultados.
+Búsqueda microsoft: 0.350 s; 7 resultados.
+Búsqueda BTCUSDT: 0.352 s; 0 resultados.
+
+Frame AAPL segundos / velas BTCUSDT segundos / velas
+1m 0.896 / 1500 0.518 / 1000
+5m 0.659 / 1500 0.542 / 1000
+15m 0.453 / 1500 0.293 / 1000
+1h 0.553 / 1500 0.297 / 1000
+1d 0.438 / 502 0.793 / 1000
+1w 0.313 / 520 0.285 / 479
+
+## 1M 0.426 / 360 0.275 / 111
+
+Las 14 series quedaron ordenadas y con valores finitos. Esto no verifica exactitud financiera independiente de cada vela.
+
+Instrumentos adicionales:
+7203.T 1h: 1.018 s, 1679 filas válidas → 68 velas; Asia/Tokyo.
+7203.T 1d: 0.317 s, 485 → 485; los timestamps siguen normalizados a Nueva York.
+MSF.DE 1h: 0.343 s, 2261 filas válidas → 1500 velas (cap); Europe/Berlin.
+BTC-USD 1h: 0.760 s, 8730 filas válidas → 1500 velas (cap); UTC; hasSession=true incorrecto para 24/7.
+BTC-USD 1d: 0.331 s, 731 → 731; UTC; misma clasificación.
+EURUSD=X 1h: 0.497 s, 6144 filas válidas → 1500 velas (cap); Europe/London.
+Para los casos que alcanzan el cap, el número final por sí solo no cuantifica la pérdida por sesión.
+
+PRUEBAS
+Backend ampliado: 309 passed, 0 failed. Incluye market_worker, comando del worker, market, yahoo_history, yahoo_buckets, yahoo_live_bars, live_bars, binance_bar_stream, chart_focus, collector_cloud y stream.
+Frontend: 450 pruebas ejecutadas; 449 passed y 1 failed. Las 34 suites de Investing pasaron (437 pruebas); App.test.tsx tuvo 12 aprobadas y 1 fallida.
+Fallo de App.test.tsx: selector /AAPLApple/ en línea 370 frente a nombre accesible AAPL Apple. Se ejecutó una copia temporal sustituyendo solo el selector por /AAPL\s+Apple/: la prueba completa de cierre/volumen pasó. No se cambió el test original.
+Nuevas reproducciones de esta ampliación: 4 pruebas aprobadas que afirman la presencia del defecto (timeout antes del insert, canal fallido sin reconciliación, stream sin reconexión y rechazo tardío que borra resultados), más la reproducción de bloqueo del worker.
+Primera revisión: 11 reproducciones de UI/hook, 3 casos aislados de transporte y 9 fixtures AAPL para las siete temporalidades. Las reproducciones aprobadas confirman defectos; no significan que se hayan corregido.
+Las dependencias faltantes se instalaron en un directorio aislado. Supabase JS 2.117.1 coincide con el lockfile; Supabase Python 2.31.0 coincide con requirements. Otros paquetes locales tienen diferencias frente a los manifiestos (Vitest ejecutado 4.1.10), por lo que esto no sustituye una instalación limpia idéntica a CI.
+
+## LO QUE SÍ FUNCIONA EN LA COBERTURA EJECUTADA
+
+Las claves del histórico separan símbolo, temporalidad y extended. Al cambiar de símbolo/temporalidad no se usa como fallback otra serie.
+La caché IndexedDB se valida por propietario y contexto; los errores de almacenamiento degradan a red. El histórico previo permanece visible cuando falla un refresco.
+Los fixtures AAPL normalizan filas finales de Yahoo y buckets semanales/mensuales sin duplicados.
+Canvas reinicia vista al cambiar contexto y conserva zoom/seguimiento según sus pruebas.
+Las migraciones locales especifican owner_id/RLS para lecturas y cola; las políticas desplegadas se verificaron posteriormente en la sección de validación autenticada.
+
+## ORDEN PROPUESTO DE CORRECCIÓN
+
+1. Timeout total, reconciliación HTTP y reconexión del stream: resolver bloqueos comunes de carga.
+2. Identidad de búsqueda, estados y Enter: evitar lista engañosa o símbolo incorrecto.
+3. Frescura de velas y calendarios por instrumento: evitar datos visualmente incorrectos.
+4. Cola, I/O del worker y doble carga cripto: reducir latencia y trabajo desperdiciado.
+5. Profundidad de Binance, retry visible, cobertura de fallos y selector de integración.
+
+VALIDACIÓN AUTENTICADA EN PRODUCCIÓN — 2026-10-14, aproximadamente 21:39–21:49 America/Lima
+Supabase CLI 2.121.0 autenticado; proyecto edicius-hq/abndifkxpfppmllgxfnu ACTIVE_HEALTHY. Chromium real, aplicación local Vite del checkout revisado, Supabase JS 2.117.1 y backend real de la Pi. Se invocaron las funciones originales searchSymbols/getBars dentro del navegador, además de los controles visibles de Investing. No se sustituyeron respuestas ni se simuló el worker.
+
+1. Demora en cola confirmada, no solo hipotética.
+   Antes de los canarios, en las últimas 24 h: 7 búsquedas completas, cola media 7.451 s y ejecución media 0.649 s; 52 cargas de barras completas, cola media 13.353 s y ejecución media 1.301 s.
+   En la matriz nueva, 7 de 14 cargas dieron request_timeout en Chromium a los 20.36–20.48 s. Las 14 terminaron completas en la base. Las siete vencidas esperaron 30.055–31.948 s antes de ser reclamadas; luego el procesamiento duró 1.005–2.113 s. El proveedor no explica esas esperas de cola.
+   El patrón de reclamaciones por grupos cada aproximadamente 32–34 s es consistente con RECONCILE_SECONDS=30 más trabajo del ciclo. Es evidencia de que el despertar inmediato no fue efectivo durante esta prueba, no demuestra por sí sola la causa de ese fallo.
+   La publicación supabase_realtime sí incluye collector_requests. Una instantánea de realtime.subscription mostró dos suscripciones service_role y dos authenticated a esa tabla; por ello no se afirma que falte toda suscripción. scripts/market-worker.py oculta las excepciones de conexión/reconexión (subscribe_requests devuelve None y maintain_request_subscription hace pass); el journal de los últimos diez minutos no aportó un error que permita aislar la causa. Prioridad: instrumentar estados/eventos del worker sin secretos y corregir el contrato de timeout/reconciliación del cliente.
+
+Matriz real; extended=false. Tiempo navegador incluye lectura de caché e inserción. Cola y trabajo vienen de timestamps SQL. Conteo es el resultado final de la base, incluso cuando el navegador ya había vencido.
+Símbolo Frame Navegador Cola(s) Trabajo(s) Velas
+AAPL 1m timeout 20.483 s 30.918 2.113 1500
+AAPL 5m OK 15.179 s 12.715 1.434 1500
+AAPL 15m timeout 20.465 s 30.055 1.506 1500
+AAPL 1h OK 14.563 s 11.361 2.265 1500
+AAPL 1d timeout 20.406 s 31.042 1.005 501
+AAPL 1w OK 13.420 s 11.818 0.720 520
+AAPL 1M timeout 20.358 s 30.139 1.474 360
+BTCUSDT 1m OK 13.453 s 11.248 1.082 1000
+BTCUSDT 5m timeout 20.391 s 31.167 1.519 1000
+BTCUSDT 15m OK 14.088 s 12.471 0.740 1000
+BTCUSDT 1h timeout 20.407 s 30.169 1.257 1000
+BTCUSDT 1d OK 13.301 s 11.234 1.324 1000
+BTCUSDT 1w timeout 20.398 s 31.948 1.249 479
+BTCUSDT 1M OK 14.060 s 12.964 0.573 111
+Las siete respuestas recibidas tenían timestamps estrictamente crecientes y stale=false. AAPL 1m/5m/15m/1h/1d entregó primero caché vencida mediante onStored; AAPL 1w/1M y BTCUSDT no tenían esa caché. No se vació caché de producción para forzar frío.
+
+2. Búsqueda real y mensaje engañoso.
+   AAPL: 12.962 s, 7 resultados. microsoft: request_timeout a los 20.167 s; en DB cola 26.920 s + trabajo 0.750 s, estado final complete. BTCUSDT: 8.852 s, cero resultados pese a ser soportado en los gráficos.
+   En otra sesión, el input real mostró Nothing found. a los 150 ms (debounce). Tras 22 s volvió a mostrar Nothing found. para AAPL sin botones de resultados; esa petición terminó completa en DB, con cola 21.369 s + trabajo 1.011 s. Se confirma que un timeout se presenta como ausencia de símbolos.
+
+3. Cambios rápidos y caché.
+   Se pulsaron 1m→5m→15m→1h→1d→1w→1M, separados unos 200 ms. El botón final quedó en 1M; a los 23 s el gráfico mostraba 0 bars sin alerta. La petición AAPL 1M extended=true esperó 31.085 s y trabajó 1.333 s; el reintento posterior esperó 11.312 s y trabajó 0.652 s. No se afirma bloqueo permanente: una sesión posterior desde caché mostró 360 bars, 1 extended, yahoo y ninguna alerta.
+   La carga caliente BTCUSDT 1M devolvió 111 velas en 280 ms. Esta prueba concreta no dejó siete peticiones nuevas: parte de los cambios se resolvió con caché/cancelación; el defecto de cola de solicitudes canceladas sigue respaldado por código y reproducciones, no por inventar siete inserciones en esta secuencia.
+
+4. Reconexión real del navegador.
+   Se comprobó un WebSocket abierto y se cerró explícitamente con código 4000 desde el navegador de prueba (interrupción controlada; no caída de red física). Antes: canal market-quotes joined. A los 15 s: cero canales. Tras llamar reconnect/connect al transporte y esperar 3 s: seguían cero canales. Confirma A3: openQuoteStream elimina la suscripción y el hook no la recrea con el mismo conjunto de símbolos.
+   Un intento anterior de prueba consultaba una propiedad conn inexistente en esta versión del SDK y no cerró ningún socket; se descartó. El resultado válido es reconnect-results, que verificó readyState=OPEN y registró interrupted=true antes de cerrar socketAdapter.socket.conn.
+   El mercado de AAPL estaba cerrado; useChartFocus desactiva el foco en ese régimen. No se usa la ausencia de canal de foco como prueba de un fallo de permisos. No se verificó la entrega de ticks durante mercado estadounidense abierto.
+
+5. Estado desplegado y limpieza.
+   RLS habilitado en collector_requests, market_bars y market_quotes. SELECT limitado a owner_id=auth.uid(); INSERT de cola exige propietario y operación market-bars/market-search. Políticas privadas de broadcast corresponden a market-quotes (SELECT) y market-focus (INSERT), por propietario. Última migración desplegada: 20261001010000, coincidente con la última local; no se comparó cada definición SQL de todas las migraciones.
+   Al final de las consultas se observaron 23 solicitudes de mercado creadas desde el inicio de la prueba, todas complete; ninguna queued/running en esa ventana. Son conteos de la ventana, no una atribución exclusiva si existió actividad simultánea del usuario.
+   Evidencia sanitizada del navegador: docs/investing-loading-browser-evidence-2026-10-14.json. Sin tokens, claves, correo, identificador del propietario ni contenido de cartera. Los servidores y navegadores temporales se cerraron, y se solicitaron cierres de las sesiones de prueba con scope=local. El login autorizado del CLI queda disponible para continuar.
+
+## CONCLUSIÓN DE LA REVISIÓN
+
+Queda confirmado en producción que el límite de 20 s vence antes de que el worker reclame parte de las solicitudes; también quedan confirmados el mensaje Nothing found engañoso y la falta de resuscripción tras cierre del socket. La corrección debe tratar transporte, observabilidad/despertar del worker, estados de búsqueda y recuperación del stream conjuntamente. No se desplegaron correcciones. La causa interna exacta del despertar fallido y la validación de ticks en mercado abierto siguen como limitaciones explícitas, no como fallos atribuidos sin evidencia.

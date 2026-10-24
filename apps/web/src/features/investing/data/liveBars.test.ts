@@ -89,6 +89,21 @@ describe('live candle reconciliation', () => {
     ).toEqual(corrected);
   });
 
+  it('keeps newer history ahead of an older live bar while accepting later ticks', () => {
+    const fresh = [bar(LAST_TIME, 195, 500)];
+    const old = liveBar({ asOf: LAST_TIME + 60, bar: bar(LAST_TIME, 170, 80) });
+    expect(mergeLiveBars(fresh, old, undefined, CONTEXT, LAST_TIME + 61)).toEqual(fresh);
+    expect(
+      mergeLiveBars(
+        fresh,
+        old,
+        tick({ time: LAST_TIME + 62, price: 196 }),
+        CONTEXT,
+        LAST_TIME + 61,
+      ).at(-1),
+    ).toMatchObject({ close: 196, volume: 500 });
+  });
+
   it('replaces equal bars, appends newer bars, and ignores older bars', () => {
     const replacement = liveBar({ asOf: 220, bar: bar(LAST_TIME, 105, 90) });
     const appended = liveBar({ asOf: 221, bar: bar(LAST_TIME + 3600, 106, 91) });

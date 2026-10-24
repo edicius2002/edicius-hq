@@ -71,12 +71,18 @@ export function mergeLiveBars(
   authoritative: LiveBarUpdate | null | undefined,
   tick: Tick | null | undefined,
   context: LiveBarContext,
+  historyAsOf = -Infinity,
 ): Bar[] {
   // A quote before the historical query has completed is retained by the
   // caller, but must not fabricate a chart candle.
   if (!base.length) return base;
 
-  const usableAuthoritative = isMatchingUpdate(authoritative, context) ? authoritative : null;
+  const lastHistoryTime = base.at(-1)?.time ?? -Infinity;
+  const usableAuthoritative =
+    isMatchingUpdate(authoritative, context) &&
+    (authoritative.bar.time > lastHistoryTime || authoritative.asOf > historyAsOf)
+      ? authoritative
+      : null;
   const withBar = reconcileHistory(base, usableAuthoritative, context);
 
   if (
@@ -84,6 +90,13 @@ export function mergeLiveBars(
     tick.symbol !== context.symbol ||
     tick.time === null ||
     !Number.isFinite(tick.time)
+  ) {
+    return withBar;
+  }
+  if (
+    tick.time <= historyAsOf &&
+    (bucketStart(tick.time, context.timeframe, context, tick.marketState) ?? -Infinity) <=
+      lastHistoryTime
   ) {
     return withBar;
   }

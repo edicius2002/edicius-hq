@@ -1,0 +1,250 @@
+{
+  "context": {
+    "dateLocal": "2026-10-14",
+    "timezone": "America/Lima",
+    "mode": "Chromium local app against real Supabase and Pi",
+    "supabaseJs": "2.117.1"
+  },
+  "matrix": [
+    {
+      "stage": "auth",
+      "users": 1
+    },
+    {
+      "stage": "ui",
+      "investing": 1,
+      "searchInputs": 1
+    },
+    {
+      "stage": "search",
+      "query": "AAPL",
+      "ms": 12962,
+      "count": 7
+    },
+    {
+      "stage": "search",
+      "query": "microsoft",
+      "ms": 20167,
+      "error": "request_timeout"
+    },
+    {
+      "stage": "search",
+      "query": "BTCUSDT",
+      "ms": 8852,
+      "count": 0
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "1m",
+      "ms": 20483,
+      "error": "request_timeout",
+      "stored": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "5m",
+      "ms": 15179,
+      "count": 1500,
+      "stored": true,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "15m",
+      "ms": 20465,
+      "error": "request_timeout",
+      "stored": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "1h",
+      "ms": 14563,
+      "count": 1500,
+      "stored": true,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "1d",
+      "ms": 20406,
+      "error": "request_timeout",
+      "stored": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "1w",
+      "ms": 13420,
+      "count": 520,
+      "stored": false,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "AAPL",
+      "timeframe": "1M",
+      "ms": 20358,
+      "error": "request_timeout",
+      "stored": false
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "1m",
+      "ms": 13453,
+      "count": 1000,
+      "stored": false,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "5m",
+      "ms": 20391,
+      "error": "request_timeout",
+      "stored": false
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "15m",
+      "ms": 14088,
+      "count": 1000,
+      "stored": false,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "ms": 20407,
+      "error": "request_timeout",
+      "stored": false
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "1d",
+      "ms": 13301,
+      "count": 1000,
+      "stored": false,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "1w",
+      "ms": 20398,
+      "error": "request_timeout",
+      "stored": false
+    },
+    {
+      "stage": "bars",
+      "symbol": "BTCUSDT",
+      "timeframe": "1M",
+      "ms": 14060,
+      "count": 111,
+      "stored": false,
+      "stale": false,
+      "ordered": true
+    },
+    {
+      "stage": "done"
+    }
+  ],
+  "ui": [
+    {
+      "stage": "auth",
+      "users": 1
+    },
+    {
+      "stage": "ui",
+      "investing": 1,
+      "searchInputs": 1
+    },
+    {
+      "stage": "channels_before",
+      "channels": [
+        {
+          "topic": "realtime:market-quotes",
+          "state": "joined"
+        }
+      ]
+    },
+    {
+      "stage": "search_debounce",
+      "text": "Nothing found."
+    },
+    {
+      "stage": "search_ui",
+      "elapsedMs": 22172,
+      "buttons": 0,
+      "text": "Nothing found."
+    },
+    {
+      "stage": "rapid_ui",
+      "pressed": "1M",
+      "alerts": [],
+      "chartNote": ["0 bars · drag to pan, scroll to zoom"]
+    },
+    {
+      "stage": "warm_cache",
+      "ms": 280,
+      "count": 111
+    },
+    {
+      "stage": "done"
+    }
+  ],
+  "reconnect": [
+    {
+      "stage": "auth",
+      "users": 1
+    },
+    {
+      "stage": "ui",
+      "investing": 1,
+      "searchInputs": 1
+    },
+    {
+      "stage": "warm_ui",
+      "chartNote": ["360 bars · 1 extended · yahoo · drag to pan, scroll to zoom"],
+      "alerts": []
+    },
+    {
+      "stage": "channels_before",
+      "channels": [
+        {
+          "topic": "realtime:market-quotes",
+          "state": "joined"
+        }
+      ]
+    },
+    {
+      "stage": "socket_closed",
+      "interrupted": true
+    },
+    {
+      "stage": "channels_after",
+      "channels": []
+    },
+    {
+      "stage": "channels_after_reconnect",
+      "channels": []
+    },
+    {
+      "stage": "done"
+    }
+  ]
+}

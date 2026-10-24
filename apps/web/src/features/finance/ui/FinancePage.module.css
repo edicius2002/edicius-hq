@@ -105,7 +105,7 @@
 .workspace {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1fr) 13rem;
+  grid-template-columns: minmax(0, 1fr) 20rem;
   margin-inline: auto;
   max-width: 64rem;
   /* Auto margins stop a grid item from stretching; claim the available width
@@ -125,10 +125,7 @@
   min-width: 0;
 }
 
-/*
- * Keep the two boxes aligned to the compact controls inside them. Their content
- * still scrolls within the fixed heights when a selection has more to show.
- */
+/* Keep the two boxes aligned to the compact controls inside them. */
 .side > .properties,
 .side > .summary {
   padding: var(--space-2) var(--space-3);
@@ -140,36 +137,28 @@
  * its widest when the page has stacked, which is the *narrow* window — so a
  * media query would decide it exactly backwards.
  */
-/*
- * `auto` rather than `hidden` lets long selections scroll without losing rows.
- *
- * No `overscroll-behavior: contain`. An `overflow: auto` box is a scroll
- * container even when its content fits, and `contain` stops the wheel there
- * rather than passing it on — so the page would not scroll while the pointer
- * was anywhere over the panel, which is most of the right-hand column. The
- * canvas is the one place the wheel means something else, and it says so by
- * handling the event itself.
- */
 .properties {
-  align-content: safe center;
+  align-content: start;
   container-type: inline-size;
   height: 18.5rem;
   overflow-y: auto;
+  /* A resized Notes field must not shift the inputs when scrolling starts. */
+  scrollbar-gutter: stable;
 }
 
 .properties > div {
   justify-self: center;
   max-width: 100%;
-  width: fit-content;
+  width: 100%;
 }
 
 .summary {
   display: grid;
   gap: var(--space-2);
   align-content: safe center;
-  justify-items: center;
+  container-type: inline-size;
   height: 12rem;
-  /* Chains to the page, for the reason given on `.properties` above. */
+  /* Let the page scroll when the pointer is over this panel. */
   overflow-y: auto;
 }
 
@@ -188,14 +177,16 @@
   text-transform: uppercase;
 }
 
-/*
- * Two to a row leaves each amount readable in the 13rem side panel; three made
- * the Available and In transit figures compete for a third of its content box.
- */
 .summaryItems {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.25rem var(--space-2);
+}
+
+@container (min-width: 18rem) {
+  .summaryItems {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .summaryItem {
@@ -256,13 +247,6 @@
  * with `overflow-x: auto` and simply takes the slack.
  */
 @media (max-width: 640px) {
-  /* Stacked panels can grow with their contents; the page provides the scroll. */
-  .properties {
-    height: auto;
-    min-height: 12rem;
-    overflow-y: visible;
-  }
-
   .summary {
     height: auto;
     min-height: 10rem;

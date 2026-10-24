@@ -50,7 +50,7 @@ function StatefulPanel({
   const [diagram, setDiagram] = useState(initialDiagram);
 
   const actions: PropertiesPanelActions = {
-    renameNode: vi.fn(),
+    renameNode: (id, name) => setDiagram((current) => ops.renameNode(current, id, name)),
     setNotes: (id, notes) => setDiagram((current) => ops.setNotes(current, id, notes)),
     addJobAsset: vi.fn(),
     setJobBalance: vi.fn(),
@@ -64,6 +64,29 @@ function StatefulPanel({
 
   return <PropertiesPanel diagram={diagram} selection={selection} actions={actions} />;
 }
+
+describe('node name', () => {
+  it('keeps an empty name editable with a visible prompt', async () => {
+    const user = userEvent.setup();
+    render(
+      <StatefulPanel
+        selection={{ type: 'node', id: 'a1' }}
+        initialDiagram={() => ops.renameNode(diagramWithFlow(), 'a1', 'IBKR')}
+      />,
+    );
+
+    const name = screen.getByRole('textbox', { name: 'Name' });
+    expect(name).toHaveValue('IBKR');
+
+    await user.clear(name);
+    await user.tab();
+    expect(name).toHaveValue('');
+    expect(name).toHaveAttribute('placeholder', 'Unnamed');
+
+    await user.type(name, 'New account');
+    expect(name).toHaveValue('New account');
+  });
+});
 
 /**
  * The panel over a store that applies an edit *after* the keystroke event, the
@@ -193,22 +216,37 @@ describe('flow settlement', () => {
 });
 
 describe('asset editors', () => {
+  it('shows account holdings without a movement summary', () => {
+    render(<StatefulPanel selection={{ type: 'node', id: 'a1' }} />);
+
+    expect(screen.getByRole('heading', { name: 'Assets held' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Movement' })).not.toBeInTheDocument();
+    expect(screen.queryByText('In', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText('Out', { exact: true })).not.toBeInTheDocument();
+  });
+
   it.each([
-    ['job', { type: 'node' as const, id: 'j1' }],
-    ['account', { type: 'node' as const, id: 'a1' }],
-  ])('places Add asset before the %s asset grid', (_, selection) => {
+    ['job', 'Paid in', { type: 'node' as const, id: 'j1' }],
+    ['account', 'Assets held', { type: 'node' as const, id: 'a1' }],
+  ])('keeps the %s asset controls beside the section title', (_, title, selection) => {
     render(<StatefulPanel selection={selection} />);
 
-    const addAsset = screen.getByText('Add asset');
+    const heading = screen.getByRole('heading', { name: title });
+    const input = screen.getByRole('textbox', { name: 'Add asset' });
+    const add = screen.getByRole('button', { name: 'Add' });
     const asset = screen.getByRole('button', { name: 'USD' });
 
-    expect(addAsset.compareDocumentPosition(asset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading.parentElement).toHaveClass(styles.assetHeading);
+    expect(heading.parentElement).toContainElement(input);
+    expect(heading.parentElement).toContainElement(add);
+    expect(screen.queryByText('Add asset')).not.toBeInTheDocument();
+    expect(add.compareDocumentPosition(asset) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it.each([
     ['job', { type: 'node' as const, id: 'j1' }],
     ['account', { type: 'node' as const, id: 'a1' }],
-  ])('keeps the %s asset draft labelled after its controls share one row', (_, selection) => {
+  ])('keeps the %s asset draft labelled', (_, selection) => {
     render(<StatefulPanel selection={selection} />);
 
     expect(screen.getByRole('textbox', { name: 'Add asset' })).toBeInTheDocument();

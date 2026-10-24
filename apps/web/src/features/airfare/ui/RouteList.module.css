@@ -135,9 +135,8 @@
 .routeCell {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   gap: 4px;
-  min-height: 54px;
   min-width: 0;
   cursor: grab;
 }
@@ -166,7 +165,7 @@
 
 .routeCell .route {
   width: min(100%, 88px);
-  height: 28px;
+  min-height: 28px;
 }
 
 .routeCell .months {
@@ -274,6 +273,7 @@
 .actions {
   display: flex;
   align-items: center;
+  align-self: center;
   gap: 4px;
   flex: none;
   margin-left: auto;

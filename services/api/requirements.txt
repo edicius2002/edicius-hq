@@ -5,7 +5,7 @@ uvicorn[standard]==0.54.0
 httpx==0.28.1
 mcp==1.30.0
 supabase==2.31.0
-PyJWT[crypto]==2.15.0
+PyJWT[crypto]==2.15.1
 playwright==1.63.0
 # Arrives with uvicorn[standard], but the streaming adapters import it directly
 # — a transitive dependency you rely on by name is one an upgrade can remove.

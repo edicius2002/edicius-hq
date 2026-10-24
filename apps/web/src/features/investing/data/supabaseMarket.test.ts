@@ -77,6 +77,7 @@ import {
   getBars,
   getQuotes,
   openChartFocus,
+  openMarketInterest,
   searchSymbols,
   subscribeMarketUpdates,
 } from './supabaseMarket';
@@ -753,6 +754,28 @@ describe('Supabase Investing market boundary', () => {
       type: 'broadcast',
       event: 'focus',
       payload: message,
+    });
+    expect(state.removeChannel).toHaveBeenCalledOnce();
+  });
+
+  it('publishes quote interest on the owner-private focus channel', async () => {
+    state.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'owner-42' } } },
+      error: null,
+    });
+    state.channelSubscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'interest' };
+    });
+
+    const interest = await openMarketInterest();
+    await interest.publish({ clientId: 'tab-id', active: true, symbols: ['AAPL'] });
+    await interest.close();
+
+    expect(state.send).toHaveBeenCalledWith({
+      type: 'broadcast',
+      event: 'interest',
+      payload: { clientId: 'tab-id', active: true, symbols: ['AAPL'] },
     });
     expect(state.removeChannel).toHaveBeenCalledOnce();
   });

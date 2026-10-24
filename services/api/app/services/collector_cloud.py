@@ -159,7 +159,25 @@ class CollectorCloud:
         return self._owner_id
 
     def documents(self, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
-        return {key: value for key in keys if (value := self.document(key)) is not None}
+        requested = tuple(dict.fromkeys(keys))
+        if not requested:
+            return {}
+        if any(not isinstance(key, str) or not _ERROR_CODE.fullmatch(key) for key in requested):
+            raise CollectorCloudRejected("invalid document key")
+        rows = self._select(
+            "app_documents",
+            {
+                "select": "document_key,payload",
+                "document_key": f"in.({','.join(requested)})",
+            },
+        )
+        documents: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            key = row.get("document_key")
+            if key not in requested:
+                raise CollectorCloudRejected("Supabase returned an invalid document key")
+            documents[key] = _object(row.get("payload"), "document payload")
+        return documents
 
     def begin_run(self, collector: str) -> UUID:
         if collector not in _COLLECTORS:

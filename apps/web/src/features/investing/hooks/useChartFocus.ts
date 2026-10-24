@@ -17,11 +17,18 @@ export type ChartFocusInput = {
 
 /** Advertise the one chart this tab is showing, with an expiring lease. */
 export function useChartFocus(input: ChartFocusInput): void {
-  const [clientId] = useState(() => crypto.randomUUID());
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+
+  useEffect(() => {
+    const onVisibilityChange = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
 
   const { symbol, timeframe, extended, active = true } = input;
   useEffect(() => {
-    if (!active || !symbol) return;
+    if (!active || !visible || !symbol) return;
+    const clientId = crypto.randomUUID();
     let disposed = false;
     let publisher: ChartFocusPublisher | undefined;
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -70,5 +77,5 @@ export function useChartFocus(input: ChartFocusInput): void {
         })();
       }
     };
-  }, [active, clientId, extended, symbol, timeframe]);
+  }, [active, extended, symbol, timeframe, visible]);
 }

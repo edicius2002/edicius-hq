@@ -93,6 +93,23 @@ earlier selected kind, but the local snapshots do not advance until all selected
 kinds upload. The next pass replays the overlap and upserts the same stable keys.
 Exclusions live in a separate table and are never changed by a refresh.
 
+## Paged explorer rollout
+
+Apply `20261024000000_seace_paged_read.sql` before publishing the web bundle
+that calls `read_owner_seace_page`. The migration backfills the derived read
+fields and installs a trigger, so the existing collector's payload-only upserts
+continue to update them. Run `supabase/tests/seace_paged_read.sql` against a
+local Supabase database before applying the migration to the hosted project.
+
+After publishing, sign in and time a full reload of each of `/seace/recent`,
+`/seace/all-open`, `/seace/closed`, and `/seace/published` from navigation until
+the loading message disappears. Record the result count and the RPC's network
+duration and response size. Confirm that each call returns no more than the
+selected page size (50 by default), and compare with the pre-change Arequipa
+measurements of 7.5 s, 7.4 s, 9.4 s, and 7.4 s respectively. An isolated
+PostgreSQL run with 7,031 rows measured 16 ms for recent and 31 ms for closed;
+these are database-only timings and are not a prediction of browser latency.
+
 ## Persistent minor-notice enrichment queue
 
 Minor-notice discovery commits every returned ID to

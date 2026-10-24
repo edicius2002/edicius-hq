@@ -13,30 +13,69 @@ export type SeaceSync = {
   new_count: number | null;
 };
 
-const kinds: SeaceKind[] = ['notices', 'processes', 'contracts'];
+export type SeaceView = 'recent' | 'open' | 'closed' | 'published';
+export type SeacePageQuery = {
+  region: string;
+  year: number;
+  view: SeaceView;
+  minorOnly: boolean;
+  objectFilter: string;
+  excluded: boolean;
+  search: string;
+  sortField: string;
+  ascending: boolean;
+  page: number;
+  pageSize: number;
+  now: string;
+};
+export type SeacePageResult = { rows: SeaceRow[]; total: number };
 
-export async function loadSeace(region: string, year: number): Promise<SeaceRow[]> {
-  const result: SeaceRow[] = [];
-  for (const kind of kinds) {
-    for (let start = 0; ; start += 500) {
-      const { data, error } = await supabase
-        .from('seace_records')
-        .select('kind,record_key,payload')
-        .eq('region', region)
-        .eq('year', year)
-        .eq('kind', kind)
-        .order('record_key')
-        .range(start, start + 499);
-      if (error) throw new Error('SEACE records unavailable');
-      for (const row of data ?? []) {
-        if (row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)) {
-          result.push({ kind, recordKey: row.record_key, payload: row.payload });
-        }
-      }
-      if ((data ?? []).length < 500) break;
-    }
-  }
-  return result;
+export async function loadSeacePage(query: SeacePageQuery): Promise<SeacePageResult> {
+  const { data, error } = await supabase.rpc('read_owner_seace_page', {
+    p_region: query.region,
+    p_year: query.year,
+    p_view: query.view,
+    p_minor_only: query.minorOnly,
+    p_object_filter: query.objectFilter,
+    p_excluded: query.excluded,
+    p_search: query.search,
+    p_sort_field: query.sortField,
+    p_ascending: query.ascending,
+    p_page: query.page,
+    p_page_size: query.pageSize,
+    p_now: query.now,
+  });
+  if (error) throw new Error('SEACE records unavailable');
+  if (!data || typeof data !== 'object' || Array.isArray(data))
+    throw new Error('Invalid SEACE page response');
+  const total = data.total;
+  const rows = data.rows;
+  if (
+    !Number.isSafeInteger(total) ||
+    typeof total !== 'number' ||
+    total < 0 ||
+    !Array.isArray(rows)
+  )
+    throw new Error('Invalid SEACE page response');
+  const parsed: SeaceRow[] = rows.map((value) => {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      (value.kind !== 'notices' && value.kind !== 'processes' && value.kind !== 'contracts') ||
+      typeof value.recordKey !== 'string' ||
+      !value.payload ||
+      typeof value.payload !== 'object' ||
+      Array.isArray(value.payload)
+    )
+      throw new Error('Invalid SEACE page response');
+    return {
+      kind: value.kind,
+      recordKey: value.recordKey,
+      payload: value.payload,
+    };
+  });
+  return { rows: parsed, total };
 }
 
 export async function loadSeaceSync(region: string, year: number): Promise<SeaceSync[]> {
@@ -55,21 +94,6 @@ export async function loadSeaceSync(region: string, year: number): Promise<Seace
     .eq('year', year);
   if (legacy.error) throw new Error('SEACE sync status unavailable');
   return (legacy.data ?? []).map((row) => ({ ...row, new_count: null }));
-}
-
-export async function loadExclusions(): Promise<Set<string>> {
-  const result = new Set<string>();
-  for (let start = 0; ; start += 500) {
-    const { data, error } = await supabase
-      .from('seace_exclusions')
-      .select('record_key')
-      .order('record_key')
-      .range(start, start + 499);
-    if (error) throw new Error('SEACE exclusions unavailable');
-    for (const row of data ?? []) result.add(row.record_key);
-    if ((data ?? []).length < 500) break;
-  }
-  return result;
 }
 
 export async function setExcluded(key: string, excluded: boolean): Promise<void> {

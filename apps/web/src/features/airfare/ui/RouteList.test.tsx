@@ -512,7 +512,10 @@ describe('RouteList', () => {
 
     rerender(<RouteList {...props} selectedId="LIM|SCL" />);
     expect(screen.queryByRole('button', { name: /^Fetch LIM → SCL/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Stop watching LIM → SCL' }));
+    const remove = screen.getByRole('button', { name: 'Stop watching LIM → SCL' });
+    expect(remove.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(remove).toHaveTextContent('');
+    fireEvent.click(remove);
     expect(props.onRemove).toHaveBeenCalledWith('LIM|SCL');
   });
 

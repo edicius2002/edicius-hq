@@ -105,7 +105,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 38.5px;
+  min-height: 54px;
 }
 
 /* The tab stop the scroller carries needs to be visible when it is taken. */
@@ -134,9 +134,11 @@
 
 .routeCell {
   display: grid;
-  grid-template-columns: minmax(0, 100px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 28px minmax(20px, auto);
   align-items: start;
-  gap: 3px;
+  gap: 4px;
+  min-height: 54px;
   min-width: 0;
   cursor: grab;
 }
@@ -146,17 +148,7 @@
 }
 
 .route {
-  /*
-   * The swatch and the pair, and nothing else.
-   *
-   * It held the months too, until they became controls: a `<button>` may not
-   * contain buttons, so the month tabs are siblings of this one and the row's
-   * own press shrinks to what identifies the route. Pressing a tab selects the
-   * row as well, so a press anywhere on the row still opens it.
-   *
-   * It yields before the controls: a long pair may shorten, but Refresh and
-   * Remove remain where every row puts them, at the far edge of the panel.
-   */
+  /* The first line identifies the route; its month buttons sit below it. */
   flex: 1 1 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -175,10 +167,13 @@
 
 .routeCell .route {
   width: min(100%, 100px);
+  height: 28px;
 }
 
 .routeCell .months {
-  grid-template-columns: repeat(4, auto);
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-columns: repeat(6, auto);
 }
 
 .fetchProgress {
@@ -265,34 +260,10 @@
   white-space: nowrap;
 }
 
-/*
- * The months of a watch, as tabs.
- *
- * `1fr` so they take the room `.route` gave up, and they take it from the left
- * so a column of rows lines its months up rather than having them drift with
- * the length of each pair — the argument `.dates` used to make from the middle.
- */
+/* Months use the full second line of their route cell. */
 .months {
-  /*
-   * Every watched month, four to a line.
-   *
-   * `repeat(4, auto)` rather than `1fr` tracks: a tab is as wide as `Nov` and
-   * no wider, so a route watching two months does not draw two cells stretched
-   * across the room four would need. Four is measured — see `MONTHS_PER_ROW`:
-   * the row has 135.08px here at the panel's floor and four three-letter tabs
-   * are 136.04, which is why the floor moved 2px to take them.
-   *
-   * `flex: 0 1 auto` and not `flex: 1`, and that is what keeps the collect
-   * control reachable. A growing item would take the row's slack and crowd the
-   * controls off its far edge. Sized by its own content, this block never
-   * pushes them anywhere.
-   *
-   * A watch with more than four months is taller by a line per four, and only
-   * that row is: a tab is 20.48px against the row's own 38.5, so one line of
-   * them costs nothing at all.
-   */
   display: grid;
-  grid-template-columns: repeat(4, auto);
+  grid-template-columns: repeat(6, auto);
   justify-content: start;
   align-items: center;
   gap: 3px;
@@ -315,8 +286,20 @@
 }
 
 .actions .remove {
+  min-width: 26px;
+  min-height: 26px;
   padding: 4px 5px;
-  font-size: 0.66rem;
+  line-height: 0;
+}
+
+.trashIcon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /*
@@ -433,7 +416,7 @@
   .skeletonRow {
     display: grid;
     gap: 3px;
-    min-height: 109.375px;
+    min-height: 150px;
     padding-block: 4px;
     border-bottom: 1px solid var(--color-border);
   }
@@ -446,6 +429,7 @@
   }
   .routeCell {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 28px minmax(20px, auto);
     padding-bottom: 5px;
     border-bottom: 1px solid var(--color-border);
   }
@@ -453,7 +437,7 @@
     min-height: 28px;
   }
   .routeCell .months {
-    grid-template-columns: repeat(4, auto);
+    grid-template-columns: repeat(6, auto);
   }
   .actions {
     justify-self: end;
@@ -461,10 +445,16 @@
   }
 }
 
+@media (min-width: 641px) and (max-width: 820px) {
+  .routeCell .months {
+    grid-template-columns: repeat(4, auto);
+  }
+}
+
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
   .skeletonRow {
-    min-height: 39px;
+    min-height: 160px;
     padding-block: 3px;
     border-bottom: 1px solid var(--color-border);
   }
@@ -482,7 +472,9 @@
     border-bottom: 1px solid var(--color-border);
   }
   .routeCell {
-    grid-template-columns: minmax(0, 100px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 32px minmax(32px, auto);
+    min-height: 68px;
     padding-bottom: 5px;
     border-bottom: 1px solid var(--color-border);
   }
@@ -509,9 +501,9 @@
     font-size: 0.6rem;
   }
   .routeCell .months {
-    grid-column: 2;
-    grid-row: 1;
-    grid-template-columns: repeat(2, auto);
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
   }
   .monthTab {

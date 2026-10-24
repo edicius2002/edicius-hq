@@ -110,8 +110,9 @@ describe('the three-panel airfare row', () => {
 
   it('fits four months inside the narrowest desktop route and form tracks', () => {
     const narrowList = media(LIST, '(min-width: 641px) and (max-width: 1400px)');
+    const narrowestList = media(LIST, '(min-width: 641px) and (max-width: 820px)');
     const narrowForm = media(EDITOR, '(min-width: 641px) and (max-width: 1400px)');
-    expect(narrowList).toMatch(/grid-template-columns:\s*repeat\(4, auto\)/);
+    expect(narrowestList).toMatch(/grid-template-columns:\s*repeat\(4, auto\)/);
     expect(narrowForm).toMatch(/grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
     // The 641px edge still leaves enough for four tabs after 15px gutters.
     const content = tracks(641)[1] - 32;

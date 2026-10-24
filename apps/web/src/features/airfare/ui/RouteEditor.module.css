@@ -1,8 +1,8 @@
-/* Compact airport fields leave the departure year room on the same desktop row. */
+/* Share the first line across the panel while keeping the airport codes compact. */
 .form {
   display: grid;
-  grid-template-columns: auto minmax(0, 6rem) auto minmax(0, 6rem) auto auto;
-  justify-content: start;
+  grid-template-columns: auto minmax(0, 5rem) auto minmax(0, 5rem) auto auto;
+  justify-content: space-between;
   align-items: center;
   gap: var(--space-1);
   /* The list that hangs off a field must not widen the panel. */
@@ -60,7 +60,7 @@
 }
 
 .form input {
-  max-width: 6rem;
+  max-width: 5rem;
 }
 
 .form input:focus-visible,
@@ -83,7 +83,7 @@
 }
 
 .year select {
-  width: 3.5rem;
+  width: 4rem;
   flex: none;
 }
 

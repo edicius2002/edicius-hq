@@ -464,8 +464,16 @@ export function RouteList({
                         className={styles.remove}
                         onClick={() => onRemove(targetId)}
                         aria-label={'Stop watching ' + routeLabel(targetRoute)}
+                        title={'Remove ' + routeLabel(targetRoute)}
                       >
-                        Remove
+                        <svg
+                          className={styles.trashIcon}
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M6.5 7v3.5M9.5 7v3.5" />
+                        </svg>
                       </Button>
                     </div>
                   </div>

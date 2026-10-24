@@ -439,15 +439,15 @@ describe('RouteList', () => {
     const user = userEvent.setup();
     const { props } = renderList();
 
-    await user.clear(screen.getByLabelText('Origin'));
+    const strip = screen.getByRole('group', { name: 'Departing' });
+    expect(within(strip).queryAllByRole('button', { pressed: true })).toHaveLength(0);
+
     await user.type(screen.getByLabelText('Origin'), 'LIM');
     await user.type(screen.getByLabelText('Destination'), 'MAD');
-    const strip = screen.getByRole('group', { name: 'Departing' });
-    // Off the month the form opens on, and on to December, so the assertion
-    // below is about a press rather than about a default.
-    await user.click(within(strip).getByRole('button', { name: 'September 2026' }));
     await user.click(within(strip).getByRole('button', { name: 'December 2026' }));
     await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(within(strip).queryAllByRole('button', { pressed: true })).toHaveLength(0);
 
     // A city pair and its months, which is the whole of what a watch is. The
     // year is left on its default, which today is this one.

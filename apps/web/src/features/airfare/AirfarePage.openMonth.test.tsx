@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
@@ -106,6 +106,16 @@ describe('pressing a month on another watched route', () => {
     act(() => state.list!.onOpenMonth(routeId(LIM_MAD), '2027-06'));
 
     expect(state.projections.at(-1)).toEqual({ route: routeId(LIM_MAD), month: '2027-06' });
+  });
+
+  it('closes the route and month when clicking empty space outside the list', () => {
+    render(<AirfarePage />);
+    act(() => state.list!.onOpenMonth(routeId(LIM_MAD), '2027-06'));
+
+    fireEvent.click(screen.getByRole('heading', { name: 'Flight details' }));
+
+    expect(state.list?.selectedId).toBeNull();
+    expect(state.projections.at(-1)).toEqual({ route: null, month: null });
   });
 
   it('leaves the route it came from on the month it was on', () => {

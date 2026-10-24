@@ -137,6 +137,28 @@ function PlotSkeleton({ label, kind }: { label: string; kind: ChartView }) {
   );
 }
 
+/** Chart axes stay visible before a route is chosen, without suggesting fare data. */
+function EmptyPlot({ label }: { label: string }) {
+  return (
+    <svg
+      className={styles.emptyPlot}
+      viewBox="0 0 760 308"
+      role="img"
+      aria-label={`${label}: no route selected`}
+      data-testid="analysis-empty-plot"
+    >
+      {[48, 106, 164, 222].map((y) => (
+        <line key={y} x1="66" x2="742" y1={y} y2={y} className={styles.emptyGrid} />
+      ))}
+      <line x1="66" x2="742" y1="260" y2="260" className={styles.emptyAxis} />
+      <line x1="66" x2="66" y1="20" y2="260" className={styles.emptyAxis} />
+      {[66, 201, 336, 471, 606, 742].map((x) => (
+        <line key={x} x1={x} x2={x} y1="260" y2="266" className={styles.emptyAxis} />
+      ))}
+    </svg>
+  );
+}
+
 /**
  * Which archive is answering for the chart under the switch, in one short line.
  *
@@ -450,53 +472,60 @@ export function AnalysisPanel({
   const whereMonth =
     route && month ? `${routeLabel(route)} departing in ${formatFlightMonth(month)}` : '';
   const currency = route?.currency ?? 'USD';
-  const daysName = DAYS_NAMES[source];
-  const departureTitleMonth = departurePending ? month : (frameMonth ?? month);
+  const daysName = route === null ? DAYS_NAMES.none : DAYS_NAMES[source];
+  const departureTitleMonth =
+    route === null ? null : departurePending ? month : (frameMonth ?? month);
   // A wide heading names the selected reading; chart B has its own title and
   // frame controls. On a phone the heading still follows the visible chart.
   const titleMonth = narrow && view === 'days' ? departureTitleMonth : month;
 
-  const priceChart = archivePending ? (
-    <PlotSkeleton label="saved fare history" kind="moves" />
-  ) : historyError && !historyAvailable ? null : (
-    <PriceBandChart
-      ours={ours}
-      baseline={theirs}
-      unsold={oursUnsold}
-      currency={currency}
-      axis={axis}
-      label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
-    />
-  );
-  const departureChart = departurePending ? (
-    <PlotSkeleton label="departure prices" kind="days" />
-  ) : historyError && !historyAvailable && curve === null ? null : (
-    <DepartureChart
-      unavailableMonths={unavailableMonths}
-      key={routeKey ?? 'none'}
-      snapshots={watchedSnapshots}
-      curve={curve}
-      watched={watched}
-      granularity={granularity}
-      currency={currency}
-      periodKey={periodKey}
-      keys={keys}
-      onStep={step}
-      onFrameMonthChange={setFrameMonth}
-      metaSlot={chartMeta}
-      viewport={viewport}
-      onViewportChange={onViewportChange}
-      horizonLoading={curveLoading}
-      horizonError={curveError}
-      leg={leg}
-      reference={reference}
-      label={
-        route
-          ? `What each departure date costs for ${routeLabel(route)}`
-          : 'Fares by departure date'
-      }
-    />
-  );
+  const priceChart =
+    route === null ? (
+      <EmptyPlot label={MOVES_NAME} />
+    ) : archivePending ? (
+      <PlotSkeleton label="saved fare history" kind="moves" />
+    ) : historyError && !historyAvailable ? null : (
+      <PriceBandChart
+        ours={ours}
+        baseline={theirs}
+        unsold={oursUnsold}
+        currency={currency}
+        axis={axis}
+        label={route ? `Cheapest fare for ${whereMonth}, by day` : 'Price analysis'}
+      />
+    );
+  const departureChart =
+    route === null ? (
+      <EmptyPlot label={daysName} />
+    ) : departurePending ? (
+      <PlotSkeleton label="departure prices" kind="days" />
+    ) : historyError && !historyAvailable && curve === null ? null : (
+      <DepartureChart
+        unavailableMonths={unavailableMonths}
+        key={routeKey ?? 'none'}
+        snapshots={watchedSnapshots}
+        curve={curve}
+        watched={watched}
+        granularity={granularity}
+        currency={currency}
+        periodKey={periodKey}
+        keys={keys}
+        onStep={step}
+        onFrameMonthChange={setFrameMonth}
+        metaSlot={chartMeta}
+        viewport={viewport}
+        onViewportChange={onViewportChange}
+        horizonLoading={curveLoading}
+        horizonError={curveError}
+        leg={leg}
+        reference={reference}
+        label={
+          route
+            ? `What each departure date costs for ${routeLabel(route)}`
+            : 'Fares by departure date'
+        }
+      />
+    );
 
   const historyNotice =
     historyError || updatingMonth ? (

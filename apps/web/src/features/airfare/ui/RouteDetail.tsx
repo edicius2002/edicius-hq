@@ -50,7 +50,52 @@ export function RouteDetail({
   if (!route) {
     return (
       <div className={styles.detail}>
-        <p className={styles.empty}>Select a route to view flight details.</p>
+        <header className={styles.head}>
+          <h3 className={styles.pair}>
+            ??? <span className={styles.to}>→</span> ???
+          </h3>
+          <p className={styles.cities}>??? to ???</p>
+        </header>
+        <div className={styles.body}>
+          <div className={styles.hero}>
+            <span className={styles.label}>Cheapest now</span>
+            <div className={styles.priceLine}>
+              <strong className={styles.price}>0.00</strong>
+              <div className={styles.meta}>
+                <span className={`${styles.chip} ${styles.neutral}`}>??.?% vs usual</span>
+                <span className={styles.airline}>on ???</span>
+              </div>
+            </div>
+          </div>
+          <div className={styles.range}>
+            <div className={styles.track}>
+              <div className={styles.bar} />
+              <span className={styles.usualLabel} style={{ left: '40%' }}>
+                usual
+              </span>
+              <span className={styles.tick} data-range-marker style={{ left: '40%' }} />
+              <span className={styles.dot} data-range-marker style={{ left: '50%' }} />
+              <span className={styles.nowLabel} style={{ left: '50%' }}>
+                now
+              </span>
+            </div>
+            <div className={styles.ends}>
+              <span>??.??</span>
+              <span>??.??</span>
+            </div>
+          </div>
+          <div className={styles.tiles}>
+            <div className={styles.tile} data-detail-tile>
+              <span className={styles.label}>Usually</span>
+              <strong className={styles.tileValue}>00.00</strong>
+            </div>
+            <div className={styles.tile} data-detail-tile>
+              <span className={styles.label}>Cheapest day</span>
+              <strong className={styles.tileValue}>????? · 00</strong>
+            </div>
+          </div>
+          <footer className={styles.footer}>Last look ??/??/???? ??:??</footer>
+        </div>
       </div>
     );
   }

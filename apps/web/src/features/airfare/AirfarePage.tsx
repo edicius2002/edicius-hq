@@ -481,7 +481,22 @@ export function AirfarePage() {
   );
 
   return (
-    <section className={styles.page} aria-label="Airfare">
+    <section
+      className={styles.page}
+      aria-label="Airfare"
+      onClickCapture={(event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (
+          target.closest(
+            'form, ul[aria-label="Watched routes"], button, input, select, textarea, a, [role="button"]',
+          )
+        )
+          return;
+        setSelectedId(null);
+        setEditingId(null);
+      }}
+    >
       {/*
         A title and nothing beside it.
 
@@ -570,12 +585,10 @@ export function AirfarePage() {
               // on another row.
               openMonthOf(id, month);
             }}
-            /*
-              A press on the panel's empty space puts the fields back to
-              adding. Only `editingId` goes: the reader said they had finished
-              editing, not that they had finished looking at a chart.
-            */
-            onClearEditing={() => setEditingId(null)}
+            onClearEditing={() => {
+              setEditingId(null);
+              setSelectedId(null);
+            }}
             transferDisabled={watchlist.isFetching || watchlist.isError}
             onImported={watchlist.refresh}
             onSave={(id, next) => {

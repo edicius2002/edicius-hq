@@ -83,9 +83,7 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
    * the year cannot un-pick anything: a cell names a month outright rather than
    * combining with a control beside it.
    */
-  const [months, setMonths] = useState<string[]>(() =>
-    editing ? [...editing.months] : [nextMonth(today)],
-  );
+  const [months, setMonths] = useState<string[]>(() => (editing ? [...editing.months] : []));
   /* View state of the strip alone. It is never submitted. */
   const [year, setYear] = useState(() => (editing?.months[0] ?? nextMonth(today)).slice(0, 4));
   const [error, setError] = useState<string | null>(null);
@@ -199,10 +197,8 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
 
     onAdd(next);
     setDestination('');
-    // Back to next month rather than to whatever was just added: leaving the
-    // strip on the months that were added invites a second watch on the same
-    // months by a reader who only changed the destination.
-    setMonths([nextMonth(today)]);
+    // A new route starts with no month selected, including after an add.
+    setMonths([]);
     setYear(nextMonth(today).slice(0, 4));
     setError(null);
   }

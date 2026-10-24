@@ -5,10 +5,9 @@ import { AmountInput } from '@/features/finance/ui/AmountInput';
 import { TextInput } from '@/features/finance/ui/TextInput';
 import { useTypedText } from '@/features/finance/ui/useTypedText';
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
-import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
+import { formatAmount } from '@/shared/lib/money';
 import { frameMembers } from '@/features/finance/lib/frames';
 import {
-  selectAccountSummary,
   selectAllocation,
   selectFrameSummary,
   selectHoldingsOfAccount,
@@ -83,15 +82,12 @@ export function PropertiesPanel({ diagram, selection, actions }: PropertiesPanel
   return (
     <div className={styles.panel}>
       <Header kind={node.kind}>
-        {/* The badge already says what this is, so a "Name" label above the box
-            beside it named the same thing twice and cost a row of a panel with
-            a fixed height. The accessible name moves onto the input itself,
-            which is what a screen reader reads anyway. */}
         <TextInput
-          className={`${styles.input} ${styles.nameInput}`}
+          className={styles.nameInput}
           value={node.name}
           aria-label="Name"
-          placeholder="Name"
+          placeholder="Unnamed"
+          title="Edit name"
           onChange={(name) => actions.renameNode(node.id, name)}
         />
       </Header>
@@ -159,7 +155,7 @@ function FrameFields({
       {summary.totals.length ? (
         <div className={styles.assets}>
           {summary.totals.map((total) => (
-            <div key={total.asset} className={styles.chainRow}>
+            <div key={total.asset} className={styles.frameAsset}>
               <span>{total.asset}</span>
               <strong>{formatAmount(total.amount)}</strong>
             </div>
@@ -231,7 +227,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
  * `07/08 - USD +785.58` — entries appended over weeks to a field that showed
  * one line at a time and scrolled sideways to read any of it.
  *
- * Three lines to start and a grip to take it further: how much a note has to
+ * Two lines to start and a grip to take it further: how much a note has to
  * say is the reader's business, not the layout's. The panel holds a fixed
  * height and scrolls what does not fit, so a note dragged tall costs the panel
  * a scrollbar rather than costing the canvas its width.
@@ -243,7 +239,7 @@ function NotesInput({ value, onChange }: { value: string; onChange: (notes: stri
     <textarea
       className={styles.notes}
       value={typed.value}
-      rows={3}
+      rows={2}
       placeholder="Optional"
       onChange={(event) => typed.onChange(event.target.value)}
       onBlur={typed.onBlur}
@@ -271,25 +267,25 @@ function JobFields({
 
   return (
     <>
-      <h3 className={styles.sectionTitle}>Paid in</h3>
-      <div className={`${styles.row} ${styles.addAssetRow}`}>
-        <label className={styles.addAssetLabel} htmlFor={`job-${node.id}-asset`}>
-          Add asset
-        </label>
-        <input
-          id={`job-${node.id}-asset`}
-          className={`${styles.input} ${styles.addAssetInput}`}
-          value={draft}
-          placeholder="USD"
-          maxLength={8}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') addAsset();
-          }}
-        />
-        <Button size="small" onClick={addAsset}>
-          Add
-        </Button>
+      <div className={styles.assetHeading}>
+        <h3 className={styles.sectionTitle}>Paid in</h3>
+        <div className={styles.addAssetRow}>
+          <input
+            id={`job-${node.id}-asset`}
+            className={`${styles.input} ${styles.addAssetInput}`}
+            aria-label="Add asset"
+            value={draft}
+            placeholder="USD"
+            maxLength={8}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') addAsset();
+            }}
+          />
+          <Button size="small" onClick={addAsset}>
+            Add
+          </Button>
+        </div>
       </div>
       {node.balances.length ? (
         <div className={styles.assets}>
@@ -341,7 +337,6 @@ function AccountFields({
 }) {
   const [draft, setDraft] = useState('');
   const holdings = selectHoldingsOfAccount(diagram, node.id);
-  const summary = selectAccountSummary(diagram, node.id);
 
   function addAsset() {
     if (!draft.trim()) return;
@@ -351,28 +346,28 @@ function AccountFields({
 
   return (
     <>
-      <h3 className={styles.sectionTitle}>Assets held</h3>
-      <div className={`${styles.row} ${styles.addAssetRow}`}>
-        <label className={styles.addAssetLabel} htmlFor={`account-${node.id}-asset`}>
-          Add asset
-        </label>
-        <input
-          id={`account-${node.id}-asset`}
-          className={`${styles.input} ${styles.addAssetInput}`}
-          value={draft}
-          placeholder="USD"
-          maxLength={8}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') addAsset();
-          }}
-        />
-        <Button size="small" onClick={addAsset}>
-          Add
-        </Button>
+      <div className={styles.assetHeading}>
+        <h3 className={styles.sectionTitle}>Assets held</h3>
+        <div className={styles.addAssetRow}>
+          <input
+            id={`account-${node.id}-asset`}
+            className={`${styles.input} ${styles.addAssetInput}`}
+            aria-label="Add asset"
+            value={draft}
+            placeholder="USD"
+            maxLength={8}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') addAsset();
+            }}
+          />
+          <Button size="small" onClick={addAsset}>
+            Add
+          </Button>
+        </div>
       </div>
       {holdings.length ? (
-        <div className={styles.assets}>
+        <div className={`${styles.assets} ${styles.accountAssets}`}>
           {holdings.map((holding) => {
             const allocation = allocationStatus({
               diagram,
@@ -412,29 +407,6 @@ function AccountFields({
           No assets yet. Add one to give this account something to hold.
         </p>
       )}
-
-      <h3 className={styles.sectionTitle}>Movement</h3>
-      {/* In and out are one comparison, not two facts, and side by side is how a
-          comparison reads. Stacked they also cost a row the fixed panel does not
-          have to spare. */}
-      <div className={styles.movement}>
-        <div className={`${styles.chain} ${styles.movementCard}`}>
-          <span className={styles.movementLabel}>In</span>
-          <span>
-            {summary.incoming.count} ·{' '}
-            {summary.incoming.totals.map((t) => formatAssetAmount(t.asset, t.amount)).join(', ') ||
-              '—'}
-          </span>
-        </div>
-        <div className={`${styles.chain} ${styles.movementCard}`}>
-          <span className={styles.movementLabel}>Out</span>
-          <span>
-            {summary.outgoing.count} ·{' '}
-            {summary.outgoing.totals.map((t) => formatAssetAmount(t.asset, t.amount)).join(', ') ||
-              '—'}
-          </span>
-        </div>
-      </div>
     </>
   );
 }
@@ -525,7 +497,7 @@ function FlowFields({
 
   return (
     <div className={styles.panel}>
-      <div className={styles.header}>
+      <div className={`${styles.header} ${styles.flowHeader}`}>
         <span
           className={styles.badge}
           style={
@@ -537,11 +509,10 @@ function FlowFields({
         >
           Flow
         </span>
+        <p className={styles.hint}>
+          {source?.name} → {target?.name}
+        </p>
       </div>
-
-      <p className={styles.hint}>
-        {source?.name} → {target?.name}
-      </p>
 
       <Field label={`Amount (${flow.asset})`}>
         <AmountInput

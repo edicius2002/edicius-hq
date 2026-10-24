@@ -139,6 +139,24 @@ it('keeps the focused day selected when the pointer leaves another day', () => {
   expect(detail).toHaveTextContent('No reset on 2026-09-28');
 });
 
+it('shows the keyboard-focused day when the pointer remains over another day', () => {
+  render(<ResetCalendar resets={[reset]} now={new Date('2026-09-29T20:00:00Z')} />);
+  const history = screen.getByRole('region', { name: 'Codex reset history' });
+  const focused = within(history).getByRole('button', { name: '1 banked reset on 2026-09-29' });
+  const hovered = within(history).getByRole('button', { name: 'No reset on 2026-09-28' });
+  const detail = history.querySelector('[aria-live="polite"]');
+
+  fireEvent.pointerEnter(hovered, { pointerType: 'mouse' });
+  fireEvent.focus(focused);
+  fireEvent.keyDown(focused, { key: 'Tab' });
+  expect(focused).toHaveAttribute('data-active', 'true');
+  expect(detail).toHaveTextContent('1 banked reset on 2026-09-29');
+
+  fireEvent.pointerMove(hovered, { pointerType: 'mouse' });
+  expect(hovered).toHaveAttribute('data-active', 'true');
+  expect(detail).toHaveTextContent('No reset on 2026-09-28');
+});
+
 it('uses touch selection until the next touch outside the calendar', () => {
   render(<ResetCalendar resets={[reset]} now={new Date('2026-09-29T20:00:00Z')} />);
   const history = screen.getByRole('region', { name: 'Codex reset history' });

@@ -31,8 +31,13 @@ export function ResetCalendar({
   const [pointerKey, setPointerKey] = useState<string | null>(null);
   const [keyboardKey, setKeyboardKey] = useState<string | null>(null);
   const [touchKey, setTouchKey] = useState<string | null>(null);
+  const [lastInput, setLastInput] = useState<'pointer' | 'keyboard' | 'touch'>('pointer');
   const chartRef = useRef<HTMLDivElement>(null);
-  const activeKey = pointerKey ?? keyboardKey ?? touchKey;
+  const activeKey =
+    (lastInput === 'keyboard' ? keyboardKey : lastInput === 'touch' ? touchKey : pointerKey) ??
+    pointerKey ??
+    keyboardKey ??
+    touchKey;
   const selected = days.find((day) => day.key === activeKey) ?? latestDay ?? null;
   const active = activeKey !== null && selected?.key === activeKey;
 
@@ -44,6 +49,13 @@ export function ResetCalendar({
     document.addEventListener('pointerdown', dismissTouch);
     return () => document.removeEventListener('pointerdown', dismissTouch);
   }, [touchKey]);
+
+  function selectPointer(dayKey: string, pointerType: string) {
+    if (pointerType === 'touch') return;
+    setPointerKey(dayKey);
+    setTouchKey(null);
+    setLastInput('pointer');
+  }
 
   return (
     <section className={styles.section} aria-labelledby="reset-history-title">
@@ -112,22 +124,27 @@ export function ResetCalendar({
                     disabled={loading || unavailable}
                     style={{ gridColumn: column + 1, gridRow: weekday + 2 }}
                     onFocus={(event) => {
-                      if (event.currentTarget.matches(':focus-visible')) setKeyboardKey(day.key);
-                    }}
-                    onBlur={() => setKeyboardKey(null)}
-                    onKeyDown={() => setKeyboardKey(day.key)}
-                    onPointerEnter={(event) => {
-                      if (event.pointerType !== 'touch') {
-                        setPointerKey(day.key);
-                        setTouchKey(null);
+                      if (event.currentTarget.matches(':focus-visible')) {
+                        setKeyboardKey(day.key);
+                        setLastInput('keyboard');
                       }
                     }}
-                    onPointerDown={(event) => {
-                      if (event.pointerType === 'touch') setTouchKey(day.key);
-                      else setKeyboardKey(null);
+                    onBlur={() => setKeyboardKey(null)}
+                    onKeyDown={() => {
+                      setKeyboardKey(day.key);
+                      setLastInput('keyboard');
                     }}
-                    onClick={(event) => {
-                      if (event.detail === 0) setKeyboardKey(day.key);
+                    onPointerEnter={(event) => selectPointer(day.key, event.pointerType)}
+                    onPointerMove={(event) => selectPointer(day.key, event.pointerType)}
+                    onPointerDown={(event) => {
+                      if (event.pointerType === 'touch') {
+                        setTouchKey(day.key);
+                        setLastInput('touch');
+                      } else {
+                        setPointerKey(day.key);
+                        setKeyboardKey(null);
+                        setLastInput('pointer');
+                      }
                     }}
                   />
                 )),

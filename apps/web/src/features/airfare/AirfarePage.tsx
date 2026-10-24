@@ -398,11 +398,9 @@ export function AirfarePage() {
   /*
    * A colour per route, by its place in the watchlist.
    *
-   * This used to be a cheap/dear tone on the open route alone, which left
-   * every other arc in the same accent — and this page draws them all from one
-   * origin, so they left Lima as a fan of identical lines. Colour is identity
-   * now; how a fare sits against its usual price is the detail panel's job,
-   * where there is room to say it in words and a number.
+   * Colour follows the watch so the selected line and endpoint keep a stable
+   * identity as the reader switches routes. How a fare sits against its usual
+   * price is the detail panel's job.
    *
    * Built from the watchlist rather than from the drawn geometries, so a route
    * whose coordinates have not arrived yet still holds its slot and the arcs
@@ -484,21 +482,11 @@ export function AirfarePage() {
         selectedId={selectedKey}
         onSelect={setSelectedId}
         colours={colours}
-        lastCollectedId={flow.freshest}
         projection={projection}
         onProjectionChange={setProjection}
       />
     ),
-    [
-      geometries,
-      stopRoutes,
-      selectedKey,
-      colours,
-      flow.freshest,
-      projection,
-      airports.isError,
-      retryAirports,
-    ],
+    [geometries, stopRoutes, selectedKey, colours, projection, airports.isError, retryAirports],
   );
 
   return (

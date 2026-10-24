@@ -19,6 +19,7 @@ import {
 import type { PassProgress } from '@/features/airfare/lib/passProgress';
 
 const RECONCILE_MS = 5_000;
+const IDLE_RECONCILE_MS = 60_000;
 
 export type RouteCollection = {
   collecting: readonly string[];
@@ -37,6 +38,8 @@ export function useRouteCollection(): RouteCollection {
   const handledTerminal = useRef(new Set<string>());
   const forgottenRoutes = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const reconcileRef = useRef<() => Promise<void>>(async () => {});
+  const { collecting, progress } = useMemo(() => deriveActiveState(requests), [requests]);
 
   const showNotice = useCallback((notice: CollectNotice) => {
     setNotices((current) => withNotice(current, notice));
@@ -117,15 +120,22 @@ export function useRouteCollection(): RouteCollection {
         // Realtime and the next bounded poll remain available.
       }
     };
+    reconcileRef.current = reconcile;
     const unsubscribe = subscribeAirfareRequests(accept);
     void reconcile();
-    const timer = setInterval(() => void reconcile(), RECONCILE_MS);
     return () => {
       disposed = true;
-      clearInterval(timer);
       unsubscribe();
     };
   }, [accept]);
+
+  useEffect(() => {
+    const timer = setInterval(
+      () => void reconcileRef.current(),
+      collecting.length > 0 ? RECONCILE_MS : IDLE_RECONCILE_MS,
+    );
+    return () => clearInterval(timer);
+  }, [collecting.length]);
 
   useEffect(() => {
     const next = [...requests.values()]
@@ -191,7 +201,6 @@ export function useRouteCollection(): RouteCollection {
     });
   }, []);
 
-  const { collecting, progress } = useMemo(() => deriveActiveState(requests), [requests]);
   return { collecting, progress, notices, collect, forget };
 }
 

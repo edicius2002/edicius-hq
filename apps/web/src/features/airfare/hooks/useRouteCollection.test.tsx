@@ -65,6 +65,29 @@ afterEach(() => {
 });
 
 describe('useRouteCollection', () => {
+  it('reconciles idle requests once per minute while keeping active requests on five-second recovery', async () => {
+    vi.useFakeTimers();
+    api.fetchActiveAirfareRequests.mockResolvedValue([]);
+    const { result } = setup();
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(1);
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(1);
+
+    act(() => api.emit(request()));
+    expect(result.current.collecting).toEqual([ROW_ID]);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(2);
+
+    act(() => api.emit(request({ status: 'failed' })));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
+    expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(2);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(55_000)));
+    expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(3);
+  });
+
   it('adopts an active request and maps queued, collecting, and syncing progress', async () => {
     api.fetchActiveAirfareRequests.mockResolvedValue([request()]);
     const { result, unmount } = setup();

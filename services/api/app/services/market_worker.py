@@ -27,6 +27,7 @@ from app.services.collector_cloud import CollectorCloud, CollectorCloudError, Co
 
 LOGGER = logging.getLogger(__name__)
 LIVE_BROADCAST_SECONDS = 0.5
+QUOTE_INTEREST_TTL_SECONDS = 75.0
 CHART_FOCUS_TTL_SECONDS = 45.0
 MAX_CHART_FOCUSES = 8
 QUOTE_FLUSH_SECONDS = 60.0
@@ -214,6 +215,7 @@ class MarketWorker:
             tuple[str, str, bool], tuple[int, float, float, float, float, float]
         ] = {}
         self._last_broadcast: dict[str, tuple[float, str | None, bool]] = {}
+        self._quote_interest: dict[str, tuple[float, frozenset[str]]] = {}
         self._last_write: dict[str, float] = {}
         self._bar_results: dict[
             tuple[str, str, bool], tuple[float, dict[str, Any], dict[str, Any]]
@@ -354,20 +356,57 @@ class MarketWorker:
             self._focus_wake.set()
         return accepted
 
+    def accept_quote_interest(self, payload: object) -> bool:
+        if not isinstance(payload, Mapping):
+            return False
+        client_id = payload.get("clientId")
+        active = payload.get("active")
+        if not isinstance(client_id, str) or not 1 <= len(client_id) <= 64:
+            return False
+        if not isinstance(active, bool):
+            return False
+        self._expire_quote_interest()
+        if active:
+            requested = payload.get("symbols")
+            if not isinstance(requested, list) or not 1 <= len(requested) <= 512:
+                return False
+            symbols = [_symbol(value) for value in requested]
+            if any(symbol is None or len(symbol) > 64 for symbol in symbols):
+                return False
+            self._quote_interest[client_id] = (
+                self._clock(),
+                frozenset(symbol for symbol in symbols if symbol is not None),
+            )
+            return True
+        return self._quote_interest.pop(client_id, None) is not None
+
+    def _expire_quote_interest(self) -> None:
+        now = self._clock()
+        self._quote_interest = {
+            client_id: lease
+            for client_id, lease in self._quote_interest.items()
+            if now - lease[0] < QUOTE_INTEREST_TTL_SECONDS
+        }
+
     def accept_bar(self, update: LiveBar) -> None:
         key = (update.symbol, update.timeframe, update.extended)
         current = self._live_bar_pending.get(key)
         if current is None or update.as_of >= current.as_of:
             self._live_bar_pending[key] = update
 
-    async def publish_ticks(self) -> int:
+    async def publish_ticks(self, symbols: set[str] | None = None) -> int:
         candidates = {
             symbol: tick
             for symbol, tick in self._live_pending.items()
-            if _visible_reading(tick) != self._last_broadcast.get(symbol)
+            if (symbols is None or symbol in symbols)
+            and _visible_reading(tick) != self._last_broadcast.get(symbol)
         }
         for symbol, tick in tuple(self._live_pending.items()):
-            if symbol not in candidates and self._live_pending.get(symbol) is tick:
+            if (
+                (symbols is None or symbol in symbols)
+                and symbol not in candidates
+                and self._live_pending.get(symbol) is tick
+            ):
                 self._live_pending.pop(symbol, None)
         if not candidates:
             return 0
@@ -661,7 +700,13 @@ class MarketWorker:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=LIVE_BROADCAST_SECONDS)
             except TimeoutError:
-                await self.publish_ticks()
+                self._expire_quote_interest()
+                if self._quote_interest:
+                    visible = set().union(
+                        *(symbols for _, symbols in self._quote_interest.values())
+                    )
+                    if visible:
+                        await self.publish_ticks(visible)
 
     async def _publish_bars(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():

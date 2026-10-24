@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,15 +35,18 @@ const peru = (date: Date) =>
     .replace(',', '');
 
 function mount(path = '/seace/recent') {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/seace/recent" element={<SeacePage />} />
-        <Route path="/seace/all-open" element={<SeacePage />} />
-        <Route path="/seace/closed" element={<SeacePage />} />
-        <Route path="/seace/published" element={<SeacePage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/seace/recent" element={<SeacePage />} />
+          <Route path="/seace/all-open" element={<SeacePage />} />
+          <Route path="/seace/closed" element={<SeacePage />} />
+          <Route path="/seace/published" element={<SeacePage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -155,6 +159,47 @@ describe('SEACE views', () => {
         pageSize: 50,
       }),
     );
+  });
+
+  it('keeps the current page visible while an uncached next page loads', async () => {
+    let finishNext!: (value: { rows: SeaceRow[]; total: number }) => void;
+    mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) =>
+      query.page === 1
+        ? Promise.resolve({ rows: [fixtureRows[0]], total: 61 })
+        : new Promise((resolve) => {
+            finishNext = resolve;
+          }),
+    );
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(screen.getByText('61 records')).toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+
+    await act(async () => finishNext({ rows: [fixtureRows[1]], total: 61 }));
+    expect(await screen.findByText('CM-OLDER')).toBeInTheDocument();
+    expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
+  });
+
+  it('prefetches the next page and reuses visited pages without another request', async () => {
+    mocks.loadSeacePage.mockImplementation(async (query: SeacePageQuery) => ({
+      rows: [query.page === 1 ? fixtureRows[0] : fixtureRows[1]],
+      total: 61,
+    }));
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    await waitFor(() =>
+      expect(mocks.loadSeacePage).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByText('CM-OLDER')).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(mocks.loadSeacePage.mock.calls.filter(([query]) => query.page === 1)).toHaveLength(1);
   });
 
   it('ignores a stale recent response after switching to Open', async () => {

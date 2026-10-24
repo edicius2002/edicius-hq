@@ -3,6 +3,7 @@ import { useFx } from './useFx';
 import { sources, ranges } from './sources';
 import { bestQuotes, freshness, price, readPreferences, time } from './model';
 import { FxChart } from './FxChart';
+import { Skeleton } from '@/shared/ui/Skeleton';
 import styles from './UsdPenGadget.module.css';
 const STORAGE = 'edicius.fx.preferences';
 export function UsdPenGadget({ now }: { now: Date }) {
@@ -83,10 +84,26 @@ export function UsdPenGadget({ now }: { now: Date }) {
                       {status === 'Stale' ? <span className={styles.srOnly}>Stale</span> : null}
                     </td>
                     <td className={styles.buy}>
-                      {row ? priceCell(row.buy, eligible && row.buy === best.buy) : '—'}
+                      {row ? (
+                        priceCell(row.buy, eligible && row.buy === best.buy)
+                      ) : latest.isPending ? (
+                        <span data-testid="fx-quote-skeleton">
+                          <Skeleton width="70%" height={12} />
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className={styles.sell}>
-                      {row ? priceCell(row.sell, eligible && row.sell === best.sell) : '—'}
+                      {row ? (
+                        priceCell(row.sell, eligible && row.sell === best.sell)
+                      ) : latest.isPending ? (
+                        <span data-testid="fx-quote-skeleton">
+                          <Skeleton width="70%" height={12} />
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                   </tr>
                 );
@@ -111,6 +128,11 @@ export function UsdPenGadget({ now }: { now: Date }) {
           {history.isPending ? (
             <div className={styles.placeholder} role="status">
               Loading history…
+              <div className={styles.historySkeleton} aria-hidden="true">
+                {[35, 55, 45, 70, 60, 80, 65].map((height, index) => (
+                  <Skeleton key={index} width="10%" height={`${height}%`} radius={2} />
+                ))}
+              </div>
             </div>
           ) : null}
           {history.isError ? (

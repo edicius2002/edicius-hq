@@ -31,6 +31,8 @@ import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
 import type { Bar, Quote } from '@/shared/api/market';
 import { Panel } from '@/shared/ui/Panel';
+import { RowsSkeleton } from '@/shared/ui/RowsSkeleton';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import { formatPercent, formatAmount } from '@/shared/lib/money';
 
@@ -356,15 +358,21 @@ export function InvestingPage() {
             <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
           </div>
 
-          <SymbolSearch
-            following={new Set(watchlist.symbols)}
-            onPick={(picked, name) => {
-              void watchlist.add(picked, name);
-              setSymbol(picked);
-            }}
-          />
+          {watchlist.isPending ? (
+            <Skeleton width="100%" height={32} />
+          ) : (
+            <SymbolSearch
+              following={new Set(watchlist.symbols)}
+              onPick={(picked, name) => {
+                void watchlist.add(picked, name);
+                setSymbol(picked);
+              }}
+            />
+          )}
 
-          {watchlist.isError ? (
+          {watchlist.isPending ? (
+            <RowsSkeleton label="Loading watchlist" rows={6} />
+          ) : watchlist.isError ? (
             <p className={styles.error} role="alert">
               Could not load the watchlist.
             </p>
@@ -402,21 +410,29 @@ export function InvestingPage() {
           <h2 id="investing-positions-title" className={styles.panelTitle}>
             Positions
           </h2>
-          <PositionTotals totals={positionTotals} />
+          {holdings.isPending ? (
+            <Skeleton width={180} height={16} />
+          ) : (
+            <PositionTotals totals={positionTotals} />
+          )}
           {/* This belongs with the panel summary: import affects the whole portfolio,
               while Add position is the primary action inside its editing surface. */}
-          <PositionsTransfer
-            portfolio={holdings.portfolio}
-            disabled={holdings.isError}
-            onImport={async (positions) => {
-              const summary = await holdings.merge(positions);
-              await Promise.all(positions.map((position) => watchlist.add(position.symbol)));
-              return summary;
-            }}
-          />
+          {!holdings.isPending ? (
+            <PositionsTransfer
+              portfolio={holdings.portfolio}
+              disabled={holdings.isError}
+              onImport={async (positions) => {
+                const summary = await holdings.merge(positions);
+                await Promise.all(positions.map((position) => watchlist.add(position.symbol)));
+                return summary;
+              }}
+            />
+          ) : null}
         </div>
 
-        {holdings.isError ? (
+        {holdings.isPending ? (
+          <RowsSkeleton label="Loading positions" rows={5} />
+        ) : holdings.isError ? (
           <p className={styles.error} role="alert">
             Could not load your positions.
           </p>
@@ -464,7 +480,9 @@ export function InvestingPage() {
           </button>
         </div>
 
-        {alerts.isError ? (
+        {alerts.isPending ? (
+          <RowsSkeleton label="Loading price alerts" rows={4} />
+        ) : alerts.isError ? (
           <p className={styles.error} role="alert">
             Could not load your price alerts.
           </p>

@@ -1,0 +1,130 @@
+.page {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  max-width: 92rem;
+  margin-inline: auto;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.header,
+.clocks,
+.filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.clocks > *,
+.filters > * {
+  flex: 1;
+}
+
+.card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.lines,
+.stack {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.twoColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(14rem, 1fr);
+  gap: var(--space-4);
+}
+.tall {
+  min-height: 17rem;
+}
+.canvas {
+  min-height: 32rem;
+}
+.chart {
+  min-height: 20rem;
+}
+.featured {
+  min-height: 24rem;
+}
+.metric {
+  min-height: 11rem;
+}
+.tableHeader,
+.tableRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.tableHeader {
+  padding-block-end: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.tableRow {
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.login {
+  min-height: 100dvh;
+  align-content: center;
+  place-items: center;
+  padding: var(--space-5);
+}
+.loginCard {
+  width: min(100%, 26rem);
+  min-height: 13rem;
+}
+.seace {
+  padding: var(--space-6);
+}
+
+@media (max-width: 52rem) {
+  .twoColumns,
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .canvas {
+    min-height: 20rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .clocks {
+    gap: var(--space-1);
+  }
+  .filters {
+    flex-wrap: wrap;
+  }
+  .seace {
+    padding: var(--space-3);
+  }
+}

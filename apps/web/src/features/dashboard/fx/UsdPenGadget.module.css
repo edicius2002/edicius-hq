@@ -115,6 +115,10 @@
 .table td > span {
   font-variant-numeric: tabular-nums;
 }
+.table td > span[data-testid='fx-quote-skeleton'] {
+  display: grid;
+  justify-items: center;
+}
 /* The best fresh online quote is tinted rather than labelled, keeping rows one line tall. */
 .table td > span[data-best] {
   padding: 1px 5px;
@@ -170,6 +174,14 @@
   place-items: center;
   font-size: 11px;
   color: #b4a99c;
+}
+.historySkeleton {
+  display: flex;
+  align-items: end;
+  justify-content: space-around;
+  width: 90%;
+  height: 80px;
+  gap: 4px;
 }
 .card p[role='alert'],
 .card p[role='status'] {

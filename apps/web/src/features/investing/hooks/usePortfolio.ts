@@ -67,6 +67,7 @@ export function usePortfolio() {
     portfolio,
     symbols,
     isFetching: store.isFetching,
+    isPending: store.saveState === 'loading',
     isError: store.isError,
     set,
     remove,

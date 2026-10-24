@@ -31,6 +31,8 @@ beforeEach(() => {
 
 describe('the browser Supabase client', () => {
   it('rejects missing public Supabase configuration with a named error', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', '');
+
     await expect(importClientModule()).rejects.toMatchObject({
       name: 'SupabaseConfigurationError',
       message: expect.stringContaining('VITE_SUPABASE_URL'),
@@ -39,6 +41,7 @@ describe('the browser Supabase client', () => {
 
   it('rejects a missing publishable key with a named error', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', '');
 
     await expect(importClientModule()).rejects.toMatchObject({
       name: 'SupabaseConfigurationError',

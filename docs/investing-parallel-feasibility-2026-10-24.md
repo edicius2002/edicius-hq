@@ -9,9 +9,9 @@ en el momento de la medición. `cola = claimed_at - created_at`,
 `servicio = completed_at - claimed_at`. Estas marcas incluyen reclamación,
 descarga y escrituras del worker, pero no miden el dibujo del navegador.
 
-| Operación | n | Cola p50 | Cola p95 | Servicio p50 | Servicio p95 | Total p50 | Total p95 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| market-bars, completadas | 97 | 1,106 s | 5,254 s | 1,227 s | 2,560 s | 2,391 s | 6,860 s |
+| Operación                |   n | Cola p50 | Cola p95 | Servicio p50 | Servicio p95 | Total p50 | Total p95 |
+| ------------------------ | --: | -------: | -------: | -----------: | -----------: | --------: | --------: |
+| market-bars, completadas |  97 |  1,106 s |  5,254 s |      1,227 s |      2,560 s |   2,391 s |   6,860 s |
 
 Las 97 solicitudes fueron de Yahoo y terminaron correctamente. Ninguna de las
 97 se solapó con otra entre `claimed_at` y `completed_at`. Veinte llegaron
@@ -35,11 +35,11 @@ sustituidos por dobles: cada temporalidad espera su tiempo medio de servicio
 observado en las últimas 24 horas. Se precargan las seis temporalidades
 distintas de `1d`; no hay llamadas de red ni despliegue.
 
-| Tareas simultáneas | Seis series terminadas | Espera de reclamación de `1d` añadido 0,2 s después, FIFO |
-| ---: | ---: | ---: |
-| 1, worker actual | 8,201 s | 7,996 s |
-| 2, planificador de prueba | 4,246 s | 3,746 s |
-| 3, planificador de prueba | 2,798 s | 2,491 s |
+|        Tareas simultáneas | Seis series terminadas | Espera de reclamación de `1d` añadido 0,2 s después, FIFO |
+| ------------------------: | ---------------------: | --------------------------------------------------------: |
+|          1, worker actual |                8,201 s |                                                   7,996 s |
+| 2, planificador de prueba |                4,246 s |                                                   3,746 s |
+| 3, planificador de prueba |                2,798 s |                                                   2,491 s |
 
 Con la **prioridad simulada** para `1d`, la espera de reclamación bajó a
 0,946 s con dos tareas y 0,949 s con tres. Esta prioridad aún no existe en
@@ -67,10 +67,10 @@ comparando serie con un máximo de dos solicitudes simultáneas. Consultó AAPL
 y no escribió en Supabase. Alternó serie, paralelo, paralelo, serie para
 reducir el sesgo de conexiones y caché calientes.
 
-| Temporalidades | Serie, dos rondas | Paralelo limitado a dos, dos rondas |
-| --- | --- | --- |
-| `1m`, `5m` | 0,686 s; 0,379 s | 0,634 s; 0,300 s |
-| `15m`, `1h`, `1w`, `1M` | 1,164 s; 0,847 s | 1,115 s; 0,893 s |
+| Temporalidades          | Serie, dos rondas | Paralelo limitado a dos, dos rondas |
+| ----------------------- | ----------------- | ----------------------------------- |
+| `1m`, `5m`              | 0,686 s; 0,379 s  | 0,634 s; 0,300 s                    |
+| `15m`, `1h`, `1w`, `1M` | 1,164 s; 0,847 s  | 1,115 s; 0,893 s                    |
 
 Todas las respuestas tuvieron velas y ninguna devolvió un error. Hubo una
 llamada paralela de `1h` que tardó 1,114 s por sí sola; las demás oscilaron
@@ -88,9 +88,9 @@ serie actualmente guardada con las solicitudes completadas de esa misma
 clave. Solo 27 de 171 solicitudes de siete días tenían el `fetched_at` actual
 dentro de su intervalo reclamación-finalización. En ese subconjunto:
 
-| Tramo | p50 | p95 |
-| --- | ---: | ---: |
-| `claimed_at` → `market_bars.fetched_at` | 0,641 s | 0,926 s |
+| Tramo                                     |     p50 |     p95 |
+| ----------------------------------------- | ------: | ------: |
+| `claimed_at` → `market_bars.fetched_at`   | 0,641 s | 0,926 s |
 | `market_bars.fetched_at` → `completed_at` | 0,493 s | 1,012 s |
 
 El primer tramo incluye descarga y creación de la fila; el segundo, escritura

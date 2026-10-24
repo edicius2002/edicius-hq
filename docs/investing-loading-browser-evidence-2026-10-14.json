@@ -196,9 +196,7 @@
       "stage": "rapid_ui",
       "pressed": "1M",
       "alerts": [],
-      "chartNote": [
-        "0 bars · drag to pan, scroll to zoom"
-      ]
+      "chartNote": ["0 bars · drag to pan, scroll to zoom"]
     },
     {
       "stage": "warm_cache",
@@ -221,9 +219,7 @@
     },
     {
       "stage": "warm_ui",
-      "chartNote": [
-        "360 bars · 1 extended · yahoo · drag to pan, scroll to zoom"
-      ],
+      "chartNote": ["360 bars · 1 extended · yahoo · drag to pan, scroll to zoom"],
       "alerts": []
     },
     {

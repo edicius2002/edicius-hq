@@ -15,11 +15,11 @@ observación del DOM tiene resolución limitada: las diferencias de decenas de
 milisegundos son indicativas, no precisión de laboratorio. Los tiempos de
 clic incluyen la automatización del botón.
 
-| Caso frío | Clic → crear | Cola | Worker | Completar → dibujo | Clic → dibujo |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| USO `15m` | 2,353 s | 2,443 s | 1,669 s | ≈0,098 s | 6,563 s |
-| USO `1M` | 3,011 s | 1,421 s | 0,986 s | ≈0,055 s | 5,473 s |
-| BNO `1w` | 8,329 s | 1,065 s | 1,175 s | ≈0,008 s | 10,577 s |
+| Caso frío | Clic → crear |    Cola |  Worker | Completar → dibujo | Clic → dibujo |
+| --------- | -----------: | ------: | ------: | -----------------: | ------------: |
+| USO `15m` |      2,353 s | 2,443 s | 1,669 s |           ≈0,098 s |       6,563 s |
+| USO `1M`  |      3,011 s | 1,421 s | 0,986 s |           ≈0,055 s |       5,473 s |
+| BNO `1w`  |      8,329 s | 1,065 s | 1,175 s |           ≈0,008 s |      10,577 s |
 
 En USO `1w`, el primer registro de solicitud apareció 16,669 s después de
 accionar la temporalidad. No se obtuvo una marca suficientemente precisa para

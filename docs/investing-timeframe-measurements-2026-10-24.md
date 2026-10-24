@@ -7,11 +7,11 @@ para BNO; actualizaron únicamente la caché reemplazable de `market_bars`.
 
 ## Dónde se va el tiempo
 
-| Prueba fría en navegador | Acción → solicitud creada | Cola | Worker | Completada → velas | Acción → velas |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| USO `15m` | 2,353 s | 2,443 s | 1,669 s | ≈0,098 s | 6,563 s |
-| USO `1M` | 3,011 s | 1,421 s | 0,986 s | ≈0,055 s | 5,473 s |
-| BNO `1w` | 8,329 s | 1,065 s | 1,175 s | ≈0,008 s | 10,577 s |
+| Prueba fría en navegador | Acción → solicitud creada |    Cola |  Worker | Completada → velas | Acción → velas |
+| ------------------------ | ------------------------: | ------: | ------: | -----------------: | -------------: |
+| USO `15m`                |                   2,353 s | 2,443 s | 1,669 s |           ≈0,098 s |        6,563 s |
+| USO `1M`                 |                   3,011 s | 1,421 s | 0,986 s |           ≈0,055 s |        5,473 s |
+| BNO `1w`                 |                   8,329 s | 1,065 s | 1,175 s |           ≈0,008 s |       10,577 s |
 
 Fuente y método: [línea de base del navegador](investing-preload-browser-baseline-2026-10-24.md).
 La acción incluye el coste de automatización. El reloj del navegador y los
@@ -45,9 +45,9 @@ Una comparación directa adicional desde el mismo Pi alternó siete SELECT
 individuales y uno agrupado, con las siete filas ya presentes:
 
 | Símbolo | Siete lecturas individuales | Una lectura agrupada |
-| --- | --- | --- |
-| USO | 1,882 s; 1,600 s | 0,549 s; 0,454 s |
-| BNO | 1,486 s; 1,435 s | 0,484 s; 0,806 s |
+| ------- | --------------------------- | -------------------- |
+| USO     | 1,882 s; 1,600 s            | 0,549 s; 0,454 s     |
+| BNO     | 1,486 s; 1,435 s            | 0,484 s; 0,806 s     |
 
 Las medianas de las cuatro muestras fueron 1,543 s y 0,517 s,
 respectivamente (≈3,0 veces menos tiempo). El volumen transferido fue
@@ -65,9 +65,9 @@ insertó en cada ronda seis solicitudes BNO (`1m`, `5m`, `15m`, `1h`, `1d`,
 `1M`) en una sola operación. Todas completaron correctamente.
 
 | Ronda | Primera creada → última completa | Espera máxima en cola | Suma de servicios | Solapamiento |
-| --- | ---: | ---: | ---: | --- |
-| 1 | 8,568 s | 8,000 s | 6,482 s | Ninguno |
-| 2 | 8,418 s | 7,135 s | 5,780 s | Ninguno |
+| ----- | -------------------------------: | --------------------: | ----------------: | ------------ |
+| 1     |                          8,568 s |               8,000 s |           6,482 s | Ninguno      |
+| 2     |                          8,418 s |               7,135 s |           5,780 s | Ninguno      |
 
 En la segunda ronda las pausas entre la finalización de una tarea y la
 reclamación de la siguiente fueron 0,184–0,543 s (suma 1,569 s). Las seis
@@ -87,10 +87,10 @@ plano de datos durante horas de mercado.
 El adaptador real del Pi consultó seis temporalidades AAPL con el mismo
 cliente HTTP, alternando serie/paralelo/paralelo/serie, sin escrituras:
 
-| Serie | Máximo dos simultáneas |
-| ---: | ---: |
-| 2,563 s | 1,050 s |
-| 1,664 s | 0,917 s |
+|   Serie | Máximo dos simultáneas |
+| ------: | ---------------------: |
+| 2,563 s |                1,050 s |
+| 1,664 s |                0,917 s |
 
 Las 24 lecturas devolvieron velas sin error. En una prueba previa de solo
 cuatro temporalidades, la mejora no fue consistente (serie 1,164/0,847 s;

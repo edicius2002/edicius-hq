@@ -16,13 +16,13 @@ Este Markdown es el documento de referencia para continuar la revisión del 14 d
 
 ## Mapa por pantalla y problemas generales
 
-| Área | Hallazgos del informe |
-| --- | --- |
-| Investing: buscador Search a symbol | A6: selección/resultados antiguos; M1: errores y espera presentados como Nothing found; M5: pares Binance ausentes de la búsqueda. |
-| Investing: gráficos y temporalidades | A4: vela antigua reemplaza histórico reciente; A5: calendarios incorrectos; M4: doble carga cripto; M6: recuperación limitada. También truncamiento Binance a 1000 velas y timeouts reales descritos en la validación autenticada. |
-| Investing: cotizaciones y streaming | A3: no se resuscribe tras interrupción; apertura del foco sin reintento. |
-| General del recorrido de Investing | A1: falta timeout total; A2: falta consulta de respaldo y plazos incompatibles; M2: cola serial con trabajos cancelados/duplicados; M3: I/O bloqueante. Validación autenticada: despertar inmediato inefectivo y diagnóstico limitado por errores silenciados. |
-| Otras páginas | Sin revisión profunda en este trabajo; impacto aún no comprobado. |
+| Área                                 | Hallazgos del informe                                                                                                                                                                                                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Investing: buscador Search a symbol  | A6: selección/resultados antiguos; M1: errores y espera presentados como Nothing found; M5: pares Binance ausentes de la búsqueda.                                                                                                                             |
+| Investing: gráficos y temporalidades | A4: vela antigua reemplaza histórico reciente; A5: calendarios incorrectos; M4: doble carga cripto; M6: recuperación limitada. También truncamiento Binance a 1000 velas y timeouts reales descritos en la validación autenticada.                             |
+| Investing: cotizaciones y streaming  | A3: no se resuscribe tras interrupción; apertura del foco sin reintento.                                                                                                                                                                                       |
+| General del recorrido de Investing   | A1: falta timeout total; A2: falta consulta de respaldo y plazos incompatibles; M2: cola serial con trabajos cancelados/duplicados; M3: I/O bloqueante. Validación autenticada: despertar inmediato inefectivo y diagnóstico limitado por errores silenciados. |
+| Otras páginas                        | Sin revisión profunda en este trabajo; impacto aún no comprobado.                                                                                                                                                                                              |
 
 ## Orden recomendado para continuar
 
@@ -55,7 +55,6 @@ edicius-market.service: active; NRestarts=0; activo desde 2026-10-12 18:20:34 BS
 Los últimos doce mensajes del journal eran errores de publicación de cotizaciones, pero al acotar a las últimas dos horas solo apareció uno. No prueba una caída continua. CollectorCloudUnavailable agrupa errores de red, timeout, 429 y 5xx; el mensaje observado no permite distinguirlos.
 
 ## HALLAZGOS PRIORIZADOS
-
 
 ### A1 — ALTA — El transporte puede permanecer pendiente sin límite de la aplicación.
 
@@ -160,14 +159,15 @@ Búsqueda AAPL: 0.639 s; 7 resultados.
 Búsqueda microsoft: 0.350 s; 7 resultados.
 Búsqueda BTCUSDT: 0.352 s; 0 resultados.
 
-Frame   AAPL segundos / velas     BTCUSDT segundos / velas
-1m      0.896 / 1500              0.518 / 1000
-5m      0.659 / 1500              0.542 / 1000
-15m     0.453 / 1500              0.293 / 1000
-1h      0.553 / 1500              0.297 / 1000
-1d      0.438 / 502               0.793 / 1000
-1w      0.313 / 520               0.285 / 479
-## 1M      0.426 / 360               0.275 / 111
+Frame AAPL segundos / velas BTCUSDT segundos / velas
+1m 0.896 / 1500 0.518 / 1000
+5m 0.659 / 1500 0.542 / 1000
+15m 0.453 / 1500 0.293 / 1000
+1h 0.553 / 1500 0.297 / 1000
+1d 0.438 / 502 0.793 / 1000
+1w 0.313 / 520 0.285 / 479
+
+## 1M 0.426 / 360 0.275 / 111
 
 Las 14 series quedaron ordenadas y con valores finitos. Esto no verifica exactitud financiera independiente de cada vela.
 
@@ -208,46 +208,46 @@ VALIDACIÓN AUTENTICADA EN PRODUCCIÓN — 2026-10-14, aproximadamente 21:39–2
 Supabase CLI 2.121.0 autenticado; proyecto edicius-hq/abndifkxpfppmllgxfnu ACTIVE_HEALTHY. Chromium real, aplicación local Vite del checkout revisado, Supabase JS 2.117.1 y backend real de la Pi. Se invocaron las funciones originales searchSymbols/getBars dentro del navegador, además de los controles visibles de Investing. No se sustituyeron respuestas ni se simuló el worker.
 
 1. Demora en cola confirmada, no solo hipotética.
-Antes de los canarios, en las últimas 24 h: 7 búsquedas completas, cola media 7.451 s y ejecución media 0.649 s; 52 cargas de barras completas, cola media 13.353 s y ejecución media 1.301 s.
-En la matriz nueva, 7 de 14 cargas dieron request_timeout en Chromium a los 20.36–20.48 s. Las 14 terminaron completas en la base. Las siete vencidas esperaron 30.055–31.948 s antes de ser reclamadas; luego el procesamiento duró 1.005–2.113 s. El proveedor no explica esas esperas de cola.
-El patrón de reclamaciones por grupos cada aproximadamente 32–34 s es consistente con RECONCILE_SECONDS=30 más trabajo del ciclo. Es evidencia de que el despertar inmediato no fue efectivo durante esta prueba, no demuestra por sí sola la causa de ese fallo.
-La publicación supabase_realtime sí incluye collector_requests. Una instantánea de realtime.subscription mostró dos suscripciones service_role y dos authenticated a esa tabla; por ello no se afirma que falte toda suscripción. scripts/market-worker.py oculta las excepciones de conexión/reconexión (subscribe_requests devuelve None y maintain_request_subscription hace pass); el journal de los últimos diez minutos no aportó un error que permita aislar la causa. Prioridad: instrumentar estados/eventos del worker sin secretos y corregir el contrato de timeout/reconciliación del cliente.
+   Antes de los canarios, en las últimas 24 h: 7 búsquedas completas, cola media 7.451 s y ejecución media 0.649 s; 52 cargas de barras completas, cola media 13.353 s y ejecución media 1.301 s.
+   En la matriz nueva, 7 de 14 cargas dieron request_timeout en Chromium a los 20.36–20.48 s. Las 14 terminaron completas en la base. Las siete vencidas esperaron 30.055–31.948 s antes de ser reclamadas; luego el procesamiento duró 1.005–2.113 s. El proveedor no explica esas esperas de cola.
+   El patrón de reclamaciones por grupos cada aproximadamente 32–34 s es consistente con RECONCILE_SECONDS=30 más trabajo del ciclo. Es evidencia de que el despertar inmediato no fue efectivo durante esta prueba, no demuestra por sí sola la causa de ese fallo.
+   La publicación supabase_realtime sí incluye collector_requests. Una instantánea de realtime.subscription mostró dos suscripciones service_role y dos authenticated a esa tabla; por ello no se afirma que falte toda suscripción. scripts/market-worker.py oculta las excepciones de conexión/reconexión (subscribe_requests devuelve None y maintain_request_subscription hace pass); el journal de los últimos diez minutos no aportó un error que permita aislar la causa. Prioridad: instrumentar estados/eventos del worker sin secretos y corregir el contrato de timeout/reconciliación del cliente.
 
 Matriz real; extended=false. Tiempo navegador incluye lectura de caché e inserción. Cola y trabajo vienen de timestamps SQL. Conteo es el resultado final de la base, incluso cuando el navegador ya había vencido.
-Símbolo   Frame  Navegador              Cola(s) Trabajo(s) Velas
-AAPL      1m     timeout 20.483 s        30.918  2.113      1500
-AAPL      5m     OK 15.179 s             12.715  1.434      1500
-AAPL      15m    timeout 20.465 s        30.055  1.506      1500
-AAPL      1h     OK 14.563 s             11.361  2.265      1500
-AAPL      1d     timeout 20.406 s        31.042  1.005       501
-AAPL      1w     OK 13.420 s             11.818  0.720       520
-AAPL      1M     timeout 20.358 s        30.139  1.474       360
-BTCUSDT   1m     OK 13.453 s             11.248  1.082      1000
-BTCUSDT   5m     timeout 20.391 s        31.167  1.519      1000
-BTCUSDT   15m    OK 14.088 s             12.471  0.740      1000
-BTCUSDT   1h     timeout 20.407 s        30.169  1.257      1000
-BTCUSDT   1d     OK 13.301 s             11.234  1.324      1000
-BTCUSDT   1w     timeout 20.398 s        31.948  1.249       479
-BTCUSDT   1M     OK 14.060 s             12.964  0.573       111
+Símbolo Frame Navegador Cola(s) Trabajo(s) Velas
+AAPL 1m timeout 20.483 s 30.918 2.113 1500
+AAPL 5m OK 15.179 s 12.715 1.434 1500
+AAPL 15m timeout 20.465 s 30.055 1.506 1500
+AAPL 1h OK 14.563 s 11.361 2.265 1500
+AAPL 1d timeout 20.406 s 31.042 1.005 501
+AAPL 1w OK 13.420 s 11.818 0.720 520
+AAPL 1M timeout 20.358 s 30.139 1.474 360
+BTCUSDT 1m OK 13.453 s 11.248 1.082 1000
+BTCUSDT 5m timeout 20.391 s 31.167 1.519 1000
+BTCUSDT 15m OK 14.088 s 12.471 0.740 1000
+BTCUSDT 1h timeout 20.407 s 30.169 1.257 1000
+BTCUSDT 1d OK 13.301 s 11.234 1.324 1000
+BTCUSDT 1w timeout 20.398 s 31.948 1.249 479
+BTCUSDT 1M OK 14.060 s 12.964 0.573 111
 Las siete respuestas recibidas tenían timestamps estrictamente crecientes y stale=false. AAPL 1m/5m/15m/1h/1d entregó primero caché vencida mediante onStored; AAPL 1w/1M y BTCUSDT no tenían esa caché. No se vació caché de producción para forzar frío.
 
 2. Búsqueda real y mensaje engañoso.
-AAPL: 12.962 s, 7 resultados. microsoft: request_timeout a los 20.167 s; en DB cola 26.920 s + trabajo 0.750 s, estado final complete. BTCUSDT: 8.852 s, cero resultados pese a ser soportado en los gráficos.
-En otra sesión, el input real mostró Nothing found. a los 150 ms (debounce). Tras 22 s volvió a mostrar Nothing found. para AAPL sin botones de resultados; esa petición terminó completa en DB, con cola 21.369 s + trabajo 1.011 s. Se confirma que un timeout se presenta como ausencia de símbolos.
+   AAPL: 12.962 s, 7 resultados. microsoft: request_timeout a los 20.167 s; en DB cola 26.920 s + trabajo 0.750 s, estado final complete. BTCUSDT: 8.852 s, cero resultados pese a ser soportado en los gráficos.
+   En otra sesión, el input real mostró Nothing found. a los 150 ms (debounce). Tras 22 s volvió a mostrar Nothing found. para AAPL sin botones de resultados; esa petición terminó completa en DB, con cola 21.369 s + trabajo 1.011 s. Se confirma que un timeout se presenta como ausencia de símbolos.
 
 3. Cambios rápidos y caché.
-Se pulsaron 1m→5m→15m→1h→1d→1w→1M, separados unos 200 ms. El botón final quedó en 1M; a los 23 s el gráfico mostraba 0 bars sin alerta. La petición AAPL 1M extended=true esperó 31.085 s y trabajó 1.333 s; el reintento posterior esperó 11.312 s y trabajó 0.652 s. No se afirma bloqueo permanente: una sesión posterior desde caché mostró 360 bars, 1 extended, yahoo y ninguna alerta.
-La carga caliente BTCUSDT 1M devolvió 111 velas en 280 ms. Esta prueba concreta no dejó siete peticiones nuevas: parte de los cambios se resolvió con caché/cancelación; el defecto de cola de solicitudes canceladas sigue respaldado por código y reproducciones, no por inventar siete inserciones en esta secuencia.
+   Se pulsaron 1m→5m→15m→1h→1d→1w→1M, separados unos 200 ms. El botón final quedó en 1M; a los 23 s el gráfico mostraba 0 bars sin alerta. La petición AAPL 1M extended=true esperó 31.085 s y trabajó 1.333 s; el reintento posterior esperó 11.312 s y trabajó 0.652 s. No se afirma bloqueo permanente: una sesión posterior desde caché mostró 360 bars, 1 extended, yahoo y ninguna alerta.
+   La carga caliente BTCUSDT 1M devolvió 111 velas en 280 ms. Esta prueba concreta no dejó siete peticiones nuevas: parte de los cambios se resolvió con caché/cancelación; el defecto de cola de solicitudes canceladas sigue respaldado por código y reproducciones, no por inventar siete inserciones en esta secuencia.
 
 4. Reconexión real del navegador.
-Se comprobó un WebSocket abierto y se cerró explícitamente con código 4000 desde el navegador de prueba (interrupción controlada; no caída de red física). Antes: canal market-quotes joined. A los 15 s: cero canales. Tras llamar reconnect/connect al transporte y esperar 3 s: seguían cero canales. Confirma A3: openQuoteStream elimina la suscripción y el hook no la recrea con el mismo conjunto de símbolos.
-Un intento anterior de prueba consultaba una propiedad conn inexistente en esta versión del SDK y no cerró ningún socket; se descartó. El resultado válido es reconnect-results, que verificó readyState=OPEN y registró interrupted=true antes de cerrar socketAdapter.socket.conn.
-El mercado de AAPL estaba cerrado; useChartFocus desactiva el foco en ese régimen. No se usa la ausencia de canal de foco como prueba de un fallo de permisos. No se verificó la entrega de ticks durante mercado estadounidense abierto.
+   Se comprobó un WebSocket abierto y se cerró explícitamente con código 4000 desde el navegador de prueba (interrupción controlada; no caída de red física). Antes: canal market-quotes joined. A los 15 s: cero canales. Tras llamar reconnect/connect al transporte y esperar 3 s: seguían cero canales. Confirma A3: openQuoteStream elimina la suscripción y el hook no la recrea con el mismo conjunto de símbolos.
+   Un intento anterior de prueba consultaba una propiedad conn inexistente en esta versión del SDK y no cerró ningún socket; se descartó. El resultado válido es reconnect-results, que verificó readyState=OPEN y registró interrupted=true antes de cerrar socketAdapter.socket.conn.
+   El mercado de AAPL estaba cerrado; useChartFocus desactiva el foco en ese régimen. No se usa la ausencia de canal de foco como prueba de un fallo de permisos. No se verificó la entrega de ticks durante mercado estadounidense abierto.
 
 5. Estado desplegado y limpieza.
-RLS habilitado en collector_requests, market_bars y market_quotes. SELECT limitado a owner_id=auth.uid(); INSERT de cola exige propietario y operación market-bars/market-search. Políticas privadas de broadcast corresponden a market-quotes (SELECT) y market-focus (INSERT), por propietario. Última migración desplegada: 20261001010000, coincidente con la última local; no se comparó cada definición SQL de todas las migraciones.
-Al final de las consultas se observaron 23 solicitudes de mercado creadas desde el inicio de la prueba, todas complete; ninguna queued/running en esa ventana. Son conteos de la ventana, no una atribución exclusiva si existió actividad simultánea del usuario.
-Evidencia sanitizada del navegador: docs/investing-loading-browser-evidence-2026-10-14.json. Sin tokens, claves, correo, identificador del propietario ni contenido de cartera. Los servidores y navegadores temporales se cerraron, y se solicitaron cierres de las sesiones de prueba con scope=local. El login autorizado del CLI queda disponible para continuar.
+   RLS habilitado en collector_requests, market_bars y market_quotes. SELECT limitado a owner_id=auth.uid(); INSERT de cola exige propietario y operación market-bars/market-search. Políticas privadas de broadcast corresponden a market-quotes (SELECT) y market-focus (INSERT), por propietario. Última migración desplegada: 20261001010000, coincidente con la última local; no se comparó cada definición SQL de todas las migraciones.
+   Al final de las consultas se observaron 23 solicitudes de mercado creadas desde el inicio de la prueba, todas complete; ninguna queued/running en esa ventana. Son conteos de la ventana, no una atribución exclusiva si existió actividad simultánea del usuario.
+   Evidencia sanitizada del navegador: docs/investing-loading-browser-evidence-2026-10-14.json. Sin tokens, claves, correo, identificador del propietario ni contenido de cartera. Los servidores y navegadores temporales se cerraron, y se solicitaron cierres de las sesiones de prueba con scope=local. El login autorizado del CLI queda disponible para continuar.
 
 ## CONCLUSIÓN DE LA REVISIÓN
 

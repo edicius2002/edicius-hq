@@ -136,6 +136,7 @@ export function ResetCalendar({
                     }}
                     onClick={(event) => {
                       if (event.detail === 0) {
+                        event.currentTarget.focus();
                         setKeyboardKey(day.key);
                         setLastInput('keyboard');
                       }

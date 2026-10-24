@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it } from 'vitest';
 
 import type { CodexReset } from '@/shared/api/codexResets';
@@ -171,14 +171,20 @@ it('uses touch selection until the next touch outside the calendar', () => {
 });
 
 it('opens a day activated by assistive technology without pointer or keyboard events', () => {
-  render(<ResetCalendar resets={[reset]} now={new Date('2026-09-29T20:00:00Z')} />);
+  render(
+    <>
+      <ResetCalendar resets={[reset]} now={new Date('2026-09-29T20:00:00Z')} />
+      <button type="button">Outside</button>
+    </>,
+  );
   const history = screen.getByRole('region', { name: 'Codex reset history' });
   const day = within(history).getByRole('button', { name: '1 banked reset on 2026-09-29' });
   const detail = history.querySelector('[aria-live="polite"]');
 
   fireEvent.click(day, { detail: 0 });
+  expect(day).toHaveFocus();
   expect(day).toHaveAttribute('data-active', 'true');
   expect(detail).toHaveTextContent('1 banked reset on 2026-09-29');
-  fireEvent.blur(day);
+  act(() => screen.getByRole('button', { name: 'Outside' }).focus());
   expect(detail).toBeEmptyDOMElement();
 });

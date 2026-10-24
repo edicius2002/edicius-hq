@@ -187,7 +187,7 @@ function Header({ kind, children }: { kind: FinanceNode['kind']; children?: Reac
 
 /*
  * How much of a balance is already promised, for the ticker rather than for a
- * chip of its own: the amount must keep a readable column in the 18rem panel,
+ * chip of its own: the amount must keep a readable column in the side panel,
  * and an over-allocation is a property of the asset the ticker names.
  *
  * The share is carried by the ticker's title alone. Only `exceeded` reaches the
@@ -452,8 +452,8 @@ function HoldingFields({ node, actions }: { node: HoldingNode; actions: Properti
       </Field>
 
       <h3 className={styles.sectionTitle}>Fees</h3>
-      {/* Out and In are the two halves of one question, so the compact labels
-          keep them beside each other rather than spending a row on each. */}
+      {/* Out and In are the two halves of one question; the panel stacks them
+          when its narrow width cannot fit both controls on one row. */}
       <div className={styles.feePair}>
         <FeeField
           label="Out"

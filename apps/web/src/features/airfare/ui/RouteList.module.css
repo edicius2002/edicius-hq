@@ -128,15 +128,15 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
   align-items: start;
-  gap: var(--space-2);
+  gap: 6px;
   min-width: 0;
 }
 
 .routeCell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 100px) minmax(0, 1fr);
   align-items: start;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
   cursor: grab;
 }
@@ -161,24 +161,24 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   min-width: 0;
   text-align: left;
   background: var(--color-bg-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 5px var(--space-2);
+  padding: 4px 5px;
   font: inherit;
   cursor: pointer;
 }
 
 .routeCell .route {
-  width: 100%;
+  width: min(100%, 100px);
 }
 
 .routeCell .months {
-  grid-template-columns: repeat(2, auto);
+  grid-template-columns: repeat(4, auto);
 }
 
 .fetchProgress {
@@ -199,7 +199,7 @@
 }
 
 .pair {
-  font-size: 0.78rem;
+  font-size: 0.66rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -304,9 +304,19 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 4px;
   flex: none;
   margin-left: auto;
+}
+
+.actions .collect {
+  min-width: 26px;
+  padding: 4px 5px;
+}
+
+.actions .remove {
+  padding: 4px 5px;
+  font-size: 0.66rem;
 }
 
 /*
@@ -440,10 +450,9 @@
     border-bottom: 1px solid var(--color-border);
   }
   .route {
-    width: 100%;
     min-height: 28px;
   }
-  .months {
+  .routeCell .months {
     grid-template-columns: repeat(4, auto);
   }
   .actions {
@@ -473,7 +482,7 @@
     border-bottom: 1px solid var(--color-border);
   }
   .routeCell {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 100px) minmax(0, 1fr);
     padding-bottom: 5px;
     border-bottom: 1px solid var(--color-border);
   }
@@ -483,7 +492,7 @@
     padding: 3px 6px;
   }
   .pair {
-    font-size: 0.7rem;
+    font-size: 0.64rem;
   }
   .to {
     font-size: 0.6rem;
@@ -499,7 +508,7 @@
     padding: 3px 6px;
     font-size: 0.6rem;
   }
-  .months {
+  .routeCell .months {
     grid-column: 2;
     grid-row: 1;
     grid-template-columns: repeat(2, auto);

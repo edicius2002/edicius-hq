@@ -71,9 +71,9 @@ describe('Airfare mobile layout contracts', () => {
   it('stacks paired routes while keeping each route beside its months on phones', () => {
     expect(rule('RouteList', '.row')).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
     expect(rule('RouteList', '.routeCell')).toMatch(
-      /grid-template-columns:\s*minmax\(0, 1fr\) auto/,
+      /grid-template-columns:\s*minmax\(0, 100px\) minmax\(0, 1fr\)/,
     );
-    expect(rule('RouteList', '.months')).toMatch(/grid-column:\s*2/);
+    expect(rule('RouteList', '.routeCell .months')).toMatch(/grid-column:\s*2/);
   });
 
   it('keeps the flight table scroll local and filters within their tracks', () => {

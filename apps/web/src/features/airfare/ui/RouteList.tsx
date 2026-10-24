@@ -461,6 +461,7 @@ export function RouteList({
                       <Button
                         variant="ghost"
                         size="small"
+                        className={styles.remove}
                         onClick={() => onRemove(targetId)}
                         aria-label={'Stop watching ' + routeLabel(targetRoute)}
                       >

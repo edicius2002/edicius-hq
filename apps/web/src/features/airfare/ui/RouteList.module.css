@@ -165,7 +165,7 @@
 
 .routeCell .route {
   width: min(100%, 88px);
-  min-height: 28px;
+  height: 41px;
 }
 
 .routeCell .months {
@@ -445,7 +445,7 @@
 @media (min-width: 641px) and (max-width: 940px) {
   .routeCell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 28px minmax(20px, auto);
+    grid-template-rows: 41px minmax(20px, auto);
   }
   .routeCell .months {
     grid-column: 1;
@@ -493,6 +493,7 @@
   }
   .routeCell .route {
     width: min(100%, 100px);
+    height: 32px;
   }
   .pair {
     font-size: 0.64rem;

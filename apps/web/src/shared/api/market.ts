@@ -1,4 +1,9 @@
-export { getBars, getQuotes, searchSymbols } from '@/features/investing/data/supabaseMarket';
+export {
+  getBars,
+  getStoredBars,
+  getQuotes,
+  searchSymbols,
+} from '@/features/investing/data/supabaseMarket';
 
 /** The browser owns the supported chart choices; no provider route is needed. */
 export function getTimeframes(_signal?: AbortSignal): Promise<{ timeframes: string[] }> {

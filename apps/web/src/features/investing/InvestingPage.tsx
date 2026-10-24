@@ -128,7 +128,9 @@ export function InvestingPage() {
   // to sweep depends on whether the stream is carrying — and not the reverse.
   const { ticks, bars, live, discardTicksBefore } = useQuoteStream(wanted);
   const selectedTick = ticks.get(symbol);
-  const candles = useCandles(symbol, timeframe, selectedTick, bars);
+  const candles = useCandles(symbol, timeframe, selectedTick, bars, {
+    preloadTimeframes: true,
+  });
   // Functions of the merged bars alone, so they survive every pan and zoom untouched.
   const series = useIndicatorSeries(candles.bars, indicators, timeframe);
 
@@ -291,9 +293,12 @@ export function InvestingPage() {
           </div>
 
           {candles.isError ? (
-            <p className={styles.error} role="alert">
-              Could not load bars for {symbol}.
-            </p>
+            <div className={styles.error} role="alert">
+              Could not load bars for {symbol}.{' '}
+              <button type="button" onClick={candles.refetch}>
+                Retry chart
+              </button>
+            </div>
           ) : (
             <CandleChart
               bars={candles.bars}

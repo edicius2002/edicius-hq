@@ -2,20 +2,34 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => {
   const single = vi.fn();
-  const select = vi.fn(() => ({ single }));
+  const insertAbortSignal = vi.fn(() => ({ single }));
+  const select = vi.fn(() => ({ abortSignal: insertAbortSignal }));
   const insert = vi.fn(() => ({ select }));
   const maybeSingle = vi.fn();
   const requestSingle = vi.fn();
-  const eq = vi.fn(() => ({ single: requestSingle }));
-  const quotesIn = vi.fn();
+  const requestAbortSignal = vi.fn(() => ({ single: requestSingle }));
+  const eq = vi.fn(() => ({ abortSignal: requestAbortSignal }));
+  const quotesAbortSignal = vi.fn();
+  const quotesIn = vi.fn(() => ({ abortSignal: quotesAbortSignal }));
   const quotesSelect = vi.fn(() => ({ in: quotesIn }));
+  const bulkAbortSignal = vi.fn();
+  const bulkExtendedEq = vi.fn(() => ({ abortSignal: bulkAbortSignal }));
+  const bulkSymbolEq = vi.fn(() => ({ eq: bulkExtendedEq }));
   const from = vi.fn((table: string) => {
     if (table === 'collector_requests') return { insert, select: vi.fn(() => ({ eq })) };
     if (table === 'market_bars')
       return {
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({ eq: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) })),
-        })),
+        select: vi.fn((columns: string) =>
+          columns.includes('timeframe,')
+            ? { eq: bulkSymbolEq }
+            : {
+                eq: vi.fn(() => ({
+                  eq: vi.fn(() => ({
+                    eq: vi.fn(() => ({ abortSignal: vi.fn(() => ({ maybeSingle })) })),
+                  })),
+                })),
+              },
+        ),
       };
     return { select: quotesSelect };
   });
@@ -29,6 +43,7 @@ const state = vi.hoisted(() => {
   const channel = vi.fn(() => ({ on, send, subscribe: channelSubscribe }));
   const removeChannel = vi.fn();
   const getSession = vi.fn();
+  const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
   return {
     auth: { getSession },
     from,
@@ -37,6 +52,7 @@ const state = vi.hoisted(() => {
     single,
     maybeSingle,
     quotesIn,
+    quotesAbortSignal,
     channel,
     on,
     subscribe,
@@ -44,8 +60,12 @@ const state = vi.hoisted(() => {
     channelSubscribe,
     removeChannel,
     getSession,
+    rpc,
     eq,
     requestSingle,
+    bulkAbortSignal,
+    bulkSymbolEq,
+    bulkExtendedEq,
   };
 });
 
@@ -58,6 +78,7 @@ import {
   searchSymbols,
   subscribeMarketUpdates,
 } from './supabaseMarket';
+import * as market from './supabaseMarket';
 import type { LiveBarUpdate } from './liveBars';
 
 afterEach(() => vi.clearAllMocks());
@@ -73,8 +94,65 @@ const BARS = {
 };
 
 describe('Supabase Investing market boundary', () => {
+  it('reads every saved timeframe in one owner-scoped query and marks expired rows stale', async () => {
+    state.bulkAbortSignal.mockResolvedValue({
+      data: [
+        {
+          timeframe: '1d',
+          provider: 'worker',
+          payload: BARS,
+          fetched_at: '2026-09-24T00:00:00Z',
+          expires_at: '2999-01-01T00:00:00Z',
+        },
+        {
+          timeframe: '1w',
+          provider: 'worker',
+          payload: { ...BARS, timeframe: '1w', bars: [{ ...BARS.bars[0], close: 8 }] },
+          fetched_at: '2026-09-20T00:00:00Z',
+          expires_at: '2026-09-21T00:00:00Z',
+        },
+        {
+          timeframe: '1M',
+          provider: 'worker',
+          payload: { ...BARS, symbol: 'OTHER', timeframe: '1M' },
+          fetched_at: '2026-09-20T00:00:00Z',
+          expires_at: '2026-09-21T00:00:00Z',
+        },
+        {
+          timeframe: '1m',
+          provider: 'worker',
+          payload: { ...BARS, timeframe: '1m' },
+          fetched_at: '2026-09-20T00:00:00Z',
+          expires_at: 'invalid timestamp',
+        },
+      ],
+      error: null,
+    });
+
+    await expect(market.getStoredBars('AAPL', false)).resolves.toEqual([
+      { ...BARS, capturedAt: Date.parse('2026-09-24T00:00:00Z') },
+      {
+        ...BARS,
+        timeframe: '1w',
+        stale: true,
+        bars: [{ ...BARS.bars[0], close: 8 }],
+        capturedAt: Date.parse('2026-09-20T00:00:00Z'),
+      },
+      {
+        ...BARS,
+        timeframe: '1m',
+        stale: true,
+        capturedAt: Date.parse('2026-09-20T00:00:00Z'),
+      },
+    ]);
+    expect(state.bulkSymbolEq).toHaveBeenCalledWith('symbol', 'AAPL');
+    expect(state.bulkExtendedEq).toHaveBeenCalledWith('extended', false);
+    expect(state.bulkAbortSignal).toHaveBeenCalledOnce();
+    expect(state.insert).not.toHaveBeenCalled();
+  });
+
   it('reads owner-visible quote rows and preserves the shared wire shape', async () => {
-    state.quotesIn.mockResolvedValue({
+    state.quotesAbortSignal.mockResolvedValue({
       data: [
         {
           symbol: 'AAPL',
@@ -104,7 +182,10 @@ describe('Supabase Investing market boundary', () => {
   });
 
   it('normalizes owner RLS quote-read errors without leaking the database body', async () => {
-    state.quotesIn.mockResolvedValue({ data: null, error: { message: 'policy detail: owner-42' } });
+    state.quotesAbortSignal.mockResolvedValue({
+      data: null,
+      error: { message: 'policy detail: owner-42' },
+    });
 
     await expect(getQuotes(['AAPL'])).rejects.toMatchObject({ code: 'quotes_unavailable' });
   });
@@ -274,7 +355,10 @@ describe('Supabase Investing market boundary', () => {
       callback('SUBSCRIBED');
       return { id: 'request' };
     });
-    state.requestSingle.mockResolvedValue({ data: null, error: { message: 'RLS body' } });
+    state.requestSingle.mockResolvedValue({
+      data: null,
+      error: { code: '42501', message: 'RLS body' },
+    });
 
     await expect(searchSymbols('apple')).rejects.toMatchObject({ code: 'request_unavailable' });
     expect(state.removeChannel).toHaveBeenCalledOnce();
@@ -309,18 +393,127 @@ describe('Supabase Investing market boundary', () => {
     expect(state.removeChannel).toHaveBeenCalledOnce();
   });
 
-  it('times out at twenty seconds and removes its channel exactly once', async () => {
+  it('times out at ninety seconds and removes its channel exactly once', async () => {
     vi.useFakeTimers();
     state.maybeSingle.mockResolvedValue({ data: null, error: null });
     state.single.mockResolvedValue({ data: { request_id: 'request-5' }, error: null });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'queued', result: null, error_code: null },
+      error: null,
+    });
     state.subscribe.mockReturnValue({ id: 'request' });
 
     const pending = getBars('AAPL', '1d');
     const rejection = expect(pending).rejects.toThrow('request_timeout');
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(90_000);
 
     await rejection;
     expect(state.removeChannel).toHaveBeenCalledOnce();
+    expect(state.requestSingle.mock.calls.length).toBeLessThan(60);
+    vi.useRealTimers();
+  });
+
+  it('bounds a stalled queue insert and honours cancellation before a row is created', async () => {
+    vi.useFakeTimers();
+    state.single.mockImplementation(() => new Promise(() => {}));
+    const controller = new AbortController();
+    const pending = searchSymbols('AAPL', controller.signal);
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'aborted' });
+    controller.abort();
+    await rejected;
+    expect(state.channel).not.toHaveBeenCalled();
+    const timed = expect(searchSymbols('MSFT')).rejects.toMatchObject({ code: 'request_timeout' });
+    await vi.advanceTimersByTimeAsync(90_000);
+    await timed;
+    vi.useRealTimers();
+  });
+
+  it('does not read cache or enqueue with an already aborted signal', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(getBars('AAPL', '1d', false, controller.signal)).rejects.toMatchObject({
+      code: 'aborted',
+    });
+    expect(state.maybeSingle).not.toHaveBeenCalled();
+    expect(state.insert).not.toHaveBeenCalled();
+  });
+
+  it('bounds a stalled initial bar cache read without enqueueing', async () => {
+    vi.useFakeTimers();
+    state.maybeSingle.mockImplementation(() => new Promise(() => {}));
+    const timed = expect(getBars('AAPL', '1d')).rejects.toMatchObject({ code: 'request_timeout' });
+    await vi.advanceTimersByTimeAsync(90_000);
+    await timed;
+    expect(state.insert).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('bounds a stalled HTTP reconciliation and cancels the queued row', async () => {
+    vi.useFakeTimers();
+    state.single.mockResolvedValue({ data: { request_id: 'request-hung-read' }, error: null });
+    state.requestSingle.mockImplementation(() => new Promise(() => {}));
+    const timed = expect(searchSymbols('AAPL')).rejects.toMatchObject({ code: 'request_timeout' });
+    await vi.advanceTimersByTimeAsync(90_000);
+    await timed;
+    expect(state.rpc).toHaveBeenCalledWith('cancel_market_request', {
+      p_request_id: 'request-hung-read',
+    });
+    expect(state.removeChannel).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it('finds a completed request through HTTP after Realtime fails', async () => {
+    state.single.mockResolvedValue({ data: { request_id: 'request-fallback' }, error: null });
+    state.subscribe.mockImplementation((status: (value: string) => void) => {
+      status('CHANNEL_ERROR');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'complete', result: { results: [] }, error_code: null },
+      error: null,
+    });
+    await expect(searchSymbols('AAPL')).resolves.toEqual({ results: [] });
+    expect(state.requestSingle).toHaveBeenCalled();
+  });
+
+  it('retries a transient result-read failure and recovers on the next HTTP check', async () => {
+    vi.useFakeTimers();
+    state.single.mockResolvedValue({ data: { request_id: 'request-retry' }, error: null });
+    state.subscribe.mockReturnValue({ id: 'request' });
+    state.requestSingle
+      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST000' } })
+      .mockResolvedValueOnce({
+        data: { status: 'complete', result: { results: [] }, error_code: null },
+        error: null,
+      });
+    const pending = searchSymbols('AAPL');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(pending).resolves.toEqual({ results: [] });
+    expect(state.requestSingle).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('finds a completed collector result within the first second without a Realtime update', async () => {
+    vi.useFakeTimers();
+    state.maybeSingle.mockResolvedValue({ data: null, error: null });
+    state.single.mockResolvedValue({ data: { request_id: 'request-fast-result' }, error: null });
+    state.subscribe.mockReturnValue({ id: 'request' });
+    state.requestSingle
+      .mockResolvedValueOnce({
+        data: { status: 'queued', result: null, error_code: null },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { status: 'complete', result: BARS, error_code: null },
+        error: null,
+      });
+
+    const pending = getBars('AAPL', '1d');
+    await vi.advanceTimersByTimeAsync(800);
+    const readsBeforeOneSecond = state.requestSingle.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(pending).resolves.toEqual(BARS);
+    expect(readsBeforeOneSecond).toBe(2);
     vi.useRealTimers();
   });
 
@@ -487,6 +680,17 @@ describe('Supabase Investing market boundary', () => {
     expect(state.channel).not.toHaveBeenCalled();
   });
 
+  it('reports a bounded quote channel failure when session lookup stalls', async () => {
+    vi.useFakeTimers();
+    state.getSession.mockImplementation(() => new Promise(() => {}));
+    const onStatus = vi.fn();
+    subscribeMarketUpdates(vi.fn(), vi.fn(), onStatus);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(onStatus).toHaveBeenCalledWith('CHANNEL_ERROR');
+    expect(state.channel).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it('opens one private focus publisher and removes its channel idempotently', async () => {
     state.getSession.mockResolvedValue({
       data: { session: { user: { id: 'owner-42' } } },
@@ -526,6 +730,58 @@ describe('Supabase Investing market boundary', () => {
 
     expect(state.channel).not.toHaveBeenCalled();
     expect(state.removeChannel).not.toHaveBeenCalled();
+  });
+
+  it('bounds a focus session lookup that never settles', async () => {
+    vi.useFakeTimers();
+    state.getSession.mockImplementation(() => new Promise(() => {}));
+    const timed = expect(openChartFocus()).rejects.toMatchObject({ code: 'focus_unavailable' });
+    await vi.advanceTimersByTimeAsync(8_000);
+    await timed;
+    expect(state.channel).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('bounds focus channel joining and removes the stalled channel', async () => {
+    vi.useFakeTimers();
+    state.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'owner-42' } } },
+      error: null,
+    });
+    state.channelSubscribe.mockImplementation(() => ({ id: 'focus' }));
+    const timed = expect(openChartFocus()).rejects.toMatchObject({ code: 'focus_unavailable' });
+    await vi.advanceTimersByTimeAsync(8_000);
+    await timed;
+    expect(state.removeChannel).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it('bounds a stalled focus publish', async () => {
+    vi.useFakeTimers();
+    state.getSession.mockResolvedValue({
+      data: { session: { user: { id: 'owner-42' } } },
+      error: null,
+    });
+    state.channelSubscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'focus' };
+    });
+    state.send.mockImplementation(() => new Promise(() => {}));
+    const focus = await openChartFocus();
+    const timed = expect(
+      focus.publish({
+        clientId: 'tab',
+        symbol: 'AAPL',
+        timeframe: '1m',
+        extended: false,
+        active: true,
+      }),
+    ).rejects.toMatchObject({ code: 'focus_unavailable' });
+    await vi.advanceTimersByTimeAsync(8_000);
+    await timed;
+    await focus.close();
+    state.send.mockResolvedValue('ok');
+    vi.useRealTimers();
   });
 
   it('reports a sanitized CHANNEL_ERROR when session lookup rejects', async () => {

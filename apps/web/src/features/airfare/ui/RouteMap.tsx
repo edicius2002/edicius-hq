@@ -77,7 +77,7 @@ import {
 import styles from './RouteMap.module.css';
 
 /**
- * Watched routes as arcs, on a globe or flat.
+ * The selected route as an arc, with every watched endpoint marked, on a globe or flat map.
  *
  * **One arc per city pair, not per watch** — `a-pair-draws-one-arc`, and
  * `lib/geo` is where the grouping is done. What arrives here is already
@@ -94,8 +94,7 @@ import styles from './RouteMap.module.css';
  * switches itself off on the frame they all have.
  *
  * The half that is not: the globe's dashes flow, from origin towards
- * destination, on the route the reader has open and on whichever route
- * collected most recently — every other arc stays dashed and still. It is a
+ * destination, on the route the reader has open. It is a
  * declarative `stroke-dashoffset` animation
  * on the paths — the browser's own animation timeline drives it, no JavaScript
  * runs per frame and no component re-renders per frame, which is why it can be
@@ -316,14 +315,6 @@ type RouteMapProps = {
   onSelect: (id: string) => void;
   /** A colour per route id, so one arc can be told from the next. */
   colours: Map<string, string>;
-  /**
-   * The watch whose collection finished most recently, or null.
-   *
-   * Its arc flows even when it is not the open one — `freshest-arc-flows-too`.
-   * A route id rather than a pair, because the page knows which *watch* it
-   * watched a pass end on; the arc matches it against its own watches.
-   */
-  lastCollectedId: string | null;
   projection: Projection;
   onProjectionChange: (projection: Projection) => void;
 };
@@ -340,7 +331,6 @@ export function RouteMap({
   selectedId,
   onSelect,
   colours,
-  lastCollectedId,
   projection,
   onProjectionChange,
 }: RouteMapProps) {
@@ -597,6 +587,10 @@ export function RouteMap({
   const arcs = useMemo(
     () => routes.map((route) => ({ route, line: greatCircle(route.from, route.to) })),
     [routes],
+  );
+  // Keep all endpoint markers below, but draw only the selected watch's pair.
+  const selectedArcs = arcs.filter(({ route }) =>
+    route.watches.some((watch) => watch.id === selectedId),
   );
   const stops = useMemo(
     () =>
@@ -2321,7 +2315,7 @@ export function RouteMap({
             </text>
           ))}
 
-          {arcs.map(({ route, line }) => {
+          {selectedArcs.map(({ route, line }) => {
             /*
              * `wearing`, not `leading` — the first watch in watchlist order,
              * and the one thing about this arc that nothing moves.
@@ -2349,24 +2343,8 @@ export function RouteMap({
             // stands for both, so it thickens for either — the alternative is
             // an arc that is plainly the reader's route and does not look it.
             const open = route.watches.some((watch) => watch.id === selectedId);
-            /*
-             * The open route's dashes move, and so do the ones on whichever
-             * arc collected most recently. Only on the globe.
-             *
-             * The flat map's arcs are solid and have nothing to flow; the
-             * others are dashed and still. This used to be the open route
-             * alone, and the second case is what makes a collection landing
-             * visible without the reader having opened anything —
-             * `freshest-arc-flows-too`. It is bounded at two arcs by
-             * construction, one open and one fresh, and usually they are the
-             * same arc; 12.70's objection was to nine at once.
-             *
-             * Selecting the collected route instead was rejected: a pass
-             * finishing in the background would have pulled the chart out from
-             * under whatever the reader was reading.
-             */
-            const flowing =
-              isGlobe && (open || route.watches.some((watch) => watch.id === lastCollectedId));
+            // Only the selected globe arc flows; Mercator's solid line stays still.
+            const flowing = isGlobe && open;
             return (
               <g key={route.id} role="listitem">
                 {runsFor(line.coordinates).map((run, index) => {

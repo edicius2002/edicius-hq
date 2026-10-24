@@ -331,12 +331,15 @@ async function frame() {
 const wrapper = queryWrapper();
 
 function renderMap(overrides: Partial<React.ComponentProps<typeof RouteMap>> = {}) {
+  const selectedId =
+    overrides.selectedId === undefined
+      ? ((overrides.routes ?? [LIM_CUZ, LIM_MAD])[0]?.leading ?? null)
+      : overrides.selectedId;
   const props = {
     routes: [LIM_CUZ, LIM_MAD],
-    selectedId: null,
+    selectedId,
     onSelect: vi.fn(),
     colours: new Map<string, string>(),
-    lastCollectedId: null,
     projection: 'globe' as const,
     onProjectionChange: vi.fn(),
     ...overrides,
@@ -392,22 +395,70 @@ describe('RouteMap', () => {
   });
 
   describe('the routes it lists', () => {
-    it('renders one reachable item per watched route', () => {
+    it('renders one reachable item for the selected route', () => {
       renderMap();
       const list = screen.getByRole('list', { name: /watched routes/i });
-      expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+      expect(within(list).getAllByRole('listitem')).toHaveLength(1);
     });
 
-    it('names each route by its cities rather than its codes', () => {
+    it('names the selected route by its cities rather than its codes', () => {
       // The arc is the only thing on this map carrying meaning, so it is the one
       // thing that has to say what it is out loud.
       renderMap();
       expect(screen.getByLabelText('Lima to Cusco')).toBeInTheDocument();
-      expect(screen.getByLabelText('Lima to Madrid')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Lima to Madrid')).not.toBeInTheDocument();
     });
   });
 
   describe('the two projections', () => {
+    it.each([
+      ['desktop', 'globe', false],
+      ['desktop', 'mercator', false],
+      ['mobile', 'globe', true],
+      ['mobile', 'mercator', true],
+    ] as const)(
+      'draws only the selected route line on %s in %s while retaining every watched city',
+      (_viewport, projection, narrow) => {
+        if (narrow) {
+          vi.stubGlobal('matchMedia', () => ({
+            matches: true,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+          }));
+        }
+        const routes = [LIM_CUZ, LIM_MAD, LIM_SCL_BOTH];
+        const { container, rerender } = renderMap({
+          projection,
+          routes,
+          selectedId: LIM_CUZ.leading,
+        });
+
+        expect(screen.getByLabelText('Lima to Cusco')).toBeInTheDocument();
+        expect(screen.queryByLabelText('Lima to Madrid')).not.toBeInTheDocument();
+        expect(container.querySelectorAll('path[class*="arc"]')).not.toHaveLength(0);
+        expect(screen.getByText('CUZ')).toBeInTheDocument();
+        expect(screen.getByText('MAD')).toBeInTheDocument();
+        expect(screen.getByText('SCL')).toBeInTheDocument();
+
+        rerender(
+          <RouteMap
+            routes={routes}
+            selectedId={LIM_MAD.leading}
+            onSelect={vi.fn()}
+            colours={new Map()}
+            projection={projection}
+            onProjectionChange={vi.fn()}
+          />,
+        );
+
+        expect(screen.queryByLabelText('Lima to Cusco')).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Lima to Madrid')).toBeInTheDocument();
+        expect(screen.getByText('CUZ')).toBeInTheDocument();
+        expect(screen.getByText('MAD')).toBeInTheDocument();
+        expect(screen.getByText('SCL')).toBeInTheDocument();
+      },
+    );
+
     it('offers both projections and says which is showing', () => {
       renderMap();
       expect(screen.getByRole('button', { name: 'Globe' })).toHaveAttribute('aria-pressed', 'true');
@@ -423,9 +474,9 @@ describe('RouteMap', () => {
       expect(props.onProjectionChange).toHaveBeenCalledWith('mercator');
     });
 
-    it('draws the same routes flat', () => {
+    it('draws the selected route flat', () => {
       renderMap({ projection: 'mercator' });
-      expect(screen.getByLabelText('Lima to Madrid')).toBeInTheDocument();
+      expect(screen.getByLabelText('Lima to Cusco')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Mercator' })).toHaveAttribute(
         'aria-pressed',
         'true',
@@ -441,10 +492,9 @@ describe('RouteMap', () => {
       rerender(
         <RouteMap
           routes={[LIM_CUZ, LIM_MAD]}
-          selectedId={null}
+          selectedId={LIM_CUZ.leading}
           onSelect={vi.fn()}
           colours={new Map()}
-          lastCollectedId={null}
           projection="mercator"
           onProjectionChange={vi.fn()}
         />,
@@ -480,7 +530,6 @@ describe('RouteMap', () => {
           selectedId={null}
           onSelect={vi.fn()}
           colours={new Map()}
-          lastCollectedId={null}
           projection="globe"
           onProjectionChange={vi.fn()}
         />,
@@ -588,16 +637,9 @@ describe('RouteMap', () => {
       expect(arc.style.color).toBe(arc.style.stroke);
     });
 
-    it('flows the route the reader has open and leaves every other one still', () => {
-      /*
-       * Nine arcs leaving one city, all of them moving, is a page of activity
-       * with nothing singled out. One moving line is the route that is open,
-       * saying which way it goes — which is what the flow was for.
-       *
-       * jsdom does no layout and runs no animation, so what is checked is the
-       * class that carries the keyframes and the phase set beside it. That the
-       * dashes actually travel is not provable here.
-       */
+    it('flows only the route the reader has open', () => {
+      // jsdom does no layout or animation, so check the flow class on the
+      // selected line and the absence of an unselected line.
       const { container } = renderMap({ routes: [LIM_CUZ, LIM_MAD], selectedId: LIM_CUZ.leading });
 
       const flowing = [...container.querySelectorAll('[class*="flow"]')];
@@ -608,15 +650,8 @@ describe('RouteMap', () => {
         );
       }
 
-      // Madrid keeps its dashes and loses its clock.
-      const madrid = container
-        .querySelector('[aria-label="Lima to Madrid"]')
-        ?.closest('g[role="listitem"]') as SVGElement;
-      expect(madrid.querySelectorAll('[class*="flow"]')).toHaveLength(0);
-      expect(madrid.querySelectorAll('[class*="dashed"]').length).toBeGreaterThan(0);
-      for (const arc of madrid.querySelectorAll('path[class*="arc"]')) {
-        expect((arc as SVGElement).style.animationDelay).toBe('');
-      }
+      expect(container.querySelector('[aria-label="Lima to Madrid"]')).toBeNull();
+      expect(screen.getByText('MAD')).toBeInTheDocument();
     });
 
     it('moves the flow to whichever route is opened next', () => {
@@ -632,19 +667,15 @@ describe('RouteMap', () => {
           selectedId={LIM_MAD.leading}
           onSelect={vi.fn()}
           colours={new Map()}
-          lastCollectedId={null}
           projection="globe"
           onProjectionChange={vi.fn()}
         />,
       );
 
-      const cusco = container
-        .querySelector('[aria-label="Lima to Cusco"]')
-        ?.closest('g[role="listitem"]') as SVGElement;
       const madrid = container
         .querySelector('[aria-label="Lima to Madrid"]')
         ?.closest('g[role="listitem"]') as SVGElement;
-      expect(cusco.querySelectorAll('[class*="flow"]')).toHaveLength(0);
+      expect(container.querySelector('[aria-label="Lima to Cusco"]')).toBeNull();
       expect(madrid.querySelectorAll('[class*="flow"]').length).toBeGreaterThan(0);
     });
 
@@ -653,30 +684,20 @@ describe('RouteMap', () => {
       // watchlist has loaded — and it should cost no animation at all.
       const { container } = renderMap({ routes: [LIM_CUZ, LIM_MAD], selectedId: null });
       expect(container.querySelectorAll('[class*="flow"]')).toHaveLength(0);
-      expect(container.querySelectorAll('[class*="dashed"]').length).toBeGreaterThan(0);
+      expect(container.querySelectorAll('[class*="arc"]')).toHaveLength(0);
+      expect(screen.getByText('CUZ')).toBeInTheDocument();
+      expect(screen.getByText('MAD')).toBeInTheDocument();
     });
 
-    it('flows the arc a collection has just landed on, without it being opened', () => {
-      /*
-       * The case the whole of `a-pair-draws-one-arc` has to answer for. A pair
-       * watched both ways is one line, so what a finished collection on the
-       * return leg changes is that line's *direction* — and a line that is not
-       * moving cannot show a direction changing. Adding a route does not open
-       * it, so waiting for the reader to click first would mean nothing at all
-       * happened when the fetch came back.
-       */
+    it('keeps an unselected route line hidden while marking its city', () => {
       const { container } = renderMap({
         routes: [LIM_CUZ, LIM_SCL_BOTH],
         selectedId: LIM_CUZ.leading,
-        lastCollectedId: 'SCL|LIM|2027-03',
       });
 
-      const santiago = container
-        .querySelector('[aria-label^="Santiago to Lima"]')
-        ?.closest('g[role="listitem"]') as SVGElement;
-      expect(santiago.querySelectorAll('[class*="flow"]').length).toBeGreaterThan(0);
-      // And it is not the open one, so it does not also thicken.
-      expect(santiago.querySelectorAll('[class*="active"]')).toHaveLength(0);
+      expect(container.querySelector('[aria-label^="Santiago to Lima"]')).toBeNull();
+      expect(screen.getByText('SCL')).toBeInTheDocument();
+      expect(screen.getByLabelText('Lima to Cusco')).toBeInTheDocument();
     });
 
     it('picks up the phase the hidden half of an arc carried round the back', () => {
@@ -862,9 +883,8 @@ describe('RouteMap', () => {
        * cannot reach.
        */
       const closed = renderMap({ routes: [LIM_SCL_BOTH], selectedId: null });
-      expect(closed.container.querySelector('[class*="hit"]')?.getAttribute('data-route')).toBe(
-        'SCL|LIM|2027-03',
-      );
+      expect(closed.container.querySelector('[class*="hit"]')).toBeNull();
+      expect(screen.getByText('SCL')).toBeInTheDocument();
       closed.unmount();
 
       const open = renderMap({ routes: [LIM_SCL_BOTH], selectedId: 'SCL|LIM|2027-03' });
@@ -936,7 +956,10 @@ describe('RouteMap', () => {
        * stretch crosses the limb band, so both are observable without mocking
        * the projection.
        */
-      const { container } = renderMap({ routes: [LIM_TOKYO, LIMB_ARC] });
+      const { container } = renderMap({
+        routes: [LIM_TOKYO, LIMB_ARC],
+        selectedId: LIMB_ARC.leading,
+      });
 
       const tokyo = [...container.querySelectorAll('text')].find(
         (text) => text.textContent === 'NRT',
@@ -1047,7 +1070,6 @@ describe('RouteMap', () => {
             selectedId={null}
             onSelect={vi.fn()}
             colours={new Map()}
-            lastCollectedId={null}
             projection="mercator"
             onProjectionChange={vi.fn()}
           />,
@@ -1661,27 +1683,38 @@ describe('RouteMap', () => {
   });
 
   describe('the colour of a route and the press that opens it', () => {
-    it('draws each route in its own colour', () => {
-      // Every route on this page starts at LIM, so the arcs leave as a fan. In
-      // one colour they are one shape; the colour is what makes them separate
-      // routes a reader can follow.
-      const { container } = renderMap({
+    it('uses the colour of the selected route', () => {
+      const colours = new Map([
+        [LIM_CUZ.wearing, '#d6a65d'],
+        [LIM_MAD.wearing, '#70b9c9'],
+      ]);
+      const { container, rerender } = renderMap({
         // Keyed by the watch, not by the arc — an arc has no colour of its own
         // and wears the colour of its first watch in watchlist order.
-        colours: new Map([
-          [LIM_CUZ.wearing, '#d6a65d'],
-          [LIM_MAD.wearing, '#70b9c9'],
-        ]),
+        colours,
       });
-      const strokes = [...container.querySelectorAll('[class*="arc"]')].map(
-        (arc) => (arc as SVGElement).style.stroke,
+      const strokes = () =>
+        [...container.querySelectorAll('[class*="arc"]')].map(
+          (arc) => (arc as SVGElement).style.stroke,
+        );
+      expect(strokes()).toContain(asStored('stroke', '#d6a65d'));
+      expect(strokes()).not.toContain(asStored('stroke', '#70b9c9'));
+      rerender(
+        <RouteMap
+          routes={[LIM_CUZ, LIM_MAD]}
+          selectedId={LIM_MAD.leading}
+          onSelect={vi.fn()}
+          colours={colours}
+          projection="globe"
+          onProjectionChange={vi.fn()}
+        />,
       );
-      expect(strokes).toContain(asStored('stroke', '#d6a65d'));
-      expect(strokes).toContain(asStored('stroke', '#70b9c9'));
+      expect(strokes()).toContain(asStored('stroke', '#70b9c9'));
+      expect(strokes()).not.toContain(asStored('stroke', '#d6a65d'));
     });
 
     it('opens a route when its line is pressed', () => {
-      const { props, container } = renderMap();
+      const { props, container } = renderMap({ selectedId: LIM_MAD.leading });
       const stage = container.querySelector('[class*="stage"]')!;
       const hit = container.querySelector(`[data-route="${LIM_MAD.leading}"]`)!;
 
@@ -1696,7 +1729,7 @@ describe('RouteMap', () => {
     });
 
     it('does not open a route when the press was a drag across it', () => {
-      const { props, container } = renderMap();
+      const { props, container } = renderMap({ selectedId: LIM_MAD.leading });
       const stage = container.querySelector('[class*="stage"]')!;
       const hit = container.querySelector(`[data-route="${LIM_MAD.leading}"]`)!;
 

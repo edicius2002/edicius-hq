@@ -1421,3 +1421,13 @@ The collector stores each source pass's newly added record count in the nullable
 `seace_sync_state.new_count` column. The interface shows the count for the latest
 fetch alongside its Peru date and time. Legacy rows have an unknown count until
 their next fetch. Apply the migration before deploying the collector change.
+
+## Airfare map route visibility - 2026-10-24
+
+Globe and Mercator draw the line for the selected watched route only. Both
+projections continue to mark the origin and destination of every watched route,
+including routes whose lines are hidden. The first watch is selected by default
+when the watchlist loads. With no selection, the map draws no route line.
+This applies at desktop and mobile widths through the same `RouteMap` component.
+The earlier `freshest-arc-flows-too` decision is superseded: a collection on a
+different route no longer makes that route's line visible or animated.

@@ -5,7 +5,9 @@ import { price, time } from './model';
 import styles from './FxChart.module.css';
 export function FxChart({ history, sourceName }: { history: History; sourceName: string }) {
   const [selected, setSelected] = useState<number | null>(null);
-  const [active, setActive] = useState(false);
+  const [hoverActive, setHoverActive] = useState(false);
+  const [keyboardActive, setKeyboardActive] = useState(false);
+  const active = hoverActive || keyboardActive;
   const [container, size] = useElementSize<HTMLDivElement>();
   const width = size.width || 320;
   const height = size.height || 120;
@@ -56,7 +58,7 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
         nearest = i;
     });
     setSelected(nearest);
-    setActive(true);
+    setHoverActive(true);
   }
   return (
     <div className={styles.chart} role="region" aria-label={`${sourceName} USD/PEN history`}>
@@ -71,10 +73,13 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
           aria-valuetext={`${time(point.effective_at)}; buy ${point.buy}; sell ${point.sell}`}
           tabIndex={0}
           onPointerMove={(e) => select(e.clientX, e.currentTarget)}
-          onPointerDown={(e) => select(e.clientX, e.currentTarget)}
-          onPointerLeave={() => setActive(false)}
-          onFocus={() => setActive(true)}
-          onBlur={() => setActive(false)}
+          onPointerDown={(e) => {
+            setKeyboardActive(false);
+            select(e.clientX, e.currentTarget);
+          }}
+          onPointerLeave={() => setHoverActive(false)}
+          onFocus={(e) => setKeyboardActive(e.currentTarget.matches(':focus-visible'))}
+          onBlur={() => setKeyboardActive(false)}
           onKeyDown={(e) => {
             const next =
               e.key === 'Home'
@@ -89,6 +94,7 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
             if (next !== null) {
               e.preventDefault();
               setSelected(next);
+              setKeyboardActive(true);
             }
           }}
         >

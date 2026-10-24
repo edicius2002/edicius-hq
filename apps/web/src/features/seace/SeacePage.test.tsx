@@ -199,7 +199,41 @@ describe('SEACE views', () => {
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
     expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
-    expect(mocks.loadSeacePage.mock.calls.filter(([query]) => query.page === 1)).toHaveLength(1);
+    expect(
+      mocks.loadSeacePage.mock.calls.filter(
+        ([query]) => query.page === 1 && query.excluded === false,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('prefetches Excluded for the current filters so switching shows cached records', async () => {
+    fixtureRows = [
+      fixtureRows[0],
+      {
+        ...fixtureRows[0],
+        recordKey: 'EXCLUDED',
+        payload: { ...fixtureRows[0].payload, code: 'CM-EXCLUDED' },
+      },
+      fixtureRows[1],
+    ];
+    excludedKeys = new Set(['minor:["Arequipa","CM-EXCLUDED"]']);
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    await waitFor(() =>
+      expect(
+        mocks.loadSeacePage.mock.calls.some(
+          ([query]) => query.excluded === true && query.page === 1,
+        ),
+      ).toBe(true),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    expect(screen.getByText('CM-EXCLUDED')).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(
+      mocks.loadSeacePage.mock.calls.filter(([query]) => query.excluded === true),
+    ).toHaveLength(1);
   });
 
   it('ignores a stale recent response after switching to Open', async () => {

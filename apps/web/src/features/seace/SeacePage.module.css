@@ -316,6 +316,18 @@
   scrollbar-color: #716457 var(--color-surface);
 }
 
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .tableWrap table {
   width: var(--desktop-table-width);
   table-layout: fixed;
@@ -379,6 +391,15 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
   vertical-align: top;
+}
+
+.skeletonRow td {
+  height: 16px;
+  vertical-align: middle;
+}
+
+.skeletonRow .selectCell > span {
+  margin-inline: auto;
 }
 
 .tableWrap tr:hover td {

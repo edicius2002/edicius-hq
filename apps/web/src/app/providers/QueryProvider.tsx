@@ -9,18 +9,21 @@ type QueryProviderProps = {
 };
 
 export function QueryProvider({ children }: QueryProviderProps) {
-  const [client] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            retry: 1,
-            refetchOnWindowFocus: false,
-          },
+  const [client] = useState(() => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: 30_000,
+          retry: 1,
+          refetchOnWindowFocus: false,
         },
-      }),
-  );
+      },
+    });
+    // Saved charts for other assets should survive ordinary navigation
+    // within an Investing session, without retaining them indefinitely.
+    client.setQueryDefaults(['market', 'bars'], { gcTime: 30 * 60_000 });
+    return client;
+  });
 
   useEffect(() => {
     let initialized = false;

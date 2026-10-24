@@ -147,29 +147,68 @@ export async function getStoredBars(
       .abortSignal(requestSignal);
     requestSignal.throwIfAborted();
     if (error) throw new CollectorRequestError('bars_unavailable');
-    const now = Date.now();
-    return (data ?? []).flatMap((row) => {
-      const bars = barsFromJson(row.payload);
-      const capturedAt = Date.parse(row.fetched_at);
-      const expiresAt = Date.parse(row.expires_at);
-      if (
-        !bars ||
-        bars.symbol !== symbol ||
-        bars.timeframe !== row.timeframe ||
-        bars.extended !== extended ||
-        !Number.isFinite(capturedAt)
-      )
-        return [];
-      return [
-        {
-          ...bars,
-          provider: row.provider,
-          capturedAt,
-          stale: !Number.isFinite(expiresAt) || expiresAt <= now,
-        },
-      ];
-    });
+    return decodeStoredBars(data ?? [], new Set([symbol]), extended);
   }, signal);
+}
+
+/** Read saved series for several assets without creating collector requests. */
+export async function getStoredBarsForSymbols(
+  symbols: string[],
+  extended: boolean,
+  signal?: AbortSignal,
+): Promise<BarsResponse[]> {
+  return withDeadline(async (requestSignal) => {
+    const wanted = [
+      ...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
+    ];
+    if (!wanted.length) return [];
+    const { data, error } = await supabase
+      .from('market_bars')
+      .select('symbol, timeframe, provider, payload, fetched_at, expires_at')
+      .in('symbol', wanted)
+      .eq('extended', extended)
+      .abortSignal(requestSignal);
+    requestSignal.throwIfAborted();
+    if (error) throw new CollectorRequestError('bars_unavailable');
+    return decodeStoredBars(data ?? [], new Set(wanted), extended);
+  }, signal);
+}
+
+function decodeStoredBars(
+  rows: {
+    symbol?: string;
+    timeframe: string;
+    provider: string;
+    payload: Json;
+    fetched_at: string;
+    expires_at: string;
+  }[],
+  wanted: Set<string>,
+  extended: boolean,
+): BarsResponse[] {
+  const now = Date.now();
+  return rows.flatMap((row) => {
+    const bars = barsFromJson(row.payload);
+    const capturedAt = Date.parse(row.fetched_at);
+    const expiresAt = Date.parse(row.expires_at);
+    if (
+      !bars ||
+      (row.symbol !== undefined && bars.symbol !== row.symbol) ||
+      !wanted.has(bars.symbol) ||
+      bars.timeframe !== row.timeframe ||
+      bars.extended !== extended ||
+      !Number.isFinite(capturedAt)
+    )
+      return [];
+    return [
+      {
+        ...bars,
+        provider: row.provider,
+        capturedAt,
+        stale: !Number.isFinite(expiresAt) || expiresAt <= now,
+      },
+    ];
+  });
 }
 
 export async function searchSymbols(

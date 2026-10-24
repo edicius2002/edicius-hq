@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { CandleChart } from '@/features/investing/chart/CandleChart';
 import { useCandles } from '@/features/investing/chart/useCandles';
+import { useAssetPreload } from '@/features/investing/chart/useAssetPreload';
 import { alertsFor } from '@/features/investing/data/priceAlerts';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
 import { applyTicks } from '@/features/investing/data/quoteStream';
@@ -131,6 +132,13 @@ export function InvestingPage() {
   const candles = useCandles(symbol, timeframe, selectedTick, bars, {
     preloadTimeframes: true,
   });
+  useAssetPreload(
+    wanted,
+    symbol,
+    timeframe,
+    candles.regime !== 'regular',
+    !watchlist.isFetching && !holdings.isFetching && (candles.bars.length > 0 || candles.isError),
+  );
   // Functions of the merged bars alone, so they survive every pan and zoom untouched.
   const series = useIndicatorSeries(candles.bars, indicators, timeframe);
 

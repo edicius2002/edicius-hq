@@ -53,7 +53,7 @@ const PREFETCH_FRAME_TIMEOUT_MS = 12_000;
 
 // The first query needs the same session hint as the API's Binance routing.
 // Once history arrives, its hasSession field remains authoritative.
-function initiallySessionless(symbol: string): boolean {
+export function initiallySessionless(symbol: string): boolean {
   const upper = symbol.trim().toUpperCase();
   return ['USDT', 'USDC', 'BUSD', 'FDUSD'].some(
     (quote) => upper.endsWith(quote) && upper.length > quote.length,
@@ -110,7 +110,7 @@ export type Candles = {
 type ChartBars = BarsResponse & { historyAsOf?: number };
 type ChartKey = readonly ['market', 'bars', string, string, boolean];
 
-function chartKey(symbol: string, timeframe: string, extended: boolean): ChartKey {
+export function chartKey(symbol: string, timeframe: string, extended: boolean): ChartKey {
   return ['market', 'bars', symbol, timeframe, extended];
 }
 
@@ -118,7 +118,7 @@ function savedBoundary(response: BarsResponse): number {
   return response.capturedAt === undefined ? -Infinity : response.capturedAt / 1000;
 }
 
-async function loadChartBars(
+export async function loadChartBars(
   queryClient: QueryClient,
   symbol: string,
   timeframe: string,
@@ -157,6 +157,31 @@ async function loadChartBars(
     void marketBarCache.write(ownerId, stored);
   }
   return response;
+}
+
+/** Publish saved rows under the same chart keys used by the visible query. */
+export function hydrateStoredBars(
+  queryClient: QueryClient,
+  savedRows: BarsResponse[],
+  symbols: ReadonlySet<string>,
+  extended: boolean,
+): void {
+  for (const saved of savedRows) {
+    if (
+      !symbols.has(saved.symbol) ||
+      saved.extended !== extended ||
+      !TIMEFRAMES.includes(saved.timeframe as (typeof TIMEFRAMES)[number])
+    )
+      continue;
+    const key = chartKey(saved.symbol, saved.timeframe, extended);
+    const current = queryClient.getQueryData<ChartBars>(key);
+    if (current && (current.capturedAt ?? 0) >= (saved.capturedAt ?? 0)) continue;
+    queryClient.setQueryData<ChartBars>(
+      key,
+      { ...saved, historyAsOf: savedBoundary(saved) },
+      { updatedAt: saved.stale ? saved.capturedAt : Date.now() },
+    );
+  }
 }
 
 export function useCandles(
@@ -221,22 +246,7 @@ export function useCandles(
 
   useEffect(() => {
     if (!options?.preloadTimeframes || !stored.data) return;
-    for (const saved of stored.data) {
-      if (
-        saved.symbol !== symbol ||
-        saved.extended !== wantExtended ||
-        !TIMEFRAMES.includes(saved.timeframe as (typeof TIMEFRAMES)[number])
-      )
-        continue;
-      const key = chartKey(symbol, saved.timeframe, wantExtended);
-      const current = queryClient.getQueryData<ChartBars>(key);
-      if (current && (current.capturedAt ?? 0) >= (saved.capturedAt ?? 0)) continue;
-      queryClient.setQueryData<ChartBars>(
-        key,
-        { ...saved, historyAsOf: savedBoundary(saved) },
-        { updatedAt: saved.stale ? saved.capturedAt : Date.now() },
-      );
-    }
+    hydrateStoredBars(queryClient, stored.data, new Set([symbol]), wantExtended);
   }, [options?.preloadTimeframes, queryClient, stored.data, symbol, wantExtended]);
 
   useEffect(() => {

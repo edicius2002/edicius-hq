@@ -1,6 +1,7 @@
 export {
   getBars,
   getStoredBars,
+  getStoredBarsForSymbols,
   getQuotes,
   searchSymbols,
 } from '@/features/investing/data/supabaseMarket';

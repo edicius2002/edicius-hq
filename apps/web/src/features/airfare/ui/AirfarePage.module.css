@@ -84,6 +84,11 @@
   padding: var(--space-3);
 }
 
+/* Give the paired route cells the unused space at the watchlist's edges. */
+.top > .routesPanel {
+  padding-inline: 8px;
+}
+
 .panelHead {
   display: flex;
   align-items: center;
@@ -140,6 +145,10 @@
 
   .routesPanel {
     height: 640px;
+  }
+
+  .top > .routesPanel {
+    padding-inline: var(--space-3);
   }
 }
 

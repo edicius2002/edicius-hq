@@ -134,8 +134,7 @@
 
 .routeCell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 28px minmax(20px, auto);
+  grid-template-columns: 88px minmax(0, 1fr);
   align-items: start;
   gap: 4px;
   min-height: 54px;
@@ -148,31 +147,31 @@
 }
 
 .route {
-  /* The first line identifies the route; its month buttons sit below it. */
+  /* Keep the route name alongside its months in each half of the row. */
   flex: 1 1 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
   text-align: left;
   background: var(--color-bg-2);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 4px 5px;
+  padding: 4px 3px;
   font: inherit;
   cursor: pointer;
 }
 
 .routeCell .route {
-  width: min(100%, 100px);
+  width: min(100%, 88px);
   height: 28px;
 }
 
 .routeCell .months {
-  grid-column: 1;
-  grid-row: 2;
+  grid-column: 2;
+  grid-row: 1;
   grid-template-columns: repeat(6, auto);
 }
 
@@ -194,7 +193,7 @@
 }
 
 .pair {
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -209,8 +208,8 @@
 
 /* The colour this route's arc is drawn in, so the list and the map agree. */
 .swatch {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 2px;
   flex: none;
 }
@@ -260,13 +259,13 @@
   white-space: nowrap;
 }
 
-/* Months use the full second line of their route cell. */
+/* Six compact month tabs fit beside the route; more months form another line. */
 .months {
   display: grid;
   grid-template-columns: repeat(6, auto);
   justify-content: start;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -308,13 +307,13 @@
  * panel whose job is to be read.
  */
 .monthTab {
-  padding: 0 3px;
+  padding: 0 1px;
   border: 1px solid transparent;
   border-radius: 2px;
   background: none;
   color: var(--color-muted);
   font: inherit;
-  font-size: 0.66rem;
+  font-size: 0.64rem;
   line-height: 1.4;
   white-space: nowrap;
   cursor: pointer;
@@ -428,8 +427,6 @@
     border-bottom: 1px solid var(--color-border);
   }
   .routeCell {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 28px minmax(20px, auto);
     padding-bottom: 5px;
     border-bottom: 1px solid var(--color-border);
   }
@@ -442,6 +439,17 @@
   .actions {
     justify-self: end;
     margin-left: 0;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 940px) {
+  .routeCell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 28px minmax(20px, auto);
+  }
+  .routeCell .months {
+    grid-column: 1;
+    grid-row: 2;
   }
 }
 
@@ -482,6 +490,9 @@
     min-height: 32px;
     min-width: 0;
     padding: 3px 6px;
+  }
+  .routeCell .route {
+    width: min(100%, 100px);
   }
   .pair {
     font-size: 0.64rem;

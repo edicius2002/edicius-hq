@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
@@ -19,7 +19,19 @@ type Tweets = Awaited<ReturnType<typeof fetchTweets>>;
 
 const AVATAR_URL = 'https://codex-resets.com/thsottiaux-avatar.jpg';
 
-function Column({ title, tweets, now }: { title: string; tweets: Tweets; now: Date }) {
+function Column({
+  title,
+  tweets,
+  now,
+  enteringIds,
+  onEntered,
+}: {
+  title: string;
+  tweets: Tweets;
+  now: Date;
+  enteringIds: ReadonlySet<string>;
+  onEntered: (id: string) => void;
+}) {
   return (
     <section className={styles.column}>
       <h2 className={styles.columnTitle}>{title}</h2>
@@ -28,29 +40,39 @@ function Column({ title, tweets, now }: { title: string; tweets: Tweets; now: Da
           <p className={styles.emptyColumn}>No {title.toLowerCase()} in the last 48 hours.</p>
         ) : null}
         {tweets.map((tweet) => (
-          <article key={tweet.id} className={styles.tweet}>
-            <img
-              className={styles.avatar}
-              src={AVATAR_URL}
-              alt="@thsottiaux"
-              width="44"
-              height="44"
-              loading="lazy"
-              referrerPolicy="no-referrer"
-            />
-            <div className={styles.bubble}>
-              <div className={styles.tweetMeta}>
-                <time className={styles.when} dateTime={new Date(tweet.date).toISOString()}>
-                  <strong>{formatRelativeTime(tweet.date, now)}</strong>
-                  <span>{formatBogotaDateTime(tweet.date)}</span>
-                </time>
+          <div
+            key={tweet.id}
+            className={`${styles.tweetSlot} ${enteringIds.has(tweet.id) ? styles.tweetSlotEntering : ''}`}
+          >
+            <article
+              className={`${styles.tweet} ${enteringIds.has(tweet.id) ? styles.tweetEntering : ''}`}
+              onAnimationEnd={(event) => {
+                if (event.target === event.currentTarget) onEntered(tweet.id);
+              }}
+            >
+              <img
+                className={styles.avatar}
+                src={AVATAR_URL}
+                alt="@thsottiaux"
+                width="44"
+                height="44"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+              <div className={styles.bubble}>
+                <div className={styles.tweetMeta}>
+                  <time className={styles.when} dateTime={new Date(tweet.date).toISOString()}>
+                    <strong>{formatRelativeTime(tweet.date, now)}</strong>
+                    <span>{formatBogotaDateTime(tweet.date)}</span>
+                  </time>
+                </div>
+                <p>{tweet.text}</p>
+                <a href={tweet.url} target="_blank" rel="noreferrer">
+                  Open on X
+                </a>
               </div>
-              <p>{tweet.text}</p>
-              <a href={tweet.url} target="_blank" rel="noreferrer">
-                Open on X
-              </a>
-            </div>
-          </article>
+            </article>
+          </div>
         ))}
       </div>
     </section>
@@ -69,6 +91,8 @@ function useLiveNow(): Date {
 export function DashboardPage() {
   const client = useQueryClient();
   const now = useLiveNow();
+  const seenTweetIds = useRef<Set<string> | null>(null);
+  const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
   const codexResets = useCodexResets();
   const query = useQuery({
     queryKey: ['tweets', HANDLE],
@@ -80,6 +104,25 @@ export function DashboardPage() {
       () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }),
     );
   }, [client]);
+  useLayoutEffect(() => {
+    if (query.data === undefined) return;
+    const ids = new Set(query.data.map((tweet) => tweet.id));
+    if (seenTweetIds.current !== null) {
+      const added = [...ids].filter((id) => !seenTweetIds.current?.has(id));
+      if (added.length > 0) {
+        setEnteringIds((current) => new Set([...current, ...added]));
+      }
+    }
+    seenTweetIds.current = ids;
+  }, [query.data]);
+  const onEntered = (id: string) => {
+    setEnteringIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
   const cutoff = now.getTime() - TWEET_WINDOW_MS;
   const tweets = (query.data ?? []).filter((tweet) => new Date(tweet.date).getTime() >= cutoff);
 
@@ -116,8 +159,20 @@ export function DashboardPage() {
         <Panel className={styles.statusPanel}>No posts in the last 48 hours.</Panel>
       ) : (
         <div className={styles.columns}>
-          <Column title="Posts" tweets={tweets.filter((tweet) => !tweet.isReply)} now={now} />
-          <Column title="Replies" tweets={tweets.filter((tweet) => tweet.isReply)} now={now} />
+          <Column
+            title="Posts"
+            tweets={tweets.filter((tweet) => !tweet.isReply)}
+            now={now}
+            enteringIds={enteringIds}
+            onEntered={onEntered}
+          />
+          <Column
+            title="Replies"
+            tweets={tweets.filter((tweet) => tweet.isReply)}
+            now={now}
+            enteringIds={enteringIds}
+            onEntered={onEntered}
+          />
         </div>
       )}
     </section>

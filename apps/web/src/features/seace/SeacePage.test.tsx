@@ -135,6 +135,54 @@ describe('SEACE views', () => {
     expect(screen.getByText('1 record')).toBeInTheDocument();
   });
 
+  it.each([
+    { path: '/seace/recent', view: 'recent' },
+    { path: '/seace/all-open', view: 'open' },
+    { path: '/seace/closed', view: 'closed' },
+    { path: '/seace/published', view: 'published' },
+  ] as const)('shows table placeholders during the first $view load', async ({ path, view }) => {
+    let finishPage!: (value: { rows: SeaceRow[]; total: number }) => void;
+    mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) =>
+      query.view === view && query.minorOnly && !query.excluded
+        ? new Promise((resolve) => {
+            finishPage = resolve;
+          })
+        : Promise.resolve({ rows: [], total: 0 }),
+    );
+
+    const { container } = mount(path);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading SEACE records');
+    expect(container.querySelectorAll('[data-testid="seace-skeleton-row"]')).toHaveLength(10);
+    expect(container.querySelector('table')).toHaveAttribute('aria-hidden', 'true');
+    const headers = [...container.querySelectorAll('thead th')];
+    const skeletonCells = [
+      ...container.querySelectorAll('[data-testid="seace-skeleton-row"] td'),
+    ].slice(0, headers.length);
+    expect(skeletonCells.map((cell) => cell.className.includes('mobileHiddenColumn'))).toEqual(
+      headers.map((header) => header.className.includes('mobileHiddenColumn')),
+    );
+    expect(screen.queryByText('0 records')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('No records match this view and these filters.'),
+    ).not.toBeInTheDocument();
+
+    await act(async () =>
+      finishPage({
+        rows: [
+          {
+            kind: view === 'published' ? 'contracts' : 'notices',
+            recordKey: view,
+            payload: { region: 'Arequipa', code: `CM-${view}` },
+          },
+        ],
+        total: 1,
+      }),
+    );
+    expect(await screen.findByText(`CM-${view}`)).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-testid="seace-skeleton-row"]')).toHaveLength(0);
+    expect(container.querySelector('table')).not.toHaveAttribute('aria-hidden');
+  });
+
   it('loads the next server page without fetching all matching records', async () => {
     const next = {
       ...fixtureRows[0],
@@ -424,13 +472,19 @@ describe('SEACE views', () => {
 
     for (const view of ['24h', 'Open', 'Closed']) {
       fireEvent.click(screen.getByRole('link', { name: view }));
-      expect(screen.queryByRole('button', { name: /^Amount/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /^Status/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /^Amount/, hidden: true }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /^Status/, hidden: true }),
+      ).not.toBeInTheDocument();
     }
 
     fireEvent.click(screen.getByRole('link', { name: 'Publi' }));
-    expect(screen.getByRole('button', { name: /^Amount/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Supplier/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Amount/, hidden: true })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Supplier/, hidden: true }),
+    ).not.toBeInTheDocument();
   });
 
   it('opens Items from the first link in Links when an item has text', async () => {

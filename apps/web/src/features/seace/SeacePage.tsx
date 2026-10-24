@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, useLocation } from 'react-router-dom';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import {
   exclusionKey,
@@ -251,7 +252,8 @@ export function SeacePage() {
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[2] === filterKey ? previousData : undefined,
   });
-  const loading = pageQuery.isPending || pageQuery.isPlaceholderData;
+  const initialLoading = pageQuery.isPending;
+  const loading = initialLoading || pageQuery.isPlaceholderData;
   const records = pageQuery.data?.rows ?? [];
   const total = pageQuery.data?.total ?? 0;
   const message =
@@ -559,14 +561,25 @@ export function SeacePage() {
           </div>
         </div>
         <strong className={styles.tableCount}>
-          {total.toLocaleString()} {total === 1 ? 'record' : 'records'}
+          {initialLoading ? (
+            <Skeleton width={90} height={16} />
+          ) : (
+            `${total.toLocaleString()} ${total === 1 ? 'record' : 'records'}`
+          )}
         </strong>
       </div>
       <section className={styles.content} aria-label="SEACE records">
         {message && <p role="status">{message}</p>}
-        {loading && <p role="status">Loading…</p>}
+        {pageQuery.isPlaceholderData && <p role="status">Loading…</p>}
         <div className={styles.tableWrap} tabIndex={0} aria-label="SEACE records table">
+          {initialLoading && (
+            <span className={styles.srOnly} role="status">
+              Loading SEACE records…
+            </span>
+          )}
           <table
+            aria-hidden={initialLoading || undefined}
+            inert={initialLoading}
             style={
               {
                 '--desktop-table-width': `max(100%, ${tableWidth}px)`,
@@ -632,101 +645,125 @@ export function SeacePage() {
               </tr>
             </thead>
             <tbody>
-              {visible.map((row) => (
-                <tr key={`${row.kind}:${row.recordKey}`}>
-                  <td className={styles.selectCell}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${text(row, 'code')}`}
-                      checked={selectedKeys.has(exclusionKey(row))}
-                      disabled={!exclusionsReady || savingExclusions}
-                      onChange={(event) => {
-                        const key = exclusionKey(row);
-                        const next = new Set(selectedKeys);
-                        if (event.target.checked) next.add(key);
-                        else next.delete(key);
-                        setSelectedKeys(next);
-                      }}
-                    />
-                  </td>
-                  {columns.map((field) => (
-                    <td
-                      key={field}
-                      className={[
-                        field === 'code'
-                          ? styles.codeCell
-                          : field === 'entity'
-                            ? styles.entityCell
-                            : field === 'description'
-                              ? styles.descriptionCell
-                              : field === 'amount'
-                                ? styles.amountCell
-                                : '',
-                        mobileHiddenFields.has(field) ? styles.mobileHiddenColumn : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {field === 'code' ? (
-                        text(row, field) || '—'
-                      ) : field === 'links' ? (
-                        <span className={styles.links}>
-                          {itemLines(row).length > 0 && (
-                            <button type="button" onClick={() => openItems(row)}>
-                              Items
-                            </button>
-                          )}
-                          {text(row, 'entity') && (
-                            <a
-                              className={styles.mobileEntityLink}
-                              href="#seace-detail-dialog"
-                              aria-haspopup="dialog"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                openEntity(row);
-                              }}
-                            >
-                              Entity
-                            </a>
-                          )}
-                          {links(row).map((link) => (
-                            <a
-                              key={link.url}
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {link.name}
-                            </a>
-                          ))}
-                        </span>
-                      ) : field === 'amount' ? (
-                        money(row)
-                      ) : field === 'start' || field === 'termStart' ? (
-                        <>
-                          <span className={styles.desktopOnly}>{plainDate(text(row, field))}</span>
-                          <span className={styles.mobilePeriod}>
-                            <span>
-                              <strong>Start</strong>
-                              {compactDate(text(row, field))}
-                            </span>
-                            <span>
-                              <strong>End</strong>
-                              {compactDate(text(row, field === 'start' ? 'end' : 'termEnd'))}
-                            </span>
-                          </span>
-                        </>
-                      ) : ['published', 'start', 'end', 'signed', 'termStart', 'termEnd'].includes(
-                          field,
-                        ) ? (
-                        plainDate(text(row, field))
-                      ) : (
-                        text(row, field) || '—'
-                      )}
+              {initialLoading &&
+                Array.from({ length: 10 }, (_, index) => (
+                  <tr key={index} className={styles.skeletonRow} data-testid="seace-skeleton-row">
+                    <td className={styles.selectCell}>
+                      <Skeleton width={16} height={16} radius={3} />
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {columns.map((field) => (
+                      <td
+                        key={field}
+                        className={mobileHiddenFields.has(field) ? styles.mobileHiddenColumn : ''}
+                      >
+                        <Skeleton width={field === 'description' ? '92%' : '72%'} height={12} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              {!initialLoading &&
+                visible.map((row) => (
+                  <tr key={`${row.kind}:${row.recordKey}`}>
+                    <td className={styles.selectCell}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${text(row, 'code')}`}
+                        checked={selectedKeys.has(exclusionKey(row))}
+                        disabled={!exclusionsReady || savingExclusions}
+                        onChange={(event) => {
+                          const key = exclusionKey(row);
+                          const next = new Set(selectedKeys);
+                          if (event.target.checked) next.add(key);
+                          else next.delete(key);
+                          setSelectedKeys(next);
+                        }}
+                      />
+                    </td>
+                    {columns.map((field) => (
+                      <td
+                        key={field}
+                        className={[
+                          field === 'code'
+                            ? styles.codeCell
+                            : field === 'entity'
+                              ? styles.entityCell
+                              : field === 'description'
+                                ? styles.descriptionCell
+                                : field === 'amount'
+                                  ? styles.amountCell
+                                  : '',
+                          mobileHiddenFields.has(field) ? styles.mobileHiddenColumn : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                      >
+                        {field === 'code' ? (
+                          text(row, field) || '—'
+                        ) : field === 'links' ? (
+                          <span className={styles.links}>
+                            {itemLines(row).length > 0 && (
+                              <button type="button" onClick={() => openItems(row)}>
+                                Items
+                              </button>
+                            )}
+                            {text(row, 'entity') && (
+                              <a
+                                className={styles.mobileEntityLink}
+                                href="#seace-detail-dialog"
+                                aria-haspopup="dialog"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  openEntity(row);
+                                }}
+                              >
+                                Entity
+                              </a>
+                            )}
+                            {links(row).map((link) => (
+                              <a
+                                key={link.url}
+                                href={link.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {link.name}
+                              </a>
+                            ))}
+                          </span>
+                        ) : field === 'amount' ? (
+                          money(row)
+                        ) : field === 'start' || field === 'termStart' ? (
+                          <>
+                            <span className={styles.desktopOnly}>
+                              {plainDate(text(row, field))}
+                            </span>
+                            <span className={styles.mobilePeriod}>
+                              <span>
+                                <strong>Start</strong>
+                                {compactDate(text(row, field))}
+                              </span>
+                              <span>
+                                <strong>End</strong>
+                                {compactDate(text(row, field === 'start' ? 'end' : 'termEnd'))}
+                              </span>
+                            </span>
+                          </>
+                        ) : [
+                            'published',
+                            'start',
+                            'end',
+                            'signed',
+                            'termStart',
+                            'termEnd',
+                          ].includes(field) ? (
+                          plainDate(text(row, field))
+                        ) : (
+                          text(row, field) || '—'
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
               {visible.length === 0 && !loading && (
                 <tr>
                   <td className={styles.emptyCell} colSpan={columns.length + 1}>
@@ -741,9 +778,13 @@ export function SeacePage() {
         </div>
         <div className={styles.pager}>
           <span>
-            {total
-              ? `${(currentPage - 1) * pageSize + 1}–${(currentPage - 1) * pageSize + visible.length} of ${total}`
-              : '0 records'}
+            {initialLoading ? (
+              <Skeleton width={100} height={12} />
+            ) : total ? (
+              `${(currentPage - 1) * pageSize + 1}–${(currentPage - 1) * pageSize + visible.length} of ${total}`
+            ) : (
+              '0 records'
+            )}
           </span>
           <div className={styles.pagerControls}>
             <div className={styles.pageNavigation}>
@@ -758,7 +799,11 @@ export function SeacePage() {
                 Previous
               </button>
               <span>
-                Page {currentPage} of {pages}
+                {initialLoading ? (
+                  <Skeleton width={90} height={12} />
+                ) : (
+                  `Page ${currentPage} of ${pages}`
+                )}
               </span>
               <button
                 type="button"

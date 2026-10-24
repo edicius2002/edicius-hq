@@ -134,6 +134,12 @@ export function ResetCalendar({
                       setKeyboardKey(day.key);
                       setLastInput('keyboard');
                     }}
+                    onClick={(event) => {
+                      if (event.detail === 0) {
+                        setKeyboardKey(day.key);
+                        setLastInput('keyboard');
+                      }
+                    }}
                     onPointerEnter={(event) => selectPointer(day.key, event.pointerType)}
                     onPointerMove={(event) => selectPointer(day.key, event.pointerType)}
                     onPointerDown={(event) => {

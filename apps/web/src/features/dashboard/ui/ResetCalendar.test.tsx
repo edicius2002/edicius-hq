@@ -169,3 +169,16 @@ it('uses touch selection until the next touch outside the calendar', () => {
   fireEvent.pointerDown(document.body, { pointerType: 'touch' });
   expect(detail).toBeEmptyDOMElement();
 });
+
+it('opens a day activated by assistive technology without pointer or keyboard events', () => {
+  render(<ResetCalendar resets={[reset]} now={new Date('2026-09-29T20:00:00Z')} />);
+  const history = screen.getByRole('region', { name: 'Codex reset history' });
+  const day = within(history).getByRole('button', { name: '1 banked reset on 2026-09-29' });
+  const detail = history.querySelector('[aria-live="polite"]');
+
+  fireEvent.click(day, { detail: 0 });
+  expect(day).toHaveAttribute('data-active', 'true');
+  expect(detail).toHaveTextContent('1 banked reset on 2026-09-29');
+  fireEvent.blur(day);
+  expect(detail).toBeEmptyDOMElement();
+});

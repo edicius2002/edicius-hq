@@ -67,13 +67,8 @@ export function AirfarePage() {
    * Which watch is loaded into the editor, and it is deliberately **not**
    * `selectedId`.
    *
-   * `selected` below falls back to `routes[0]` when nothing has been chosen, so
-   * an editor reading it would open a fresh page with the first route already
-   * loaded and the form button saying "Save changes" — with no way to add a
-   * route at all. The read side keeps its fallback; the write side has none.
-   *
-   * Keeping them apart is also what lets Cancel leave the chart where it is: a
-   * press on a row sets both, and a cancel clears only this one.
+   * A press on a row sets both, while Cancel clears only the editor and leaves
+   * the chart on the route the reader chose.
    */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
@@ -158,7 +153,7 @@ export function AirfarePage() {
   }, [horizon.collecting, rowCollection.collecting, watchlist.routes]);
 
   const selected: FareRoute | null =
-    watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
+    watchlist.routes.find((route) => routeId(route) === selectedId) ?? null;
   const selectedKey = selected ? routeId(selected) : null;
 
   /*
@@ -355,12 +350,9 @@ export function AirfarePage() {
   /*
    * The arcs, pointed by the open route first and by the last collection after.
    *
-   * `selectedKey` rather than `selectedId`: the open route is the one this page
-   * is actually showing — the one the detail panel describes, the one the
-   * watchlist marks and the one the map thickens — and with `selectedId` at
-   * null that is the first row rather than nothing. Handing the raw state down
-   * would leave the arc pointed one way and every other thing on the page
-   * talking about the other.
+   * `selectedKey` names the route this page actually shows — the one the
+   * detail panel describes, the watchlist marks and the map thickens. It stays
+   * null until the reader opens a route.
    *
    * The selection reaches `lib/geo` rather than `RouteMap` because direction is
    * a property of the geometry here: the keyframes always travel towards the
@@ -581,9 +573,7 @@ export function AirfarePage() {
             /*
               A press on the panel's empty space puts the fields back to
               adding. Only `editingId` goes: the reader said they had finished
-              editing, not that they had finished looking at a chart, and
-              clearing the selection would send `selected` to its `routes[0]`
-              fallback and move the analysis panel under them.
+              editing, not that they had finished looking at a chart.
             */
             onClearEditing={() => setEditingId(null)}
             transferDisabled={watchlist.isFetching || watchlist.isError}

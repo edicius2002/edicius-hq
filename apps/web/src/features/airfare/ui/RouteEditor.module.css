@@ -90,14 +90,6 @@
   white-space: nowrap;
 }
 
-/* How many picked months are in the year the strip is not showing. */
-.elsewhere {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.66rem;
-  white-space: nowrap;
-}
-
 /* Year navigation stays outside the twelve independent month toggles. */
 .monthNavigation {
   grid-column: 1 / -1;
@@ -293,10 +285,6 @@
   .monthChip {
     padding-inline: 2px;
   }
-  .elsewhere {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
 }
 
 /* At the 641px edge a half-width field cannot hold "Destination". */
@@ -360,9 +348,5 @@
     min-height: 32px;
     padding-inline: 1px;
     font-size: 0.65rem;
-  }
-  .elsewhere {
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
 }

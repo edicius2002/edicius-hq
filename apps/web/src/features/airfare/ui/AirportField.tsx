@@ -78,8 +78,8 @@ export function AirportField({
   /*
    * The last value this field has already accounted for.
    *
-   * Seeded with whatever it was given, so a field that arrives pre-filled —
-   * origin always does — does not search on mount and pop a list open over the
+   * Seeded with whatever it was given, so a field that arrives pre-filled
+   * while editing does not search on mount and pop a list open over the
    * map before anyone has typed. Updated when a suggestion is taken, so
    * accepting `MAD` does not immediately search for `MAD`.
    *

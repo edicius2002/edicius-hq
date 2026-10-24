@@ -139,6 +139,6 @@ describe('RouteDetail', () => {
     show({ latest: null, insights: null });
     expect(screen.getByText('Nothing observed yet. Run a collection pass.')).toBeInTheDocument();
     show({ route: null });
-    expect(screen.getByText('Add a route to start building its history.')).toBeInTheDocument();
+    expect(screen.getByText('Select a route to view flight details.')).toBeInTheDocument();
   });
 });

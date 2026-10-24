@@ -186,6 +186,8 @@ function renderPage() {
       <AirfarePage />
     </QueryClientProvider>,
   );
+  // The page starts without a selection; these navigation cases open March first.
+  fireEvent.click(screen.getByRole('button', { name: '2027-03' }));
   return client;
 }
 beforeEach(() => {

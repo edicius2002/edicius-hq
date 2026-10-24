@@ -50,7 +50,7 @@ export function RouteDetail({
   if (!route) {
     return (
       <div className={styles.detail}>
-        <p className={styles.empty}>Add a route to start building its history.</p>
+        <p className={styles.empty}>Select a route to view flight details.</p>
       </div>
     );
   }

@@ -373,7 +373,10 @@ describe('RouteList', () => {
     // first puts a step in front of the only action here.
     renderList();
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
-    expect(screen.getByLabelText('Origin')).toBeInTheDocument();
+    expect(screen.getByLabelText('Origin')).toHaveValue('');
+    expect(screen.getByLabelText('Destination')).toHaveValue('');
+    expect(screen.getByLabelText('Origin')).not.toHaveAttribute('placeholder');
+    expect(screen.getByLabelText('Destination')).not.toHaveAttribute('placeholder');
     expect(screen.getByRole('group', { name: 'Departing' })).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Departure year' })).not.toBeInTheDocument();
     expect(
@@ -418,6 +421,7 @@ describe('RouteList', () => {
     const form = screen.getByRole('form', { name: /add a route/i });
     await user.click(within(form).getByRole('button', { name: 'December 2026' }));
     await user.click(within(form).getByRole('button', { name: 'Next departure year' }));
+    expect(within(form).queryByText(/more in \d{2}/i)).not.toBeInTheDocument();
     await user.click(within(form).getByRole('button', { name: 'January 2027' }));
     await user.click(within(form).getByRole('button', { name: 'Previous departure year' }));
     expect(within(form).getByRole('button', { name: 'December 2026' })).toHaveAttribute(

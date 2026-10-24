@@ -11,7 +11,10 @@ import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 const state = vi.hoisted(() => ({
   routes: [] as FareRoute[],
   projections: [] as { route: string | null; month: string | null }[],
-  list: null as null | { onOpenMonth: (id: string, month: string) => void },
+  list: null as null | {
+    selectedId: string | null;
+    onOpenMonth: (id: string, month: string) => void;
+  },
 }));
 
 vi.mock('@/features/airfare/hooks/useFareRoutes', () => ({
@@ -56,7 +59,10 @@ vi.mock('@/features/airfare/hooks/useAirports', () => ({
   useAirports: () => ({ data: new Map() }),
 }));
 vi.mock('@/features/airfare/ui/RouteList', () => ({
-  RouteList: (props: { onOpenMonth: (id: string, month: string) => void }) => {
+  RouteList: (props: {
+    selectedId: string | null;
+    onOpenMonth: (id: string, month: string) => void;
+  }) => {
     state.list = props;
     return <div data-testid="route-list" />;
   },
@@ -92,10 +98,10 @@ describe('pressing a month on another watched route', () => {
     state.list = null;
   });
 
-  it('opens that route on the month pressed, not on its first month', () => {
+  it('starts without an open route and opens the month pressed', () => {
     render(<AirfarePage />);
-    // The first route is open on its own first month.
-    expect(state.projections.at(-1)).toEqual({ route: routeId(ARI_SCL), month: '2027-03' });
+    expect(state.list?.selectedId).toBeNull();
+    expect(state.projections.at(-1)).toEqual({ route: null, month: null });
 
     act(() => state.list!.onOpenMonth(routeId(LIM_MAD), '2027-06'));
 

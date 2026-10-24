@@ -3,7 +3,6 @@ import { useState, type FormEvent } from 'react';
 import {
   collectableYears,
   DEFAULT_CURRENCY,
-  DEFAULT_ORIGIN,
   formatFlightMonth,
   isAirportCode,
   monthOf,
@@ -16,7 +15,6 @@ import {
 import {
   beyondHorizon,
   monthChips,
-  monthsElsewhere,
   refusalText,
   staleText,
 } from '@/features/airfare/lib/monthChips';
@@ -62,7 +60,7 @@ type RouteEditorProps = {
  *
  * **The years still come from the horizon** — 12.263. The arrows switch the
  * calendar year shown by the strip and stop at the available years. A selection
- * can span years, so `monthsElsewhere` names picks outside the visible strip.
+ * can span years without changing when the strip moves.
  *
  * **Twelve are always drawn and one outside the horizon is refused by name** —
  * 12.264 and 12.184, both kept, and `monthChips` records why disabling a chip
@@ -77,7 +75,7 @@ type RouteEditorProps = {
 export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEditorProps) {
   const adding = editing === null;
 
-  const [origin, setOrigin] = useState(editing?.origin ?? DEFAULT_ORIGIN);
+  const [origin, setOrigin] = useState(editing?.origin ?? '');
   const [destination, setDestination] = useState(editing?.destination ?? '');
   /*
    * Whole `YYYY-MM` strings, never bare month numbers, and that is what lets a
@@ -99,7 +97,6 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
   const previousYear = years[yearIndex - 1];
   const nextYear = years[yearIndex + 1];
   const chips = monthChips(visibleYear, months, today);
-  const elsewhere = monthsElsewhere(months, visibleYear);
   const cost = passCost(months, today);
   const costMessage = describeCost(cost);
 
@@ -228,7 +225,6 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
           id="airfare-origin"
           label="Origin"
           value={origin}
-          placeholder="LIM"
           onChange={setOrigin}
           align="left"
           layout="inline"
@@ -237,7 +233,6 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
           id="airfare-destination"
           label="Destination"
           value={destination}
-          placeholder="SCL"
           onChange={setDestination}
           align="right"
           layout="inline"
@@ -316,15 +311,13 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
       </div>
 
       {/*
-        Picks in another year and warnings share a `status` region, so
+        Warnings use a `status` region, so
         a screen reader is not interrupted by something the reader can act on at
         leisure — the `alert` node below stays reserved for what stops a save.
-        The cost warning shares it because both are consequences to hear while
-        choosing, and one permanent region avoids a second grid row when there
-        is nothing to say.
+        The cost warning belongs here too, and one permanent region avoids a
+        second grid row when there is nothing to say.
       */}
       <div className={styles.notes} role="status">
-        {elsewhere ? <p className={styles.elsewhere}>{elsewhere}</p> : null}
         {costMessage ? (
           <p className={cost.overrun ? styles.costLoud : styles.cost}>{costMessage}</p>
         ) : null}

@@ -266,14 +266,12 @@ export function SeacePage() {
       queryFn: () => loadPage(1, !excludedView, minorOnly),
       staleTime: 30_000,
     });
-    if (view === 'published') {
-      for (const targetExcluded of [excludedView, !excludedView]) {
-        void queryClient.prefetchQuery({
-          queryKey: ['seace', 'page', filterKeyFor(targetExcluded, !minorOnly), 1],
-          queryFn: () => loadPage(1, targetExcluded, !minorOnly),
-          staleTime: 30_000,
-        });
-      }
+    for (const targetExcluded of [excludedView, !excludedView]) {
+      void queryClient.prefetchQuery({
+        queryKey: ['seace', 'page', filterKeyFor(targetExcluded, !minorOnly), 1],
+        queryFn: () => loadPage(1, targetExcluded, !minorOnly),
+        staleTime: 30_000,
+      });
     }
     if (page > lastPage) {
       queueMicrotask(() => setPage((current) => Math.min(current, lastPage)));
@@ -296,7 +294,6 @@ export function SeacePage() {
     loadPage,
     excludedView,
     minorOnly,
-    view,
   ]);
 
   useEffect(() => {

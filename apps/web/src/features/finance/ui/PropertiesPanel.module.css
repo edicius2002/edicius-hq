@@ -15,8 +15,7 @@
 }
 
 /*
- * The kind badge and the name, on one line. The badge keeps its own width and
- * the name takes what is left.
+ * The kind badge and the name share a line, with the name at the right edge.
  */
 .header {
   display: flex;
@@ -24,11 +23,42 @@
   gap: var(--space-2);
 }
 
-.nameInput {
-  /* 9rem leaves the badge/name row compact in the side panel while still
-     fitting an ordinary job name without making the header a second full row. */
-  flex: 0 1 9rem;
+.flowHeader {
+  justify-content: space-between;
+}
+
+.flowHeader .hint {
   min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.nameInput {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--color-text);
+  cursor: text;
+  flex: 0 1 7rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-inline-start: auto;
+  min-width: 0;
+  padding: 0;
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.nameInput::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+.nameInput:hover,
+.nameInput:focus-visible {
+  color: var(--color-accent);
+  outline: none;
 }
 
 .badge {
@@ -70,14 +100,6 @@
   outline: none;
 }
 
-.field > .input {
-  max-width: 9rem;
-}
-
-.field > .input[inputmode='decimal'] {
-  max-width: 3.75rem;
-}
-
 /*
  * The one control here that the reader gets to resize.
  *
@@ -89,30 +111,28 @@
  * `line-height` is stated so a resized note keeps a predictable text height.
  */
 .notes {
-  /* A note is a log, not a control that gets to claim the whole side column. */
   font-size: 0.6rem;
   line-height: 1.4;
-  max-width: 12rem;
+  max-width: 100%;
   resize: vertical;
   /* Keep at least two text lines visible when the reader resizes it. */
   min-height: 2.25rem;
 }
 
-.row {
+.assetHeading {
   display: flex;
-  gap: var(--space-2);
-  align-items: end;
-}
-
-/* Job and account keep the label, symbol field and action on one line. */
-.addAssetRow {
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.addAssetLabel {
-  color: var(--color-muted);
-  flex: 0 0 auto;
-  font-size: 0.6rem;
+.addAssetRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .addAssetInput {
@@ -138,27 +158,41 @@
   text-transform: uppercase;
 }
 
-/*
- * Two to a row, matching the diagram's balance chips and the totals panel.
- *
- * Shared by all three asset lists — an account's "Assets held", a job's pay
- * assets and a frame's totals — because they are the same list of the same
- * thing, and an account with eight of them was eight lines of a panel that has
- * a fixed height to fill.
- */
+/* 31% caps the grid at three tracks even when the panels stack on a wide page. */
 .assets {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(5.3rem, 31%), 1fr));
   gap: 0.35rem var(--space-2);
 }
 
-/*
- * Keep two assets per row in the narrower side panel. Below this content width,
- * each asset needs a full row to keep its ticker and amount field legible.
- */
-@container (min-width: 11.3rem) {
-  .assets {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.accountAssets .asset {
+  grid-template-columns: 1.7rem minmax(0, 1fr);
+  gap: 0.25rem;
+}
+
+.accountAssets .assetToggle {
+  padding-inline: 0.1rem;
+}
+
+.accountAssets .assetBroken {
+  grid-template-columns: 1.7rem minmax(0, 8rem) auto;
+}
+
+.frameAsset {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  font-size: 0.64rem;
+}
+
+.frameAsset span {
+  color: var(--color-muted);
+}
+
+.frameAsset strong {
+  color: var(--color-income);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -167,7 +201,7 @@
  */
 .asset {
   display: grid;
-  grid-template-columns: 1.4rem 3.75rem;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
   align-items: center;
   gap: 0.15rem;
   font-size: 0.62rem;
@@ -212,21 +246,11 @@
   color: var(--color-danger);
 }
 
-/*
- * The third track exists only on a row that is over-allocated.
- *
- * The percentage chip left this row so the amount could keep a readable column,
- * and the danger colour was left carrying the warning alone — which anybody who
- * cannot separate red from grey does not receive at all. The word comes back,
- * but only for the balances that are actually over: a chip that appeared on
- * every row was the width problem, and one that appears on the rare broken row
- * is not.
- *
- * The narrow panel gives this exceptional row both asset columns so the word
- * remains visible beside the amount.
- */
+/* The rare over-allocation uses a full row to keep its amount and warning readable. */
 .assetBroken {
-  grid-template-columns: 1.4rem 3.75rem auto;
+  grid-column: 1 / -1;
+  grid-template-columns: 1.4rem minmax(0, 8rem) auto;
+  justify-content: start;
 }
 
 .assetOverFlag {
@@ -258,66 +282,14 @@
  */
 .feeGrid {
   display: grid;
-  grid-template-columns: 3.75rem 3.2rem;
+  grid-template-columns: minmax(0, 1fr) 3.2rem;
   gap: 0.2rem;
 }
 
 @container (max-width: 15.5rem) {
-  .assetBroken {
-    grid-column: 1 / -1;
-  }
-
   .feePair {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-
-/* In and out stay side by side, leaving a little spare room for their values. */
-.movement {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 46%));
-  gap: 0.25rem;
-}
-
-/*
- * The movement cards make the two sides of this comparison distinct at a
- * glance without changing the shared chain styling used by fee breakdowns.
- *
- * One line each, unlike `.chain`, which stacks: "In" is the name of the figure
- * beside it, not a heading over it, and stacking cost the panel two rows to
- * say four words.
- *
- * Scoped through `.movement` for the specificity, not for the nesting. A bare
- * `.movementCard` ties with `.chain` and loses on source order — `.chain` is
- * written further down this file — so the grid stayed and the card kept
- * stacking. Reordering the file would fix it just as silently as it broke it.
- */
-.movement .movementCard {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.2rem;
-  background: linear-gradient(180deg, var(--color-bg-2), var(--color-surface));
-  border-color: var(--color-border);
-  font-size: 0.58rem;
-  min-width: 0;
-  padding: 0.25rem 0.3rem;
-}
-
-/* The totals are the half that has to give when the panel narrows; the label
-   is two letters and shrinking it would only wrap it. */
-.movement .movementCard > span:last-child {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
-.movementLabel {
-  color: var(--color-muted);
-  font-size: 0.5rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 /* The compact Execute button is silent on success; a blocked action keeps its
@@ -371,4 +343,36 @@
   color: var(--color-muted);
   font-size: 0.6rem;
   margin: 0;
+}
+
+/* Wider panels give form fields and explanatory text room to read comfortably. */
+@container (min-width: 18rem) {
+  .badge,
+  .field,
+  .sectionTitle,
+  .hint,
+  .warning,
+  .settleBlocked,
+  .chain,
+  .frameAsset {
+    font-size: 0.68rem;
+  }
+
+  .input,
+  .select,
+  .notes {
+    font-size: 0.68rem;
+    padding: 0.3rem 0.4rem;
+  }
+
+  /* The three-column asset lists keep their compact ticker and amount fields. */
+  .asset .input,
+  .addAssetInput {
+    font-size: 0.6rem;
+    padding: 0.25rem;
+  }
+
+  .settle button {
+    font-size: 0.68rem;
+  }
 }

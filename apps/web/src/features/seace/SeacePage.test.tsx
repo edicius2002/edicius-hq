@@ -201,7 +201,7 @@ describe('SEACE views', () => {
     expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
     expect(
       mocks.loadSeacePage.mock.calls.filter(
-        ([query]) => query.page === 1 && query.excluded === false,
+        ([query]) => query.page === 1 && query.excluded === false && query.minorOnly === true,
       ),
     ).toHaveLength(1);
   });
@@ -232,31 +232,48 @@ describe('SEACE views', () => {
     expect(screen.getByText('CM-EXCLUDED')).toBeInTheDocument();
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     expect(
-      mocks.loadSeacePage.mock.calls.filter(([query]) => query.excluded === true),
+      mocks.loadSeacePage.mock.calls.filter(
+        ([query]) => query.excluded === true && query.minorOnly === true,
+      ),
     ).toHaveLength(1);
   });
 
-  it('prefetches both Minor settings and exclusion states for Published contracts', async () => {
+  it.each([
+    { path: '/seace/recent', view: 'recent' },
+    { path: '/seace/all-open', view: 'open' },
+    { path: '/seace/closed', view: 'closed' },
+    { path: '/seace/published', view: 'published' },
+  ] as const)('prefetches Minor and exclusion states on $view', async ({ path, view }) => {
+    const kind = view === 'published' ? 'contracts' : 'notices';
     fixtureRows = [
       {
-        kind: 'contracts',
+        kind,
         recordKey: 'MINOR',
         payload: { region: 'Arequipa', code: 'CM-MINOR', minor: true },
       },
       {
-        kind: 'contracts',
+        kind,
         recordKey: 'OTHER',
         payload: { region: 'Arequipa', code: 'CM-OTHER', minor: false },
       },
       {
-        kind: 'contracts',
+        kind,
         recordKey: 'HIDDEN',
         payload: { region: 'Arequipa', code: 'CM-HIDDEN', minor: false },
       },
     ];
     excludedKeys = new Set(['minor:["Arequipa","CM-HIDDEN"]']);
+    mocks.loadSeacePage.mockImplementation(async (query: SeacePageQuery) => {
+      const rows = fixtureRows.filter(
+        (row) =>
+          (!query.minorOnly || row.payload.minor) &&
+          excludedKeys.has(`minor:${JSON.stringify([row.payload.region, row.payload.code])}`) ===
+            query.excluded,
+      );
+      return { rows, total: rows.length };
+    });
 
-    mount('/seace/published');
+    mount(path);
     await screen.findByText('CM-MINOR');
     await waitFor(() =>
       expect(
@@ -267,7 +284,7 @@ describe('SEACE views', () => {
         ].every((variant) =>
           mocks.loadSeacePage.mock.calls.some(
             ([query]) =>
-              query.view === 'published' &&
+              query.view === view &&
               query.page === 1 &&
               query.minorOnly === variant.minorOnly &&
               query.excluded === variant.excluded,

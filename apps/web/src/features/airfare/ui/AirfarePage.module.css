@@ -70,6 +70,15 @@
   min-height: 0;
 }
 
+/* Keep the editor close to the heading and give the fixed-height list more room. */
+.routesPanel {
+  gap: 6px;
+}
+
+.routesPanel .panelHead {
+  margin-bottom: 0;
+}
+
 /* Smaller top-row gutters return width to all three contents and height to the map. */
 .top > .panel {
   padding: var(--space-3);

@@ -64,6 +64,7 @@ it('shows prices, three columns, and keyboard point details', async () => {
   expect(await screen.findByRole('region', { name: 'Kambista USD/PEN history' })).toBeVisible();
   expect(screen.queryByRole('link', { name: /Kambista/ })).not.toBeInTheDocument();
   const chart = await screen.findByRole('slider', { name: 'History point' });
+  fireEvent.focus(chart);
   fireEvent.keyDown(chart, { key: 'Home' });
   expect(screen.getByTestId('point-detail')).toHaveTextContent('3.71');
   fireEvent.keyDown(chart, { key: 'ArrowRight' });

@@ -180,7 +180,7 @@ it('shows a newly captured post with an entry animation after the live insert ev
   fireEvent.animationEnd(newSlot!);
   expect(newArticle).toHaveClass(styles.tweetEntering);
   fireEvent.animationEnd(newArticle!);
-  expect(newArticle).not.toHaveClass(styles.tweetEntering);
+  await waitFor(() => expect(newArticle).not.toHaveClass(styles.tweetEntering));
   expect(newSlot).not.toHaveClass(styles.tweetSlotEntering);
 });
 

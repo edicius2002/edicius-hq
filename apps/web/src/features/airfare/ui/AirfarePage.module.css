@@ -101,7 +101,7 @@
   margin: 0;
 }
 
-/* The add and cancel actions can take another line without squeezing the title. */
+/* Cancel can take another line without squeezing the title while editing. */
 @media (min-width: 641px) and (max-width: 1400px) {
   .panelHead {
     flex-wrap: wrap;

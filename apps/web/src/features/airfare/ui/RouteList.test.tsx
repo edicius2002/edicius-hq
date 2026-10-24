@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import type { AirfareRequestProgress } from '@/features/airfare/data/airfareRequests';
-import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 
 const TODAY = '2026-08-18';
@@ -35,17 +34,8 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     onMove: vi.fn(),
     ...overrides,
   };
-  // The submit button lives in the panel header on the page, tied to the form
-  // by its `form` attribute rather than by containment.
   return {
-    ...render(
-      <>
-        <RouteList {...props} />
-        <button type="submit" form={ADD_ROUTE_FORM_ID}>
-          Add route
-        </button>
-      </>,
-    ),
+    ...render(<RouteList {...props} />),
     props,
   };
 }
@@ -132,14 +122,7 @@ describe('RouteList', () => {
 
     fireEvent.click(outward);
     expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
-    rerender(
-      <>
-        <RouteList {...props} selectedId="CUZ|LIM" activeMonth="2026-11" />
-        <button type="submit" form={ADD_ROUTE_FORM_ID}>
-          Add route
-        </button>
-      </>,
-    );
+    rerender(<RouteList {...props} selectedId="CUZ|LIM" activeMonth="2026-11" />);
     expect(rowFor('CUZ', 'LIM')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /LIM\s+to\s+CUZ/ })).not.toBeInTheDocument();
     const inwardMonths = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
@@ -179,14 +162,7 @@ describe('RouteList', () => {
     expect(props.onOpenMonth).toHaveBeenCalledWith('LIM|CUZ', '2026-10');
     fireEvent.click(rowFor('LIM', 'CUZ'));
     expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
-    rerender(
-      <>
-        <RouteList {...props} selectedId="CUZ|LIM" />
-        <button type="submit" form={ADD_ROUTE_FORM_ID}>
-          Add route
-        </button>
-      </>,
-    );
+    rerender(<RouteList {...props} selectedId="CUZ|LIM" />);
     months = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
     expect(within(months).getByRole('button', { name: 'October 2026' })).toBeEnabled();
     expect(within(months).getByRole('button', { name: 'November 2026' })).toBeEnabled();
@@ -399,7 +375,60 @@ describe('RouteList', () => {
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Origin')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Departing' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Departure year' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Departure year' })).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('form', { name: /add a route/i })).getByText('2026'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('form', { name: /add a route/i })).getByRole('button', {
+        name: 'Add route',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('moves through only the departure years offered by the collection horizon', async () => {
+    const user = userEvent.setup();
+    renderList();
+    const form = screen.getByRole('form', { name: /add a route/i });
+    const previous = within(form).getByRole('button', { name: 'Previous departure year' });
+    const next = within(form).getByRole('button', { name: 'Next departure year' });
+
+    expect(previous).toBeDisabled();
+    expect(next).toBeEnabled();
+    await user.click(next);
+    expect(within(form).getByText('2027')).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'January 2027' })).toBeInTheDocument();
+    expect(previous).toBeEnabled();
+    expect(next).toBeDisabled();
+    await user.click(previous);
+    expect(within(form).getByText('2026')).toBeInTheDocument();
+  });
+
+  it('disables both year arrows when the horizon stays in one calendar year', () => {
+    renderList({ today: '2026-01-10' });
+    const form = screen.getByRole('form', { name: /add a route/i });
+    expect(within(form).getByText('2026')).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Previous departure year' })).toBeDisabled();
+    expect(within(form).getByRole('button', { name: 'Next departure year' })).toBeDisabled();
+  });
+
+  it('keeps selected months while moving between years', async () => {
+    const user = userEvent.setup();
+    renderList();
+    const form = screen.getByRole('form', { name: /add a route/i });
+    await user.click(within(form).getByRole('button', { name: 'December 2026' }));
+    await user.click(within(form).getByRole('button', { name: 'Next departure year' }));
+    await user.click(within(form).getByRole('button', { name: 'January 2027' }));
+    await user.click(within(form).getByRole('button', { name: 'Previous departure year' }));
+    expect(within(form).getByRole('button', { name: 'December 2026' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(form).getByRole('button', { name: 'Next departure year' }));
+    expect(within(form).getByRole('button', { name: 'January 2027' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   it('adds a route from the fields', async () => {

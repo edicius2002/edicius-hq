@@ -31,7 +31,6 @@ import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { ProjectedFlightTable } from '@/features/airfare/ui/ProjectedFlightTable';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
-import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
 import type { Airport } from '@/shared/api/fares';
@@ -70,7 +69,7 @@ export function AirfarePage() {
    *
    * `selected` below falls back to `routes[0]` when nothing has been chosen, so
    * an editor reading it would open a fresh page with the first route already
-   * loaded and the header button saying "Save changes" — with no way to add a
+   * loaded and the form button saying "Save changes" — with no way to add a
    * route at all. The read side keeps its fallback; the write side has none.
    *
    * Keeping them apart is also what lets Cancel leave the chart where it is: a
@@ -531,14 +530,6 @@ export function AirfarePage() {
         <Panel className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}>
           <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
-            {/*
-              Outside the form it submits, which is what `form` is for: the
-              action belongs at the top of the panel it acts on, not buried
-              under the fields.
-            */}
-            <Button type="submit" form={ADD_ROUTE_FORM_ID} variant="primary" size="small">
-              {editing ? 'Save changes' : 'Add route'}
-            </Button>
             {/*
               Only while editing, and it clears the editor without touching the
               selection: a reader who changed their mind about a chip has not

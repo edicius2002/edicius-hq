@@ -151,10 +151,9 @@ function PlotSkeleton({ label, kind }: { label: string; kind: ChartView }) {
 /**
  * The panel's id, so a control somewhere else can name what it moves.
  *
- * The month tabs in the watchlist row point `aria-controls` at this. Exported
- * the way `ADD_ROUTE_FORM_ID` is: the association between a control and the
- * thing it operates is stated rather than inferred from the tree, because in
- * both cases the two are nowhere near each other.
+ * The month tabs in the watchlist row point `aria-controls` at this. The
+ * association between a tab and the panel it operates is stated rather than
+ * inferred from the tree, because the two are nowhere near each other.
  *
  * **The panel, and not one chart inside it**, because a tab press moves both:
  * chart A's month, chart B's anchor, and the reading the detail strip prints.

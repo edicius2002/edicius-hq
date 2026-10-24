@@ -22,10 +22,9 @@
    * row makes the taller column set the height and the two end level.
    *
    * The floor is for the stacked layout below 1400px, where there is no row to
-   * fill. It follows the screen rather than sitting at a fixed 26rem, which
-   * spent the same 520px on a laptop and on a 1440p display.
+   * fill. Keep it compact there while leaving enough room to pan the diagram.
    */
-  min-height: max(26rem, 60vh);
+  min-height: max(20rem, 50vh);
   height: 100%;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);

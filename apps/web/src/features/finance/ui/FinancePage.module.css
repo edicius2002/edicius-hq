@@ -105,7 +105,9 @@
 .workspace {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1fr) 18rem;
+  grid-template-columns: minmax(0, 1fr) 13rem;
+  margin-inline: auto;
+  max-width: 64rem;
   /* `stretch`, not `start`: the canvas has no natural height worth respecting —
      it is a window onto a diagram — so the side column decides how tall the row
      is and the canvas fills it. With `start` the two ended at different places
@@ -115,23 +117,20 @@
 
 .side {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-2);
   align-content: start;
   min-width: 0;
 }
 
 /*
- * Both side boxes hold their height rather than following their contents.
- *
- * Measured on the real document: selecting a holding, an account and a job gave
- * 482, 541 and 482px against 402 with nothing selected — so every click moved
- * the totals below by up to 139px, and in the two-column layout resized the
- * canvas beside them too. A panel that changes size when you look at something
- * is a panel that moves the thing you were about to click.
- *
- * The heights come from those measurements with headroom over the tallest case,
- * and what does not fit scrolls inside rather than being cut off.
+ * Keep the two boxes aligned to the compact controls inside them. Their content
+ * still scrolls within the fixed heights when a selection has more to show.
  */
+.side > .properties,
+.side > .summary {
+  padding: var(--space-3);
+}
+
 /*
  * A container, so the lists inside can pair up on the panel's own width rather
  * than on the window's. The two are inversely related here — the panel is at
@@ -139,13 +138,7 @@
  * media query would decide it exactly backwards.
  */
 /*
- * Tall enough that nothing scrolls. Measured across all 24 nodes with the height
- * released: 482px for every holding, job and small account, and 567px for the
- * eight-asset account — 617px before the spacing was tightened. 31rem clears the
- * tallest with room for one more pair of assets on it.
- *
- * `auto` rather than `hidden` is the safety valve: a document with a much
- * larger account than this one scrolls instead of losing rows off the bottom.
+ * `auto` rather than `hidden` lets long selections scroll without losing rows.
  *
  * No `overscroll-behavior: contain`. An `overflow: auto` box is a scroll
  * container even when its content fits, and `contain` stops the wheel there
@@ -155,16 +148,24 @@
  * handling the event itself.
  */
 .properties {
+  align-content: safe center;
   container-type: inline-size;
-  height: 31rem;
+  height: 20rem;
   overflow-y: auto;
+}
+
+.properties > div {
+  justify-self: center;
+  max-width: 100%;
+  width: fit-content;
 }
 
 .summary {
   display: grid;
-  gap: var(--space-4);
-  align-content: start;
-  height: 18rem;
+  gap: var(--space-2);
+  align-content: safe center;
+  justify-items: center;
+  height: 13rem;
   /* Chains to the page, for the reason given on `.properties` above. */
   overflow-y: auto;
 }
@@ -172,11 +173,12 @@
 .summarySection {
   display: grid;
   gap: var(--space-2);
+  max-width: 100%;
 }
 
 .summaryTitle {
   color: var(--color-muted);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   margin: 0;
@@ -184,7 +186,7 @@
 }
 
 /*
- * Two to a row leaves each amount readable in the 18rem side panel; three made
+ * Two to a row leaves each amount readable in the 13rem side panel; three made
  * the Available and In transit figures compete for a third of its content box.
  */
 .summaryItems {
@@ -195,27 +197,29 @@
 
 .summaryItem {
   display: flex;
-  justify-content: space-between;
-  gap: var(--space-1);
-  font-size: 0.58rem;
+  gap: 0.15rem;
+  font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
 }
 
 .summaryAsset {
   color: var(--color-muted);
-  font-size: 0.56rem;
+  font-size: 0.64rem;
   font-weight: 700;
 }
 
 .summaryValue {
   color: var(--color-income);
-  font-size: 0.58rem;
+  font-size: 0.66rem;
   font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .summaryEmpty {
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 1400px) {
@@ -249,6 +253,19 @@
  * with `overflow-x: auto` and simply takes the slack.
  */
 @media (max-width: 640px) {
+  /* Stacked panels can grow with their contents; the page provides the scroll. */
+  .properties {
+    height: auto;
+    min-height: 12rem;
+    overflow-y: visible;
+  }
+
+  .summary {
+    height: auto;
+    min-height: 10rem;
+    overflow-y: visible;
+  }
+
   .headerActions button {
     font-size: 0.6rem;
     padding: 3px 6px;

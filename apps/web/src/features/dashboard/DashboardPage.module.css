@@ -100,6 +100,7 @@
 
 .column {
   display: grid;
+  align-content: start;
   gap: 0.6rem;
   min-width: 0;
   padding: 0.75rem;
@@ -142,6 +143,58 @@
   align-items: flex-start;
   gap: 0.65rem;
   min-width: 0;
+}
+
+.tweetSlot {
+  min-width: 0;
+}
+
+.tweetSlotEntering {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  animation: tweet-expand 180ms ease-out both;
+}
+
+.tweetSlotEntering > .tweet {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tweetEntering {
+  animation: tweet-fade 360ms linear 180ms both;
+}
+
+@keyframes tweet-expand {
+  from {
+    grid-template-rows: 0fr;
+  }
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
+@keyframes tweet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tweetSlotEntering {
+    grid-template-rows: 1fr;
+    overflow: visible;
+    animation: none;
+  }
+  .tweetSlotEntering > .tweet {
+    overflow: visible;
+  }
+  .tweetEntering {
+    animation: none;
+  }
 }
 
 .avatar {

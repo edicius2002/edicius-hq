@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const auth = vi.hoisted(() => ({
@@ -13,7 +13,7 @@ const auth = vi.hoisted(() => ({
 const tweetData = vi.hoisted(() => ({
   TWEET_WINDOW_MS: 48 * 60 * 60 * 1000,
   fetchTweets: vi.fn(),
-  subscribeTweets: vi.fn(() => () => {}),
+  subscribeTweets: vi.fn<(handle: string, onInsert: () => void) => () => void>(() => () => {}),
 }));
 
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
@@ -30,6 +30,7 @@ vi.mock('./fx/data', () => ({
 vi.mock('@/shared/api/codexResets', () => codex);
 
 import { DashboardPage } from './DashboardPage';
+import styles from './DashboardPage.module.css';
 
 const TWEETS = {
   handle: 'thsottiaux',
@@ -133,6 +134,7 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
 }
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -145,6 +147,57 @@ it('separates captured posts and replies with links', async () => {
   expect(screen.getByText('reply anon')).toBeInTheDocument();
   expect(screen.getAllByRole('link', { name: 'Open on X' })).toHaveLength(2);
   expect(screen.getAllByRole('img', { name: '@thsottiaux' })).toHaveLength(2);
+});
+
+it('shows a newly captured post with an entry animation after the live insert event', async () => {
+  stubApi();
+  const firstPost = { ...TWEETS.tweets[0], date: new Date().toISOString() };
+  const newPost = {
+    ...firstPost,
+    id: '3',
+    text: 'new live post',
+    date: new Date(Date.now() + 1_000).toISOString(),
+  };
+  tweetData.fetchTweets
+    .mockResolvedValueOnce([firstPost])
+    .mockResolvedValueOnce([newPost, firstPost]);
+  renderPage();
+
+  const firstArticle = (await screen.findByText('post anon')).closest('article');
+  expect(firstArticle).not.toHaveClass(styles.tweetEntering);
+
+  await act(async () => {
+    const onInsert = tweetData.subscribeTweets.mock.calls[0]?.[1];
+    expect(onInsert).toBeDefined();
+    onInsert?.();
+  });
+
+  const newArticle = (await screen.findByText('new live post')).closest('article');
+  await waitFor(() => expect(newArticle).toHaveClass(styles.tweetEntering));
+  const newSlot = newArticle?.parentElement;
+  expect(newSlot).toHaveClass(styles.tweetSlotEntering);
+  expect(firstArticle).not.toHaveClass(styles.tweetEntering);
+  fireEvent.animationEnd(newSlot!);
+  expect(newArticle).toHaveClass(styles.tweetEntering);
+  fireEvent.animationEnd(newArticle!);
+  await waitFor(() => expect(newArticle).not.toHaveClass(styles.tweetEntering));
+  expect(newSlot).not.toHaveClass(styles.tweetSlotEntering);
+});
+
+it('animates the first captured post after an empty dashboard', async () => {
+  stubApi();
+  tweetData.fetchTweets
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ ...TWEETS.tweets[0], date: new Date().toISOString() }]);
+  renderPage();
+
+  expect(await screen.findByText('No posts in the last 48 hours.')).toBeInTheDocument();
+  await act(async () => tweetData.subscribeTweets.mock.calls[0]?.[1]?.());
+
+  const article = (await screen.findByText('post anon')).closest('article');
+  expect(article).toHaveClass(styles.tweetEntering);
+  expect(article?.parentElement).toHaveClass(styles.tweetSlotEntering);
+  await waitFor(() => expect(article).not.toHaveClass(styles.tweetEntering), { timeout: 2_000 });
 });
 
 it('places live reset summary and calendar above the preserved tweet columns', async () => {

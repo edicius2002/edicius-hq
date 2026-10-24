@@ -42,6 +42,11 @@
 .sell {
   stroke: #e9ab88;
 }
+.cursorGroup,
+.cursorPoint {
+  pointer-events: none;
+  transition: transform 150ms ease-out;
+}
 .cursor {
   stroke: #e9ded05a;
   stroke-dasharray: 3 3;
@@ -50,6 +55,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
+  min-height: 2rem;
   font-size: 10px;
   padding: 4px 0 2px;
   border-top: 1px solid #e9ded024;
@@ -72,5 +78,11 @@
   .plot {
     flex: none;
     height: 130px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cursorGroup,
+  .cursorPoint {
+    transition: none;
   }
 }

@@ -68,9 +68,10 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule(file, selector)).toMatch(/min-height:\s*32px/);
   });
 
-  it('lets the watchlist wrap without collapsing route names or losing months', () => {
-    expect(rule('RouteList', '.row')).toMatch(
-      /grid-template-columns:\s*auto minmax\(0, 1fr\) auto/,
+  it('stacks paired routes while keeping each route beside its months on phones', () => {
+    expect(rule('RouteList', '.row')).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(rule('RouteList', '.routeCell')).toMatch(
+      /grid-template-columns:\s*minmax\(0, 1fr\) auto/,
     );
     expect(rule('RouteList', '.months')).toMatch(/grid-column:\s*2/);
   });

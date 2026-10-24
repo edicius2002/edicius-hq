@@ -145,8 +145,11 @@ async def _collect_route(
     )
 
 
-def _sync_pass(origin: str, destination: str) -> bool:
-    return AIRFARE_DATA.sync_manual_route(origin, destination).status == "complete"
+def _sync_pass(origin: str, destination: str, on_progress: Callable[[int, int], None]) -> bool:
+    return (
+        AIRFARE_DATA.sync_manual_route(origin, destination, on_progress=on_progress).status
+        == "complete"
+    )
 
 
 class RequestProgress(PassObserver):
@@ -201,8 +204,11 @@ class RequestProgress(PassObserver):
         await self._drain()
 
     async def syncing(self) -> None:
-        self._schedule(force=True, stage="syncing")
         await self._drain()
+        await self._send({"stage": "syncing", "completed": 0, "total": None})
+
+    async def sync_step(self, completed: int, total: int) -> None:
+        await self._send({"stage": "syncing", "completed": completed, "total": total})
 
     async def _drain(self) -> None:
         while self._tasks:
@@ -313,10 +319,19 @@ class AirfareRequestWorker:
             await progress.syncing()
             sync_started = self._clock()
             try:
+                loop = asyncio.get_running_loop()
+
+                def publish_sync(completed: int, total: int) -> None:
+                    asyncio.run_coroutine_threadsafe(
+                        progress.sync_step(completed, total), loop
+                    ).result()
+
                 synced = await (
                     asyncio.to_thread(self._sync_pass, report)
                     if self._sync_pass is not None
-                    else asyncio.to_thread(_sync_pass, parsed.origin, parsed.destination)
+                    else asyncio.to_thread(
+                        _sync_pass, parsed.origin, parsed.destination, publish_sync
+                    )
                 )
             finally:
                 sync_ms = round((self._clock() - sync_started) * 1000)

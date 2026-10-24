@@ -7,8 +7,9 @@ import {
   fetchAirfareRequest,
   subscribeAirfareRequests,
   type AirfareRequest,
+  type AirfareRequestProgress,
 } from '@/features/airfare/data/airfareRequests';
-import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import { routeId, routeMonthKey, type FareRoute } from '@/features/airfare/data/fareRoutes';
 import {
   NOTICE_LIFE_MS,
   acceptedCollectNotice,
@@ -16,14 +17,13 @@ import {
   withNotice,
   type CollectNotice,
 } from '@/features/airfare/lib/collectNotice';
-import type { PassProgress } from '@/features/airfare/lib/passProgress';
 
 const RECONCILE_MS = 5_000;
 const IDLE_RECONCILE_MS = 60_000;
 
 export type RouteCollection = {
   collecting: readonly string[];
-  progress: ReadonlyMap<string, PassProgress>;
+  progress: ReadonlyMap<string, AirfareRequestProgress>;
   notices: readonly CollectNotice[];
   collect: (route: FareRoute, month: string) => void;
   forget: (id: string) => void;
@@ -32,14 +32,16 @@ export type RouteCollection = {
 export function useRouteCollection(): RouteCollection {
   const client = useQueryClient();
   const [requests, setRequests] = useState<ReadonlyMap<string, AirfareRequest>>(() => new Map());
+  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [notices, setNotices] = useState<readonly CollectNotice[]>([]);
   const requestsRef = useRef(new Map<string, AirfareRequest>());
+  const pendingRef = useRef(new Set<string>());
   const adopted = useRef(new Set<string>());
   const handledTerminal = useRef(new Set<string>());
   const forgottenRoutes = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const reconcileRef = useRef<() => Promise<void>>(async () => {});
-  const { collecting, progress } = useMemo(() => deriveActiveState(requests), [requests]);
+  const { collecting, progress } = useMemo(() => deriveActiveState(requests, pending), [requests, pending]);
 
   const showNotice = useCallback((notice: CollectNotice) => {
     setNotices((current) => withNotice(current, notice));
@@ -63,6 +65,8 @@ export function useRouteCollection(): RouteCollection {
           : incoming;
       const route = requestRouteId(request);
       if (forgottenRoutes.current.has(route)) return;
+      const key = requestMonthKey(request);
+      if (pendingRef.current.delete(key)) setPending(new Set(pendingRef.current));
       const active = request.status === 'queued' || request.status === 'running';
       const previous = requestsRef.current.get(request.requestId);
       if (
@@ -158,6 +162,18 @@ export function useRouteCollection(): RouteCollection {
   const collect = useCallback(
     (route: FareRoute, month: string) => {
       forgottenRoutes.current.delete(routeId(route));
+      const key = routeMonthKey(route, month);
+      if (
+        pendingRef.current.has(key) ||
+        [...requestsRef.current.values()].some(
+          (request) =>
+            requestMonthKey(request) === key &&
+            (request.status === 'queued' || request.status === 'running'),
+        )
+      )
+        return;
+      pendingRef.current.add(key);
+      setPending(new Set(pendingRef.current));
       void enqueueAirfareRequest({
         origin: route.origin,
         destination: route.destination,
@@ -166,9 +182,13 @@ export function useRouteCollection(): RouteCollection {
       })
         .then((request) => {
           accept(request);
-          showNotice(acceptedCollectNotice(request));
+          if (!forgottenRoutes.current.has(routeId(route)))
+            showNotice(acceptedCollectNotice(request));
         })
         .catch(() => {
+          pendingRef.current.delete(key);
+          setPending(new Set(pendingRef.current));
+          if (forgottenRoutes.current.has(routeId(route))) return;
           const id = `enqueue-${route.origin}-${route.destination}-${month}`;
           showNotice({
             id,
@@ -184,6 +204,10 @@ export function useRouteCollection(): RouteCollection {
 
   const forget = useCallback((id: string) => {
     forgottenRoutes.current.add(id);
+    for (const key of pendingRef.current) {
+      if (key.startsWith(`${id}|`)) pendingRef.current.delete(key);
+    }
+    setPending(new Set(pendingRef.current));
     for (const [requestId, request] of requestsRef.current) {
       if (requestRouteId(request) !== id) continue;
       requestsRef.current.delete(requestId);
@@ -204,26 +228,21 @@ export function useRouteCollection(): RouteCollection {
   return { collecting, progress, notices, collect, forget };
 }
 
-function deriveActiveState(requests: ReadonlyMap<string, AirfareRequest>): {
+function deriveActiveState(
+  requests: ReadonlyMap<string, AirfareRequest>,
+  pending: ReadonlySet<string>,
+): {
   collecting: readonly string[];
-  progress: ReadonlyMap<string, PassProgress>;
+  progress: ReadonlyMap<string, AirfareRequestProgress>;
 } {
-  const collecting: string[] = [];
-  const progress = new Map<string, PassProgress>();
+  const collecting = [...pending];
+  const progress = new Map<string, AirfareRequestProgress>();
+  for (const key of pending) progress.set(key, { stage: 'queued', completed: 0, total: null });
   for (const request of requests.values()) {
     if (request.status !== 'queued' && request.status !== 'running') continue;
-    const id = requestRouteId(request);
-    if (!collecting.includes(id)) collecting.push(id);
-    const { stage, completed, total } = request.progress;
-    if (stage === 'syncing') {
-      const polling = total && total > 0 ? total : Math.max(completed, 1);
-      progress.set(id, { completed: polling, polling, fraction: 1, syncing: true });
-    } else if (stage === 'queued' || total === null || total === 0) {
-      progress.set(id, { completed, polling: null, fraction: null });
-    } else {
-      const clamped = Math.min(completed, total);
-      progress.set(id, { completed: clamped, polling: total, fraction: clamped / total });
-    }
+    const key = requestMonthKey(request);
+    if (!collecting.includes(key)) collecting.push(key);
+    progress.set(key, request.progress);
   }
   return { collecting, progress };
 }
@@ -236,4 +255,8 @@ function deriveActiveState(requests: ReadonlyMap<string, AirfareRequest>): {
  */
 function requestRouteId(request: AirfareRequest): string {
   return routeId(request.payload);
+}
+
+function requestMonthKey(request: AirfareRequest): string {
+  return routeMonthKey(request.payload, request.payload.month);
 }

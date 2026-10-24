@@ -9,7 +9,7 @@ import threading
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from itertools import chain, repeat
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import ANY, AsyncMock, Mock, call
 from uuid import UUID
 
 from app.services.airfare_request_worker import AirfareRequestWorker
@@ -191,7 +191,10 @@ def test_real_manual_sync_accepts_partial_results_when_some_departures_were_read
         assert asyncio.run(worker.reconcile_once()) is True
         remote.complete_request.assert_called_once()
         assert remote.complete_request.call_args.args[1]["synced"] is True
-    assert data.sync_manual_route.call_args_list == [call("LIM", "CUZ"), call("LIM", "CUZ")]
+    assert data.sync_manual_route.call_args_list == [
+        call("LIM", "CUZ", on_progress=ANY),
+        call("LIM", "CUZ", on_progress=ANY),
+    ]
     data.sync_incremental.assert_not_called()
 
 
@@ -213,8 +216,44 @@ def test_default_sync_uses_validated_request_route_instead_of_report_route(monke
         )
         is True
     )
-    data.sync_manual_route.assert_called_once_with("ARI", "SCL")
+    data.sync_manual_route.assert_called_once_with("ARI", "SCL", on_progress=ANY)
     data.sync_incremental.assert_not_called()
+
+
+def test_real_sync_steps_reach_the_request_before_completion(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    data = Mock()
+
+    def sync_route(_origin, _destination, *, on_progress):
+        on_progress(0, 4)
+        on_progress(1, 4)
+        on_progress(4, 4)
+        return Mock(status="complete")
+
+    data.sync_manual_route.side_effect = sync_route
+    monkeypatch.setattr(module, "AIRFARE_DATA", data)
+    remote = Mock(owner_id=OWNER)
+    remote.claim_request.side_effect = [request(), None]
+    assert (
+        asyncio.run(
+            worker_for(remote, collect_route=AsyncMock(return_value=report())).reconcile_once()
+        )
+        is True
+    )
+
+    syncing = [
+        entry.args[1]
+        for entry in remote.update_request_progress.call_args_list
+        if entry.args[1]["stage"] == "syncing"
+    ]
+    assert syncing == [
+        {"stage": "syncing", "completed": 0, "total": None},
+        {"stage": "syncing", "completed": 0, "total": 4},
+        {"stage": "syncing", "completed": 1, "total": 4},
+        {"stage": "syncing", "completed": 4, "total": 4},
+    ]
+    remote.complete_request.assert_called_once()
 
 
 def test_real_manual_sync_keeps_a_minority_of_successful_departures(monkeypatch):
@@ -245,7 +284,7 @@ def test_real_manual_sync_keeps_a_minority_of_successful_departures(monkeypatch)
         )
         is True
     )
-    data.sync_manual_route.assert_called_once_with("LIM", "CUZ")
+    data.sync_manual_route.assert_called_once_with("LIM", "CUZ", on_progress=ANY)
     assert remote.complete_request.call_args.args[1]["failed"] == 2
 
 

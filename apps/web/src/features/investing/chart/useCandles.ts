@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   cadenceFor,
@@ -188,7 +188,9 @@ export function useCandles(
   const cachedSeries = cachedRegular ?? cachedExtended;
   const hasSession = cachedSeries?.hasSession ?? !initiallySessionless(symbol);
   const wantExtended = hasSession && regime !== 'regular';
-  selectedChart.current = { symbol, timeframe, extended: wantExtended };
+  useLayoutEffect(() => {
+    selectedChart.current = { symbol, timeframe, extended: wantExtended };
+  }, [symbol, timeframe, wantExtended]);
   useChartFocus({
     symbol,
     timeframe,

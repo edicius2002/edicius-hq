@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, useLocation } from 'react-router-dom';
 
 import {
@@ -162,6 +163,7 @@ const links = (row: SeaceRow) => {
 };
 
 export function SeacePage() {
+  const queryClient = useQueryClient();
   const location = useLocation();
   const view: SeaceView = location.pathname.endsWith('/published')
     ? 'published'
@@ -179,13 +181,9 @@ export function SeacePage() {
   const [region, setRegion] = useState('Arequipa');
   const [minorOnly, setMinorOnly] = useState(true);
   const [objectFilter, setObjectFilter] = useState('Todos');
-  const [pageResult, setPageResult] = useState<
-    { key: string; rows: SeaceRow[]; total: number; error: string } | undefined
-  >();
   const [syncResult, setSyncResult] = useState<{ key: string; rows: SeaceSync[] } | undefined>();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [savingExclusions, setSavingExclusions] = useState(false);
-  const [reloadVersion, setReloadVersion] = useState(0);
   const [excludedByView, setExcludedByView] = useState<Record<SeaceView, boolean>>({
     recent: false,
     open: false,
@@ -207,78 +205,98 @@ export function SeacePage() {
     | null
   >(null);
   const detailDialogRef = useRef<HTMLDialogElement>(null);
-  const requestKey = JSON.stringify([
-    region,
-    year,
-    view,
-    minorOnly,
-    objectFilter,
-    excludedView,
-    search,
-    sort.field,
-    sort.ascending,
-    page,
-    pageSize,
-    reloadVersion,
-  ]);
+  const filterKeyFor = useCallback(
+    (excluded: boolean, minor: boolean) =>
+      JSON.stringify([
+        region,
+        year,
+        view,
+        minor,
+        objectFilter,
+        excluded,
+        search,
+        sort.field,
+        sort.ascending,
+        pageSize,
+      ]),
+    [region, year, view, objectFilter, search, sort.field, sort.ascending, pageSize],
+  );
+  const filterKey = filterKeyFor(excludedView, minorOnly);
+  const oppositeFilterKey = filterKeyFor(!excludedView, minorOnly);
   const syncKey = `${region}:${year}`;
-  const loading = pageResult?.key !== requestKey;
-  const records = loading ? [] : pageResult.rows;
-  const total = loading ? 0 : pageResult.total;
-  const message = (loading ? '' : pageResult.error) || actionMessage;
+  const loadPage = useCallback(
+    async (targetPage: number, targetExcluded: boolean, targetMinor: boolean) => ({
+      ...(await loadSeacePage({
+        region,
+        year,
+        view,
+        minorOnly: targetMinor,
+        objectFilter,
+        excluded: targetExcluded,
+        search,
+        sortField: sort.field,
+        ascending: sort.ascending,
+        page: targetPage,
+        pageSize,
+        now: new Date().toISOString(),
+      })),
+      page: targetPage,
+    }),
+    [region, year, view, objectFilter, search, sort.field, sort.ascending, pageSize],
+  );
+  const pageQuery = useQuery({
+    queryKey: ['seace', 'page', filterKey, page],
+    queryFn: () => loadPage(page, excludedView, minorOnly),
+    staleTime: 30_000,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === filterKey ? previousData : undefined,
+  });
+  const loading = pageQuery.isPending || pageQuery.isPlaceholderData;
+  const records = pageQuery.data?.rows ?? [];
+  const total = pageQuery.data?.total ?? 0;
+  const message =
+    (pageQuery.error instanceof Error ? pageQuery.error.message : '') || actionMessage;
   const syncs = syncResult?.key === syncKey ? syncResult.rows : [];
 
   useEffect(() => {
-    let cancelled = false;
-    void loadSeacePage({
-      region,
-      year,
-      view,
-      minorOnly,
-      objectFilter,
-      excluded: excludedView,
-      search,
-      sortField: sort.field,
-      ascending: sort.ascending,
-      page,
-      pageSize,
-      now: new Date().toISOString(),
-    })
-      .then((result) => {
-        if (cancelled) return;
-        const lastPage = Math.max(1, Math.ceil(result.total / pageSize));
-        if (page > lastPage) {
-          setPage(lastPage);
-          return;
-        }
-        setPageResult({ key: requestKey, rows: result.rows, total: result.total, error: '' });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled)
-          setPageResult({
-            key: requestKey,
-            rows: [],
-            total: 0,
-            error: error instanceof Error ? error.message : 'SEACE data unavailable',
-          });
+    if (!pageQuery.data || pageQuery.isPlaceholderData) return;
+    const lastPage = Math.max(1, Math.ceil(pageQuery.data.total / pageSize));
+    void queryClient.prefetchQuery({
+      queryKey: ['seace', 'page', oppositeFilterKey, 1],
+      queryFn: () => loadPage(1, !excludedView, minorOnly),
+      staleTime: 30_000,
+    });
+    if (view === 'published') {
+      for (const targetExcluded of [excludedView, !excludedView]) {
+        void queryClient.prefetchQuery({
+          queryKey: ['seace', 'page', filterKeyFor(targetExcluded, !minorOnly), 1],
+          queryFn: () => loadPage(1, targetExcluded, !minorOnly),
+          staleTime: 30_000,
+        });
+      }
+    }
+    if (page > lastPage) {
+      queueMicrotask(() => setPage((current) => Math.min(current, lastPage)));
+    } else if (page < lastPage) {
+      void queryClient.prefetchQuery({
+        queryKey: ['seace', 'page', filterKey, page + 1],
+        queryFn: () => loadPage(page + 1, excludedView, minorOnly),
+        staleTime: 30_000,
       });
-    return () => {
-      cancelled = true;
-    };
+    }
   }, [
-    region,
-    year,
-    view,
-    minorOnly,
-    objectFilter,
-    excludedView,
-    search,
-    sort.field,
-    sort.ascending,
+    pageQuery.data,
+    pageQuery.isPlaceholderData,
     page,
     pageSize,
-    reloadVersion,
-    requestKey,
+    queryClient,
+    filterKey,
+    oppositeFilterKey,
+    filterKeyFor,
+    loadPage,
+    excludedView,
+    minorOnly,
+    view,
   ]);
 
   useEffect(() => {
@@ -321,7 +339,7 @@ export function SeacePage() {
     : '—';
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.min(page, pages);
+  const currentPage = Math.min(pageQuery.data?.page ?? page, pages);
   const visible = records;
   const visibleKeys = visible.map(exclusionKey);
   const allVisibleSelected =
@@ -371,7 +389,7 @@ export function SeacePage() {
     try {
       await setExcludedMany(keys, excluded);
       setSelectedKeys(new Set());
-      setReloadVersion((value) => value + 1);
+      await queryClient.invalidateQueries({ queryKey: ['seace', 'page'] });
       setActionMessage('');
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'Could not update');
@@ -712,7 +730,7 @@ export function SeacePage() {
                   ))}
                 </tr>
               ))}
-              {visible.length === 0 && (
+              {visible.length === 0 && !loading && (
                 <tr>
                   <td className={styles.emptyCell} colSpan={columns.length + 1}>
                     <span className={styles.emptyMessage}>
@@ -734,7 +752,7 @@ export function SeacePage() {
             <div className={styles.pageNavigation}>
               <button
                 type="button"
-                disabled={currentPage <= 1}
+                disabled={loading || currentPage <= 1}
                 onClick={() => {
                   setPage(currentPage - 1);
                   setSelectedKeys(new Set());
@@ -747,7 +765,7 @@ export function SeacePage() {
               </span>
               <button
                 type="button"
-                disabled={currentPage >= pages}
+                disabled={loading || currentPage >= pages}
                 onClick={() => {
                   setPage(currentPage + 1);
                   setSelectedKeys(new Set());

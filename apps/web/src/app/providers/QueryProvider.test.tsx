@@ -29,12 +29,15 @@ it('drops market bar memory and browser history when the signed-in owner changes
   );
   act(() => emit('INITIAL_SESSION', { user: { id: 'owner-a' } }));
   client.setQueryData(['market', 'bars', 'AAPL', '1d', false], { bars: [1] });
+  client.setQueryData(['seace', 'page', 'recent', 1], { rows: [1] });
   client.setQueryData(['storage', 'investing-watchlist'], { entries: [] });
 
   act(() => emit('TOKEN_REFRESHED', { user: { id: 'owner-a' } }));
   expect(client.getQueryData(['market', 'bars', 'AAPL', '1d', false])).toBeDefined();
+  expect(client.getQueryData(['seace', 'page', 'recent', 1])).toBeDefined();
   act(() => emit('SIGNED_OUT', null));
   expect(client.getQueryData(['market', 'bars', 'AAPL', '1d', false])).toBeUndefined();
+  expect(client.getQueryData(['seace', 'page', 'recent', 1])).toBeUndefined();
   expect(client.getQueryData(['storage', 'investing-watchlist'])).toBeDefined();
   expect(clearBars).toHaveBeenCalledOnce();
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { CodexReset } from '@/shared/api/codexResets';
 
@@ -26,13 +26,24 @@ export function ResetCalendar({
   unavailable?: boolean;
 }) {
   const calendar = useMemo(() => buildResetCalendar(resets, now), [resets, now]);
-  const latestDay = calendar.weeks
-    .flat()
-    .filter((day) => day.resets.length > 0)
-    .at(-1);
-  const [selectedKey, setSelectedKey] = useState<string | null>(latestDay?.key ?? null);
-  const selected =
-    calendar.weeks.flat().find((day) => day.key === selectedKey) ?? latestDay ?? null;
+  const days = calendar.weeks.flat();
+  const latestDay = days.filter((day) => day.resets.length > 0).at(-1);
+  const [pointerKey, setPointerKey] = useState<string | null>(null);
+  const [keyboardKey, setKeyboardKey] = useState<string | null>(null);
+  const [touchKey, setTouchKey] = useState<string | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const activeKey = pointerKey ?? keyboardKey ?? touchKey;
+  const selected = days.find((day) => day.key === activeKey) ?? latestDay ?? null;
+  const active = activeKey !== null && selected?.key === activeKey;
+
+  useEffect(() => {
+    if (touchKey === null) return;
+    const dismissTouch = (event: PointerEvent) => {
+      if (!chartRef.current?.contains(event.target as Node)) setTouchKey(null);
+    };
+    document.addEventListener('pointerdown', dismissTouch);
+    return () => document.removeEventListener('pointerdown', dismissTouch);
+  }, [touchKey]);
 
   return (
     <section className={styles.section} aria-labelledby="reset-history-title">
@@ -54,7 +65,16 @@ export function ResetCalendar({
         </div>
       </div>
       <div className={styles.card}>
-        <div className={styles.chart}>
+        <div
+          ref={chartRef}
+          className={styles.chart}
+          onPointerLeave={(event) => {
+            if (event.pointerType !== 'touch') setPointerKey(null);
+          }}
+          onPointerDown={(event) => {
+            if (event.pointerType !== 'touch') setTouchKey(null);
+          }}
+        >
           <div className={styles.weekdays} aria-hidden="true">
             <span />
             {WEEKDAYS.map((weekday, index) => (
@@ -87,12 +107,28 @@ export function ResetCalendar({
                     data-future={day.future || undefined}
                     aria-label={labelFor(day)}
                     aria-pressed={selected?.key === day.key}
+                    data-active={(active && selected?.key === day.key) || undefined}
                     aria-hidden={loading || unavailable || undefined}
                     disabled={loading || unavailable}
                     style={{ gridColumn: column + 1, gridRow: weekday + 2 }}
-                    onFocus={() => setSelectedKey(day.key)}
-                    onMouseEnter={() => setSelectedKey(day.key)}
-                    onClick={() => setSelectedKey(day.key)}
+                    onFocus={(event) => {
+                      if (event.currentTarget.matches(':focus-visible')) setKeyboardKey(day.key);
+                    }}
+                    onBlur={() => setKeyboardKey(null)}
+                    onKeyDown={() => setKeyboardKey(day.key)}
+                    onPointerEnter={(event) => {
+                      if (event.pointerType !== 'touch') {
+                        setPointerKey(day.key);
+                        setTouchKey(null);
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      if (event.pointerType === 'touch') setTouchKey(day.key);
+                      else setKeyboardKey(null);
+                    }}
+                    onClick={(event) => {
+                      if (event.detail === 0) setKeyboardKey(day.key);
+                    }}
                   />
                 )),
               )}
@@ -120,16 +156,14 @@ export function ResetCalendar({
               </strong>
             ) : unavailable ? (
               <strong role="status">Codex reset data unavailable.</strong>
-            ) : selected ? (
+            ) : active && selected ? (
               <>
                 <strong>{labelFor(selected)}</strong>
                 {selected.resets.map((reset) => (
                   <small key={reset.id}>{formatBogotaDateTime(reset.announcedAt)}</small>
                 ))}
               </>
-            ) : (
-              <strong>No confirmed resets in this window.</strong>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

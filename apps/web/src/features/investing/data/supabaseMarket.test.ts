@@ -13,6 +13,7 @@ const state = vi.hoisted(() => {
   const quotesIn = vi.fn(() => ({ abortSignal: quotesAbortSignal }));
   const quotesSelect = vi.fn(() => ({ in: quotesIn }));
   const bulkAbortSignal = vi.fn();
+  const bulkSymbolIn = vi.fn(() => ({ eq: bulkExtendedEq }));
   const bulkExtendedEq = vi.fn(() => ({ abortSignal: bulkAbortSignal }));
   const bulkSymbolEq = vi.fn(() => ({ eq: bulkExtendedEq }));
   const from = vi.fn((table: string) => {
@@ -21,7 +22,7 @@ const state = vi.hoisted(() => {
       return {
         select: vi.fn((columns: string) =>
           columns.includes('timeframe,')
-            ? { eq: bulkSymbolEq }
+            ? { eq: bulkSymbolEq, in: bulkSymbolIn }
             : {
                 eq: vi.fn(() => ({
                   eq: vi.fn(() => ({
@@ -65,6 +66,7 @@ const state = vi.hoisted(() => {
     requestSingle,
     bulkAbortSignal,
     bulkSymbolEq,
+    bulkSymbolIn,
     bulkExtendedEq,
   };
 });
@@ -94,6 +96,38 @@ const BARS = {
 };
 
 describe('Supabase Investing market boundary', () => {
+  it('reads saved bars for multiple assets in one request without queueing worker jobs', async () => {
+    state.bulkAbortSignal.mockResolvedValue({
+      data: [
+        {
+          symbol: 'BNO',
+          timeframe: '1w',
+          provider: 'worker',
+          payload: { ...BARS, symbol: 'BNO', timeframe: '1w' },
+          fetched_at: '2026-09-24T00:00:00Z',
+          expires_at: '2026-09-25T00:00:00Z',
+        },
+        {
+          symbol: 'OTHER',
+          timeframe: '1d',
+          provider: 'worker',
+          payload: { ...BARS, symbol: 'OTHER' },
+          fetched_at: '2026-09-24T00:00:00Z',
+          expires_at: '2026-09-25T00:00:00Z',
+        },
+      ],
+      error: null,
+    });
+
+    const result = await market.getStoredBarsForSymbols(['BNO', 'USO', 'BNO'], false);
+
+    expect(state.bulkSymbolIn).toHaveBeenCalledWith('symbol', ['BNO', 'USO']);
+    expect(result).toEqual([
+      expect.objectContaining({ symbol: 'BNO', timeframe: '1w', stale: true }),
+    ]);
+    expect(state.insert).not.toHaveBeenCalled();
+  });
+
   it('reads every saved timeframe in one owner-scoped query and marks expired rows stale', async () => {
     state.bulkAbortSignal.mockResolvedValue({
       data: [

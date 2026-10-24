@@ -215,7 +215,7 @@ class MarketWorker:
             tuple[str, str, bool], tuple[int, float, float, float, float, float]
         ] = {}
         self._last_broadcast: dict[str, tuple[float, str | None, bool]] = {}
-        self._quote_interest: dict[str, float] = {}
+        self._quote_interest: dict[str, tuple[float, frozenset[str]]] = {}
         self._last_write: dict[str, float] = {}
         self._bar_results: dict[
             tuple[str, str, bool], tuple[float, dict[str, Any], dict[str, Any]]
@@ -367,16 +367,25 @@ class MarketWorker:
             return False
         self._expire_quote_interest()
         if active:
-            self._quote_interest[client_id] = self._clock()
+            requested = payload.get("symbols")
+            if not isinstance(requested, list) or not 1 <= len(requested) <= 512:
+                return False
+            symbols = [_symbol(value) for value in requested]
+            if any(symbol is None or len(symbol) > 64 for symbol in symbols):
+                return False
+            self._quote_interest[client_id] = (
+                self._clock(),
+                frozenset(symbol for symbol in symbols if symbol is not None),
+            )
             return True
         return self._quote_interest.pop(client_id, None) is not None
 
     def _expire_quote_interest(self) -> None:
         now = self._clock()
         self._quote_interest = {
-            client_id: received_at
-            for client_id, received_at in self._quote_interest.items()
-            if now - received_at < QUOTE_INTEREST_TTL_SECONDS
+            client_id: lease
+            for client_id, lease in self._quote_interest.items()
+            if now - lease[0] < QUOTE_INTEREST_TTL_SECONDS
         }
 
     def accept_bar(self, update: LiveBar) -> None:
@@ -385,14 +394,19 @@ class MarketWorker:
         if current is None or update.as_of >= current.as_of:
             self._live_bar_pending[key] = update
 
-    async def publish_ticks(self) -> int:
+    async def publish_ticks(self, symbols: set[str] | None = None) -> int:
         candidates = {
             symbol: tick
             for symbol, tick in self._live_pending.items()
-            if _visible_reading(tick) != self._last_broadcast.get(symbol)
+            if (symbols is None or symbol in symbols)
+            and _visible_reading(tick) != self._last_broadcast.get(symbol)
         }
         for symbol, tick in tuple(self._live_pending.items()):
-            if symbol not in candidates and self._live_pending.get(symbol) is tick:
+            if (
+                (symbols is None or symbol in symbols)
+                and symbol not in candidates
+                and self._live_pending.get(symbol) is tick
+            ):
                 self._live_pending.pop(symbol, None)
         if not candidates:
             return 0
@@ -688,7 +702,11 @@ class MarketWorker:
             except TimeoutError:
                 self._expire_quote_interest()
                 if self._quote_interest:
-                    await self.publish_ticks()
+                    visible = set().union(
+                        *(symbols for _, symbols in self._quote_interest.values())
+                    )
+                    if visible:
+                        await self.publish_ticks(visible)
 
     async def _publish_bars(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():

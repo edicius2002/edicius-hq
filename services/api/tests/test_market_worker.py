@@ -839,7 +839,7 @@ def test_publisher_runs_without_another_reconciliation(monkeypatch):
         )
         worker = MarketWorker(remote, stream=IdleStream(), client=Mock())
         worker.reconcile_once = AsyncMock(return_value=True)
-        worker.accept_quote_interest({"clientId": "tab-a", "active": True})
+        worker.accept_quote_interest({"clientId": "tab-a", "active": True, "symbols": ["AAPL"]})
         worker.accept(Tick("AAPL", 101, "yahoo", time=2))
 
         await asyncio.wait_for(worker.run(stopped), 0.2)
@@ -858,23 +858,34 @@ def test_background_publisher_waits_for_a_recent_viewer_before_sending_ticks(mon
         clock = Clock()
         worker = MarketWorker(remote, clock=clock, client=Mock())
         worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+        worker.accept(Tick("MSFT", 201, "yahoo", time=2))
         stopped = asyncio.Event()
         asyncio.get_running_loop().call_later(0.035, stopped.set)
         await worker._publish_ticks(stopped)
         remote.broadcast_quote_ticks.assert_not_called()
 
-        assert worker.accept_quote_interest({"clientId": "tab-a", "active": True})
+        assert worker.accept_quote_interest(
+            {"clientId": "tab-a", "active": True, "symbols": ["AAPL"]}
+        )
         remote.broadcast_quote_ticks.side_effect = lambda _rows: stopped.set() or 1
         stopped = asyncio.Event()
         await asyncio.wait_for(worker._publish_ticks(stopped), 0.2)
         remote.broadcast_quote_ticks.assert_called_once()
+        assert [row["symbol"] for row in remote.broadcast_quote_ticks.call_args.args[0]] == ["AAPL"]
+
+        assert worker.accept_quote_interest(
+            {"clientId": "tab-a", "active": True, "symbols": ["MSFT"]}
+        )
+        stopped = asyncio.Event()
+        await asyncio.wait_for(worker._publish_ticks(stopped), 0.2)
+        assert [row["symbol"] for row in remote.broadcast_quote_ticks.call_args.args[0]] == ["MSFT"]
 
         clock.advance(market_worker.QUOTE_INTEREST_TTL_SECONDS)
         worker.accept(Tick("AAPL", 102, "yahoo", time=3))
         stopped = asyncio.Event()
         asyncio.get_running_loop().call_later(0.035, stopped.set)
         await worker._publish_ticks(stopped)
-        remote.broadcast_quote_ticks.assert_called_once()
+        assert remote.broadcast_quote_ticks.call_count == 2
 
     asyncio.run(scenario())
 
@@ -911,7 +922,7 @@ def test_slow_broadcasts_do_not_overlap_or_drop_ticks_accepted_in_flight(monkeyp
 
         remote.broadcast_quote_ticks.side_effect = broadcast
         worker = MarketWorker(remote, client=Mock())
-        worker.accept_quote_interest({"clientId": "tab-a", "active": True})
+        worker.accept_quote_interest({"clientId": "tab-a", "active": True, "symbols": ["AAPL"]})
         worker.accept(Tick("AAPL", 100, "yahoo", time=1))
         publishing = asyncio.create_task(worker._publish_ticks(stopped))
         assert await asyncio.to_thread(started.wait, 0.1)

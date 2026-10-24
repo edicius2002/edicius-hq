@@ -8,8 +8,7 @@ import {
 export const MARKET_INTEREST_HEARTBEAT_MS = 30_000;
 
 /** Keep a short lease while this page is listening for live quotes. */
-export function useMarketInterest(active: boolean): boolean {
-  const [clientId] = useState(() => crypto.randomUUID());
+export function useMarketInterest(active: boolean, symbols: readonly string[]): boolean {
   const [available, setAvailable] = useState(false);
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
 
@@ -19,10 +18,13 @@ export function useMarketInterest(active: boolean): boolean {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
 
-  const needsQuotes = active && visible;
+  const key = symbols.join(',');
+  const needsQuotes = active && visible && key.length > 0;
 
   useEffect(() => {
     if (!needsQuotes) return;
+    const clientId = crypto.randomUUID();
+    const requested = key.split(',');
     let disposed = false;
     let opening = false;
     let publisher: MarketInterestPublisher | undefined;
@@ -37,7 +39,7 @@ export function useMarketInterest(active: boolean): boolean {
           return;
         }
         publisher = target;
-        await target.publish({ clientId, active: true });
+        await target.publish({ clientId, active: true, symbols: requested });
         if (!disposed) setAvailable(true);
       } catch {
         if (!disposed) setAvailable(false);
@@ -68,7 +70,7 @@ export function useMarketInterest(active: boolean): boolean {
         })();
       }
     };
-  }, [needsQuotes, clientId]);
+  }, [needsQuotes, key]);
 
   return needsQuotes && available;
 }

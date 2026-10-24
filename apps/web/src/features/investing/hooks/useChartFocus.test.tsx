@@ -9,6 +9,7 @@ import { CHART_FOCUS_HEARTBEAT_MS, useChartFocus } from './useChartFocus';
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 function publisher() {
@@ -19,6 +20,30 @@ function publisher() {
 }
 
 describe('useChartFocus', () => {
+  it('releases a hidden chart and resumes live bars when it becomes visible', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const first = publisher();
+    const resumed = publisher();
+    transport.open.mockResolvedValueOnce(first).mockResolvedValueOnce(resumed);
+    const { unmount } = renderHook(() =>
+      useChartFocus({ symbol: 'AAPL', timeframe: '1m', extended: false }),
+    );
+    await act(async () => void (await Promise.resolve()));
+    expect(first.publish).toHaveBeenCalledWith(expect.objectContaining({ active: true }));
+
+    visibility.mockReturnValue('hidden');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await act(async () => void (await Promise.resolve()));
+    expect(first.publish).toHaveBeenLastCalledWith(expect.objectContaining({ active: false }));
+    expect(first.close).toHaveBeenCalledOnce();
+
+    visibility.mockReturnValue('visible');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    await act(async () => void (await Promise.resolve()));
+    expect(resumed.publish).toHaveBeenCalledWith(expect.objectContaining({ active: true }));
+    unmount();
+  });
+
   it('sends immediately and every fifteen seconds on one publisher', async () => {
     vi.useFakeTimers();
     const joined = publisher();
@@ -72,6 +97,7 @@ describe('useChartFocus', () => {
     expect(next.publish).toHaveBeenCalledWith(
       expect.objectContaining({ symbol: 'MSFT', timeframe: '1h', extended: true, active: true }),
     );
+    expect(old.publish.mock.calls[0][0].clientId).not.toBe(next.publish.mock.calls[0][0].clientId);
   });
 
   it('does not leak a late channel when session lookup fails or resolves after unmount', async () => {

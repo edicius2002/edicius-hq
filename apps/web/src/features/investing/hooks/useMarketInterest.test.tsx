@@ -17,24 +17,34 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('leases live quotes only while the investing page needs them', async () => {
+it('leases only visible symbols while the investing page needs live quotes', async () => {
   vi.useFakeTimers();
-  const { result, rerender, unmount } = renderHook(({ active }) => useMarketInterest(active), {
-    initialProps: { active: false },
-  });
+  const { result, rerender, unmount } = renderHook(
+    ({ active, symbols }) => useMarketInterest(active, symbols),
+    { initialProps: { active: false, symbols: ['AAPL', 'MSFT'] } },
+  );
   expect(result.current).toBe(false);
   expect(openMarketInterest).not.toHaveBeenCalled();
 
-  rerender({ active: true });
+  rerender({ active: true, symbols: ['AAPL', 'MSFT'] });
   await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
   expect(result.current).toBe(true);
   expect(publisher.publish).toHaveBeenCalledWith({
     clientId: expect.any(String),
     active: true,
+    symbols: ['AAPL', 'MSFT'],
   });
 
   await act(async () => void (await vi.advanceTimersByTimeAsync(MARKET_INTEREST_HEARTBEAT_MS)));
   expect(publisher.publish).toHaveBeenCalledTimes(2);
+
+  rerender({ active: true, symbols: ['AAPL'] });
+  await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+  expect(publisher.publish).toHaveBeenCalledWith({
+    clientId: expect.any(String),
+    active: true,
+    symbols: ['AAPL'],
+  });
 
   unmount();
   await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
@@ -42,12 +52,12 @@ it('leases live quotes only while the investing page needs them', async () => {
     clientId: expect.any(String),
     active: false,
   });
-  expect(publisher.close).toHaveBeenCalledOnce();
+  expect(publisher.close).toHaveBeenCalledTimes(2);
 });
 
 it('releases the lease when the tab is hidden and renews it when shown', async () => {
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
-  const { result, unmount } = renderHook(() => useMarketInterest(true));
+  const { result, unmount } = renderHook(() => useMarketInterest(true, ['AAPL']));
   await act(async () => void (await Promise.resolve()));
   expect(result.current).toBe(true);
 

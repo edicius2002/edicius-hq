@@ -125,11 +125,14 @@ export function InvestingPage() {
     const seen = new Set<string>([symbol, ...watchlist.symbols, ...holdings.symbols]);
     return [...seen];
   }, [watchlist.symbols, holdings.symbols, symbol]);
+  // The ticker, watchlist, and positions all show prices in the normal view.
+  // Chart focus hides those surfaces, so only its selected symbol needs ticks.
+  const viewed = useMemo(() => (chartFocused ? [symbol] : wanted), [chartFocused, symbol, wanted]);
 
   // Prices arrive by push. Asked before the sweep is set up, because how often
   // to sweep depends on whether the stream is carrying — and not the reverse.
-  const { ticks, bars, live: quoteStreamLive, discardTicksBefore } = useQuoteStream(wanted);
-  const live = useMarketInterest(quoteStreamLive);
+  const { ticks, bars, live: quoteStreamLive, discardTicksBefore } = useQuoteStream(viewed);
+  const live = useMarketInterest(quoteStreamLive, viewed);
   const selectedTick = ticks.get(symbol);
   const candles = useCandles(symbol, timeframe, selectedTick, bars, {
     preloadTimeframes: true,

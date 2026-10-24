@@ -769,13 +769,13 @@ describe('Supabase Investing market boundary', () => {
     });
 
     const interest = await openMarketInterest();
-    await interest.publish({ clientId: 'tab-id', active: true });
+    await interest.publish({ clientId: 'tab-id', active: true, symbols: ['AAPL'] });
     await interest.close();
 
     expect(state.send).toHaveBeenCalledWith({
       type: 'broadcast',
       event: 'interest',
-      payload: { clientId: 'tab-id', active: true },
+      payload: { clientId: 'tab-id', active: true, symbols: ['AAPL'] },
     });
     expect(state.removeChannel).toHaveBeenCalledOnce();
   });

@@ -319,7 +319,7 @@ def test_subscribe_registers_focus_broadcast_and_forwards_nested_payload(monkeyp
         assert "interest" in focus_channel.broadcast_callbacks
         focus_channel.broadcast_callbacks["focus"]({"payload": focus})
         worker.accept_focus.assert_called_once_with(focus)
-        interest = {"clientId": "tab-a", "active": True}
+        interest = {"clientId": "tab-a", "active": True, "symbols": ["AAPL"]}
         focus_channel.broadcast_callbacks["interest"]({"payload": interest})
         worker.accept_quote_interest.assert_called_once_with(interest)
         await subscription.close()

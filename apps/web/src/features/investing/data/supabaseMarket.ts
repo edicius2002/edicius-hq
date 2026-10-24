@@ -407,10 +407,8 @@ export type ChartFocusPublisher = {
   close: () => Promise<void>;
 };
 
-export type MarketInterestMessage = {
-  clientId: string;
-  active: boolean;
-};
+export type MarketInterestMessage =
+  { clientId: string; active: true; symbols: string[] } | { clientId: string; active: false };
 
 export type MarketInterestPublisher = {
   publish: (interest: MarketInterestMessage) => Promise<void>;

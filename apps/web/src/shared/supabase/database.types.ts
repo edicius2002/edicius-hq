@@ -36,6 +36,9 @@ export type Database = {
           region: string;
           year: number;
           published_at: string | null;
+          is_minor: boolean | null;
+          object_key: string | null;
+          open_until: string | null;
           payload: Json;
           last_seen_at: string;
         };
@@ -46,6 +49,9 @@ export type Database = {
           region: string;
           year: number;
           published_at?: string | null;
+          is_minor?: boolean | null;
+          object_key?: string | null;
+          open_until?: string | null;
           payload: Json;
           last_seen_at?: string;
         };
@@ -56,6 +62,9 @@ export type Database = {
           region?: string;
           year?: number;
           published_at?: string | null;
+          is_minor?: boolean | null;
+          object_key?: string | null;
+          open_until?: string | null;
           payload?: Json;
           last_seen_at?: string;
         };
@@ -739,6 +748,23 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      read_owner_seace_page: {
+        Args: {
+          p_region: string;
+          p_year: number;
+          p_view: string;
+          p_minor_only: boolean;
+          p_object_filter: string;
+          p_excluded: boolean;
+          p_search: string;
+          p_sort_field: string;
+          p_ascending: boolean;
+          p_page: number;
+          p_page_size: number;
+          p_now: string;
+        };
+        Returns: Json;
+      };
       enqueue_seace_refresh: { Args: { p_region: string; p_year: number }; Returns: Json };
       claim_seace_refresh_request: { Args: { p_owner_id: string }; Returns: Json };
       read_fx_latest: { Args: Record<PropertyKey, never>; Returns: Json };

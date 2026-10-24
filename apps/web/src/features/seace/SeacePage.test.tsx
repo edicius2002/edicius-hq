@@ -1,13 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SeacePage } from './SeacePage';
+import type { SeacePageQuery, SeaceRow } from './data';
 
 const mocks = vi.hoisted(() => ({
-  loadSeace: vi.fn(),
+  loadSeacePage: vi.fn(),
   loadSeaceSync: vi.fn(),
-  loadExclusions: vi.fn(),
   setExcluded: vi.fn(),
   setExcludedMany: vi.fn(),
 }));
@@ -16,6 +16,9 @@ vi.mock('./data', () => ({
   exclusionKey: (row: { payload: Record<string, unknown> }) =>
     `minor:${JSON.stringify([row.payload.region, row.payload.code])}`,
 }));
+
+let fixtureRows: SeaceRow[];
+let excludedKeys: Set<string>;
 
 const peru = (date: Date) =>
   new Intl.DateTimeFormat('en-GB', {
@@ -47,7 +50,7 @@ describe('SEACE views', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const now = Date.now();
-    mocks.loadSeace.mockResolvedValue([
+    fixtureRows = [
       {
         kind: 'notices',
         recordKey: '1',
@@ -74,17 +77,105 @@ describe('SEACE views', () => {
           end: peru(new Date(now + 86_400_000)),
         },
       },
-    ]);
-    mocks.loadExclusions.mockResolvedValue(new Set());
+    ];
+    excludedKeys = new Set();
+    mocks.loadSeacePage.mockImplementation(async (query: SeacePageQuery) => {
+      const filtered = fixtureRows.filter((row) => {
+        const payload = row.payload;
+        const code = String(payload.code ?? '');
+        if (query.view === 'published' ? row.kind !== 'contracts' : row.kind === 'contracts')
+          return false;
+        if (query.view === 'recent' && code === 'CM-OLDER') return false;
+        if (query.view === 'open' && code !== 'CM-OLDER') return false;
+        if (query.view === 'closed') return false;
+        if (query.minorOnly && !payload.minor) return false;
+        if (
+          query.objectFilter !== 'Todos' &&
+          !String(payload.object ?? '').startsWith(query.objectFilter)
+        )
+          return false;
+        if (
+          excludedKeys.has(`minor:${JSON.stringify([payload.region, payload.code])}`) !==
+          query.excluded
+        )
+          return false;
+        if (
+          query.search &&
+          !['code', 'entity', 'description', 'contractor', 'object'].some((field) =>
+            String(payload[field] ?? '')
+              .toLowerCase()
+              .includes(query.search.toLowerCase()),
+          )
+        )
+          return false;
+        return true;
+      });
+      return {
+        total: filtered.length,
+        rows: filtered.slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
+      };
+    });
     mocks.loadSeaceSync.mockResolvedValue([]);
     mocks.setExcluded.mockResolvedValue(undefined);
-    mocks.setExcludedMany.mockResolvedValue(undefined);
+    mocks.setExcludedMany.mockImplementation(async (keys: string[], excluded: boolean) => {
+      for (const key of keys) {
+        if (excluded) excludedKeys.add(key);
+        else excludedKeys.delete(key);
+      }
+    });
   });
 
   it('shows the record count in the compact toolbar', async () => {
     mount();
     expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
     expect(screen.getByText('1 record')).toBeInTheDocument();
+  });
+
+  it('loads the next server page without fetching all matching records', async () => {
+    const next = {
+      ...fixtureRows[0],
+      recordKey: 'PAGE-2',
+      payload: { ...fixtureRows[0].payload, code: 'CM-PAGE-2' },
+    };
+    mocks.loadSeacePage.mockImplementation(async (query: SeacePageQuery) => ({
+      total: 61,
+      rows: query.page === 1 ? [fixtureRows[0]] : [next],
+    }));
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    expect(screen.getByText('1–1 of 61')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('CM-PAGE-2')).toBeInTheDocument();
+    expect(screen.getByText('51–51 of 61')).toBeInTheDocument();
+    expect(mocks.loadSeacePage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        view: 'recent',
+        page: 2,
+        pageSize: 50,
+      }),
+    );
+  });
+
+  it('ignores a stale recent response after switching to Open', async () => {
+    let finishRecent!: (value: { rows: SeaceRow[]; total: number }) => void;
+    mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) =>
+      query.view === 'recent'
+        ? new Promise((resolve) => {
+            finishRecent = resolve;
+          })
+        : Promise.resolve({ rows: [fixtureRows[1]], total: 1 }),
+    );
+
+    mount();
+    await waitFor(() =>
+      expect(mocks.loadSeacePage).toHaveBeenCalledWith(expect.objectContaining({ view: 'recent' })),
+    );
+    fireEvent.click(screen.getByRole('link', { name: 'Open' }));
+    expect(await screen.findByText('CM-OLDER')).toBeInTheDocument();
+    await act(async () => finishRecent({ rows: [fixtureRows[0]], total: 1 }));
+    expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
+    expect(screen.getByText('CM-OLDER')).toBeInTheDocument();
   });
 
   it('shows the latest fetch additions and Peru time beside Region', async () => {
@@ -124,10 +215,10 @@ describe('SEACE views', () => {
   });
 
   it('shows Items first, then only direct PDFs for notices', async () => {
-    const rows = await mocks.loadSeace();
+    const rows = fixtureRows;
     const source = 'https://prod6.seace.gob.pe/buscador-publico/contrataciones/104513';
     const pdf = 'https://prod6.seace.gob.pe/documents/requirement.pdf';
-    mocks.loadSeace.mockResolvedValue([
+    fixtureRows = [
       {
         ...rows[0],
         payload: {
@@ -141,7 +232,7 @@ describe('SEACE views', () => {
           ],
         },
       },
-    ]);
+    ];
 
     mount();
     expect(await screen.findByRole('link', { name: 'Requirement PDF' })).toHaveAttribute(
@@ -160,7 +251,7 @@ describe('SEACE views', () => {
   it('shows only direct PDFs for published contracts', async () => {
     const source = 'https://prod4.seace.gob.pe:9000/api/bus/contrato/idContrato/2431209';
     const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
-    mocks.loadSeace.mockResolvedValue([
+    fixtureRows = [
       {
         kind: 'contracts',
         recordKey: '2431209',
@@ -174,7 +265,7 @@ describe('SEACE views', () => {
           documentUrl: pdf,
         },
       },
-    ]);
+    ];
 
     mount('/seace/published');
     expect(await screen.findByRole('link', { name: 'Contract.pdf' })).toHaveAttribute('href', pdf);
@@ -199,10 +290,10 @@ describe('SEACE views', () => {
   });
 
   it('opens Items from the first link in Links when an item has text', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       { ...rows[0], payload: { ...rows[0].payload, items: ['Pump (2)', 'Valve (1)'] } },
-    ]);
+    ];
     mount();
     await screen.findByText('CM-RECENT');
     const dialog = document.querySelector('dialog') as HTMLDialogElement;
@@ -225,8 +316,8 @@ describe('SEACE views', () => {
   });
 
   it('offers Entity after Items and before PDFs in the mobile links', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       {
         ...rows[0],
         payload: {
@@ -237,7 +328,7 @@ describe('SEACE views', () => {
           documentUrl: 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1',
         },
       },
-    ]);
+    ];
     mount();
     await screen.findByText('CM-RECENT');
     const row = screen.getByText('CM-RECENT').closest('tr')!;
@@ -256,8 +347,8 @@ describe('SEACE views', () => {
   });
 
   it('includes Start and End together in the mobile date cell', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       {
         ...rows[0],
         payload: {
@@ -266,7 +357,7 @@ describe('SEACE views', () => {
           end: '27/10/2026 23:30:00',
         },
       },
-    ]);
+    ];
     mount();
     await screen.findByText('CM-RECENT');
     const row = screen.getByText('CM-RECENT').closest('tr')!;
@@ -276,8 +367,8 @@ describe('SEACE views', () => {
   });
 
   it('uses Entity first when Published has no Items and combines its term dates', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       {
         ...rows[0],
         kind: 'contracts',
@@ -291,7 +382,7 @@ describe('SEACE views', () => {
           documentUrl: 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1',
         },
       },
-    ]);
+    ];
     mount('/seace/published');
     await screen.findByText('CM-PUBLISHED');
     const row = screen.getByText('CM-PUBLISHED').closest('tr')!;
@@ -303,14 +394,14 @@ describe('SEACE views', () => {
   });
 
   it('also offers Items in Published when a contract has item text', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       {
         ...rows[0],
         kind: 'contracts',
         payload: { ...rows[0].payload, code: 'CM-PUBLISHED', items: ['Contract item'] },
       },
-    ]);
+    ];
     mount('/seace/published');
     expect(await screen.findByRole('button', { name: 'Items' })).toBeInTheDocument();
   });
@@ -324,17 +415,17 @@ describe('SEACE views', () => {
       expect(mocks.setExcludedMany).toHaveBeenCalledWith(['minor:["Arequipa","CM-RECENT"]'], true),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
-    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
   });
 
   it('shows separate included and excluded views from saved exclusion keys', async () => {
-    mocks.loadExclusions.mockResolvedValue(new Set(['minor:["Arequipa","CM-RECENT"]']));
+    excludedKeys = new Set(['minor:["Arequipa","CM-RECENT"]']);
     mount();
-    await screen.findByRole('button', { name: 'Not excluded' });
+    await waitFor(() => expect(mocks.loadSeacePage).toHaveBeenCalled());
 
     expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
-    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Excluded' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -343,24 +434,25 @@ describe('SEACE views', () => {
 
   it('restores a saved exclusion and returns the record to Not excluded', async () => {
     const key = 'minor:["Arequipa","CM-RECENT"]';
-    mocks.loadExclusions.mockResolvedValue(new Set([key]));
+    excludedKeys = new Set([key]);
     mount();
-    fireEvent.click(await screen.findByRole('button', { name: 'Excluded' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    await screen.findByText('CM-RECENT');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
     fireEvent.click(screen.getByRole('button', { name: 'Restore selected (1)' }));
 
     await waitFor(() => expect(mocks.setExcludedMany).toHaveBeenCalledWith([key], false));
-    expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Not excluded' }));
-    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
   });
 
   it('excludes selected rows together and moves them to the excluded view', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       rows[0],
       { ...rows[0], recordKey: '3', payload: { ...rows[0].payload, id: '3', code: 'CM-SECOND' } },
-    ]);
+    ];
     mount();
     await screen.findByText('CM-RECENT');
 
@@ -374,9 +466,9 @@ describe('SEACE views', () => {
         true,
       ),
     );
-    expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
-    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
     expect(screen.getByText('CM-SECOND')).toBeInTheDocument();
   });
 
@@ -401,8 +493,8 @@ describe('SEACE views', () => {
   });
 
   it('filters by object and entity search and can reset the filters', async () => {
-    const rows = await mocks.loadSeace();
-    mocks.loadSeace.mockResolvedValue([
+    const rows = fixtureRows;
+    fixtureRows = [
       { ...rows[0], payload: { ...rows[0].payload, object: 'Bien', entity: 'Entidad A' } },
       {
         ...rows[0],
@@ -415,15 +507,15 @@ describe('SEACE views', () => {
           entity: 'Entidad B',
         },
       },
-    ]);
+    ];
     mount();
     await screen.findByText('CM-RECENT');
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Object' }), {
       target: { value: 'Servicio' },
     });
+    expect(await screen.findByText('CM-SERVICIO')).toBeInTheDocument();
     expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
-    expect(screen.getByText('CM-SERVICIO')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search records' }), {
       target: { value: 'Entidad A' },
@@ -431,7 +523,7 @@ describe('SEACE views', () => {
     expect(screen.queryByText('CM-SERVICIO')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
-    expect(screen.getByText('CM-RECENT')).toBeInTheDocument();
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
     expect(screen.getByText('CM-SERVICIO')).toBeInTheDocument();
   });
 });

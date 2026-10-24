@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 import {
   exclusionKey,
-  loadExclusions,
-  loadSeace,
+  loadSeacePage,
   loadSeaceSync,
   setExcludedMany,
   type SeaceRow,
   type SeaceSync,
+  type SeaceView,
 } from './data';
 import styles from './SeacePage.module.css';
 
@@ -45,7 +45,6 @@ const views = [
   { path: '/seace/closed', navLabel: 'Closed' },
   { path: '/seace/published', navLabel: 'Publi' },
 ];
-type SeaceView = 'recent' | 'open' | 'closed' | 'published';
 const pageSizes = [5, 10, 20, 50, 100];
 const columnWidths: Record<string, number> = {
   code: 120,
@@ -84,46 +83,9 @@ const objectLabels: Record<string, string> = {
   Obra: 'Works',
   'Consultoría de Obra': 'Works consulting',
 };
-const objectKey = (value: string) =>
-  value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
 const text = (row: SeaceRow, field: string) => {
   const value = row.payload[field];
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-};
-const dateStamp = (value: string, endOfDay = false): number | null => {
-  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (!match) return null;
-  const [
-    ,
-    day,
-    month,
-    year,
-    hour = endOfDay ? '23' : '00',
-    minute = endOfDay ? '59' : '00',
-    second = endOfDay ? '59' : '00',
-  ] = match;
-  const result = Date.parse(`${year}-${month}-${day}T${hour}:${minute}:${second}-05:00`);
-  return Number.isNaN(result) ? null : result;
-};
-const isOpen = (row: SeaceRow) => {
-  if (row.kind === 'contracts') return false;
-  if (row.kind === 'notices')
-    return text(row, 'state') === 'Vigente' && (dateStamp(text(row, 'end')) ?? 0) > Date.now();
-  if (/adjudicad|desiert|cancelad|anulad|contratad|finalizad/i.test(text(row, 'state')))
-    return false;
-  const end = dateStamp(text(row, 'end'), true);
-  const registration = dateStamp(text(row, 'registrationEnd'), true);
-  return (
-    Math.min(end ?? Infinity, registration ?? Infinity) > Date.now() &&
-    (end !== null || registration !== null)
-  );
-};
-const isRecent = (row: SeaceRow) => {
-  const published = dateStamp(text(row, 'published'));
-  return published !== null && published <= Date.now() && published >= Date.now() - 86_400_000;
 };
 const safeUrl = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -217,12 +179,13 @@ export function SeacePage() {
   const [region, setRegion] = useState('Arequipa');
   const [minorOnly, setMinorOnly] = useState(true);
   const [objectFilter, setObjectFilter] = useState('Todos');
-  const [records, setRecords] = useState<SeaceRow[]>([]);
-  const [syncs, setSyncs] = useState<SeaceSync[]>([]);
-  const [exclusions, setExclusions] = useState<Set<string>>(new Set());
-  const [exclusionsReady, setExclusionsReady] = useState(false);
+  const [pageResult, setPageResult] = useState<
+    { key: string; rows: SeaceRow[]; total: number; error: string } | undefined
+  >();
+  const [syncResult, setSyncResult] = useState<{ key: string; rows: SeaceSync[] } | undefined>();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [savingExclusions, setSavingExclusions] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [excludedByView, setExcludedByView] = useState<Record<SeaceView, boolean>>({
     recent: false,
     open: false,
@@ -237,44 +200,102 @@ export function SeacePage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [detailModal, setDetailModal] = useState<
     | { kind: 'items'; code: string; items: string[] }
     | { kind: 'entity'; code: string; entity: string }
     | null
   >(null);
   const detailDialogRef = useRef<HTMLDialogElement>(null);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setExclusionsReady(false);
-    setSyncs([]);
-    try {
-      const [rows, excluded, sync] = await Promise.all([
-        loadSeace(region, year),
-        loadExclusions(),
-        loadSeaceSync(region, year).catch(() => []),
-      ]);
-      setRecords(rows);
-      setExclusions(excluded);
-      setSyncs(sync);
-      setExclusionsReady(true);
-      setSelectedKeys(new Set());
-      setMessage('');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'SEACE data unavailable');
-    } finally {
-      setLoading(false);
-    }
-  }, [region, year]);
+  const requestKey = JSON.stringify([
+    region,
+    year,
+    view,
+    minorOnly,
+    objectFilter,
+    excludedView,
+    search,
+    sort.field,
+    sort.ascending,
+    page,
+    pageSize,
+    reloadVersion,
+  ]);
+  const syncKey = `${region}:${year}`;
+  const loading = pageResult?.key !== requestKey;
+  const records = loading ? [] : pageResult.rows;
+  const total = loading ? 0 : pageResult.total;
+  const message = (loading ? '' : pageResult.error) || actionMessage;
+  const syncs = syncResult?.key === syncKey ? syncResult.rows : [];
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void reload();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [reload]);
+    let cancelled = false;
+    void loadSeacePage({
+      region,
+      year,
+      view,
+      minorOnly,
+      objectFilter,
+      excluded: excludedView,
+      search,
+      sortField: sort.field,
+      ascending: sort.ascending,
+      page,
+      pageSize,
+      now: new Date().toISOString(),
+    })
+      .then((result) => {
+        if (cancelled) return;
+        const lastPage = Math.max(1, Math.ceil(result.total / pageSize));
+        if (page > lastPage) {
+          setPage(lastPage);
+          return;
+        }
+        setPageResult({ key: requestKey, rows: result.rows, total: result.total, error: '' });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setPageResult({
+            key: requestKey,
+            rows: [],
+            total: 0,
+            error: error instanceof Error ? error.message : 'SEACE data unavailable',
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    region,
+    year,
+    view,
+    minorOnly,
+    objectFilter,
+    excludedView,
+    search,
+    sort.field,
+    sort.ascending,
+    page,
+    pageSize,
+    reloadVersion,
+    requestKey,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSeaceSync(region, year)
+      .then((value) => {
+        if (!cancelled) setSyncResult({ key: syncKey, rows: value });
+      })
+      .catch(() => {
+        if (!cancelled) setSyncResult({ key: syncKey, rows: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region, year, syncKey]);
+
+  const exclusionsReady = !loading;
 
   const latestFetchedAt = syncs.reduce<string | null>(
     (latest, sync) =>
@@ -299,51 +320,9 @@ export function SeacePage() {
         .replace(',', ' ·')
     : '—';
 
-  const rows = useMemo(
-    () =>
-      records
-        .filter((row) => {
-          if (view === 'published' ? row.kind !== 'contracts' : row.kind === 'contracts')
-            return false;
-          if (minorOnly && !row.payload.minor) return false;
-          if (
-            objectFilter !== 'Todos' &&
-            !objectKey(text(row, 'object')).startsWith(
-              objectFilter === 'Consultoría de Obra' ? 'CONSULTORIA' : objectKey(objectFilter),
-            )
-          )
-            return false;
-          if (view === 'recent' && (!isOpen(row) || !isRecent(row))) return false;
-          if (view === 'open' && (!isOpen(row) || isRecent(row))) return false;
-          if (view === 'closed' && isOpen(row)) return false;
-          if (exclusions.has(exclusionKey(row)) !== excludedView) return false;
-          if (
-            search &&
-            !['code', 'entity', 'description', 'contractor', 'object'].some((field) =>
-              text(row, field).toLowerCase().includes(search.toLowerCase()),
-            )
-          )
-            return false;
-          return true;
-        })
-        .sort((a, b) => {
-          const value = (row: SeaceRow) => {
-            const field =
-              sort.field === 'published' && row.kind === 'contracts' ? 'signed' : sort.field;
-            return ['published', 'signed', 'start', 'end', 'termStart', 'termEnd'].includes(field)
-              ? (dateStamp(text(row, field)) ?? 0)
-              : text(row, field).toLocaleLowerCase();
-          };
-          const first = value(a);
-          const second = value(b);
-          const comparison = first < second ? -1 : first > second ? 1 : 0;
-          return sort.ascending ? comparison : -comparison;
-        }),
-    [records, view, minorOnly, objectFilter, exclusions, excludedView, search, sort],
-  );
-  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(page, pages);
-  const visible = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const visible = records;
   const visibleKeys = visible.map(exclusionKey);
   const allVisibleSelected =
     visibleKeys.length > 0 && visibleKeys.every((key) => selectedKeys.has(key));
@@ -381,6 +360,7 @@ export function SeacePage() {
 
   const toggleSort = (field: string) => {
     setSort((value) => ({ field, ascending: value.field === field ? !value.ascending : true }));
+    setPage(1);
     setSelectedKeys(new Set());
   };
   const changeExclusion = async () => {
@@ -390,18 +370,11 @@ export function SeacePage() {
     setSavingExclusions(true);
     try {
       await setExcludedMany(keys, excluded);
-      setExclusions((current) => {
-        const next = new Set(current);
-        for (const key of keys) {
-          if (excluded) next.add(key);
-          else next.delete(key);
-        }
-        return next;
-      });
       setSelectedKeys(new Set());
-      setMessage('');
+      setReloadVersion((value) => value + 1);
+      setActionMessage('');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not update');
+      setActionMessage(error instanceof Error ? error.message : 'Could not update');
     } finally {
       setSavingExclusions(false);
     }
@@ -473,6 +446,7 @@ export function SeacePage() {
                 checked={minorOnly}
                 onChange={(event) => {
                   setMinorOnly(event.target.checked);
+                  setPage(1);
                   setSelectedKeys(new Set());
                 }}
               />
@@ -570,7 +544,7 @@ export function SeacePage() {
           </div>
         </div>
         <strong className={styles.tableCount}>
-          {rows.length.toLocaleString()} {rows.length === 1 ? 'record' : 'records'}
+          {total.toLocaleString()} {total === 1 ? 'record' : 'records'}
         </strong>
       </div>
       <section className={styles.content} aria-label="SEACE records">
@@ -752,8 +726,8 @@ export function SeacePage() {
         </div>
         <div className={styles.pager}>
           <span>
-            {rows.length
-              ? `${(currentPage - 1) * pageSize + 1}–${(currentPage - 1) * pageSize + visible.length} of ${rows.length}`
+            {total
+              ? `${(currentPage - 1) * pageSize + 1}–${(currentPage - 1) * pageSize + visible.length} of ${total}`
               : '0 records'}
           </span>
           <div className={styles.pagerControls}>

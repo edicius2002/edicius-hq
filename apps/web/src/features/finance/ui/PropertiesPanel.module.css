@@ -1,15 +1,8 @@
-/*
- * Tighter between blocks than between a label and its own control, so the panel
- * reads as sections rather than as one long ladder — and so the tallest node
- * fits the fixed height without a scrollbar. See the height in
- * `FinancePage.module.css`, which is measured against what this leaves.
- */
+/* The outer panel fixes the height; the editor can keep its content height. */
 .panel {
   display: grid;
   align-content: start;
   gap: var(--space-2);
-  /* Held steady so selecting a node does not resize the workspace. */
-  min-height: 22rem;
 }
 
 .empty {
@@ -18,7 +11,6 @@
   gap: var(--space-2);
   color: var(--color-muted);
   font-size: 0.85rem;
-  min-height: 18rem;
   text-align: center;
 }
 
@@ -33,9 +25,9 @@
 }
 
 .nameInput {
-  /* 11rem leaves the badge/name row compact in the 18rem panel while still
+  /* 9rem leaves the badge/name row compact in the side panel while still
      fitting an ordinary job name without making the header a second full row. */
-  flex: 0 1 11rem;
+  flex: 0 1 9rem;
   min-width: 0;
 }
 
@@ -52,8 +44,8 @@
 
 .field {
   display: grid;
-  gap: 0.25rem;
-  font-size: 0.72rem;
+  gap: 0.15rem;
+  font-size: 0.6rem;
   color: var(--color-muted);
 }
 
@@ -66,8 +58,8 @@
   border-radius: 7px;
   color: var(--color-text);
   font: inherit;
-  font-size: 0.82rem;
-  padding: 0.35rem 0.5rem;
+  font-size: 0.6rem;
+  padding: 0.25rem;
   width: 100%;
 }
 
@@ -78,6 +70,14 @@
   outline: none;
 }
 
+.field > .input {
+  max-width: 9rem;
+}
+
+.field > .input[inputmode='decimal'] {
+  max-width: 3.75rem;
+}
+
 /*
  * The one control here that the reader gets to resize.
  *
@@ -86,24 +86,16 @@
  * that width away. Height is the note's own business, and the panel scrolls
  * what does not fit.
  *
- * `line-height` is stated rather than inherited because `.field` sets a smaller
- * font for its label; without it the rows a `rows={3}` box reserves would be
- * measured against a line the text does not use.
+ * `line-height` is stated so a resized note keeps a predictable text height.
  */
 .notes {
-  /* A note is a log, not a control that gets to claim the whole side column:
-     15rem keeps it comfortably inside the 18rem panel's 16rem content box. */
-  font-size: 0.78rem;
+  /* A note is a log, not a control that gets to claim the whole side column. */
+  font-size: 0.6rem;
   line-height: 1.4;
-  max-width: 15rem;
-  padding: 0.3rem 0.4rem;
+  max-width: 12rem;
   resize: vertical;
-  /*
-   * Two of its own lines, plus the padding and border the box counts inside its
-   * height: 2 × 0.78 × 1.4 + 0.6 + 0.1 = 2.884rem. Dragged all the way down it
-   * stops at two lines rather than at the single one this replaces.
-   */
-  min-height: 2.9rem;
+  /* Keep at least two text lines visible when the reader resizes it. */
+  min-height: 2.25rem;
 }
 
 .row {
@@ -112,8 +104,7 @@
   align-items: end;
 }
 
-/* Job and account use the same one-line action: its label, half-width 4.5rem
-   symbol field and compact button avoid spending a second row in either panel. */
+/* Job and account keep the label, symbol field and action on one line. */
 .addAssetRow {
   align-items: center;
 }
@@ -121,18 +112,24 @@
 .addAssetLabel {
   color: var(--color-muted);
   flex: 0 0 auto;
-  font-size: 0.72rem;
+  font-size: 0.6rem;
 }
 
 .addAssetInput {
-  flex: 0 1 4.5rem;
+  flex: 0 1 3.75rem;
   min-width: 0;
   width: auto;
 }
 
+.addAssetRow button,
+.settle button {
+  font-size: 0.6rem;
+  padding: 0.25rem 0.4rem;
+}
+
 .sectionTitle {
   color: var(--color-muted);
-  font-size: 0.66rem;
+  font-size: 0.6rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   /* The grid gap already separates it from what came before; the extra margin
@@ -151,57 +148,30 @@
  */
 .assets {
   display: grid;
-  gap: 0.35rem var(--space-3);
+  gap: 0.35rem var(--space-2);
 }
 
 /*
- * Swept with an eight-asset account selected, measuring the container's content
- * box against the amount field a pair leaves room for:
- *
- * The 18rem panel has a 15.875rem content box after its padding and border, so
- * two columns leave 121px per asset after the 0.75rem gap. The allocation chip
- * deliberately is not a third track: its percentage only made the amount pay
- * for a separate fact, so the ticker now carries allocation detail in its title
- * and takes on the danger color when it is exceeded.
- *
- * With only the 1.7rem ticker and one 0.2rem gap left, the amount gets 90.6px
- * outside and 80.6px inside its border and padding at the 18rem panel. Its
- * 3.75rem (60px) grid floor still leaves 50px inside at the container query's
- * threshold. ImageMagick measures `12.345,67` in the real Noto Sans fallback at
- * 43px for the compact but legible 0.6rem input, leaving 7px clear even there.
- * Below 15.5rem the list stays one column so its readable width cannot push the
- * panel sideways.
- *
- * Two columns trade some height for a usable amount field; an eight-asset
- * account therefore remains four readable rows rather than three cramped ones.
+ * Keep two assets per row in the narrower side panel. Below this content width,
+ * each asset needs a full row to keep its ticker and amount field legible.
  */
-@container (min-width: 15.5rem) {
+@container (min-width: 11.3rem) {
   .assets {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 /*
- * The 1.7rem ticker track fits the real four-letter symbols at its 0.52rem
- * compact size, and the remaining width belongs to the amount.
- * `minmax(3.75rem, 1fr)` reserves the visible width for `12.345,67`; it changes
- * presentation only, not AmountInput's accepted range or parser.
- *
- * The explicit minimum is paired with the container threshold above, so the
- * input stays readable without ever setting a wider minimum for the panel.
+ * The ticker and amount use only the width they need, leaving room to narrow
+ * the panel without stretching every amount field across its grid cell.
  */
 .asset {
   display: grid;
-  grid-template-columns: 1.7rem minmax(3.75rem, 1fr);
+  grid-template-columns: 1.4rem 3.75rem;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.15rem;
   font-size: 0.62rem;
   min-width: 0;
-}
-
-.asset .input {
-  font-size: 0.6rem;
-  padding: 0.25rem;
 }
 
 .assetToggle {
@@ -252,12 +222,11 @@
  * every row was the width problem, and one that appears on the rare broken row
  * is not.
  *
- * It fits: 121px per column less the 1.7rem ticker, two 0.2rem gaps and the
- * amount's 3.75rem floor leaves about 27px, and `over` at 0.52rem bold needs
- * roughly 20.
+ * The narrow panel gives this exceptional row both asset columns so the word
+ * remains visible beside the amount.
  */
 .assetBroken {
-  grid-template-columns: 1.7rem minmax(3.75rem, 1fr) auto;
+  grid-template-columns: 1.4rem 3.75rem auto;
 }
 
 .assetOverFlag {
@@ -269,7 +238,7 @@
 }
 
 /*
- * The out fee and the in fee, side by side.
+ * The out fee and the in fee share a row when the panel has room.
  *
  * `minmax(0, 1fr)` rather than `1fr`: a grid track's default minimum is the
  * content's own minimum width, so the number inputs would refuse to shrink and
@@ -278,26 +247,32 @@
 .feePair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* `--space-2`, not `--space-3`: at half the panel each fixed-fee field cleared
-     `999.999,99` by a single pixel, which is inside the noise of a font
-     fallback. The 5px this returns is the margin. */
+  /* Keep a small gap when there is room for both fee fields on one row. */
   gap: var(--space-2);
   align-items: start;
 }
 
 /*
- * A fixed fee is an amount and has to hold six figures like any other. Paired
- * side by side each field gets half the panel, so the room comes from the unit
- * picker, which only ever shows "%" or "flat".
+ * A fixed fee is an amount and has to hold six figures like any other. The unit
+ * picker only ever shows "%" or "flat", so its track can stay compact.
  */
 .feeGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 3.2rem;
-  gap: 0.4rem;
+  grid-template-columns: 3.75rem 3.2rem;
+  gap: 0.2rem;
 }
 
-/* In and out stay side by side, but each takes 46% (116.8px) rather than half
-   of the 254px content box. The 0.25rem gap leaves 12.3px spare at 18rem. */
+@container (max-width: 15.5rem) {
+  .assetBroken {
+    grid-column: 1 / -1;
+  }
+
+  .feePair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* In and out stay side by side, leaving a little spare room for their values. */
 .movement {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 46%));
@@ -355,7 +330,7 @@
 
 .settleBlocked {
   color: var(--color-danger);
-  font-size: 0.68rem;
+  font-size: 0.6rem;
   max-width: 100%;
   overflow-wrap: anywhere;
 }
@@ -367,7 +342,7 @@
   border: 1px solid var(--color-border);
   border-radius: 7px;
   padding: var(--space-2);
-  font-size: 0.74rem;
+  font-size: 0.6rem;
 }
 
 .chainRow {
@@ -388,12 +363,12 @@
 
 .warning {
   color: var(--color-danger);
-  font-size: 0.74rem;
+  font-size: 0.6rem;
   margin: 0;
 }
 
 .hint {
   color: var(--color-muted);
-  font-size: 0.72rem;
+  font-size: 0.6rem;
   margin: 0;
 }

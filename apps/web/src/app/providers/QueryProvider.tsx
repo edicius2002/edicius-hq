@@ -29,6 +29,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
       const nextOwner = session?.user.id ?? null;
       if (initialized && nextOwner !== ownerId) {
         client.removeQueries({ queryKey: ['market', 'bars'] });
+        client.removeQueries({ queryKey: ['seace'] });
         void marketBarCache.clear();
       }
       ownerId = nextOwner;

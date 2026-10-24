@@ -197,6 +197,7 @@ it('animates the first captured post after an empty dashboard', async () => {
   const article = (await screen.findByText('post anon')).closest('article');
   expect(article).toHaveClass(styles.tweetEntering);
   expect(article?.parentElement).toHaveClass(styles.tweetSlotEntering);
+  await waitFor(() => expect(article).not.toHaveClass(styles.tweetEntering), { timeout: 2_000 });
 });
 
 it('places live reset summary and calendar above the preserved tweet columns', async () => {

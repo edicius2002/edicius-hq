@@ -92,6 +92,7 @@ export function DashboardPage() {
   const client = useQueryClient();
   const now = useLiveNow();
   const seenTweetIds = useRef<Set<string> | null>(null);
+  const entryTimers = useRef(new Map<string, number>());
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
   const codexResets = useCodexResets();
   const query = useQuery({
@@ -115,6 +116,35 @@ export function DashboardPage() {
     }
     seenTweetIds.current = ids;
   }, [query.data]);
+  useEffect(() => {
+    const timers = entryTimers.current;
+    for (const [id, timer] of timers) {
+      if (enteringIds.has(id)) continue;
+      window.clearTimeout(timer);
+      timers.delete(id);
+    }
+    for (const id of enteringIds) {
+      if (timers.has(id)) continue;
+      timers.set(
+        id,
+        window.setTimeout(() => {
+          timers.delete(id);
+          setEnteringIds((current) => {
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          });
+        }, 600),
+      );
+    }
+  }, [enteringIds]);
+  useEffect(() => {
+    const timers = entryTimers.current;
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
   const onEntered = (id: string) => {
     setEnteringIds((current) => {
       if (!current.has(id)) return current;

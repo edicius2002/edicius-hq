@@ -70,7 +70,9 @@ def test_scheduled_pass_waits_for_a_manual_lock_then_collects_once(monkeypatch, 
     monkeypatch.setattr(script, "LOCK_RETRY_SECONDS", 0.01, raising=False)
     lock_waits = []
     monkeypatch.setattr(
-        script, "collect_main", lambda *, lock_wait_seconds: lock_waits.append(lock_wait_seconds) or 0
+        script,
+        "collect_main",
+        lambda *, lock_wait_seconds: lock_waits.append(lock_wait_seconds) or 0,
     )
     result = []
 

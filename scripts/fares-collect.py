@@ -557,8 +557,10 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     # repeats tomorrow. `--all` is a person at a terminal rather than a
     # scheduler, so it carries no deadline — the same asymmetry `WINDOW_FULL`
     # records for a browser press.
-    board_window = SCHEDULER_INTERVAL_MINUTES * 60 - getattr(args, "lock_wait_seconds", 0.0) - (
-        0 if args.no_calendar else calendar_demand * gap
+    board_window = (
+        SCHEDULER_INTERVAL_MINUTES * 60
+        - getattr(args, "lock_wait_seconds", 0.0)
+        - (0 if args.no_calendar else calendar_demand * gap)
     )
     if args.all:
         queries, unreadable = expand(watches)

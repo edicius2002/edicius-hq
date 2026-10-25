@@ -81,7 +81,7 @@ def test_installer_ships_fx_units_and_precreates_its_outbox_and_lock() -> None:
     assert "edicius-fx.service" in units and "edicius-fx.timer" in units
     # The state root and lock directory are root-owned, so the collector cannot create these itself.
     assert (
-        "for runtime_dir in x-profile kv bars sentiment codex-resets fx seace; do"
+        "for runtime_dir in x-profile kv bars sentiment codex-resets fx seace fares-drift; do"
         in text
     )
     assert "for lock_name in airfare sentiment tweets market fx; do" in text

@@ -62,6 +62,11 @@ def test_global_sync_skips_a_busy_collector_without_competing_for_archive_cursor
     assert 'self._lock_factory("airfare")' in manual
 
 
+def test_scheduled_airfare_unit_accepts_a_deferred_busy_pass() -> None:
+    service = unit_settings("edicius-airfare.service")["Service"]
+    assert service["SuccessExitStatus"] == "75"
+
+
 def test_global_sync_timer_retries_after_failure_and_catches_up_after_restart() -> None:
     timer = unit_settings("edicius-airfare-sync.timer")
     assert timer["Timer"]["OnCalendar"] == "*-*-* *:07,37:00"

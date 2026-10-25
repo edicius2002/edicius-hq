@@ -99,6 +99,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from collections import Counter
 from datetime import UTC, date, datetime
 from math import ceil
@@ -151,6 +152,9 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 
 ROUTES_KEY = "airfare-routes"
 LOGGER = logging.getLogger(__name__)
+# Leave room inside the 20-minute systemd deadline for the collection itself.
+LOCK_WAIT_SECONDS = 180.0
+LOCK_RETRY_SECONDS = 1.0
 
 
 def load_routes(watch_source: str = "supabase") -> list[dict[str, object]]:
@@ -311,7 +315,7 @@ def per_day(watch: FareWatch, today: date) -> tuple[int, int]:
     return collectable, requests
 
 
-def collect_main() -> int:
+def collect_main(*, lock_wait_seconds: float = 0.0) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run",
@@ -348,6 +352,7 @@ def collect_main() -> int:
         ),
     )
     args = parser.parse_args()
+    args.lock_wait_seconds = lock_wait_seconds
 
     # The pass's own record, opened before anything is read so that `wallMs`
     # measures the whole invocation — which is the figure that matters, because
@@ -552,8 +557,10 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     # repeats tomorrow. `--all` is a person at a terminal rather than a
     # scheduler, so it carries no deadline — the same asymmetry `WINDOW_FULL`
     # records for a browser press.
-    board_window = SCHEDULER_INTERVAL_MINUTES * 60 - (
-        0 if args.no_calendar else calendar_demand * gap
+    board_window = (
+        SCHEDULER_INTERVAL_MINUTES * 60
+        - getattr(args, "lock_wait_seconds", 0.0)
+        - (0 if args.no_calendar else calendar_demand * gap)
     )
     if args.all:
         queries, unreadable = expand(watches)
@@ -665,12 +672,18 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
 
 
 def main() -> int:
-    try:
-        with exclusive_process_lock("airfare"):
-            return collect_main()
-    except ProcessLockUnavailable:
-        LOGGER.error("Airfare collector is already running")
-        return 1
+    started = time.monotonic()
+    deadline = started + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            with exclusive_process_lock("airfare"):
+                return collect_main(lock_wait_seconds=time.monotonic() - started)
+        except ProcessLockUnavailable:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                LOGGER.warning("Airfare collector deferred: shared lock stayed busy")
+                return 75
+            time.sleep(min(LOCK_RETRY_SECONDS, remaining))
 
 
 if __name__ == "__main__":

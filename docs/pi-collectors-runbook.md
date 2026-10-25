@@ -267,7 +267,8 @@ ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service && s
 
 ## USD/PEN collector activation
 
-`edicius-fx.timer` runs `scripts/fx-collect.py` every 5 minutes. Each pass
+`edicius-fx.timer` runs `scripts/fx-collect.py` every 5 minutes on UTC calendar
+slots, including when the Pi's Europe/London clock changes. Each pass
 captures the seven commercial houses and, when due (every 4 hours), the BCRP
 interbank and SBS references, reconciling the last 14 days of references. Rows
 go to a local outbox at `/var/lib/edicius-hq/fx/outbox.sqlite` first and are
@@ -320,6 +321,34 @@ ssh '<pi-host>' 'sudo systemctl disable --now edicius-fx.timer'
 any rows still pending. Restoring a release older than the FX units leaves the
 timer stopped. Disable it as above before such a rollback, so a reboot does
 not start a unit whose script the older release lacks.
+
+### FX source health and retry
+
+The FX SQLite outbox also tracks each source's last attempt, last successful
+fetch, safe error code, consecutive failures and next due time. Read it on the
+Pi as the collector identity without starting a fetch or requiring Supabase:
+
+```sh
+sudo systemd-run --quiet --wait --pipe --collect \
+  --uid=edicius-collector --gid=edicius-collector \
+  --property=EnvironmentFile=/etc/edicius-hq/collectors.env \
+  --property=Environment=LOCAL_DATA_DIR=/var/lib/edicius-hq \
+  --property=WorkingDirectory=/opt/edicius-hq/current \
+  -- /opt/edicius-hq/current/services/api/.venv/bin/python \
+     /opt/edicius-hq/current/scripts/fx-collect.py --status
+```
+
+Use `--sources bcrp,sbs,kambista` to narrow the JSON output. All timestamps are
+UTC. `last_success` is the time of a successful fetch, including a valid BCRP
+response with no new market-day row. A pass reports failure while a skipped
+commercial source is more than 15 minutes old or BCRP/SBS is more than five
+hours old. Existing outboxes gain the health table on their first writing pass.
+
+The first malformed Kambista response is retried on the next five-minute slot;
+later failures use the normal 15-minute delay. Explicit HTTP 403 and 429
+cooldowns take precedence. BCRP and SBS share one upstream request and can
+therefore show the same failure. Journal diagnostics record an error code,
+HTTP status, response byte count and processing stage, never the response body.
 
 ## Cutover, observation, and rollback
 

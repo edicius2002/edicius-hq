@@ -34,6 +34,7 @@ const ROUTE = {
 };
 // The key every watchlist row, the map and the page look a route up by.
 const ROW_ID = routeId(ROUTE);
+const MONTH_KEY = 'LIM|CUZ|2026-11';
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 
 function request(overrides: Partial<AirfareRequest> = {}): AirfareRequest {
@@ -77,7 +78,7 @@ describe('useRouteCollection', () => {
     expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(1);
 
     act(() => api.emit(request()));
-    expect(result.current.collecting).toEqual([ROW_ID]);
+    expect(result.current.collecting).toEqual([MONTH_KEY]);
     await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
     expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(2);
 
@@ -88,15 +89,60 @@ describe('useRouteCollection', () => {
     expect(api.fetchActiveAirfareRequests).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps simultaneous months of one route independent', async () => {
+    api.fetchActiveAirfareRequests.mockResolvedValue([
+      request({ progress: { stage: 'collecting', completed: 2, total: 5 }, status: 'running' }),
+      request({
+        requestId: '33333333-3333-4333-8333-333333333333',
+        payload: { origin: 'LIM', destination: 'CUZ', month: '2026-12', currency: 'USD' },
+        progress: { stage: 'syncing', completed: 1, total: 4 },
+        status: 'running',
+      }),
+    ]);
+    const { result, unmount } = setup();
+
+    await waitFor(() =>
+      expect(result.current.collecting).toEqual(['LIM|CUZ|2026-11', 'LIM|CUZ|2026-12']),
+    );
+    expect(result.current.progress.get('LIM|CUZ|2026-11')).toEqual({
+      stage: 'collecting',
+      completed: 2,
+      total: 5,
+    });
+    expect(result.current.progress.get('LIM|CUZ|2026-12')).toEqual({
+      stage: 'syncing',
+      completed: 1,
+      total: 4,
+    });
+    unmount();
+  });
+
+  it('blocks a second fetch of the same month before enqueue settles but allows another month', async () => {
+    api.fetchActiveAirfareRequests.mockResolvedValue([]);
+    api.enqueueAirfareRequest.mockImplementation(() => new Promise(() => {}));
+    const { result, unmount } = setup();
+    await waitFor(() => expect(api.fetchActiveAirfareRequests).toHaveBeenCalled());
+
+    act(() => {
+      result.current.collect(ROUTE, '2026-11');
+      result.current.collect(ROUTE, '2026-11');
+      result.current.collect(ROUTE, '2026-12');
+    });
+
+    expect(api.enqueueAirfareRequest).toHaveBeenCalledTimes(2);
+    expect(result.current.collecting).toEqual(['LIM|CUZ|2026-11', 'LIM|CUZ|2026-12']);
+    unmount();
+  });
+
   it('adopts an active request and maps queued, collecting, and syncing progress', async () => {
     api.fetchActiveAirfareRequests.mockResolvedValue([request()]);
     const { result, unmount } = setup();
 
-    await waitFor(() => expect(result.current.collecting).toEqual([ROW_ID]));
-    expect(result.current.progress.get(ROW_ID)).toEqual({
+    await waitFor(() => expect(result.current.collecting).toEqual([MONTH_KEY]));
+    expect(result.current.progress.get(MONTH_KEY)).toEqual({
+      stage: 'queued',
       completed: 0,
-      polling: null,
-      fraction: null,
+      total: null,
     });
 
     act(() =>
@@ -107,10 +153,10 @@ describe('useRouteCollection', () => {
         }),
       ),
     );
-    expect(result.current.progress.get(ROW_ID)).toEqual({
+    expect(result.current.progress.get(MONTH_KEY)).toEqual({
+      stage: 'collecting',
       completed: 2,
-      polling: 5,
-      fraction: 0.4,
+      total: 5,
     });
 
     act(() =>
@@ -121,11 +167,10 @@ describe('useRouteCollection', () => {
         }),
       ),
     );
-    expect(result.current.progress.get(ROW_ID)).toEqual({
-      completed: 5,
-      polling: 5,
-      fraction: 1,
-      syncing: true,
+    expect(result.current.progress.get(MONTH_KEY)).toEqual({
+      stage: 'syncing',
+      completed: 3,
+      total: 5,
     });
     act(() =>
       api.emit(
@@ -135,11 +180,10 @@ describe('useRouteCollection', () => {
         }),
       ),
     );
-    expect(result.current.progress.get(ROW_ID)).toEqual({
+    expect(result.current.progress.get(MONTH_KEY)).toEqual({
+      stage: 'syncing',
       completed: 3,
-      polling: 3,
-      fraction: 1,
-      syncing: true,
+      total: null,
     });
     unmount();
     expect(api.dispose).toHaveBeenCalledOnce();
@@ -156,7 +200,7 @@ describe('useRouteCollection', () => {
     await waitFor(() => expect(api.enqueueAirfareRequest).toHaveBeenCalledOnce());
     await waitFor(() => expect(result.current.notices[0]?.kind).toBe('accepted'));
     expect(result.current.notices[0]?.routeId).toBe(ROW_ID);
-    expect(result.current.collecting).toEqual([ROW_ID]);
+    expect(result.current.collecting).toEqual([MONTH_KEY]);
 
     const complete = request({
       status: 'complete',
@@ -199,7 +243,7 @@ describe('useRouteCollection', () => {
     );
     const { result } = setup();
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    expect(result.current.collecting).toEqual([ROW_ID]);
+    expect(result.current.collecting).toEqual([MONTH_KEY]);
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(5_000)));
     expect(api.fetchAirfareRequest).toHaveBeenCalledWith(REQUEST_ID);
@@ -231,11 +275,11 @@ describe('useRouteCollection', () => {
     const { client, result } = setup();
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    expect(result.current.collecting).toEqual([ROW_ID]);
+    expect(result.current.collecting).toEqual([MONTH_KEY]);
 
     await act(async () => void (await vi.advanceTimersByTimeAsync(1_001)));
     expect(result.current.collecting).toEqual([]);
-    expect(result.current.progress.has(ROW_ID)).toBe(false);
+    expect(result.current.progress.has(MONTH_KEY)).toBe(false);
     expect(result.current.notices.at(-1)?.text).toBe('Collection request expired. Try again.');
 
     act(() =>
@@ -263,9 +307,9 @@ describe('useRouteCollection', () => {
   it('forgets all state belonging to a removed route', async () => {
     api.fetchActiveAirfareRequests.mockResolvedValue([request()]);
     const { result } = setup();
-    await waitFor(() => expect(result.current.collecting).toContain(ROW_ID));
+    await waitFor(() => expect(result.current.collecting).toContain(MONTH_KEY));
     act(() => result.current.forget(ROW_ID));
     expect(result.current.collecting).toEqual([]);
-    expect(result.current.progress.has(ROW_ID)).toBe(false);
+    expect(result.current.progress.has(MONTH_KEY)).toBe(false);
   });
 });

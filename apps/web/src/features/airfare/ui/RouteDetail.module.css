@@ -8,12 +8,6 @@
   overflow-wrap: anywhere;
 }
 
-.empty {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.7rem;
-}
-
 .head {
   flex-shrink: 0;
   min-width: 0;

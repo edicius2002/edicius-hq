@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AirfareRequest } from '@/features/airfare/data/airfareRequests';
-import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
+import type { FareRoute } from '@/features/airfare/data/fareRoutes';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 
@@ -69,7 +69,7 @@ function Watchlist() {
 }
 
 describe('a manual collection on the watchlist', () => {
-  it('draws its progress bar under the row that asked for it', async () => {
+  it("changes Fetch into that month's download progress", async () => {
     api.enqueueAirfareRequest.mockResolvedValue(queued());
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -79,17 +79,16 @@ describe('a manual collection on the watchlist', () => {
     );
 
     await userEvent.click(
-      screen.getByRole('button', { name: 'Collect LIM → CUZ now, October 2026' }),
+      screen.getByRole('button', { name: 'Fetch LIM → CUZ now, October 2026' }),
     );
 
-    expect(await screen.findByTestId(`collect-progress-${routeId(ROUTE)}`)).toHaveAttribute(
-      'role',
-      'progressbar',
-    );
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'Collecting LIM → CUZ, October 2026' }),
+        screen.getByRole('button', {
+          name: 'Fetching LIM → CUZ, October 2026, queued 0%',
+        }),
       ).toBeDisabled(),
     );
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 });

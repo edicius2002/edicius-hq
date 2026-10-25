@@ -31,7 +31,6 @@ import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { ProjectedFlightTable } from '@/features/airfare/ui/ProjectedFlightTable';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
-import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
 import type { Airport } from '@/shared/api/fares';
@@ -58,6 +57,7 @@ function todayIso(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+/* eslint-disable react-hooks/preserve-manual-memoization -- Watchlist updates replace route objects; the explicit memos keep chart and globe work stable. */
 export function AirfarePage() {
   // Read once per mount rather than per render: a value that changes mid-render
   // would make the "already departed" test flip under a route the reader is
@@ -68,13 +68,8 @@ export function AirfarePage() {
    * Which watch is loaded into the editor, and it is deliberately **not**
    * `selectedId`.
    *
-   * `selected` below falls back to `routes[0]` when nothing has been chosen, so
-   * an editor reading it would open a fresh page with the first route already
-   * loaded and the header button saying "Save changes" — with no way to add a
-   * route at all. The read side keeps its fallback; the write side has none.
-   *
-   * Keeping them apart is also what lets Cancel leave the chart where it is: a
-   * press on a row sets both, and a cancel clears only this one.
+   * A press on a row sets both, while Cancel clears only the editor and leaves
+   * the chart on the route the reader chose.
    */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
@@ -149,17 +144,20 @@ export function AirfarePage() {
         // A route removed while its pass was still running has no direction to
         // record and no arc left to point: it is simply skipped, and the pair
         // falls back to whatever its remaining watch says.
-        const route = watchlist.routes.find((watched) => routeId(watched) === id);
+        const route = watchlist.routes.find((watched) => {
+          const watchedId = routeId(watched);
+          return id === watchedId || id.startsWith(watchedId + '|');
+        });
         if (!route) continue;
         legs.set(pairKey(route.origin, route.destination), legKey(route.origin, route.destination));
-        freshest = id;
+        freshest = routeId(route);
       }
       return { legs, freshest };
     });
   }, [horizon.collecting, rowCollection.collecting, watchlist.routes]);
 
   const selected: FareRoute | null =
-    watchlist.routes.find((route) => routeId(route) === selectedId) ?? watchlist.routes[0] ?? null;
+    watchlist.routes.find((route) => routeId(route) === selectedId) ?? null;
   const selectedKey = selected ? routeId(selected) : null;
 
   /*
@@ -356,12 +354,9 @@ export function AirfarePage() {
   /*
    * The arcs, pointed by the open route first and by the last collection after.
    *
-   * `selectedKey` rather than `selectedId`: the open route is the one this page
-   * is actually showing — the one the detail panel describes, the one the
-   * watchlist marks and the one the map thickens — and with `selectedId` at
-   * null that is the first row rather than nothing. Handing the raw state down
-   * would leave the arc pointed one way and every other thing on the page
-   * talking about the other.
+   * `selectedKey` names the route this page actually shows — the one the
+   * detail panel describes, the watchlist marks and the map thickens. It stays
+   * null until the reader opens a route.
    *
    * The selection reaches `lib/geo` rather than `RouteMap` because direction is
    * a property of the geometry here: the keyframes always travel towards the
@@ -480,7 +475,10 @@ export function AirfarePage() {
         routes={geometries}
         stopRoutes={stopRoutes}
         selectedId={selectedKey}
-        onSelect={setSelectedId}
+        onSelect={(id) => {
+          setSelectedId(id);
+          if (id === null) setEditingId(null);
+        }}
         colours={colours}
         projection={projection}
         onProjectionChange={setProjection}
@@ -490,7 +488,22 @@ export function AirfarePage() {
   );
 
   return (
-    <section className={styles.page} aria-label="Airfare">
+    <section
+      className={styles.page}
+      aria-label="Airfare"
+      onClickCapture={(event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (
+          target.closest(
+            'form, ul[aria-label="Watched routes"], [data-airfare-map], button, input, select, textarea, a, [role="button"]',
+          )
+        )
+          return;
+        setSelectedId(null);
+        setEditingId(null);
+      }}
+    >
       {/*
         A title and nothing beside it.
 
@@ -531,14 +544,6 @@ export function AirfarePage() {
         <Panel className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}>
           <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
-            {/*
-              Outside the form it submits, which is what `form` is for: the
-              action belongs at the top of the panel it acts on, not buried
-              under the fields.
-            */}
-            <Button type="submit" form={ADD_ROUTE_FORM_ID} variant="primary" size="small">
-              {editing ? 'Save changes' : 'Add route'}
-            </Button>
             {/*
               Only while editing, and it clears the editor without touching the
               selection: a reader who changed their mind about a chip has not
@@ -587,14 +592,10 @@ export function AirfarePage() {
               // on another row.
               openMonthOf(id, month);
             }}
-            /*
-              A press on the panel's empty space puts the fields back to
-              adding. Only `editingId` goes: the reader said they had finished
-              editing, not that they had finished looking at a chart, and
-              clearing the selection would send `selected` to its `routes[0]`
-              fallback and move the analysis panel under them.
-            */
-            onClearEditing={() => setEditingId(null)}
+            onClearEditing={() => {
+              setEditingId(null);
+              setSelectedId(null);
+            }}
             transferDisabled={watchlist.isFetching || watchlist.isError}
             onImported={watchlist.refresh}
             onSave={(id, next) => {
@@ -818,3 +819,4 @@ export function AirfarePage() {
     </section>
   );
 }
+/* eslint-enable react-hooks/preserve-manual-memoization */

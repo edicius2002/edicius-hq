@@ -50,7 +50,40 @@ export function RouteDetail({
   if (!route) {
     return (
       <div className={styles.detail}>
-        <p className={styles.empty}>Add a route to start building its history.</p>
+        <header className={styles.head}>
+          <h3 className={styles.pair}>
+            ??? <span className={styles.to}>→</span> ???
+          </h3>
+          <p className={styles.cities}>??? to ???</p>
+        </header>
+        <div className={styles.body}>
+          <div className={styles.hero}>
+            <span className={styles.label}>Cheapest now</span>
+            <div className={styles.priceLine}>
+              <strong className={styles.price}>0.00</strong>
+              <div className={styles.meta}>
+                <span className={`${styles.chip} ${styles.neutral}`}>??.?% vs usual</span>
+                <span className={styles.airline}>on ???</span>
+              </div>
+            </div>
+          </div>
+          <div className={styles.range} aria-hidden="true">
+            <div className={styles.track}>
+              <div className={styles.bar} data-range-bar />
+            </div>
+          </div>
+          <div className={styles.tiles}>
+            <div className={styles.tile} data-detail-tile>
+              <span className={styles.label}>Usually</span>
+              <strong className={styles.tileValue}>00.00</strong>
+            </div>
+            <div className={styles.tile} data-detail-tile>
+              <span className={styles.label}>Cheapest day</span>
+              <strong className={styles.tileValue}>????? · 00</strong>
+            </div>
+          </div>
+          <footer className={styles.footer}>Last look ??/??/???? ??:??</footer>
+        </div>
       </div>
     );
   }
@@ -143,7 +176,7 @@ export function RouteDetail({
               ) : null}
               {hasRange ? (
                 <>
-                  <div className={styles.bar} />
+                  <div className={styles.bar} data-range-bar />
                   {typical !== null && (
                     <>
                       <span

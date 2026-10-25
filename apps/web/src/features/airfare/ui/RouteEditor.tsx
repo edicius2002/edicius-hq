@@ -3,7 +3,6 @@ import { useState, type FormEvent } from 'react';
 import {
   collectableYears,
   DEFAULT_CURRENCY,
-  DEFAULT_ORIGIN,
   formatFlightMonth,
   isAirportCode,
   monthOf,
@@ -16,26 +15,14 @@ import {
 import {
   beyondHorizon,
   monthChips,
-  monthsElsewhere,
   refusalText,
   staleText,
 } from '@/features/airfare/lib/monthChips';
 import { describeCost, passCost } from '@/features/airfare/lib/passCost';
 import { AirportField } from '@/features/airfare/ui/AirportField';
+import { Button } from '@/shared/ui/Button';
 
 import styles from './RouteEditor.module.css';
-
-/**
- * The form's id, so the button that submits it can live somewhere else.
- *
- * "Add route" sits in the panel's own header, up beside the heading, which is
- * outside this form. A submit button carries a `form` attribute for exactly
- * this: the association is stated rather than inherited from the tree.
- */
-export const ADD_ROUTE_FORM_ID = 'airfare-add-route';
-
-/** The label the departure controls share, as an id the group points at. */
-const DEPARTING_LABEL_ID = 'airfare-departing-label';
 
 type RouteEditorProps = {
   /** Today, `YYYY-MM-DD`. Passed in rather than read, so tests do not drift. */
@@ -52,7 +39,7 @@ type RouteEditorProps = {
  * The fields that add a route **and edit one**, always on screen at the top of
  * the watchlist.
  *
- * **One row for the pair and departure year, then a strip for the months.**
+ * **One row for the pair, year and submit action, then a strip for the months.**
  *
  * **The departure is a set of months, picked as twelve chips** — superseding
  * the month-and-year dropdown pair 12.262 introduced. A watch holds several
@@ -71,10 +58,9 @@ type RouteEditorProps = {
  * city pair, so the new pair reads a different file and the charts start empty
  * — which is a thing to be told before pressing Save, not discovered after.
  *
- * **The years still come from the horizon** — 12.263. The strip is one calendar
- * year at a time and a selection is not, so the year control chooses which
- * twelve cells are drawn and `monthsElsewhere` says how many are in the other
- * one. Twelve chips cannot cover a 330-day horizon by themselves.
+ * **The years still come from the horizon** — 12.263. The arrows switch the
+ * calendar year shown by the strip and stop at the available years. A selection
+ * can span years without changing when the strip moves.
  *
  * **Twelve are always drawn and one outside the horizon is refused by name** —
  * 12.264 and 12.184, both kept, and `monthChips` records why disabling a chip
@@ -89,7 +75,7 @@ type RouteEditorProps = {
 export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEditorProps) {
   const adding = editing === null;
 
-  const [origin, setOrigin] = useState(editing?.origin ?? DEFAULT_ORIGIN);
+  const [origin, setOrigin] = useState(editing?.origin ?? '');
   const [destination, setDestination] = useState(editing?.destination ?? '');
   /*
    * Whole `YYYY-MM` strings, never bare month numbers, and that is what lets a
@@ -97,17 +83,18 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
    * the year cannot un-pick anything: a cell names a month outright rather than
    * combining with a control beside it.
    */
-  const [months, setMonths] = useState<string[]>(() =>
-    editing ? [...editing.months] : [nextMonth(today)],
-  );
+  const [months, setMonths] = useState<string[]>(() => (editing ? [...editing.months] : []));
   /* View state of the strip alone. It is never submitted. */
   const [year, setYear] = useState(() => (editing?.months[0] ?? nextMonth(today)).slice(0, 4));
   const [error, setError] = useState<string | null>(null);
 
   const thisMonth = monthOf(today);
   const years = collectableYears(today);
-  const chips = monthChips(year, months, today);
-  const elsewhere = monthsElsewhere(months, year);
+  const visibleYear = years.includes(Number(year)) ? year : String(years[0] ?? today.slice(0, 4));
+  const yearIndex = years.indexOf(Number(visibleYear));
+  const previousYear = years[yearIndex - 1];
+  const nextYear = years[yearIndex + 1];
+  const chips = monthChips(visibleYear, months, today);
   const cost = passCost(months, today);
   const costMessage = describeCost(cost);
 
@@ -210,17 +197,14 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
 
     onAdd(next);
     setDestination('');
-    // Back to next month rather than to whatever was just added: leaving the
-    // strip on the months that were added invites a second watch on the same
-    // months by a reader who only changed the destination.
-    setMonths([nextMonth(today)]);
+    // A new route starts with no month selected, including after an add.
+    setMonths([]);
     setYear(nextMonth(today).slice(0, 4));
     setError(null);
   }
 
   return (
     <form
-      id={ADD_ROUTE_FORM_ID}
       className={styles.form}
       onSubmit={submit}
       aria-label={editing ? `Edit the watch on ${routeLabel(editing)}` : 'Add a route to watch'}
@@ -230,14 +214,13 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
         lists hang from — 12.268.
 
         `subgrid` keeps the airport labels and inputs in the form's tracks;
-        Departing and its year control use the two tracks after them.
+        the year and submit action use the space after them.
       */}
       <div className={styles.airports}>
         <AirportField
           id="airfare-origin"
           label="Origin"
           value={origin}
-          placeholder="LIM"
           onChange={setOrigin}
           align="left"
           layout="inline"
@@ -246,93 +229,89 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
           id="airfare-destination"
           label="Destination"
           value={destination}
-          placeholder="SCL"
           onChange={setDestination}
           align="right"
           layout="inline"
         />
       </div>
 
-      {/*
-        One visible label over the year control and the strip both, so it is a
-        group rather than a `<label>`: `htmlFor` names exactly one control, and
-        pointing it at any single chip would leave the other twelve unlabelled.
-        Every control underneath carries its own accessible name.
-      */}
-      <span className={styles.groupLabel} id={DEPARTING_LABEL_ID}>
-        Departing
-      </span>
+      <div className={styles.yearAction}>
+        <output className={styles.year} aria-label="Departure year">
+          {visibleYear}
+        </output>
+        <Button type="submit" variant="primary" size="small" className={styles.submit}>
+          {editing ? 'Save changes' : 'Add route'}
+        </Button>
+      </div>
 
-      <div className={styles.year}>
-        {/*
-          Two digits, which is what the owner reads a year as here. The `value`
-          stays the full `YYYY` — the stored months are built from it, and a
-          two-digit value would be a century nobody stated.
-        */}
-        <select
-          id="airfare-departure-year"
-          aria-label="Departure year"
-          value={year}
-          onChange={(event) => setYear(event.target.value)}
+      {/*
+        The arrows flank the visible year of months. Twelve independent month
+        toggles stay in document order between them; moving the year never
+        changes which whole `YYYY-MM` values are selected.
+      */}
+      <div className={styles.monthNavigation}>
+        <button
+          type="button"
+          className={styles.yearArrow}
+          aria-label="Previous departure year"
+          disabled={previousYear === undefined}
+          onClick={() => {
+            if (previousYear !== undefined) setYear(String(previousYear));
+          }}
         >
-          {years.map((offered) => (
-            <option key={offered} value={String(offered)}>
-              {String(offered).slice(2)}
-            </option>
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="m10 3-5 5 5 5" />
+          </svg>
+        </button>
+        <div className={styles.months} role="group" aria-label="Departing">
+          {chips.map((chip) => (
+            <button
+              key={chip.month}
+              type="button"
+              className={[
+                styles.monthChip,
+                chip.selected ? styles.monthChipOn : '',
+                chip.selected && chip.month < thisMonth ? styles.monthChipStale : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              aria-label={chip.label}
+              aria-pressed={chip.selected}
+              disabled={chip.refusal !== null}
+              title={
+                chip.refusal !== null
+                  ? refusalText(chip.refusal, today)
+                  : chip.selected && chip.month < thisMonth
+                    ? staleText(chip.month)
+                    : undefined
+              }
+              onClick={() => toggle(chip.month)}
+            >
+              {chip.short}
+            </button>
           ))}
-        </select>
-        {/*
-          What the strip on screen is not showing. Without it a reader on 26 who
-          has picked March 2027 sees twelve unpressed chips and a form that
-          looks empty.
-        */}
-        {elsewhere ? <span className={styles.elsewhere}>{elsewhere}</span> : null}
+        </div>
+        <button
+          type="button"
+          className={styles.yearArrow}
+          aria-label="Next departure year"
+          disabled={nextYear === undefined}
+          onClick={() => {
+            if (nextYear !== undefined) setYear(String(nextYear));
+          }}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="m6 3 5 5-5 5" />
+          </svg>
+        </button>
       </div>
 
       {/*
-        Twelve cells, six across and two down — a row is half a year, and it
-        costs one row of height less than the four-by-three a calendar year
-        suggests. Plain buttons in document order rather than a roving tabindex:
-        these are twelve independent toggles, not one choice, and every one is a
-        control a reader may want to reach with Tab. The same bargain
-        `IndicatorBar` makes for seven.
-      */}
-      <div className={styles.months} role="group" aria-labelledby={DEPARTING_LABEL_ID}>
-        {chips.map((chip) => (
-          <button
-            key={chip.month}
-            type="button"
-            className={[
-              styles.monthChip,
-              chip.selected ? styles.monthChipOn : '',
-              chip.selected && chip.month < thisMonth ? styles.monthChipStale : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label={chip.label}
-            aria-pressed={chip.selected}
-            disabled={chip.refusal !== null}
-            title={
-              chip.refusal !== null
-                ? refusalText(chip.refusal, today)
-                : chip.selected && chip.month < thisMonth
-                  ? staleText(chip.month)
-                  : undefined
-            }
-            onClick={() => toggle(chip.month)}
-          >
-            {chip.short}
-          </button>
-        ))}
-      </div>
-
-      {/*
-        Warnings rather than refusals, and in a `status` region of their own so
+        Warnings use a `status` region, so
         a screen reader is not interrupted by something the reader can act on at
         leisure — the `alert` node below stays reserved for what stops a save.
-        The cost warning shares it because both are consequences to hear while
-        choosing, and one permanent region avoids a second grid row when there
-        is nothing to say.
+        The cost warning belongs here too, and one permanent region avoids a
+        second grid row when there is nothing to say.
       */}
       <div className={styles.notes} role="status">
         {costMessage ? (

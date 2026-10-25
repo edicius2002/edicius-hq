@@ -3,8 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
-import type { PassProgress } from '@/features/airfare/lib/passProgress';
-import { ADD_ROUTE_FORM_ID } from '@/features/airfare/ui/RouteEditor';
+import type { AirfareRequestProgress } from '@/features/airfare/data/airfareRequests';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 
 const TODAY = '2026-08-18';
@@ -24,7 +23,7 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     activeMonth: null as string | null,
     editing: null as FareRoute | null,
     collecting: [] as readonly string[],
-    progress: new Map<string, PassProgress>(),
+    progress: new Map<string, AirfareRequestProgress>(),
     onSelect: vi.fn(),
     onOpenMonth: vi.fn(),
     onRemove: vi.fn(),
@@ -35,17 +34,8 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     onMove: vi.fn(),
     ...overrides,
   };
-  // The submit button lives in the panel header on the page, tied to the form
-  // by its `form` attribute rather than by containment.
   return {
-    ...render(
-      <>
-        <RouteList {...props} />
-        <button type="submit" form={ADD_ROUTE_FORM_ID}>
-          Add route
-        </button>
-      </>,
-    ),
+    ...render(<RouteList {...props} />),
     props,
   };
 }
@@ -119,7 +109,7 @@ describe('RouteList', () => {
     const list = screen.getByRole('list', { name: 'Watched routes' });
     const outward = rowFor('LIM', 'CUZ');
 
-    expect(list.querySelectorAll('li')).toHaveLength(2);
+    expect(list.querySelectorAll('li')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: /CUZ\s+to\s+LIM/ })).not.toBeInTheDocument();
     const outwardMonths = screen.getByRole('group', { name: 'Months watched for LIM → CUZ' });
     expect(within(outwardMonths).getByRole('button', { name: 'October 2026' })).toBeEnabled();
@@ -132,14 +122,7 @@ describe('RouteList', () => {
 
     fireEvent.click(outward);
     expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
-    rerender(
-      <>
-        <RouteList {...props} selectedId="CUZ|LIM" activeMonth="2026-11" />
-        <button type="submit" form={ADD_ROUTE_FORM_ID}>
-          Add route
-        </button>
-      </>,
-    );
+    rerender(<RouteList {...props} selectedId="CUZ|LIM" activeMonth="2026-11" />);
     expect(rowFor('CUZ', 'LIM')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /LIM\s+to\s+CUZ/ })).not.toBeInTheDocument();
     const inwardMonths = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
@@ -149,7 +132,7 @@ describe('RouteList', () => {
     ).toBeDisabled();
     fireEvent.click(within(inwardMonths).getByRole('button', { name: 'November 2026' }));
     expect(props.onOpenMonth).toHaveBeenCalledWith('CUZ|LIM', '2026-11');
-    fireEvent.click(screen.getByRole('button', { name: 'Collect CUZ → LIM now, November 2026' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch CUZ → LIM now, November 2026' }));
     expect(props.onCollect).toHaveBeenCalledWith(reverse, '2026-11');
     fireEvent.click(screen.getByRole('button', { name: 'Stop watching CUZ → LIM' }));
     expect(props.onRemove).toHaveBeenCalledWith('CUZ|LIM');
@@ -179,14 +162,7 @@ describe('RouteList', () => {
     expect(props.onOpenMonth).toHaveBeenCalledWith('LIM|CUZ', '2026-10');
     fireEvent.click(rowFor('LIM', 'CUZ'));
     expect(props.onSelect).toHaveBeenCalledWith('CUZ|LIM');
-    rerender(
-      <>
-        <RouteList {...props} selectedId="CUZ|LIM" />
-        <button type="submit" form={ADD_ROUTE_FORM_ID}>
-          Add route
-        </button>
-      </>,
-    );
+    rerender(<RouteList {...props} selectedId="CUZ|LIM" />);
     months = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
     expect(within(months).getByRole('button', { name: 'October 2026' })).toBeEnabled();
     expect(within(months).getByRole('button', { name: 'November 2026' })).toBeEnabled();
@@ -364,7 +340,7 @@ describe('RouteList', () => {
     renderList({ routes: many });
 
     const rows = screen.getByRole('list', { name: 'Watched routes' });
-    expect(rows.querySelectorAll('li')).toHaveLength(40);
+    expect(rows.querySelectorAll('li')).toHaveLength(20);
     const form = screen.getByRole('form', { name: /add a route/i });
     expect(rows.contains(form)).toBe(false);
   });
@@ -397,24 +373,81 @@ describe('RouteList', () => {
     // first puts a step in front of the only action here.
     renderList();
     expect(screen.getByRole('form', { name: /add a route/i })).toBeInTheDocument();
-    expect(screen.getByLabelText('Origin')).toBeInTheDocument();
+    expect(screen.getByLabelText('Origin')).toHaveValue('');
+    expect(screen.getByLabelText('Destination')).toHaveValue('');
+    expect(screen.getByLabelText('Origin')).not.toHaveAttribute('placeholder');
+    expect(screen.getByLabelText('Destination')).not.toHaveAttribute('placeholder');
     expect(screen.getByRole('group', { name: 'Departing' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Departure year' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Departure year' })).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('form', { name: /add a route/i })).getByText('2026'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('form', { name: /add a route/i })).getByRole('button', {
+        name: 'Add route',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('moves through only the departure years offered by the collection horizon', async () => {
+    const user = userEvent.setup();
+    renderList();
+    const form = screen.getByRole('form', { name: /add a route/i });
+    const previous = within(form).getByRole('button', { name: 'Previous departure year' });
+    const next = within(form).getByRole('button', { name: 'Next departure year' });
+
+    expect(previous).toBeDisabled();
+    expect(next).toBeEnabled();
+    await user.click(next);
+    expect(within(form).getByText('2027')).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'January 2027' })).toBeInTheDocument();
+    expect(previous).toBeEnabled();
+    expect(next).toBeDisabled();
+    await user.click(previous);
+    expect(within(form).getByText('2026')).toBeInTheDocument();
+  });
+
+  it('disables both year arrows when the horizon stays in one calendar year', () => {
+    renderList({ today: '2026-01-10' });
+    const form = screen.getByRole('form', { name: /add a route/i });
+    expect(within(form).getByText('2026')).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Previous departure year' })).toBeDisabled();
+    expect(within(form).getByRole('button', { name: 'Next departure year' })).toBeDisabled();
+  });
+
+  it('keeps selected months while moving between years', async () => {
+    const user = userEvent.setup();
+    renderList();
+    const form = screen.getByRole('form', { name: /add a route/i });
+    await user.click(within(form).getByRole('button', { name: 'December 2026' }));
+    await user.click(within(form).getByRole('button', { name: 'Next departure year' }));
+    expect(within(form).queryByText(/more in \d{2}/i)).not.toBeInTheDocument();
+    await user.click(within(form).getByRole('button', { name: 'January 2027' }));
+    await user.click(within(form).getByRole('button', { name: 'Previous departure year' }));
+    expect(within(form).getByRole('button', { name: 'December 2026' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(form).getByRole('button', { name: 'Next departure year' }));
+    expect(within(form).getByRole('button', { name: 'January 2027' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   it('adds a route from the fields', async () => {
     const user = userEvent.setup();
     const { props } = renderList();
 
-    await user.clear(screen.getByLabelText('Origin'));
+    const strip = screen.getByRole('group', { name: 'Departing' });
+    expect(within(strip).queryAllByRole('button', { pressed: true })).toHaveLength(0);
+
     await user.type(screen.getByLabelText('Origin'), 'LIM');
     await user.type(screen.getByLabelText('Destination'), 'MAD');
-    const strip = screen.getByRole('group', { name: 'Departing' });
-    // Off the month the form opens on, and on to December, so the assertion
-    // below is about a press rather than about a default.
-    await user.click(within(strip).getByRole('button', { name: 'September 2026' }));
     await user.click(within(strip).getByRole('button', { name: 'December 2026' }));
     await user.click(screen.getByRole('button', { name: /add route/i }));
+
+    expect(within(strip).queryAllByRole('button', { pressed: true })).toHaveLength(0);
 
     // A city pair and its months, which is the whole of what a watch is. The
     // year is left on its default, which today is this one.
@@ -432,7 +465,10 @@ describe('RouteList', () => {
     // request budget down it, so dragging to the top is a statement about
     // which route matters when the budget will not cover everything.
     const { props } = renderList();
-    const rows = screen.getAllByRole('listitem');
+    const rows = [
+      rowFor('LIM', 'CUZ').closest('[draggable]')!,
+      rowFor('LIM', 'SCL').closest('[draggable]')!,
+    ];
 
     fireEvent.dragStart(rows[1]);
     fireEvent.drop(rows[0]);
@@ -453,7 +489,7 @@ describe('RouteList', () => {
     expect(props.onMove).toHaveBeenCalledWith('LIM|SCL', 'LIM|CUZ');
   });
 
-  it('collects the month the open row is reading, and names it', () => {
+  it('fetches the month the open row is reading, and names it', () => {
     /*
      * `a-press-collects-the-month-on-screen`. The press sent every month of the
      * watch, which is the button doing more than the reader can see it do — the
@@ -465,20 +501,20 @@ describe('RouteList', () => {
       activeMonth: '2026-12',
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Collect LIM → CUZ now/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Fetch LIM → CUZ now/ }));
     expect(props.onCollect).toHaveBeenCalledWith(
       expect.objectContaining({ origin: 'LIM', destination: 'CUZ' }),
       '2026-12',
     );
     expect(
-      screen.getByRole('button', { name: 'Collect LIM → CUZ now, December 2026' }),
+      screen.getByRole('button', { name: 'Fetch LIM → CUZ now, December 2026' }),
     ).toBeInTheDocument();
   });
 
-  it('collects the month a row would open on where that row is not the open one', () => {
+  it('fetches the month a row would open on where that row is not the open one', () => {
     /*
      * The tab strip marks a current month only on the open row, so an unopened
-     * row has no "selected" month to collect. It collects the one it would open
+     * row has no "selected" month to collect. It fetches the one it would open
      * on — the earliest that has not departed — rather than `months[0]`, which
      * on a watch a few months old is a dead month whose series has stopped.
      *
@@ -491,153 +527,108 @@ describe('RouteList', () => {
       activeMonth: null,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Collect LIM → CUZ now/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Fetch LIM → CUZ now/ }));
     expect(props.onCollect).toHaveBeenCalledWith(expect.anything(), '2026-10');
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
-  it('offers each row its own collection, named for the route it would collect', () => {
-    // "Collect" on its own would be nine identical buttons in the
-    // accessibility tree, and the mark that carries it visually says nothing
-    // out loud at all.
-    renderList();
+  it('pairs consecutive routes with one action area targeting the selected route', () => {
+    const { props, rerender } = renderList();
+    const list = screen.getByRole('list', { name: 'Watched routes' });
+    expect(list.querySelectorAll('li')).toHaveLength(1);
+    expect(within(list.querySelector('li')!).getAllByRole('group')).toHaveLength(2);
     expect(
-      screen.getByRole('button', { name: 'Collect LIM → CUZ now, October 2026' }),
+      screen.getByRole('button', {
+        name: 'Fetch LIM → CUZ now, October 2026',
+      }),
     ).toBeInTheDocument();
+
+    rerender(<RouteList {...props} selectedId="LIM|SCL" />);
+    expect(screen.queryByRole('button', { name: /^Fetch LIM → SCL/ })).not.toBeInTheDocument();
+    const remove = screen.getByRole('button', { name: 'Stop watching LIM → SCL' });
+    expect(remove.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(remove).toHaveTextContent('');
+    fireEvent.click(remove);
+    expect(props.onRemove).toHaveBeenCalledWith('LIM|SCL');
   });
 
-  it('collects the route whose own control was pressed', async () => {
-    const user = userEvent.setup();
-    const { props } = renderList();
-
-    await user.click(screen.getByRole('button', { name: /^Collect LIM → CUZ/ }));
-
-    expect(props.onCollect).toHaveBeenCalledTimes(1);
-    // The route, and the month that row is reading — which for a row nobody has
-    // opened is the month it would open on.
-    expect(props.onCollect).toHaveBeenCalledWith(ROUTES[0], ROUTES[0].months[0]);
-  });
-
-  it('offers no collection for a month the calendar has left', () => {
-    // The provider answers nothing about a flight that has left, so there is
-    // no press to invite. Absent rather than disabled: the row already says
-    // "Departed", and a greyed button beside it only raises the question.
-    renderList();
-    expect(screen.queryByRole('button', { name: /^Collect LIM → SCL/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Stop watching LIM → SCL/ })).toBeInTheDocument();
-  });
-
-  it('holds down only the row whose own collection is in flight', () => {
-    // One row's press must not reach across and grey out the rest. The
-    // watchlist is a list of independent routes and this is a per-route
-    // action.
-    renderList({ collecting: [routeId(ROUTES[0])] });
-
-    const busy = screen.getByRole('button', { name: /^Collecting LIM → CUZ/ });
-    expect(busy).toBeDisabled();
-    expect(busy).toHaveAttribute('aria-busy', 'true');
-    // Removing is a different action on the same row and stays available: a
-    // route can be dropped from the watchlist mid-look.
-    expect(screen.getByRole('button', { name: /^Stop watching LIM → CUZ/ })).toBeEnabled();
-  });
-
-  it('leaves every other row pressable while one is collecting', () => {
+  it('keeps the odd final route and its actions', () => {
     const third: FareRoute = {
       origin: 'LIM',
       destination: 'MAD',
       months: ['2026-12'],
       currency: 'USD',
     };
-    renderList({ routes: [...ROUTES, third], collecting: [routeId(ROUTES[0])] });
+    const { props, rerender } = renderList({ routes: [...ROUTES, third] });
+    expect(
+      screen.getByRole('list', { name: 'Watched routes' }).querySelectorAll('li'),
+    ).toHaveLength(2);
+    rerender(<RouteList {...props} selectedId="LIM|MAD" />);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Fetch LIM → MAD now, December 2026',
+      }),
+    );
+    expect(props.onCollect).toHaveBeenCalledWith(third, '2026-12');
+  });
 
-    expect(screen.getByRole('button', { name: /^Collecting LIM → CUZ/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /^Collect LIM → MAD/ })).toBeEnabled();
+  it('shows download and sync percentage in the button for one route-month only', () => {
+    const route = { ...ROUTES[0], months: ['2026-10', '2026-12'] };
+    const key = 'LIM|CUZ|2026-10';
+    const { props, rerender } = renderList({
+      routes: [route],
+      selectedId: 'LIM|CUZ',
+      activeMonth: '2026-10',
+      collecting: [key],
+      progress: new Map([[key, { stage: 'collecting', completed: 4, total: 31 }]]),
+    });
+    const busy = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, downloading 12%',
+    });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveTextContent('↓ 12%');
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    rerender(<RouteList {...props} activeMonth="2026-12" />);
+    expect(
+      screen.getByRole('button', {
+        name: 'Fetch LIM → CUZ now, December 2026',
+      }),
+    ).toBeEnabled();
+
+    rerender(
+      <RouteList
+        {...props}
+        progress={new Map([[key, { stage: 'syncing', completed: 1, total: 4 }]])}
+      />,
+    );
+    expect(
+      screen.getByRole('button', {
+        name: 'Fetching LIM → CUZ, October 2026, syncing 25%',
+      }),
+    ).toHaveTextContent('↑ 25%');
+  });
+
+  it('shows an unknown percentage until the worker reports a total', () => {
+    const key = 'LIM|CUZ|2026-10';
+    renderList({
+      routes: [ROUTES[0]],
+      selectedId: 'LIM|CUZ',
+      activeMonth: '2026-10',
+      collecting: [key],
+      progress: new Map([[key, { stage: 'queued', completed: 0, total: null }]]),
+    });
+    expect(
+      screen.getByRole('button', {
+        name: 'Fetching LIM → CUZ, October 2026, queued 0%',
+      }),
+    ).toHaveTextContent('↓ 0%');
   });
 
   it('does not render inline terminal report text', () => {
     renderList();
     expect(document.querySelector('[aria-live]')).toBeNull();
   });
-
-  it('draws how far the pass has got, and only on the row running one', () => {
-    const running = routeId(ROUTES[0]);
-    const idle = routeId(ROUTES[1]);
-    renderList({
-      collecting: [running],
-      progress: new Map([[running, { completed: 4, polling: 31, fraction: 4 / 31 }]]),
-    });
-
-    const bar = screen.getByTestId(`collect-progress-${running}`);
-    // The fill is a width, so the figure the reader is looking at is checkable
-    // as the figure the pass reported rather than as a class name.
-    expect((bar.firstElementChild as HTMLElement).style.width).toBe(`${(4 / 31) * 100}%`);
-    expect(bar).toHaveAttribute('role', 'progressbar');
-    expect(bar).toHaveAttribute('aria-valuemin', '0');
-    expect(bar).toHaveAttribute('aria-valuemax', '31');
-    expect(bar).toHaveAttribute('aria-valuenow', '4');
-    expect(bar).toHaveAccessibleName('Collecting LIM → CUZ, October 2026');
-
-    // A row between presses costs no element at all — a track drawn on every
-    // row would be three pixels of ink down an idle watchlist.
-    expect(screen.queryByTestId(`collect-progress-${idle}`)).not.toBeInTheDocument();
-  });
-
-  it('sweeps rather than sits at zero while the pass has no denominator yet', () => {
-    // `polling` lands before the first upstream request but after the press
-    // returns, so there is a window in which the pass is running and how long
-    // it will be is unknown. A bar at zero would be claiming a length it has
-    // not got.
-    const running = routeId(ROUTES[0]);
-    renderList({
-      collecting: [running],
-      progress: new Map([[running, { completed: 0, polling: null, fraction: null }]]),
-    });
-
-    const bar = screen.getByTestId(`collect-progress-${running}`);
-    expect(bar.className).toMatch(/unplanned/);
-    expect(bar).toHaveAttribute('role', 'progressbar');
-    expect(bar).not.toHaveAttribute('aria-valuenow');
-    // No inline width: the stylesheet owns the sweep, and a width written here
-    // would pin the fill and stop it moving.
-    expect((bar.firstElementChild as HTMLElement).style.width).toBe('');
-  });
-
-  describe('the count beside the bar', () => {
-    it('says how many departures are done, of how many, and the percentage', () => {
-      const running = routeId(ROUTES[0]);
-      renderList({
-        collecting: [running],
-        progress: new Map([[running, { completed: 4, polling: 31, fraction: 4 / 31 }]]),
-      });
-
-      expect(screen.getByText('4/31 days · 13%')).toBeInTheDocument();
-      expect(screen.getByTestId(`collect-progress-${running}`)).toHaveAttribute(
-        'aria-valuetext',
-        '4/31 days · 13%',
-      );
-    });
-
-    it('says it is preparing while the pass has no total yet', () => {
-      const running = routeId(ROUTES[0]);
-      renderList({
-        collecting: [running],
-        progress: new Map([[running, { completed: 0, polling: null, fraction: null }]]),
-      });
-
-      expect(screen.getByText('Preparing…')).toBeInTheDocument();
-    });
-
-    it('says it is syncing once every departure is collected', () => {
-      const running = routeId(ROUTES[0]);
-      renderList({
-        collecting: [running],
-        progress: new Map([[running, { completed: 31, polling: 31, fraction: 1, syncing: true }]]),
-      });
-
-      expect(screen.getByText('Syncing…')).toBeInTheDocument();
-    });
-  });
-
   it('still offers the fields when nothing is watched yet', () => {
     renderList({ routes: [] });
     expect(screen.getByText(/no routes watched yet/i)).toBeInTheDocument();

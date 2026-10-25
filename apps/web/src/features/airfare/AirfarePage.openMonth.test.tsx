@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
@@ -11,9 +11,24 @@ import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 const state = vi.hoisted(() => ({
   routes: [] as FareRoute[],
   projections: [] as { route: string | null; month: string | null }[],
-  list: null as null | { onOpenMonth: (id: string, month: string) => void },
+  collecting: [] as string[],
+  flowLegs: new Map<string, string>(),
+  list: null as null | {
+    selectedId: string | null;
+    onOpenMonth: (id: string, month: string) => void;
+  },
 }));
 
+vi.mock('@/features/airfare/lib/geo', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/airfare/lib/geo')>();
+  return {
+    ...actual,
+    routeGeometries: (...args: Parameters<typeof actual.routeGeometries>) => {
+      state.flowLegs = new Map(args[2]);
+      return actual.routeGeometries(...args);
+    },
+  };
+});
 vi.mock('@/features/airfare/hooks/useFareRoutes', () => ({
   useFareRoutes: () => ({
     routes: state.routes,
@@ -39,7 +54,7 @@ vi.mock('@/features/airfare/hooks/useFareProjections', () => ({
 }));
 vi.mock('@/features/airfare/hooks/useRouteCollection', () => ({
   useRouteCollection: () => ({
-    collecting: [],
+    collecting: state.collecting,
     progress: new Map(),
     notices: [],
     collect: vi.fn(),
@@ -56,12 +71,26 @@ vi.mock('@/features/airfare/hooks/useAirports', () => ({
   useAirports: () => ({ data: new Map() }),
 }));
 vi.mock('@/features/airfare/ui/RouteList', () => ({
-  RouteList: (props: { onOpenMonth: (id: string, month: string) => void }) => {
+  RouteList: (props: {
+    selectedId: string | null;
+    onOpenMonth: (id: string, month: string) => void;
+  }) => {
     state.list = props;
     return <div data-testid="route-list" />;
   },
 }));
-vi.mock('@/features/airfare/ui/RouteMap', () => ({ RouteMap: () => <div /> }));
+vi.mock('@/features/airfare/ui/RouteMap', () => ({
+  RouteMap: ({ onSelect }: { onSelect: (id: string | null) => void }) => (
+    <div
+      data-airfare-map
+      data-testid="map-stage"
+      role="application"
+      onPointerUp={(event) => onSelect((event.target as Element).getAttribute('data-route'))}
+    >
+      <span data-route="ARI|SCL">Map arc</span>
+    </div>
+  ),
+}));
 vi.mock('@/features/airfare/ui/RouteDetail', () => ({ RouteDetail: () => <div /> }));
 vi.mock('@/features/airfare/ui/AnalysisPanel', () => ({
   ANALYSIS_PANEL_ID: 'analysis',
@@ -89,17 +118,53 @@ describe('pressing a month on another watched route', () => {
     vi.setSystemTime(new Date('2026-09-19T12:02:00.000Z'));
     state.routes = [ARI_SCL, LIM_MAD];
     state.projections = [];
+    state.collecting = [];
+    state.flowLegs = new Map();
     state.list = null;
   });
 
-  it('opens that route on the month pressed, not on its first month', () => {
+  it('starts without an open route and opens the month pressed', () => {
     render(<AirfarePage />);
-    // The first route is open on its own first month.
-    expect(state.projections.at(-1)).toEqual({ route: routeId(ARI_SCL), month: '2027-03' });
+    expect(state.list?.selectedId).toBeNull();
+    expect(state.projections.at(-1)).toEqual({ route: null, month: null });
 
     act(() => state.list!.onOpenMonth(routeId(LIM_MAD), '2027-06'));
 
     expect(state.projections.at(-1)).toEqual({ route: routeId(LIM_MAD), month: '2027-06' });
+  });
+
+  it('closes the route and month when clicking empty space outside the list', () => {
+    render(<AirfarePage />);
+    act(() => state.list!.onOpenMonth(routeId(LIM_MAD), '2027-06'));
+
+    fireEvent.click(screen.getByRole('heading', { name: 'Flight details' }));
+
+    expect(state.list?.selectedId).toBeNull();
+    expect(state.projections.at(-1)).toEqual({ route: null, month: null });
+  });
+
+  it('keeps a route selected from the map after its native click and clears it on empty map space', () => {
+    render(<AirfarePage />);
+    const stage = screen.getByTestId('map-stage');
+
+    fireEvent.pointerUp(screen.getByText('Map arc'));
+    fireEvent.click(stage);
+    expect(state.list?.selectedId).toBe(routeId(ARI_SCL));
+
+    fireEvent.pointerUp(stage);
+    fireEvent.click(stage);
+    expect(state.list?.selectedId).toBeNull();
+  });
+
+  it('points the map toward a route after its monthly fetch finishes', () => {
+    const page = render(<AirfarePage />);
+
+    state.collecting = ['ARI|SCL|2027-03'];
+    page.rerender(<AirfarePage />);
+    state.collecting = [];
+    page.rerender(<AirfarePage />);
+
+    expect(state.flowLegs.get('ARI~SCL')).toBe('ARI>SCL');
   });
 
   it('leaves the route it came from on the month it was on', () => {

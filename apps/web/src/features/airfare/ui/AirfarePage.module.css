@@ -70,9 +70,23 @@
   min-height: 0;
 }
 
+/* Keep the editor close to the heading and give the fixed-height list more room. */
+.routesPanel {
+  gap: 6px;
+}
+
+.routesPanel .panelHead {
+  margin-bottom: 0;
+}
+
 /* Smaller top-row gutters return width to all three contents and height to the map. */
 .top > .panel {
   padding: var(--space-3);
+}
+
+/* Give the paired route cells the unused space at the watchlist's edges. */
+.top > .routesPanel {
+  padding-inline: 8px;
 }
 
 .panelHead {
@@ -87,7 +101,7 @@
   margin: 0;
 }
 
-/* The add and cancel actions can take another line without squeezing the title. */
+/* Cancel can take another line without squeezing the title while editing. */
 @media (min-width: 641px) and (max-width: 1400px) {
   .panelHead {
     flex-wrap: wrap;
@@ -131,6 +145,10 @@
 
   .routesPanel {
     height: 640px;
+  }
+
+  .top > .routesPanel {
+    padding-inline: var(--space-3);
   }
 }
 

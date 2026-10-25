@@ -8,12 +8,13 @@ import {
   monthHasDeparted,
   openingMonth,
   routeId,
+  routeMonthKey,
   routeLabel,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
+import type { AirfareRequestProgress } from '@/features/airfare/data/airfareRequests';
 import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
 import { shortMonth } from '@/features/airfare/lib/monthChips';
-import type { PassProgress } from '@/features/airfare/lib/passProgress';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
 import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
@@ -29,10 +30,10 @@ type RouteListProps = {
   colours: Map<string, string>;
   selectedId: string | null;
   today: string;
-  /** Route ids whose own collection is in flight. Never more than a few. */
+  /** Route-month keys whose own collection is in flight. */
   collecting: readonly string[];
-  /** How far each running pass has got, by route id. Absent means no bar. */
-  progress: ReadonlyMap<string, PassProgress>;
+  /** Queue progress by route-month key. */
+  progress: ReadonlyMap<string, AirfareRequestProgress>;
   /** Which month of the selected route the chart is reading. */
   activeMonth: string | null;
   /** The watch loaded into the editor above, or null while it is adding. */
@@ -79,43 +80,16 @@ type RouteListProps = {
   error?: boolean;
 };
 
-/**
- * The words beside a pass's bar: how many departures are in, of how many.
- *
- * The bar alone moves a few pixels per departure on a narrow row, which reads as
- * nothing happening; the count names each step. A month has at most 31
- * departures, so rounding cannot show 100% before the last one is in.
- */
-function progressText(bar: PassProgress): string {
-  if (bar.syncing) return 'Syncing…';
-  if (bar.polling === null) return 'Preparing…';
-  const percent = Math.round((Math.min(bar.completed, bar.polling) / bar.polling) * 100);
-  return `${bar.completed}/${bar.polling} days · ${percent}%`;
+/** Floor percentages so a partial phase never appears complete. */
+function progressPercent(value: AirfareRequestProgress): string {
+  if (value.total === null || value.total <= 0) return '0%';
+  return `${Math.min(100, Math.floor((value.completed / value.total) * 100))}%`;
 }
 
-/**
- * The collect control's mark: a circular arrow, drawn rather than typed.
- *
- * The row's other arrows are text — `→`, `↑`, `↓` — and a `↻` would have
- * matched them for a character of width. It is not typed because this app
- * ships no font file: `fonts.css` reaches for a locally installed Berkeley
- * Mono and otherwise falls through to whatever monospace the machine has, and
- * a glyph one of those fallbacks lacks renders as a box. The row's existing
- * arrows are in the part of the arrows block every monospace font covers; a
- * rotation arrow is not, and a tofu box beside Remove is worse than an inline
- * path that cannot fail.
- *
- * It spins only while its own request is in flight, in CSS, so an idle
- * watchlist animates nothing.
- */
-function CollectMark({ busy }: { busy: boolean }) {
+/** The idle Fetch icon; active requests show the stage and percentage. */
+function CollectMark() {
   return (
-    <svg
-      className={busy ? `${styles.mark} ${styles.spinning}` : styles.mark}
-      viewBox="0 0 16 16"
-      aria-hidden="true"
-      focusable="false"
-    >
+    <svg className={styles.mark} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       {/* Just under a full turn, so the gap and the head read as a rotation
           rather than as a ring. */}
       <path d="M13.17 9.88A5.5 5.5 0 1 1 11.89 4.11" />
@@ -224,6 +198,9 @@ export function RouteList({
   }, [routes, loading]);
 
   const visibleGroups = loading ? [] : routeGroups;
+  const visibleRows = Array.from({ length: Math.ceil(visibleGroups.length / 2) }, (_, index) =>
+    visibleGroups.slice(index * 2, index * 2 + 2),
+  );
 
   return (
     <div className={styles.panel} onClick={clearOnBackdrop}>
@@ -296,230 +273,214 @@ export function RouteList({
                   </li>
                 ))
               : null}
-            {visibleGroups.map((group) => {
-              const groupId = routeId(group[0]);
-              const route =
-                group.find((candidate) => routeId(candidate) === selectedId) ?? group[0];
-              const id = routeId(route);
-              const inverse = group.find((candidate) => routeId(candidate) !== id);
-              const drawn = [...new Set(group.flatMap((candidate) => candidate.months))].sort();
-              const departed = hasDeparted(route, today);
-              const busy = collecting.includes(id);
-              const bar = progress.get(id) ?? null;
-              const reading =
-                id === selectedId && activeMonth !== null && route.months.includes(activeMonth)
+            {visibleRows.map((groups) => {
+              const firstId = routeId(groups[0][0]);
+              const targetGroup =
+                groups.find((group) => group.some((route) => routeId(route) === selectedId)) ??
+                groups[0];
+              const targetRoute =
+                targetGroup.find((route) => routeId(route) === selectedId) ?? targetGroup[0];
+              const targetId = routeId(targetRoute);
+              const targetMonth =
+                targetId === selectedId &&
+                activeMonth !== null &&
+                targetRoute.months.includes(activeMonth)
                   ? activeMonth
-                  : openingMonth(route, today);
-              const tabStop = route.months.includes(reading) ? reading : route.months[0];
-              const monthsLabel = inverse
-                ? `${routeLabel(route)}: ${formatFlightMonths(route.months)}; ${routeLabel(inverse)}: ${formatFlightMonths(inverse.months)}`
-                : formatFlightMonths(route.months);
+                  : openingMonth(targetRoute, today);
+              const key = routeMonthKey(targetRoute, targetMonth);
+              const busy = collecting.includes(key);
+              const stage = progress.get(key);
+
               return (
-                <li
-                  key={groupId}
-                  className={`${styles.item} ${dragging === groupId ? styles.dragging : ''}`}
-                  {...rowProps(groupId)}
-                >
+                <li key={firstId} className={styles.item}>
                   <div className={styles.row}>
-                    <button
-                      type="button"
-                      className={
-                        id === selectedId ? `${styles.route} ${styles.selected}` : styles.route
-                      }
-                      aria-current={id === selectedId ? 'true' : undefined}
-                      onClick={() => onSelect(id === selectedId && inverse ? routeId(inverse) : id)}
-                      title={
-                        id === selectedId && inverse
-                          ? `Switch to ${routeLabel(inverse)}`
-                          : undefined
-                      }
-                    >
-                      {/*
-                      The colour this route is drawn in on the map. Eight arcs
-                      leave Lima together, and without this the reader has no
-                      way to tell which line is the row they are looking at.
-                    */}
-                      <span
-                        className={styles.swatch}
-                        style={{ background: colours.get(id) ?? 'var(--color-muted)' }}
-                        aria-hidden="true"
-                      />
-                      {/*
-                      Split so the arrow can be smaller and quieter than the
-                      two codes — it is punctuation, not information. Read
-                      aloud it becomes the word, because "LIM right-arrow CUZ"
-                      is not how anyone says a route.
-                    */}
-                      <span className={styles.pair}>
-                        {route.origin}{' '}
-                        <span className={styles.to} aria-hidden="true">
-                          →
-                        </span>
-                        <span className={styles.sr}>to</span> {route.destination}
-                      </span>
-                    </button>
-                    {/*
-                      The months, as tabs.
-
-                       They are siblings of the route button because a `<button>`
-                       may not contain buttons. The route button first selects an
-                       unopened row, then switches direction on another press when
-                       the inverse watch exists. Only months watched in the
-                       displayed direction open the chart; the inverse-only months
-                       remain visible and disabled until the direction is switched.
-
-                      **Not `role="tab"`.** That role obliges a `tablist` whose
-                      tabs own `tabpanel`s, and there would be one tablist per
-                      row — ten of them, nine inert, each still claiming a
-                      selected tab — pointing at a panel that already has its own
-                      chart switch inside it. `aria-current` is the honest,
-                      weaker thing and is this row's existing idiom; `aria-
-                      controls` names what the press actually moves.
-
-                      One tab stop per row rather than one per tab: forty extra
-                      stops between the reader and Remove is not a bargain.
-                      Arrow keys walk and open, and they cannot collide with the
-                      drag — `useReorder` claims `Alt+Arrow` and returns
-                      immediately without it, while this returns immediately
-                      *with* it.
-                    */}
-                    <span
-                      className={styles.months}
-                      role="group"
-                      aria-label={`Months watched for ${routeLabel(route)}`}
-                      // Where the year lives, since a three-letter tab cannot
-                      // carry one — see `shortMonth`.
-                      title={monthsLabel}
-                      onKeyDown={(event) => {
-                        if (event.altKey) return;
-                        const step =
-                          event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-                        if (step === 0) return;
-                        event.preventDefault();
-                        const from = route.months.indexOf(tabStop);
-                        const next = route.months[from + step];
-                        if (next === undefined) return;
-                        onOpenMonth(id, next);
-                      }}
-                    >
-                      {drawn.map((month) => {
-                        const open = id === selectedId && month === activeMonth;
-                        const inverseOnly = !route.months.includes(month);
-                        return (
+                    {groups.map((group) => {
+                      const groupId = routeId(group[0]);
+                      const route =
+                        group.find((candidate) => routeId(candidate) === selectedId) ?? group[0];
+                      const id = routeId(route);
+                      const inverse = group.find((candidate) => routeId(candidate) !== id);
+                      const drawn = [
+                        ...new Set(group.flatMap((candidate) => candidate.months)),
+                      ].sort();
+                      const reading =
+                        id === selectedId &&
+                        activeMonth !== null &&
+                        route.months.includes(activeMonth)
+                          ? activeMonth
+                          : openingMonth(route, today);
+                      const tabStop = route.months.includes(reading) ? reading : route.months[0];
+                      const monthsLabel = inverse
+                        ? routeLabel(route) +
+                          ': ' +
+                          formatFlightMonths(route.months) +
+                          '; ' +
+                          routeLabel(inverse) +
+                          ': ' +
+                          formatFlightMonths(inverse.months)
+                        : formatFlightMonths(route.months);
+                      return (
+                        <div
+                          key={groupId}
+                          className={
+                            dragging === groupId
+                              ? styles.routeCell + ' ' + styles.dragging
+                              : styles.routeCell
+                          }
+                          {...rowProps(groupId)}
+                        >
                           <button
-                            key={month}
                             type="button"
-                            className={[
-                              styles.monthTab,
-                              open ? styles.monthTabOpen : '',
-                              monthHasDeparted(month, today) ? styles.monthTabGone : '',
-                              inverseOnly ? styles.monthTabInverse : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            aria-label={
-                              inverseOnly
-                                ? `${formatFlightMonth(month)} — ${routeLabel(inverse!)} only`
-                                : monthHasDeparted(month, today)
-                                  ? `${formatFlightMonth(month)} — departed`
-                                  : formatFlightMonth(month)
+                            className={
+                              id === selectedId
+                                ? styles.route + ' ' + styles.selected
+                                : styles.route
                             }
-                            aria-current={open ? 'true' : undefined}
-                            aria-controls={inverseOnly ? undefined : ANALYSIS_PANEL_ID}
-                            tabIndex={!inverseOnly && month === tabStop ? 0 : -1}
-                            disabled={inverseOnly}
-                            onClick={() => onOpenMonth(id, month)}
+                            aria-current={id === selectedId ? 'true' : undefined}
+                            onClick={() =>
+                              onSelect(id === selectedId && inverse ? routeId(inverse) : id)
+                            }
+                            title={
+                              id === selectedId && inverse
+                                ? 'Switch to ' + routeLabel(inverse)
+                                : undefined
+                            }
                           >
-                            {shortMonth(month)}
+                            <span
+                              className={styles.swatch}
+                              style={{ background: colours.get(id) ?? 'var(--color-muted)' }}
+                              aria-hidden="true"
+                            />
+                            <span className={styles.pair}>
+                              {route.origin}{' '}
+                              <span className={styles.to} aria-hidden="true">
+                                →
+                              </span>
+                              <span className={styles.sr}>to</span> {route.destination}
+                            </span>
                           </button>
-                        );
-                      })}
-                    </span>
-                    {/*
-                      Every month has been and gone. Its history stays — that is
-                      the point of an archive — but nothing more will be
-                      collected, and saying so is cheaper than letting the reader
-                      wonder why the series stopped. A watch with one stale month
-                      beside two live ones is not this, and keeps its press.
-                    */}
-                    {/*
-                    Collect this one route, now, without waiting for a pass
-                    over the whole list. Absent rather than disabled on a
-                    departed route: the provider answers nothing about a flight
-                    that has left, so there is no press to invite — the row
-                    already says "Departed", and a greyed control beside it
-                    would only make the reader wonder what would happen.
-                  */}
+                          <span
+                            className={styles.months}
+                            role="group"
+                            aria-label={'Months watched for ' + routeLabel(route)}
+                            title={monthsLabel}
+                            onKeyDown={(event) => {
+                              if (event.altKey) return;
+                              const step =
+                                event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+                              if (step === 0) return;
+                              event.preventDefault();
+                              const next = route.months[route.months.indexOf(tabStop) + step];
+                              if (next !== undefined) onOpenMonth(id, next);
+                            }}
+                          >
+                            {drawn.map((month) => {
+                              const open = id === selectedId && month === activeMonth;
+                              const inverseOnly = !route.months.includes(month);
+                              return (
+                                <button
+                                  key={month}
+                                  type="button"
+                                  className={[
+                                    styles.monthTab,
+                                    open ? styles.monthTabOpen : '',
+                                    monthHasDeparted(month, today) ? styles.monthTabGone : '',
+                                    inverseOnly ? styles.monthTabInverse : '',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ')}
+                                  aria-label={
+                                    inverseOnly
+                                      ? formatFlightMonth(month) +
+                                        ' — ' +
+                                        routeLabel(inverse!) +
+                                        ' only'
+                                      : monthHasDeparted(month, today)
+                                        ? formatFlightMonth(month) + ' — departed'
+                                        : formatFlightMonth(month)
+                                  }
+                                  aria-current={open ? 'true' : undefined}
+                                  aria-controls={inverseOnly ? undefined : ANALYSIS_PANEL_ID}
+                                  tabIndex={!inverseOnly && month === tabStop ? 0 : -1}
+                                  disabled={inverseOnly}
+                                  onClick={() => onOpenMonth(id, month)}
+                                >
+                                  {shortMonth(month)}
+                                </button>
+                              );
+                            })}
+                          </span>
+                          {hasDeparted(route, today) ? (
+                            <span className={styles.departed}>Departed</span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                     <div className={styles.actions}>
-                      {departed || !onCollect ? null : (
+                      {hasDeparted(targetRoute, today) || !onCollect ? null : (
                         <Button
                           variant="ghost"
                           size="small"
                           className={styles.collect}
-                          onClick={() => onCollect(route, reading)}
+                          onClick={() => onCollect(targetRoute, targetMonth)}
                           disabled={busy}
                           aria-busy={busy || undefined}
-                          // One press, one month — the one this row is reading, so
-                          // the name says which rather than how many. A control
-                          // that collected three months while naming none of them
-                          // was doing more than the reader could see it do.
                           aria-label={
                             busy
-                              ? `Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`
-                              : `Collect ${routeLabel(route)} now, ${formatFlightMonth(reading)}`
+                              ? 'Fetching ' +
+                                routeLabel(targetRoute) +
+                                ', ' +
+                                formatFlightMonth(targetMonth) +
+                                ', ' +
+                                (stage?.stage === 'syncing'
+                                  ? 'syncing '
+                                  : stage?.stage === 'collecting'
+                                    ? 'downloading '
+                                    : 'queued ') +
+                                progressPercent(
+                                  stage ?? { stage: 'queued', completed: 0, total: null },
+                                )
+                              : 'Fetch ' +
+                                routeLabel(targetRoute) +
+                                ' now, ' +
+                                formatFlightMonth(targetMonth)
                           }
                         >
-                          <CollectMark busy={busy} />
+                          {busy ? (
+                            <span className={styles.fetchProgress} aria-hidden="true">
+                              {stage?.stage === 'syncing' ? '↑' : '↓'}{' '}
+                              {progressPercent(
+                                stage ?? {
+                                  stage: 'queued',
+                                  completed: 0,
+                                  total: null,
+                                },
+                              )}
+                            </span>
+                          ) : (
+                            <CollectMark />
+                          )}
                         </Button>
                       )}
                       <Button
                         variant="ghost"
                         size="small"
-                        onClick={() => onRemove(id)}
-                        // This direction and every month of it. The month name is gone
-                        // from here on purpose: with tabs in the row, "Stop
-                        // watching LIM → CUZ in March 2027" would read as an offer
-                        // to drop one month. Dropping one is the editor's job.
-                        aria-label={`Stop watching ${routeLabel(route)}`}
+                        className={styles.remove}
+                        onClick={() => onRemove(targetId)}
+                        aria-label={'Stop watching ' + routeLabel(targetRoute)}
+                        title={'Remove ' + routeLabel(targetRoute)}
                       >
-                        Remove
+                        <svg
+                          className={styles.trashIcon}
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M6.5 7v3.5M9.5 7v3.5" />
+                        </svg>
                       </Button>
                     </div>
                   </div>
-                  {departed ? <span className={styles.departed}>Departed</span> : null}
-                  {/* The bar and its count are the row's progress surface; terminal
-                      text is announced by the toast stack instead of repeated here. */}
-                  {bar ? (
-                    <div className={styles.progressLine}>
-                      <div
-                        className={
-                          bar.fraction === null
-                            ? `${styles.progress} ${styles.unplanned}`
-                            : styles.progress
-                        }
-                        role="progressbar"
-                        aria-label={`Collecting ${routeLabel(route)}, ${formatFlightMonth(reading)}`}
-                        aria-valuemin={0}
-                        aria-valuemax={bar.polling ?? undefined}
-                        aria-valuenow={bar.polling === null ? undefined : bar.completed}
-                        aria-valuetext={progressText(bar)}
-                        data-testid={`collect-progress-${id}`}
-                      >
-                        <span
-                          className={styles.fill}
-                          style={
-                            bar.fraction === null
-                              ? undefined
-                              : { width: `${Math.min(1, bar.fraction) * 100}%` }
-                          }
-                        />
-                      </div>
-                      {/* Hidden from assistive tech: the bar's value text says it. */}
-                      <span className={styles.progressCount} aria-hidden="true">
-                        {progressText(bar)}
-                      </span>
-                    </div>
-                  ) : null}
                 </li>
               );
             })}

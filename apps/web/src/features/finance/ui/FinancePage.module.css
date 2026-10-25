@@ -106,10 +106,6 @@
   display: grid;
   gap: var(--space-4);
   grid-template-columns: minmax(0, 1fr) 20rem;
-  margin-inline: auto;
-  max-width: 64rem;
-  /* Auto margins stop a grid item from stretching; claim the available width
-     so the canvas does not collapse to its min-content size. */
   width: 100%;
   /* `stretch`, not `start`: the canvas has no natural height worth respecting —
      it is a window onto a diagram — so the side column decides how tall the row
@@ -216,7 +212,7 @@
   font-size: 0.85rem;
 }
 
-@media (max-width: 1400px) {
+@media (max-width: 1000px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }

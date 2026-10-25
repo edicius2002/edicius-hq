@@ -45,6 +45,7 @@ export function useWatchlist() {
     list,
     symbols,
     isFetching: store.isFetching,
+    isPending: store.saveState === 'loading',
     isError: store.isError,
 
     add: (symbol: string, name?: string) => store.edit((c) => addSymbol(c, symbol, name)),

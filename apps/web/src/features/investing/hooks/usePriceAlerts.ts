@@ -73,6 +73,7 @@ export function usePriceAlerts() {
     rules,
     alerts: rules.alerts,
     isFetching: store.isFetching,
+    isPending: store.saveState === 'loading',
     isError: store.isError,
     add,
     update,

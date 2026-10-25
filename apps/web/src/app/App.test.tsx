@@ -378,6 +378,13 @@ describe('Investing chart-first workspace', () => {
     expect(nasdaq).toHaveTextContent('200.00');
   });
 
+  it('shows a chart skeleton while its first bars request is pending', async () => {
+    marketApi.getBars.mockReturnValue(new Promise(() => {}));
+    renderAt('/investing');
+
+    expect(screen.getByRole('status', { name: 'Loading chart' })).toBeInTheDocument();
+  });
+
   it('keeps the candle close and authoritative volume synchronized with stream updates', async () => {
     const user = userEvent.setup();
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -554,8 +561,8 @@ describe('Investing chart-first workspace', () => {
     ).toBeTruthy();
 
     // Both lists are on screen at once, which is the point of the rearrangement.
-    expect(screen.getByText('Nothing held yet.')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Search a symbol' })).toBeInTheDocument();
+    expect(await screen.findByText('Nothing held yet.')).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: 'Search a symbol' })).toBeInTheDocument();
   });
 
   it('puts a watchlist longer than the chart in a scrolling box of its own', async () => {
@@ -678,6 +685,7 @@ describe('The session gate', () => {
 
     expect(screen.queryByText('Sign in with passkey')).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading sign in' })).toBeInTheDocument();
 
     session.resolve(null);
     expect(await screen.findByText('Sign in with passkey')).toBeInTheDocument();

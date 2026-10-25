@@ -23,6 +23,7 @@ import { formatMoney } from '@/shared/lib/money';
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
+import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 import { SaveStatus } from '@/shared/ui/SaveStatus';
 import { Stat } from '@/shared/ui/Stat';
 
@@ -113,113 +114,123 @@ export function GreenlightPage() {
   }
 
   return (
-    <section className={styles.page} aria-labelledby="page-title">
-      <PageHeader
-        className={styles.header}
-        beside={
-          <div className={styles.totals}>
-            <Stat
-              label="Gross"
-              value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
-              tone="accent"
-              size="sm"
-            />
-            <Stat
-              label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
-              value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
-              tone="expense"
-              size="sm"
-            />
-            <Stat
-              label="Net"
-              value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
-              tone="income"
-              size="sm"
-            />
-          </div>
-        }
-        actions={
-          <>
-            {(localError || isError) && (
-              <p className={styles.error} role="alert">
-                {localError || 'Could not load Greenlight data from storage.'}
-              </p>
-            )}
-            <SaveStatus state={saveState} onRetry={retrySave} />
-            <ImportPanel
-              stats={state.stats}
-              isImporting={isImporting}
-              isClearing={isClearing}
-              hasData={hasData}
-              onImport={(file) => void handleImport(file)}
-              onParseError={(message) => {
-                setLocalError(message);
-              }}
-              onClear={() => void handleClear()}
-            />
-          </>
-        }
-      />
-
-      <div className={styles.overview} aria-label="Weekly and monthly overview">
-        <Panel className={styles.overviewCard} density="compact">
-          <div className={styles.panelHeading}>
-            <h2 className={styles.panelTitle}>By week</h2>
-          </div>
-          {hasData ? (
-            <WeeklyChart points={weekly} />
-          ) : (
-            <p className={styles.muted}>No weeks to chart yet.</p>
-          )}
-        </Panel>
-        <Panel className={styles.overviewCard} density="compact">
-          <div className={styles.panelHeading}>
-            <h2 className={styles.panelTitle}>By month</h2>
-          </div>
-          {hasData ? (
-            <MonthlyChart points={monthly} />
-          ) : (
-            <p className={styles.muted}>No months to chart yet.</p>
-          )}
-        </Panel>
-      </div>
-
-      <CompoundProjector capital={hasData ? moneyBreakdown.net : null} currency={totals.currency} />
-
-      <Panel aria-labelledby="weeks-title">
-        <div className={styles.panelHeading}>
-          <h2 id="weeks-title" className={styles.panelTitle}>
-            Weeks
-          </h2>
-          <div className={styles.tasksActions}>
-            <span className={styles.range}>{range}</span>
-            {state.markers.length > 0 ? (
-              <Button variant="secondary" onClick={() => void handleClearMarkers()}>
-                Clear markers
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        {hasData ? (
-          <>
-            <MoneyWeekChart
-              months={months}
-              stats={state.stats}
-              markers={state.markers}
-              widgets={state.widgets}
-              onToggleMarker={(week) => void handleToggleMarker(week)}
-              onToggleWidget={(monthKey, tool) => void handleToggleWidget(monthKey, tool)}
-            />
-            {/* Reserved so the first marker segments fill existing space instead
-                of pushing the page height out from under the cursor. */}
-            <div className={styles.segmentsSlot}>
-              <SegmentSummary segments={segments} />
+    <>
+      {saveState === 'loading' ? <PageSkeleton page="greenlight" /> : null}
+      <section
+        className={styles.page}
+        aria-labelledby="page-title"
+        style={{ display: saveState === 'loading' ? 'none' : undefined }}
+      >
+        <PageHeader
+          className={styles.header}
+          beside={
+            <div className={styles.totals}>
+              <Stat
+                label="Gross"
+                value={hasData ? formatMoney(moneyBreakdown.gross, totals.currency) : '—'}
+                tone="accent"
+                size="sm"
+              />
+              <Stat
+                label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
+                value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
+                tone="expense"
+                size="sm"
+              />
+              <Stat
+                label="Net"
+                value={hasData ? formatMoney(moneyBreakdown.net, totals.currency) : '—'}
+                tone="income"
+                size="sm"
+              />
             </div>
-          </>
-        ) : (
-          <p className={styles.muted}>No weeks to show.</p>
-        )}
-      </Panel>
-    </section>
+          }
+          actions={
+            <>
+              {(localError || isError) && (
+                <p className={styles.error} role="alert">
+                  {localError || 'Could not load Greenlight data from storage.'}
+                </p>
+              )}
+              <SaveStatus state={saveState} onRetry={retrySave} />
+              <ImportPanel
+                stats={state.stats}
+                isImporting={isImporting}
+                isClearing={isClearing}
+                hasData={hasData}
+                onImport={(file) => void handleImport(file)}
+                onParseError={(message) => {
+                  setLocalError(message);
+                }}
+                onClear={() => void handleClear()}
+              />
+            </>
+          }
+        />
+
+        <div className={styles.overview} aria-label="Weekly and monthly overview">
+          <Panel className={styles.overviewCard} density="compact">
+            <div className={styles.panelHeading}>
+              <h2 className={styles.panelTitle}>By week</h2>
+            </div>
+            {hasData ? (
+              <WeeklyChart points={weekly} />
+            ) : (
+              <p className={styles.muted}>No weeks to chart yet.</p>
+            )}
+          </Panel>
+          <Panel className={styles.overviewCard} density="compact">
+            <div className={styles.panelHeading}>
+              <h2 className={styles.panelTitle}>By month</h2>
+            </div>
+            {hasData ? (
+              <MonthlyChart points={monthly} />
+            ) : (
+              <p className={styles.muted}>No months to chart yet.</p>
+            )}
+          </Panel>
+        </div>
+
+        <CompoundProjector
+          capital={hasData ? moneyBreakdown.net : null}
+          currency={totals.currency}
+        />
+
+        <Panel aria-labelledby="weeks-title">
+          <div className={styles.panelHeading}>
+            <h2 id="weeks-title" className={styles.panelTitle}>
+              Weeks
+            </h2>
+            <div className={styles.tasksActions}>
+              <span className={styles.range}>{range}</span>
+              {state.markers.length > 0 ? (
+                <Button variant="secondary" onClick={() => void handleClearMarkers()}>
+                  Clear markers
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {hasData ? (
+            <>
+              <MoneyWeekChart
+                months={months}
+                stats={state.stats}
+                markers={state.markers}
+                widgets={state.widgets}
+                onToggleMarker={(week) => void handleToggleMarker(week)}
+                onToggleWidget={(monthKey, tool) => void handleToggleWidget(monthKey, tool)}
+              />
+              {/* Reserved so the first marker segments fill existing space instead
+                of pushing the page height out from under the cursor. */}
+              <div className={styles.segmentsSlot}>
+                <SegmentSummary segments={segments} />
+              </div>
+            </>
+          ) : (
+            <p className={styles.muted}>No weeks to show.</p>
+          )}
+        </Panel>
+      </section>
+    </>
   );
 }

@@ -80,6 +80,69 @@ def test_challenge_and_throttle(status, body):
     assert error.value.delay >= (21600 if status == 403 else 1800 if status == 429 else 900)
 
 
+def test_bcrp_200_challenge_has_safe_diagnostic_metadata():
+    from app.services.fx.providers import ProviderError, fetch
+
+    body = "<script>/_Incapsula_Resource</script>"
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, text=body))
+        ) as client,
+        pytest.raises(ProviderError) as error,
+    ):
+        fetch("bcrp", client, NOW)
+    assert error.value.code == "challenge-page"
+    assert error.value.status == 200
+    assert error.value.body_bytes == len(body)
+    assert error.value.stage == "json"
+    assert body not in str(error.value.__dict__)
+
+
+def test_bcrp_invalid_json_is_distinguished_from_a_challenge():
+    from app.services.fx.providers import ProviderError, fetch
+
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, text="not json"))
+        ) as client,
+        pytest.raises(ProviderError) as error,
+    ):
+        fetch("bcrp", client, NOW)
+    assert (error.value.code, error.value.stage, error.value.cause) == (
+        "invalid-json",
+        "json",
+        "JSONDecodeError",
+    )
+
+
+def test_kambista_missing_quote_is_distinguished_from_invalid_rate():
+    from app.services.fx.providers import ProviderError, fetch
+
+    for body, code, stage in (
+        ("<html></html>", "missing-quote", "html"),
+        ('<b id="valcompra">bad</b><b id="valventa">3.46</b>', "invalid-rate", "quote"),
+    ):
+        with (
+            httpx.Client(
+                transport=httpx.MockTransport(lambda _r, body=body: httpx.Response(200, text=body))
+            ) as client,
+            pytest.raises(ProviderError) as error,
+        ):
+            fetch("kambista", client, NOW)
+        assert (
+            error.value.code,
+            error.value.status,
+            error.value.body_bytes,
+            error.value.stage,
+        ) == (
+            code,
+            200,
+            len(body),
+            stage,
+        )
+        assert body not in str(error.value.__dict__)
+
+
 def test_timeout_and_size_are_bounded():
     from app.services.fx.providers import ProviderError, fetch
 

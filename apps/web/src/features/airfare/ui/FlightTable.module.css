@@ -193,15 +193,15 @@
  * is $938.84 (7), and a possible three-stop itinerary reads `BOG, GRU, PTY`
  * (13). `Departs` is the fixed 16-character `dd/mm/yyyy HH:MM`; flight
  * numbers on disk fit eight characters including their airline code. The
- * remaining room belongs to the price change, which is where signed figures
- * need their decimal point to line up.
+ * Airline gets more room to show carrier names; the shorter numeric columns
+ * keep enough room for their compact values.
  */
 .departs {
   width: 20%;
 }
 
 .airline {
-  width: 12%;
+  width: 21%;
 }
 
 .flight {
@@ -209,19 +209,19 @@
 }
 
 .stops {
-  width: 19%;
+  width: 15%;
 }
 
 .duration {
-  width: 9%;
+  width: 8%;
 }
 
 .price {
-  width: 12%;
+  width: 10%;
 }
 
 .change {
-  width: 16%;
+  width: 14%;
 }
 
 /* The filtered count remains a live table caption, but its box costs no row. */
@@ -278,20 +278,19 @@
   display: block;
 }
 
+.skeletonRow td.numeric > span {
+  margin-left: auto;
+}
+
 .table tbody tr:last-child td {
   border-bottom: none;
 }
 
 /*
- * The compact airline spelling is eight characters including its ellipsis
- * (`Aerolin…`), so 10ch leaves the cell's 1ch side bearings without letting a
- * carrier name reclaim the table. The duration and price caps are their seven
- * visible characters, because the fixed column gives their padding separately.
- * Their titles keep the whole value available if the archive grows past those
- * observed bounds.
+ * The fixed airline column shows the full carrier name when it fits and clips
+ * gracefully when it does not. Duration and price retain their compact caps.
  */
 .airline {
-  max-width: 10ch;
   overflow: hidden;
   text-overflow: ellipsis;
 }

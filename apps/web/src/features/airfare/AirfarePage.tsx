@@ -468,6 +468,7 @@ export function AirfarePage() {
         stopRoutes={stopRoutes}
         selectedId={selectedKey}
         onSelect={(id) => {
+          if (id === null) return;
           setSelectedId(id);
           setEditingId(id);
         }}
@@ -480,22 +481,7 @@ export function AirfarePage() {
   );
 
   return (
-    <section
-      className={styles.page}
-      aria-label="Airfare"
-      onClickCapture={(event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        if (
-          target.closest(
-            'form, ul[aria-label="Watched routes"], [data-airfare-map], button, input, select, textarea, a, [role="button"]',
-          )
-        )
-          return;
-        setSelectedId(null);
-        setEditingId(null);
-      }}
-    >
+    <section className={styles.page} aria-label="Airfare">
       {/*
         A title and nothing beside it.
 
@@ -533,7 +519,19 @@ export function AirfarePage() {
           ) : null}
         </Panel>
 
-        <Panel className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}>
+        <Panel
+          className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}
+          onClick={(event) => {
+            const target = event.target;
+            if (
+              target !== event.currentTarget &&
+              !(target instanceof Element && target.tagName === 'HEADER')
+            )
+              return;
+            setSelectedId(null);
+            setEditingId(null);
+          }}
+        >
           <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
           </header>

@@ -136,17 +136,22 @@ describe('pressing a month on another watched route', () => {
     expect(state.projections.at(-1)).toEqual({ route: routeId(LIM_MAD), month: '2027-06' });
   });
 
-  it('closes the route and month when clicking empty space outside the list', () => {
+  it('keeps the route selected outside Watched routes and clears it on that panel’s empty space', () => {
     render(<AirfarePage />);
     act(() => state.list!.onOpenMonth(routeId(LIM_MAD), '2027-06'));
 
     fireEvent.click(screen.getByRole('heading', { name: 'Flight details' }));
 
+    expect(state.list?.selectedId).toBe(routeId(LIM_MAD));
+    expect(state.projections.at(-1)).toEqual({ route: routeId(LIM_MAD), month: '2027-06' });
+
+    fireEvent.click(screen.getByRole('heading', { name: 'Watched routes' }).parentElement!);
+
     expect(state.list?.selectedId).toBeNull();
     expect(state.projections.at(-1)).toEqual({ route: null, month: null });
   });
 
-  it('keeps a route selected from the map after its native click and clears it on empty map space', () => {
+  it('keeps a route selected from the map after a click on empty map space', () => {
     render(<AirfarePage />);
     const stage = screen.getByTestId('map-stage');
 
@@ -156,10 +161,10 @@ describe('pressing a month on another watched route', () => {
 
     fireEvent.pointerUp(stage);
     fireEvent.click(stage);
-    expect(state.list?.selectedId).toBeNull();
+    expect(state.list?.selectedId).toBe(routeId(ARI_SCL));
   });
 
-  it('switches the editor with the map selection and clears it when deselected', () => {
+  it('switches the editor with the map selection without clearing it on empty map space', () => {
     render(<AirfarePage />);
     const stage = screen.getByTestId('map-stage');
 
@@ -171,7 +176,7 @@ describe('pressing a month on another watched route', () => {
     expect(state.list?.editing).toEqual(LIM_MAD);
 
     fireEvent.pointerUp(stage);
-    expect(state.list?.editing).toBeNull();
+    expect(state.list?.editing).toEqual(LIM_MAD);
   });
 
   it('points the map toward a route after its monthly fetch finishes', () => {

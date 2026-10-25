@@ -276,7 +276,7 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
       */}
       <td>{formatStamp(track.departureAt)}</td>
       <td className={styles.airline} title={airline}>
-        {shortAirline(airline)}
+        {airline}
       </td>
       <td>
         <FlightName track={track} leg={leg} />
@@ -603,7 +603,7 @@ export function FlightTable({
                   aria-hidden={!loading || undefined}
                 >
                   {COLUMNS.map((column, cellIndex) => (
-                    <td key={column.column}>
+                    <td key={column.column} className={column.numeric ? styles.numeric : undefined}>
                       <Skeleton width={cellIndex === 0 ? '90%' : '75%'} height={12} />
                     </td>
                   ))}

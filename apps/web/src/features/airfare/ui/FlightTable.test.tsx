@@ -18,6 +18,9 @@ it('does not claim there are no itineraries while loading or after a failed requ
   expect(container.querySelectorAll('thead th')).toHaveLength(7);
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
   expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
+  const firstSkeletonCells = screen.getAllByTestId('flight-skeleton-row')[0].querySelectorAll('td');
+  expect(firstSkeletonCells[5]).toHaveClass(/numeric/);
+  expect(firstSkeletonCells[6]).toHaveClass(/numeric/);
   expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
   rerender(
     <FlightTable
@@ -254,7 +257,7 @@ describe('FlightTable', () => {
     expect(options).toEqual(['Any', 'Avianca', 'LATAM']);
   });
 
-  it('cuts a carrier name too long for the row, and keeps the whole one within reach', async () => {
+  it('shortens long carrier names in the filter while showing them in the wider table cell', async () => {
     /*
      * 12.258. A select is as wide as its widest option, so `Aerolineas
      * Argentinas` — 19 of the archive's 1275 offers — was setting 251px of a
@@ -280,11 +283,13 @@ describe('FlightTable', () => {
     const cut = within(select).getByRole('option', { name: 'Aerolin…' });
     expect(cut).toHaveAttribute('title', 'Aerolineas Argentinas');
 
-    // The narrow table cell keeps the same compact spelling and exposes the
-    // full carrier name on hover/focus rather than making a long name decide
-    // the entire column's width.
+    // The fixed table column shows the full name where it fits and keeps its
+    // title for viewports that clip it.
     const row = bodyRows().find((one) => within(one).queryByText('AR 1365'))!;
-    expect(within(row).getByText('Aerolin…')).toHaveAttribute('title', 'Aerolineas Argentinas');
+    expect(within(row).getByText('Aerolineas Argentinas')).toHaveAttribute(
+      'title',
+      'Aerolineas Argentinas',
+    );
 
     // And the closed control names the carrier in full once one is chosen.
     await userEvent.selectOptions(select, 'AR');

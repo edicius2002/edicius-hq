@@ -67,7 +67,11 @@ export function RouteDetail({
               </div>
             </div>
           </div>
-          <div className={styles.range} aria-hidden="true" />
+          <div className={styles.range} aria-hidden="true">
+            <div className={styles.track}>
+              <div className={styles.bar} data-range-bar />
+            </div>
+          </div>
           <div className={styles.tiles}>
             <div className={styles.tile} data-detail-tile>
               <span className={styles.label}>Usually</span>
@@ -172,7 +176,7 @@ export function RouteDetail({
               ) : null}
               {hasRange ? (
                 <>
-                  <div className={styles.bar} />
+                  <div className={styles.bar} data-range-bar />
                   {typical !== null && (
                     <>
                       <span

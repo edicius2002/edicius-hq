@@ -150,6 +150,7 @@ describe('RouteDetail', () => {
     expect(screen.queryByText('now')).not.toBeInTheDocument();
     expect(screen.getByText('00.00')).toBeInTheDocument();
     expect(screen.getByText('????? · 00')).toBeInTheDocument();
+    expect(container.querySelector('[data-range-bar]')).toBeInTheDocument();
     expect(container.querySelectorAll('[data-range-marker]')).toHaveLength(0);
     expect(container.querySelectorAll('[data-detail-tile]')).toHaveLength(2);
   });

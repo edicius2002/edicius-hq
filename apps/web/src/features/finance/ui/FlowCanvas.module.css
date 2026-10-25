@@ -21,7 +21,7 @@
    * stopped well above the totals. `.workspace` is a grid; stretching to the
    * row makes the taller column set the height and the two end level.
    *
-   * The floor is for the stacked layout below 1400px, where there is no row to
+   * The floor is for the stacked layout below 1000px, where there is no row to
    * fill. Keep it compact there while leaving enough room to pan the diagram.
    */
   min-height: max(20rem, 50vh);

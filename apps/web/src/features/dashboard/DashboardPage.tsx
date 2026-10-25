@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
 import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import { useCodexResets } from './hooks/useCodexResets';
 import { fetchTweets, subscribeTweets, TWEET_WINDOW_MS } from './data/supabaseTweets';
@@ -76,6 +77,30 @@ function Column({
         ))}
       </div>
     </section>
+  );
+}
+
+function PostColumnsSkeleton() {
+  return (
+    <div className={styles.columns} role="status" aria-label="Loading posts">
+      {['Posts', 'Replies'].map((title) => (
+        <section className={styles.column} key={title}>
+          <h2 className={styles.columnTitle}>{title}</h2>
+          <div className={styles.rows}>
+            {[0, 1, 2].map((index) => (
+              <div className={styles.tweet} data-testid="post-skeleton-row" key={index}>
+                <Skeleton width="2.2rem" height="2.2rem" radius="50%" />
+                <div className={styles.bubble} style={{ width: '100%' }}>
+                  <Skeleton width="45%" height={11} />
+                  <Skeleton width="92%" height={12} />
+                  <Skeleton width="68%" height={12} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -180,7 +205,7 @@ export function DashboardPage() {
         </Panel>
       ) : null}
       {query.isLoading ? (
-        <Panel className={styles.statusPanel}>Loading tweets…</Panel>
+        <PostColumnsSkeleton />
       ) : query.isError && query.data === undefined ? (
         <Panel className={styles.statusPanel} role="alert">
           Could not load captured tweets.

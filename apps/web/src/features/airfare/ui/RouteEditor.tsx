@@ -33,6 +33,7 @@ type RouteEditorProps = {
   watched: readonly string[];
   onAdd: (route: FareRoute) => void;
   onSave: (id: string, route: FareRoute) => void;
+  onCancel: () => void;
 };
 
 /**
@@ -72,7 +73,14 @@ type RouteEditorProps = {
  * entry silently: a route that vanishes on save looks like a broken button, and
  * the reader has no way to learn which field was the problem.
  */
-export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEditorProps) {
+export function RouteEditor({
+  today,
+  editing,
+  watched,
+  onAdd,
+  onSave,
+  onCancel,
+}: RouteEditorProps) {
   const adding = editing === null;
 
   const [origin, setOrigin] = useState(editing?.origin ?? '');
@@ -102,6 +110,11 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
   const nextId = routeId(pair);
   const editingId = editing ? routeId(editing) : null;
   const pairChanged = editing !== null && nextId !== editingId;
+  const monthsChanged =
+    editing !== null &&
+    (months.length !== editing.months.length ||
+      months.some((month) => !editing.months.includes(month)));
+  const changed = pairChanged || monthsChanged;
   /* Months the reader has taken off a watch that had them. */
   const dropped = editing ? editing.months.filter((month) => !months.includes(month)) : [];
 
@@ -116,6 +129,7 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (editing && !changed) return;
 
     if (!isAirportCode(origin) || !isAirportCode(destination)) {
       setError('Origin and destination must be three-letter IATA codes.');
@@ -239,8 +253,14 @@ export function RouteEditor({ today, editing, watched, onAdd, onSave }: RouteEdi
         <output className={styles.year} aria-label="Departure year">
           {visibleYear}
         </output>
-        <Button type="submit" variant="primary" size="small" className={styles.submit}>
-          {editing ? 'Save changes' : 'Add route'}
+        <Button
+          type={editing && !changed ? 'button' : 'submit'}
+          variant={editing && !changed ? 'secondary' : 'primary'}
+          size="small"
+          className={styles.submit}
+          onClick={editing && !changed ? onCancel : undefined}
+        >
+          {editing ? (changed ? 'Save changes' : 'Cancel') : 'Add route'}
         </Button>
       </div>
 

@@ -69,10 +69,9 @@
 .yearAction {
   grid-column: 5;
   display: grid;
-  grid-template-columns: 4ch 112px;
+  grid-template-columns: minmax(0, 1fr) 112px;
   align-items: center;
-  justify-content: end;
-  gap: 6px;
+  gap: 12px;
   min-width: 0;
 }
 

@@ -212,6 +212,7 @@ export function RouteList({
         watched={routes.map(routeId)}
         onAdd={onAdd}
         onSave={onSave}
+        onCancel={onClearEditing}
       />
 
       {error && routes.length === 0 ? (

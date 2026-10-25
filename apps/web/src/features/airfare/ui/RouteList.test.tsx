@@ -276,6 +276,45 @@ describe('RouteList', () => {
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
+  it('shows Cancel for an unchanged route and Save changes only while its fields differ', () => {
+    const { props } = renderList({ editing: ROUTES[0] });
+    const form = screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' });
+    const cancel = () => within(form).getByRole('button', { name: 'Cancel' });
+    const save = () => within(form).getByRole('button', { name: 'Save changes' });
+
+    expect(cancel()).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole('button', { name: 'Next departure year' }));
+    expect(cancel()).toBeInTheDocument();
+
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Origin' }), {
+      target: { value: 'AQP' },
+    });
+    expect(save()).toBeInTheDocument();
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Origin' }), {
+      target: { value: 'LIM' },
+    });
+    expect(cancel()).toBeInTheDocument();
+
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Destination' }), {
+      target: { value: 'MAD' },
+    });
+    expect(save()).toBeInTheDocument();
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Destination' }), {
+      target: { value: 'CUZ' },
+    });
+    expect(cancel()).toBeInTheDocument();
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Previous departure year' }));
+    fireEvent.click(within(form).getByRole('button', { name: 'October 2026' }));
+    expect(save()).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole('button', { name: 'October 2026' }));
+    expect(cancel()).toBeInTheDocument();
+
+    fireEvent.click(cancel());
+    expect(props.onClearEditing).toHaveBeenCalledOnce();
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
   it('discards unsaved month edits on route change or deselection and saves only on submit', () => {
     const { props, rerender } = renderList({ editing: ROUTES[0] });
     const form = screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' });

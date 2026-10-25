@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   flowLegs: new Map<string, string>(),
   list: null as null | {
     selectedId: string | null;
+    editing: FareRoute | null;
     onOpenMonth: (id: string, month: string) => void;
   },
 }));
@@ -73,6 +74,7 @@ vi.mock('@/features/airfare/hooks/useAirports', () => ({
 vi.mock('@/features/airfare/ui/RouteList', () => ({
   RouteList: (props: {
     selectedId: string | null;
+    editing: FareRoute | null;
     onOpenMonth: (id: string, month: string) => void;
   }) => {
     state.list = props;
@@ -88,6 +90,7 @@ vi.mock('@/features/airfare/ui/RouteMap', () => ({
       onPointerUp={(event) => onSelect((event.target as Element).getAttribute('data-route'))}
     >
       <span data-route="ARI|SCL">Map arc</span>
+      <span data-route="LIM|MAD">Other map arc</span>
     </div>
   ),
 }));
@@ -154,6 +157,21 @@ describe('pressing a month on another watched route', () => {
     fireEvent.pointerUp(stage);
     fireEvent.click(stage);
     expect(state.list?.selectedId).toBeNull();
+  });
+
+  it('switches the editor with the map selection and clears it when deselected', () => {
+    render(<AirfarePage />);
+    const stage = screen.getByTestId('map-stage');
+
+    fireEvent.pointerUp(screen.getByText('Map arc'));
+    expect(state.list?.editing).toEqual(ARI_SCL);
+    expect(screen.queryByRole('button', { name: /Cancel editing/ })).not.toBeInTheDocument();
+
+    fireEvent.pointerUp(screen.getByText('Other map arc'));
+    expect(state.list?.editing).toEqual(LIM_MAD);
+
+    fireEvent.pointerUp(stage);
+    expect(state.list?.editing).toBeNull();
   });
 
   it('points the map toward a route after its monthly fetch finishes', () => {

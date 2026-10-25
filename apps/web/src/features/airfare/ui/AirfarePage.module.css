@@ -78,12 +78,6 @@
 .routesPanel .panelHead {
   margin-bottom: 0;
   min-height: 32px;
-  flex-wrap: nowrap;
-}
-
-.routesPanel .panelHead button {
-  flex: none;
-  width: 64px;
 }
 
 /* Smaller top-row gutters return width to all three contents and height to the map. */
@@ -106,13 +100,6 @@
 
 .panelHead .panelTitle {
   margin: 0;
-}
-
-/* Cancel can take another line without squeezing the title while editing. */
-@media (min-width: 641px) and (max-width: 1400px) {
-  .panelHead {
-    flex-wrap: wrap;
-  }
 }
 
 /* The detail needs more of the last 501px than the globe does. */
@@ -323,16 +310,10 @@
   .panelHead {
     gap: 8px;
     margin-bottom: 0;
-    flex-wrap: wrap;
   }
   .panelTitle {
     margin-block-end: 0;
     font-size: 0.72rem;
-  }
-  .panelHead button {
-    min-height: 32px;
-    font-size: 0.65rem;
-    padding: 3px 8px;
   }
   .note,
   .reports {

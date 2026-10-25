@@ -6,7 +6,6 @@ import {
   openingMonth,
   readingMonth,
   routeId,
-  routeLabel,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
@@ -34,7 +33,6 @@ import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
 import type { Airport } from '@/shared/api/fares';
-import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
 import { SaveStatus } from '@/shared/ui/SaveStatus';
 
@@ -64,13 +62,7 @@ export function AirfarePage() {
   // looking at, and nothing here needs the clock to be live.
   const [today] = useState(todayIso);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /*
-   * Which watch is loaded into the editor, and it is deliberately **not**
-   * `selectedId`.
-   *
-   * A press on a row sets both, while Cancel clears only the editor and leaves
-   * the chart on the route the reader chose.
-   */
+  /* The editor follows the selected watch; changing or clearing it discards the draft. */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [projection, setProjection] = useState<Projection>('globe');
 
@@ -477,7 +469,7 @@ export function AirfarePage() {
         selectedId={selectedKey}
         onSelect={(id) => {
           setSelectedId(id);
-          if (id === null) setEditingId(null);
+          setEditingId(id);
         }}
         colours={colours}
         projection={projection}
@@ -544,21 +536,6 @@ export function AirfarePage() {
         <Panel className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}>
           <header className={styles.panelHead}>
             <h2 className={styles.panelTitle}>Watched routes</h2>
-            {/*
-              Only while editing, and it clears the editor without touching the
-              selection: a reader who changed their mind about a chip has not
-              changed their mind about which route they are looking at.
-            */}
-            {editing ? (
-              <Button
-                variant="ghost"
-                size="small"
-                onClick={() => setEditingId(null)}
-                aria-label={`Cancel editing ${routeLabel(editing)}`}
-              >
-                Cancel
-              </Button>
-            ) : null}
           </header>
           {(watchlist.saveState === 'failed' || watchlist.saveState === 'blocked') && (
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />

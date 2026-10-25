@@ -264,18 +264,62 @@ describe('RouteList', () => {
 
   it('puts the fields back to adding when the empty space is pressed', () => {
     /*
-     * Choosing a row used to be a one-way door: the form held that watch and
-     * the only way back to a blank one was the Cancel button up beside the
-     * heading. Pressing the empty space under the rows is what everyone tries
-     * first.
+     * Pressing the empty space under the rows clears the editor without a
+     * separate Cancel control.
      *
-     * The selection is deliberately left alone — the reader said they had
-     * finished editing, not that they had finished looking at a chart.
+     * The page clears the selection and discards the draft through this
+     * callback. The list does not save the draft on a background click.
      */
     const { props } = renderList({ editing: ROUTES[0] });
     fireEvent.click(screen.getByRole('list', { name: 'Watched routes' }));
     expect(props.onClearEditing).toHaveBeenCalled();
     expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('discards unsaved month edits on route change or deselection and saves only on submit', () => {
+    const { props, rerender } = renderList({ editing: ROUTES[0] });
+    const form = screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' });
+    const october = within(form).getByRole('button', { name: 'October 2026' });
+    fireEvent.click(october);
+    expect(october).toHaveAttribute('aria-pressed', 'false');
+    expect(props.onSave).not.toHaveBeenCalled();
+
+    rerender(<RouteList {...props} editing={ROUTES[1]} />);
+    rerender(<RouteList {...props} editing={ROUTES[0]} />);
+    expect(
+      within(screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' })).getByRole(
+        'button',
+        { name: 'October 2026' },
+      ),
+    ).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(
+      within(screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' })).getByRole(
+        'button',
+        { name: 'October 2026' },
+      ),
+    );
+    rerender(<RouteList {...props} editing={null} selectedId={null} />);
+    rerender(<RouteList {...props} editing={ROUTES[0]} />);
+    expect(
+      within(screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' })).getByRole(
+        'button',
+        { name: 'October 2026' },
+      ),
+    ).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(
+      within(screen.getByRole('form', { name: 'Edit the watch on LIM → CUZ' })).getByRole(
+        'button',
+        { name: 'November 2026' },
+      ),
+    );
+    expect(props.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(props.onSave).toHaveBeenCalledWith('LIM|CUZ', {
+      ...ROUTES[0],
+      months: ['2026-10', '2026-11'],
+    });
   });
 
   it('does not clear the fields on the way to selecting a route', () => {

@@ -63,13 +63,7 @@ type RouteListProps = {
   onCollect?: (route: FareRoute, month: string) => void;
   onAdd: (route: FareRoute) => void;
   onSave: (id: string, route: FareRoute) => void;
-  /**
-   * Put the fields back to adding a route.
-   *
-   * What a press on the empty part of this panel means. It clears the editor
-   * and deliberately **not** the selection: the reader said they were done
-   * editing, not that they were done looking at a chart.
-   */
+  /** Clear the selected route and discard its draft on an empty panel press. */
   onClearEditing: () => void;
   onMove: (from: string, to: string) => void;
   /** The stored document is being read, including a later refresh. */
@@ -137,10 +131,8 @@ export function RouteList({
   /*
    * A press on the panel's own background puts the fields back to adding.
    *
-   * Without it, choosing a row is a one-way door: the form is holding that
-   * watch and the only way back to a blank one is the Cancel button beside the
-   * heading, which is a long way from where the reader just pressed. Clicking
-   * the empty space below the rows is what everyone tries first.
+   * Clicking the empty space below the rows clears the selection and discards
+   * any unsaved editor changes.
    *
    * `target === currentTarget` is the whole guard, and it has to be exact
    * rather than a `closest('li')` test: every press inside a row bubbles

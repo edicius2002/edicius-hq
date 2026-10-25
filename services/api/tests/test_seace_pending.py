@@ -14,6 +14,21 @@ import incremental
 import refresh
 
 
+@pytest.fixture(autouse=True)
+def notice_clock(monkeypatch):
+    # The sample notice closes on October 25; keep it open regardless of when
+    # this suite runs. Tests that exercise retry timing set their own clock.
+    class Clock(refresh.datetime):
+        current = refresh.datetime(2026, 10, 23, 8, tzinfo=refresh.PERU_TIME)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current if tz is None else cls.current.astimezone(tz)
+
+    monkeypatch.setattr(refresh, "datetime", Clock)
+    return Clock
+
+
 def notice(identifier="103550", **fields):
     return {
         "idContrato": identifier,
@@ -583,7 +598,7 @@ def test_bounded_enrichment_prioritizes_new_ids_and_leaves_others_pending(tmp_pa
     )
 
 
-def test_retry_budget_is_fair_and_survives_notice_closure(tmp_path):
+def test_retry_budget_is_fair_and_survives_notice_closure(tmp_path, notice_clock):
     pending = queue(tmp_path / "pending.sqlite3")
     pending.discover("Arequipa", 2026, [notice(str(index)) for index in range(5)])
     failed = Session({"ok": True, "detalles": {}, "faltas": []})
@@ -591,6 +606,7 @@ def test_retry_budget_is_fair_and_survives_notice_closure(tmp_path):
     pending.discover(
         "Arequipa", 2026, [notice(str(index), nomEstadoContrato="Culminado") for index in range(5)]
     )
+    notice_clock.current += refresh.timedelta(seconds=1)
     failed.calls.clear()
     asyncio.run(pending.enrich(failed, "Arequipa", 2026, retry_limit=2))
     assert failed.calls == [{"ids": ["0", "1"]}]

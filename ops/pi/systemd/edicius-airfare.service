@@ -6,6 +6,8 @@ After=network-online.target
 [Service]
 Type=oneshot
 TimeoutStartSec=20min
+# A busy manual collection is deferred to the next timer tick after a bounded wait.
+SuccessExitStatus=75
 User=edicius-collector
 Group=edicius-collector
 WorkingDirectory=/opt/edicius-hq/current

@@ -99,6 +99,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from collections import Counter
 from datetime import UTC, date, datetime
 from math import ceil
@@ -151,6 +152,9 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 
 ROUTES_KEY = "airfare-routes"
 LOGGER = logging.getLogger(__name__)
+# Leave room inside the 20-minute systemd deadline for the collection itself.
+LOCK_WAIT_SECONDS = 180.0
+LOCK_RETRY_SECONDS = 1.0
 
 
 def load_routes(watch_source: str = "supabase") -> list[dict[str, object]]:
@@ -665,12 +669,17 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
 
 
 def main() -> int:
-    try:
-        with exclusive_process_lock("airfare"):
-            return collect_main()
-    except ProcessLockUnavailable:
-        LOGGER.error("Airfare collector is already running")
-        return 1
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            with exclusive_process_lock("airfare"):
+                return collect_main()
+        except ProcessLockUnavailable:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                LOGGER.warning("Airfare collector deferred: shared lock stayed busy")
+                return 75
+            time.sleep(min(LOCK_RETRY_SECONDS, remaining))
 
 
 if __name__ == "__main__":

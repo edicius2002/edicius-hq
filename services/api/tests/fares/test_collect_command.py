@@ -18,6 +18,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,6 +37,7 @@ from app.services.fare_collector import (
     RouteResult,
 )
 from app.services.fare_passes import PassLedger, PassRecorder
+from app.services.process_lock import exclusive_process_lock
 
 # Four levels up from `tests/fares/`, not the three this needed as a file in
 # `tests/`. The two tests that run the real script skip themselves when they
@@ -58,6 +61,43 @@ def load_collect_script():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_scheduled_pass_waits_for_a_manual_lock_then_collects_once(monkeypatch, tmp_path):
+    script = load_collect_script()
+    monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(script, "LOCK_WAIT_SECONDS", 2.0, raising=False)
+    monkeypatch.setattr(script, "LOCK_RETRY_SECONDS", 0.01, raising=False)
+    collected = []
+    monkeypatch.setattr(script, "collect_main", lambda: collected.append(True) or 0)
+    result = []
+
+    with exclusive_process_lock("airfare"):
+        runner = threading.Thread(target=lambda: result.append(script.main()))
+        runner.start()
+        time.sleep(0.05)
+        assert runner.is_alive()
+        assert collected == []
+
+    runner.join(timeout=2)
+    assert not runner.is_alive()
+    assert result == [0]
+    assert collected == [True]
+
+
+def test_scheduled_pass_defers_after_bounded_lock_wait(monkeypatch, tmp_path, caplog):
+    script = load_collect_script()
+    monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(script, "LOCK_WAIT_SECONDS", 0.05, raising=False)
+    monkeypatch.setattr(script, "LOCK_RETRY_SECONDS", 0.01, raising=False)
+    collected = []
+    monkeypatch.setattr(script, "collect_main", lambda: collected.append(True) or 0)
+
+    with exclusive_process_lock("airfare"):
+        assert script.main() == 75
+
+    assert collected == []
+    assert "deferred" in caplog.text
 
 
 def test_load_routes_defaults_to_the_cloud_watch(monkeypatch, tmp_path):

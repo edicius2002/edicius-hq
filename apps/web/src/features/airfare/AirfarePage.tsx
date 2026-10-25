@@ -57,6 +57,7 @@ function todayIso(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+/* eslint-disable react-hooks/preserve-manual-memoization -- Watchlist updates replace route objects; the explicit memos keep chart and globe work stable. */
 export function AirfarePage() {
   // Read once per mount rather than per render: a value that changes mid-render
   // would make the "already departed" test flip under a route the reader is
@@ -818,3 +819,4 @@ export function AirfarePage() {
     </section>
   );
 }
+/* eslint-enable react-hooks/preserve-manual-memoization */

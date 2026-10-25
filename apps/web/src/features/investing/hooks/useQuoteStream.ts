@@ -41,9 +41,9 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
   const [bars, setBars] = useState<Map<string, LiveBarUpdate>>(() => new Map());
   const [connection, setConnection] = useState<Latch>(() => latch(false));
 
-  // Joined so the effect keys on what the symbols are rather than on the array
-  // that held them, which is new on every render of the page above.
-  const key = symbols.join(',');
+  // The stream follows a set of symbols. Selecting a different member changes
+  // their order in the page but must not discard live ticks or reconnect.
+  const key = [...symbols].sort().join(',');
   // A tick for a symbol no longer followed is not worth carrying, and every
   // followed one arrives again within a beat. Reset during render, as soon as
   // the new key is known, rather than from the effect below.

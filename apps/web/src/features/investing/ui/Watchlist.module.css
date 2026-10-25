@@ -125,6 +125,7 @@
 .waiting {
   grid-area: price;
   color: var(--color-muted);
+  font-size: 0.78rem;
   text-align: right;
 }
 

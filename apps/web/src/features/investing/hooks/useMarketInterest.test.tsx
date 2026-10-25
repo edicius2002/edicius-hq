@@ -17,6 +17,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it('keeps the same market lease when symbols are only reordered', async () => {
+  const { rerender, unmount } = renderHook(({ symbols }) => useMarketInterest(true, symbols), {
+    initialProps: { symbols: ['AAPL', 'MSFT'] },
+  });
+  await act(async () => void (await Promise.resolve()));
+  expect(openMarketInterest).toHaveBeenCalledTimes(1);
+  publisher.publish.mockClear();
+  publisher.close.mockClear();
+
+  rerender({ symbols: ['MSFT', 'AAPL'] });
+  await act(async () => void (await Promise.resolve()));
+
+  expect(openMarketInterest).toHaveBeenCalledTimes(1);
+  expect(publisher.publish).not.toHaveBeenCalled();
+  expect(publisher.close).not.toHaveBeenCalled();
+  unmount();
+});
+
 it('leases only visible symbols while the investing page needs live quotes', async () => {
   vi.useFakeTimers();
   const { result, rerender, unmount } = renderHook(

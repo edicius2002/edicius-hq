@@ -18,7 +18,8 @@ export function useMarketInterest(active: boolean, symbols: readonly string[]): 
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
 
-  const key = symbols.join(',');
+  // Selection order does not change which symbols the lease covers.
+  const key = [...symbols].sort().join(',');
   const needsQuotes = active && visible && key.length > 0;
 
   useEffect(() => {

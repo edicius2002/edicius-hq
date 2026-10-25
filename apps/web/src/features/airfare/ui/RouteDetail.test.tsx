@@ -145,10 +145,12 @@ describe('RouteDetail', () => {
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('??? → ???');
     expect(screen.getByText('Cheapest now')).toBeInTheDocument();
     expect(screen.getByText('0.00')).toBeInTheDocument();
-    expect(screen.getAllByText('??.??')).toHaveLength(2);
+    expect(screen.queryAllByText('??.??')).toHaveLength(0);
+    expect(screen.queryByText('usual')).not.toBeInTheDocument();
+    expect(screen.queryByText('now')).not.toBeInTheDocument();
     expect(screen.getByText('00.00')).toBeInTheDocument();
     expect(screen.getByText('????? · 00')).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-range-marker]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-range-marker]')).toHaveLength(0);
     expect(container.querySelectorAll('[data-detail-tile]')).toHaveLength(2);
   });
 });

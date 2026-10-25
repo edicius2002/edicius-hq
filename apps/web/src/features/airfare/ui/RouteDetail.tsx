@@ -67,23 +67,7 @@ export function RouteDetail({
               </div>
             </div>
           </div>
-          <div className={styles.range}>
-            <div className={styles.track}>
-              <div className={styles.bar} />
-              <span className={styles.usualLabel} style={{ left: '40%' }}>
-                usual
-              </span>
-              <span className={styles.tick} data-range-marker style={{ left: '40%' }} />
-              <span className={styles.dot} data-range-marker style={{ left: '50%' }} />
-              <span className={styles.nowLabel} style={{ left: '50%' }}>
-                now
-              </span>
-            </div>
-            <div className={styles.ends}>
-              <span>??.??</span>
-              <span>??.??</span>
-            </div>
-          </div>
+          <div className={styles.range} aria-hidden="true" />
           <div className={styles.tiles}>
             <div className={styles.tile} data-detail-tile>
               <span className={styles.label}>Usually</span>

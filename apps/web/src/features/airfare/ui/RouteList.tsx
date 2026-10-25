@@ -18,7 +18,6 @@ import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
 import { shortMonth } from '@/features/airfare/lib/monthChips';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
-import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
 import { Skeleton } from '@/shared/ui/Skeleton';
@@ -73,8 +72,6 @@ type RouteListProps = {
    */
   onClearEditing: () => void;
   onMove: (from: string, to: string) => void;
-  transferDisabled?: boolean;
-  onImported?: () => void | Promise<void>;
   /** The stored document is being read, including a later refresh. */
   loading?: boolean;
   /** A failed read is not an empty watchlist. */
@@ -134,8 +131,6 @@ export function RouteList({
   onSave,
   onClearEditing,
   onMove,
-  transferDisabled = false,
-  onImported = () => undefined,
   loading = false,
   error = false,
 }: RouteListProps) {
@@ -491,7 +486,6 @@ export function RouteList({
           </ul>
         </div>
       )}
-      <RouteTransfer disabled={transferDisabled} onImported={onImported} />
     </div>
   );
 }

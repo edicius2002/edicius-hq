@@ -371,7 +371,7 @@ export function InvestingPage() {
           )}
 
           {watchlist.isPending ? (
-            <RowsSkeleton label="Loading watchlist" rows={6} />
+            <RowsSkeleton label="Loading watchlist" variant="watchlist" rows={6} />
           ) : watchlist.isError ? (
             <p className={styles.error} role="alert">
               Could not load the watchlist.
@@ -431,7 +431,7 @@ export function InvestingPage() {
         </div>
 
         {holdings.isPending ? (
-          <RowsSkeleton label="Loading positions" rows={5} />
+          <RowsSkeleton label="Loading positions" variant="positions" rows={5} />
         ) : holdings.isError ? (
           <p className={styles.error} role="alert">
             Could not load your positions.
@@ -481,7 +481,7 @@ export function InvestingPage() {
         </div>
 
         {alerts.isPending ? (
-          <RowsSkeleton label="Loading price alerts" rows={4} />
+          <RowsSkeleton label="Loading price alerts" variant="alerts" rows={4} />
         ) : alerts.isError ? (
           <p className={styles.error} role="alert">
             Could not load your price alerts.

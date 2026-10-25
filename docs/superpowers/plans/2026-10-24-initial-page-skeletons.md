@@ -48,3 +48,10 @@
 
 - [x] Run the complete web test suite, typecheck, lint, formatting check, and production build.
 - [x] Inspect the diff against the spec and correct any gaps.
+
+### Task 4: Match each visualization
+
+- [x] Test that each route renders the silhouette of its actual visualization or data structure.
+- [x] Replace generic cards with chart, calendar, canvas, map, table, and list shapes.
+- [x] Make Investing watchlist, position, and alert rows distinct.
+- [x] Inspect desktop and mobile layouts in the browser and correct mismatches.

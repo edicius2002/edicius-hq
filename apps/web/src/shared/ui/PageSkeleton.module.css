@@ -18,25 +18,11 @@
   white-space: nowrap;
 }
 
-.header,
-.clocks,
-.filters {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.clocks > *,
-.filters > * {
-  flex: 1;
-}
-
-.card {
+.frame,
+.plot {
   display: grid;
   align-content: start;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
   padding: var(--space-4);
   border: 1px solid var(--color-border);
@@ -44,51 +30,457 @@
   background: var(--color-surface);
 }
 
-.lines,
-.stack {
+.twoColumns,
+.dashboardOverview,
+.greenlightOverview,
+.airfareWorkspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.stack,
+.resetOverview,
+.summaryRows {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
 }
-.twoColumns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
+
+.clocks,
+.statRow,
+.tickerTape,
+.toolbar,
+.viewTabs,
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
 }
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(14rem, 1fr);
-  gap: var(--space-4);
+
+.clocks {
+  width: min(100%, 45rem);
+  margin-inline: auto;
 }
-.tall {
+.clocks > * {
+  flex: 1;
+  min-width: 0;
+}
+.dashboardOverview {
+  align-items: stretch;
+}
+.resetOverview {
+  grid-template-rows: auto 1fr;
+}
+.resetCard {
+  min-height: 8.5rem;
+}
+.heatmapFrame {
+  min-height: 10rem;
+}
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(52, minmax(0, 1fr));
+  gap: 2px;
+  min-width: 0;
+}
+.heatmap > span {
+  display: block;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+.fxPanel {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: var(--space-2);
+}
+.fxQuotes {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.quoteRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.centerTitle {
+  margin-inline: auto;
+}
+.postList {
+  min-height: 18rem;
+}
+.postRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.postBubble {
+  display: grid;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.plot {
   min-height: 17rem;
 }
-.canvas {
-  min-height: 32rem;
-}
-.chart {
-  min-height: 20rem;
-}
-.featured {
-  min-height: 24rem;
-}
-.metric {
+.compactPlot {
   min-height: 11rem;
 }
-.tableHeader,
+.plotHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.plotBody {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: var(--space-2);
+  min-width: 0;
+}
+.valueAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+.plotCanvas {
+  position: relative;
+  height: 10.5rem;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.compactPlot .plotCanvas {
+  height: 6.7rem;
+}
+.gridLine {
+  position: absolute;
+  left: 0;
+  opacity: 0.45;
+}
+.gridLine:nth-child(1) {
+  top: 15%;
+}
+.gridLine:nth-child(2) {
+  top: 38%;
+}
+.gridLine:nth-child(3) {
+  top: 61%;
+}
+.gridLine:nth-child(4) {
+  top: 84%;
+}
+.lineTrace {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(
+    0 69%,
+    10% 61%,
+    19% 66%,
+    29% 37%,
+    39% 47%,
+    49% 34%,
+    59% 57%,
+    68% 42%,
+    77% 48%,
+    88% 23%,
+    100% 31%,
+    100% 35%,
+    88% 27%,
+    77% 52%,
+    68% 46%,
+    59% 61%,
+    49% 38%,
+    39% 51%,
+    29% 41%,
+    19% 70%,
+    10% 65%,
+    0 73%
+  );
+}
+.bars,
+.candles {
+  position: absolute;
+  inset: 0 3% 0 2%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 2%;
+}
+.bars > * {
+  flex: 1;
+  max-width: 7%;
+}
+.candle {
+  position: relative;
+  width: 5%;
+  min-width: 3px;
+}
+.wick {
+  margin-inline: auto;
+}
+.candleBody {
+  position: absolute;
+  top: 30%;
+  left: 15%;
+}
+.timeAxis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-inline-start: 2.5rem;
+}
+
+.financeWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem);
+  gap: var(--space-4);
+  min-width: 0;
+}
+.toolbar {
+  flex-wrap: wrap;
+}
+.diagramCanvas {
+  min-height: 31rem;
+}
+.diagramSurface {
+  position: relative;
+  min-height: 26rem;
+  overflow: hidden;
+  background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: 17px 17px;
+}
+.diagramNode {
+  position: absolute;
+  z-index: 1;
+}
+.nodeOne {
+  left: 8%;
+  top: 28%;
+}
+.nodeTwo {
+  right: 13%;
+  top: 16%;
+}
+.nodeThree {
+  right: 27%;
+  bottom: 20%;
+}
+.connector {
+  position: absolute;
+  top: 40%;
+  left: 32%;
+  width: 39%;
+  height: 2px;
+  background: var(--color-border);
+  transform: rotate(-15deg);
+  transform-origin: left;
+}
+.connectorTwo {
+  top: 40%;
+  left: 67%;
+  width: 20%;
+  transform: rotate(72deg);
+}
+.propertyPanel {
+  min-height: 15rem;
+}
+
+.statRow {
+  flex-wrap: wrap;
+}
+.statRow > :nth-child(-n + 3) {
+  flex: 1 1 9rem;
+}
+.greenlightOverview {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+}
+.weekFrame {
+  min-height: 18rem;
+}
+.weekGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.weekCard {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+.weekBarTrack {
+  display: block;
+  width: 100%;
+  height: 3rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.weekBarTrack > span {
+  display: flex;
+  align-items: flex-end;
+  width: 42%;
+  height: 100%;
+  margin-inline: auto;
+}
+.projectionHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.projectionColumns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+.projectionTable {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.projectionRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 1.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tickerTape {
+  justify-content: space-between;
+  overflow: hidden;
+}
+.tickerTape > * {
+  flex: 0 0 14%;
+}
+.investingWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: var(--space-4);
+  min-width: 0;
+}
+.investingWorkspace > .plot {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+}
+.investingWorkspace > .plot .plotBody {
+  min-height: 11rem;
+}
+.investingWorkspace > .plot .plotCanvas {
+  height: 100%;
+}
+.watchlistPanel {
+  min-height: 17rem;
+}
+.wideList {
+  min-height: 12rem;
+}
+
+.airfareWorkspace {
+  grid-template-columns: minmax(0, 1.5fr) minmax(14rem, 1fr);
+}
+.routeMap {
+  min-height: 21rem;
+}
+.mapControls {
+  display: flex;
+  gap: var(--space-2);
+}
+.globe {
+  position: relative;
+  width: min(13rem, 70%);
+  aspect-ratio: 1;
+  margin: auto;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  overflow: hidden;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 17%,
+    color-mix(in srgb, var(--color-border) 40%, transparent) 17.5% 18%
+  );
+}
+.globe::before,
+.globe::after {
+  content: '';
+  position: absolute;
+  inset: 20% 0;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+}
+.globe::after {
+  inset: 38% 0;
+}
+.mapArc {
+  position: absolute;
+  top: 35%;
+  left: 15%;
+  width: 55%;
+  height: 30%;
+  border-top: 3px solid var(--color-accent);
+  border-radius: 50%;
+  transform: rotate(24deg);
+}
+.mapArcTwo {
+  top: 53%;
+  left: 30%;
+  width: 50%;
+  transform: rotate(-30deg);
+}
+.routeList {
+  min-height: 21rem;
+}
+
+.filters > * {
+  flex: 1;
+  min-width: 0;
+}
+.tableFrame {
+  gap: 0;
+  overflow: hidden;
+}
 .tableRow {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
-}
-.tableHeader {
-  padding-block-end: var(--space-3);
+  align-items: center;
+  min-height: 2.3rem;
   border-bottom: 1px solid var(--color-border);
 }
-.tableRow {
-  padding-block: var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+.tableRow:first-child {
+  min-height: 2rem;
 }
+.seace {
+  padding: var(--space-6);
+}
+.sentiment > .plot {
+  min-height: 23rem;
+}
+.sentiment > .plot .plotCanvas {
+  height: 16rem;
+}
+
 .login {
   min-height: 100dvh;
   align-content: center;
@@ -99,30 +491,72 @@
   width: min(100%, 26rem);
   min-height: 13rem;
 }
-.seace {
-  padding: var(--space-6);
-}
 
-@media (max-width: 52rem) {
-  .twoColumns,
-  .workspace {
+@media (max-width: 64rem) {
+  .dashboardOverview,
+  .greenlightOverview,
+  .airfareWorkspace {
     grid-template-columns: minmax(0, 1fr);
   }
-  .canvas {
-    min-height: 20rem;
+}
+@media (max-width: 52rem) {
+  .twoColumns,
+  .financeWorkspace,
+  .investingWorkspace,
+  .projectionColumns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .diagramCanvas {
+    min-height: 21rem;
+  }
+  .diagramSurface {
+    min-height: 17rem;
+  }
+  .sentiment > .plot {
+    min-height: 17rem;
+  }
+  .sentiment > .plot .plotCanvas {
+    height: 10.5rem;
   }
 }
-
 @media (max-width: 40rem) {
-  .header {
-    align-items: stretch;
-    flex-direction: column;
+  .page {
+    gap: var(--space-3);
+  }
+  .frame,
+  .plot {
+    padding: var(--space-3);
   }
   .clocks {
     gap: var(--space-1);
   }
+  .clocks > * {
+    height: 42px !important;
+  }
+  .fxPanel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .statRow > :nth-child(-n + 3) {
+    flex-basis: 28%;
+  }
+  .statRow > :last-child {
+    display: none;
+  }
+  .weekGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .viewTabs {
+    gap: var(--space-1);
+  }
+  .viewTabs > * {
+    flex: 1;
+    min-width: 0;
+  }
   .filters {
     flex-wrap: wrap;
+  }
+  .filters > * {
+    flex: 1 1 40%;
   }
   .seace {
     padding: var(--space-3);

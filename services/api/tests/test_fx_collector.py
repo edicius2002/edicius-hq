@@ -1,3 +1,6 @@
+import json
+import os
+import sqlite3
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -90,6 +93,141 @@ def test_partial_failure_persisted_due_and_retry_after(tmp_path):
         assert not store.due("tkambio", NOW + timedelta(minutes=29))
         assert store.due("tkambio", NOW + timedelta(minutes=30))
         assert store.due("kambista", NOW + timedelta(minutes=5))
+
+
+def test_existing_fx_sqlite_gains_durable_source_health(tmp_path):
+    from app.services.fx.store import Store
+
+    path = tmp_path / "fx.sqlite"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "create table due(owner text, source text, next_at real not null, primary key(owner,source))"
+        )
+    with Store(path, OWNER) as store:
+        store.save(
+            "kambista",
+            [observation("kambista", NOW)],
+            NOW + timedelta(minutes=4),
+            attempted_at=NOW,
+        )
+        store.save(
+            "kambista",
+            [],
+            NOW + timedelta(minutes=9),
+            attempted_at=NOW + timedelta(minutes=5),
+            error_code="missing-quote",
+        )
+        assert store.status("kambista") == {
+            "source": "kambista",
+            "last_attempt": NOW + timedelta(minutes=5),
+            "last_success": NOW,
+            "last_error": "missing-quote",
+            "consecutive_failures": 1,
+            "next_due": NOW + timedelta(minutes=9),
+        }
+    with Store(path, OWNER) as store:
+        assert store.status("kambista")["last_success"] == NOW
+        store.save(
+            "kambista",
+            [observation("kambista", NOW + timedelta(minutes=10))],
+            NOW + timedelta(minutes=14),
+            attempted_at=NOW + timedelta(minutes=10),
+        )
+        assert store.status("kambista")["last_error"] is None
+        assert store.status("kambista")["consecutive_failures"] == 0
+        assert store.status("kambista")["last_success"] == NOW + timedelta(minutes=10)
+
+
+def test_first_malformed_kambista_response_retries_next_slot_then_backs_off(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.providers import ProviderError
+    from app.services.fx.store import Store
+
+    def malformed(*_args):
+        raise ProviderError("missing-quote", delay=900)
+
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        assert collect_once(store, Cloud(), ["kambista"], now=NOW, fetcher=malformed)["failed"] == 1
+        assert store.due("kambista", NOW + timedelta(minutes=5))
+        assert (
+            collect_once(
+                store, Cloud(), ["kambista"], now=NOW + timedelta(minutes=5), fetcher=malformed
+            )["failed"]
+            == 1
+        )
+        assert not store.due("kambista", NOW + timedelta(minutes=10))
+        assert store.due("kambista", NOW + timedelta(minutes=20))
+
+
+def test_kambista_rate_limit_keeps_provider_retry_after(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.providers import ProviderError
+    from app.services.fx.store import Store
+
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        collect_once(
+            store,
+            Cloud(),
+            ["kambista"],
+            now=NOW,
+            fetcher=lambda *_args: (_ for _ in ()).throw(ProviderError("rate-limited", 1800)),
+        )
+        assert not store.due("kambista", NOW + timedelta(minutes=5))
+        assert store.due("kambista", NOW + timedelta(minutes=30))
+
+
+def test_stale_skipped_source_marks_pass_failed_without_fetching(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        store.save(
+            "kambista",
+            [observation("kambista", NOW - timedelta(minutes=20))],
+            NOW + timedelta(minutes=10),
+            attempted_at=NOW - timedelta(minutes=20),
+        )
+        result = collect_once(
+            store,
+            Cloud(),
+            ["kambista"],
+            now=NOW,
+            fetcher=lambda *_args: pytest.fail("source should remain on cooldown"),
+        )
+    assert result == dict(seen=0, written=1, failed=1)
+
+
+def test_fx_status_cli_reads_local_source_health_without_cloud(tmp_path):
+    from app.services.fx.store import Store
+
+    data_dir = tmp_path / "data"
+    path = data_dir / "fx" / "outbox.sqlite"
+    with Store(path, OWNER) as store:
+        store.save("kambista", [], NOW + timedelta(minutes=4), attempted_at=NOW)
+    env = {**os.environ, "LOCAL_DATA_DIR": str(data_dir), "EDICIUS_OWNER_ID": str(OWNER)}
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SECRET_KEY", None)
+    script = Path(__file__).resolve().parents[3] / "scripts" / "fx-collect.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--status"], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    rows = json.loads(result.stdout)
+    kambista = next(row for row in rows if row["source"] == "kambista")
+    assert kambista["last_success"] == NOW.isoformat()
+    assert kambista["next_due"] == (NOW + timedelta(minutes=4)).isoformat()
+    assert kambista["consecutive_failures"] == 0
+
+
+def test_fx_status_cli_reports_missing_local_database_cleanly(tmp_path):
+    script = Path(__file__).resolve().parents[3] / "scripts" / "fx-collect.py"
+    env = {**os.environ, "LOCAL_DATA_DIR": str(tmp_path), "EDICIUS_OWNER_ID": str(OWNER)}
+    result = subprocess.run(
+        [sys.executable, str(script), "--status"], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 1
+    assert "FX status unavailable" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_dry_run_has_no_writes(tmp_path):
@@ -223,6 +361,30 @@ def test_reference_sources_share_one_http_request_per_reconcile(tmp_path, monkey
         result = collect_once(store, cloud, ["bcrp", "sbs"], now=NOW)
     assert result == dict(seen=2, written=2, failed=0)
     assert {r["source"]: r["buy"] for r in cloud.rows.values()} == {"bcrp": "3.41", "sbs": "3.43"}
+
+
+def test_reference_challenge_fails_both_sources_from_one_request(tmp_path, monkeypatch):
+    import httpx
+
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, text="<script>/_Incapsula_Resource</script>")
+
+    original = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda: original(transport=httpx.MockTransport(respond)))
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        result = collect_once(store, Cloud(), ["bcrp", "sbs"], now=NOW)
+        for source in ("bcrp", "sbs"):
+            health = store.status(source)
+            assert health["last_error"] == "challenge-page"
+            assert health["consecutive_failures"] == 1
+    assert len(requests) == 1
+    assert result == dict(seen=0, written=0, failed=2)
 
 
 @pytest.mark.parametrize("failure", ["series_name", "NaN", "Infinity"])

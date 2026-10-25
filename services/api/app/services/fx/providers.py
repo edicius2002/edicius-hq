@@ -45,9 +45,23 @@ MONTHS = dict(
 
 
 class ProviderError(ValueError):
-    def __init__(self, code: str = "invalid-response", delay: int = 900):
+    def __init__(
+        self,
+        code: str = "invalid-response",
+        delay: int = 900,
+        *,
+        status: int | None = None,
+        body_bytes: int | None = None,
+        stage: str | None = None,
+        cause: str | None = None,
+    ):
         super().__init__(code)
+        self.code = code
         self.delay = delay
+        self.status = status
+        self.body_bytes = body_bytes
+        self.stage = stage
+        self.cause = cause
 
 
 class Node:
@@ -120,7 +134,12 @@ def html_rates(source: str, text: str) -> tuple[str, str]:
         "dollarhouse": ("buy-exchange-rate", "sell-exchange-rate"),
     }
     if source in ids:
-        return tuple(next(n.text for n in nodes if n.attrs.get("id") == id_) for id_ in ids[source])  # type: ignore[return-value]
+        found = [
+            next((n.text for n in nodes if n.attrs.get("id") == id_), None) for id_ in ids[source]
+        ]
+        if any(value is None for value in found):
+            raise ProviderError("missing-quote")
+        return str(found[0]), str(found[1])
     for n in nodes:
         for side, label in [("buy", "compra"), ("sell", "venta")]:
             if (
@@ -192,14 +211,20 @@ def fetch(
         )
     elif source == "tkambio":
         method, kwargs = "POST", {"data": {"action": "get_exchange_rate"}}
+    status: int | None = None
+    body_bytes: int | None = None
+    stage = "request"
     try:
         if source in REFERENCES and response_cache is not None and url in response_cache:
             cached = response_cache[url]
             if isinstance(cached, ProviderError):
                 raise cached
+            stage = "schema"
             return reference_rows(source, cached, now, start, end)
         client.cookies.clear()
         with client.stream(method, url, timeout=30, follow_redirects=False, **kwargs) as response:
+            status = response.status_code
+            stage = "response"
             if response.status_code == 403:
                 raise ProviderError("forbidden", 21600)
             if response.status_code == 429:
@@ -211,20 +236,28 @@ def fetch(
             body = bytearray()
             for chunk in response.iter_bytes():
                 body.extend(chunk)
+                body_bytes = len(body)
                 if len(body) > 2_000_000:
                     raise ProviderError("response-too-large")
+        stage = "decode"
         text = body.decode("utf-8")
         if source in REFERENCES:
+            stage = "json"
+            if b"/_Incapsula_Resource" in body:
+                raise ProviderError("challenge-page", delay=1800)
             payload = json.loads(text)
             if response_cache is not None:
                 response_cache[url] = payload
+            stage = "schema"
             return reference_rows(source, payload, now, start, end)
         context: dict[str, Any] = {"variant": "standard", "method": "public-quote"}
         if source in {"rextie", "tkambio"}:
+            stage = "json"
             obj = json.loads(text, parse_float=Decimal)
             if not isinstance(obj, dict):
                 raise ProviderError("invalid-response")
             if source == "rextie":
+                stage = "quote"
                 if (
                     any(
                         obj.get(k)
@@ -242,15 +275,24 @@ def fetch(
                     amount_usd=1000, direction="USD/PEN", method="non-committing-simulation"
                 )
             else:
+                stage = "quote"
                 buy, sell = obj["buying_rate"], obj["selling_rate"]
         else:
+            stage = "html"
             buy, sell = html_rates(source, text)
+        stage = "quote"
         return [
             Observation(
                 source, now, now, Decimal(str(buy).strip()), Decimal(str(sell).strip()), context
             )
         ]
     except ProviderError as error:
+        if error.status is None:
+            error.status = status
+        if error.body_bytes is None:
+            error.body_bytes = body_bytes
+        if error.stage is None:
+            error.stage = stage
         if source in REFERENCES and response_cache is not None:
             response_cache.setdefault(url, error)
         raise
@@ -262,8 +304,31 @@ def fetch(
         IndexError,
         StopIteration,
         ArithmeticError,
-    ):
-        failure = ProviderError()
+    ) as error:
+        code = (
+            "transport-error"
+            if isinstance(error, httpx.HTTPError)
+            else "invalid-json"
+            if stage == "json"
+            else "invalid-encoding"
+            if stage == "decode"
+            else "missing-quote"
+            if stage == "html" and isinstance(error, (KeyError, StopIteration))
+            else "invalid-html"
+            if stage == "html"
+            else "invalid-rate"
+            if stage == "quote"
+            else "invalid-schema"
+            if stage == "schema"
+            else "invalid-response"
+        )
+        failure = ProviderError(
+            code,
+            status=status,
+            body_bytes=body_bytes,
+            stage=stage,
+            cause=type(error).__name__,
+        )
         if source in REFERENCES and response_cache is not None:
             response_cache.setdefault(url, failure)
         raise failure from None

@@ -38,6 +38,7 @@ def collect_once(
     if not dry_run and store is None:
         raise ValueError("durable store required")
     result = dict(seen=0, written=0, failed=0)
+    failed_sources: set[str] = set()
     run = None
     if not dry_run and cloud is not None:
         try:
@@ -48,6 +49,7 @@ def collect_once(
         for source in dict.fromkeys(sources):
             if not dry_run and store is not None and not store.due(source, now):
                 continue
+            previous = store.status(source) if store is not None else None
             try:
                 rows = fetcher(source, client, now, None, None)
                 result["seen"] += len(rows)
@@ -57,12 +59,54 @@ def collect_once(
                         source,
                         rows,
                         now + (_REFERENCE_EVERY if source in REFERENCES else _COMMERCIAL_EVERY),
+                        attempted_at=now,
                     )
             except ProviderError as error:
                 result["failed"] += 1
-                LOGGER.warning("FX source %s failed: %s", source, error)
+                failed_sources.add(source)
+                LOGGER.warning(
+                    "FX source %s failed: %s status=%s bytes=%s stage=%s cause=%s",
+                    source,
+                    error.code,
+                    error.status,
+                    error.body_bytes,
+                    error.stage,
+                    error.cause,
+                )
                 if not dry_run and store is not None:
-                    store.save(source, [], now + timedelta(seconds=error.delay))
+                    fast_retry = (
+                        source == "kambista"
+                        and error.code
+                        in {"missing-quote", "invalid-html", "invalid-rate", "invalid-encoding"}
+                        and previous is not None
+                        and previous["consecutive_failures"] == 0
+                    )
+                    delay = int(_COMMERCIAL_EVERY.total_seconds()) if fast_retry else error.delay
+                    store.save(
+                        source,
+                        [],
+                        now + timedelta(seconds=delay),
+                        attempted_at=now,
+                        error_code=error.code,
+                    )
+    if not dry_run and store is not None:
+        for source in dict.fromkeys(sources):
+            if source in failed_sources:
+                continue
+            health = store.status(source)
+            if health["last_attempt"] is None:
+                continue  # Existing Pi databases warm up as each source becomes due.
+            last_success = health["last_success"]
+            max_age = timedelta(hours=5) if source in REFERENCES else timedelta(minutes=15)
+            if last_success is None or now - last_success > max_age:
+                result["failed"] += 1
+                LOGGER.warning(
+                    "FX source %s stale: last_success=%s next_due=%s error=%s",
+                    source,
+                    last_success,
+                    health["next_due"],
+                    health["last_error"],
+                )
     if not dry_run and store is not None and cloud is not None:
         try:
             while pending := store.pending():

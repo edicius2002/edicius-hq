@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import sqlite3
 import sys
 from contextlib import nullcontext
 from pathlib import Path
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "api"))
 from app.config import collector_config, local_data_dir
@@ -29,8 +33,21 @@ def main() -> int:
         help="Comma-separated source slugs; default all",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--status", action="store_true", help="read local source health as JSON")
     args = parser.parse_args()
     sources = args.sources.split(",") if args.sources else SOURCES
+    if not sources or any(source not in SOURCES for source in sources):
+        parser.error("invalid sources")
+    if args.status:
+        try:
+            owner_id = UUID(os.environ["EDICIUS_OWNER_ID"])
+            with Store(local_data_dir() / "fx" / "outbox.sqlite", owner_id, readonly=True) as store:
+                rows = [store.status(source) for source in dict.fromkeys(sources)]
+            print(json.dumps(rows, default=lambda value: value.isoformat()))
+            return 0
+        except (KeyError, ValueError, OSError, sqlite3.Error) as error:
+            LOGGER.error("FX status unavailable: %s", error)
+            return 1
     cloud = None
     try:
         if not args.dry_run:

@@ -21,7 +21,12 @@ export function RowsSkeleton({
     >
       {label ? <span className={styles.srOnly}>{label}…</span> : null}
       {Array.from({ length: rows }, (_, index) => (
-        <div className={styles.row} data-testid="skeleton-row" key={index}>
+        <div
+          className={styles.row}
+          data-testid="skeleton-row"
+          data-skeleton-card={variant === 'positions' ? '' : undefined}
+          key={index}
+        >
           {variant === 'watchlist' ? (
             <>
               <div className={styles.identity} data-skeleton-cell>
@@ -37,18 +42,17 @@ export function RowsSkeleton({
             </>
           ) : variant === 'positions' ? (
             <>
-              <div className={styles.identity} data-skeleton-cell>
-                <Skeleton width={28} height={28} radius="50%" />
-                <Skeleton width="60%" height={12} />
+              <div data-skeleton-cell>
+                <Skeleton width="48%" height={14} />
               </div>
               <div data-skeleton-cell>
-                <Skeleton width="72%" height={13} />
+                <Skeleton width="90%" height={11} />
               </div>
               <div data-skeleton-cell>
-                <Skeleton width="85%" height={13} />
+                <Skeleton width="66%" height={14} />
               </div>
               <div data-skeleton-cell>
-                <Skeleton width="60%" height={13} />
+                <Skeleton width="88%" height={11} />
               </div>
             </>
           ) : (

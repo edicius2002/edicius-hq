@@ -54,4 +54,5 @@
 - [x] Test that each route renders the silhouette of its actual visualization or data structure.
 - [x] Replace generic cards with chart, calendar, canvas, map, table, and list shapes.
 - [x] Make Investing watchlist, position, and alert rows distinct.
+- [x] Match the in-page candle, FX history, and position placeholders to the loaded chart and card geometry.
 - [x] Inspect desktop and mobile layouts in the browser and correct mismatches.

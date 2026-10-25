@@ -78,6 +78,8 @@ it('switches sources and ranges without mislabeling cached history', async () =>
   await user.click(screen.getByRole('button', { name: 'Select SBS reference' }));
   expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   expect(screen.getByText('Loading history…')).toBeVisible();
+  const pending = screen.getByText('Loading history…').closest('[role="status"]');
+  expect(pending?.querySelectorAll('[data-skeleton-line]')).toHaveLength(2);
   await user.click(screen.getByRole('button', { name: '1M' }));
   expect(JSON.parse(localStorage.getItem('edicius.fx.preferences')!)).toMatchObject({
     source: 'sbs',

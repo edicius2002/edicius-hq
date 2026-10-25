@@ -29,3 +29,13 @@ it.each([
     variant,
   );
 });
+
+it('lays out pending positions as cards', () => {
+  const { container } = render(
+    <RowsSkeleton label="Loading positions" variant="positions" rows={5} />,
+  );
+  const cards = container.querySelectorAll('[data-skeleton-card]');
+
+  expect(cards).toHaveLength(5);
+  for (const card of cards) expect(card.querySelectorAll('[data-skeleton-cell]')).toHaveLength(4);
+});

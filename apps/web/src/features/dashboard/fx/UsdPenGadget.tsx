@@ -129,9 +129,15 @@ export function UsdPenGadget({ now }: { now: Date }) {
             <div className={styles.placeholder} role="status">
               Loading history…
               <div className={styles.historySkeleton} aria-hidden="true">
-                {[35, 55, 45, 70, 60, 80, 65].map((height, index) => (
-                  <Skeleton key={index} width="10%" height={`${height}%`} radius={2} />
-                ))}
+                <span className={styles.historyLine} data-skeleton-line>
+                  <Skeleton width="100%" height="100%" radius={0} />
+                </span>
+                <span
+                  className={`${styles.historyLine} ${styles.historyLineSell}`}
+                  data-skeleton-line
+                >
+                  <Skeleton width="100%" height="100%" radius={0} />
+                </span>
               </div>
             </div>
           ) : null}

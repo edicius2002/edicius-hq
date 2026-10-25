@@ -151,6 +151,24 @@
   gap: var(--space-2);
   min-height: 0;
 }
+.skeletonCandle {
+  position: relative;
+  flex: 1;
+  max-width: 6%;
+  min-width: 3px;
+}
+.skeletonWick {
+  position: absolute;
+  inset-block: 0;
+  left: calc(50% - 1px);
+}
+.skeletonBody {
+  position: absolute;
+  top: 28%;
+  left: 15%;
+  width: 70%;
+  height: 45%;
+}
 
 .skeletonAxis {
   display: flex;

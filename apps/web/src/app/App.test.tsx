@@ -82,6 +82,7 @@ import { App } from '@/app/App';
 import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
 import { AppProviders } from '@/app/providers/AppProviders';
 import { createAppMemoryRouter } from '@/app/router/createAppRouter';
+import { quoteBus, type QuoteBatch } from '@/features/investing/data/quoteBus';
 
 function deferred<Value>() {
   let resolve!: (value: Value) => void;
@@ -304,6 +305,79 @@ describe('Account controls in the wide menu', () => {
 });
 
 describe('Investing chart-first workspace', () => {
+  it.each([
+    {
+      situation: 'between followed stocks',
+      entries: [
+        { symbol: 'AAPL', name: 'Apple' },
+        { symbol: 'QQQ', name: 'Nasdaq ETF' },
+      ],
+    },
+    {
+      situation: 'from a chart outside the watchlist',
+      entries: [{ symbol: 'QQQ', name: 'Nasdaq ETF' }],
+    },
+  ])('keeps watchlist prices visible when switching $situation', async ({ entries }) => {
+    const user = userEvent.setup();
+    const nextBatch = deferred<QuoteBatch>();
+    quoteBus.clear();
+    marketApi.getQuotes.mockImplementation(async (symbols: string[]) => ({
+      quotes: symbols.map((symbol) => ({
+        symbol,
+        price: symbol === 'AAPL' ? 100 : 200,
+        currency: 'USD',
+        previousClose: symbol === 'AAPL' ? 99 : 199,
+        change: 1,
+        changePercent: 1,
+        provider: 'test',
+        time: 100,
+        marketState: 'CLOSED',
+        name: symbol === 'AAPL' ? 'Apple' : 'Nasdaq ETF',
+        extended: false,
+      })),
+      failed: [],
+    }));
+    const fallbackFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/app_documents')) {
+          return Promise.resolve(
+            Response.json([
+              {
+                document_key: 'watchlist',
+                payload: { version: 1, entries },
+                revision: 1,
+                updated_at: '',
+              },
+            ]),
+          );
+        }
+        return fallbackFetch(input, init);
+      }),
+    );
+
+    renderAt('/investing');
+    await arrivesAt('Investing');
+    const list = await screen.findByRole('list', { name: 'Watchlist' }, { timeout: ROUTE_LOAD_MS });
+    const apple = within(list).queryByRole('button', { name: /AAPL\s*Apple/ });
+    const nasdaq = within(list).getByRole('button', { name: /QQQ\s*Nasdaq ETF/ });
+    await waitFor(() => {
+      if (apple) expect(apple).toHaveTextContent('100.00');
+      expect(nasdaq).toHaveTextContent('200.00');
+    });
+
+    // A fresh quote request now stays pending. Switching between symbols
+    // already in the list should keep both displayed prices throughout it.
+    quoteBus.clear();
+    marketApi.getQuotes.mockImplementation(() => nextBatch.promise);
+    await user.click(nasdaq);
+
+    expect(screen.getByRole('region', { name: 'QQQ chart' })).toBeInTheDocument();
+    if (apple) expect(apple).toHaveTextContent('100.00');
+    expect(nasdaq).toHaveTextContent('200.00');
+  });
+
   it('keeps the candle close and authoritative volume synchronized with stream updates', async () => {
     const user = userEvent.setup();
     vi.useFakeTimers({ toFake: ['Date'] });

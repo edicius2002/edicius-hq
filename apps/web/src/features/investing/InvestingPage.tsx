@@ -151,9 +151,14 @@ export function InvestingPage() {
   // stream is actually live: a dead socket puts the page straight back on the
   // rate it had before any of this existed.
   const quotes = useQuery({
-    queryKey: ['market', 'quotes', wanted],
+    // Selection changes the order of `wanted`, not the set of quoted symbols.
+    // Keep the query identity stable so the visible rows retain their prices.
+    queryKey: ['market', 'quotes', [...wanted].sort()],
     queryFn: () => quoteBus.quotes(wanted, { priority: PRIORITY.watchlist }),
     enabled: wanted.length > 0,
+    // If the symbol set really changes, keep known rows priced until the new
+    // batch arrives. A new row can wait without blanking the whole watchlist.
+    placeholderData: (previous) => previous,
     refetchInterval: cadenceFor(candles.regime, 0, { streaming: live }).quotesMs,
   });
 

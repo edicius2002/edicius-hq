@@ -2518,7 +2518,7 @@ export function RouteMap({
                   <circle
                     cx={xy[0]}
                     cy={xy[1]}
-                    r={3.5}
+                    r={2.5}
                     style={{ fill: colour }}
                     className={styles.node}
                   />
@@ -2558,7 +2558,7 @@ export function RouteMap({
                   <circle
                     cx={xy[0]}
                     cy={xy[1]}
-                    r={departure ? 4 : 3.5}
+                    r={departure ? 3 : 2.5}
                     // A departure stays neutral: every route on this page
                     // leaves from one, so colouring it would claim it belongs
                     // to a single arc.

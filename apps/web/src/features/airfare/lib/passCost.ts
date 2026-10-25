@@ -85,7 +85,7 @@ export function passCost(months: readonly string[], today: string): PassCost {
  * `not-due`, which is the schedule working and not a shortfall.
  */
 export function describeCost(cost: PassCost): string | null {
-  if (cost.months === 0) return 'No months picked yet.';
+  if (cost.months === 0) return null;
 
   const months = `${cost.months} month${cost.months === 1 ? '' : 's'}`;
   const departures = `up to ${cost.departures} departure${cost.departures === 1 ? '' : 's'} to price`;

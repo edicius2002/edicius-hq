@@ -74,6 +74,36 @@ describe('RouteList', () => {
     expect(rowFor('LIM', 'SCL')).toBeInTheDocument();
   });
 
+  it('gives each phone route its own row, fetch button and remove button', () => {
+    const second: FareRoute = {
+      origin: 'AQP',
+      destination: 'LIM',
+      months: ['2026-11'],
+      currency: 'USD',
+    };
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    try {
+      const view = renderList({ routes: [ROUTES[0], second] });
+      const rows = screen.getByRole('list', { name: 'Watched routes' }).querySelectorAll('li');
+      expect(rows).toHaveLength(2);
+      expect(
+        within(rows[0]).getByRole('button', { name: 'Fetch LIM → CUZ now, October 2026' }),
+      ).toBeInTheDocument();
+      fireEvent.click(
+        within(rows[1]).getByRole('button', { name: 'Fetch AQP → LIM now, November 2026' }),
+      );
+      expect(view.props.onCollect).toHaveBeenCalledWith(second, '2026-11');
+      fireEvent.click(within(rows[1]).getByRole('button', { name: 'Stop watching AQP → LIM' }));
+      expect(view.props.onRemove).toHaveBeenCalledWith('AQP|LIM');
+      view.unmount();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('selects another paired route before switching its direction on a later press', () => {
     const reverse: FareRoute = {
       origin: 'CUZ',

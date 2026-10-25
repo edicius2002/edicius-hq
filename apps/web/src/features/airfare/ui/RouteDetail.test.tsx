@@ -77,6 +77,17 @@ describe('RouteDetail', () => {
     expect(screen.queryByText('Vs usual')).not.toBeInTheDocument();
   });
 
+  it('keeps a long airline name in the comparison slot with smaller type', () => {
+    const airlineName = 'Aerolineas Argentinas';
+    show({
+      latest: { ...snapshot, offers: [{ ...snapshot.offers[0], airlineName }] },
+    });
+    const airline = screen.getByText(airlineName).closest('span');
+    expect(airline).toHaveClass(/airlineLong/);
+    expect(airline).toHaveAttribute('title', airlineName);
+    expect(airline?.parentElement).toHaveClass(/meta/);
+  });
+
   it.each([
     { price: 100, text: '-15.3% vs usual', tone: 'cheap' },
     { price: 122.84, text: '+4.1% vs usual', tone: 'neutral' },

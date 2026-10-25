@@ -1,6 +1,6 @@
 .wrap {
   display: grid;
-  gap: var(--space-2);
+  gap: 4px;
   min-width: 0;
 }
 
@@ -18,53 +18,23 @@
   min-height: 32px;
 }
 
-/*
- * The heading, the departure and every filter on one line — 12.257.
- *
- * `align-items: end` rather than `center`, so the heading sits on the same
- * baseline as the text inside the controls rather than floating in the middle
- * of taller boxes beside it.
- *
- * `wrap` lets the heading take its own line when the filters need the width;
- * forcing the controls narrower would wrap their labels and cost more height.
- */
+/* The departure period and filters share a compact row. */
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   align-content: start;
-  gap: var(--space-2);
-  height: 60px;
-  overflow-y: auto;
+  gap: 4px;
+  min-height: 52px;
 }
 
-/*
- * Was `AirfarePage`'s `.panelTitle`, and the same size and weight so the panel
- * still reads as one of the set. `nowrap` because a heading that breaks
- * between "Flights" and "seen" to save 40px has not saved anything.
- */
+/* The period stays on one line even when filters wrap below it. */
 .title {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 500;
   color: var(--color-muted);
   white-space: nowrap;
-}
-
-/*
- * The separator the analysis panel's heading and the cheapest-fare line
- * already use, so the headings on this page punctuate the same way.
- *
- * Those two write it as a literal `space · space`, which in this monospace
- * face is 33.4px; a margin instead of spaces because the glyph is
- * `aria-hidden` — a screen reader reading "middle dot" between a name and a
- * date is noise — and 0.45em puts it at 28.2px, close enough to read as the
- * same punctuation. Checked when the row came up 16px short: this is already
- * the tighter of the two and there is nothing to reclaim here.
- */
-.dot {
-  margin: 0 0.45em;
-  opacity: 0.6;
 }
 
 /*
@@ -124,7 +94,8 @@
 
 .filter > span {
   color: var(--color-muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
+  text-align: center;
 }
 
 .filter input,
@@ -133,15 +104,21 @@
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 3px var(--space-2);
-  min-height: 30px;
+  padding: 2px var(--space-2);
+  min-height: 28px;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.15;
   min-width: 0;
   /* Each control as wide as the widest thing it can hold and no wider — the
      row is now sized by its contents rather than dividing the panel into
      equal shares. */
   width: auto;
+  text-align: center;
+}
+
+.filter select {
+  text-align-last: center;
 }
 
 .filter input:focus-visible,
@@ -154,8 +131,8 @@
    where the eye expects an action that acts on them. */
 .clear {
   align-self: end;
-  min-height: 32px;
-  padding-block: 3px;
+  min-height: 28px;
+  padding-block: 2px;
 }
 
 /*
@@ -480,20 +457,6 @@
   border-radius: 2px;
 }
 
-/* Reserve the number of filter lines the panel needs at each width, even when
-   pending data has no airline or price facets yet. */
-@media (max-width: 1180px) {
-  .head {
-    height: 100px;
-  }
-}
-
-@media (max-width: 800px) {
-  .head {
-    height: 160px;
-  }
-}
-
 /* Airfare phone layout. */
 @media (max-width: 640px) {
   .scroller {
@@ -508,7 +471,6 @@
   .head {
     display: grid;
     gap: 4px;
-    height: 134px;
   }
   .title {
     white-space: normal;
@@ -526,7 +488,7 @@
     gap: 4px;
   }
   .filter:has(.range) > span {
-    text-align: start;
+    text-align: center;
   }
   .filter > span {
     font-size: 0.6rem;

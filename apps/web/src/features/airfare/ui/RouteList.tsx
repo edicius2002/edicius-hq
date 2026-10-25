@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 
+import { useIsNarrow } from '@/app/layout/useIsNarrow';
 import {
   formatFlightMonth,
   formatFlightMonths,
@@ -160,6 +161,7 @@ export function RouteList({
   // budget down the list, so dragging a route to the top says "poll this one
   // first when there is not enough budget for everything".
   const routeGroups = groupRoutePairs(routes);
+  const narrow = useIsNarrow();
   const { dragging, rowProps } = useReorder({
     order: routeGroups.map((group) => routeId(group[0])),
     onMove,
@@ -198,8 +200,10 @@ export function RouteList({
   }, [routes, loading]);
 
   const visibleGroups = loading ? [] : routeGroups;
-  const visibleRows = Array.from({ length: Math.ceil(visibleGroups.length / 2) }, (_, index) =>
-    visibleGroups.slice(index * 2, index * 2 + 2),
+  const groupsPerRow = narrow ? 1 : 2;
+  const visibleRows = Array.from(
+    { length: Math.ceil(visibleGroups.length / groupsPerRow) },
+    (_, index) => visibleGroups.slice(index * groupsPerRow, index * groupsPerRow + groupsPerRow),
   );
 
   return (

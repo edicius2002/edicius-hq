@@ -20,7 +20,10 @@ describe('usePriceAlerts storage sync', () => {
     const api = stubAlertRules({ version: 1, alerts: [] });
     const { result } = renderHook(() => usePriceAlerts(), { wrapper });
 
+    expect(result.current.isPending).toBe(true);
+
     await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(result.current.isPending).toBe(false);
     expect(result.current.alerts).toEqual([]);
 
     await act(async () => {

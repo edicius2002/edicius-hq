@@ -7,6 +7,7 @@ import { LoginScreen } from '@/features/auth/LoginScreen';
 import { PriceAlertsWatcher } from '@/features/investing/PriceAlertsWatcher';
 import { useSupabaseSession } from '@/shared/auth/useSupabaseSession';
 import { ToastHost } from '@/shared/ui/ToastHost';
+import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 
 const router = createAppBrowserRouter();
 
@@ -31,6 +32,7 @@ export function App() {
           </>
         ) : null}
         {status === 'anonymous' ? <LoginScreen /> : null}
+        {status === 'checking' ? <PageSkeleton page="login" /> : null}
       </AppProviders>
     </AppErrorBoundary>
   );

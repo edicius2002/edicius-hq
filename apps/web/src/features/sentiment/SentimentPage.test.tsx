@@ -100,6 +100,7 @@ describe('SentimentPage', () => {
     renderPage();
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading sentiment');
+    expect(document.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(8);
   });
 
   it('explains an unavailable source and retries the request', async () => {

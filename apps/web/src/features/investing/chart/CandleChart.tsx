@@ -41,6 +41,7 @@ import {
 } from '@/features/investing/lib/scales';
 import type { Bar } from '@/shared/api/market';
 import { useElementSize } from '@/shared/lib/useElementSize';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import styles from './CandleChart.module.css';
 
@@ -638,7 +639,34 @@ export function CandleChart({
           </div>
         ) : null}
 
-        {loading && !bars.length ? <div className={styles.empty}>Loading…</div> : null}
+        {loading && !bars.length ? (
+          <div className={styles.chartSkeleton} role="status" aria-label="Loading chart">
+            <span className={styles.srOnly}>Loading chart…</span>
+            <div className={styles.skeletonPlot} data-skeleton-shape="candlestick-chart">
+              {[42, 70, 55, 82, 63, 90, 48, 75, 58, 69, 85, 52].map((height, index) => (
+                <span
+                  className={styles.skeletonCandle}
+                  data-skeleton-candle
+                  key={index}
+                  style={{ height: `${height}%` }}
+                >
+                  <span className={styles.skeletonWick} data-skeleton-wick>
+                    <Skeleton width={2} height="100%" radius={0} />
+                  </span>
+                  <span className={styles.skeletonBody} data-skeleton-body>
+                    <Skeleton width="100%" height="100%" radius={1} />
+                  </span>
+                </span>
+              ))}
+            </div>
+            <Skeleton width="100%" height={2} />
+            <div className={styles.skeletonAxis}>
+              {[0, 1, 2, 3, 4].map((index) => (
+                <Skeleton key={index} width="12%" height={10} />
+              ))}
+            </div>
+          </div>
+        ) : null}
         {!loading && !bars.length ? (
           <div className={styles.empty}>No bars for this symbol.</div>
         ) : null}

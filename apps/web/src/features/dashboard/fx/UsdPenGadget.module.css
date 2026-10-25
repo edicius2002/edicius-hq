@@ -115,6 +115,10 @@
 .table td > span {
   font-variant-numeric: tabular-nums;
 }
+.table td > span[data-testid='fx-quote-skeleton'] {
+  display: grid;
+  justify-items: center;
+}
 /* The best fresh online quote is tinted rather than labelled, keeping rows one line tall. */
 .table td > span[data-best] {
   padding: 1px 5px;
@@ -170,6 +174,62 @@
   place-items: center;
   font-size: 11px;
   color: #b4a99c;
+}
+.historySkeleton {
+  position: relative;
+  width: 90%;
+  height: 80px;
+  border-bottom: 1px solid #51483e;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 24%,
+    #51483e 25%,
+    transparent 26% 50%
+  );
+}
+.historyLine {
+  position: absolute;
+  inset: 0;
+}
+.historyLine > span {
+  clip-path: polygon(
+    0 70%,
+    15% 59%,
+    28% 65%,
+    42% 44%,
+    55% 53%,
+    69% 30%,
+    82% 39%,
+    100% 23%,
+    100% 27%,
+    82% 43%,
+    69% 34%,
+    55% 57%,
+    42% 48%,
+    28% 69%,
+    15% 63%,
+    0 74%
+  );
+}
+.historyLineSell > span {
+  clip-path: polygon(
+    0 61%,
+    15% 52%,
+    28% 57%,
+    42% 35%,
+    55% 44%,
+    69% 22%,
+    82% 31%,
+    100% 14%,
+    100% 18%,
+    82% 35%,
+    69% 26%,
+    55% 48%,
+    42% 39%,
+    28% 61%,
+    15% 56%,
+    0 65%
+  );
 }
 .card p[role='alert'],
 .card p[role='status'] {

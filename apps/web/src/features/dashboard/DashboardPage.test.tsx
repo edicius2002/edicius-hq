@@ -139,6 +139,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('keeps both post columns shaped while the first capture loads', () => {
+  stubApi();
+  tweetData.fetchTweets.mockReturnValue(new Promise(() => {}));
+  const { container } = renderPage();
+
+  expect(screen.getByRole('status', { name: 'Loading posts' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Posts' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Replies' })).toBeInTheDocument();
+  expect(container.querySelectorAll('[data-testid="post-skeleton-row"]')).toHaveLength(6);
+});
+
 it('separates captured posts and replies with links', async () => {
   stubApi();
   renderPage();
@@ -208,7 +219,7 @@ it('places live reset summary and calendar above the preserved tweet columns', a
   expect(
     latest.compareDocumentPosition(await screen.findByRole('heading', { name: 'Posts' })),
   ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  expect(screen.getByText('53')).toBeInTheDocument();
+  expect(await screen.findByText('53')).toBeInTheDocument();
   expect(screen.getByText('6.9d')).toBeInTheDocument();
   expect(screen.getByText('67.7d')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Codex reset history' })).toBeInTheDocument();

@@ -3,6 +3,7 @@ import { useSentiment } from '@/features/sentiment/hooks/useSentiment';
 import { SentimentChart } from '@/features/sentiment/ui/SentimentChart';
 import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
+import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 
 import styles from './SentimentPage.module.css';
 
@@ -70,9 +71,7 @@ export function SentimentPage() {
   return (
     <section className={styles.page} aria-label="Sentiment">
       {query.isPending ? (
-        <Panel className={styles.state} role="status">
-          Loading sentiment…
-        </Panel>
+        <PageSkeleton page="sentiment" />
       ) : query.isError && !hasCompleteHistory ? (
         <Panel className={styles.state} role="alert">
           <p>Sentiment is unavailable. Its data providers may be temporarily unreachable.</p>

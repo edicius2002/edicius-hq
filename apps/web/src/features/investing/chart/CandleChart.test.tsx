@@ -49,6 +49,22 @@ function surface(container: HTMLElement): HTMLElement {
 }
 
 describe('CandleChart live-edge follow', () => {
+  it('shows candle bodies and wicks while the first series loads', () => {
+    const { container } = render(<CandleChart {...chartProps({ bars: [], loading: true })} />);
+    const pending = screen.getByRole('status', { name: 'Loading chart' });
+
+    expect(pending.querySelectorAll('[data-skeleton-candle]').length).toBeGreaterThan(8);
+    expect(pending.querySelectorAll('[data-skeleton-wick]')).toHaveLength(
+      pending.querySelectorAll('[data-skeleton-candle]').length,
+    );
+    expect(pending.querySelectorAll('[data-skeleton-body]')).toHaveLength(
+      pending.querySelectorAll('[data-skeleton-candle]').length,
+    );
+    expect(
+      container.querySelector('[data-skeleton-shape="candlestick-chart"]'),
+    ).toBeInTheDocument();
+  });
+
   it('starts at the newest candles', () => {
     const { container } = render(<CandleChart {...chartProps()} />);
 

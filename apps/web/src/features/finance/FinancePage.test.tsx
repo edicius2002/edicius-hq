@@ -132,6 +132,8 @@ describe('FinancePage', () => {
 
     renderPage();
 
+    expect(screen.getByRole('status', { name: 'Loading finance' })).toBeInTheDocument();
+
     await waitFor(() =>
       expect([...waiting.keys()].sort()).toEqual(['finance', 'finance-camera-views']),
     );

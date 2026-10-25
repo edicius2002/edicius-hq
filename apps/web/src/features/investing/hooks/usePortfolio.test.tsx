@@ -22,7 +22,10 @@ describe('usePortfolio storage sync', () => {
     });
     const { result } = renderHook(() => usePortfolio(), { wrapper });
 
+    expect(result.current.isPending).toBe(true);
+
     await waitFor(() => expect(result.current.isFetching).toBe(false));
+    expect(result.current.isPending).toBe(false);
     expect(result.current.portfolio.positions).toEqual([
       { symbol: 'AAPL', quantity: 1, averageCost: 100 },
     ]);

@@ -21,6 +21,7 @@ import {
 import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
+import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 import { SaveStatus } from '@/shared/ui/SaveStatus';
 
 import styles from './ui/FinancePage.module.css';
@@ -334,157 +335,164 @@ export function FinancePage() {
   );
 
   return (
-    <section className={styles.page} aria-labelledby="page-title">
-      {/* The editing actions ride beside the title rather than in a panel of
+    <>
+      {finance.saveState === 'loading' ? <PageSkeleton page="finance" /> : null}
+      <section
+        className={styles.page}
+        aria-labelledby="page-title"
+        style={{ display: finance.saveState === 'loading' ? 'none' : undefined }}
+      >
+        {/* The editing actions ride beside the title rather than in a panel of
           their own. Measured at 1139x802 before this: the page furniture above
           the canvas took 529px of a 791px viewport, so only 273px of diagram
           was ever on screen. The subtitle went for the same reason — it said
           what the page is to someone already looking at it. */}
-      <PageHeader
-        className={styles.header}
-        beside={
-          <div className={styles.tabsScroll} inert={editsBlocked || undefined}>
-            <DiagramTabs
-              diagrams={finance.diagrams}
-              activeId={finance.activeDiagramId}
-              onSelect={(id) => {
-                if (editsBlocked) return;
-                setSelection(null);
-                void finance.selectDiagram(id);
-              }}
-              onAdd={() => {
-                if (editsBlocked) return;
-                setSelection(null);
-                void finance.addDiagram();
-              }}
-              onDuplicate={(id) => {
-                if (!editsBlocked) void finance.duplicateDiagram(id);
-              }}
-              onRename={(id, name) => {
-                if (!editsBlocked) void finance.renameDiagram(id, name);
-              }}
-              onDelete={(id) => {
-                if (editsBlocked) return;
-                setSelection(null);
-                void finance.deleteDiagram(id);
-              }}
-            />
-          </div>
-        }
-        actions={<div className={styles.headerActions}>{toolbar}</div>}
-      />
-
-      {/* Sits with the actions that caused it, and only when there is one. */}
-      {problem ? (
-        <p className={styles.error} role="alert">
-          {problem}
-        </p>
-      ) : null}
-      {finance.conflict ? (
-        <div className={styles.error}>
-          <p role="alert">{conflictMessage}</p>
-          {finance.conflict.status === 'ready' ? (
-            <div className={styles.toolGroup}>
-              <Button onClick={finance.acceptRemote}>Use Supabase version</Button>
-              <Button
-                variant="danger"
-                onClick={() => void finance.overwriteRemote().catch(() => undefined)}
-              >
-                Replace with this tab's version
-              </Button>
-            </div>
-          ) : null}
-          {finance.conflict.status === 'load-failed' ? (
-            <Button onClick={() => void finance.refreshConflict()}>
-              Retry loading Supabase version
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {cameraPersistence?.conflict ? (
-        <div className={styles.error}>
-          <p role="alert">{cameraConflictMessage}</p>
-          {cameraPersistence.conflict.status === 'ready' ? (
-            <div className={styles.toolGroup}>
-              <Button onClick={cameraPersistence.acceptRemote}>Use Supabase view</Button>
-              <Button variant="danger" onClick={() => void cameraPersistence.overwriteRemote()}>
-                Replace with this tab's view
-              </Button>
-            </div>
-          ) : null}
-          {cameraPersistence.conflict.status === 'load-failed' ? (
-            <Button onClick={() => void cameraPersistence.refreshConflict()}>
-              Retry loading Supabase view
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Nothing between the canvas and the panel beside it: with the bar gone
-          the two columns start on the same line as well as ending on it. */}
-      <div className={styles.workspace} inert={editsBlocked || undefined}>
-        <FlowCanvas
-          status={
-            <>
-              <SaveStatus
-                state={saveState}
-                onRetry={finance.conflict || cameraPersistence?.conflict ? undefined : retrySave}
+        <PageHeader
+          className={styles.header}
+          beside={
+            <div className={styles.tabsScroll} inert={editsBlocked || undefined}>
+              <DiagramTabs
+                diagrams={finance.diagrams}
+                activeId={finance.activeDiagramId}
+                onSelect={(id) => {
+                  if (editsBlocked) return;
+                  setSelection(null);
+                  void finance.selectDiagram(id);
+                }}
+                onAdd={() => {
+                  if (editsBlocked) return;
+                  setSelection(null);
+                  void finance.addDiagram();
+                }}
+                onDuplicate={(id) => {
+                  if (!editsBlocked) void finance.duplicateDiagram(id);
+                }}
+                onRename={(id, name) => {
+                  if (!editsBlocked) void finance.renameDiagram(id, name);
+                }}
+                onDelete={(id) => {
+                  if (editsBlocked) return;
+                  setSelection(null);
+                  void finance.deleteDiagram(id);
+                }}
               />
-              {/* On the canvas rather than above it: a hint that comes and goes
-                  with a mode would otherwise push the canvas down mid-gesture,
-                  and the alignment with the panel beside it with it. */}
-              {hint ? <span className={styles.canvasHint}>{hint}</span> : null}
-            </>
+            </div>
           }
-          diagram={diagram}
-          selection={selection}
-          connectMode={connectMode}
-          connectFrom={connectFrom}
-          frameMode={frameMode}
-          onSelect={setSelection}
-          onMoveNode={(id, position) => {
-            if (!editsBlocked) void finance.moveNode(id, position);
-          }}
-          onAnchorClick={(nodeId, anchor) => void handleAnchorClick(nodeId, anchor)}
-          onCreateFrame={(rect) => {
-            // One frame per press of the button, so the mode does not linger and
-            // turn the next pan into another rectangle.
-            setFrameMode(false);
-            if (!editsBlocked) {
-              void finance.addFrame(
-                { x: rect.left, y: rect.top },
-                { width: rect.width, height: rect.height },
-              );
-            }
-          }}
-          onMoveFrame={(id, position) => {
-            if (!editsBlocked) void finance.moveFrame(id, position);
-          }}
-          onResizeFrame={(id, position, size) => {
-            if (!editsBlocked) void finance.resizeFrame(id, position, size);
-          }}
-          onConnectModeChange={(active) => {
-            if (editsBlocked) return;
-            setMessage(null);
-            setFrameMode(false);
-            if (active) setConnectMode(true);
-            else stopConnecting();
-          }}
-          onCameraPersistenceChange={publishCameraPersistence}
+          actions={<div className={styles.headerActions}>{toolbar}</div>}
         />
 
-        <div className={styles.side}>
-          <Panel className={styles.properties} aria-label="Selected item">
-            <PropertiesPanel diagram={diagram} selection={selection} actions={panelActions} />
-          </Panel>
+        {/* Sits with the actions that caused it, and only when there is one. */}
+        {problem ? (
+          <p className={styles.error} role="alert">
+            {problem}
+          </p>
+        ) : null}
+        {finance.conflict ? (
+          <div className={styles.error}>
+            <p role="alert">{conflictMessage}</p>
+            {finance.conflict.status === 'ready' ? (
+              <div className={styles.toolGroup}>
+                <Button onClick={finance.acceptRemote}>Use Supabase version</Button>
+                <Button
+                  variant="danger"
+                  onClick={() => void finance.overwriteRemote().catch(() => undefined)}
+                >
+                  Replace with this tab's version
+                </Button>
+              </div>
+            ) : null}
+            {finance.conflict.status === 'load-failed' ? (
+              <Button onClick={() => void finance.refreshConflict()}>
+                Retry loading Supabase version
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {cameraPersistence?.conflict ? (
+          <div className={styles.error}>
+            <p role="alert">{cameraConflictMessage}</p>
+            {cameraPersistence.conflict.status === 'ready' ? (
+              <div className={styles.toolGroup}>
+                <Button onClick={cameraPersistence.acceptRemote}>Use Supabase view</Button>
+                <Button variant="danger" onClick={() => void cameraPersistence.overwriteRemote()}>
+                  Replace with this tab's view
+                </Button>
+              </div>
+            ) : null}
+            {cameraPersistence.conflict.status === 'load-failed' ? (
+              <Button onClick={() => void cameraPersistence.refreshConflict()}>
+                Retry loading Supabase view
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
-          <Panel className={styles.summary} aria-label="Diagram totals">
-            <SummarySection title="Available" totals={available} />
-            <SummarySection title="In transit" totals={inTransit} />
-          </Panel>
+        {/* Nothing between the canvas and the panel beside it: with the bar gone
+          the two columns start on the same line as well as ending on it. */}
+        <div className={styles.workspace} inert={editsBlocked || undefined}>
+          <FlowCanvas
+            status={
+              <>
+                <SaveStatus
+                  state={saveState}
+                  onRetry={finance.conflict || cameraPersistence?.conflict ? undefined : retrySave}
+                />
+                {/* On the canvas rather than above it: a hint that comes and goes
+                  with a mode would otherwise push the canvas down mid-gesture,
+                  and the alignment with the panel beside it with it. */}
+                {hint ? <span className={styles.canvasHint}>{hint}</span> : null}
+              </>
+            }
+            diagram={diagram}
+            selection={selection}
+            connectMode={connectMode}
+            connectFrom={connectFrom}
+            frameMode={frameMode}
+            onSelect={setSelection}
+            onMoveNode={(id, position) => {
+              if (!editsBlocked) void finance.moveNode(id, position);
+            }}
+            onAnchorClick={(nodeId, anchor) => void handleAnchorClick(nodeId, anchor)}
+            onCreateFrame={(rect) => {
+              // One frame per press of the button, so the mode does not linger and
+              // turn the next pan into another rectangle.
+              setFrameMode(false);
+              if (!editsBlocked) {
+                void finance.addFrame(
+                  { x: rect.left, y: rect.top },
+                  { width: rect.width, height: rect.height },
+                );
+              }
+            }}
+            onMoveFrame={(id, position) => {
+              if (!editsBlocked) void finance.moveFrame(id, position);
+            }}
+            onResizeFrame={(id, position, size) => {
+              if (!editsBlocked) void finance.resizeFrame(id, position, size);
+            }}
+            onConnectModeChange={(active) => {
+              if (editsBlocked) return;
+              setMessage(null);
+              setFrameMode(false);
+              if (active) setConnectMode(true);
+              else stopConnecting();
+            }}
+            onCameraPersistenceChange={publishCameraPersistence}
+          />
+
+          <div className={styles.side}>
+            <Panel className={styles.properties} aria-label="Selected item">
+              <PropertiesPanel diagram={diagram} selection={selection} actions={panelActions} />
+            </Panel>
+
+            <Panel className={styles.summary} aria-label="Diagram totals">
+              <SummarySection title="Available" totals={available} />
+              <SummarySection title="In transit" totals={inTransit} />
+            </Panel>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }
 

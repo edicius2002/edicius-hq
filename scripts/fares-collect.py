@@ -315,7 +315,7 @@ def per_day(watch: FareWatch, today: date) -> tuple[int, int]:
     return collectable, requests
 
 
-def collect_main() -> int:
+def collect_main(*, lock_wait_seconds: float = 0.0) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run",
@@ -352,6 +352,7 @@ def collect_main() -> int:
         ),
     )
     args = parser.parse_args()
+    args.lock_wait_seconds = lock_wait_seconds
 
     # The pass's own record, opened before anything is read so that `wallMs`
     # measures the whole invocation — which is the figure that matters, because
@@ -556,7 +557,7 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
     # repeats tomorrow. `--all` is a person at a terminal rather than a
     # scheduler, so it carries no deadline — the same asymmetry `WINDOW_FULL`
     # records for a browser press.
-    board_window = SCHEDULER_INTERVAL_MINUTES * 60 - (
+    board_window = SCHEDULER_INTERVAL_MINUTES * 60 - getattr(args, "lock_wait_seconds", 0.0) - (
         0 if args.no_calendar else calendar_demand * gap
     )
     if args.all:
@@ -669,11 +670,12 @@ def _pass(args: argparse.Namespace, recorder: PassRecorder) -> int:
 
 
 def main() -> int:
-    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    started = time.monotonic()
+    deadline = started + LOCK_WAIT_SECONDS
     while True:
         try:
             with exclusive_process_lock("airfare"):
-                return collect_main()
+                return collect_main(lock_wait_seconds=time.monotonic() - started)
         except ProcessLockUnavailable:
             remaining = deadline - time.monotonic()
             if remaining <= 0:

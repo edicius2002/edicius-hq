@@ -68,8 +68,10 @@ def test_scheduled_pass_waits_for_a_manual_lock_then_collects_once(monkeypatch, 
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(script, "LOCK_WAIT_SECONDS", 2.0, raising=False)
     monkeypatch.setattr(script, "LOCK_RETRY_SECONDS", 0.01, raising=False)
-    collected = []
-    monkeypatch.setattr(script, "collect_main", lambda: collected.append(True) or 0)
+    lock_waits = []
+    monkeypatch.setattr(
+        script, "collect_main", lambda *, lock_wait_seconds: lock_waits.append(lock_wait_seconds) or 0
+    )
     result = []
 
     with exclusive_process_lock("airfare"):
@@ -77,12 +79,13 @@ def test_scheduled_pass_waits_for_a_manual_lock_then_collects_once(monkeypatch, 
         runner.start()
         time.sleep(0.05)
         assert runner.is_alive()
-        assert collected == []
+        assert lock_waits == []
 
     runner.join(timeout=2)
     assert not runner.is_alive()
     assert result == [0]
-    assert collected == [True]
+    assert len(lock_waits) == 1
+    assert lock_waits[0] >= 0.05
 
 
 def test_scheduled_pass_defers_after_bounded_lock_wait(monkeypatch, tmp_path, caplog):
@@ -669,6 +672,11 @@ def test_the_scheduled_command_is_given_the_window_it_has_to_fit_inside(tmp_path
     assert seen["deadline_seconds"] == SCHEDULER_INTERVAL_MINUTES * 60
     assert seen["max_in_flight"] == 16
     assert script.REQUEST_GAP_SECONDS == 0.05
+
+    # Time spent waiting for the shared lock consumes the same timer interval.
+    args.lock_wait_seconds = 180.0
+    script._pass(args, recorder)
+    assert seen["deadline_seconds"] == SCHEDULER_INTERVAL_MINUTES * 60 - 180.0
 
 
 def test_the_scheduled_command_syncs_once_only_after_its_successful_local_pass(

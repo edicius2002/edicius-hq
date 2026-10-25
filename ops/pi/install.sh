@@ -82,9 +82,10 @@ ensure_runtime() {
   find "$STATE_ROOT" -xdev -type d -exec chmod 0750 {} +
   find "$STATE_ROOT" -xdev -type f -exec chmod 0600 {} +
   chown root:"$SERVICE_USER" "$STATE_ROOT"
-  for runtime_dir in x-profile kv bars sentiment codex-resets fx seace; do
+  for runtime_dir in x-profile kv bars sentiment codex-resets fx seace fares-drift; do
     install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/$runtime_dir"
   done
+  runuser -u "$SERVICE_USER" -- test -w "$STATE_ROOT/fares-drift" || fail "Airfare drift samples are not writable by $SERVICE_USER"
   [[ ! -L "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must not be a symlink"
   [[ ! -e "$STATE_ROOT/locks" || -d "$STATE_ROOT/locks" ]] || fail "$STATE_ROOT/locks must be a directory"
   install -d -o root -g "$SERVICE_USER" -m 0750 "$STATE_ROOT/locks"

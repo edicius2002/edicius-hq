@@ -312,7 +312,7 @@ type RouteMapProps = {
   /** Distinct stop sequences for the selected month, already coordinate-resolved. */
   stopRoutes?: { id: string; points: LngLat[]; viaPoints: string[]; colour: string }[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   /** A colour per route id, so one arc can be told from the next. */
   colours: Map<string, string>;
   projection: Projection;
@@ -1746,7 +1746,7 @@ export function RouteMap({
     touches.current.delete(event.pointerId);
     const press = pressed.current;
     pressed.current = null;
-    if (press?.route) {
+    if (press && event.type === 'pointerup') {
       const { offsetX, offsetY } = event.nativeEvent;
       if (Math.hypot(offsetX - press.x, offsetY - press.y) <= STILL) onSelect(press.route);
     }
@@ -2245,6 +2245,7 @@ export function RouteMap({
     <div className={styles.map}>
       <div
         ref={stageRef}
+        data-airfare-map
         className={`${styles.stage} ${styles.grabbable}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

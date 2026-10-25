@@ -143,10 +143,13 @@ export function AirfarePage() {
         // A route removed while its pass was still running has no direction to
         // record and no arc left to point: it is simply skipped, and the pair
         // falls back to whatever its remaining watch says.
-        const route = watchlist.routes.find((watched) => routeId(watched) === id);
+        const route = watchlist.routes.find((watched) => {
+          const watchedId = routeId(watched);
+          return id === watchedId || id.startsWith(watchedId + '|');
+        });
         if (!route) continue;
         legs.set(pairKey(route.origin, route.destination), legKey(route.origin, route.destination));
-        freshest = id;
+        freshest = routeId(route);
       }
       return { legs, freshest };
     });
@@ -471,7 +474,10 @@ export function AirfarePage() {
         routes={geometries}
         stopRoutes={stopRoutes}
         selectedId={selectedKey}
-        onSelect={setSelectedId}
+        onSelect={(id) => {
+          setSelectedId(id);
+          if (id === null) setEditingId(null);
+        }}
         colours={colours}
         projection={projection}
         onProjectionChange={setProjection}
@@ -489,7 +495,7 @@ export function AirfarePage() {
         if (!(target instanceof Element)) return;
         if (
           target.closest(
-            'form, ul[aria-label="Watched routes"], button, input, select, textarea, a, [role="button"]',
+            'form, ul[aria-label="Watched routes"], [data-airfare-map], button, input, select, textarea, a, [role="button"]',
           )
         )
           return;

@@ -1740,12 +1740,12 @@ describe('RouteMap', () => {
       expect(props.onSelect).not.toHaveBeenCalled();
     });
 
-    it('leaves the empty map alone when the press was not on a line', () => {
+    it('clears selection when empty map space is pressed', () => {
       const { props, container } = renderMap();
       const stage = container.querySelector('[class*="stage"]')!;
       pointer(stage, 'pointerDown', [480, 270]);
       pointer(stage, 'pointerUp', [480, 270]);
-      expect(props.onSelect).not.toHaveBeenCalled();
+      expect(props.onSelect).toHaveBeenCalledWith(null);
     });
   });
 

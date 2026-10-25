@@ -410,8 +410,8 @@
   opacity: 0.45;
 }
 
-/* The narrower desktop track buys room with lines, while the list still scrolls. */
-@media (min-width: 641px) and (max-width: 1400px) {
+/* Stack cells only while the watchlist track cannot hold both routes and six months. */
+@media (min-width: 641px) and (max-width: 1350px) {
   .skeletonRow {
     display: grid;
     gap: 3px;

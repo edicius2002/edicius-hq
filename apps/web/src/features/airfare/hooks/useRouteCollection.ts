@@ -41,7 +41,10 @@ export function useRouteCollection(): RouteCollection {
   const forgottenRoutes = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const reconcileRef = useRef<() => Promise<void>>(async () => {});
-  const { collecting, progress } = useMemo(() => deriveActiveState(requests, pending), [requests, pending]);
+  const { collecting, progress } = useMemo(
+    () => deriveActiveState(requests, pending),
+    [requests, pending],
+  );
 
   const showNotice = useCallback((notice: CollectNotice) => {
     setNotices((current) => withNotice(current, notice));

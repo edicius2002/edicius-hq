@@ -82,7 +82,7 @@ type RouteListProps = {
 
 /** Floor percentages so a partial phase never appears complete. */
 function progressPercent(value: AirfareRequestProgress): string {
-  if (value.total === null || value.total <= 0) return '\u2026';
+  if (value.total === null || value.total <= 0) return '0%';
   return `${Math.min(100, Math.floor((value.completed / value.total) * 100))}%`;
 }
 
@@ -432,7 +432,11 @@ export function RouteList({
                                 ', ' +
                                 formatFlightMonth(targetMonth) +
                                 ', ' +
-                                (stage?.stage === 'syncing' ? 'syncing ' : 'downloading ') +
+                                (stage?.stage === 'syncing'
+                                  ? 'syncing '
+                                  : stage?.stage === 'collecting'
+                                    ? 'downloading '
+                                    : 'queued ') +
                                 progressPercent(
                                   stage ?? { stage: 'queued', completed: 0, total: null },
                                 )

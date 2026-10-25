@@ -620,9 +620,9 @@ describe('RouteList', () => {
     });
     expect(
       screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, downloading …',
+        name: 'Fetching LIM → CUZ, October 2026, queued 0%',
       }),
-    ).toHaveTextContent('↓ …');
+    ).toHaveTextContent('↓ 0%');
   });
 
   it('does not render inline terminal report text', () => {

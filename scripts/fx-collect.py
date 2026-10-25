@@ -33,9 +33,7 @@ def main() -> int:
         help="Comma-separated source slugs; default all",
     )
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--status", action="store_true", help="read local source health as JSON"
-    )
+    parser.add_argument("--status", action="store_true", help="read local source health as JSON")
     args = parser.parse_args()
     sources = args.sources.split(",") if args.sources else SOURCES
     if not sources or any(source not in SOURCES for source in sources):
@@ -43,9 +41,7 @@ def main() -> int:
     if args.status:
         try:
             owner_id = UUID(os.environ["EDICIUS_OWNER_ID"])
-            with Store(
-                local_data_dir() / "fx" / "outbox.sqlite", owner_id, readonly=True
-            ) as store:
+            with Store(local_data_dir() / "fx" / "outbox.sqlite", owner_id, readonly=True) as store:
                 rows = [store.status(source) for source in dict.fromkeys(sources)]
             print(json.dumps(rows, default=lambda value: value.isoformat()))
             return 0
@@ -66,9 +62,7 @@ def main() -> int:
             ) as store,
         ):
             result = collect_once(store, cloud, sources, dry_run=args.dry_run)
-        print(
-            f"FX seen={result['seen']} written={result['written']} failed={result['failed']}"
-        )
+        print(f"FX seen={result['seen']} written={result['written']} failed={result['failed']}")
         return int(result["failed"] > 0)
     except (ValueError, ProcessLockUnavailable) as error:
         LOGGER.error("FX collection unavailable: %s", error)

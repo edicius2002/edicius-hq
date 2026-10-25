@@ -143,6 +143,23 @@
   overflow: hidden;
 }
 
+.emptyPlot {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.emptyGrid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.emptyAxis {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
 /* The history chart changes to its readable compact axis below 400px. */
 @container (max-width: 399px) {
   .movesBody {

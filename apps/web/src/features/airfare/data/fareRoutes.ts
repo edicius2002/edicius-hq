@@ -250,6 +250,14 @@ export function routeId(route: Pick<FareRoute, 'origin' | 'destination'>): strin
   return [route.origin, route.destination].join('|');
 }
 
+/** One manual request's UI identity; months of the same route remain distinct. */
+export function routeMonthKey(
+  route: Pick<FareRoute, 'origin' | 'destination'>,
+  month: string,
+): string {
+  return `${routeId(route)}|${month}`;
+}
+
 /** Keep reciprocal watches together without merging their directional data. */
 export function groupRoutePairs(routes: readonly FareRoute[]): FareRoute[][] {
   const groups: FareRoute[][] = [];

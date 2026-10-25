@@ -135,10 +135,23 @@ describe('RouteDetail', () => {
     expect(container.querySelector('footer')).toBeEmptyDOMElement();
   });
 
-  it('keeps both empty-state instructions', () => {
+  it('keeps the instruction for an open route without offers', () => {
     show({ latest: null, insights: null });
     expect(screen.getByText('Nothing observed yet. Run a collection pass.')).toBeInTheDocument();
-    show({ route: null });
-    expect(screen.getByText('Add a route to start building its history.')).toBeInTheDocument();
+  });
+
+  it('keeps the detail layout with placeholder values before a route is selected', () => {
+    const { container } = show({ route: null });
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('??? → ???');
+    expect(screen.getByText('Cheapest now')).toBeInTheDocument();
+    expect(screen.getByText('0.00')).toBeInTheDocument();
+    expect(screen.queryAllByText('??.??')).toHaveLength(0);
+    expect(screen.queryByText('usual')).not.toBeInTheDocument();
+    expect(screen.queryByText('now')).not.toBeInTheDocument();
+    expect(screen.getByText('00.00')).toBeInTheDocument();
+    expect(screen.getByText('????? · 00')).toBeInTheDocument();
+    expect(container.querySelector('[data-range-bar]')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-range-marker]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-detail-tile]')).toHaveLength(2);
   });
 });

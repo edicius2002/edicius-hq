@@ -68,11 +68,13 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule(file, selector)).toMatch(/min-height:\s*32px/);
   });
 
-  it('lets the watchlist wrap without collapsing route names or losing months', () => {
-    expect(rule('RouteList', '.row')).toMatch(
-      /grid-template-columns:\s*auto minmax\(0, 1fr\) auto/,
+  it('stacks paired routes with six month slots below each route on phones', () => {
+    expect(rule('RouteList', '.row')).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(rule('RouteList', '.routeCell')).toMatch(
+      /grid-template-rows:\s*32px minmax\(32px, auto\)/,
     );
-    expect(rule('RouteList', '.months')).toMatch(/grid-column:\s*2/);
+    expect(rule('RouteList', '.routeCell .months')).toMatch(/grid-column:\s*1/);
+    expect(rule('RouteList', '.routeCell .months')).toMatch(/repeat\(6, minmax\(0, 1fr\)\)/);
   });
 
   it('keeps the flight table scroll local and filters within their tracks', () => {

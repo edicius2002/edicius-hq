@@ -1208,6 +1208,36 @@ def test_successful_import_run_records_destination_route_manifest(source, remote
     assert "payload" not in json.dumps(run)
 
 
+def test_manual_sync_reports_real_steps_and_finishes_at_total(source, remote):
+    _, client = remote
+    steps: list[tuple[int, int]] = []
+
+    report = AirfareSync(source, client).apply_manual_route(
+        "AQP", "LIM", on_progress=lambda done, total: steps.append((done, total))
+    )
+
+    assert report.status == "complete"
+    assert len(steps) > 2
+    assert steps[0][0] == 0
+    assert steps[-1][0] == steps[-1][1]
+    assert [done for done, _ in steps] == list(range(steps[-1][1] + 1))
+    assert len({total for _, total in steps}) == 1
+
+
+def test_failed_manual_sync_never_reports_completion(source, remote):
+    server, client = remote
+    server.fail_table = "fare_snapshots"
+    steps: list[tuple[int, int]] = []
+
+    report = AirfareSync(source, client).apply_manual_route(
+        "AQP", "LIM", on_progress=lambda done, total: steps.append((done, total))
+    )
+
+    assert report.status == "failed"
+    assert steps
+    assert steps[-1][0] < steps[-1][1]
+
+
 def test_manual_route_leaves_other_route_backlog_for_global_sync(source, remote):
     server, client = remote
     write_lines(

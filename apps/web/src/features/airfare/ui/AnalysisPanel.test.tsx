@@ -275,7 +275,12 @@ it('keeps the desktop departure title and pager footprint through loading', () =
   expect(screen.getByText(/\d+ \/ \d+/)).toBeInTheDocument();
 });
 
-it('shows the settled empty copy when no route can start a horizon request', () => {
+it('shows empty chart frames when no route is selected', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
   render(
     <Harness
       route={null}
@@ -288,7 +293,30 @@ it('shows the settled empty copy when no route can start a horizon request', () 
     />,
   );
   expect(screen.queryByTestId('analysis-plot-skeleton')).not.toBeInTheDocument();
-  expect(screen.getByText(/Nothing collected for this route yet/)).toBeInTheDocument();
+  expect(screen.getAllByTestId('analysis-empty-plot')).toHaveLength(2);
+  expect(screen.queryByText(/Nothing collected for this route yet/)).not.toBeInTheDocument();
+  expect(screen.queryByText('No observations yet')).not.toBeInTheDocument();
+});
+
+it('removes the previous chart month when a route is cleared', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const { rerender } = render(<Harness />);
+  rerender(
+    <Harness
+      route={null}
+      month={null}
+      watchedMonths={[]}
+      monthSnapshots={[]}
+      watchedSnapshots={[]}
+    />,
+  );
+
+  expect(screen.getByRole('heading', { name: 'What each date costs' })).toBeInTheDocument();
+  expect(screen.getAllByTestId('analysis-empty-plot')).toHaveLength(2);
 });
 
 it('reports a failed archive request and permits retry', () => {

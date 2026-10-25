@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 import zlib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
@@ -766,7 +766,12 @@ class AirfareSync:
             )
             return self._apply_locked(mode, collect_destination_manifest, projection_routes)
 
-    def apply_manual_route(self, origin: str, destination: str) -> SyncReport:
+    def apply_manual_route(
+        self,
+        origin: str,
+        destination: str,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> SyncReport:
         """Publish one validated route; global reconciliation handles other journals."""
         if (
             any(
@@ -785,7 +790,13 @@ class AirfareSync:
                 destination,
                 round((time.perf_counter() - lock_started) * 1000),
             )
-            return self._apply_locked("incremental", False, frozenset({route}), source_route=route)
+            return self._apply_locked(
+                "incremental",
+                False,
+                frozenset({route}),
+                source_route=route,
+                on_progress=on_progress,
+            )
 
     def _apply_locked(
         self,
@@ -794,6 +805,7 @@ class AirfareSync:
         projection_routes: frozenset[tuple[str, str]] | None,
         *,
         source_route: tuple[str, str] | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> SyncReport:
         client = self._client()
         run_id = str(uuid4())
@@ -834,6 +846,20 @@ class AirfareSync:
             else asdict(source)
         )
         uploaded = dict.fromkeys(_TABLES, 0)
+        # The run record, each scanned journal, the two metadata datasets, and
+        # final projection/index work are observable sync units. The final unit
+        # is acknowledged only after all writes have succeeded.
+        sync_total = len(journals) + 4
+        sync_completed = 0
+
+        def advance() -> None:
+            nonlocal sync_completed
+            sync_completed += 1
+            if on_progress is not None:
+                on_progress(sync_completed, sync_total)
+
+        if on_progress is not None:
+            on_progress(0, sync_total)
         run: dict[str, Any] = {
             "run_id": run_id,
             "mode": mode,
@@ -847,11 +873,13 @@ class AirfareSync:
         try:
             upload_started = time.perf_counter()
             client.upsert("airfare_import_runs", [run], on_conflict="run_id")
+            advance()
             for journal in journals:
                 if journal.dataset == "baseline" and getattr(client, "replica_id", None):
                     self._upload_baseline(
                         journal, datasets["baseline"], client, mode, cursors, uploaded
                     )
+                    advance()
                     continue
                 start = self._start(journal, cursors, mode)
                 # Select the last physical occurrence per content ID: calendar
@@ -871,12 +899,14 @@ class AirfareSync:
                     self._acknowledge(journal, pending[ids[-1]], cursors)
                 if journal.end > start:
                     self._acknowledge(journal, journal.end, cursors)
+                advance()
             for name, key in (("airports", "code"), ("documents", "key")):
                 rows = list(datasets[name].rows.values())
                 for index in range(0, len(rows), self.batch_size):
                     batch = rows[index : index + self.batch_size]
                     client.upsert(_TABLES[name], batch, on_conflict=key)
                     uploaded[name] += len(batch)
+                advance()
             logger.info(
                 "Airfare sync upload run_id=%s rows=%s upload_ms=%d",
                 run_id,
@@ -889,6 +919,7 @@ class AirfareSync:
                     relative: cursors.get(relative) for relative in route_index["files"]
                 }
                 self._write_route_index("-".join(source_route), route_index)
+            advance()
         except (AirfareRemoteError, OSError) as failure:
             # Remote errors are sanitized by the HTTP boundary. Filesystem
             # messages may contain private paths, so log only their type.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -211,11 +211,18 @@ class AirfareData:
                     else "Airfare synchronization failed; retry with the retained source journals"
                 )
 
-    def sync_manual_route(self, origin: str, destination: str) -> SyncReport:
+    def sync_manual_route(
+        self,
+        origin: str,
+        destination: str,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> SyncReport:
         """Publish a manual request's route without scanning unrelated history."""
         with _SYNC_LOCK:
             try:
-                return self._sync.apply_manual_route(origin, destination)
+                if on_progress is None:
+                    return self._sync.apply_manual_route(origin, destination)
+                return self._sync.apply_manual_route(origin, destination, on_progress=on_progress)
             except (AirfareRemoteError, OSError, ValueError):
                 return self._failed_sync_report(
                     "Airfare synchronization is unavailable; configure Supabase before retrying"

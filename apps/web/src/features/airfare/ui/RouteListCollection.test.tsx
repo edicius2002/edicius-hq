@@ -85,7 +85,7 @@ describe('a manual collection on the watchlist', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('button', {
-          name: 'Fetching LIM → CUZ, October 2026, downloading …',
+          name: 'Fetching LIM → CUZ, October 2026, queued 0%',
         }),
       ).toBeDisabled(),
     );

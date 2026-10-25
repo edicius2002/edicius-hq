@@ -109,7 +109,7 @@ describe('the three-panel airfare row', () => {
   });
 
   it('fits four months inside the narrowest desktop route and form tracks', () => {
-    const narrowList = media(LIST, '(min-width: 641px) and (max-width: 1400px)');
+    const narrowList = media(LIST, '(min-width: 641px) and (max-width: 1350px)');
     const narrowestList = media(LIST, '(min-width: 641px) and (max-width: 820px)');
     const narrowForm = media(EDITOR, '(min-width: 641px) and (max-width: 1400px)');
     expect(narrowestList).toMatch(/grid-template-columns:\s*repeat\(4, auto\)/);
@@ -120,6 +120,9 @@ describe('the three-panel airfare row', () => {
     const fourFormChips = 4 * (3 * (0.66 * 20 * 0.6) + 4 + 2) + 3 * 5;
     expect(content).toBeGreaterThan(fourRowTabs);
     expect(content).toBeGreaterThan(fourFormChips);
+    expect(rule('row', LIST)).toMatch(
+      /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\) auto/,
+    );
     expect(narrowList).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
     expect(narrowForm).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   });

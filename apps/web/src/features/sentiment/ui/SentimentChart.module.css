@@ -86,7 +86,7 @@
 
 .crosshair {
   pointer-events: none;
-  transition: transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 80ms ease-out;
 }
 
 .hair {
@@ -111,6 +111,15 @@
   font-size: 0.72rem;
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .empty {

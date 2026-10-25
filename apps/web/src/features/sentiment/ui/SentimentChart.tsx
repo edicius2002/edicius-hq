@@ -33,6 +33,9 @@ function reading(metric: SentimentMetric, point: SentimentPoint): string {
 
 export function SentimentChart({ metric }: SentimentChartProps) {
   const statusId = useId();
+  const keyboardStatusId = useId();
+  const [isActive, setIsActive] = useState(false);
+  const [keyboardActive, setKeyboardActive] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(() =>
     Math.max(0, metric.series[0]?.points.length - 1),
   );
@@ -63,6 +66,8 @@ export function SentimentChart({ metric }: SentimentChartProps) {
       event.clientY,
     );
     if (!at) return;
+    setIsActive(true);
+    setKeyboardActive(false);
     const ratio = Math.min(
       1,
       Math.max(0, (at.x - SENTIMENT_PLOT.left) / (SENTIMENT_PLOT.right - SENTIMENT_PLOT.left)),
@@ -77,6 +82,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
   function walk(event: KeyboardEvent<SVGSVGElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
+    setKeyboardActive(true);
     if (event.key === 'Home') return setSelectedIndex(0);
     if (event.key === 'End') return setSelectedIndex(timeline.length - 1);
     const delta = event.key === 'ArrowLeft' ? -1 : 1;
@@ -100,10 +106,14 @@ export function SentimentChart({ metric }: SentimentChartProps) {
           viewBox={`0 0 ${SENTIMENT_VIEW.width} ${SENTIMENT_VIEW.height}`}
           role="img"
           aria-label={`${metric.label} history`}
-          aria-describedby={statusId}
+          aria-describedby={`${statusId} ${keyboardStatusId}`}
           tabIndex={0}
+          onPointerEnter={trackPointer}
           onPointerMove={trackPointer}
+          onPointerLeave={() => setIsActive(false)}
+          onPointerCancel={() => setIsActive(false)}
           onKeyDown={walk}
+          onBlur={() => setKeyboardActive(false)}
         >
           <title>{metric.label} historical chart</title>
           {layout.ticks.map((tick) => {
@@ -166,33 +176,43 @@ export function SentimentChart({ metric }: SentimentChartProps) {
             />
           ))}
 
-          <g
-            className={styles.crosshair}
-            data-testid="sentiment-crosshair"
-            style={{ transform: `translate(${selectedX}px, ${selectedY}px)` }}
-            aria-hidden="true"
-          >
-            <line
-              className={styles.hair}
-              x1={SENTIMENT_PLOT.left - selectedX}
-              x2={SENTIMENT_PLOT.right - selectedX}
-              y1={0}
-              y2={0}
-            />
-            <line
-              className={styles.hair}
-              x1={0}
-              x2={0}
-              y1={SENTIMENT_PLOT.top - selectedY}
-              y2={SENTIMENT_PLOT.bottom - selectedY}
-            />
-            <circle className={styles.marker} r={4} />
-          </g>
+          {isActive ? (
+            <g
+              className={styles.crosshair}
+              data-testid="sentiment-crosshair"
+              style={{ transform: `translate(${selectedX}px, ${selectedY}px)` }}
+              aria-hidden="true"
+            >
+              <line
+                className={styles.hair}
+                x1={SENTIMENT_PLOT.left - selectedX}
+                x2={SENTIMENT_PLOT.right - selectedX}
+                y1={0}
+                y2={0}
+              />
+              <line
+                className={styles.hair}
+                x1={0}
+                x2={0}
+                y1={SENTIMENT_PLOT.top - selectedY}
+                y2={SENTIMENT_PLOT.bottom - selectedY}
+              />
+              <circle className={styles.marker} r={4} />
+            </g>
+          ) : null}
         </svg>
 
         <p id={statusId} className={styles.tooltip} role="status" aria-live="polite">
-          {reading(metric, selected)}
+          {isActive ? reading(metric, selected) : null}
         </p>
+        <span
+          id={keyboardStatusId}
+          className={styles.srOnly}
+          data-testid="sentiment-keyboard-reading"
+          aria-live="polite"
+        >
+          {keyboardActive ? reading(metric, selected) : null}
+        </span>
       </div>
     </figure>
   );

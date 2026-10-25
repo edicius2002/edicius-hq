@@ -19,6 +19,44 @@ afterEach(() => {
 });
 
 describe('useQuoteStream', () => {
+  it('keeps live ticks and the connection when symbols are only reordered', () => {
+    let onTicks!: QuoteStreamOptions['onTicks'];
+    let flush!: FrameRequestCallback;
+    const close = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      flush = callback;
+      return 1;
+    });
+    stream.open.mockImplementation((_symbols: string[], options: QuoteStreamOptions) => {
+      onTicks = options.onTicks;
+      return close;
+    });
+
+    const { result, rerender } = renderHook(({ symbols }) => useQuoteStream(symbols), {
+      initialProps: { symbols: ['AAPL', 'QQQ'] },
+    });
+    act(() => {
+      onTicks([
+        {
+          symbol: 'QQQ',
+          price: 200,
+          marketState: 'REGULAR',
+          extended: false,
+          changePercent: 1,
+          time: 100,
+        },
+      ]);
+      flush(0);
+    });
+    expect(result.current.ticks.get('QQQ')?.price).toBe(200);
+
+    rerender({ symbols: ['QQQ', 'AAPL'] });
+
+    expect(result.current.ticks.get('QQQ')?.price).toBe(200);
+    expect(stream.open).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
   it('keeps a tick that arrived while the sweep was in flight', () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);

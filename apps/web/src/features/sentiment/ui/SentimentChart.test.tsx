@@ -67,16 +67,55 @@ describe('SentimentChart', () => {
     expect(screen.getByRole('status')).toHaveTextContent('6,060.00 index points');
   });
 
-  it('walks observations with Arrow keys and clamps with Home and End', () => {
+  it('shows the pointer reading only while its own chart is active', () => {
+    const { svg, container } = chart();
+
+    expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+
+    fireEvent.pointerEnter(svg, { clientX: 360, clientY: 100 });
+    expect(container.querySelector('[data-testid="sentiment-crosshair"]')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Jan 2, 2026');
+
+    fireEvent.pointerLeave(svg);
+    expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('does not activate another sentiment chart when one is hovered', () => {
     const { svg } = chart();
+    const second = render(<SentimentChart metric={{ ...METRIC, label: 'Other Momentum' }} />);
+    const otherSvg = screen.getByRole('img', { name: /Other Momentum history/i });
+    Object.defineProperty(otherSvg, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 720, height: 280 }),
+    });
+
+    fireEvent.pointerMove(svg, { clientX: 360, clientY: 100 });
+
+    expect(
+      second.container.querySelector('[data-testid="sentiment-crosshair"]'),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole('status')[1]).toBeEmptyDOMElement();
+
+    fireEvent.pointerLeave(svg);
+    fireEvent.pointerMove(otherSvg, { clientX: 360, clientY: 100 });
+
+    expect(screen.getAllByRole('status')[0]).toBeEmptyDOMElement();
+    expect(screen.getAllByRole('status')[1]).toHaveTextContent('Jan 2, 2026');
+  });
+
+  it('keeps keyboard readings accessible without showing pointer text or animation', () => {
+    const { svg, container } = chart();
 
     fireEvent.keyDown(svg, { key: 'Home' });
-    expect(screen.getByRole('status')).toHaveTextContent('Jan 1, 2026');
+    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('Jan 1, 2026');
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByRole('status')).toHaveTextContent('Jan 2, 2026');
+    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('Jan 2, 2026');
     fireEvent.keyDown(svg, { key: 'End' });
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByRole('status')).toHaveTextContent('Jan 3, 2026');
+    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('Jan 3, 2026');
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
   });
 
   it('does not add table disclosure controls below the plot', () => {

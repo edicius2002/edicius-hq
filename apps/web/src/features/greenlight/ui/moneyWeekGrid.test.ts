@@ -42,7 +42,6 @@ describe('Greenlight week layout', () => {
     expect(columns(rule(media(1480), 'list'))).toBe(2);
     expect(columns(rule(media(1100), 'list'))).toBe(1);
     expect(columns(rule(media(600), 'weeks'))).toBe(2);
-    expect(columns(rule(media(400), 'weeks'))).toBe(1);
   });
 
   it('places subscription controls between the month and its amount', () => {

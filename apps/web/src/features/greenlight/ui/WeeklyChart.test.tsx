@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildWeeklySeries, fillCalendarWeeks } from '@/features/greenlight/lib/aggregate';
 import type { DayStats } from '@/features/greenlight/model/types';
@@ -28,5 +28,17 @@ describe('WeeklyChart histogram', () => {
         title.textContent?.trim().replace(/\s+/g, ' '),
       ),
     ).toEqual(['08/06–14/06: $100', '15/06–21/06: $0', '22/06–28/06: $200']);
+  });
+
+  it('keeps a tapped week value visible after touch release', () => {
+    const points = buildWeeklySeries({ '2026-06-09': day(100) });
+    render(<WeeklyChart points={points} />);
+    const chart = screen.getByRole('img', { name: 'Weekly deliverable value' });
+    vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 560 } as DOMRect);
+
+    fireEvent.pointerDown(chart, { pointerType: 'touch', clientX: 100 });
+    fireEvent.pointerLeave(chart, { pointerType: 'touch' });
+
+    expect(screen.getByText('$100')).toBeInTheDocument();
   });
 });

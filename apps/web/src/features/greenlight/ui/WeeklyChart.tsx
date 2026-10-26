@@ -72,7 +72,12 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
         role="img"
         aria-label="Weekly deliverable value"
         onPointerMove={onMove}
-        onPointerLeave={() => setHoverIndex(null)}
+        onPointerDown={(event) => {
+          if (event.pointerType === 'touch') onMove(event);
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== 'touch') setHoverIndex(null);
+        }}
       >
         {ticks.map((tick) => {
           const yPos = yAt(tick);

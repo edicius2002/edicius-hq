@@ -262,11 +262,29 @@
   .weeks {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
 
-@media (max-width: 400px) {
-  .weeks {
-    grid-template-columns: minmax(0, 1fr);
+  .weekCard {
+    min-height: 3.8rem;
+  }
+
+  .weekRange {
+    font-size: 0.6rem;
+  }
+
+  .weekValue {
+    font-size: 0.7rem;
+  }
+
+  .weekPctValue {
+    font-size: 0.95rem;
+  }
+
+  .weekPctCaption {
+    font-size: 0.52rem;
+  }
+
+  .markerSlot::before {
+    inset: -8px -15px;
   }
 }
 
@@ -283,5 +301,11 @@
   .toolChips {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+}
+
+@media (hover: none) {
+  .markerHandle {
+    opacity: 1;
   }
 }

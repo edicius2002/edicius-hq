@@ -101,6 +101,13 @@ export function Positions({
           {portfolio.positions.map((position) => {
             const valuation = valuePosition(position, quotes.get(position.symbol));
             const rising = (valuation?.profit ?? 0) >= 0;
+            const profitText = valuation
+              ? `${formatSignedAmount(valuation.profit)}${
+                  valuation.profitPercent === null
+                    ? ''
+                    : ' · ' + formatPercent(valuation.profitPercent)
+                }`
+              : '';
 
             if (editing === position.symbol) {
               return (
@@ -138,15 +145,18 @@ export function Positions({
                   </span>
 
                   {valuation ? (
-                    <>
+                    <span className={styles.valuation}>
                       <span className={styles.value}>{formatAmount(valuation.value)}</span>
-                      <span className={rising ? styles.up : styles.down}>
-                        {formatSignedAmount(valuation.profit)}
+                      <span
+                        className={rising ? styles.up : styles.down}
+                        title={profitText}
+                        aria-label={`Variation ${profitText}`}
+                      >
                         {valuation.profitPercent === null
-                          ? ''
-                          : ' · ' + formatPercent(valuation.profitPercent)}
+                          ? formatSignedAmount(valuation.profit)
+                          : formatPercent(valuation.profitPercent)}
                       </span>
-                    </>
+                    </span>
                   ) : (
                     <span className={styles.waiting}>waiting for a price</span>
                   )}

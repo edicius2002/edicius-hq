@@ -1,31 +1,7 @@
-/*
- * A grid of cards, not a column of rows, and the column width is derived rather
- * than chosen.
- *
- * The unit is the trap here — this app sets `--font-size-base: 125%`, so a rem
- * is 20px, and decision 12.54 is the record of what happens when a length is
- * written believing otherwise. Berkeley Mono advances 0.6em a character, the
- * estimate 12.53 sized the watchlist column with and 12.62 checked against a
- * real `getBBox` (30 predicted, 29.5 measured).
- *
- * The widest line a card has to print in full is the return, `+12,345.67 ·
- * +123.45%` — 21 characters at 0.66rem, so 21 x 13.2 x 0.6 = 166px. The holding
- * line is the same 21 characters at worst (`1,234.5678 @ 1,234.56`) and already
- * ellipsizes, so it asks for nothing more. The symbol line is narrower even
- * carrying the actions: `BTCUSDT` at 0.74rem is 62px beside the 60px gutter the
- * hover pair needs, which is 122px. Add `var(--space-2)` of padding and a
- * border either side and a card needs 188px, rounded up to the 9.5rem below.
- *
- * `auto-fill` then decides the count, because the count is not ours to decide:
- * on the 1141px page 12.54 measured, less the panel's 10px padding either side,
- * floor((1121 + 10) / (190 + 10)) is five across, and the same arithmetic gives
- * four, three, two and one as the window narrows. `min(9.5rem, 100%)` is what
- * makes the last of those true — a bare 9.5rem floor would overflow a panel
- * narrower than one card rather than shrinking it.
- */
+/* Cards need room for the position value and percentage on one line. */
 .list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(9.5rem, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(12.5rem, 100%), 1fr));
   gap: var(--space-2);
   list-style: none;
   margin: 0;
@@ -94,15 +70,11 @@
   opacity: 0.5;
 }
 
-/*
- * Four lines down rather than the two-by-two it was: a card at the derived
- * width has room for one figure across, and pairing them would have set the
- * column at twice the widest line for no gain.
- */
 .pick {
   display: grid;
   gap: 2px;
   align-content: start;
+  justify-items: center;
   flex: 1;
   min-width: 0;
   padding: var(--space-2);
@@ -110,19 +82,17 @@
   background: none;
   color: inherit;
   font: inherit;
-  /* Left, not centred: monospace figures already line up, and a ragged left
-     edge across five cards is the thing the eye trips on. */
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 
 .symbol {
   overflow: hidden;
-  /* The actions get their own reserved corner rather than covering the ticker
-     when they appear on hover. */
-  padding-right: 3rem;
+  max-width: 100%;
+  /* Equal space on both sides keeps the ticker centered under the action pair. */
+  padding-inline: 2rem;
   color: var(--color-text);
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -131,8 +101,9 @@
 .holding,
 .waiting {
   overflow: hidden;
+  max-width: 100%;
   color: var(--color-muted);
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -142,20 +113,33 @@
   font-style: italic;
 }
 
+.valuation {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .value {
   color: var(--color-text);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .up,
 .down {
-  font-size: 0.66rem;
+  font-size: 0.6rem;
   font-variant-numeric: tabular-nums;
 }
 
-.pick > .up,
-.pick > .down {
+.valuation > .up,
+.valuation > .down {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -329,18 +313,7 @@
   font-weight: 400;
 }
 
-/*
- * Two across on a phone, said outright rather than left to `auto-fill`.
- *
- * The container is the Investing page, which declares `container-type:
- * inline-size`; 600px is the threshold that file already uses for "the panel
- * is now a phone's width" and is reused rather than invented.
- *
- * `auto-fill` cannot be asked for this: it fits as many 190px tracks as the box
- * holds, and a 225px box holds one. Naming the count is what overrides the
- * derivation, and the derivation's own floor is what has to give — see the
- * return line below, which is the thing that was sized for.
- */
+/* Give the value and percentage a full card width on narrow screens. */
 @container (max-width: 600px) {
   .toolbar {
     grid-template-columns: minmax(0, 1fr);
@@ -358,50 +331,6 @@
   }
 
   .list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
-
-  /*
-   * What two across costs, and where it is paid.
-   *
-   * **These numbers are measured, not derived, and the two disagree — trust
-   * the measurement.** The estimate at the top of this file models Berkeley
-   * Mono at a 0.6em advance; a `Range` over the rendered text reports a
-   * noticeably wider line than that model predicts, so sizing this block from
-   * the 0.6em arithmetic gets it wrong. Re-measure the same way if you change
-   * it: select the text node and read `getBoundingClientRect().width`.
-   *
-   * The box: a 223px list at a 10px gap gives a 107px card. The padding is
-   * where the first width comes from — `--space-1` a side instead of
-   * `--space-2` — leaving a 95px text box inside the card's border.
-   *
-   * The fit: the widest return currently printed, `+20,99 · +8.66%`, measures
-   * 94.9px at 10.8px of type. That is 0.1px of margin. It is deliberately not
-   * presented as comfortable — 0.54rem is the largest size at which today's
-   * data prints in full, and anything longer meets the ellipsis below rather
-   * than the card beside it.
-   *
-   * **So the ellipsis is load-bearing.** The line this card was originally
-   * sized for is `+12,345.67 · +123.45%`, and no readable type fits that in
-   * 95px. A large enough position cannot print its return in full at two
-   * across; the holding line above has always made the same trade.
-   */
-  .pick {
-    padding: var(--space-1);
-  }
-
-  .pick > .up,
-  .pick > .down {
-    font-size: 0.54rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /*
-   * `.symbol` keeps its 3rem reserve, and the reserve is not dead weight on a
-   * phone the way it looks. The actions are revealed by `:hover` *or*
-   * `:focus-within`, and tapping a card focuses it — so they do appear on
-   * touch, and narrowing the corner they sit in would drop them on top of the
-   * ticker. The symbol ellipsizes early here instead, which it already did.
-   */
 }

@@ -91,7 +91,7 @@ describe('the width at which the chart and the watchlist stop sharing a row', ()
 
     expect(REM_PX).toBe(20);
     expect(sideWidth).toBe(320);
-    expect(gap).toBe(20);
+    expect(gap).toBe(10);
     expect(chartFloor).toBe(640);
     expect(threshold).toBe(chartFloor + gap + sideWidth);
   });

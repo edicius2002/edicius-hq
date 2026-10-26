@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
 import { createWriteQueue, type WriteQueue, type WriteState } from '@/shared/storage/writeQueue';
 import type { StorageKey } from '@/shared/storage/keys';
 import {
@@ -77,12 +78,15 @@ export function useStoredDocument<T>({
   placeholder,
 }: StoredDocumentOptions<T>): StoredDocument<T> {
   const queryClient = useQueryClient();
-  const queryKey = ['storage', key] as const;
+  const queryKey = useMemo(() => ['storage', key] as const, [key]);
+  const ownerId = useRef<string | null | undefined>(undefined);
+  const staleOwner = useRef(false);
 
   const query = useQuery({
     queryKey,
     queryFn: async ({ signal }): Promise<CachedDocument<T>> => {
       const document = await readRemoteDocument<unknown>(key, signal);
+      if (staleOwner.current) throw new Error('The document owner changed during this read.');
       return {
         payload: normalize(document?.payload),
         revision: document?.revision ?? 0,
@@ -93,24 +97,45 @@ export function useStoredDocument<T>({
 
   const [writeState, setWriteState] = useState<WriteState>('idle');
 
-  // Built once and never rebuilt: a queue replaced mid-flight would drop
-  // whatever it was holding, which is the one thing it exists to keep.
-  const [queue] = useState<WriteQueue<T>>(() =>
-    createWriteQueue<T, RemoteDocument<T>>({
+  // Construct after render, then keep one queue for the hook's lifetime. A
+  // replacement mid-flight would drop the value it was holding.
+  const queueRef = useRef<WriteQueue<T> | null>(null);
+  const getQueue = useCallback((): WriteQueue<T> => {
+    if (queueRef.current) return queueRef.current;
+    const queue = createWriteQueue<T, RemoteDocument<T>>({
       write: (value) => {
+        if (staleOwner.current) throw new Error('The document owner changed before this save.');
         const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (!cached)
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
         return writeRemoteDocument(key, value, cached.revision);
       },
       onWritten: (acknowledgement) => {
+        if (staleOwner.current) return;
         queryClient.setQueryData<CachedDocument<T>>(queryKey, (cached) =>
           cached ? { payload: cached.payload, revision: acknowledgement.revision } : cached,
         );
       },
-      onState: setWriteState,
-    }),
-  );
+      onState: (state) => {
+        if (!staleOwner.current) setWriteState(state);
+      },
+    });
+    queueRef.current = queue;
+    return queue;
+  }, [key, queryClient, queryKey]);
+
+  useEffect(() => {
+    const queue = getQueue();
+    return subscribeToAuth((_event, session) => {
+      const nextOwner = session?.user.id ?? null;
+      if (ownerId.current === undefined) {
+        ownerId.current = nextOwner;
+      } else if (ownerId.current !== nextOwner) {
+        staleOwner.current = true;
+        queue.discard();
+      }
+    });
+  }, [getQueue]);
 
   const writeChain = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -124,12 +149,14 @@ export function useStoredDocument<T>({
   const edit = useCallback(
     (change: (current: T) => T | Promise<T>) =>
       serialize(async () => {
+        if (staleOwner.current) throw new Error('The document owner changed before this edit.');
         const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (cached === undefined) {
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
         }
         const current = cached.payload;
         const next = await change(current);
+        if (staleOwner.current) throw new Error('The document owner changed before this edit.');
         // A change that returns what it was given decided against editing —
         // a refused operation, say — so there is nothing worth persisting.
         if (next === current) return current;
@@ -139,16 +166,18 @@ export function useStoredDocument<T>({
           payload: next,
           revision: cached.revision,
         });
-        queue.push(next);
+        getQueue().push(next);
         return next;
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from key
-    [key, normalize, queryClient, queue, serialize],
+    [getQueue, key, normalize, queryClient, serialize],
   );
 
   const replace = useCallback(
     (next: T) =>
       serialize(async () => {
+        if (staleOwner.current)
+          throw new Error('The document owner changed before this replacement.');
         const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (cached === undefined) {
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
@@ -161,15 +190,19 @@ export function useStoredDocument<T>({
         // destructive, so the caller is told whether it landed. It also takes
         // over whatever the debounce was still holding, which would otherwise be
         // written after the replacement and quietly undo it.
-        await queue.overwrite(next);
+        await getQueue().overwrite(next);
+        if (staleOwner.current)
+          throw new Error('The document owner changed before this replacement.');
         return next;
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from key
-    [key, queryClient, queue, serialize],
+    [getQueue, key, queryClient, serialize],
   );
 
   useEffect(() => {
+    const queue = getQueue();
     function flushNow() {
+      if (staleOwner.current) return;
       void queue.flush();
     }
 
@@ -191,11 +224,12 @@ export function useStoredDocument<T>({
       // still holding an edit; without this, leaving Finance mid-drag loses it.
       flushNow();
     };
-  }, [queue]);
+  }, [getQueue]);
 
   const retrySave = useCallback(() => {
-    void queue.flush();
-  }, [queue]);
+    if (staleOwner.current) return;
+    void getQueue().flush();
+  }, [getQueue]);
 
   return {
     // Undefined means loading or failed, never "stored and empty".

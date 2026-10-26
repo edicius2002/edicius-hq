@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
 import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
@@ -12,7 +13,7 @@ import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 const router = createAppBrowserRouter();
 
 export function App() {
-  const { status } = useSupabaseSession();
+  const { status, ownerId } = useSupabaseSession();
 
   return (
     <AppErrorBoundary>
@@ -21,7 +22,7 @@ export function App() {
             reports itself, so it has to outlive the screen that raised it. */}
         <ToastHost />
         {status === 'authenticated' ? (
-          <>
+          <Fragment key={ownerId}>
             {/* Above the router, not inside a route: a price alert must keep
                 watching while the user is on Finance or Airfare, not only
                 while Investing is mounted. Inside the gate, though — there is
@@ -29,7 +30,7 @@ export function App() {
                 somebody has signed in. */}
             <PriceAlertsWatcher />
             <RouterProvider router={router} />
-          </>
+          </Fragment>
         ) : null}
         {status === 'anonymous' ? <LoginScreen /> : null}
         {status === 'checking' ? <PageSkeleton page="login" /> : null}

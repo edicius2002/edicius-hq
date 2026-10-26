@@ -43,6 +43,7 @@ export function useRouteCollection(): RouteCollection {
   const locallyExpired = useRef(new Set<string>());
   const handledTerminal = useRef(new Set<string>());
   const forgottenRoutes = useRef(new Set<string>());
+  const routeGenerations = useRef(new Map<string, number>());
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const reconcileRef = useRef<() => Promise<void>>(async () => {});
   const { collecting, progress } = useMemo(
@@ -193,7 +194,9 @@ export function useRouteCollection(): RouteCollection {
 
   const collect = useCallback(
     (route: FareRoute, month: string) => {
-      forgottenRoutes.current.delete(routeId(route));
+      const id = routeId(route);
+      forgottenRoutes.current.delete(id);
+      const generation = routeGenerations.current.get(id) ?? 0;
       const key = routeMonthKey(route, month);
       if (
         pendingRef.current.has(key) ||
@@ -213,18 +216,19 @@ export function useRouteCollection(): RouteCollection {
         currency: route.currency,
       })
         .then((request) => {
+          if ((routeGenerations.current.get(id) ?? 0) !== generation) return;
           accept(request);
-          if (!forgottenRoutes.current.has(routeId(route)))
-            showNotice(acceptedCollectNotice(request));
+          if (!forgottenRoutes.current.has(id)) showNotice(acceptedCollectNotice(request));
         })
         .catch(() => {
+          if ((routeGenerations.current.get(id) ?? 0) !== generation) return;
           pendingRef.current.delete(key);
           setPending(new Set(pendingRef.current));
-          if (forgottenRoutes.current.has(routeId(route))) return;
-          const id = `enqueue-${route.origin}-${route.destination}-${month}`;
+          if (forgottenRoutes.current.has(id)) return;
+          const noticeId = `enqueue-${route.origin}-${route.destination}-${month}`;
           showNotice({
-            id,
-            routeId: routeId(route),
+            id: noticeId,
+            routeId: id,
             title: `${route.origin} → ${route.destination}`,
             text: 'Collection request could not be accepted. Try again.',
             kind: 'error',
@@ -236,6 +240,7 @@ export function useRouteCollection(): RouteCollection {
 
   const forget = useCallback((id: string) => {
     forgottenRoutes.current.add(id);
+    routeGenerations.current.set(id, (routeGenerations.current.get(id) ?? 0) + 1);
     for (const key of pendingRef.current) {
       if (key.startsWith(`${id}|`)) pendingRef.current.delete(key);
     }

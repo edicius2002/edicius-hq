@@ -14,8 +14,20 @@ const remote = vi.hoisted(() => {
     read: vi.fn(),
     write: vi.fn(),
     RevisionConflict,
+    authListeners: new Set<(event: string, session: { user: { id: string } } | null) => void>(),
   };
 });
+
+vi.mock('@/shared/auth/supabaseAuth', () => ({
+  subscribeToAuth: (
+    listener: (event: string, session: { user: { id: string } } | null) => void,
+  ) => {
+    remote.authListeners.add(listener);
+    return () => {
+      remote.authListeners.delete(listener);
+    };
+  },
+}));
 
 vi.mock('@/features/finance/data/financeDocuments', () => ({
   FinanceRevisionConflict: remote.RevisionConflict,
@@ -77,6 +89,7 @@ async function debounce(): Promise<void> {
 
 afterEach(() => {
   cleanup();
+  remote.authListeners.clear();
   vi.clearAllMocks();
   vi.useRealTimers();
 });
@@ -118,6 +131,129 @@ describe('useRemoteDocument', () => {
     await debounce();
     expect(remote.write).toHaveBeenCalledTimes(2);
     expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 2 }, 1);
+  });
+
+  it('hydrates the revision before editing a cached document after navigation', async () => {
+    const shared = sharedQueryWrapper();
+    shared.client.setQueryDefaults(['finance-documents', 'finance'], { staleTime: 30_000 });
+    remote.read.mockResolvedValue(remoteDocument(4, 7));
+    remote.write.mockImplementation(
+      async (_key: string, payload: CounterDocument, revision: number) =>
+        remoteDocument(payload.count, revision + 1),
+    );
+    const mount = () =>
+      renderHook(
+        () =>
+          useRemoteDocument<CounterDocument>({
+            key: 'finance',
+            normalize: (value) => value as CounterDocument,
+            placeholder: { count: -1 },
+          }),
+        { wrapper: shared },
+      );
+    const first = mount();
+    await loaded(first);
+    first.unmount();
+
+    const second = mount();
+    await loaded(second);
+    await act(async () => {
+      await second.result.current.edit((current) => ({ count: current.count + 1 }));
+    });
+    await debounce();
+    expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 5 }, 7);
+    await waitFor(() => expect(second.result.current.saveState).toBe('saved'));
+    second.unmount();
+  });
+
+  it('does not send an old owner pending edit after the session changes', async () => {
+    remote.read.mockResolvedValue(remoteDocument(1, 3));
+    const rendered = mounted();
+    await loaded(rendered);
+
+    act(() => {
+      for (const listener of remote.authListeners)
+        listener('INITIAL_SESSION', { user: { id: 'owner-a' } });
+    });
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    expect(rendered.result.current.saveState).toBe('pending');
+
+    act(() => {
+      for (const listener of remote.authListeners)
+        listener('SIGNED_IN', { user: { id: 'owner-b' } });
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    await debounce();
+    expect(remote.write).not.toHaveBeenCalled();
+    await expect(rendered.result.current.edit(() => ({ count: 3 }))).rejects.toThrow(
+      /owner changed/,
+    );
+  });
+
+  it('does not publish an async edit that finishes after its owner changes', async () => {
+    const pending = deferred<CounterDocument>();
+    remote.read.mockResolvedValue(remoteDocument(1, 3));
+    const rendered = mounted();
+    await loaded(rendered);
+    act(() => {
+      for (const listener of remote.authListeners)
+        listener('INITIAL_SESSION', { user: { id: 'owner-a' } });
+    });
+
+    const editing = rendered.result.current.edit(() => pending.promise);
+    await Promise.resolve();
+    act(() => {
+      for (const listener of remote.authListeners)
+        listener('SIGNED_IN', { user: { id: 'owner-b' } });
+    });
+    pending.resolve({ count: 2 });
+
+    await expect(editing).rejects.toThrow(/owner changed/);
+    expect(rendered.result.current.data).toEqual({ count: 1 });
+    expect(remote.write).not.toHaveBeenCalled();
+  });
+
+  it('does not repopulate a cleared cache from an old owner overwrite response', async () => {
+    const overwrite = deferred<ReturnType<typeof remoteDocument>>();
+    const shared = sharedQueryWrapper();
+    remote.read
+      .mockResolvedValueOnce(remoteDocument(1, 3))
+      .mockResolvedValueOnce(remoteDocument(8, 4));
+    remote.write
+      .mockRejectedValueOnce(new remote.RevisionConflict())
+      .mockReturnValueOnce(overwrite.promise);
+    const rendered = renderHook(
+      () =>
+        useRemoteDocument<CounterDocument>({
+          key: 'finance',
+          normalize: (value) => value as CounterDocument,
+          placeholder: { count: -1 },
+        }),
+      { wrapper: shared },
+    );
+    await loaded(rendered);
+    act(() => {
+      for (const listener of remote.authListeners)
+        listener('INITIAL_SESSION', { user: { id: 'owner-a' } });
+    });
+    await act(async () => {
+      await rendered.result.current.edit(() => ({ count: 2 }));
+    });
+    await debounce();
+    await waitFor(() => expect(rendered.result.current.conflict?.status).toBe('ready'));
+
+    const resolving = rendered.result.current.overwriteRemote();
+    await waitFor(() => expect(remote.write).toHaveBeenCalledTimes(2));
+    act(() => {
+      for (const listener of remote.authListeners)
+        listener('SIGNED_IN', { user: { id: 'owner-b' } });
+      shared.client.removeQueries({ queryKey: ['finance-documents'] });
+    });
+    overwrite.resolve(remoteDocument(2, 5));
+    await resolving;
+    expect(shared.client.getQueryData(['finance-documents', 'finance'])).toBeUndefined();
   });
 
   it('serializes a later edit behind an acknowledged write and sends it with the new revision', async () => {
@@ -290,6 +426,8 @@ describe('useRemoteDocument', () => {
     });
     expect(rendered.result.current.data).toEqual({ count: 2 });
     expect(remote.write).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new Event('pagehide')));
+    await waitFor(() => expect(rendered.result.current.saveState).toBe('saved'));
   });
 
   it('keeps the newest local payload when a non-conflict write is retried', async () => {

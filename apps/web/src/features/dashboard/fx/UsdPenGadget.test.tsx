@@ -179,3 +179,16 @@ it('stays minimal: every source in one list, no category toggle or explanatory c
   }
   expect(screen.queryByText('Fresh')).not.toBeInTheDocument();
 });
+
+it('distinguishes an empty quote read and retries a failed refresh', async () => {
+  data.fetchLatest.mockResolvedValueOnce([]);
+  const client = mount();
+  expect(await screen.findByText('No quotes captured yet.')).toBeVisible();
+  data.fetchLatest.mockRejectedValueOnce(new Error('offline'));
+  await client.invalidateQueries({ queryKey: ['fx', 'owner', 'latest'] });
+  expect(await screen.findByText(/Could not refresh quotes/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Retry quotes' })).toBeVisible();
+  data.fetchLatest.mockResolvedValueOnce([row]);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry quotes' }));
+  expect(await screen.findByText('3.710')).toBeVisible();
+});

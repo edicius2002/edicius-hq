@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { calendarWeekForDate } from '@/features/greenlight/lib/aggregate';
 import { planGreenlightImport } from '@/features/greenlight/lib/importPlan';
@@ -73,6 +73,7 @@ function normalizeState(value: unknown): GreenlightState {
 }
 
 export function useGreenlightData() {
+  const queryClient = useQueryClient();
   // Write serialization, the debounce in front of it and the refusal to save
   // over a failed read all live in the shared store, so Greenlight and Finance
   // cannot drift apart on any of them.
@@ -147,8 +148,11 @@ export function useGreenlightData() {
 
   return {
     state: store.data,
+    hasLoaded: queryClient.getQueryData(['storage', 'greenlight']) !== undefined,
     isFetching: store.isFetching,
     isError: store.isError,
+    retryLoad: () =>
+      queryClient.refetchQueries({ queryKey: ['storage', 'greenlight'], type: 'active' }),
     saveState: store.saveState,
     retrySave: store.retrySave,
     importCsv: importMutation.mutateAsync,

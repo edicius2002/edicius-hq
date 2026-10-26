@@ -57,6 +57,26 @@ describe('useQuoteStream', () => {
     expect(close).not.toHaveBeenCalled();
   });
 
+  it('restores live state when the transport reconnects for the same symbols', async () => {
+    vi.useFakeTimers();
+    let handlers!: QuoteStreamOptions;
+    stream.open.mockImplementation((_symbols: string[], options: QuoteStreamOptions) => {
+      handlers = options;
+      return vi.fn();
+    });
+    const { result } = renderHook(() => useQuoteStream(['AAPL']));
+    act(() => handlers.onOpen?.());
+    expect(result.current.live).toBe(true);
+    act(() => handlers.onError?.());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(result.current.live).toBe(false);
+    act(() => handlers.onOpen?.());
+    expect(result.current.live).toBe(true);
+    expect(stream.open).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
   it('keeps a tick that arrived while the sweep was in flight', () => {
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);

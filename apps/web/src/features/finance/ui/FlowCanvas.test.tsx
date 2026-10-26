@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +25,12 @@ import { NO_FINANCE_CAMERA_VIEWS } from '@/features/finance/lib/cameraViews';
 
 import { FlowCanvas, type Selection } from './FlowCanvas';
 
+vi.mock('@/features/finance/data/financeDocuments', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/finance/data/financeDocuments')>()),
+  readFinanceDocument: async () => ({ payload: NO_FINANCE_CAMERA_VIEWS, revision: 1 }),
+  writeFinanceDocument: async (_key: string, payload: unknown) => ({ payload, revision: 2 }),
+}));
+
 afterEach(cleanup);
 
 function TestWrapper({ children }: { children: ReactNode }) {
@@ -35,8 +41,8 @@ function TestWrapper({ children }: { children: ReactNode }) {
         mutations: { retry: false },
       },
     });
-    // The camera store is present before the canvas mounts, so these interaction
-    // tests do not need an HTTP server just to exercise local camera movement.
+    // Cached payload renders immediately, but the store still rehydrates its
+    // acknowledged revision through the mocked reader before allowing gestures.
     next.setQueryData(['finance-documents', 'finance-camera-views'], NO_FINANCE_CAMERA_VIEWS);
     return next;
   });
@@ -492,16 +498,21 @@ describe('two fingers zoom the canvas', () => {
   }
 
   function camera(container: HTMLElement) {
-    const surface = container.querySelector<HTMLElement>('[style*="scale("]')!;
+    // Inspect the DOM style directly: jsdom's attribute-substring selector
+    // incorrectly misses a value containing an opening parenthesis.
+    const surface = [...container.querySelectorAll<HTMLElement>('[style]')].find((element) =>
+      element.style.transform.includes('scale('),
+    )!;
     const [, x, y, zoom] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\((-?[\d.]+)\)/.exec(
       surface.style.transform,
     )!;
     return { x: Number(x), y: Number(y), zoom: Number(zoom) };
   }
 
-  it('zooms in as the fingers spread and out as they close', () => {
+  it('zooms in as the fingers spread and out as they close', async () => {
     const { container } = renderCanvas(populated());
     const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
+    await waitFor(() => expect(canvas).not.toHaveAttribute('aria-busy'));
     const before = camera(container).zoom;
 
     touch('pointerDown', canvas, 1, 200, 200);
@@ -513,13 +524,14 @@ describe('two fingers zoom the canvas', () => {
     expect(camera(container).zoom).toBeCloseTo(Math.max(0.25, before / 2));
   });
 
-  it('pinches rather than dragging a node the second finger happens to land on', () => {
+  it('pinches rather than dragging a node the second finger happens to land on', async () => {
     const props = canvasProps();
     const { container } = render(<FlowCanvas diagram={populated()} {...props} />, {
       wrapper: TestWrapper,
     });
     const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
     const node = screen.getByLabelText('Job Job');
+    await waitFor(() => expect(canvas).not.toHaveAttribute('aria-busy'));
     const before = camera(container).zoom;
 
     touch('pointerDown', canvas, 1, 300, 300);
@@ -530,10 +542,10 @@ describe('two fingers zoom the canvas', () => {
     expect(props.onMoveNode).not.toHaveBeenCalled();
   });
 
-  it('hands the canvas back to the remaining finger as a pan once the other lifts', () => {
+  it('hands the canvas back to the remaining finger as a pan once the other lifts', async () => {
     const { container } = renderCanvas(populated());
     const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
-
+    await waitFor(() => expect(canvas).not.toHaveAttribute('aria-busy'));
     touch('pointerDown', canvas, 1, 200, 200);
     touch('pointerDown', canvas, 2, 300, 200);
     touch('pointerMove', canvas, 2, 400, 200);

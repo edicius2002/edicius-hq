@@ -36,9 +36,10 @@ function fontSize(body: string): number {
 }
 
 describe('Greenlight week layout', () => {
-  it('places two months per row and four weeks within each month', () => {
-    expect(columns(rule(CSS, 'list'))).toBe(2);
+  it('places three months per wide row and four weeks within each month', () => {
+    expect(columns(rule(CSS, 'list'))).toBe(3);
     expect(columns(rule(CSS, 'weeks'))).toBe(4);
+    expect(columns(rule(media(1480), 'list'))).toBe(2);
     expect(columns(rule(media(1100), 'list'))).toBe(1);
     expect(columns(rule(media(600), 'weeks'))).toBe(2);
     expect(columns(rule(media(400), 'weeks'))).toBe(1);
@@ -52,7 +53,7 @@ describe('Greenlight week layout', () => {
   });
 
   it('reserves the same marker gutter for every week', () => {
-    expect(rule(CSS, 'weekCluster')).toMatch(/padding-inline-end:\s*0\.8rem/);
-    expect(rule(CSS, 'markerSlot')).toMatch(/width:\s*0\.8rem/);
+    expect(rule(CSS, 'weekCluster')).toMatch(/padding-inline-end:\s*0\.5rem/);
+    expect(rule(CSS, 'markerSlot')).toMatch(/width:\s*0\.5rem/);
   });
 });

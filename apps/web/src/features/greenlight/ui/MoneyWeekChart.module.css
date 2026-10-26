@@ -1,15 +1,15 @@
 .list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
 .monthRow {
   display: grid;
   align-content: start;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-3);
+  padding: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
 }
@@ -20,7 +20,7 @@
   align-items: baseline;
   gap: var(--space-2);
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -40,6 +40,7 @@
   text-transform: none;
   letter-spacing: 0;
   justify-self: end;
+  font-size: 0.72rem;
 }
 
 .toolChips {
@@ -58,7 +59,7 @@
   color: var(--color-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 0.62rem;
+  font-size: 0.52rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 9px;
@@ -92,7 +93,7 @@
   }
 }
 
-/* Two month panels per row, with up to four week cards in each panel. */
+/* Three month panels per wide row, with up to four week cards in each panel. */
 .weeks {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -105,7 +106,7 @@
   display: flex;
   align-items: stretch;
   min-width: 0;
-  padding-inline-end: 0.8rem;
+  padding-inline-end: 0.5rem;
 }
 
 .weekCard {
@@ -116,8 +117,8 @@
   gap: var(--space-1);
   flex: 1 1 0;
   min-width: 0;
-  min-height: 6.25rem;
-  padding: var(--space-1);
+  min-height: 5.5rem;
+  padding: 0.2rem 0.05rem;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 9px;
@@ -131,14 +132,14 @@
 }
 
 .weekRange {
-  font-size: 0.58rem;
+  font-size: 0.49rem;
   font-weight: 700;
   line-height: 1.15;
 }
 
 .weekValue {
   color: var(--color-income);
-  font-size: 0.77rem;
+  font-size: 0.56rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -154,13 +155,13 @@
 }
 
 .weekPctValue {
-  font-size: 1.15rem;
+  font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
 }
 
 .weekPctCaption {
   color: var(--color-muted);
-  font-size: 0.5rem;
+  font-size: 0.43rem;
   font-weight: 700;
 }
 
@@ -171,12 +172,12 @@
   align-items: center;
   cursor: pointer;
   display: flex;
-  flex: 0 0 0.8rem;
+  flex: 0 0 0.5rem;
   flex-direction: column;
-  margin: 0 -0.8rem 0 0;
+  margin: 0 -0.5rem 0 0;
   padding: 0;
   position: relative;
-  width: 0.8rem;
+  width: 0.5rem;
 }
 
 .markerSlot::before {
@@ -240,6 +241,12 @@
 .empty {
   color: var(--color-muted);
   margin: 0;
+}
+
+@media (max-width: 1480px) {
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1100px) {

@@ -69,11 +69,10 @@
   color: var(--color-accent);
 }
 
-/* The first year needs room for two six-month tables; the year summary is narrower. */
 .columns {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: start;
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-4);
@@ -85,11 +84,22 @@
   min-width: 0;
 }
 
-.firstYearTables {
+.firstYearColumn {
+  justify-items: center;
+}
+
+.firstYearTables,
+.byYearTables {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
   align-items: start;
+  width: 100%;
+}
+
+.firstYearTables,
+.firstYearColumn .yearInterest {
+  max-width: 27rem;
 }
 
 .columnTitle {
@@ -104,7 +114,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.73rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -172,7 +182,8 @@
 }
 
 @media (max-width: 700px) {
-  .firstYearTables {
+  .firstYearTables,
+  .byYearTables {
     grid-template-columns: minmax(0, 1fr);
   }
 }

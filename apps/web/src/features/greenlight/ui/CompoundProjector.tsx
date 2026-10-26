@@ -121,7 +121,10 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
 
       {rows.length ? (
         <div className={styles.columns}>
-          <section className={styles.column} aria-labelledby="first-year-title">
+          <section
+            className={`${styles.column} ${styles.firstYearColumn}`}
+            aria-labelledby="first-year-title"
+          >
             <h3 id="first-year-title" className={styles.columnTitle}>
               The first year
             </h3>
@@ -167,32 +170,40 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
             <h3 id="by-year-title" className={styles.columnTitle}>
               By year
             </h3>
-            <table className={styles.table} aria-label="By year">
-              <thead>
-                <tr>
-                  <th scope="col" className={styles.numeric}>
-                    Year
-                  </th>
-                  <th scope="col" className={styles.numeric}>
-                    Balance
-                  </th>
-                  <th scope="col" className={styles.numeric}>
-                    Earned
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {years.map((year) => (
-                  <tr key={year.year}>
-                    <td className={styles.numeric}>{year.year}</td>
-                    <td className={styles.numeric}>{formatMoney(year.balance, currency)}</td>
-                    <td className={`${styles.numeric} ${styles.gain}`}>
-                      {signedMoney(year.gain, currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className={styles.byYearTables}>
+              {[years.slice(0, 5), years.slice(5)].map((half, index) => (
+                <table
+                  key={index}
+                  className={styles.table}
+                  aria-label={index === 0 ? 'Years 1 to 5' : 'Years 6 to 10'}
+                >
+                  <thead>
+                    <tr>
+                      <th scope="col" className={styles.numeric}>
+                        Year
+                      </th>
+                      <th scope="col" className={styles.numeric}>
+                        Balance
+                      </th>
+                      <th scope="col" className={styles.numeric}>
+                        Earned
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {half.map((year) => (
+                      <tr key={year.year}>
+                        <td className={styles.numeric}>{year.year}</td>
+                        <td className={styles.numeric}>{formatMoney(year.balance, currency)}</td>
+                        <td className={`${styles.numeric} ${styles.gain}`}>
+                          {signedMoney(year.gain, currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ))}
+            </div>
           </section>
         </div>
       ) : (

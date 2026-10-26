@@ -101,8 +101,8 @@ describe('the projection', () => {
 describe('the years the table names', () => {
   const rows = projectMonths(CAPITAL, DEFAULT_ANNUAL_RATE);
 
-  it('is exactly 1, 2, 3, 5 and 10', () => {
-    expect(yearsFrom(rows).map((year) => year.year)).toEqual([1, 2, 3, 5, 10]);
+  it('covers every year from 1 through 10', () => {
+    expect(yearsFrom(rows).map((year) => year.year)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it('agrees with the figures worked out by hand', () => {

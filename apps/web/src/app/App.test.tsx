@@ -499,7 +499,10 @@ describe('Investing chart-first workspace', () => {
     ).toBeTruthy();
 
     // Both lists are on screen at once, which is the point of the rearrangement.
-    expect(await screen.findByText('Nothing held yet.')).toBeInTheDocument();
+    expect(
+      await within(positions).findByRole('button', { name: 'Add position' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Nothing held yet.')).not.toBeInTheDocument();
     expect(await screen.findByRole('textbox', { name: 'Search a symbol' })).toBeInTheDocument();
   });
 

@@ -86,7 +86,7 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
       <input
         className={styles.input}
         value={query}
-        placeholder="Search a symbol"
+        placeholder="Symbol"
         aria-label="Search a symbol"
         onChange={(event) => {
           setPicked(null);

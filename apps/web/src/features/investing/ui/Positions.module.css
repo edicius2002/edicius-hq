@@ -32,19 +32,17 @@
   padding: 0;
 }
 
-.empty {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.78rem;
-}
-
-.add {
-  position: relative;
-  min-height: 1.85rem;
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
   margin-bottom: var(--space-2);
 }
 
 .addButton {
+  grid-column: 1;
+  justify-self: start;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -55,8 +53,18 @@
   cursor: pointer;
 }
 
-.addButton:hover {
+.addButton:hover:not(:disabled) {
   background: var(--color-surface-soft);
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.addFormWrap {
+  max-width: 38rem;
+  margin-bottom: var(--space-2);
 }
 
 /*
@@ -208,11 +216,6 @@
 }
 
 .addForm {
-  position: absolute;
-  z-index: 3;
-  top: 0;
-  right: 0;
-  left: 0;
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3);
@@ -293,8 +296,10 @@
 
 .totals {
   display: flex;
+  grid-column: 2;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
+  align-items: center;
   gap: var(--space-3);
 }
 
@@ -311,7 +316,7 @@
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
 }
 
 .total > .up,
@@ -337,6 +342,21 @@
  * return line below, which is the thing that was sized for.
  */
 @container (max-width: 600px) {
+  .toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .totals {
+    grid-column: 1;
+  }
+
+  .total {
+    flex-wrap: wrap;
+    justify-content: center;
+    white-space: normal;
+  }
+
   .list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

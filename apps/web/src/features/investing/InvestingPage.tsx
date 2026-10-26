@@ -24,14 +24,13 @@ import { useWatchlist } from '@/features/investing/hooks/useWatchlist';
 import { alertSoundPlayer } from '@/features/investing/lib/alertSound';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
-import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
+import { Positions } from '@/features/investing/ui/Positions';
 import { PriceAlerts } from '@/features/investing/ui/PriceAlerts';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
 import type { Bar, Quote } from '@/shared/api/market';
 import { Panel } from '@/shared/ui/Panel';
 import { RowsSkeleton } from '@/shared/ui/RowsSkeleton';
-import { Skeleton } from '@/shared/ui/Skeleton';
 
 import { formatPercent, formatAmount } from '@/shared/lib/money';
 
@@ -386,16 +385,9 @@ export function InvestingPage() {
         aria-labelledby="investing-positions-title"
         hidden={!marketPanelOpen || chartFocused}
       >
-        <div className={styles.positionsHeader}>
-          <h2 id="investing-positions-title" className={styles.panelTitle}>
-            Positions
-          </h2>
-          {holdings.isPending ? (
-            <Skeleton width={180} height={16} />
-          ) : (
-            <PositionTotals totals={positionTotals} />
-          )}
-        </div>
+        <h2 id="investing-positions-title" className={styles.srOnly}>
+          Positions
+        </h2>
 
         {holdings.isPending ? (
           <RowsSkeleton label="Loading positions" variant="positions" rows={5} />
@@ -406,6 +398,7 @@ export function InvestingPage() {
         ) : (
           <Positions
             portfolio={holdings.portfolio}
+            totals={positionTotals}
             quotes={bySymbol}
             selected={symbol}
             onSelect={setSymbol}

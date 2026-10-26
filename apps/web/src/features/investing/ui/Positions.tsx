@@ -38,6 +38,7 @@ const NO_FOLLOWED_SYMBOLS = new Set<string>();
  */
 type PositionsProps = {
   portfolio: Portfolio;
+  totals?: Total[];
   quotes: Map<string, Quote>;
   selected: string;
   onSelect: (symbol: string) => void;
@@ -48,6 +49,7 @@ type PositionsProps = {
 
 export function Positions({
   portfolio,
+  totals = [],
   quotes,
   selected,
   onSelect,
@@ -70,8 +72,20 @@ export function Positions({
 
   return (
     <div>
-      <div className={styles.add}>
-        {adding ? (
+      <div className={styles.toolbar}>
+        <button
+          type="button"
+          className={styles.addButton}
+          disabled={adding}
+          onClick={() => setAdding(true)}
+        >
+          Add position
+        </button>
+        {totals.length ? <PositionTotals totals={totals} /> : null}
+      </div>
+
+      {adding ? (
+        <div className={styles.addFormWrap}>
           <PositionForm
             onCancel={() => setAdding(false)}
             onSave={(symbol, quantity, averageCost) => {
@@ -79,12 +93,8 @@ export function Positions({
               setAdding(false);
             }}
           />
-        ) : (
-          <button type="button" className={styles.addButton} onClick={() => setAdding(true)}>
-            Add position
-          </button>
-        )}
-      </div>
+        </div>
+      ) : null}
 
       {portfolio.positions.length ? (
         <ul className={styles.list} aria-label="Positions">
@@ -168,9 +178,7 @@ export function Positions({
             );
           })}
         </ul>
-      ) : (
-        <p className={styles.empty}>Nothing held yet.</p>
-      )}
+      ) : null}
     </div>
   );
 }

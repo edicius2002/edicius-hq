@@ -1,5 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
-import type { Json } from '@/shared/supabase/database.types';
+import type { Database, Json } from '@/shared/supabase/database.types';
 
 export const TWEET_WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -10,6 +10,11 @@ export type Tweet = {
   isReply: boolean;
   url: string;
 };
+
+type TweetRow = Pick<
+  Database['public']['Tables']['tweet_posts']['Row'],
+  'post_id' | 'posted_at' | 'payload'
+>;
 
 function tweetFromRow(postId: string, postedAt: string, payload: Json): Tweet {
   const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
@@ -22,16 +27,22 @@ function tweetFromRow(postId: string, postedAt: string, payload: Json): Tweet {
   };
 }
 
-export async function fetchTweets(handle: string, now: Date = new Date()): Promise<Tweet[]> {
-  const { data, error } = await supabase
+export async function fetchTweets(
+  handle: string,
+  now: Date = new Date(),
+  signal?: AbortSignal,
+): Promise<Tweet[]> {
+  let request = supabase
     .from('tweet_posts')
     .select('post_id, posted_at, payload')
     .eq('handle', handle)
     .gte('posted_at', new Date(now.getTime() - TWEET_WINDOW_MS).toISOString())
     .order('posted_at', { ascending: false })
     .limit(500);
+  if (signal) request = request.abortSignal(signal);
+  const { data, error } = await request;
   if (error) throw error;
-  return (data ?? []).map((row) => tweetFromRow(row.post_id, row.posted_at, row.payload));
+  return (data ?? []).map((row: TweetRow) => tweetFromRow(row.post_id, row.posted_at, row.payload));
 }
 
 export function subscribeTweets(handle: string, onInsert: () => void): () => void {

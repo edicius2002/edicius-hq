@@ -10,6 +10,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  transport.open.mockReset();
 });
 
 function publisher() {
@@ -129,6 +130,23 @@ describe('useChartFocus', () => {
     expect(late.close).toHaveBeenCalledOnce();
   });
 
+  it('retries an initial focus failure while the same chart stays selected', async () => {
+    vi.useFakeTimers();
+    const joined = publisher();
+    transport.open.mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce(joined);
+    renderHook(() => useChartFocus({ symbol: 'AAPL', timeframe: '1m', extended: false }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(transport.open).toHaveBeenCalledTimes(2);
+    expect(joined.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ symbol: 'AAPL', active: true }),
+    );
+  });
+
   it('swallows focus send failures so they do not escape through React', async () => {
     const joined = publisher();
     joined.publish.mockRejectedValue(new Error('send failed'));
@@ -145,6 +163,27 @@ describe('useChartFocus', () => {
       await Promise.resolve();
     });
     expect(joined.close).toHaveBeenCalledOnce();
+  });
+
+  it('reopens focus after an active heartbeat publish fails', async () => {
+    vi.useFakeTimers();
+    const first = publisher();
+    const second = publisher();
+    first.publish.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('socket lost'));
+    transport.open.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    renderHook(() => useChartFocus({ symbol: 'AAPL', timeframe: '1m', extended: false }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(CHART_FOCUS_HEARTBEAT_MS);
+    });
+    expect(first.close).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(transport.open).toHaveBeenCalledTimes(2);
+    expect(second.publish).toHaveBeenCalledWith(expect.objectContaining({ active: true }));
   });
 
   it('waits for the inactive release attempt to settle before closing the channel', async () => {

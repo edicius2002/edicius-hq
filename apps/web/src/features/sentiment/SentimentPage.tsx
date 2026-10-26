@@ -1,4 +1,5 @@
 import type { SentimentClassification, SentimentMetric } from '@/shared/api/sentiment';
+import { NoSentimentSnapshotError } from '@/features/sentiment/data/supabaseSentiment';
 import { useSentiment } from '@/features/sentiment/hooks/useSentiment';
 import { SentimentChart } from '@/features/sentiment/ui/SentimentChart';
 import { Button } from '@/shared/ui/Button';
@@ -67,19 +68,21 @@ export function SentimentPage() {
     data?.composite && Array.isArray(data.indicators) ? [data.composite, ...data.indicators] : [];
   const hasCompleteHistory =
     metrics.length === 8 && metrics.every((metric) => metric.series[0]?.points.length > 0);
+  const isEmpty = query.error instanceof NoSentimentSnapshotError;
 
   return (
     <section className={styles.page} aria-label="Sentiment">
       {query.isPending ? (
         <PageSkeleton page="sentiment" />
-      ) : query.isError && !hasCompleteHistory ? (
+      ) : query.isError && !isEmpty && !hasCompleteHistory ? (
         <Panel className={styles.state} role="alert">
           <p>Sentiment is unavailable. Its data providers may be temporarily unreachable.</p>
           <Button onClick={() => void query.refetch()}>Retry</Button>
         </Panel>
       ) : !data || !hasCompleteHistory ? (
         <Panel className={styles.state} role="status">
-          No sentiment history is available yet.
+          <p>No sentiment history is available yet.</p>
+          <Button onClick={() => void query.refetch()}>Retry</Button>
         </Panel>
       ) : (
         <>

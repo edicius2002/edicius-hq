@@ -122,52 +122,59 @@ export function openQuoteStream(symbols: string[], options: QuoteStreamOptions):
   if (!symbols.length) return () => {};
   let terminated = false;
   let close: (() => void) | undefined;
-  let closeWhenReady = false;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let attempt = 0;
+  let generation = 0;
   const stop = () => {
     if (terminated) return;
     terminated = true;
-    if (close) close();
-    else closeWhenReady = true;
+    if (retry) clearTimeout(retry);
+    close?.();
   };
-  try {
-    const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
-    close = (options.subscribe ?? subscribeMarketUpdates)(
-      (ticks) => {
-        if (terminated) return;
-        const incoming = ticks.filter((tick) => wanted.has(tick.symbol));
-        if (incoming.length) options.onTicks(incoming);
-      },
-      (bars) => {
-        if (terminated) return;
-        const incoming = bars.filter((bar) => wanted.has(bar.symbol));
-        if (incoming.length) options.onBars?.(incoming);
-      },
-      (status) => {
-        if (terminated) return;
-        if (status === 'SUBSCRIBED') {
-          options.onOpen?.();
-          return;
-        }
-        // Realtime's terminal values are strings; unknown terminal values are
-        // treated as a dead stream rather than leaking a provider object upward.
-        if (
-          status === 'CHANNEL_ERROR' ||
-          status === 'TIMED_OUT' ||
-          status === 'CLOSED' ||
-          status !== 'SUBSCRIBED'
-        ) {
-          stop();
-          options.onError?.();
-        }
-      },
-    );
-    if (closeWhenReady) close();
-    return () => {
-      stop();
-    };
-  } catch {
-    terminated = true;
+  const wanted = new Set(symbols.map((symbol) => symbol.trim().toUpperCase()));
+  const reconnect = () => {
+    if (terminated || retry) return;
+    generation++;
+    close?.();
+    close = undefined;
     options.onError?.();
-    return () => {};
-  }
+    const delay = Math.min(1000 * 2 ** Math.min(attempt++, 5), 30_000);
+    retry = setTimeout(() => {
+      retry = undefined;
+      connect();
+    }, delay);
+  };
+  const connect = () => {
+    if (terminated) return;
+    const current = ++generation;
+    try {
+      const dispose = (options.subscribe ?? subscribeMarketUpdates)(
+        (ticks) => {
+          if (terminated || current !== generation) return;
+          const incoming = ticks.filter((tick) => wanted.has(tick.symbol));
+          if (incoming.length) options.onTicks(incoming);
+        },
+        (bars) => {
+          if (terminated || current !== generation) return;
+          const incoming = bars.filter((bar) => wanted.has(bar.symbol));
+          if (incoming.length) options.onBars?.(incoming);
+        },
+        (status) => {
+          if (terminated || current !== generation) return;
+          if (status === 'SUBSCRIBED') {
+            attempt = 0;
+            options.onOpen?.();
+            return;
+          }
+          reconnect();
+        },
+      );
+      if (terminated || current !== generation) dispose();
+      else close = dispose;
+    } catch {
+      reconnect();
+    }
+  };
+  connect();
+  return stop;
 }

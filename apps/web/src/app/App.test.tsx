@@ -476,7 +476,7 @@ describe('Investing chart-first workspace', () => {
     renderAt('/investing');
     await arrivesAt('Investing');
     const watchlist = await screen.findByRole('list', { name: 'Watchlist' });
-    const watchRow = within(watchlist).getByRole('button', { name: /AAPL\s*Apple/ });
+    const watchRow = within(watchlist).getByRole('button', { name: /AAPL\s+Apple/ });
     await waitFor(() => expect(watchRow).toHaveTextContent('100.00'));
     await user.click(screen.getByRole('button', { name: 'Show data table' }));
     const table = screen.getByRole('table', { name: /AAPL 1d visible candle data/ });
@@ -646,6 +646,22 @@ describe('AppErrorBoundary', () => {
  * `RouterProvider`, because it is testing navigation rather than access.
  */
 describe('The session gate', () => {
+  it('remounts page state on owner change but preserves it on token refresh', async () => {
+    auth.getAccessToken.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<App />);
+    emitAuth('SIGNED_IN', signedInSession);
+    await arrivesAt('Dashboard');
+    await user.click(screen.getByRole('button', { name: 'Menu' }));
+    emitAuth('TOKEN_REFRESHED', signedInSession);
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
+    emitAuth('SIGNED_IN', { ...signedInSession, user: { id: 'other-owner' } } as Session);
+    await waitFor(() =>
+      expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument(),
+    );
+    expect(await arrivesAt('Dashboard')).toBeInTheDocument();
+  });
+
   it('waits for the initial Supabase session before rendering either gate', async () => {
     const session = deferred<string | null>();
     auth.getAccessToken.mockReturnValue(session.promise);

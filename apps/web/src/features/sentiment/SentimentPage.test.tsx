@@ -4,11 +4,17 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SentimentPage } from '@/features/sentiment/SentimentPage';
-import { getLatestSentiment } from '@/features/sentiment/data/supabaseSentiment';
+import {
+  getLatestSentiment,
+  NoSentimentSnapshotError,
+} from '@/features/sentiment/data/supabaseSentiment';
 import type { SentimentMetric, SentimentResponse } from '@/shared/api/sentiment';
 import panelStyles from '@/shared/ui/Panel.module.css';
 
-vi.mock('@/features/sentiment/data/supabaseSentiment', () => ({ getLatestSentiment: vi.fn() }));
+vi.mock('@/features/sentiment/data/supabaseSentiment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/sentiment/data/supabaseSentiment')>()),
+  getLatestSentiment: vi.fn(),
+}));
 
 const mockedGetLatestSentiment = vi.mocked(getLatestSentiment);
 
@@ -155,6 +161,20 @@ describe('SentimentPage', () => {
 
     expect(await screen.findByText(/No sentiment history/)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('offers retry when the owner has no snapshot yet', async () => {
+    const user = userEvent.setup();
+    mockedGetLatestSentiment
+      .mockRejectedValueOnce(new NoSentimentSnapshotError())
+      .mockResolvedValueOnce(response());
+
+    renderPage();
+
+    expect(await screen.findByText('No sentiment history is available yet.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findAllByRole('img')).toHaveLength(8);
+    expect(mockedGetLatestSentiment).toHaveBeenCalledTimes(2);
   });
 });
 

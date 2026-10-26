@@ -63,11 +63,13 @@ if (typeof globalThis.PointerEvent === 'undefined') {
   class PointerEventStub extends MouseEvent {
     readonly pointerId: number;
     readonly isPrimary: boolean;
+    readonly pointerType: string;
 
     constructor(type: string, init: PointerEventInit = {}) {
       super(type, init);
       this.pointerId = init.pointerId ?? 0;
       this.isPrimary = init.isPrimary ?? true;
+      this.pointerType = init.pointerType ?? '';
     }
   }
 

@@ -24,6 +24,8 @@ from app.adapters.yahoo_session import BROWSER_UA, SESSION
 from app.config import Timeframe
 
 PROVIDER = "yahoo"
+_SUPPORTED_TIMEZONE = "America/New_York"
+_US_EXCHANGES = frozenset({"NMS", "NYQ", "ASE", "NGM", "NCM", "PCX", "BTS", "BATS", "PNK"})
 
 # Two hosts serving the same API. The second is tried when the first refuses,
 # which it does often enough to matter.
@@ -160,6 +162,7 @@ def parse_bars(payload: Any, timeframe: str, limit: int) -> list[Bar]:
     other.
     """
     result = _first_result(payload)
+    _require_supported_calendar(result)
     stamps = result.get("timestamp") or []
     quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
 
@@ -226,6 +229,7 @@ def _normalize(bars: list[Bar], timeframe: str) -> list[Bar]:
 def parse_live_bars(payload: Any) -> list[Bar]:
     """Parse live rows, rejecting incomplete or non-finite provider volume."""
     result = _first_result(payload)
+    _require_supported_calendar(result)
     stamps = result.get("timestamp") or []
     quote_rows = (result.get("indicators") or {}).get("quote")
     quote = (
@@ -260,6 +264,12 @@ def parse_live_bars(payload: Any) -> list[Bar]:
     return bars
 
 
+def _require_supported_calendar(result: dict[str, Any]) -> None:
+    timezone = (result.get("meta") or {}).get("exchangeTimezoneName")
+    if timezone is not None and timezone != _SUPPORTED_TIMEZONE:
+        raise ProviderError("unsupported-calendar", "Yahoo instrument uses an unsupported calendar")
+
+
 async def search(client: httpx.AsyncClient, query: str, limit: int = 10) -> list[SymbolHit]:
     try:
         response = await client.get(
@@ -279,7 +289,7 @@ def parse_search(payload: Any, limit: int) -> list[SymbolHit]:
     hits: list[SymbolHit] = []
     for row in (payload or {}).get("quotes") or []:
         symbol = row.get("symbol")
-        if not symbol:
+        if not symbol or row.get("exchange") not in _US_EXCHANGES:
             continue
         hits.append(
             SymbolHit(

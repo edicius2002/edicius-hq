@@ -472,4 +472,82 @@ describe('useRouteCollection', () => {
     expect(result.current.collecting).toEqual([]);
     expect(result.current.progress.has(MONTH_KEY)).toBe(false);
   });
+
+  it('does not restore a removed route notice when enqueue settles late', async () => {
+    let resolve!: (value: AirfareRequest) => void;
+    api.fetchActiveAirfareRequests.mockResolvedValue([]);
+    api.enqueueAirfareRequest.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const { result } = setup();
+
+    act(() => result.current.collect(ROUTE, '2026-11'));
+    act(() => result.current.forget(ROW_ID));
+    await act(async () => resolve(request()));
+
+    expect(result.current.collecting).toEqual([]);
+    expect(result.current.notices).toEqual([]);
+  });
+
+  it('ignores a late response from a previous instance of the same route', async () => {
+    let resolveOld!: (value: AirfareRequest) => void;
+    api.fetchActiveAirfareRequests.mockResolvedValue([]);
+    api.enqueueAirfareRequest
+      .mockReturnValueOnce(
+        new Promise((done) => {
+          resolveOld = done;
+        }),
+      )
+      .mockResolvedValueOnce(request({ requestId: '33333333-3333-4333-8333-333333333333' }));
+    const { result } = setup();
+
+    act(() => result.current.collect(ROUTE, '2026-11'));
+    act(() => result.current.forget(ROW_ID));
+    act(() => result.current.collect(ROUTE, '2026-11'));
+    await waitFor(() => expect(result.current.notices).toHaveLength(1));
+    await act(async () => resolveOld(request()));
+
+    expect(result.current.notices).toHaveLength(1);
+    expect(result.current.notices[0].id).toBe('33333333-3333-4333-8333-333333333333');
+  });
+
+  it('keeps a new route instance pending when an older enqueue fails', async () => {
+    let rejectOld!: (reason: Error) => void;
+    api.fetchActiveAirfareRequests.mockResolvedValue([]);
+    api.enqueueAirfareRequest
+      .mockReturnValueOnce(
+        new Promise((_done, fail) => {
+          rejectOld = fail;
+        }),
+      )
+      .mockReturnValueOnce(new Promise(() => {}));
+    const { result } = setup();
+
+    act(() => result.current.collect(ROUTE, '2026-11'));
+    act(() => result.current.forget(ROW_ID));
+    act(() => result.current.collect(ROUTE, '2026-11'));
+    await act(async () => rejectOld(new Error('offline')));
+
+    expect(result.current.collecting).toContain(MONTH_KEY);
+    expect(result.current.notices).toEqual([]);
+  });
+
+  it('does not show an enqueue failure after the route was removed', async () => {
+    let reject!: (reason: Error) => void;
+    api.fetchActiveAirfareRequests.mockResolvedValue([]);
+    api.enqueueAirfareRequest.mockReturnValue(
+      new Promise((_done, fail) => {
+        reject = fail;
+      }),
+    );
+    const { result } = setup();
+
+    act(() => result.current.collect(ROUTE, '2026-11'));
+    act(() => result.current.forget(ROW_ID));
+    await act(async () => reject(new Error('offline')));
+
+    expect(result.current.notices).toEqual([]);
+  });
 });

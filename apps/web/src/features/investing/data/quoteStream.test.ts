@@ -4,6 +4,7 @@ vi.mock('@/shared/auth/supabaseAuth', () => ({
   clearLocalSession: vi.fn(),
   getAccessToken: vi.fn(),
 }));
+vi.mock('@/features/investing/data/supabaseMarket', () => ({ subscribeMarketUpdates: vi.fn() }));
 
 const quoteBusState = vi.hoisted(() => ({ ingest: vi.fn() }));
 vi.mock('@/features/investing/data/quoteBus', () => ({ quoteBus: quoteBusState }));
@@ -270,5 +271,40 @@ describe('openQuoteStream', () => {
     receive([tick()]);
     expect(onError).toHaveBeenCalledOnce();
     expect(onTicks).not.toHaveBeenCalled();
+  });
+
+  it('rejoins after a transient channel error and stops retries when closed', async () => {
+    vi.useFakeTimers();
+    const statuses: Array<(status: string) => void> = [];
+    const disposes: Array<ReturnType<typeof vi.fn>> = [];
+    const onOpen = vi.fn();
+    const onError = vi.fn();
+    const subscribe = vi.fn(
+      (
+        _ticks: (ticks: Tick[]) => void,
+        _bars: (bars: LiveBarUpdate[]) => void,
+        status: (value: string) => void,
+      ) => {
+        statuses.push(status);
+        const dispose = vi.fn();
+        disposes.push(dispose);
+        return dispose;
+      },
+    );
+    const close = openQuoteStream(['AAPL'], { onTicks: vi.fn(), onOpen, onError, subscribe });
+    statuses[0]('SUBSCRIBED');
+    statuses[0]('CHANNEL_ERROR');
+    expect(onError).toHaveBeenCalledOnce();
+    expect(disposes[0]).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    statuses[1]('SUBSCRIBED');
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    close();
+    statuses[1]('CLOSED');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(disposes[1]).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });

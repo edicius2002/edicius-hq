@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
 import { createWriteQueue, type WriteQueue, type WriteState } from '@/shared/storage/writeQueue';
 import type { StorageKey } from '@/shared/storage/keys';
 import {
@@ -78,11 +79,14 @@ export function useStoredDocument<T>({
 }: StoredDocumentOptions<T>): StoredDocument<T> {
   const queryClient = useQueryClient();
   const queryKey = ['storage', key] as const;
+  const ownerId = useRef<string | null | undefined>(undefined);
+  const staleOwner = useRef(false);
 
   const query = useQuery({
     queryKey,
     queryFn: async ({ signal }): Promise<CachedDocument<T>> => {
       const document = await readRemoteDocument<unknown>(key, signal);
+      if (staleOwner.current) throw new Error('The document owner changed during this read.');
       return {
         payload: normalize(document?.payload),
         revision: document?.revision ?? 0,
@@ -98,18 +102,36 @@ export function useStoredDocument<T>({
   const [queue] = useState<WriteQueue<T>>(() =>
     createWriteQueue<T, RemoteDocument<T>>({
       write: (value) => {
+        if (staleOwner.current) throw new Error('The document owner changed before this save.');
         const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (!cached)
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
         return writeRemoteDocument(key, value, cached.revision);
       },
       onWritten: (acknowledgement) => {
+        if (staleOwner.current) return;
         queryClient.setQueryData<CachedDocument<T>>(queryKey, (cached) =>
           cached ? { payload: cached.payload, revision: acknowledgement.revision } : cached,
         );
       },
-      onState: setWriteState,
+      onState: (state) => {
+        if (!staleOwner.current) setWriteState(state);
+      },
     }),
+  );
+
+  useEffect(
+    () =>
+      subscribeToAuth((_event, session) => {
+        const nextOwner = session?.user.id ?? null;
+        if (ownerId.current === undefined) {
+          ownerId.current = nextOwner;
+        } else if (ownerId.current !== nextOwner) {
+          staleOwner.current = true;
+          queue.discard();
+        }
+      }),
+    [queue],
   );
 
   const writeChain = useRef<Promise<unknown>>(Promise.resolve());
@@ -124,12 +146,14 @@ export function useStoredDocument<T>({
   const edit = useCallback(
     (change: (current: T) => T | Promise<T>) =>
       serialize(async () => {
+        if (staleOwner.current) throw new Error('The document owner changed before this edit.');
         const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (cached === undefined) {
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
         }
         const current = cached.payload;
         const next = await change(current);
+        if (staleOwner.current) throw new Error('The document owner changed before this edit.');
         // A change that returns what it was given decided against editing —
         // a refused operation, say — so there is nothing worth persisting.
         if (next === current) return current;
@@ -149,6 +173,8 @@ export function useStoredDocument<T>({
   const replace = useCallback(
     (next: T) =>
       serialize(async () => {
+        if (staleOwner.current)
+          throw new Error('The document owner changed before this replacement.');
         const cached = queryClient.getQueryData<CachedDocument<T>>(queryKey);
         if (cached === undefined) {
           throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
@@ -162,6 +188,8 @@ export function useStoredDocument<T>({
         // over whatever the debounce was still holding, which would otherwise be
         // written after the replacement and quietly undo it.
         await queue.overwrite(next);
+        if (staleOwner.current)
+          throw new Error('The document owner changed before this replacement.');
         return next;
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey is derived from key
@@ -170,6 +198,7 @@ export function useStoredDocument<T>({
 
   useEffect(() => {
     function flushNow() {
+      if (staleOwner.current) return;
       void queue.flush();
     }
 
@@ -194,6 +223,7 @@ export function useStoredDocument<T>({
   }, [queue]);
 
   const retrySave = useCallback(() => {
+    if (staleOwner.current) return;
     void queue.flush();
   }, [queue]);
 

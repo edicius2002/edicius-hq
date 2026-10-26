@@ -4,6 +4,7 @@ const query = {
   select: vi.fn(),
   order: vi.fn(),
   limit: vi.fn(),
+  abortSignal: vi.fn(),
 };
 
 vi.mock('@/shared/supabase/client', () => ({
@@ -33,14 +34,25 @@ describe('getLatestSentiment', () => {
   it('reads the newest owner-visible snapshot through Supabase RLS', async () => {
     query.select.mockReturnValue(query);
     query.order.mockReturnValue(query);
-    query.limit.mockResolvedValue({ data: [{ payload: response }], error: null });
+    query.limit.mockReturnValue(query);
+    query.abortSignal.mockResolvedValue({ data: [{ payload: response }], error: null });
 
-    await expect(getLatestSentiment()).resolves.toEqual(response);
+    const signal = new AbortController().signal;
+    await expect(getLatestSentiment(signal)).resolves.toEqual(response);
 
     // eslint-disable-next-line @typescript-eslint/unbound-method -- Vitest spy assertion
     expect(supabase.from).toHaveBeenCalledWith('sentiment_snapshots');
     expect(query.select).toHaveBeenCalledWith('payload');
     expect(query.order).toHaveBeenCalledWith('as_of', { ascending: false });
     expect(query.limit).toHaveBeenCalledWith(1);
+    expect(query.abortSignal).toHaveBeenCalledWith(signal);
+  });
+
+  it('distinguishes an empty owner snapshot set from a failed request', async () => {
+    query.select.mockReturnValue(query);
+    query.order.mockReturnValue(query);
+    query.limit.mockResolvedValue({ data: [], error: null });
+
+    await expect(getLatestSentiment()).rejects.toHaveProperty('name', 'NoSentimentSnapshotError');
   });
 });

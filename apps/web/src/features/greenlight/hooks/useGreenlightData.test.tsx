@@ -33,6 +33,33 @@ const stubStore = (
 const wrapper = queryWrapper();
 
 describe('useGreenlightData storage sync', () => {
+  it('retries a failed initial read without writing over the stored document', async () => {
+    let reads = 0;
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/rpc/write_app_document')) throw new Error('unexpected write');
+      reads += 1;
+      return reads === 1
+        ? Response.json({ detail: 'unavailable' }, { status: 500 })
+        : Response.json([
+            { document_key: 'greenlight', payload: STORED, revision: 1, updated_at: '' },
+          ]);
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    const { result } = renderHook(() => useGreenlightData(), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.state.stats).toEqual({});
+    await act(async () => {
+      await result.current.retryLoad();
+    });
+    await waitFor(() => expect(result.current.state.stats).toEqual(STORED.stats));
+    expect(result.current.isError).toBe(false);
+    expect(reads).toBe(2);
+    expect(
+      fetchStub.mock.calls.every(([input]) => !String(input).includes('/rpc/write_app_document')),
+    ).toBe(true);
+  });
+
   it('does not lose a write when two toggles are fired back to back', async () => {
     const api = stubStore({
       writeDelayMs: 20,

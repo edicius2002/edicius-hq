@@ -17,6 +17,7 @@ import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
 import { SegmentSummary } from '@/features/greenlight/ui/SegmentSummary';
 import { WeeklyChart } from '@/features/greenlight/ui/WeeklyChart';
 import { formatMoney } from '@/shared/lib/money';
+import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 import { PageSkeleton } from '@/shared/ui/PageSkeleton';
@@ -29,7 +30,10 @@ export function GreenlightPage() {
   const [localError, setLocalError] = useState<string | null>(null);
   const {
     state,
+    hasLoaded,
+    isFetching,
     isError,
+    retryLoad,
     saveState,
     retrySave,
     importCsv,
@@ -53,6 +57,8 @@ export function GreenlightPage() {
     [state.stats, state.markers],
   );
   const hasData = Object.keys(state.stats).length > 0;
+  const readUnavailable = isError && !hasLoaded;
+  const loading = !hasLoaded && isFetching;
 
   async function handleImport(file: File) {
     setLocalError(null);
@@ -90,11 +96,11 @@ export function GreenlightPage() {
 
   return (
     <>
-      {saveState === 'loading' ? <PageSkeleton page="greenlight" /> : null}
+      {saveState === 'loading' || loading ? <PageSkeleton page="greenlight" /> : null}
       <section
         className={styles.page}
         aria-labelledby="page-title"
-        style={{ display: saveState === 'loading' ? 'none' : undefined }}
+        style={{ display: saveState === 'loading' || loading ? 'none' : undefined }}
       >
         <PageHeader
           className={styles.header}
@@ -127,12 +133,18 @@ export function GreenlightPage() {
                   {localError || 'Could not load Greenlight data from storage.'}
                 </p>
               )}
+              {isError ? (
+                <Button variant="secondary" onClick={() => void retryLoad()}>
+                  Retry load
+                </Button>
+              ) : null}
               {saveState !== 'idle' && saveState !== 'saved' ? (
                 <SaveStatus state={saveState} onRetry={retrySave} />
               ) : null}
               <ImportPanel
                 stats={state.stats}
                 isImporting={isImporting}
+                isAvailable={!readUnavailable && !loading}
                 onImport={(file) => void handleImport(file)}
                 onParseError={(message) => {
                   setLocalError(message);
@@ -142,60 +154,68 @@ export function GreenlightPage() {
           }
         />
 
-        <div className={styles.overview} aria-label="Weekly and monthly overview">
-          <Panel className={styles.overviewCard} density="compact">
-            <div className={styles.panelHeading}>
-              <h2 className={styles.panelTitle}>By week</h2>
-            </div>
-            {hasData ? (
-              <WeeklyChart points={weeklyChart} />
-            ) : (
-              <p className={styles.muted}>No weeks to chart yet.</p>
-            )}
+        {readUnavailable ? (
+          <Panel className={styles.overviewCard} role="status">
+            Greenlight data unavailable.
           </Panel>
-          <Panel className={styles.overviewCard} density="compact">
-            <div className={styles.panelHeading}>
-              <h2 className={styles.panelTitle}>By month</h2>
+        ) : (
+          <>
+            <div className={styles.overview} aria-label="Weekly and monthly overview">
+              <Panel className={styles.overviewCard} density="compact">
+                <div className={styles.panelHeading}>
+                  <h2 className={styles.panelTitle}>By week</h2>
+                </div>
+                {hasData ? (
+                  <WeeklyChart points={weeklyChart} />
+                ) : (
+                  <p className={styles.muted}>No weeks to chart yet.</p>
+                )}
+              </Panel>
+              <Panel className={styles.overviewCard} density="compact">
+                <div className={styles.panelHeading}>
+                  <h2 className={styles.panelTitle}>By month</h2>
+                </div>
+                {hasData ? (
+                  <MonthlyChart points={monthly} />
+                ) : (
+                  <p className={styles.muted}>No months to chart yet.</p>
+                )}
+              </Panel>
             </div>
-            {hasData ? (
-              <MonthlyChart points={monthly} />
-            ) : (
-              <p className={styles.muted}>No months to chart yet.</p>
-            )}
-          </Panel>
-        </div>
 
-        <CompoundProjector
-          capital={hasData ? moneyBreakdown.net : null}
-          currency={totals.currency}
-        />
+            <CompoundProjector
+              capital={hasData ? moneyBreakdown.net : null}
+              currency={totals.currency}
+            />
 
-        <Panel aria-labelledby="weeks-title">
-          <div className={styles.panelHeading}>
-            <h2 id="weeks-title" className={styles.panelTitle}>
-              Weeks
-            </h2>
-          </div>
-          {hasData ? (
-            <>
-              <MoneyWeekChart
-                months={months}
-                stats={state.stats}
-                markers={state.markers}
-                widgets={state.widgets}
-                onToggleMarker={(week) => void handleToggleMarker(week)}
-                onToggleWidget={(monthKey, tool) => void handleToggleWidget(monthKey, tool)}
-              />
-              {/* Reserved so the first marker segments fill existing space instead
-                of pushing the page height out from under the cursor. */}
-              <div className={styles.segmentsSlot}>
-                <SegmentSummary segments={segments} />
+            <Panel aria-labelledby="weeks-title">
+              <div className={styles.panelHeading}>
+                <h2 id="weeks-title" className={styles.panelTitle}>
+                  Weeks
+                </h2>
               </div>
-            </>
-          ) : (
-            <p className={styles.muted}>No weeks to show.</p>
-          )}
-        </Panel>
+              {hasData ? (
+                <>
+                  <MoneyWeekChart
+                    months={months}
+                    stats={state.stats}
+                    markers={state.markers}
+                    widgets={state.widgets}
+                    onToggleMarker={(week) => void handleToggleMarker(week)}
+                    onToggleWidget={(monthKey, tool) => void handleToggleWidget(monthKey, tool)}
+                  />
+                  {/* Reserved so the first marker segments fill existing space instead
+                of pushing the page height out from under the cursor. */}
+                  <div className={styles.segmentsSlot}>
+                    <SegmentSummary segments={segments} />
+                  </div>
+                </>
+              ) : (
+                <p className={styles.muted}>No weeks to show.</p>
+              )}
+            </Panel>
+          </>
+        )}
       </section>
     </>
   );

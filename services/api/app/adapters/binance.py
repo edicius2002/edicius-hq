@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from app.adapters.models import Bar, ProviderError, Quote
+from app.adapters.models import Bar, ProviderError, Quote, SymbolHit
 from app.config import Timeframe
 
 PROVIDER = "binance"
@@ -44,6 +44,31 @@ async def _get_json(client: httpx.AsyncClient, path: str, params: dict[str, Any]
 async def fetch_quote(client: httpx.AsyncClient, symbol: str) -> Quote:
     payload = await _get_json(client, "/api/v3/ticker/24hr", {"symbol": symbol})
     return parse_quote(symbol, payload)
+
+
+async def search_pair(client: httpx.AsyncClient, symbol: str) -> SymbolHit | None:
+    """Validate a fully typed pair against Binance's listed Spot instruments."""
+    try:
+        payload = await _get_json(client, "/api/v3/exchangeInfo", {"symbol": symbol})
+    except ProviderError as error:
+        if error.code == "symbol-not-found":
+            return None
+        raise
+    rows = payload.get("symbols") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise ProviderError("upstream-error", "Binance sent invalid exchange information")
+    for row in rows:
+        if (
+            isinstance(row, dict)
+            and row.get("symbol") == symbol
+            and row.get("status") == "TRADING"
+            and row.get("isSpotTradingAllowed") is True
+        ):
+            base = row.get("baseAsset")
+            quote = row.get("quoteAsset")
+            if isinstance(base, str) and isinstance(quote, str):
+                return SymbolHit(symbol, f"{base}/{quote}", "crypto", "Binance")
+    return None
 
 
 def parse_quote(symbol: str, payload: Any) -> Quote:
@@ -83,12 +108,36 @@ def _timestamp_seconds(value: object) -> float | None:
 
 
 async def fetch_bars(client: httpx.AsyncClient, symbol: str, timeframe: Timeframe) -> list[Bar]:
+    wanted = timeframe.limit
+    latest_limit = min(wanted, 1000)
     payload = await _get_json(
         client,
         "/api/v3/klines",
-        {"symbol": symbol, "interval": timeframe.binance_interval, "limit": timeframe.limit},
+        {
+            "symbol": symbol,
+            "interval": timeframe.binance_interval,
+            "limit": latest_limit,
+        },
     )
-    return parse_bars(payload)
+    bars = parse_bars(payload)
+    while len(bars) >= latest_limit and len(bars) < wanted:
+        remaining = min(wanted - len(bars), 1000)
+        older_payload = await _get_json(
+            client,
+            "/api/v3/klines",
+            {
+                "symbol": symbol,
+                "interval": timeframe.binance_interval,
+                "limit": remaining,
+                "endTime": bars[0].time * 1000 - 1,
+            },
+        )
+        older = [bar for bar in parse_bars(older_payload) if bar.time < bars[0].time]
+        if not older:
+            break
+        bars = older + bars
+        latest_limit = remaining
+    return bars[-wanted:]
 
 
 def parse_bars(payload: Any) -> list[Bar]:

@@ -21,9 +21,12 @@ import {
 const RECONCILE_MS = 5_000;
 const IDLE_RECONCILE_MS = 60_000;
 
+export type RouteCollectionProgress =
+  AirfareRequestProgress | { stage: 'submitting'; completed: 0; total: null };
+
 export type RouteCollection = {
   collecting: readonly string[];
-  progress: ReadonlyMap<string, AirfareRequestProgress>;
+  progress: ReadonlyMap<string, RouteCollectionProgress>;
   notices: readonly CollectNotice[];
   collect: (route: FareRoute, month: string) => void;
   forget: (id: string) => void;
@@ -37,6 +40,7 @@ export function useRouteCollection(): RouteCollection {
   const requestsRef = useRef(new Map<string, AirfareRequest>());
   const pendingRef = useRef(new Set<string>());
   const adopted = useRef(new Set<string>());
+  const locallyExpired = useRef(new Set<string>());
   const handledTerminal = useRef(new Set<string>());
   const forgottenRoutes = useRef(new Set<string>());
   const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -61,22 +65,37 @@ export function useRouteCollection(): RouteCollection {
 
   const accept = useCallback(
     (incoming: AirfareRequest) => {
-      const request =
+      const expiredLocally =
         (incoming.status === 'queued' || incoming.status === 'running') &&
-        Date.parse(incoming.expiresAt) <= Date.now()
-          ? { ...incoming, status: 'expired' as const }
-          : incoming;
+        Date.parse(incoming.expiresAt) <= Date.now();
+      const request = expiredLocally ? { ...incoming, status: 'expired' as const } : incoming;
       const route = requestRouteId(request);
       if (forgottenRoutes.current.has(route)) return;
       const key = requestMonthKey(request);
-      if (pendingRef.current.delete(key)) setPending(new Set(pendingRef.current));
       const active = request.status === 'queued' || request.status === 'running';
       const previous = requestsRef.current.get(request.requestId);
+      if (previous && request.updatedAt < previous.updatedAt) return;
       if (
         previous?.status === 'complete' ||
         ((previous?.status === 'failed' || previous?.status === 'expired') && active)
       )
         return;
+      if (previous && active && (previous.status === 'queued' || previous.status === 'running')) {
+        const stageOrder = { queued: 0, collecting: 1, syncing: 2 };
+        const before = stageOrder[previous.progress.stage];
+        const after = stageOrder[request.progress.stage];
+        if (
+          after < before ||
+          (after === before &&
+            (request.progress.completed < previous.progress.completed ||
+              (previous.progress.total !== null &&
+                (request.progress.total === null ||
+                  request.progress.total < previous.progress.total))))
+        )
+          return;
+      }
+      if (expiredLocally) locallyExpired.current.add(request.requestId);
+      else if (!active) locallyExpired.current.delete(request.requestId);
       // A server completion can arrive after the local expiry clock fires.
       // The confirmed completion must still refresh the fare queries.
       if (previous?.status === 'expired' && request.status === 'complete')
@@ -84,6 +103,7 @@ export function useRouteCollection(): RouteCollection {
       if (active) adopted.current.add(request.requestId);
       if (!active && !adopted.current.has(request.requestId)) return;
 
+      if (pendingRef.current.delete(key)) setPending(new Set(pendingRef.current));
       requestsRef.current.set(request.requestId, request);
       setRequests(new Map(requestsRef.current));
       if (active || handledTerminal.current.has(request.requestId)) return;
@@ -118,11 +138,17 @@ export function useRouteCollection(): RouteCollection {
           return (
             !activeIds.has(id) &&
             known !== undefined &&
-            (known.status === 'queued' || known.status === 'running')
+            (known.status === 'queued' ||
+              known.status === 'running' ||
+              locallyExpired.current.has(id))
           );
         });
         const settled = await Promise.all(missing.map((id) => fetchAirfareRequest(id)));
-        if (!disposed) settled.forEach((request) => request && accept(request));
+        if (!disposed) {
+          settled.forEach((request) => {
+            if (request) accept(request);
+          });
+        }
       } catch {
         // Realtime and the next bounded poll remain available.
       }
@@ -150,7 +176,10 @@ export function useRouteCollection(): RouteCollection {
       .sort((a, b) => Date.parse(a.expiresAt) - Date.parse(b.expiresAt))[0];
     if (!next) return;
     const delay = Math.min(2_147_483_647, Math.max(0, Date.parse(next.expiresAt) - Date.now() + 1));
-    const timer = setTimeout(() => accept(next), delay);
+    const timer = setTimeout(() => {
+      accept(next);
+      void reconcileRef.current();
+    }, delay);
     return () => clearTimeout(timer);
   }, [accept, requests]);
 
@@ -215,6 +244,7 @@ export function useRouteCollection(): RouteCollection {
       if (requestRouteId(request) !== id) continue;
       requestsRef.current.delete(requestId);
       adopted.current.delete(requestId);
+      locallyExpired.current.delete(requestId);
     }
     setRequests(new Map(requestsRef.current));
     setNotices((current) => {
@@ -236,11 +266,11 @@ function deriveActiveState(
   pending: ReadonlySet<string>,
 ): {
   collecting: readonly string[];
-  progress: ReadonlyMap<string, AirfareRequestProgress>;
+  progress: ReadonlyMap<string, RouteCollectionProgress>;
 } {
   const collecting = [...pending];
-  const progress = new Map<string, AirfareRequestProgress>();
-  for (const key of pending) progress.set(key, { stage: 'queued', completed: 0, total: null });
+  const progress = new Map<string, RouteCollectionProgress>();
+  for (const key of pending) progress.set(key, { stage: 'submitting', completed: 0, total: null });
   for (const request of requests.values()) {
     if (request.status !== 'queued' && request.status !== 'running') continue;
     const key = requestMonthKey(request);

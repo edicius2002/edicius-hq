@@ -7,6 +7,7 @@ import {
   formatChartDate,
   formatChartValue,
   formatSeriesValue,
+  historySpansMoreThanYear,
 } from '@/features/sentiment/lib/chart';
 import { nearestPointIndex, pointerInView } from '@/shared/lib/chartCrosshair';
 import type { SentimentMetric, SentimentPoint } from '@/shared/api/sentiment';
@@ -21,7 +22,7 @@ function pointAt(series: SentimentMetric['series'][number], timestamp: string) {
   return series.points.find((point) => point.timestamp === timestamp);
 }
 
-function reading(metric: SentimentMetric, point: SentimentPoint): string {
+function reading(metric: SentimentMetric, point: SentimentPoint, showYear: boolean): string {
   const values = metric.series
     .map((series) => {
       const found = pointAt(series, point.timestamp);
@@ -29,7 +30,7 @@ function reading(metric: SentimentMetric, point: SentimentPoint): string {
     })
     .filter(Boolean)
     .join('. ');
-  return `${formatChartDate(point.timestamp)}. ${values}.`;
+  return `${formatChartDate(point.timestamp, showYear)}. ${values}.`;
 }
 
 export function SentimentChart({ metric }: SentimentChartProps) {
@@ -41,6 +42,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
     Math.max(0, metric.series[0]?.points.length - 1),
   );
   const layout = useMemo(() => chartLayout(metric), [metric]);
+  const showYear = historySpansMoreThanYear(layout.time);
   const timeline = metric.series[0]?.points ?? [];
 
   if (!timeline.length) {
@@ -50,9 +52,9 @@ export function SentimentChart({ metric }: SentimentChartProps) {
   const selected = timeline[Math.min(selectedIndex, timeline.length - 1)];
   const selectedX = layout.xAt(selected.timestamp);
   const selectedY = layout.yAt(selected.value);
-  const selectedDate = formatChartDate(selected.timestamp);
+  const selectedDate = formatChartDate(selected.timestamp, showYear);
   const selectedValue = formatChartValue(selected.value);
-  const dateTagWidth = 92;
+  const dateTagWidth = showYear ? 64 : 44;
   const dateTagX = Math.min(
     Math.max(selectedX - dateTagWidth / 2, 2),
     SENTIMENT_VIEW.width - dateTagWidth - 2,
@@ -166,7 +168,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
                 y={SENTIMENT_VIEW.height - 18}
                 textAnchor="middle"
               >
-                {formatChartDate(point.timestamp)}
+                {formatChartDate(point.timestamp, showYear)}
               </text>
             ))}
           <text
@@ -306,7 +308,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
         </svg>
 
         <p id={statusId} className={styles.srOnly} role="status" aria-live="polite">
-          {isActive ? reading(metric, selected) : null}
+          {isActive ? reading(metric, selected, showYear) : null}
         </p>
         <span
           id={keyboardStatusId}
@@ -314,7 +316,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
           data-testid="sentiment-keyboard-reading"
           aria-live="polite"
         >
-          {keyboardActive ? reading(metric, selected) : null}
+          {keyboardActive ? reading(metric, selected, showYear) : null}
         </span>
       </div>
     </figure>

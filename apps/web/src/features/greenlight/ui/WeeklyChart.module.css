@@ -1,7 +1,25 @@
 .wrap {
-  position: relative;
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
   width: 100%;
   min-height: 300px;
+}
+
+.yAxis {
+  display: block;
+  width: 60px;
+  height: 300px;
+}
+
+.scroller {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.canvas {
+  position: relative;
+  height: 300px;
 }
 
 .svg {
@@ -22,7 +40,7 @@
 
 .axis {
   fill: var(--color-muted);
-  font-size: 0.7rem;
+  font-size: 0.65rem;
 }
 
 .axisSub {
@@ -32,6 +50,8 @@
 
 .bar {
   fill: var(--color-income);
+  stroke: var(--color-bg-2);
+  stroke-width: 1;
 }
 
 .emptyBar {

@@ -139,9 +139,11 @@ export function Positions({
                   className={styles.pick}
                   onClick={() => onSelect(position.symbol)}
                 >
-                  <span className={styles.symbol}>{position.symbol}</span>
-                  <span className={styles.holding}>
-                    {formatQuantity(position.quantity)} @ {formatAmount(position.averageCost)}
+                  <span className={styles.identity}>
+                    <span className={styles.symbol}>{position.symbol}</span>
+                    <span className={styles.holding}>
+                      {formatQuantity(position.quantity)} @ {formatAmount(position.averageCost)}
+                    </span>
                   </span>
 
                   {valuation ? (

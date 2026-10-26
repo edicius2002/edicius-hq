@@ -86,15 +86,22 @@
   cursor: pointer;
 }
 
-.symbol {
-  overflow: hidden;
+.identity {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-1);
   max-width: 100%;
-  /* Equal space on both sides keeps the ticker centered under the action pair. */
+  min-width: 0;
+  /* Keep the centered text clear of the edit and remove controls. */
   padding-inline: 2rem;
+}
+
+.symbol {
+  flex: none;
   color: var(--color-text);
   font-size: 0.7rem;
   font-weight: 700;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -107,6 +114,10 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.holding {
+  min-width: 0;
 }
 
 .waiting {

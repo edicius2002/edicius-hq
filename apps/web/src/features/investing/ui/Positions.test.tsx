@@ -37,7 +37,7 @@ describe('Positions', () => {
     expect(add.compareDocumentPosition(total) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('shows both the profit amount and percentage beside the position value', () => {
+  it('shows two rows: symbol with holding, then value with full variation', () => {
     render(
       <Positions
         portfolio={{
@@ -71,6 +71,12 @@ describe('Positions', () => {
         onMove={vi.fn()}
       />,
     );
+
+    const symbol = screen.getByText('AAPL');
+    const holding = screen.getByText('1 @ 5,233.05');
+    const card = screen.getByRole('button', { name: /^AAPL/ });
+    expect(symbol.parentElement).toBe(holding.parentElement);
+    expect(card.children).toHaveLength(2);
 
     const variation = screen.getByText('-110.65 · -2.11%');
     expect(variation.parentElement).toHaveTextContent('5,122.40-110.65 · -2.11%');

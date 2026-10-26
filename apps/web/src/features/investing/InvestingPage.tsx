@@ -25,10 +25,8 @@ import { alertSoundPlayer } from '@/features/investing/lib/alertSound';
 import { cadenceFor } from '@/features/investing/lib/session';
 import { IndicatorBar } from '@/features/investing/ui/IndicatorBar';
 import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
-import { PositionsTransfer } from '@/features/investing/ui/PositionsTransfer';
 import { PriceAlerts } from '@/features/investing/ui/PriceAlerts';
 import { SymbolSearch } from '@/features/investing/ui/SymbolSearch';
-import { TickerTape } from '@/features/investing/ui/TickerTape';
 import { Watchlist } from '@/features/investing/ui/Watchlist';
 import type { Bar, Quote } from '@/shared/api/market';
 import { Panel } from '@/shared/ui/Panel';
@@ -147,7 +145,7 @@ export function InvestingPage() {
     !watchlist.isFetching && !holdings.isFetching && (candles.bars.length > 0 || candles.isError),
   );
   // Functions of the merged bars alone, so they survive every pan and zoom untouched.
-  const series = useIndicatorSeries(candles.bars, indicators, timeframe);
+  const series = useIndicatorSeries(candles.bars, indicators);
 
   // The poll behind it is a sweep, not a cadence, and it slows only while the
   // stream is actually live: a dead socket puts the page straight back on the
@@ -198,15 +196,6 @@ export function InvestingPage() {
   // The swept quotes with every tick since laid over them. The sweep is the
   // row; the stream only moves the price on it.
   const bySymbol = useMemo(() => applyTicks(swept, [...ticks.values()]), [swept, ticks]);
-  const tapeQuotes = useMemo(
-    () =>
-      wanted.flatMap((wantedSymbol) => {
-        const quote = bySymbol.get(wantedSymbol);
-        return quote ? [quote] : [];
-      }),
-    [wanted, bySymbol],
-  );
-
   const learnNames = watchlist.learnNames;
   // A symbol added by hand starts named after itself; the provider knows better.
   useEffect(() => {
@@ -219,7 +208,6 @@ export function InvestingPage() {
   const marketState = charted?.marketState;
   const statusLabel =
     (marketState ? MARKET_STATE_LABEL[marketState] : undefined) ?? REGIME_LABEL[candles.regime];
-  const ghosts = candles.bars.filter((bar, index) => candles.isGhost(bar, index)).length;
   const positionTotals = useMemo(
     () =>
       totalsByCurrency(
@@ -235,10 +223,6 @@ export function InvestingPage() {
       className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
       aria-label={chartFocused ? 'Focused investing chart' : 'Investing'}
     >
-      <div className={styles.tickerWrap}>
-        <TickerTape quotes={tapeQuotes} onSelect={setSymbol} />
-      </div>
-
       <div
         className={`${styles.workspace} ${!marketPanelOpen || chartFocused ? styles.workspaceWide : ''}`}
       >
@@ -335,18 +319,7 @@ export function InvestingPage() {
             />
           )}
 
-          <IndicatorBar
-            indicators={indicators}
-            timeframe={timeframe}
-            onToggle={(id) => void toggleIndicator(id)}
-          />
-
-          <p className={styles.note}>
-            {candles.bars.length} bars
-            {ghosts > 0 ? <> · {ghosts} extended</> : null}
-            {candles.isStale ? <> · data delayed</> : null}
-            {candles.provider ? <> · {candles.provider}</> : null} · drag to pan, scroll to zoom
-          </p>
+          <IndicatorBar indicators={indicators} onToggle={(id) => void toggleIndicator(id)} />
         </Panel>
 
         {/*
@@ -362,23 +335,20 @@ export function InvestingPage() {
           hidden={!marketPanelOpen || chartFocused}
         >
           <div className={styles.railHeader}>
-            <h2 id="investing-watchlist-title" className={styles.panelTitle}>
+            <h2 id="investing-watchlist-title" className={styles.srOnly}>
               Watchlist
             </h2>
+            <div className={styles.railSearch}>
+              <SymbolSearch
+                following={new Set(watchlist.symbols)}
+                onPick={(picked, name) => {
+                  void watchlist.add(picked, name);
+                  setSymbol(picked);
+                }}
+              />
+            </div>
             <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
           </div>
-
-          {watchlist.isPending ? (
-            <Skeleton width="100%" height={32} />
-          ) : (
-            <SymbolSearch
-              following={new Set(watchlist.symbols)}
-              onPick={(picked, name) => {
-                void watchlist.add(picked, name);
-                setSymbol(picked);
-              }}
-            />
-          )}
 
           {watchlist.isPending ? (
             <RowsSkeleton label="Loading watchlist" variant="watchlist" rows={6} />
@@ -425,19 +395,6 @@ export function InvestingPage() {
           ) : (
             <PositionTotals totals={positionTotals} />
           )}
-          {/* This belongs with the panel summary: import affects the whole portfolio,
-              while Add position is the primary action inside its editing surface. */}
-          {!holdings.isPending ? (
-            <PositionsTransfer
-              portfolio={holdings.portfolio}
-              disabled={holdings.isError}
-              onImport={async (positions) => {
-                const summary = await holdings.merge(positions);
-                await Promise.all(positions.map((position) => watchlist.add(position.symbol)));
-                return summary;
-              }}
-            />
-          ) : null}
         </div>
 
         {holdings.isPending ? (

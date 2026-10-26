@@ -9,11 +9,9 @@ import {
   bollinger,
   closesOf,
   ema,
-  hasIntradaySessions,
   macd,
   rsi,
   sma,
-  vwap,
 } from '@/features/investing/lib/indicators';
 import type { Bar } from '@/shared/api/market';
 
@@ -28,11 +26,7 @@ import type { Bar } from '@/shared/api/market';
  *
  * An indicator that is off is not computed at all; the field is simply absent.
  */
-export function useIndicatorSeries(
-  bars: Bar[],
-  indicators: Indicators,
-  timeframe: string,
-): IndicatorSeries {
+export function useIndicatorSeries(bars: Bar[], indicators: Indicators): IndicatorSeries {
   const active = indicators.active.join(',');
 
   return useMemo(() => {
@@ -52,19 +46,11 @@ export function useIndicatorSeries(
     if (has('sma')) series.sma = sma(closes, SMA_PERIOD);
     if (has('ema')) series.ema = ema(closes, EMA_PERIOD);
     if (has('bollinger')) series.bollinger = bollinger(closes, BOLLINGER_PERIOD);
-    // Session VWAP degenerates to the typical price when every bar is its own
-    // session, so it is not offered — or computed — outside intraday.
-    if (has('vwap') && hasIntradaySessions(timeframe)) series.vwap = vwap(bars);
     if (has('rsi')) series.rsi = rsi(closes);
     if (has('macd')) series.macd = macd(closes);
 
     return series;
-  }, [bars, active, timeframe]);
-}
-
-/** Whether an indicator can say anything on this timeframe. */
-export function isOffered(id: string, timeframe: string): boolean {
-  return id !== 'vwap' || hasIntradaySessions(timeframe);
+  }, [bars, active]);
 }
 
 export { isActive };

@@ -12,7 +12,7 @@
 export const INDICATORS_KEY = 'indicators';
 
 /** Overlays draw on the price; panes get a band of their own below it. */
-export const OVERLAY_IDS = ['sma', 'ema', 'bollinger', 'vwap'] as const;
+export const OVERLAY_IDS = ['sma', 'ema', 'bollinger'] as const;
 export const PANE_IDS = ['volume', 'rsi', 'macd'] as const;
 
 export type OverlayId = (typeof OVERLAY_IDS)[number];

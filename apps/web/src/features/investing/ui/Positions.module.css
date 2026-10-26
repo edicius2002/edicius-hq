@@ -17,8 +17,8 @@
  * border either side and a card needs 188px, rounded up to the 9.5rem below.
  *
  * `auto-fill` then decides the count, because the count is not ours to decide:
- * on the 1141px page 12.54 measured, less the panel's 20px padding either side,
- * floor((1101 + 10) / (190 + 10)) is five across, and the same arithmetic gives
+ * on the 1141px page 12.54 measured, less the panel's 10px padding either side,
+ * floor((1121 + 10) / (190 + 10)) is five across, and the same arithmetic gives
  * four, three, two and one as the window narrows. `min(9.5rem, 100%)` is what
  * makes the last of those true — a bare 9.5rem floor would overflow a panel
  * narrower than one card rather than shrinking it.

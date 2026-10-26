@@ -109,8 +109,8 @@ export function projectMonths(
   return rows;
 }
 
-/** A year the right-hand table names, read off the month it ends on. */
-export type ProjectedYear = { year: number; balance: number; gain: number };
+/** A year the right-hand table names, with the amount earned in that year. */
+export type ProjectedYear = { year: number; balance: number; earned: number };
 
 /**
  * The named years, read from the months already projected.
@@ -125,7 +125,12 @@ export function yearsFrom(rows: ProjectedMonth[], marks: number[] = YEAR_MARKS):
   for (const year of marks) {
     const row = rows[year * MONTHS_PER_YEAR - 1];
     if (!row) continue;
-    years.push({ year, balance: row.balance, gain: row.gain });
+    const previousYearBalance = rows[(year - 1) * MONTHS_PER_YEAR - 1]?.balance;
+    years.push({
+      year,
+      balance: row.balance,
+      earned: row.balance - (previousYearBalance ?? row.balance - row.gain),
+    });
   }
   return years;
 }

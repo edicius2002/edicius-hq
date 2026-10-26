@@ -1,7 +1,4 @@
-/*
- * Four cards fit at the owner's desktop width. Smaller screens give the cards
- * a column back before the longest fee label and amount stop fitting.
- */
+/* Four cards fit at desktop width; smaller screens give each card more room. */
 .list {
   display: grid;
   gap: var(--space-3);
@@ -9,15 +6,11 @@
   margin-top: var(--space-4);
 }
 
-/*
- * The range stays above the three metrics so each card can use a quarter of
- * the row. Compact padding and type preserve space for the longest fee label.
- */
 .card {
   display: grid;
   align-content: start;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: 0.25rem;
+  padding: 0.3rem;
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
   background: var(--color-surface-soft);
@@ -33,57 +26,43 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: 0.3rem;
 }
 
 .range {
-  font-size: 0.75rem;
+  font-size: 0.65rem;
   font-weight: 700;
 }
 
 .eyebrow {
   color: var(--color-muted);
-  font-size: 0.62rem;
+  font-size: 0.5rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-/*
- * One metric per line at a quarter of a row, two when the months fold to one
- * column and the card gets the whole list. `auto-fit` counts them rather than a
- * media query, because unlike the card grid there is no rule to place here and
- * nothing that needs to know the number.
- *
- * The floor is the widest line a metric has to print whole: `Fee (under min)`
- * beside a grouped five-place figure needs about 222px. 11.2rem rounds that up.
- *
- * `min(13.5rem, 100%)` and not `13.5rem`, for the reason `Positions` gives:
- * a bare floor is a floor the only column still has to clear. Under
- * `min()` the single column shrinks with the card instead, and the label wraps.
- */
 .metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(11.2rem, 100%), 1fr));
-  gap: var(--space-1) var(--space-5);
-}
-
-/* Label left, figure right: at this width the two would otherwise sit in the
-   middle of the card with the eye having to find which is which. */
-.metric {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.4rem;
+  gap: 0.25rem;
+}
+
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: 0.1rem;
+  white-space: nowrap;
 }
 
 .metric span {
   color: var(--color-muted);
-  font-size: 0.62rem;
+  font-size: 0.48rem;
 }
 
 .metric strong {
-  font-size: 0.85rem;
+  font-size: 0.58rem;
 }
 
 .income {

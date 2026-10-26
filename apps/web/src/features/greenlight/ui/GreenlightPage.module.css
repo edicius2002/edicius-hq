@@ -66,14 +66,14 @@
  * space instead of resizing the page. Further segments still grow it, but a row
  * at a time rather than in a jump.
  *
- * The compact cards take about 161px including the list margin. 8.2rem
+ * The compact cards take about 80px including the list margin. 4.2rem
  * reserves the first row with a little room to spare.
  * `segmentGrid.test.ts` does that arithmetic against the card's own stylesheet,
  * because a reserve for a height that lives in another file is exactly the kind
  * that drifts.
  */
 .segmentsSlot {
-  min-height: 8.2rem;
+  min-height: 4.2rem;
 }
 
 .muted {

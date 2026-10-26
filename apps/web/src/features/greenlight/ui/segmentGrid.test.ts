@@ -54,31 +54,25 @@ describe('Greenlight fee cards', () => {
     expect(columns(rule(media(943), 'list'))).toBe(1);
   });
 
-  it('fits the longest metric line inside a desktop card', () => {
-    const metricWidth =
-      'Fee (under min)'.length * fontSize(partRule('metric', 'span')) * 0.6 +
-      0.4 * REM_PX +
-      '$12,345.67'.length * fontSize(partRule('metric', 'strong')) * 0.6;
-    const cardWidth = (1099.2 - 3 * 15) / 4;
-    const insideWidth = cardWidth - 2 * 10 - 4;
-
-    expect(metricWidth).toBeCloseTo(221.6, 1);
-    expect(metricWidth).toBeLessThanOrEqual(insideWidth);
-    expect(rule(CSS, 'metrics')).toMatch(/minmax\(min\(11\.2rem,\s*100%\),\s*1fr\)/);
+  it('places all three label-value pairs on one horizontal row', () => {
+    expect(rule(CSS, 'metrics')).toMatch(/display:\s*flex/);
+    expect(rule(CSS, 'metrics')).toMatch(/justify-content:\s*space-between/);
+    expect(rule(CSS, 'metric')).toMatch(/display:\s*flex/);
+    expect(rule(CSS, 'metric')).toMatch(/white-space:\s*nowrap/);
   });
 
   it('reserves enough height for the first row of marker segments', () => {
     const cardHeight =
-      2 * 10 +
+      2 * 6 +
       2 +
       fontSize(rule(CSS, 'range')) * 1.5 +
-      10 +
-      3 * fontSize(partRule('metric', 'strong')) * 1.5 +
-      2 * 5;
+      5 +
+      fontSize(partRule('metric', 'strong')) * 1.5;
     const reserved =
       Number(/min-height:\s*([\d.]+)rem/.exec(rule(PAGE, 'segmentsSlot'))?.[1]) * REM_PX;
 
-    expect(cardHeight).toBeCloseTo(141, 1);
+    expect(cardHeight).toBeLessThan(60);
     expect(reserved).toBeGreaterThanOrEqual(cardHeight + 20);
+    expect(reserved).toBeLessThan(100);
   });
 });

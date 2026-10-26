@@ -89,6 +89,7 @@ describe('the first year', () => {
   it('earns $101.89 in month 1 and closes the year at $21,634.66', () => {
     renderProjector(<CompoundProjector capital={NET} />);
     const table = firstYearTable();
+    expect(table.getByRole('columnheader', { name: 'Earned' })).toBeInTheDocument();
     expect(table.getByText('$101.89')).toBeInTheDocument();
     expect(table.getByText('$20,479.69')).toBeInTheDocument();
     // Month 2 earns more than month 1, because month 1's interest was left in.
@@ -107,7 +108,7 @@ describe('the first year', () => {
 
   it('foots the year at $1,256.86, which is more than 6% of the capital', () => {
     renderProjector(<CompoundProjector capital={NET} />);
-    expect(screen.getByText('Year 1 interest')).toBeInTheDocument();
+    expect(screen.getByText('Year 1 earned')).toBeInTheDocument();
     expect(screen.getByText('$1,256.86')).toBeInTheDocument();
     // 6% of $20,377.80 is $1,222.67, and the difference is the whole subject.
     expect(screen.queryByText('$1,222.67')).toBeNull();
@@ -126,12 +127,14 @@ describe('by year', () => {
     ).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
   });
 
-  it('reaches $37,075.30 at ten years, having earned $16,697.50', () => {
+  it('reaches $37,075.30 at ten years and shows earnings for each separate year', () => {
     renderProjector(<CompoundProjector capital={NET} />);
     expect(lastYearsTable().getByText('$37,075.30')).toBeInTheDocument();
-    expect(lastYearsTable().getByText('+$16,697.50')).toBeInTheDocument();
+    expect(lastYearsTable().getByText('+$2,153.88')).toBeInTheDocument();
     expect(firstYearsTable().getByText('$27,486.60')).toBeInTheDocument();
-    expect(firstYearsTable().getByText('+$7,108.80')).toBeInTheDocument();
+    expect(firstYearsTable().getByText('+$1,596.82')).toBeInTheDocument();
+    expect(firstYearsTable().getByText('+$1,334.38')).toBeInTheDocument();
+    expect(screen.queryByText('+$16,697.50')).toBeNull();
   });
 
   it('prints year 1 from the same month the first table ends on', () => {

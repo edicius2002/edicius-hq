@@ -54,17 +54,8 @@ export function SentimentChart({ metric }: SentimentChartProps) {
   const selectedY = layout.yAt(selected.value);
   const selectedDate = formatChartDate(selected.timestamp, showYear);
   const selectedValue = formatChartValue(selected.value);
-  const dateTagWidth = showYear ? 64 : 44;
-  const dateTagX = Math.min(
-    Math.max(selectedX - dateTagWidth / 2, 2),
-    SENTIMENT_VIEW.width - dateTagWidth - 2,
-  );
-  const valueTagWidth = Math.max(44, selectedValue.length * 6 + 12);
-  const valueTagX = Math.max(2, SENTIMENT_PLOT.left - valueTagWidth - 4);
-  const valueTagY = Math.min(
-    Math.max(selectedY - 9, SENTIMENT_PLOT.top),
-    SENTIMENT_PLOT.bottom - 18,
-  );
+  const selectedXPercent = `${(selectedX / SENTIMENT_VIEW.width) * 100}%`;
+  const selectedYPercent = `${(selectedY / SENTIMENT_VIEW.height) * 100}%`;
   const referencePoints = metric.series.slice(1).flatMap((series) => {
     const point = pointAt(series, selected.timestamp);
     return point ? [{ key: series.key, value: point.value, y: layout.yAt(point.value) }] : [];
@@ -221,91 +212,54 @@ export function SentimentChart({ metric }: SentimentChartProps) {
                 />
                 <circle className={styles.marker} r={4} />
               </g>
-              <g
-                className={styles.axisReadingY}
-                style={{ transform: `translateY(${selectedY}px)` }}
-              >
-                <rect
-                  className={styles.axisTag}
-                  x={valueTagX}
-                  y={valueTagY - selectedY}
-                  width={valueTagWidth}
-                  height={18}
-                  rx={3}
-                />
-                <text
-                  className={styles.axisTagText}
-                  data-testid="sentiment-y-reading"
-                  x={valueTagX + valueTagWidth / 2}
-                  y={valueTagY - selectedY + 12.5}
-                  textAnchor="middle"
+              {referencePoints.map((point) => (
+                <g
+                  key={point.key}
+                  className={styles.referenceReading}
+                  style={{ transform: `translate(${selectedX}px, ${point.y}px)` }}
                 >
-                  {selectedValue}
-                </text>
-              </g>
-              <g
-                className={styles.axisReadingX}
-                style={{ transform: `translateX(${selectedX}px)` }}
-              >
-                <rect
-                  className={styles.axisTag}
-                  x={dateTagX - selectedX}
-                  y={SENTIMENT_PLOT.bottom + 5}
-                  width={dateTagWidth}
-                  height={18}
-                  rx={3}
-                />
-                <text
-                  className={styles.axisTagText}
-                  data-testid="sentiment-x-reading"
-                  x={dateTagX - selectedX + dateTagWidth / 2}
-                  y={SENTIMENT_PLOT.bottom + 17.5}
-                  textAnchor="middle"
-                >
-                  {selectedDate}
-                </text>
-              </g>
-              {referencePoints.map((point) => {
-                const value = formatChartValue(point.value);
-                const width = Math.max(44, value.length * 6 + 12);
-                const x =
-                  selectedX + 10 + width < SENTIMENT_PLOT.right
-                    ? selectedX + 10
-                    : selectedX - width - 10;
-                const y = Math.min(
-                  Math.max(point.y - 9, SENTIMENT_PLOT.top),
-                  SENTIMENT_PLOT.bottom - 18,
-                );
-                return (
-                  <g
-                    key={point.key}
-                    className={styles.referenceReading}
-                    style={{ transform: `translate(${selectedX}px, ${point.y}px)` }}
-                  >
-                    <circle className={styles.referenceMarker} r={3} />
-                    <rect
-                      className={styles.referenceTag}
-                      x={x - selectedX}
-                      y={y - point.y}
-                      width={width}
-                      height={18}
-                      rx={3}
-                    />
-                    <text
-                      className={styles.referenceTagText}
-                      data-testid={`sentiment-y-reading-${point.key}`}
-                      x={x - selectedX + width / 2}
-                      y={y - point.y + 12.5}
-                      textAnchor="middle"
-                    >
-                      {value}
-                    </text>
-                  </g>
-                );
-              })}
+                  <circle className={styles.referenceMarker} r={3} />
+                </g>
+              ))}
             </g>
           ) : null}
         </svg>
+
+        {isActive ? (
+          <div className={styles.readings} aria-hidden="true">
+            <span
+              className={`${styles.label} ${styles.yLabel}`}
+              data-testid="sentiment-y-reading"
+              style={{ top: `clamp(11px, ${selectedYPercent}, calc(100% - 11px))` }}
+            >
+              {selectedValue}
+            </span>
+            <span
+              className={`${styles.label} ${styles.xLabel}`}
+              data-testid="sentiment-x-reading"
+              style={{ left: `clamp(40px, ${selectedXPercent}, calc(100% - 40px))` }}
+            >
+              {selectedDate}
+            </span>
+            {referencePoints.map((point) => (
+              <span
+                key={point.key}
+                className={`${styles.label} ${styles.referenceLabel} ${
+                  selectedX < (SENTIMENT_PLOT.left + SENTIMENT_PLOT.right) / 2
+                    ? styles.referenceRight
+                    : styles.referenceLeft
+                }`}
+                data-testid={`sentiment-y-reading-${point.key}`}
+                style={{
+                  left: `${(selectedX / SENTIMENT_VIEW.width) * 100}%`,
+                  top: `clamp(11px, ${(point.y / SENTIMENT_VIEW.height) * 100}%, calc(100% - 11px))`,
+                }}
+              >
+                {formatChartValue(point.value)}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <p id={statusId} className={styles.srOnly} role="status" aria-live="polite">
           {isActive ? reading(metric, selected, showYear) : null}

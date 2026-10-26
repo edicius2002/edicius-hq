@@ -85,8 +85,6 @@
 }
 
 .crosshair,
-.axisReadingX,
-.axisReadingY,
 .referenceReading {
   pointer-events: none;
   transition: transform 80ms ease-out;
@@ -111,18 +109,37 @@
   vector-effect: non-scaling-stroke;
 }
 
-.axisTag,
-.referenceTag {
-  fill: var(--color-text);
+.readings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
-.axisTagText,
-.referenceTagText {
-  fill: var(--color-surface);
+.label {
+  position: absolute;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: var(--color-text);
+  color: var(--color-surface);
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: 0.7rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    left 80ms ease-out,
+    top 80ms ease-out;
+}
+
+.yLabel {
+  left: 2px;
+  transform: translateY(-50%);
+}
+
+.xLabel {
+  top: 90%;
+  transform: translate(-50%, -50%);
 }
 
 .referenceMarker {
@@ -132,15 +149,18 @@
   vector-effect: non-scaling-stroke;
 }
 
-.referenceTag {
-  fill: var(--color-surface);
-  stroke: var(--color-accent);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+.referenceLabel {
+  border: 1px solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
-.referenceTagText {
-  fill: var(--color-text);
+.referenceRight {
+  transform: translate(10px, -50%);
+}
+
+.referenceLeft {
+  transform: translate(calc(-100% - 10px), -50%);
 }
 
 .srOnly {
@@ -167,9 +187,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .crosshair,
-  .axisReadingX,
-  .axisReadingY,
-  .referenceReading {
+  .referenceReading,
+  .label {
     transition: none;
   }
 }

@@ -141,10 +141,10 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
                         Month
                       </th>
                       <th scope="col" className={styles.numeric}>
-                        Earned
+                        Balance
                       </th>
                       <th scope="col" className={styles.numeric}>
-                        Balance
+                        Earned
                       </th>
                     </tr>
                   </thead>
@@ -152,8 +152,10 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
                     {half.map((row) => (
                       <tr key={row.month}>
                         <td className={styles.numeric}>{row.month}</td>
-                        <td className={styles.numeric}>{formatMoney(row.interest, currency)}</td>
                         <td className={styles.numeric}>{formatMoney(row.balance, currency)}</td>
+                        <td className={`${styles.numeric} ${styles.gain}`}>
+                          {signedMoney(row.interest, currency)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -162,7 +164,9 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
             </div>
             <p className={styles.yearInterest}>
               <span>Year 1 earned</span>
-              <strong>{formatMoney(firstYearInterest(rows), currency)}</strong>
+              <strong className={styles.gain}>
+                {signedMoney(firstYearInterest(rows), currency)}
+              </strong>
             </p>
           </section>
 

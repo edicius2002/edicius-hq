@@ -81,7 +81,7 @@ describe('the rate it is told about', () => {
     expect(screen.getByText('1.000%')).toBeInTheDocument();
     expect(screen.getByText('12.6825%')).toBeInTheDocument();
     // A month of 1% on $1,000.
-    expect(firstYearTable().getByText('$10.00')).toBeInTheDocument();
+    expect(firstYearTable().getByText('+$10.00')).toBeInTheDocument();
   });
 });
 
@@ -89,13 +89,23 @@ describe('the first year', () => {
   it('earns $101.89 in month 1 and closes the year at $21,634.66', () => {
     renderProjector(<CompoundProjector capital={NET} />);
     const table = firstYearTable();
-    expect(table.getByRole('columnheader', { name: 'Earned' })).toBeInTheDocument();
-    expect(table.getByText('$101.89')).toBeInTheDocument();
+    expect(table.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Month',
+      'Balance',
+      'Earned',
+    ]);
+    const firstRow = within(table.getAllByRole('row')[1]);
+    expect(firstRow.getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '1',
+      '$20,479.69',
+      '+$101.89',
+    ]);
+    expect(firstRow.getByText('+$101.89').className).toMatch(/gain/);
     expect(table.getByText('$20,479.69')).toBeInTheDocument();
     // Month 2 earns more than month 1, because month 1's interest was left in.
-    expect(table.getByText('$102.40')).toBeInTheDocument();
+    expect(table.getByText('+$102.40')).toBeInTheDocument();
     expect(table.getByText('$20,582.09')).toBeInTheDocument();
-    expect(secondHalfTable().getByText('$107.64')).toBeInTheDocument();
+    expect(secondHalfTable().getByText('+$107.64')).toBeInTheDocument();
   });
 
   it('shows twelve months and no more', () => {
@@ -108,8 +118,8 @@ describe('the first year', () => {
 
   it('foots the year at $1,256.86, which is more than 6% of the capital', () => {
     renderProjector(<CompoundProjector capital={NET} />);
-    expect(screen.getByText('Year 1 earned')).toBeInTheDocument();
-    expect(screen.getByText('$1,256.86')).toBeInTheDocument();
+    const footer = screen.getByText('Year 1 earned').parentElement;
+    expect(within(footer as HTMLElement).getByText('+$1,256.86')).toBeInTheDocument();
     // 6% of $20,377.80 is $1,222.67, and the difference is the whole subject.
     expect(screen.queryByText('$1,222.67')).toBeNull();
   });
@@ -152,7 +162,7 @@ describe('the capital', () => {
     // 20,377.80 and not 20,338.80 — the flat-10% figure, which is $39 out
     // because the fee is charged per marker period and small periods are exempt.
     expect(capitalField()).toHaveValue('20377,8');
-    expect(firstYearTable().getByText('$101.89')).toBeInTheDocument();
+    expect(firstYearTable().getByText('+$101.89')).toBeInTheDocument();
   });
 
   it('rounds the float the net actually is, so the field agrees with the Stat', () => {
@@ -167,7 +177,7 @@ describe('the capital', () => {
     expect(capitalField()).toHaveValue('1000');
     // And the whole section is projected from it, not just the field: 0.5% of
     // $1,000 rather than the $101.89 the page's own net would have earned.
-    expect(firstYearTable().getByText('$5.00')).toBeInTheDocument();
+    expect(firstYearTable().getByText('+$5.00')).toBeInTheDocument();
   });
 
   it('keeps a remembered capital when a later net arrives, and gives it up when the field is cleared', () => {
@@ -194,7 +204,7 @@ describe('the capital', () => {
     expect(capitalField()).toHaveValue('20377,8');
 
     fireEvent.change(capitalField(), { target: { value: '1000' } });
-    expect(firstYearTable().getByText('$5.00')).toBeInTheDocument();
+    expect(firstYearTable().getByText('+$5.00')).toBeInTheDocument();
 
     // A later net does not overwrite what the reader put there.
     view.rerender(<CompoundProjector capital={30000} />);
@@ -219,7 +229,7 @@ describe('the capital', () => {
     fireEvent.change(capitalField(), { target: { value: '2000,50' } });
     const table = firstYearTable();
     // 0.5% of 2,000.50.
-    expect(table.getByText('$10.00')).toBeInTheDocument();
+    expect(table.getByText('+$10.00')).toBeInTheDocument();
     expect(table.getByText('$2,010.50')).toBeInTheDocument();
   });
 });
@@ -227,6 +237,6 @@ describe('the capital', () => {
 describe('the currency it is told to use', () => {
   it('writes the currency the page is keeping rather than assuming dollars', () => {
     renderProjector(<CompoundProjector capital={1000} currency="EUR" />);
-    expect(firstYearTable().getByText('€5.00')).toBeInTheDocument();
+    expect(firstYearTable().getByText('+€5.00')).toBeInTheDocument();
   });
 });

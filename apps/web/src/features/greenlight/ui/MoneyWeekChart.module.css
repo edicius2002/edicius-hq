@@ -16,9 +16,9 @@
 
 .monthTitle {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--space-2);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1);
   margin: 0;
   font-size: 0.72rem;
   font-weight: 700;
@@ -33,7 +33,7 @@
 }
 
 .monthTitle strong {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
   color: var(--color-income);
   font-variant-numeric: tabular-nums;
@@ -44,11 +44,12 @@
 }
 
 .toolChips {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  justify-content: center;
+  gap: 0.2rem;
 }
 
 .toolChip {
@@ -269,16 +270,16 @@
 
 @media (max-width: 420px) {
   .monthTitle {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .monthTitle strong {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .toolChips {
-    grid-row: 3;
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }

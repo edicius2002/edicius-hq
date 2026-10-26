@@ -45,6 +45,13 @@ describe('Greenlight week layout', () => {
     expect(columns(rule(media(400), 'weeks'))).toBe(1);
   });
 
+  it('places subscription controls between the month and its amount', () => {
+    expect(rule(CSS, 'monthTitle')).toMatch(/grid-template-columns:\s*auto minmax\(0, 1fr\) auto/);
+    expect(rule(CSS, 'toolChips')).toMatch(/grid-column:\s*2/);
+    expect(rule(CSS, 'toolChips')).toMatch(/grid-row:\s*1/);
+    expect(rule(CSS, 'toolChips')).toMatch(/justify-content:\s*center/);
+  });
+
   it('makes the centered month percentage larger than the amount', () => {
     expect(fontSize(rule(CSS, 'weekPctValue'))).toBeGreaterThan(fontSize(rule(CSS, 'weekValue')));
     expect(rule(CSS, 'weekPct')).toMatch(/align-items:\s*center/);

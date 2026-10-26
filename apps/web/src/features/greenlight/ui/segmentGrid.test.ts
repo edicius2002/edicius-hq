@@ -61,6 +61,14 @@ describe('Greenlight fee cards', () => {
     expect(rule(CSS, 'metric')).toMatch(/white-space:\s*nowrap/);
   });
 
+  it('puts the week count in the upper right and keeps the larger metric type', () => {
+    expect(rule(CSS, 'header')).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) auto/);
+    expect(rule(CSS, 'eyebrow')).toMatch(/justify-self:\s*end/);
+    expect(rule(CSS, 'eyebrow')).toMatch(/margin-inline-end:\s*0\.2rem/);
+    expect(fontSize(partRule('metric', 'span'))).toBeGreaterThan(0.48 * REM_PX);
+    expect(fontSize(partRule('metric', 'strong'))).toBeGreaterThan(0.58 * REM_PX);
+  });
+
   it('reserves enough height for the first row of marker segments', () => {
     const cardHeight =
       2 * 6 +

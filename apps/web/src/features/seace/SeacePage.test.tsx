@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SeacePage } from './SeacePage';
-import type { SeacePageQuery, SeaceRow } from './data';
+import { SeacePartialRestoreError, type SeacePageQuery, type SeaceRow } from './data';
 
 const mocks = vi.hoisted(() => ({
   loadSeacePage: vi.fn(),
@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('./data', () => ({
   ...mocks,
+  SeacePartialRestoreError: class SeacePartialRestoreError extends Error {
+    constructor() {
+      super('Some records may have been restored. Refreshing the table.');
+    }
+  },
   exclusionKey: (row: { payload: Record<string, unknown> }) =>
     `minor:${JSON.stringify([row.payload.region, row.payload.code])}`,
 }));
@@ -36,7 +41,7 @@ const peru = (date: Date) =>
 
 function mount(path = '/seace/recent') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -48,6 +53,7 @@ function mount(path = '/seace/recent') {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...result, client };
 }
 
 describe('SEACE views', () => {
@@ -614,6 +620,237 @@ describe('SEACE views', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
     expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
+  });
+
+  it('removes a selected record while the exclusion write is still pending', async () => {
+    let finishWrite!: () => void;
+    mocks.setExcludedMany.mockImplementation(
+      (keys: string[]) =>
+        new Promise<void>((resolve) => {
+          finishWrite = () => {
+            keys.forEach((key) => excludedKeys.add(key));
+            resolve();
+          };
+        }),
+    );
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+    expect(mocks.setExcludedMany).toHaveBeenCalledTimes(1);
+    await act(async () => finishWrite());
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
+  });
+
+  it('keeps the current page number while its last row is pending exclusion', async () => {
+    const originalLoad = mocks.loadSeacePage.getMockImplementation()! as (
+      query: SeacePageQuery,
+    ) => Promise<{ rows: SeaceRow[]; total: number }>;
+    const key = 'minor:["Arequipa","CM-RECENT"]';
+    mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) => {
+      if (query.view === 'recent' && query.minorOnly && !query.excluded) {
+        const removed = excludedKeys.has(key);
+        return Promise.resolve({
+          total: removed ? 50 : 51,
+          rows: query.page === 2 ? (removed ? [] : [fixtureRows[0]]) : [fixtureRows[1]],
+        });
+      }
+      return originalLoad(query);
+    });
+    let finishWrite!: () => void;
+    mocks.setExcludedMany.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = () => {
+            excludedKeys.add(key);
+            resolve();
+          };
+        }),
+    );
+
+    mount();
+    await screen.findByText('CM-OLDER');
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByText('CM-RECENT');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
+    expect(screen.getByText('0 shown of 51')).toBeInTheDocument();
+    await act(async () => finishWrite());
+  });
+
+  it('restores the row and selection when an exclusion write fails', async () => {
+    let failWrite!: () => void;
+    mocks.setExcludedMany.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failWrite = () => reject(new Error('Write refused'));
+        }),
+    );
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+
+    await act(async () => failWrite());
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select CM-RECENT' })).toBeChecked();
+    expect(screen.getByRole('status')).toHaveTextContent('Write refused');
+  });
+
+  it('refetches server state without reselecting after a partial restore', async () => {
+    const key = 'minor:["Arequipa","CM-RECENT"]';
+    excludedKeys.add(key);
+    let failWrite!: () => void;
+    mocks.setExcludedMany.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failWrite = () => {
+            excludedKeys.delete(key);
+            reject(new SeacePartialRestoreError());
+          };
+        }),
+    );
+
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    await screen.findByText('CM-RECENT');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore selected (1)' }));
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+
+    await act(async () => failWrite());
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Restore selected (0)' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Some records');
+  });
+
+  it('keeps an optimistically removed row hidden when an older page read resolves', async () => {
+    const originalLoad = mocks.loadSeacePage.getMockImplementation()! as (
+      query: SeacePageQuery,
+    ) => Promise<{ rows: SeaceRow[]; total: number }>;
+    let finishRead!: () => void;
+    let finishWrite!: () => void;
+    let holdRead = false;
+    mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) =>
+      holdRead && query.view === 'recent' && !query.excluded && query.minorOnly
+        ? new Promise((resolve) => {
+            finishRead = () => resolve({ rows: [fixtureRows[0]], total: 1 });
+          })
+        : originalLoad(query),
+    );
+    mocks.setExcludedMany.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishWrite = () => {
+            excludedKeys.add('minor:["Arequipa","CM-RECENT"]');
+            holdRead = false;
+            resolve();
+          };
+        }),
+    );
+
+    const { client } = mount();
+    await screen.findByText('CM-RECENT');
+    holdRead = true;
+    void client.invalidateQueries({ queryKey: ['seace', 'page'], refetchType: 'active' });
+    await waitFor(() => expect(finishRead).toBeDefined());
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+    await act(async () => finishRead());
+    expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument();
+    await act(async () => finishWrite());
+  });
+
+  it('does not reselect a failed write after switching exclusion views', async () => {
+    let failWrite!: () => void;
+    mocks.setExcludedMany.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failWrite = () => reject(new Error('Write refused'));
+        }),
+    );
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Excluded' }));
+    await act(async () => failWrite());
+
+    expect(screen.getByRole('button', { name: 'Restore selected (0)' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Not excluded' }));
+    expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select CM-RECENT' })).not.toBeChecked();
+  });
+
+  it('does not prefetch stale exclusion views while a write is pending', async () => {
+    let finishWrite!: () => void;
+    const { client } = mount();
+    await screen.findByText('CM-RECENT');
+    await waitFor(() =>
+      expect(mocks.loadSeacePage.mock.calls.some(([query]) => query.excluded)).toBe(true),
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['seace', 'page'], refetchType: 'none' });
+    });
+    const callsBeforeWrite = mocks.loadSeacePage.mock.calls.length;
+    mocks.setExcludedMany.mockImplementation(
+      (keys: string[]) =>
+        new Promise<void>((resolve) => {
+          finishWrite = () => {
+            keys.forEach((key) => excludedKeys.add(key));
+            resolve();
+          };
+        }),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+    await waitFor(() => expect(screen.queryByText('CM-RECENT')).not.toBeInTheDocument());
+    expect(mocks.loadSeacePage.mock.calls).toHaveLength(callsBeforeWrite);
+
+    await act(async () => finishWrite());
+  });
+
+  it('lets the active page reload finish before prefetching other views', async () => {
+    const originalLoad = mocks.loadSeacePage.getMockImplementation()! as (
+      query: SeacePageQuery,
+    ) => Promise<{ rows: SeaceRow[]; total: number }>;
+    let finishReload!: () => void;
+    let holdReload = false;
+    mocks.loadSeacePage.mockImplementation((query: SeacePageQuery) =>
+      holdReload && query.view === 'recent' && !query.excluded && query.minorOnly
+        ? new Promise((resolve) => {
+            finishReload = () => resolve({ rows: [], total: 0 });
+          })
+        : originalLoad(query),
+    );
+    mocks.setExcludedMany.mockImplementation(async (keys: string[]) => {
+      keys.forEach((key) => excludedKeys.add(key));
+      holdReload = true;
+    });
+
+    mount();
+    await screen.findByText('CM-RECENT');
+    await waitFor(() => expect(mocks.loadSeacePage).toHaveBeenCalledTimes(4));
+    const callsBeforeWrite = mocks.loadSeacePage.mock.calls.length;
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select CM-RECENT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude selected (1)' }));
+    await waitFor(() => expect(finishReload).toBeDefined());
+
+    expect(mocks.loadSeacePage.mock.calls.slice(callsBeforeWrite)).toHaveLength(1);
+    await act(async () => finishReload());
   });
 
   it('shows separate included and excluded views from saved exclusion keys', async () => {

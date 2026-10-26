@@ -1,15 +1,33 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ upsert: vi.fn(), rpc: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+  delete: vi.fn(),
+  eq: vi.fn(),
+  in: vi.fn(),
+  filter: vi.fn(),
+  rpc: vi.fn(),
+}));
 vi.mock('@/shared/supabase/client', () => ({
-  supabase: { from: () => ({ upsert: mocks.upsert }), rpc: mocks.rpc },
+  supabase: {
+    from: () => ({ upsert: mocks.upsert, delete: mocks.delete }),
+    rpc: mocks.rpc,
+  },
 }));
 
-import { loadSeacePage, setExcludedMany } from './data';
+import { loadSeacePage, SeacePartialRestoreError, setExcluded, setExcludedMany } from './data';
 
 beforeEach(() => {
   mocks.upsert.mockReset();
   mocks.upsert.mockResolvedValue({ error: null });
+  mocks.delete.mockReset();
+  mocks.delete.mockReturnValue({ eq: mocks.eq, in: mocks.in, filter: mocks.filter });
+  mocks.eq.mockReset();
+  mocks.eq.mockResolvedValue({ error: null });
+  mocks.in.mockReset();
+  mocks.in.mockResolvedValue({ error: null });
+  mocks.filter.mockReset();
+  mocks.filter.mockResolvedValue({ error: null });
   mocks.rpc.mockReset();
 });
 
@@ -62,4 +80,59 @@ it('uses database defaults for the owner ID when importing multiple keys', async
     ignoreDuplicates: true,
     defaultToNull: false,
   });
+});
+
+it('escapes JSON-shaped keys in one batch restore request', async () => {
+  await setExcludedMany(['minor:["Arequipa","CM-1"]', String.raw`minor:["A\B","C"]`], false);
+
+  expect(mocks.delete).toHaveBeenCalledTimes(1);
+  expect(mocks.filter).toHaveBeenCalledWith(
+    'record_key',
+    'in',
+    String.raw`("minor:[\"Arequipa\",\"CM-1\"]","minor:[\"A\\B\",\"C\"]")`,
+  );
+});
+
+const longKeys = () =>
+  Array.from(
+    { length: 100 },
+    (_, index) =>
+      `process:${JSON.stringify(['Arequipa', `P-${index}`, '2026-10-25', 'X'.repeat(160)])}`,
+  );
+
+it('bounds encoded batch restore filters for 100 long keys', async () => {
+  await setExcludedMany(longKeys(), false);
+
+  expect(mocks.filter.mock.calls.length).toBeGreaterThan(1);
+  for (const [column, operator, value] of mocks.filter.mock.calls) {
+    expect(column).toBe('record_key');
+    expect(operator).toBe('in');
+    expect(
+      new URLSearchParams({ record_key: `in.${String(value)}` }).toString().length,
+    ).toBeLessThanOrEqual(6000);
+  }
+});
+
+it('marks a restore error as partial after an earlier chunk succeeded', async () => {
+  mocks.filter.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({
+    error: { code: '503' },
+  });
+
+  await expect(setExcludedMany(longKeys(), false)).rejects.toBeInstanceOf(SeacePartialRestoreError);
+});
+
+it('uses raw equality for one JSON-shaped key', async () => {
+  const key = 'minor:["Arequipa","CM-1"]';
+  await setExcludedMany([key], false);
+
+  expect(mocks.eq).toHaveBeenCalledWith('record_key', key);
+  expect(mocks.filter).not.toHaveBeenCalled();
+});
+
+it('uses raw equality for the single-record restore path', async () => {
+  const key = 'minor:["Arequipa","CM-1"]';
+  await setExcluded(key, false);
+
+  expect(mocks.eq).toHaveBeenCalledWith('record_key', key);
+  expect(mocks.filter).not.toHaveBeenCalled();
 });

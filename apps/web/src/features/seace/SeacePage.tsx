@@ -7,7 +7,9 @@ import {
   exclusionKey,
   loadSeacePage,
   loadSeaceSync,
+  SeacePartialRestoreError,
   setExcludedMany,
+  type SeacePageResult,
   type SeaceRow,
   type SeaceSync,
   type SeaceView,
@@ -224,6 +226,10 @@ export function SeacePage() {
   );
   const filterKey = filterKeyFor(excludedView, minorOnly);
   const oppositeFilterKey = filterKeyFor(!excludedView, minorOnly);
+  const pageContextRef = useRef({ filterKey, page });
+  useEffect(() => {
+    pageContextRef.current = { filterKey, page };
+  }, [filterKey, page]);
   const syncKey = `${region}:${year}`;
   const loadPage = useCallback(
     async (targetPage: number, targetExcluded: boolean, targetMinor: boolean) => ({
@@ -261,7 +267,8 @@ export function SeacePage() {
   const syncs = syncResult?.key === syncKey ? syncResult.rows : [];
 
   useEffect(() => {
-    if (!pageQuery.data || pageQuery.isPlaceholderData) return;
+    if (!pageQuery.data || pageQuery.isPlaceholderData || pageQuery.isFetching || savingExclusions)
+      return;
     const lastPage = Math.max(1, Math.ceil(pageQuery.data.total / pageSize));
     void queryClient.prefetchQuery({
       queryKey: ['seace', 'page', oppositeFilterKey, 1],
@@ -287,6 +294,7 @@ export function SeacePage() {
   }, [
     pageQuery.data,
     pageQuery.isPlaceholderData,
+    pageQuery.isFetching,
     page,
     pageSize,
     queryClient,
@@ -296,6 +304,7 @@ export function SeacePage() {
     loadPage,
     excludedView,
     minorOnly,
+    savingExclusions,
   ]);
 
   useEffect(() => {
@@ -383,14 +392,33 @@ export function SeacePage() {
   const changeExclusion = async () => {
     if (!exclusionsReady || !selectedKeys.size || savingExclusions) return;
     const keys = [...selectedKeys];
+    const selected = new Set(keys);
     const excluded = !excludedView;
+    const activeKey = ['seace', 'page', filterKey, page] as const;
+    type CachedPage = SeacePageResult & { page: number };
+    const previousPage = queryClient.getQueryData<CachedPage>(activeKey);
     setSavingExclusions(true);
+    setSelectedKeys(new Set());
+    void queryClient.cancelQueries({ queryKey: activeKey, exact: true });
+    queryClient.setQueryData<CachedPage>(activeKey, (current) => {
+      if (!current) return current;
+      const rows = current.rows.filter((row) => !selected.has(exclusionKey(row)));
+      return {
+        ...current,
+        rows,
+      };
+    });
     try {
       await setExcludedMany(keys, excluded);
-      setSelectedKeys(new Set());
-      await queryClient.invalidateQueries({ queryKey: ['seace', 'page'] });
+      void queryClient.invalidateQueries({ queryKey: ['seace', 'page'] });
       setActionMessage('');
     } catch (error) {
+      if (!(error instanceof SeacePartialRestoreError)) {
+        if (previousPage) queryClient.setQueryData(activeKey, previousPage);
+        if (pageContextRef.current.filterKey === filterKey && pageContextRef.current.page === page)
+          setSelectedKeys(new Set(keys));
+      }
+      void queryClient.invalidateQueries({ queryKey: ['seace', 'page'] });
       setActionMessage(error instanceof Error ? error.message : 'Could not update');
     } finally {
       setSavingExclusions(false);
@@ -780,8 +808,10 @@ export function SeacePage() {
           <span>
             {initialLoading ? (
               <Skeleton width={100} height={12} />
-            ) : total ? (
+            ) : total && visible.length ? (
               `${(currentPage - 1) * pageSize + 1}–${(currentPage - 1) * pageSize + visible.length} of ${total}`
+            ) : total ? (
+              `0 shown of ${total}`
             ) : (
               '0 records'
             )}

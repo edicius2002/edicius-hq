@@ -96,6 +96,41 @@ export async function loadSeaceSync(region: string, year: number): Promise<Seace
   return (legacy.data ?? []).map((row) => ({ ...row, new_count: null }));
 }
 
+// PostgREST in-list literals need embedded quotes and backslashes escaped.
+// Equality values are sent raw by postgrest-js, including JSON-shaped keys.
+function recordKeyListLiteral(key: string): string {
+  return '"' + key.replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
+}
+
+const MAX_RESTORE_QUERY_LENGTH = 6000;
+
+function restoreBatches(keys: string[]): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  for (const key of keys) {
+    const candidate = [...batch, key];
+    const filter = `in.(${candidate.map(recordKeyListLiteral).join(',')})`;
+    if (
+      batch.length &&
+      new URLSearchParams({ record_key: filter }).toString().length > MAX_RESTORE_QUERY_LENGTH
+    ) {
+      batches.push(batch);
+      batch = [key];
+    } else {
+      batch = candidate;
+    }
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+export class SeacePartialRestoreError extends Error {
+  constructor() {
+    super('Some records may have been restored. Refreshing the table.');
+    this.name = 'SeacePartialRestoreError';
+  }
+}
+
 export async function setExcluded(key: string, excluded: boolean): Promise<void> {
   if (excluded) {
     const { error } = await supabase.from('seace_exclusions').insert({ record_key: key });
@@ -120,8 +155,21 @@ export async function setExcludedMany(keys: string[], excluded: boolean): Promis
     );
     if (error) throw new Error('Could not exclude selected records');
   } else {
-    const { error } = await supabase.from('seace_exclusions').delete().in('record_key', keys);
-    if (error) throw new Error('Could not restore selected records');
+    for (const [index, batch] of restoreBatches(keys).entries()) {
+      const deletion = supabase.from('seace_exclusions').delete();
+      const { error } =
+        batch.length === 1
+          ? await deletion.eq('record_key', batch[0])
+          : await deletion.filter(
+              'record_key',
+              'in',
+              `(${batch.map(recordKeyListLiteral).join(',')})`,
+            );
+      if (error) {
+        if (index > 0) throw new SeacePartialRestoreError();
+        throw new Error('Could not restore selected records');
+      }
+    }
   }
 }
 

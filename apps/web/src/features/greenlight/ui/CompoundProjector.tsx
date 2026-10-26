@@ -4,7 +4,6 @@ import { useProjectorCapital } from '@/features/greenlight/hooks/useProjectorCap
 import {
   DEFAULT_ANNUAL_RATE,
   MONTHS_PER_YEAR,
-  PROJECTION_YEARS,
   effectiveAnnualRate,
   firstYearInterest,
   formatRate,
@@ -12,7 +11,6 @@ import {
   projectMonths,
   yearsFrom,
 } from '@/features/greenlight/lib/compound';
-import { CompoundCurve } from '@/features/greenlight/ui/CompoundCurve';
 import { amountToInput, formatMoney, parseAmount } from '@/shared/lib/money';
 import { Panel } from '@/shared/ui/Panel';
 
@@ -85,12 +83,8 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
   const years = useMemo(() => yearsFrom(rows), [rows]);
 
   return (
-    <Panel aria-labelledby="compound-title">
+    <Panel aria-label="Compound projection">
       <div className={styles.heading}>
-        <h2 id="compound-title" className={styles.title}>
-          If the net compounds
-        </h2>
-
         <div className={styles.fields}>
           <label className={styles.field} htmlFor="compound-capital">
             <span className={styles.fieldLabel}>Capital</span>
@@ -127,52 +121,53 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
 
       {rows.length ? (
         <div className={styles.columns}>
-          <div className={styles.column}>
-            <h3 className={styles.columnTitle}>The first year</h3>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col" className={styles.numeric}>
-                    Month
-                  </th>
-                  <th scope="col" className={styles.numeric}>
-                    Interest
-                  </th>
-                  <th scope="col" className={styles.numeric}>
-                    Balance
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {firstYear.map((row) => (
-                  <tr key={row.month}>
-                    <td className={styles.numeric}>{row.month}</td>
-                    <td className={styles.numeric}>{formatMoney(row.interest, currency)}</td>
-                    <td className={styles.numeric}>{formatMoney(row.balance, currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th scope="row" colSpan={2} className={styles.footLabel}>
-                    Year 1 interest
-                  </th>
-                  <td className={styles.numeric}>
-                    {formatMoney(firstYearInterest(rows), currency)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <section className={styles.column} aria-labelledby="first-year-title">
+            <h3 id="first-year-title" className={styles.columnTitle}>
+              The first year
+            </h3>
+            <div className={styles.firstYearTables}>
+              {[firstYear.slice(0, 6), firstYear.slice(6)].map((half, index) => (
+                <table
+                  key={index}
+                  className={styles.table}
+                  aria-label={index === 0 ? 'Months 1 to 6' : 'Months 7 to 12'}
+                >
+                  <thead>
+                    <tr>
+                      <th scope="col" className={styles.numeric}>
+                        Month
+                      </th>
+                      <th scope="col" className={styles.numeric}>
+                        Interest
+                      </th>
+                      <th scope="col" className={styles.numeric}>
+                        Balance
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {half.map((row) => (
+                      <tr key={row.month}>
+                        <td className={styles.numeric}>{row.month}</td>
+                        <td className={styles.numeric}>{formatMoney(row.interest, currency)}</td>
+                        <td className={styles.numeric}>{formatMoney(row.balance, currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ))}
+            </div>
+            <p className={styles.yearInterest}>
+              <span>Year 1 interest</span>
+              <strong>{formatMoney(firstYearInterest(rows), currency)}</strong>
+            </p>
+          </section>
 
-          <div className={styles.column}>
-            <h3 className={styles.columnTitle}>Growth over {PROJECTION_YEARS} years</h3>
-            <CompoundCurve rows={rows} capital={capitalValue} currency={currency} />
-          </div>
-
-          <div className={styles.column}>
-            <h3 className={styles.columnTitle}>By year</h3>
-            <table className={styles.table}>
+          <section className={styles.column} aria-labelledby="by-year-title">
+            <h3 id="by-year-title" className={styles.columnTitle}>
+              By year
+            </h3>
+            <table className={styles.table} aria-label="By year">
               <thead>
                 <tr>
                   <th scope="col" className={styles.numeric}>
@@ -198,7 +193,7 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
                 ))}
               </tbody>
             </table>
-          </div>
+          </section>
         </div>
       ) : (
         <p className={styles.muted}>

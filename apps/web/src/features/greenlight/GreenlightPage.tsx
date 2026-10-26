@@ -127,7 +127,9 @@ export function GreenlightPage() {
                   {localError || 'Could not load Greenlight data from storage.'}
                 </p>
               )}
-              <SaveStatus state={saveState} onRetry={retrySave} />
+              {saveState !== 'idle' && saveState !== 'saved' ? (
+                <SaveStatus state={saveState} onRetry={retrySave} />
+              ) : null}
               <ImportPanel
                 stats={state.stats}
                 isImporting={isImporting}

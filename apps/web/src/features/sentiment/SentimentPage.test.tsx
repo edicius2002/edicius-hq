@@ -86,12 +86,26 @@ describe('SentimentPage', () => {
     expect(screen.getAllByText('Greed').length).toBeGreaterThanOrEqual(8);
     const composite = screen.getByRole('region', { name: 'Fear & Greed Index' });
     expect(composite).not.toHaveClass(panelStyles.compact);
-    expect(within(composite).getByText(/^As of /)).toBeInTheDocument();
+    expect(within(composite).getByText(/^As of 06\/09/)).toBeInTheDocument();
     for (const [, label] of INDICATORS) {
       const indicator = screen.getByRole('region', { name: label });
       expect(indicator).toHaveClass(panelStyles.compact);
       expect(within(indicator).queryByText(/^As of /)).not.toBeInTheDocument();
     }
+  });
+
+  it('adds the year to the snapshot date when its history exceeds one year', async () => {
+    const composite = metric('fear_and_greed', 'Fear & Greed Index');
+    composite.timestamp = '2026-01-02T12:00:00Z';
+    composite.series[0].points = [
+      { timestamp: '2025-01-01T00:00:00Z', value: 55, classification: 'neutral' },
+      { timestamp: '2026-01-02T00:00:00Z', value: 61.4, classification: 'greed' },
+    ];
+    mockedGetLatestSentiment.mockResolvedValue(response({ composite }));
+
+    renderPage();
+
+    expect(await screen.findByText(/^As of 02\/01\/26/)).toBeInTheDocument();
   });
 
   it('shows an honest loading state while the snapshot is pending', () => {

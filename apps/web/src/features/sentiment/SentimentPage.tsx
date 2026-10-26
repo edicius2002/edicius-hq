@@ -1,5 +1,6 @@
 import type { SentimentClassification, SentimentMetric } from '@/shared/api/sentiment';
 import { useSentiment } from '@/features/sentiment/hooks/useSentiment';
+import { chartLayout, historySpansMoreThanYear } from '@/features/sentiment/lib/chart';
 import { SentimentChart } from '@/features/sentiment/ui/SentimentChart';
 import { Button } from '@/shared/ui/Button';
 import { Panel } from '@/shared/ui/Panel';
@@ -7,14 +8,16 @@ import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 
 import styles from './SentimentPage.module.css';
 
-const timestampFormat = new Intl.DateTimeFormat('en-US', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  timeZoneName: 'short',
-});
+function formatSnapshotTime(timestamp: string, showYear: boolean): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    ...(showYear ? { year: '2-digit' as const } : {}),
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(new Date(timestamp));
+}
 
 function classificationLabel(classification: SentimentClassification): string {
   return classification.replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -46,7 +49,11 @@ function MetricPanel({
           </h2>
           {featured ? (
             <time className={styles.metricTime} dateTime={metric.timestamp}>
-              As of {timestampFormat.format(new Date(metric.timestamp))}
+              As of{' '}
+              {formatSnapshotTime(
+                metric.timestamp,
+                historySpansMoreThanYear(chartLayout(metric).time),
+              )}
             </time>
           ) : null}
         </div>
@@ -101,12 +108,6 @@ export function SentimentPage() {
               <MetricPanel key={indicator.key} metric={indicator} />
             ))}
           </div>
-
-          <p className={styles.disclaimer}>
-            The index methodology and source readings are CNN's. When CNN refuses direct server
-            access, Fear &amp; Greed Graph supplies the mirrored history. Historical indicator
-            charts show each indicator's native measurement, which is not necessarily a 0–100 score.
-          </p>
         </>
       )}
     </section>

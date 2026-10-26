@@ -53,7 +53,7 @@ describe('SentimentChart', () => {
       'S&P 500125-day average',
     );
     expect(container.querySelectorAll('[data-series]')).toHaveLength(2);
-    expect(within(svg).getByText('Jan 1, 2026')).toBeInTheDocument();
+    expect(within(svg).getByText('01/01')).toBeInTheDocument();
   });
 
   it('moves one animated crosshair to a real pointer observation', () => {
@@ -63,19 +63,29 @@ describe('SentimentChart', () => {
 
     const crosshair = container.querySelector('[data-testid="sentiment-crosshair"]');
     expect(crosshair?.getAttribute('style')).toContain('translate');
-    expect(screen.getByRole('status')).toHaveTextContent('Jan 2, 2026');
+    expect(within(container).getByTestId('sentiment-x-reading')).toHaveTextContent('02/01');
+    expect(within(container).getByTestId('sentiment-y-reading')).toHaveTextContent('6,060.00');
+    expect(within(container).getByTestId('sentiment-y-reading-average')).toHaveTextContent(
+      '5,925.00',
+    );
+    expect(svg.contains(within(container).getByTestId('sentiment-x-reading'))).toBe(false);
+    expect(svg.contains(within(container).getByTestId('sentiment-y-reading'))).toBe(false);
+    expect(screen.getByRole('status')).toHaveTextContent('02/01');
     expect(screen.getByRole('status')).toHaveTextContent('6,060.00 index points');
+    expect(screen.getByRole('status').className).toContain('srOnly');
   });
 
   it('shows the pointer reading only while its own chart is active', () => {
     const { svg, container } = chart();
 
     expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
+    expect(within(container).queryByTestId('sentiment-x-reading')).not.toBeInTheDocument();
+    expect(within(container).queryByTestId('sentiment-y-reading')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
 
     fireEvent.pointerEnter(svg, { clientX: 360, clientY: 100 });
     expect(container.querySelector('[data-testid="sentiment-crosshair"]')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Jan 2, 2026');
+    expect(screen.getByRole('status')).toHaveTextContent('02/01');
 
     fireEvent.pointerLeave(svg);
     expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
@@ -101,19 +111,19 @@ describe('SentimentChart', () => {
     fireEvent.pointerMove(otherSvg, { clientX: 360, clientY: 100 });
 
     expect(screen.getAllByRole('status')[0]).toBeEmptyDOMElement();
-    expect(screen.getAllByRole('status')[1]).toHaveTextContent('Jan 2, 2026');
+    expect(screen.getAllByRole('status')[1]).toHaveTextContent('02/01');
   });
 
   it('keeps keyboard readings accessible without showing pointer text or animation', () => {
     const { svg, container } = chart();
 
     fireEvent.keyDown(svg, { key: 'Home' });
-    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('Jan 1, 2026');
+    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('01/01');
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('Jan 2, 2026');
+    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('02/01');
     fireEvent.keyDown(svg, { key: 'End' });
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('Jan 3, 2026');
+    expect(screen.getByTestId('sentiment-keyboard-reading')).toHaveTextContent('03/01');
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
     expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
   });
@@ -123,5 +133,27 @@ describe('SentimentChart', () => {
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('includes the two-digit year on charts covering more than one year', () => {
+    const dates = ['2025-01-01T00:00:00Z', '2025-07-01T00:00:00Z', '2026-01-02T00:00:00Z'];
+    const longMetric = {
+      ...METRIC,
+      series: METRIC.series.map((series) => ({
+        ...series,
+        points: series.points.map((point, index) => ({ ...point, timestamp: dates[index] })),
+      })),
+    };
+    render(<SentimentChart metric={longMetric} />);
+    const svg = screen.getByRole('img', { name: /Market Momentum history/i });
+    Object.defineProperty(svg, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 720, height: 280 }),
+    });
+
+    expect(within(svg).getByText('01/01/25')).toBeInTheDocument();
+    expect(within(svg).getByText('02/01/26')).toBeInTheDocument();
+    fireEvent.pointerMove(svg, { clientX: 360, clientY: 100 });
+    expect(screen.getByTestId('sentiment-x-reading')).toHaveTextContent('01/07/25');
+    expect(screen.getByRole('status')).toHaveTextContent('01/07/25');
   });
 });

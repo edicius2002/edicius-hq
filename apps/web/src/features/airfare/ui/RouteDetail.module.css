@@ -38,6 +38,9 @@
   font-size: 0.64rem;
   color: var(--color-muted);
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Identical block shells hold loaded content and loading placeholders. */
@@ -67,10 +70,9 @@
 }
 
 .priceLine {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
 }
@@ -85,7 +87,7 @@
 }
 
 .priceSkeleton {
-  width: 53.5%;
+  width: 100%;
 }
 
 .meta {
@@ -93,8 +95,8 @@
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  min-width: 96px;
-  max-width: 100%;
+  min-width: 0;
+  width: 100%;
   text-align: center;
 }
 
@@ -122,13 +124,20 @@
 }
 
 .airline {
+  max-width: 100%;
   font-size: 0.59rem;
   line-height: 1.2;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .airline b {
   font-weight: 600;
+}
+
+.airlineLong {
+  font-size: 0.5rem;
 }
 
 .range {
@@ -260,7 +269,7 @@
   white-space: nowrap;
 }
 
-/* The 250px detail track can wrap its price row; both states reserve that line. */
+/* Reserve the same hero height as data replaces placeholders. */
 @media (min-width: 1001px) and (max-width: 1517px) {
   .hero {
     min-height: 97px;
@@ -269,6 +278,13 @@
 
 /* Three columns remain beside the map through 641px, with less room for type. */
 @media (min-width: 641px) and (max-width: 1000px) {
+  .priceLine {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .meta {
+    align-items: flex-start;
+    text-align: left;
+  }
   .pair {
     font-size: 0.78rem;
   }
@@ -284,9 +300,6 @@
   .hero {
     min-height: 86px;
   }
-  .priceSkeleton {
-    width: 50%;
-  }
   .price {
     font-size: 1.28rem;
   }
@@ -295,6 +308,9 @@
   }
   .airline {
     font-size: 0.53rem;
+  }
+  .airlineLong {
+    font-size: 0.46rem;
   }
   .tileValue {
     font-size: 0.82rem;

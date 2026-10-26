@@ -68,13 +68,14 @@ describe('Airfare mobile layout contracts', () => {
     expect(rule(file, selector)).toMatch(/min-height:\s*32px/);
   });
 
-  it('stacks paired routes with six month slots below each route on phones', () => {
-    expect(rule('RouteList', '.row')).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+  it('keeps one route group and its actions on each phone row', () => {
+    expect(rule('RouteList', '.row')).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) auto/);
     expect(rule('RouteList', '.routeCell')).toMatch(
-      /grid-template-rows:\s*32px minmax\(32px, auto\)/,
+      /grid-template-columns:\s*minmax\(0, 100px\) minmax\(0, 1fr\)/,
     );
-    expect(rule('RouteList', '.routeCell .months')).toMatch(/grid-column:\s*1/);
-    expect(rule('RouteList', '.routeCell .months')).toMatch(/repeat\(6, minmax\(0, 1fr\)\)/);
+    expect(rule('RouteList', '.routeCell .months')).toMatch(/grid-column:\s*2/);
+    expect(rule('RouteList', '.routeCell .months')).toMatch(/overflow-x:\s*auto/);
+    expect(rule('RouteList', '.actions')).toMatch(/grid-column:\s*2/);
   });
 
   it('keeps the flight table scroll local and filters within their tracks', () => {

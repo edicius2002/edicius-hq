@@ -95,6 +95,7 @@ export function RouteDetail({
   const cheapest = pricedOffers.length
     ? pricedOffers.reduce((a, b) => (a.price <= b.price ? a : b))
     : null;
+  const airlineName = cheapest ? (cheapest.airlineName ?? cheapest.airline) : null;
   const typical = insights?.typical ?? null;
   const vsUsual = cheapest && typical ? variation(typical, cheapest.price) : null;
   const tone =
@@ -156,10 +157,17 @@ export function RouteDetail({
                     ? NO_VALUE
                     : `${vsUsual > 0 ? '+' : ''}${vsUsual.toFixed(1)}% vs usual`}
                 </span>
-                <span className={styles.airline}>
+                <span
+                  className={
+                    airlineName && airlineName.length > 14
+                      ? `${styles.airline} ${styles.airlineLong}`
+                      : styles.airline
+                  }
+                  title={airlineName ?? undefined}
+                >
                   {cheapest ? (
                     <>
-                      on <b>{cheapest.airlineName ?? cheapest.airline}</b>
+                      on <b>{airlineName}</b>
                     </>
                   ) : (
                     '\u00a0'

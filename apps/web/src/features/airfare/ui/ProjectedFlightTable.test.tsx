@@ -93,7 +93,8 @@ it('shows table skeleton rows during the initial request and a later filter requ
     rows: [],
     facets: { airlines: [], price: null, bands: [], stops: [], durations: [], categories: [] },
   });
-  await screen.findByText('No itineraries observed yet.');
+  await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument());
+  expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Min price' }), {
     target: { value: '100' },
   });

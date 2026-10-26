@@ -411,6 +411,30 @@ describe('RouteMap', () => {
   });
 
   describe('the two projections', () => {
+    it.each(['globe', 'mercator'] as const)(
+      'keeps city markers small on the %s projection',
+      (projection) => {
+        const { container } = renderMap({
+          projection,
+          routes: [LIM_CUZ],
+          stopRoutes: [
+            {
+              id: 'LIM|CUZ|2026-10:BOG',
+              points: [LIMA, [-74.1469, 4.70159] as LngLat, CUSCO],
+              viaPoints: ['BOG'],
+              colour: '#ef6c00',
+            },
+          ],
+        });
+        const home = container.querySelector('circle[class*="home"]');
+        const cityNodes = container.querySelectorAll('circle[class*="node"]');
+
+        expect(home).toHaveAttribute('r', '3');
+        expect(cityNodes).toHaveLength(2);
+        for (const node of cityNodes) expect(node).toHaveAttribute('r', '2.5');
+      },
+    );
+
     it.each([
       ['desktop', 'globe', false],
       ['desktop', 'mercator', false],

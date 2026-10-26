@@ -160,45 +160,12 @@ function SortHeader({
   );
 }
 
-/**
- * The panel's heading, which since 12.257 is the first thing on the filter
- * row rather than a line of its own above it.
- *
- * `Flights seen · 09/03/2027`, with the middot the watchlist row already uses
- * between a pair and its month, rather than the `Flights seen departing on
- * 09/03/2027` this replaced. Eleven characters of the row bought back.
- *
- * The date is the *departure* — which day's board these flights were on. The
- * chart above carries a different date, the day the collector
- * looked, and the two now sit a table apart saying different things. That is
- * known and deliberately not reconciled here: which of them a heading should
- * carry is a decision about the product, not about this row, and quietly
- * swapping one for the other while moving it would settle it by accident.
- *
- * Rendered even when the table has nothing to show, because a panel whose
- * heading disappears with its data reads as a panel that lost its name.
- *
- * The `·` is `aria-hidden` on purpose — "middle dot" is noise between a name
- * and a date — but that leaves nothing standing between "seen" and the date
- * for a screen reader either, so the two run together as one word. `aria-label`
- * says what the heading should actually be read as, with a real space where
- * the hidden glyph is, independent of whichever text the visible spans hold.
- */
+/** Show only the departure period; keep the full accessible name for navigation. */
 function TableHeading({ departure }: { departure: string | null }) {
+  if (departure === null) return null;
   return (
-    <h2
-      className={styles.title}
-      aria-label={departure === null ? undefined : `Flights seen ${departure}`}
-    >
-      Flights seen
-      {departure === null ? null : (
-        <>
-          <span aria-hidden="true" className={styles.dot}>
-            ·
-          </span>
-          {departure}
-        </>
-      )}
+    <h2 className={styles.title} aria-label={`Flights seen ${departure}`}>
+      {departure}
     </h2>
   );
 }
@@ -309,7 +276,7 @@ function FlightRowCells({ row, leg }: { row: FlightRow; leg: FlightTableProps['l
       */}
       <td>{formatStamp(track.departureAt)}</td>
       <td className={styles.airline} title={airline}>
-        {shortAirline(airline)}
+        {airline}
       </td>
       <td>
         <FlightName track={track} leg={leg} />
@@ -430,18 +397,7 @@ export function FlightTable({
 
   return (
     <div className={styles.wrap} aria-busy={updating && !loading}>
-      {/*
-        Heading, departure and every filter on one line — 12.257, where there
-        is room for one line. At the panel's real 1099px a one-carrier board
-        has it and a four-carrier one is 16px short: see `.head` in the
-        stylesheet for why the controls are allowed to wrap inside their
-        reserved height.
-
-        The heading is a sibling of the filter group rather than a member of
-        it: a group labelled "Filter flights" that contained the panel's `<h2>`
-        would be telling a screen reader that the heading is one of the
-        controls.
-      */}
+      {/* The period and filters share the compact header. */}
       <div className={styles.head}>
         <TableHeading departure={departure} />
         <div className={styles.filters} role="group" aria-label="Filter flights">
@@ -638,11 +594,16 @@ export function FlightTable({
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {loading || (!error && tracked === 0) ? (
               Array.from({ length: PAGE_SIZE }, (_, index) => (
-                <tr key={index} className={styles.skeletonRow} data-testid="flight-skeleton-row">
+                <tr
+                  key={index}
+                  className={styles.skeletonRow}
+                  data-testid="flight-skeleton-row"
+                  aria-hidden={!loading || undefined}
+                >
                   {COLUMNS.map((column, cellIndex) => (
-                    <td key={column.column}>
+                    <td key={column.column} className={column.numeric ? styles.numeric : undefined}>
                       <Skeleton width={cellIndex === 0 ? '90%' : '75%'} height={12} />
                     </td>
                   ))}
@@ -662,15 +623,13 @@ export function FlightTable({
                     <FlightRowCells row={row} leg={leg} />
                   </tr>
                 ))}
-                {!error && slice.rows.length === 0 ? (
+                {!error && tracked > 0 && slice.rows.length === 0 ? (
                   <tr>
                     <td colSpan={COLUMNS.length} className={styles.messageCell}>
                       <p className={styles.empty}>
-                        {tracked === 0
-                          ? 'No itineraries observed yet.'
-                          : inPeriod === 0
-                            ? 'No flights were on the board in this period.'
-                            : 'Every flight in this period is hidden by the filters above.'}
+                        {inPeriod === 0
+                          ? 'No flights were on the board in this period.'
+                          : 'Every flight in this period is hidden by the filters above.'}
                       </p>
                     </td>
                   </tr>

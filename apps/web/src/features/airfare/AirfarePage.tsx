@@ -521,19 +521,11 @@ export function AirfarePage() {
         <Panel
           className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}
           onClick={(event) => {
-            const target = event.target;
-            if (
-              target !== event.currentTarget &&
-              !(target instanceof Element && target.tagName === 'HEADER')
-            )
-              return;
+            if (event.target !== event.currentTarget) return;
             setSelectedId(null);
             setEditingId(null);
           }}
         >
-          <header className={styles.panelHead}>
-            <h2 className={styles.panelTitle}>Watched routes</h2>
-          </header>
           {(watchlist.saveState === 'failed' || watchlist.saveState === 'blocked') && (
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
           )}

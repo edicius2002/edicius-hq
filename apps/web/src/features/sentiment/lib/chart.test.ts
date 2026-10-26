@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { chartLayout, formatSeriesValue } from '@/features/sentiment/lib/chart';
+import {
+  chartLayout,
+  formatChartDate,
+  formatSeriesValue,
+  historySpansMoreThanYear,
+} from '@/features/sentiment/lib/chart';
 import type { SentimentMetric } from '@/shared/api/sentiment';
 
 const metric = (values: number[], reference: number[] = []): SentimentMetric => ({
@@ -62,5 +67,13 @@ describe('chartLayout', () => {
   it('formats raw units without implying they are the current 0-100 score', () => {
     expect(formatSeriesValue(6060.25, 'index points')).toBe('6,060.25 index points');
     expect(formatSeriesValue(0.82, 'ratio')).toBe('0.82 ratio');
+  });
+
+  it('uses day/month, adding a two-digit year only beyond a full calendar year', () => {
+    const min = Date.parse('2024-02-29T00:00:00Z');
+    expect(historySpansMoreThanYear({ min, max: Date.parse('2025-03-01T00:00:00Z') })).toBe(false);
+    expect(historySpansMoreThanYear({ min, max: Date.parse('2025-03-02T00:00:00Z') })).toBe(true);
+    expect(formatChartDate('2026-01-02T00:00:00Z', false)).toBe('02/01');
+    expect(formatChartDate('2026-01-02T00:00:00Z', true)).toBe('02/01/26');
   });
 });

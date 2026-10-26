@@ -48,11 +48,11 @@
 .metricTitle {
   margin: 0;
   color: var(--color-text);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
 }
 
 .featured .metricTitle {
-  font-size: 1.15rem;
+  font-size: 1rem;
 }
 
 .metricTime {
@@ -67,7 +67,7 @@
   flex: 0 0 auto;
   justify-items: end;
   color: var(--color-muted);
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -81,13 +81,13 @@
 
 .score strong {
   color: var(--color-text);
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: normal;
 }
 
 .featured .score strong {
-  font-size: 2rem;
+  font-size: 1.65rem;
 }
 
 .score[data-classification='fear'],
@@ -104,13 +104,6 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
-}
-
-.disclaimer {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.68rem;
-  text-align: center;
 }
 
 @media (max-width: 52rem) {

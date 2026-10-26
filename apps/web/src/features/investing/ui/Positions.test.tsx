@@ -37,6 +37,45 @@ describe('Positions', () => {
     expect(add.compareDocumentPosition(total) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('shows both the profit amount and percentage beside the position value', () => {
+    render(
+      <Positions
+        portfolio={{
+          version: 1,
+          positions: [{ symbol: 'AAPL', quantity: 1, averageCost: 5233.05 }],
+        }}
+        quotes={
+          new Map([
+            [
+              'AAPL',
+              {
+                symbol: 'AAPL',
+                price: 5122.4,
+                currency: 'USD',
+                previousClose: null,
+                change: null,
+                changePercent: null,
+                provider: 'test',
+                time: null,
+                marketState: null,
+                name: 'Apple',
+                extended: false,
+              },
+            ],
+          ])
+        }
+        selected="AAPL"
+        onSelect={vi.fn()}
+        onEdit={vi.fn()}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    const variation = screen.getByText('-110.65 · -2.11%');
+    expect(variation.parentElement).toHaveTextContent('5,122.40-110.65 · -2.11%');
+  });
+
   it('adds a position from an empty portfolio', async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();

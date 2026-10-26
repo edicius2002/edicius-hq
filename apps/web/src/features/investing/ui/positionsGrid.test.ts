@@ -36,13 +36,13 @@ const CARD_PX = (() => {
 })();
 
 describe('the three-line position cards', () => {
-  it('fits a value and percentage beside each other with room for padding', () => {
-    const value = '1,234,567.89'.length * fontSize(rule('value')) * 0.6;
-    const percent = '+123.45%'.length * fontSize(rule('up', 'down')) * 0.6;
+  it('fits the value, profit amount and percentage beside each other', () => {
+    const value = '5,122.40'.length * fontSize(rule('value')) * 0.6;
+    const variation = '-110.65 · -2.11%'.length * fontSize(rule('up', 'down')) * 0.6;
     const gap = Number(/gap:\s*([\d.]+)rem/.exec(rule('valuation'))?.[1]) * REM_PX;
     const padding = 2 * token(/padding:\s*var\(--(space-\d)\)/.exec(rule('pick'))?.[1] ?? '');
 
-    expect(CARD_PX).toBeGreaterThan(value + percent + gap + padding + 2);
+    expect(CARD_PX).toBeGreaterThan(value + variation + gap + padding + 2);
     expect(rule('pick')).toMatch(/text-align:\s*center/);
     expect(rule('valuation')).toMatch(/justify-content:\s*center/);
   });

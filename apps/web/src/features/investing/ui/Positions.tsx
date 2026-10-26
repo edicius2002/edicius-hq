@@ -152,9 +152,7 @@ export function Positions({
                         title={profitText}
                         aria-label={`Variation ${profitText}`}
                       >
-                        {valuation.profitPercent === null
-                          ? formatSignedAmount(valuation.profit)
-                          : formatPercent(valuation.profitPercent)}
+                        {profitText}
                       </span>
                     </span>
                   ) : (

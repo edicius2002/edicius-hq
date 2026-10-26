@@ -225,6 +225,7 @@ export function useRouteCollection(): RouteCollection {
           showNotice({
             id,
             routeId: routeId(route),
+            monthKey: key,
             title: `${route.origin} → ${route.destination}`,
             text: 'Collection request could not be accepted. Try again.',
             kind: 'error',

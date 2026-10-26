@@ -145,7 +145,8 @@ describe('pressing a month on another watched route', () => {
     expect(state.list?.selectedId).toBe(routeId(LIM_MAD));
     expect(state.projections.at(-1)).toEqual({ route: routeId(LIM_MAD), month: '2027-06' });
 
-    fireEvent.click(screen.getByRole('heading', { name: 'Watched routes' }).parentElement!);
+    expect(screen.queryByRole('heading', { name: 'Watched routes' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('route-list').parentElement!);
 
     expect(state.list?.selectedId).toBeNull();
     expect(state.projections.at(-1)).toEqual({ route: null, month: null });

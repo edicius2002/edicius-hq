@@ -1,17 +1,24 @@
-import { formatFlightMonth, routeId, routeLabel } from '@/features/airfare/data/fareRoutes';
+import {
+  formatFlightMonth,
+  routeId,
+  routeLabel,
+  routeMonthKey,
+} from '@/features/airfare/data/fareRoutes';
 import type { AirfareRequest } from '@/features/airfare/data/airfareRequests';
 
 export const NOTICE_LIFE_MS = 10_000;
 export const MAX_NOTICES = 3;
 
 export type CollectNotice = {
-  /** Request id: an accepted card is replaced by its own terminal outcome. */
+  /** Request id: acceptance is replaced by its own terminal outcome. */
   id: string;
-  /** Route id: lets removing a watch also remove its transient cards. */
+  /** Route id: lets removing a watch also remove its transient outcome. */
   routeId: string;
+  /** The exact direction and month whose button shows this outcome. */
+  monthKey: string;
   title: string;
   text: string;
-  /** What a completed pass missed — only on a `partial` card. */
+  /** What a completed pass missed — only on a partial outcome. */
   detail?: string;
   kind: 'accepted' | 'success' | 'partial' | 'error';
 };
@@ -25,7 +32,7 @@ export function terminalCollectNotice(request: AirfareRequest): CollectNotice | 
     const { lookedAt, changed, failed, skipped } = request.result;
     const text = `Collection complete: ${lookedAt} departures checked, ${changed} updated.`;
     // A pass keeps what it read even when some departures could not be read or
-    // were not polled; the card says so rather than calling it a clean success.
+    // were not polled; the outcome says so rather than calling it a clean success.
     const missed = [
       ...(failed > 0 ? [`${failed} couldn't be read`] : []),
       ...(skipped > 0 ? [`${skipped} skipped`] : []),
@@ -65,6 +72,7 @@ function notice(request: AirfareRequest, kind: CollectNotice['kind'], text: stri
   return {
     id: request.requestId,
     routeId: routeId(route),
+    monthKey: routeMonthKey(route, request.payload.month),
     title: `${routeLabel(route)} · ${formatFlightMonth(request.payload.month)}`,
     text,
     kind,

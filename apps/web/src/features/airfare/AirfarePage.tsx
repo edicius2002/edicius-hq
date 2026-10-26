@@ -26,7 +26,6 @@ import {
   snapshotsForMonths,
 } from '@/features/airfare/lib/series';
 import { AnalysisPanel, ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
-import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { ProjectedFlightTable } from '@/features/airfare/ui/ProjectedFlightTable';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
@@ -522,19 +521,11 @@ export function AirfarePage() {
         <Panel
           className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}
           onClick={(event) => {
-            const target = event.target;
-            if (
-              target !== event.currentTarget &&
-              !(target instanceof Element && target.tagName === 'HEADER')
-            )
-              return;
+            if (event.target !== event.currentTarget) return;
             setSelectedId(null);
             setEditingId(null);
           }}
         >
-          <header className={styles.panelHead}>
-            <h2 className={styles.panelTitle}>Watched routes</h2>
-          </header>
           {(watchlist.saveState === 'failed' || watchlist.saveState === 'blocked') && (
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
           )}
@@ -554,6 +545,7 @@ export function AirfarePage() {
             editing={editing}
             collecting={rowCollection.collecting}
             progress={rowCollection.progress}
+            notices={rowCollection.notices}
             onCollect={rowCollection.collect}
             onSelect={(id) => {
               setSelectedId(id);
@@ -784,11 +776,19 @@ export function AirfarePage() {
         )}
       </Panel>
 
-      {/*
-        Request acceptance and terminal outcomes appear in the fixed toast
-        stack. The scheduled collector never creates these notices.
-      */}
-      <CollectNotices notices={rowCollection.notices} />
+      {rowCollection.notices.length > 0 ? (
+        <div className={styles.collectAnnouncements} data-testid="collect-announcements">
+          {rowCollection.notices.map((notice) => (
+            <div
+              key={notice.id}
+              role={notice.kind === 'error' ? 'alert' : 'status'}
+              aria-atomic="true"
+            >
+              {notice.title} {notice.text} {notice.detail}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

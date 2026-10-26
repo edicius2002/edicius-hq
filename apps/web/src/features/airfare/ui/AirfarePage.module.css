@@ -70,14 +70,9 @@
   min-height: 0;
 }
 
-/* Keep the editor close to the heading and give the fixed-height list more room. */
+/* Keep the editor and list close within the fixed-height panel. */
 .routesPanel {
   gap: 6px;
-}
-
-.routesPanel .panelHead {
-  margin-bottom: 0;
-  min-height: 32px;
 }
 
 /* Smaller top-row gutters return width to all three contents and height to the map. */
@@ -88,18 +83,7 @@
 /* Give the paired route cells the unused space at the watchlist's edges. */
 .top > .routesPanel {
   padding-inline: 8px;
-}
-
-.panelHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-
-.panelHead .panelTitle {
-  margin: 0;
+  padding-top: 8px;
 }
 
 /* The detail needs more of the last 501px than the globe does. */
@@ -283,6 +267,18 @@
   }
 }
 
+.collectAnnouncements {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Airfare phone layout; desktop declarations above remain unchanged. */
 @media (max-width: 640px) {
   .page {
@@ -306,10 +302,6 @@
   }
   .page .visualPanel {
     padding-inline: 0;
-  }
-  .panelHead {
-    gap: 8px;
-    margin-bottom: 0;
   }
   .panelTitle {
     margin-block-end: 0;

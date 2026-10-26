@@ -13,7 +13,7 @@ import {
   routeLabel,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
-import type { AirfareRequestProgress } from '@/features/airfare/data/airfareRequests';
+import type { RouteCollectionProgress } from '@/features/airfare/hooks/useRouteCollection';
 import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
 import { shortMonth } from '@/features/airfare/lib/monthChips';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
@@ -33,7 +33,7 @@ type RouteListProps = {
   /** Route-month keys whose own collection is in flight. */
   collecting: readonly string[];
   /** Queue progress by route-month key. */
-  progress: ReadonlyMap<string, AirfareRequestProgress>;
+  progress: ReadonlyMap<string, RouteCollectionProgress>;
   /** Which month of the selected route the chart is reading. */
   activeMonth: string | null;
   /** The watch loaded into the editor above, or null while it is adding. */
@@ -73,9 +73,27 @@ type RouteListProps = {
 };
 
 /** Floor percentages so a partial phase never appears complete. */
-function progressPercent(value: AirfareRequestProgress): string {
+function progressPercent(value: RouteCollectionProgress): string {
   if (value.total === null || value.total <= 0) return '0%';
   return `${Math.min(100, Math.floor((value.completed / value.total) * 100))}%`;
+}
+
+function progressDescription(value: RouteCollectionProgress): string {
+  if (value.stage === 'submitting') return 'submitting';
+  if (value.stage === 'queued') return 'queued';
+  const phase = value.stage === 'syncing' ? 'syncing' : 'downloading';
+  return value.total === null || value.total <= 0
+    ? `${phase}, preparing`
+    : `${phase} ${progressPercent(value)}`;
+}
+
+function progressMark(value: RouteCollectionProgress): string {
+  if (value.stage === 'submitting') return 'Sending';
+  if (value.stage === 'queued') return 'Queued';
+  const arrow = value.stage === 'syncing' ? '↑' : '↓';
+  return value.total === null || value.total <= 0
+    ? `${arrow} Preparing`
+    : `${arrow} ${progressPercent(value)}`;
 }
 
 /** The idle Fetch icon; active requests show the stage and percentage. */
@@ -424,12 +442,7 @@ export function RouteList({
                                 ', ' +
                                 formatFlightMonth(targetMonth) +
                                 ', ' +
-                                (stage?.stage === 'syncing'
-                                  ? 'syncing '
-                                  : stage?.stage === 'collecting'
-                                    ? 'downloading '
-                                    : 'queued ') +
-                                progressPercent(
+                                progressDescription(
                                   stage ?? { stage: 'queued', completed: 0, total: null },
                                 )
                               : 'Fetch ' +
@@ -440,8 +453,7 @@ export function RouteList({
                         >
                           {busy ? (
                             <span className={styles.fetchProgress} aria-hidden="true">
-                              {stage?.stage === 'syncing' ? '↑' : '↓'}{' '}
-                              {progressPercent(
+                              {progressMark(
                                 stage ?? {
                                   stage: 'queued',
                                   completed: 0,

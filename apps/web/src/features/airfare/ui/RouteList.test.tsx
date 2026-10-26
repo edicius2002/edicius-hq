@@ -699,7 +699,9 @@ describe('RouteList', () => {
       name: 'Fetching LIM → CUZ, October 2026, downloading 12%',
     });
     expect(busy).toBeDisabled();
-    expect(busy).toHaveTextContent('↓ 12%');
+    expect(busy).toHaveTextContent('12%');
+    expect(busy).not.toHaveTextContent(/[A-Za-z]/);
+    expect(busy.querySelector('svg')).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 
     rerender(<RouteList {...props} activeMonth="2026-12" />);
@@ -719,7 +721,7 @@ describe('RouteList', () => {
       screen.getByRole('button', {
         name: 'Fetching LIM → CUZ, October 2026, syncing 25%',
       }),
-    ).toHaveTextContent('↑ 25%');
+    ).toHaveTextContent('25%');
   });
 
   it('names each phase before its denominator is known', () => {
@@ -731,11 +733,11 @@ describe('RouteList', () => {
       collecting: [key],
       progress: new Map([[key, { stage: 'submitting', completed: 0, total: null }]]),
     });
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, submitting',
-      }),
-    ).toHaveTextContent('Sending');
+    const submitting = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, submitting',
+    });
+    expect(submitting).toHaveTextContent(/^$/);
+    expect(submitting.querySelector('svg')).toBeInTheDocument();
 
     rerender(
       <RouteList
@@ -743,11 +745,11 @@ describe('RouteList', () => {
         progress={new Map([[key, { stage: 'queued', completed: 0, total: null }]])}
       />,
     );
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, queued',
-      }),
-    ).toHaveTextContent('Queued');
+    const queued = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, queued',
+    });
+    expect(queued).toHaveTextContent(/^$/);
+    expect(queued.querySelector('svg')).toBeInTheDocument();
 
     rerender(
       <RouteList
@@ -755,11 +757,11 @@ describe('RouteList', () => {
         progress={new Map([[key, { stage: 'collecting', completed: 0, total: null }]])}
       />,
     );
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, downloading, preparing',
-      }),
-    ).toHaveTextContent('↓ Preparing');
+    const downloading = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, downloading, preparing',
+    });
+    expect(downloading).toHaveTextContent(/^$/);
+    expect(downloading.querySelector('svg')).toBeInTheDocument();
 
     rerender(
       <RouteList
@@ -767,11 +769,11 @@ describe('RouteList', () => {
         progress={new Map([[key, { stage: 'syncing', completed: 0, total: null }]])}
       />,
     );
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, syncing, preparing',
-      }),
-    ).toHaveTextContent('↑ Preparing');
+    const syncing = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, syncing, preparing',
+    });
+    expect(syncing).toHaveTextContent(/^$/);
+    expect(syncing.querySelector('svg')).toBeInTheDocument();
   });
 
   it('does not render inline terminal report text', () => {

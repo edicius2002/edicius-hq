@@ -58,12 +58,12 @@
 .tipValue {
   color: var(--color-income);
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
 }
 
 .tipLabel {
   color: var(--color-muted);
-  font-size: 0.7rem;
+  font-size: 0.6rem;
 }
 
 .empty {

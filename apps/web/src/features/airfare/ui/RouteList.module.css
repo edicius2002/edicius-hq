@@ -351,6 +351,29 @@
   border-color: var(--color-accent);
 }
 
+.monthTabFetching {
+  border-color: var(--color-accent);
+  animation: fetchingBorder 1.4s ease-in-out infinite;
+}
+
+@keyframes fetchingBorder {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 2px var(--color-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monthTabFetching {
+    animation: none;
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+}
+
 /* A month of this watch that the calendar has passed. */
 .monthTabGone {
   text-decoration: line-through;
@@ -366,6 +389,18 @@
 /* The idle Fetch mark occupies the same width as icon plus 100%. */
 .collect {
   line-height: 0;
+}
+
+.collect[data-result='success'] {
+  color: var(--color-income);
+}
+
+.collect[data-result='partial'] {
+  color: var(--color-accent);
+}
+
+.collect[data-result='error'] {
+  color: var(--color-expense);
 }
 
 .mark {

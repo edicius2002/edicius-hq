@@ -30,6 +30,7 @@ function notice(id: string): CollectNotice {
   return {
     id,
     routeId: 'LIM-CUZ',
+    monthKey: 'LIM|CUZ|2026-11',
     title: id,
     text: id,
     kind: 'success',
@@ -42,6 +43,7 @@ describe('Pi Airfare request notices', () => {
       id: 'request-1',
       // The watchlist's key, so removing a watch can find its cards.
       routeId: routeId({ origin: 'LIM', destination: 'CUZ' }),
+      monthKey: 'LIM|CUZ|2026-11',
       title: 'LIM → CUZ · November 2026',
       text: 'Collection request accepted by the Pi.',
       kind: 'accepted',

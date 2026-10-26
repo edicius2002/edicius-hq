@@ -6,6 +6,7 @@ import {
   buildMonthlySeries,
   buildWeeklySeries,
   computeTotals,
+  fillCalendarWeeks,
 } from '@/features/greenlight/lib/aggregate';
 import { buildSegmentSummaries, computeSegmentedTotals } from '@/features/greenlight/lib/segments';
 import type { ToolId } from '@/features/greenlight/model/types';
@@ -33,8 +34,6 @@ export function GreenlightPage() {
     retrySave,
     importCsv,
     isImporting,
-    clearData,
-    isClearing,
     toggleMarker,
     toggleWidget,
   } = useGreenlightData();
@@ -46,6 +45,7 @@ export function GreenlightPage() {
     [state.stats, state.markers],
   );
   const weekly = useMemo(() => buildWeeklySeries(state.stats), [state.stats]);
+  const weeklyChart = useMemo(() => fillCalendarWeeks(weekly), [weekly]);
   const monthly = useMemo(() => buildMonthlySeries(state.stats), [state.stats]);
   const months = useMemo(() => buildMonthGroupsFromWeeks(weekly), [weekly]);
   const segments = useMemo(
@@ -67,15 +67,6 @@ export function GreenlightPage() {
         return;
       }
       setLocalError(message);
-    }
-  }
-
-  async function handleClear() {
-    setLocalError(null);
-    try {
-      await clearData();
-    } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Could not clear Greenlight data.');
     }
   }
 
@@ -140,13 +131,10 @@ export function GreenlightPage() {
               <ImportPanel
                 stats={state.stats}
                 isImporting={isImporting}
-                isClearing={isClearing}
-                hasData={hasData}
                 onImport={(file) => void handleImport(file)}
                 onParseError={(message) => {
                   setLocalError(message);
                 }}
-                onClear={() => void handleClear()}
               />
             </>
           }
@@ -158,7 +146,7 @@ export function GreenlightPage() {
               <h2 className={styles.panelTitle}>By week</h2>
             </div>
             {hasData ? (
-              <WeeklyChart points={weekly} />
+              <WeeklyChart points={weeklyChart} />
             ) : (
               <p className={styles.muted}>No weeks to chart yet.</p>
             )}

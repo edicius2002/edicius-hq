@@ -36,11 +36,12 @@ function fontSize(body: string): number {
 }
 
 describe('Greenlight week layout', () => {
-  it('gives each month the full panel and places four weeks in a row', () => {
-    expect(rule(CSS, 'list')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  it('places two months per row and four weeks within each month', () => {
+    expect(columns(rule(CSS, 'list'))).toBe(2);
     expect(columns(rule(CSS, 'weeks'))).toBe(4);
-    expect(columns(rule(media(1100), 'weeks'))).toBe(2);
-    expect(columns(rule(media(600), 'weeks'))).toBe(1);
+    expect(columns(rule(media(1100), 'list'))).toBe(1);
+    expect(columns(rule(media(600), 'weeks'))).toBe(2);
+    expect(columns(rule(media(400), 'weeks'))).toBe(1);
   });
 
   it('makes the centered month percentage larger than the amount', () => {

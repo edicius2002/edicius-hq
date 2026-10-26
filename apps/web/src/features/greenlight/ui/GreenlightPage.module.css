@@ -21,6 +21,21 @@
   gap: var(--space-2);
 }
 
+.totals > article {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0.25rem 0.5rem;
+}
+
+.totals > article span {
+  font-size: 0.65rem;
+}
+
+.totals > article strong {
+  font-size: 0.85rem;
+}
+
 .overview {
   display: grid;
   gap: var(--space-4);
@@ -68,7 +83,7 @@
 }
 
 /*
- * Sits in the header's action row beside Select CSV and Clear, so it has to
+ * Sits in the header's action row beside Select CSV, so it has to
  * behave as one flex item among several: it shrinks rather than pushing the
  * buttons off the line, and stays on the buttons' baseline.
  */

@@ -34,27 +34,24 @@ const JULY_CSV_WITHOUT_FIRST = [
 
 function renderPanel(overrides: Partial<ComponentProps<typeof ImportPanel>> = {}) {
   const onImport = vi.fn();
-  const onClear = vi.fn();
   const onParseError = vi.fn();
   render(
     <ImportPanel
       stats={{}}
       isImporting={false}
-      isClearing={false}
-      hasData
       onImport={onImport}
       onParseError={onParseError}
-      onClear={onClear}
       {...overrides}
     />,
   );
-  return { onImport, onClear, onParseError };
+  return { onImport, onParseError };
 }
 
 describe('ImportPanel', () => {
   it('keeps import controls free of the removed CSV status copy', () => {
     renderPanel();
     expect(screen.queryByText('Update from CSV')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
     expect(screen.queryByText(/Rebuilds every week the CSV mentions/)).toBeNull();
     expect(screen.queryByText(/this CSV becomes the whole document/i)).toBeNull();
   });
@@ -69,7 +66,6 @@ describe('ImportPanel', () => {
   it('shows that 1 July would disappear before the week rebuild writes', async () => {
     const user = userEvent.setup();
     const { onImport } = renderPanel({
-      hasData: true,
       stats: JULY_STATS,
     });
 
@@ -87,7 +83,6 @@ describe('ImportPanel', () => {
   it('does not offer Replace when the CSV matches stored days of those weeks', async () => {
     const user = userEvent.setup();
     const { onImport } = renderPanel({
-      hasData: true,
       stats: {
         '2026-07-05': day(390),
         '2026-07-06': day(1408.42),
@@ -106,7 +101,6 @@ describe('ImportPanel', () => {
   it('leaves data untouched when the import confirm is cancelled', async () => {
     const user = userEvent.setup();
     const { onImport } = renderPanel({
-      hasData: true,
       stats: JULY_STATS,
     });
 
@@ -115,30 +109,6 @@ describe('ImportPanel', () => {
     await user.click(within(alert).getByRole('button', { name: 'Cancel' }));
 
     expect(onImport).not.toHaveBeenCalled();
-    expect(screen.queryByRole('alert')).toBeNull();
-  });
-
-  it('asks before clearing, and does nothing until confirmed', async () => {
-    const user = userEvent.setup();
-    const { onClear } = renderPanel();
-
-    await user.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(onClear).not.toHaveBeenCalled();
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Clear all Greenlight data');
-
-    await user.click(within(alert).getByRole('button', { name: 'Clear' }));
-    expect(onClear).toHaveBeenCalledOnce();
-  });
-
-  it('does not clear when the confirm is cancelled', async () => {
-    const user = userEvent.setup();
-    const { onClear } = renderPanel();
-
-    await user.click(screen.getByRole('button', { name: 'Clear' }));
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(onClear).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });

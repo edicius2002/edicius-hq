@@ -305,6 +305,33 @@ describe('Account controls in the wide menu', () => {
 });
 
 describe('Investing chart-first workspace', () => {
+  it('waits for the watchlist document before showing the symbol input', async () => {
+    const watchlistRead = deferred<Response>();
+    const fallbackFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/app_documents') && url.includes('watchlist')) {
+          return watchlistRead.promise;
+        }
+        return fallbackFetch(input, init);
+      }),
+    );
+
+    renderAt('/investing');
+    await arrivesAt('Investing');
+    const panel = await screen.findByRole('region', { name: 'Watchlist' });
+    expect(
+      within(panel).queryByRole('textbox', { name: 'Search a symbol' }),
+    ).not.toBeInTheDocument();
+
+    watchlistRead.resolve(Response.json([]));
+    expect(
+      await within(panel).findByRole('textbox', { name: 'Search a symbol' }),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     {
       situation: 'between followed stocks',

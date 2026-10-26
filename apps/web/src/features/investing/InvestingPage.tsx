@@ -31,6 +31,7 @@ import { Watchlist } from '@/features/investing/ui/Watchlist';
 import type { Bar, Quote } from '@/shared/api/market';
 import { Panel } from '@/shared/ui/Panel';
 import { RowsSkeleton } from '@/shared/ui/RowsSkeleton';
+import { Skeleton } from '@/shared/ui/Skeleton';
 
 import { formatPercent, formatAmount } from '@/shared/lib/money';
 
@@ -338,13 +339,17 @@ export function InvestingPage() {
               Watchlist
             </h2>
             <div className={styles.railSearch}>
-              <SymbolSearch
-                following={new Set(watchlist.symbols)}
-                onPick={(picked, name) => {
-                  void watchlist.add(picked, name);
-                  setSymbol(picked);
-                }}
-              />
+              {watchlist.isPending ? (
+                <Skeleton width="100%" height={32} />
+              ) : watchlist.isError ? null : (
+                <SymbolSearch
+                  following={new Set(watchlist.symbols)}
+                  onPick={(picked, name) => {
+                    void watchlist.add(picked, name);
+                    setSymbol(picked);
+                  }}
+                />
+              )}
             </div>
             <span className={`${styles.regime} ${styles[candles.regime]}`}>{statusLabel}</span>
           </div>

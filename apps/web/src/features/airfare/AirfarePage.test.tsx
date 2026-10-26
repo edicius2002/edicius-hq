@@ -3,13 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   collect: vi.fn(),
+  notices: [] as {
+    id: string;
+    routeId: string;
+    monthKey: string;
+    title: string;
+    text: string;
+    kind: 'success';
+  }[],
 }));
 
 vi.mock('@/features/airfare/hooks/useRouteCollection', () => ({
   useRouteCollection: () => ({
     collecting: [],
     progress: new Map(),
-    notices: [],
+    notices: state.notices,
     collect: state.collect,
     forget: vi.fn(),
   }),
@@ -79,6 +87,7 @@ import { AirfarePage } from './AirfarePage';
 describe('AirfarePage manual collection availability', () => {
   beforeEach(() => {
     vi.setSystemTime(new Date('2026-09-19T12:02:00.000Z'));
+    state.notices = [];
   });
 
   it('offers the circular manual collection controls from the first render', () => {
@@ -89,5 +98,24 @@ describe('AirfarePage manual collection availability', () => {
   it('omits the scheduled collector status', () => {
     render(<AirfarePage />);
     expect(screen.queryByTestId('airfare-collector-status')).not.toBeInTheDocument();
+  });
+
+  it('announces collection results without showing a popup', () => {
+    state.notices = [
+      {
+        id: 'request-1',
+        routeId: 'LIM|CUZ',
+        monthKey: 'LIM|CUZ|2026-10',
+        title: 'LIM → CUZ · October 2026',
+        text: 'Collection complete: 2 departures checked, 1 updated.',
+        kind: 'success',
+      },
+    ];
+    render(<AirfarePage />);
+    expect(screen.queryByTestId('collect-notices')).not.toBeInTheDocument();
+    expect(screen.getByTestId('collect-announcements')).toContainElement(
+      screen.getByRole('status'),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('1 updated');
   });
 });

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -67,6 +67,7 @@ function Watchlist() {
         today="2026-08-18"
         collecting={collection.collecting}
         progress={collection.progress}
+        notices={collection.notices}
         activeMonth={null}
         editing={null}
         onSelect={() => {}}
@@ -126,6 +127,10 @@ describe('a manual collection on the watchlist', () => {
       }),
     ).toBeDisabled();
     act(() => update('running', { stage: 'collecting', completed: 10, total: 31 }));
+    expect(screen.getByRole('button', { name: 'October 2026, fetching' })).toHaveAttribute(
+      'data-fetching',
+      'true',
+    );
     expect(
       screen.getByRole('button', { name: 'Fetching LIM → CUZ, October 2026, downloading 32%' }),
     ).toBeDisabled();
@@ -162,7 +167,17 @@ describe('a manual collection on the watchlist', () => {
       }),
     );
     await waitFor(() => expect(screen.getByText('Records: 2')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Fetch LIM → CUZ now, October 2026' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', {
+        name: /Fetch LIM → CUZ now, October 2026, Collection complete/,
+      }),
+    ).toHaveAttribute('data-result', 'success');
+    expect(
+      within(screen.getByRole('group', { name: 'Months watched for LIM → CUZ' })).getByRole(
+        'button',
+        { name: 'October 2026' },
+      ),
+    ).not.toHaveAttribute('data-fetching');
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 });

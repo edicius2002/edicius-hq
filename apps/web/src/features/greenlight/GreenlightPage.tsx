@@ -107,7 +107,7 @@ export function GreenlightPage() {
                 size="sm"
               />
               <Stat
-                label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
+                label={moneyBreakdown.charged ? 'Fee 10%' : 'Fee 0%'}
                 value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
                 tone="expense"
                 size="sm"

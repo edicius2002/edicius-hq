@@ -33,7 +33,7 @@ export function SegmentSummary({ segments }: SegmentSummaryProps) {
               </strong>
             </div>
             <div className={styles.metric}>
-              <span>{segment.feeCharged ? 'Fee (10%)' : 'Fee (under min)'}</span>
+              <span>{segment.feeCharged ? 'Fee 10%' : 'Fee 0%'}</span>
               <strong>{formatMoney(segment.fee, segment.currency)}</strong>
             </div>
             <div className={styles.metric}>

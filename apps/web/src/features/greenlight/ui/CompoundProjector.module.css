@@ -36,6 +36,7 @@
   background: var(--color-bg-2);
   color: var(--color-text);
   font: inherit;
+  font-size: 0.8rem;
   text-align: right;
 }
 

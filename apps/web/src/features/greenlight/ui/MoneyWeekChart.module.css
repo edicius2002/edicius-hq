@@ -112,14 +112,15 @@
 
 .weekCard {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto;
+  align-content: center;
   align-items: center;
   justify-items: center;
-  gap: var(--space-1);
+  gap: 0.1rem;
   flex: 1 1 0;
   min-width: 0;
-  min-height: 5.5rem;
-  padding: 0.2rem 0.05rem;
+  min-height: 3.4rem;
+  padding: 0.1rem 0.05rem;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 9px;

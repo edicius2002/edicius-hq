@@ -55,7 +55,9 @@ describe('Greenlight week layout', () => {
   it('makes the centered month percentage larger than the amount', () => {
     expect(fontSize(rule(CSS, 'weekPctValue'))).toBeGreaterThan(fontSize(rule(CSS, 'weekValue')));
     expect(rule(CSS, 'weekPct')).toMatch(/align-items:\s*center/);
-    expect(rule(CSS, 'weekCard')).toMatch(/grid-template-rows:\s*auto auto 1fr/);
+    expect(rule(CSS, 'weekCard')).toMatch(/grid-template-rows:\s*auto auto auto/);
+    expect(rule(CSS, 'weekCard')).toMatch(/align-content:\s*center/);
+    expect(rule(CSS, 'weekCard')).toMatch(/min-height:\s*3\.4rem/);
     expect(CSS).not.toMatch(/\.barTrack|\.barFill/);
   });
 

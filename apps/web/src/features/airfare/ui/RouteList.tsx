@@ -87,13 +87,30 @@ function progressDescription(value: RouteCollectionProgress): string {
     : `${phase} ${progressPercent(value)}`;
 }
 
-function progressMark(value: RouteCollectionProgress): string {
-  if (value.stage === 'submitting') return 'Sending';
-  if (value.stage === 'queued') return 'Queued';
-  const arrow = value.stage === 'syncing' ? '↑' : '↓';
-  return value.total === null || value.total <= 0
-    ? `${arrow} Preparing`
-    : `${arrow} ${progressPercent(value)}`;
+function ProgressMark({ value }: { value: RouteCollectionProgress }) {
+  return (
+    <>
+      <svg className={styles.mark} viewBox="0 0 16 16" focusable="false">
+        {value.stage === 'submitting' ? (
+          <path d="M2.5 13.5 13 3M7.5 3H13v5.5" />
+        ) : value.stage === 'queued' ? (
+          <>
+            <circle cx="8" cy="8" r="5.5" />
+            <path d="M8 4.5V8l2.5 1.5" />
+          </>
+        ) : value.stage === 'syncing' ? (
+          <path d="M8 13.5v-10M4.5 6.5 8 3l3.5 3.5" />
+        ) : (
+          <path d="M8 2.5v10M4.5 9.5 8 13l3.5-3.5" />
+        )}
+      </svg>
+      {(value.stage === 'collecting' || value.stage === 'syncing') &&
+      value.total !== null &&
+      value.total > 0
+        ? progressPercent(value)
+        : null}
+    </>
+  );
 }
 
 /** The idle Fetch icon; active requests show the stage and percentage. */
@@ -453,13 +470,15 @@ export function RouteList({
                         >
                           {busy ? (
                             <span className={styles.fetchProgress} aria-hidden="true">
-                              {progressMark(
-                                stage ?? {
-                                  stage: 'queued',
-                                  completed: 0,
-                                  total: null,
-                                },
-                              )}
+                              <ProgressMark
+                                value={
+                                  stage ?? {
+                                    stage: 'queued',
+                                    completed: 0,
+                                    total: null,
+                                  }
+                                }
+                              />
                             </span>
                           ) : (
                             <CollectMark />

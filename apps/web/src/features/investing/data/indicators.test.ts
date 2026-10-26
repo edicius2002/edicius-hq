@@ -27,6 +27,12 @@ describe('normalizeIndicators', () => {
     expect(out.active).toEqual(['rsi', 'macd']);
   });
 
+  it('drops a previously saved VWAP selection', () => {
+    const out = normalizeIndicators({ active: ['vwap', 'sma'] });
+
+    expect(out.active).toEqual(['sma']);
+  });
+
   it('reads them back in the canonical order, whatever order they were stored', () => {
     const out = normalizeIndicators({ active: ['macd', 'sma', 'rsi'] });
 

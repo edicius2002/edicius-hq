@@ -305,6 +305,33 @@ describe('Account controls in the wide menu', () => {
 });
 
 describe('Investing chart-first workspace', () => {
+  it('waits for the watchlist document before showing the symbol input', async () => {
+    const watchlistRead = deferred<Response>();
+    const fallbackFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/app_documents') && url.includes('watchlist')) {
+          return watchlistRead.promise;
+        }
+        return fallbackFetch(input, init);
+      }),
+    );
+
+    renderAt('/investing');
+    await arrivesAt('Investing');
+    const panel = await screen.findByRole('region', { name: 'Watchlist' });
+    expect(
+      within(panel).queryByRole('textbox', { name: 'Search a symbol' }),
+    ).not.toBeInTheDocument();
+
+    watchlistRead.resolve(Response.json([]));
+    expect(
+      await within(panel).findByRole('textbox', { name: 'Search a symbol' }),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     {
       situation: 'between followed stocks',
@@ -478,68 +505,6 @@ describe('Investing chart-first workspace', () => {
     expect(watchRow).toHaveTextContent('101.25');
   });
 
-  it('imports positions into the portfolio and adds their symbols to the watchlist', async () => {
-    const user = userEvent.setup();
-    const stored = new Map<string, unknown>();
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        const key = url.match(/\/api\/kv\/([^/?]+)/)?.[1];
-        if (key) {
-          if (init?.method === 'PUT') {
-            const value = JSON.parse(String(init.body)).value;
-            stored.set(key, value);
-            return Response.json({ key, value });
-          }
-          return stored.has(key)
-            ? Response.json({ key, value: stored.get(key) })
-            : new Response(null, { status: 404 });
-        }
-        if (url.includes('/api/market/quotes')) return Response.json({ quotes: [], failed: [] });
-        if (url.includes('/api/market/bars')) {
-          return Response.json({ symbol: 'AAPL', timeframe: '1d', provider: 'test', bars: [] });
-        }
-        return Response.json({ status: 'ok' });
-      }),
-    );
-
-    renderAt('/investing');
-    await arrivesAt('Investing');
-    await screen.findByRole('region', { name: 'Positions' }, { timeout: ROUTE_LOAD_MS });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled());
-
-    await user.upload(
-      screen.getByLabelText('Positions file'),
-      new File(
-        [
-          JSON.stringify({
-            app: 'edicius-hq',
-            kind: 'investing-positions',
-            version: 1,
-            exportedAt: '2026-08-31T12:00:00.000Z',
-            positions: [{ symbol: 'MSFT', quantity: 2, averageCost: 400 }],
-          }),
-        ],
-        'positions.json',
-        { type: 'application/json' },
-      ),
-    );
-
-    expect(
-      within(await screen.findByRole('list', { name: 'Positions' })).getByRole('button', {
-        name: /^MSFT/,
-      }),
-    ).toBeInTheDocument();
-    expect(
-      within(await screen.findByRole('list', { name: 'Watchlist' })).getByRole('button', {
-        name: 'Stop following MSFT',
-      }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('1 positions imported, 0 updated.')).toBeInTheDocument();
-  });
-
   it('sits the watchlist beside the chart and the positions under both of them', async () => {
     renderAt('/investing');
     await arrivesAt('Investing');
@@ -561,7 +526,10 @@ describe('Investing chart-first workspace', () => {
     ).toBeTruthy();
 
     // Both lists are on screen at once, which is the point of the rearrangement.
-    expect(await screen.findByText('Nothing held yet.')).toBeInTheDocument();
+    expect(
+      await within(positions).findByRole('button', { name: 'Add position' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Nothing held yet.')).not.toBeInTheDocument();
     expect(await screen.findByRole('textbox', { name: 'Search a symbol' })).toBeInTheDocument();
   });
 

@@ -38,6 +38,7 @@ const NO_FOLLOWED_SYMBOLS = new Set<string>();
  */
 type PositionsProps = {
   portfolio: Portfolio;
+  totals?: Total[];
   quotes: Map<string, Quote>;
   selected: string;
   onSelect: (symbol: string) => void;
@@ -48,6 +49,7 @@ type PositionsProps = {
 
 export function Positions({
   portfolio,
+  totals = [],
   quotes,
   selected,
   onSelect,
@@ -70,8 +72,20 @@ export function Positions({
 
   return (
     <div>
-      <div className={styles.add}>
-        {adding ? (
+      <div className={styles.toolbar}>
+        <button
+          type="button"
+          className={styles.addButton}
+          disabled={adding}
+          onClick={() => setAdding(true)}
+        >
+          Add position
+        </button>
+        {totals.length ? <PositionTotals totals={totals} /> : null}
+      </div>
+
+      {adding ? (
+        <div className={styles.addFormWrap}>
           <PositionForm
             onCancel={() => setAdding(false)}
             onSave={(symbol, quantity, averageCost) => {
@@ -79,18 +93,21 @@ export function Positions({
               setAdding(false);
             }}
           />
-        ) : (
-          <button type="button" className={styles.addButton} onClick={() => setAdding(true)}>
-            Add position
-          </button>
-        )}
-      </div>
+        </div>
+      ) : null}
 
       {portfolio.positions.length ? (
         <ul className={styles.list} aria-label="Positions">
           {portfolio.positions.map((position) => {
             const valuation = valuePosition(position, quotes.get(position.symbol));
             const rising = (valuation?.profit ?? 0) >= 0;
+            const profitText = valuation
+              ? `${formatSignedAmount(valuation.profit)}${
+                  valuation.profitPercent === null
+                    ? ''
+                    : ' · ' + formatPercent(valuation.profitPercent)
+                }`
+              : '';
 
             if (editing === position.symbol) {
               return (
@@ -122,21 +139,24 @@ export function Positions({
                   className={styles.pick}
                   onClick={() => onSelect(position.symbol)}
                 >
-                  <span className={styles.symbol}>{position.symbol}</span>
-                  <span className={styles.holding}>
-                    {formatQuantity(position.quantity)} @ {formatAmount(position.averageCost)}
+                  <span className={styles.identity}>
+                    <span className={styles.symbol}>{position.symbol}</span>
+                    <span className={styles.holding}>
+                      {formatQuantity(position.quantity)} @ {formatAmount(position.averageCost)}
+                    </span>
                   </span>
 
                   {valuation ? (
-                    <>
+                    <span className={styles.valuation}>
                       <span className={styles.value}>{formatAmount(valuation.value)}</span>
-                      <span className={rising ? styles.up : styles.down}>
-                        {formatSignedAmount(valuation.profit)}
-                        {valuation.profitPercent === null
-                          ? ''
-                          : ' · ' + formatPercent(valuation.profitPercent)}
+                      <span
+                        className={rising ? styles.up : styles.down}
+                        title={profitText}
+                        aria-label={`Variation ${profitText}`}
+                      >
+                        {profitText}
                       </span>
-                    </>
+                    </span>
                   ) : (
                     <span className={styles.waiting}>waiting for a price</span>
                   )}
@@ -168,9 +188,7 @@ export function Positions({
             );
           })}
         </ul>
-      ) : (
-        <p className={styles.empty}>Nothing held yet.</p>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -1,19 +1,11 @@
 .page {
   display: grid;
-  /* `minmax(0, 1fr)` rather than the implicit `auto`: an auto column sizes to
-     its widest child's max-content, and the tape's track is deliberately twice
-     the frame wide, so the page itself would grow to fit it. */
+  /* Keep the chart from widening the page when its controls need to scroll. */
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  margin-block-start: calc(var(--space-4) * -1);
+  gap: var(--space-2);
+  margin-block-start: calc(var(--space-3) * -1);
   width: 100%;
   container-type: inline-size;
-}
-
-.note {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.78rem;
 }
 
 .error {
@@ -120,7 +112,7 @@
 
 .timeframe {
   border: 0;
-  padding: 0.3rem var(--space-3);
+  padding: 0.2rem var(--space-2);
   background: var(--color-surface);
   color: var(--color-muted);
   font: inherit;
@@ -144,14 +136,15 @@
   outline-offset: -2px;
 }
 
-/* The regime explains both the translucent candles and the slower polling. */
+/* The regime remains alongside symbol search in the market rail. */
 .regime {
-  padding: 0.15rem var(--space-3);
+  padding: 0.15rem var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-size: 0.68rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .regular {
@@ -171,8 +164,8 @@
 .chartHeader {
   display: flex;
   align-items: baseline;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
+  gap: var(--space-2);
+  margin-bottom: 0;
   flex-wrap: wrap;
 }
 
@@ -182,7 +175,7 @@
 }
 
 .viewControl {
-  padding: 0.3rem var(--space-2);
+  padding: 0.2rem var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg-2);
@@ -206,16 +199,21 @@
 .symbol {
   margin: 0;
   color: var(--color-text);
-  font-size: 1.05rem;
+  font-size: 0.9rem;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
 
 .price {
   color: var(--color-text);
-  font-size: 1.05rem;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+.chartHeader > .up,
+.chartHeader > .down {
+  font-size: 0.85rem;
 }
 
 .meta {
@@ -233,14 +231,14 @@
 .workspace {
   display: grid;
   /* Measured rather than guessed, and the unit matters: this app sets
-     `--font-size-base: 125%`, so a rem is 20px. A watchlist row needs 300px —
-     20px of panel padding either side, a 10px-padded button, a 14-character
+     `--font-size-base: 125%`, so a rem is 20px. A watchlist row needs 280px —
+     10px of panel padding either side, a 10px-padded button, a 14-character
      company name at 0.66rem (127px), a 10px gap, an eight-digit price at
      0.78rem (75px) and the 28px ✕ — which is the 15rem floor. The 16rem
      ceiling is the width the rail already had, so the chart keeps every pixel
      the wider column used to hold two lists in. */
   grid-template-columns: minmax(0, 1fr) minmax(15rem, 16rem);
-  gap: var(--space-4);
+  gap: var(--space-2);
   align-items: stretch;
   min-width: 0;
 }
@@ -251,6 +249,8 @@
 
 .chartPanel {
   min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-2);
   --investing-chart-height: clamp(28rem, 64vh, 52rem);
 }
 
@@ -266,10 +266,12 @@
      the ellipsis that exists to stop it. */
   min-width: 0;
   min-height: 0;
+  padding: var(--space-2);
 }
 
 .positionsPanel {
   min-width: 0;
+  padding: var(--space-2);
 }
 
 .positionsHeader {
@@ -322,7 +324,21 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  flex-wrap: wrap;
+}
+
+.railSearch {
+  width: min(50%, 9rem);
+  min-width: 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .panelTitle {
@@ -349,12 +365,12 @@
  * layout this file is built around could not be reached below a window of
  * roughly 1590px. Pixels cannot be read two ways.
  *
- * 980px is derived, not chosen: 640px of chart — twice the side column, because
- * the chart is what the page is for — plus the 20px gap, plus the 320px the
+ * 970px leaves room for 640px of chart — twice the side column, because
+ * the chart is what the page is for — plus the 10px gap and the 320px the
  * side track takes whenever there is room for it. Under that the chart would
  * be the smaller half of its own page, so the two stack instead.
  */
-@container (max-width: 980px) {
+@container (max-width: 970px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -381,7 +397,7 @@
 
 /*
  * 600px is where the chart stops being a chart: its tall floor is 28rem = 560px
- * and the panel spends 40px on padding, so at any page narrower than that the
+ * and the panel spends 20px on padding, so at any page narrower than that the
  * frame is taller than it is wide and a candle series has nowhere to run.
  * The shorter clamp gives the height back. (Was `48rem` — 960px under the same
  * arithmetic as above, close enough to the stacking threshold to be pointless.)
@@ -429,13 +445,9 @@
   inset: 0;
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
-  padding: var(--space-4);
+  padding: var(--space-2);
   background: var(--color-bg);
   overflow: hidden;
-}
-
-.focusMode .tickerWrap {
-  display: none;
 }
 
 .focusMode .workspace {
@@ -444,7 +456,7 @@
 }
 
 .focusMode .chartPanel {
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   min-height: 0;
   --investing-chart-height: 100%;

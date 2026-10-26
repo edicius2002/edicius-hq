@@ -6,31 +6,27 @@ const searchSymbols = vi.hoisted(() => vi.fn());
 vi.mock('@/shared/api/market', () => ({ searchSymbols }));
 
 import { EMPTY_PORTFOLIO } from '@/features/investing/data/portfolio';
-import { PositionTotals, Positions } from '@/features/investing/ui/Positions';
+import { Positions } from '@/features/investing/ui/Positions';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('Positions', () => {
-  it('keeps the portfolio total separate from the position controls', () => {
+  it('shows the add control before the centered portfolio summary', () => {
     render(
-      <>
-        <PositionTotals
-          totals={[
-            { currency: 'USD', cost: 200, value: 250, profit: 50, profitPercent: 25, positions: 1 },
-          ]}
-        />
-        <Positions
-          portfolio={EMPTY_PORTFOLIO}
-          quotes={new Map()}
-          selected="AAPL"
-          onSelect={vi.fn()}
-          onEdit={vi.fn()}
-          onRemove={vi.fn()}
-          onMove={vi.fn()}
-        />
-      </>,
+      <Positions
+        portfolio={EMPTY_PORTFOLIO}
+        totals={[
+          { currency: 'USD', cost: 200, value: 250, profit: 50, profitPercent: 25, positions: 1 },
+        ]}
+        quotes={new Map()}
+        selected="AAPL"
+        onSelect={vi.fn()}
+        onEdit={vi.fn()}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
     );
 
     const total = screen.getByLabelText('Total USD');
@@ -38,7 +34,52 @@ describe('Positions', () => {
 
     expect(total).toHaveTextContent('250.00');
     expect(total).toHaveTextContent('+50.00 · +25.00%');
-    expect(total.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(add.compareDocumentPosition(total) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows two rows: symbol with holding, then value with full variation', () => {
+    render(
+      <Positions
+        portfolio={{
+          version: 1,
+          positions: [{ symbol: 'AAPL', quantity: 1, averageCost: 5233.05 }],
+        }}
+        quotes={
+          new Map([
+            [
+              'AAPL',
+              {
+                symbol: 'AAPL',
+                price: 5122.4,
+                currency: 'USD',
+                previousClose: null,
+                change: null,
+                changePercent: null,
+                provider: 'test',
+                time: null,
+                marketState: null,
+                name: 'Apple',
+                extended: false,
+              },
+            ],
+          ])
+        }
+        selected="AAPL"
+        onSelect={vi.fn()}
+        onEdit={vi.fn()}
+        onRemove={vi.fn()}
+        onMove={vi.fn()}
+      />,
+    );
+
+    const symbol = screen.getByText('AAPL');
+    const holding = screen.getByText('1 @ 5,233.05');
+    const card = screen.getByRole('button', { name: /^AAPL/ });
+    expect(symbol.parentElement).toBe(holding.parentElement);
+    expect(card.children).toHaveLength(2);
+
+    const variation = screen.getByText('-110.65 · -2.11%');
+    expect(variation.parentElement).toHaveTextContent('5,122.40-110.65 · -2.11%');
   });
 
   it('adds a position from an empty portfolio', async () => {
@@ -62,7 +103,7 @@ describe('Positions', () => {
       />,
     );
 
-    expect(screen.getByText('Nothing held yet.')).toBeInTheDocument();
+    expect(screen.queryByText('Nothing held yet.')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Add position' }));
     await user.type(screen.getByRole('textbox', { name: 'Search a symbol' }), 'ms');

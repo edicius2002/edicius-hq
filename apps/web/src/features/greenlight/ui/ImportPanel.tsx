@@ -13,32 +13,20 @@ import buttonStyles from '@/shared/ui/Button.module.css';
 
 import styles from './ImportPanel.module.css';
 
-type PendingClear = { kind: 'clear' };
 type PendingImport = {
   kind: 'import';
   incoming: Record<string, DayStats>;
 };
-type Pending = PendingClear | PendingImport | null;
+type Pending = PendingImport | null;
 
 type ImportPanelProps = {
   stats: Record<string, DayStats>;
   isImporting: boolean;
-  isClearing: boolean;
-  hasData: boolean;
   onImport: (file: File) => void;
   onParseError: (message: string | null) => void;
-  onClear: () => void;
 };
 
-export function ImportPanel({
-  stats,
-  isImporting,
-  isClearing,
-  hasData,
-  onImport,
-  onParseError,
-  onClear,
-}: ImportPanelProps) {
+export function ImportPanel({ stats, isImporting, onImport, onParseError }: ImportPanelProps) {
   const [pending, setPending] = useState<Pending>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
@@ -49,9 +37,6 @@ export function ImportPanel({
       incoming: pending.incoming,
     });
   }, [pending, stats]);
-
-  const previewOpen = pending?.kind === 'import';
-  const busy = isImporting || isClearing || pending?.kind === 'clear';
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -73,10 +58,6 @@ export function ImportPanel({
     }
   }
 
-  function handleClearClick() {
-    setPending({ kind: 'clear' });
-  }
-
   function handleConfirm() {
     if (
       pending?.kind === 'import' &&
@@ -89,10 +70,6 @@ export function ImportPanel({
       setPendingFile(null);
       onImport(file);
       return;
-    }
-    if (pending?.kind === 'clear') {
-      setPending(null);
-      onClear();
     }
   }
 
@@ -121,14 +98,6 @@ export function ImportPanel({
             onChange={(event) => void handleFileChange(event)}
           />
         </label>
-
-        <Button
-          variant="danger"
-          disabled={!hasData || busy || previewOpen}
-          onClick={handleClearClick}
-        >
-          Clear
-        </Button>
       </div>
 
       {pending?.kind === 'import' && copy ? (
@@ -145,18 +114,6 @@ export function ImportPanel({
           ) : null}
           <Button variant="secondary" onClick={handleCancel}>
             {canApplyImport ? 'Cancel' : 'OK'}
-          </Button>
-        </div>
-      ) : null}
-
-      {pending?.kind === 'clear' ? (
-        <div className={styles.confirm} role="alert">
-          <p>Clear all Greenlight data? This cannot be undone.</p>
-          <Button variant="danger" onClick={handleConfirm}>
-            Clear
-          </Button>
-          <Button variant="secondary" onClick={handleCancel}>
-            Cancel
           </Button>
         </div>
       ) : null}

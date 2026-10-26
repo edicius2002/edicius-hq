@@ -1,85 +1,26 @@
-/*
- * Grid rules are drawn as borders on the month boxes, so the gutters come from
- * padding rather than gap: with a gap the horizontal rules would be cut at every
- * column boundary and the vertical rule would float in the middle of the break.
- * Zero gap makes neighbouring borders meet, so the rules stay continuous and
- * intersect. `stretch` is what keeps a row's boxes the same height, so a vertical
- * rule spans the whole row and both horizontal rules land on the same line.
- *
- * Three month boxes to a row — `three-months-to-a-row`. The count is written out
- * rather than left to `auto-fill` because the rules above need to know it: which
- * box opens a row and which closes one is `nth-child(3n + 1)` and `nth-child(3n)`,
- * and a track count nobody can name is a rule nobody can place. The two smaller
- * counts live in the media queries at the foot of this file.
- */
 .list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: stretch;
-  gap: 0;
+  gap: var(--space-4);
 }
 
 .monthRow {
   display: grid;
   align-content: start;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
-  /*
-   * Half the gutter on each side of every vertical rule. `--space-2` rather than
-   * the `--space-5` two columns could afford: at three columns every pixel of
-   * gutter comes out of a week card, and 60px of it is most of one.
-   */
-  padding: var(--space-5) var(--space-2);
-  border-inline-end: 1px solid var(--color-border);
-  border-block-end: 1px solid var(--color-border);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
 }
 
-/* No padding or rule against the outer edges of the grid. */
-.monthRow:nth-child(3n + 1) {
-  padding-inline-start: 0;
-}
-
-.monthRow:nth-child(3n) {
-  padding-inline-end: 0;
-  border-inline-end: 0;
-}
-
-/* A lone final month has nothing to its right. */
-.monthRow:last-child {
-  border-inline-end: 0;
-}
-
-.monthRow:nth-child(-n + 3) {
-  padding-block-start: 0;
-}
-
-/*
- * The last row, whatever the month count: the box that opens it is in column one
- * with at most two boxes after it, and every box after that one is in it too.
- * The `nth-last-child(-n + 3)` this replaces was only right when the count was a
- * multiple of the column count — five months in two columns dropped the rule
- * under the second row, because the fourth of five matched it while a third row
- * still sat below.
- */
-.monthRow:nth-child(3n + 1):nth-last-child(-n + 3),
-.monthRow:nth-child(3n + 1):nth-last-child(-n + 3) ~ .monthRow {
-  padding-block-end: 0;
-  border-block-end: 0;
-}
-
-/*
- * Two lines, always: the month and its total on the first, the subscription
- * chips on the second. As a single wrapping flex line the heading was one line
- * in a wide box and three in a narrow one, so month boxes sharing a row started
- * their week cards at different heights.
- */
 .monthTitle {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--space-2);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1);
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -92,21 +33,23 @@
 }
 
 .monthTitle strong {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
   color: var(--color-income);
   font-variant-numeric: tabular-nums;
   text-transform: none;
   letter-spacing: 0;
   justify-self: end;
+  font-size: 0.72rem;
 }
 
 .toolChips {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  justify-content: center;
+  gap: 0.2rem;
 }
 
 .toolChip {
@@ -117,7 +60,7 @@
   color: var(--color-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 0.62rem;
+  font-size: 0.52rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   padding: 2px 9px;
@@ -151,50 +94,36 @@
   }
 }
 
-/*
- * Four weeks across, one row — `four-weeks-across-a-month`. Equal tracks rather
- * than content-sized flex items, so the fifth week of a five-week month lands
- * under the first rather than squeezing the other four, and so a two-week month
- * draws cards the same width as the four-week month beside it.
- *
- * No column gap: the gutter is reserved on the cluster, so the marker slot is
- * the whole of it and its centred contents land exactly halfway. A gap here
- * would push the marker off centre by half the gap.
- */
+/* Three month panels per wide row, with up to four week cards in each panel. */
 .weeks {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  column-gap: 0;
-  row-gap: 0.5rem;
+  row-gap: var(--space-2);
   align-items: stretch;
 }
 
-/*
- * The gutter is the cluster's own padding rather than the marker's width, so the
- * last week of the archive — the one week that is drawn without a marker — still
- * gives its card the same width as every other card in the row.
- */
+/* The reserved gutter keeps marked and unmarked cards the same width. */
 .weekCluster {
   display: flex;
   align-items: stretch;
-  gap: 0;
   min-width: 0;
-  padding-inline-end: 0.7rem;
+  padding-inline-end: 0.5rem;
 }
 
 .weekCard {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: center;
   align-items: center;
+  justify-items: center;
+  gap: 0.1rem;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 3.4rem;
+  padding: 0.1rem 0.05rem;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 9px;
-  display: grid;
-  flex: 1 1 0;
-  gap: 4px;
-  grid-template-rows: auto auto 112px auto;
-  justify-items: center;
-  /* The track sets the width; the card takes all of it, less the marker gutter. */
-  min-width: 0;
-  padding: 6px 3px 5px;
   text-align: center;
 }
 
@@ -204,16 +133,12 @@
   box-shadow: 0 5px 16px color-mix(in srgb, var(--segment-color) 10%, transparent);
 }
 
-/*
- * Sized against the card, not against taste: at the owner's window a card is
- * 72.6px wide and 64.6px inside its padding, and the widest weekly figure at
- * 0.56rem is 60.5px of that. Nine characters, not eight: `formatMoney` writes
- * what the reader's own locale writes, and the same $4272.50 is `$4272,50`
- * here and `$4,272.50` in `en-US` — the card is sized for the longer of them.
- * See `moneyWeekGrid.test.ts`, which does this arithmetic against this file.
- * A five-figure week is eleven characters and would not fit; that is recorded
- * in HANDOFF rather than solved by rounding the figure.
- */
+.weekRange {
+  font-size: 0.49rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
 .weekValue {
   color: var(--color-income);
   font-size: 0.56rem;
@@ -221,58 +146,28 @@
   white-space: nowrap;
 }
 
-/*
- * Wraps rather than shrinks: `47.1% of month` does not fit a 62px card on one
- * line at any size worth reading, and the words are worth more than the line.
- * Nothing is dropped and nothing is rounded — the pill is simply two lines deep.
- */
 .weekPct {
-  background: rgba(141, 211, 111, 0.11);
-  border: 1px solid rgba(141, 211, 111, 0.34);
-  border-radius: 999px;
-  color: var(--color-income);
-  font-size: 0.48rem;
-  font-weight: 800;
-  line-height: 1.15;
-  padding: 2px 4px;
-}
-
-.barTrack {
-  align-items: flex-end;
-  background: linear-gradient(
-    90deg,
-    transparent 49%,
-    rgba(255, 255, 255, 0.055) 50%,
-    transparent 51%
-  );
-  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
   display: flex;
-  height: 112px;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  width: 100%;
+  min-width: 0;
+  margin-block: 0.15rem;
+  color: var(--color-income);
+  line-height: 1.1;
 }
 
-.barFill {
-  background: linear-gradient(180deg, #a7df82, var(--color-income));
-  border: 1px solid rgba(220, 255, 205, 0.4);
-  border-bottom: 0;
-  border-radius: 6px 6px 2px 2px;
-  box-shadow: 0 0 12px rgba(141, 211, 111, 0.24);
-  display: block;
-  min-height: 0;
-  width: clamp(18px, 24%, 32px);
+.weekPctValue {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Breaks at its own dash, so `29/06–05/07` becomes two lines rather than an
-   overflow. Both dates stay whole. */
-.weekRange {
-  font-size: 0.6rem;
+.weekPctCaption {
+  color: var(--color-muted);
+  font-size: 0.43rem;
   font-weight: 700;
-  line-height: 1.15;
 }
 
-/* Spans the full gutter; the handle and line are centred inside it. The negative
-   margin puts it back over the padding the cluster reserved for it. */
 .markerSlot {
   appearance: none;
   background: transparent;
@@ -280,12 +175,12 @@
   align-items: center;
   cursor: pointer;
   display: flex;
-  flex: 0 0 0.7rem;
+  flex: 0 0 0.5rem;
   flex-direction: column;
-  margin: 0 -0.7rem 0 0;
+  margin: 0 -0.5rem 0 0;
   padding: 0;
   position: relative;
-  width: 0.7rem;
+  width: 0.5rem;
 }
 
 .markerSlot::before {
@@ -302,9 +197,9 @@
   border-radius: 50%;
   color: var(--color-muted);
   display: flex;
-  font-size: 0.7rem;
+  font-size: 0.5rem;
   font-weight: 800;
-  height: 20px;
+  height: 15px;
   justify-content: center;
   opacity: 0;
   position: relative;
@@ -312,7 +207,7 @@
     opacity 0.15s,
     background 0.15s,
     color 0.15s;
-  width: 20px;
+  width: 15px;
   z-index: 3;
   flex-shrink: 0;
 }
@@ -351,213 +246,66 @@
   margin: 0;
 }
 
-/*
- * Three month cells is the default, and every width below is arithmetic rather
- * than taste. Real screens (125% Windows scale): the owner's window is 1536px
- * CSS and after the sidebar (15rem), the main padding (2× space-6), the panel
- * padding (2× space-4), the borders and the scrollbar, the list measures
- * 1099.2px — three cells of 366.4px, the middle one 346.4px inside its gutters,
- * four week clusters of 86.6px, a card of 72.6px. The floor under all of it is
- * a card that prints its own figure: 68.5px, so a cluster of 82.5px and a cell
- * of 329.9px. Three of those plus the middle cell's two gutters need 1486.6px
- * of window, two need 1116.6px — hence these queries, and `moneyWeekGrid.test`
- * derives both of them from the same lengths. px queries do not scale with
- * --font-size-base; retune if that token or the chrome widths change.
- */
-@media (max-width: 1486px) {
+@media (max-width: 1480px) {
   .list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .monthRow:nth-child(3n + 1),
-  .monthRow:nth-child(3n) {
-    padding-inline: var(--space-2);
-    border-inline-end: 1px solid var(--color-border);
-  }
-
-  .monthRow:nth-child(odd) {
-    padding-inline-start: 0;
-  }
-
-  .monthRow:nth-child(even) {
-    padding-inline-end: 0;
-    border-inline-end: 0;
-  }
-
-  .monthRow:last-child {
-    border-inline-end: 0;
-  }
-
-  .monthRow:nth-child(-n + 3) {
-    padding-block-start: var(--space-5);
-  }
-
-  .monthRow:nth-child(-n + 2) {
-    padding-block-start: 0;
-  }
-
-  .monthRow:nth-child(3n + 1):nth-last-child(-n + 3),
-  .monthRow:nth-child(3n + 1):nth-last-child(-n + 3) ~ .monthRow {
-    padding-block-end: var(--space-5);
-    border-block-end: 1px solid var(--color-border);
-  }
-
-  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2),
-  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2) ~ .monthRow {
-    padding-block-end: 0;
-    border-block-end: 0;
-  }
 }
 
-/* One column: horizontal rules only, and the outer edges stay clean. */
-@media (max-width: 1116px) {
+@media (max-width: 1100px) {
   .list {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  .monthRow,
-  .monthRow:nth-child(odd),
-  .monthRow:nth-child(even),
-  .monthRow:nth-child(3n + 1),
-  .monthRow:nth-child(3n) {
-    padding-inline: 0;
-    border-inline-end: 0;
-  }
-
-  .monthRow:nth-child(-n + 2),
-  .monthRow:nth-child(-n + 3) {
-    padding-block-start: var(--space-5);
-  }
-
-  .monthRow:first-child {
-    padding-block-start: 0;
-  }
-
-  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2),
-  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2) ~ .monthRow,
-  .monthRow:nth-child(3n + 1):nth-last-child(-n + 3),
-  .monthRow:nth-child(3n + 1):nth-last-child(-n + 3) ~ .monthRow {
-    padding-block-end: var(--space-5);
-    border-block-end: 1px solid var(--color-border);
-  }
-
-  .monthRow:last-child {
-    padding-block-end: 0;
-    border-block-end: 0;
-  }
 }
 
-/*
- * With the months already down to one column the cell is the whole list, and
- * four across stops fitting at a cell of 329.9px — a window of 766.7px once the
- * sidebar and the paddings are out. Two across below that, and one below 601.8px
- * where two stop fitting, rather than four columns forced at every size.
- */
-@media (max-width: 766px) {
+@media (max-width: 600px) {
   .weeks {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
 
-@media (max-width: 601px) {
-  .weeks {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/*
- * Two month boxes to a row again on a phone — `two-months-to-a-row-again`.
- *
- * This looks like it contradicts the 1116px rule above it and does not, because
- * the two are sizing different things. Every threshold above is derived from a
- * month cell holding **four** week cards: `FLOOR_CELL_PX` is `4 x
- * FLOOR_TRACK_PX`, which is why three columns need 1486px and two need 1116px.
- * Below 601px `.weeks` is already single file, so a cell holds **one** card and
- * its floor is `FLOOR_TRACK_PX` — a quarter of what the sums above spend. Two
- * of those fit a phone with room over; one per row was never a width decision
- * at this size, it was the 1116px rule still applying long after its premise
- * stopped being true.
- *
- * 640px matches `NARROW_QUERY` in `useIsNarrow.ts` — the width at which the
- * shell drops its sidebar-less top row — because that is what changes the space
- * this list is given. `moneyWeekGrid.test` derives the floor and checks it
- * against this block.
- *
- * The rules are written fresh rather than copied from the 1486px block. That
- * block reaches two columns on its way down from three and still carries the
- * `nth-child(3n + 1)` selectors it needed there; at a fixed two columns the
- * only questions are which side of a box faces its neighbour and whether a row
- * is the last, so `odd`/`even` say it directly.
- */
-@media (max-width: 640px) {
-  .list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .weekCard {
+    min-height: 3.8rem;
   }
 
-  /* Half a gutter each side of the one vertical rule, which the left box
-     carries. The outer edges of the list stay flush. */
-  .monthRow:nth-child(odd) {
-    padding-inline: 0 var(--space-2);
-    border-inline-end: 1px solid var(--color-border);
+  .weekRange {
+    font-size: 0.6rem;
   }
 
-  .monthRow:nth-child(even) {
-    padding-inline: var(--space-2) 0;
-    border-inline-end: 0;
-  }
-
-  /* A lone last box sits in the left column with nothing beside it, so its
-     rule would run down the middle of empty space. */
-  .monthRow:last-child:nth-child(odd) {
-    border-inline-end: 0;
-  }
-
-  /* Horizontal rules between rows, none above the first pair or below the
-     last. `-n + 2` is the first row now that a row is two boxes wide. */
-  .monthRow {
-    padding-block: var(--space-5) var(--space-5);
-    border-block-end: 1px solid var(--color-border);
-  }
-
-  .monthRow:nth-child(-n + 2) {
-    padding-block-start: 0;
-  }
-
-  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2),
-  .monthRow:nth-child(2n + 1):nth-last-child(-n + 2) ~ .monthRow {
-    padding-block-end: 0;
-    border-block-end: 0;
-  }
-  /*
-   * The heading stacks here, and it has to rather than merely looks better.
-   *
-   * `.monthTitle` is `minmax(0, 1fr) auto` with the month in column one and its
-   * total in column two. `auto` is sized to the total, and at a 101px box the
-   * total asked for 89px of it — the month's track collapsed to 1.7px and
-   * "April 2026" printed straight over "$1444,25". A `1fr` track will go to
-   * zero; that is what `minmax(0, ...)` says.
-   *
-   * The note above the base rule wants a heading of a fixed number of lines so
-   * that boxes sharing a row start their week cards level. Three lines keeps
-   * that promise as well as two did — what breaks it is a heading that wraps a
-   * different number of times per box, not the number itself.
-   *
-   * The type comes down with it because it has to: `APRIL 2026` at 0.95rem is
-   * about 114px and the box is 101px, so the month alone did not fit its own
-   * line either.
-   */
-  .monthTitle {
-    grid-template-columns: minmax(0, 1fr);
+  .weekValue {
     font-size: 0.7rem;
   }
 
+  .weekPctValue {
+    font-size: 0.95rem;
+  }
+
+  .weekPctCaption {
+    font-size: 0.52rem;
+  }
+
+  .markerSlot::before {
+    inset: -8px -15px;
+  }
+}
+
+@media (max-width: 420px) {
+  .monthTitle {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .monthTitle strong {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .toolChips {
-    grid-row: 3;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (hover: none) {
+  .markerHandle {
+    opacity: 1;
   }
 }

@@ -2,19 +2,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--space-3);
-}
-
-.title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
 }
 
 .fields {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--space-3);
 }
 
@@ -40,6 +36,7 @@
   background: var(--color-bg-2);
   color: var(--color-text);
   font: inherit;
+  font-size: 0.8rem;
   text-align: right;
 }
 
@@ -62,6 +59,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: var(--space-3);
   margin: 0;
   color: var(--color-muted);
@@ -72,16 +70,10 @@
   color: var(--color-accent);
 }
 
-/*
- * Three columns, and the middle one is the widest because it is the only one
- * whose content is a shape rather than digits — 120 months in a column narrower
- * than the tables would be four view units a month before the box is even
- * scaled.
- */
 .columns {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: start;
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-4);
@@ -89,8 +81,26 @@
 
 .column {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
+}
+
+.firstYearColumn {
+  justify-items: center;
+}
+
+.firstYearTables,
+.byYearTables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+  width: 100%;
+}
+
+.firstYearTables,
+.firstYearColumn .yearInterest {
+  max-width: 27rem;
 }
 
 .columnTitle {
@@ -105,7 +115,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.73rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -127,11 +137,15 @@
   background: var(--color-surface-soft);
 }
 
-.table tfoot th,
-.table tfoot td {
+.yearInterest {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
   font-weight: 700;
+  font-size: 0.85rem;
 }
 
 .numeric {
@@ -139,11 +153,9 @@
   white-space: nowrap;
 }
 
-.footLabel {
-  text-align: left;
+.yearInterest span {
   color: var(--color-muted);
   font-size: 0.7rem;
-  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -166,6 +178,13 @@
  */
 @media (max-width: 1100px) {
   .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .firstYearTables,
+  .byYearTables {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -18,6 +18,7 @@ type WeeklyChartProps = {
   points: WeekPoint[];
 };
 
+/** One bar for every calendar week, including zero-value gaps. */
 export function WeeklyChart({ points }: WeeklyChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [wrapRef, measuredWidth] = useElementWidth<HTMLDivElement>(FALLBACK_WIDTH);
@@ -30,42 +31,36 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
     const plotH = height - pad.top - pad.bottom;
     const maxValue = Math.max(...points.map((point) => point.amount), 0);
     const { top, ticks } = buildWeekAxisTicks(maxValue);
-    const xAt = (index: number) =>
-      pad.left + (points.length === 1 ? plotW / 2 : (index / (points.length - 1)) * plotW);
-    const yAt = (value: number) => pad.top + plotH - (value / top) * plotH;
-    const coords = points.map((point, index) => ({
-      ...point,
-      x: xAt(index),
-      y: yAt(point.amount),
-    }));
-    const path = coords
-      .map((c, index) => `${index === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
-      .join(' ');
     const baseY = pad.top + plotH;
-    const area = `${coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')} ${coords.at(-1)?.x.toFixed(1)},${baseY} ${coords[0]?.x.toFixed(1)},${baseY}`;
-    // Keep x labels from colliding: allow roughly one label per 72px of plot width.
+    const groupW = plotW / Math.max(points.length, 1);
+    const barW = Math.max(3, Math.min(30, groupW * 0.72));
+    const xAt = (index: number) => pad.left + groupW * (index + 0.5);
+    const yAt = (value: number) => baseY - (value / top) * plotH;
+    const bars = points.map((point, index) => {
+      const barH = point.amount > 0 ? Math.max(baseY - yAt(point.amount), 2) : 2;
+      return { ...point, x: xAt(index), y: baseY - barH, height: barH };
+    });
+    // The bars stay complete; only date labels thin out when space is limited.
     const maxLabels = Math.max(2, Math.floor(plotW / 72));
     const labelStep = points.length > maxLabels ? Math.ceil(points.length / maxLabels) : 1;
-    return { width, height, pad, top, ticks, coords, path, area, baseY, labelStep, xAt, yAt };
+    return { width, height, pad, ticks, bars, baseY, groupW, barW, labelStep, xAt, yAt };
   }, [points, measuredWidth]);
 
   if (!points.length) {
     return <p className={styles.empty}>No weeks to chart yet.</p>;
   }
 
-  const { width, height, pad, ticks, coords, path, area, baseY, labelStep, xAt, yAt } = layout;
-  const hover = hoverIndex === null ? null : coords[hoverIndex];
+  const { width, height, pad, ticks, bars, baseY, groupW, barW, labelStep, xAt, yAt } = layout;
+  const hover = hoverIndex === null ? null : bars[hoverIndex];
 
   function onMove(event: PointerEvent<SVGSVGElement>) {
-    const svg = event.currentTarget;
-    const rect = svg.getBoundingClientRect();
+    const rect = event.currentTarget.getBoundingClientRect();
     const relX = ((event.clientX - rect.left) / rect.width) * width;
     if (relX < pad.left || relX > width - pad.right) {
       setHoverIndex(null);
       return;
     }
-    const ratio = (relX - pad.left) / (width - pad.left - pad.right);
-    const idx = Math.max(0, Math.min(coords.length - 1, Math.round(ratio * (coords.length - 1))));
+    const idx = Math.max(0, Math.min(bars.length - 1, Math.floor((relX - pad.left) / groupW)));
     setHoverIndex(idx);
   }
 
@@ -77,7 +72,12 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
         role="img"
         aria-label="Weekly deliverable value"
         onPointerMove={onMove}
-        onPointerLeave={() => setHoverIndex(null)}
+        onPointerDown={(event) => {
+          if (event.pointerType === 'touch') onMove(event);
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== 'touch') setHoverIndex(null);
+        }}
       >
         {ticks.map((tick) => {
           const yPos = yAt(tick);
@@ -104,11 +104,21 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
           x2={width - pad.right}
           y2={baseY}
         />
-        <polygon className={styles.area} points={area} />
-        <path className={styles.line} d={path} pathLength={1} />
-        {coords.at(-1) ? (
-          <circle className={styles.dot} cx={coords.at(-1)!.x} cy={coords.at(-1)!.y} r={3.5} />
-        ) : null}
+        {bars.map((bar, index) => (
+          <g key={bar.key}>
+            <title>
+              {bar.label}: {formatBarMoney(bar.amount)}
+            </title>
+            <rect
+              className={`${bar.amount > 0 ? styles.bar : styles.emptyBar} ${hoverIndex === index ? styles.barHovered : ''}`}
+              x={bar.x - barW / 2}
+              y={bar.y}
+              width={barW}
+              height={bar.height}
+              rx={barW > 8 ? 2 : 0}
+            />
+          </g>
+        ))}
         {points.map((point, index) => {
           if (index % labelStep !== 0 && index !== points.length - 1) return null;
           return (
@@ -128,12 +138,6 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
             </text>
           );
         })}
-        {hover ? (
-          <g className={styles.hover}>
-            <line className={styles.crosshair} x1={hover.x} x2={hover.x} y1={pad.top} y2={baseY} />
-            <circle className={styles.cursor} cx={hover.x} cy={hover.y} r={5} />
-          </g>
-        ) : null}
       </svg>
       {hover ? (
         <div

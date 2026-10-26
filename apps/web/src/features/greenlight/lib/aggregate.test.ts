@@ -4,6 +4,7 @@ import {
   buildMonthGroups,
   buildMonthlySeries,
   buildWeeklySeries,
+  fillCalendarWeeks,
 } from '@/features/greenlight/lib/aggregate';
 import { importGreenlightCsv } from '@/features/greenlight/lib/processRows';
 import { buildSegmentSummaries } from '@/features/greenlight/lib/segments';
@@ -28,6 +29,22 @@ const SAMPLE: Record<string, DayStats> = {
 };
 
 describe('Greenlight aggregation (Thursday-of-week months)', () => {
+  it('includes zero-value calendar weeks in the chart timeline', () => {
+    const observed = buildWeeklySeries({
+      '2026-06-09': day(100),
+      '2026-06-23': day(200),
+    });
+    const filled = fillCalendarWeeks(observed);
+
+    expect(filled.map((week) => [week.key, week.amount])).toEqual([
+      ['2026-06-08', 100],
+      ['2026-06-15', 0],
+      ['2026-06-22', 200],
+    ]);
+    expect(filled[1]?.label).toBe('15/06–21/06');
+    expect(observed).toHaveLength(2);
+  });
+
   it('puts the same week in the same month on both charts', () => {
     const weekly = buildWeeklySeries(SAMPLE);
     const monthly = buildMonthlySeries(SAMPLE);

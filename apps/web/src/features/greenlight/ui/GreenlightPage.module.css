@@ -2,23 +2,50 @@
   display: grid;
   /*
    * The header is one responsive row of totals and controls, not a page
-   * section. Keep its separation at the control scale and return part of the
-   * shell padding to the content above and below it.
+   * section. Pull the totals closer to the navigation while retaining a small
+   * gap, and return part of the shell padding below the page.
    */
   gap: var(--space-2);
-  margin-block: calc(var(--space-4) * -1);
+  margin-block-start: calc(var(--space-6) * -1 + var(--space-2));
+  margin-block-end: calc(var(--space-4) * -1);
   width: 100%;
 }
 
 .header {
-  /* There is no subtitle, so centering aligns the compact stats with actions. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
+}
+
+.header > :first-child {
+  grid-column: 2;
+}
+
+.header > :last-child {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .totals {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-2);
+}
+
+.totals > article {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0.25rem 0.5rem;
+}
+
+.totals > article span {
+  font-size: 0.65rem;
+}
+
+.totals > article strong {
+  font-size: 0.85rem;
 }
 
 .overview {
@@ -51,35 +78,14 @@
  * space instead of resizing the page. Further segments still grow it, but a row
  * at a time rather than in a jump.
  *
- * The figure moved with `three-fee-cards-to-a-row`. Two segments used to be two
- * full-width cards stacked, ~161px; they are now two cards side by side in one
- * row, and a card that stacks its range over three metrics is taller: 30px of
- * padding, 2px of border, a 1rem line for the range, `--space-2`, three 1.05rem
- * lines and the two `--space-1` between them — 176.5px, plus the `--space-4` the
- * list holds itself off by. 10rem covers 196.5px with a little over.
+ * The compact cards take about 80px including the list margin. 4.2rem
+ * reserves the first row with a little room to spare.
  * `segmentGrid.test.ts` does that arithmetic against the card's own stylesheet,
  * because a reserve for a height that lives in another file is exactly the kind
  * that drifts.
  */
 .segmentsSlot {
-  min-height: 10rem;
-}
-
-/* Matches the Clear markers button height so its appearance does not shift the row. */
-.tasksActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-  min-height: 2.6rem;
-}
-
-.range {
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  min-height: 4.2rem;
 }
 
 .muted {
@@ -89,7 +95,7 @@
 }
 
 /*
- * Sits in the header's action row beside Select CSV and Clear, so it has to
+ * Sits in the header's action row beside Select CSV, so it has to
  * behave as one flex item among several: it shrinks rather than pushing the
  * buttons off the line, and stays on the buttons' baseline.
  */
@@ -105,5 +111,18 @@
 @media (max-width: 1100px) {
   .overview {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .header {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .header > :first-child,
+  .header > :last-child {
+    grid-column: 1;
+    justify-self: center;
   }
 }

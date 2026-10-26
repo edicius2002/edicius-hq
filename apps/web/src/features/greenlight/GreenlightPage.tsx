@@ -6,12 +6,9 @@ import {
   buildMonthlySeries,
   buildWeeklySeries,
   computeTotals,
+  fillCalendarWeeks,
 } from '@/features/greenlight/lib/aggregate';
-import {
-  buildSegmentSummaries,
-  computeSegmentedTotals,
-  dateRangeLabel,
-} from '@/features/greenlight/lib/segments';
+import { buildSegmentSummaries, computeSegmentedTotals } from '@/features/greenlight/lib/segments';
 import type { ToolId } from '@/features/greenlight/model/types';
 import { CompoundProjector } from '@/features/greenlight/ui/CompoundProjector';
 import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
@@ -20,7 +17,6 @@ import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
 import { SegmentSummary } from '@/features/greenlight/ui/SegmentSummary';
 import { WeeklyChart } from '@/features/greenlight/ui/WeeklyChart';
 import { formatMoney } from '@/shared/lib/money';
-import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 import { PageSkeleton } from '@/shared/ui/PageSkeleton';
@@ -38,10 +34,7 @@ export function GreenlightPage() {
     retrySave,
     importCsv,
     isImporting,
-    clearData,
-    isClearing,
     toggleMarker,
-    clearMarkers,
     toggleWidget,
   } = useGreenlightData();
 
@@ -52,6 +45,7 @@ export function GreenlightPage() {
     [state.stats, state.markers],
   );
   const weekly = useMemo(() => buildWeeklySeries(state.stats), [state.stats]);
+  const weeklyChart = useMemo(() => fillCalendarWeeks(weekly), [weekly]);
   const monthly = useMemo(() => buildMonthlySeries(state.stats), [state.stats]);
   const months = useMemo(() => buildMonthGroupsFromWeeks(weekly), [weekly]);
   const segments = useMemo(
@@ -59,7 +53,6 @@ export function GreenlightPage() {
     [state.stats, state.markers],
   );
   const hasData = Object.keys(state.stats).length > 0;
-  const range = useMemo(() => dateRangeLabel(state.stats), [state.stats]);
 
   async function handleImport(file: File) {
     setLocalError(null);
@@ -77,30 +70,12 @@ export function GreenlightPage() {
     }
   }
 
-  async function handleClear() {
-    setLocalError(null);
-    try {
-      await clearData();
-    } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Could not clear Greenlight data.');
-    }
-  }
-
   async function handleToggleMarker(weekKey: string) {
     setLocalError(null);
     try {
       await toggleMarker(weekKey);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Could not save the marker.');
-    }
-  }
-
-  async function handleClearMarkers() {
-    setLocalError(null);
-    try {
-      await clearMarkers();
-    } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Could not clear the markers.');
     }
   }
 
@@ -132,7 +107,7 @@ export function GreenlightPage() {
                 size="sm"
               />
               <Stat
-                label={moneyBreakdown.charged ? 'Fee (10%)' : 'Fee (under min)'}
+                label={moneyBreakdown.charged ? 'Fee 10%' : 'Fee 0%'}
                 value={hasData ? formatMoney(moneyBreakdown.fee, totals.currency) : '—'}
                 tone="expense"
                 size="sm"
@@ -152,17 +127,16 @@ export function GreenlightPage() {
                   {localError || 'Could not load Greenlight data from storage.'}
                 </p>
               )}
-              <SaveStatus state={saveState} onRetry={retrySave} />
+              {saveState !== 'idle' && saveState !== 'saved' ? (
+                <SaveStatus state={saveState} onRetry={retrySave} />
+              ) : null}
               <ImportPanel
                 stats={state.stats}
                 isImporting={isImporting}
-                isClearing={isClearing}
-                hasData={hasData}
                 onImport={(file) => void handleImport(file)}
                 onParseError={(message) => {
                   setLocalError(message);
                 }}
-                onClear={() => void handleClear()}
               />
             </>
           }
@@ -174,7 +148,7 @@ export function GreenlightPage() {
               <h2 className={styles.panelTitle}>By week</h2>
             </div>
             {hasData ? (
-              <WeeklyChart points={weekly} />
+              <WeeklyChart points={weeklyChart} />
             ) : (
               <p className={styles.muted}>No weeks to chart yet.</p>
             )}
@@ -201,14 +175,6 @@ export function GreenlightPage() {
             <h2 id="weeks-title" className={styles.panelTitle}>
               Weeks
             </h2>
-            <div className={styles.tasksActions}>
-              <span className={styles.range}>{range}</span>
-              {state.markers.length > 0 ? (
-                <Button variant="secondary" onClick={() => void handleClearMarkers()}>
-                  Clear markers
-                </Button>
-              ) : null}
-            </div>
           </div>
           {hasData ? (
             <>

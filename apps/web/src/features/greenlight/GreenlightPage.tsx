@@ -7,11 +7,7 @@ import {
   buildWeeklySeries,
   computeTotals,
 } from '@/features/greenlight/lib/aggregate';
-import {
-  buildSegmentSummaries,
-  computeSegmentedTotals,
-  dateRangeLabel,
-} from '@/features/greenlight/lib/segments';
+import { buildSegmentSummaries, computeSegmentedTotals } from '@/features/greenlight/lib/segments';
 import type { ToolId } from '@/features/greenlight/model/types';
 import { CompoundProjector } from '@/features/greenlight/ui/CompoundProjector';
 import { ImportPanel } from '@/features/greenlight/ui/ImportPanel';
@@ -20,7 +16,6 @@ import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
 import { SegmentSummary } from '@/features/greenlight/ui/SegmentSummary';
 import { WeeklyChart } from '@/features/greenlight/ui/WeeklyChart';
 import { formatMoney } from '@/shared/lib/money';
-import { Button } from '@/shared/ui/Button';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { Panel } from '@/shared/ui/Panel';
 import { PageSkeleton } from '@/shared/ui/PageSkeleton';
@@ -41,7 +36,6 @@ export function GreenlightPage() {
     clearData,
     isClearing,
     toggleMarker,
-    clearMarkers,
     toggleWidget,
   } = useGreenlightData();
 
@@ -59,7 +53,6 @@ export function GreenlightPage() {
     [state.stats, state.markers],
   );
   const hasData = Object.keys(state.stats).length > 0;
-  const range = useMemo(() => dateRangeLabel(state.stats), [state.stats]);
 
   async function handleImport(file: File) {
     setLocalError(null);
@@ -92,15 +85,6 @@ export function GreenlightPage() {
       await toggleMarker(weekKey);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Could not save the marker.');
-    }
-  }
-
-  async function handleClearMarkers() {
-    setLocalError(null);
-    try {
-      await clearMarkers();
-    } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Could not clear the markers.');
     }
   }
 
@@ -201,14 +185,6 @@ export function GreenlightPage() {
             <h2 id="weeks-title" className={styles.panelTitle}>
               Weeks
             </h2>
-            <div className={styles.tasksActions}>
-              <span className={styles.range}>{range}</span>
-              {state.markers.length > 0 ? (
-                <Button variant="secondary" onClick={() => void handleClearMarkers()}>
-                  Clear markers
-                </Button>
-              ) : null}
-            </div>
           </div>
           {hasData ? (
             <>

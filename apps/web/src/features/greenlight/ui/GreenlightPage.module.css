@@ -51,35 +51,14 @@
  * space instead of resizing the page. Further segments still grow it, but a row
  * at a time rather than in a jump.
  *
- * The figure moved with `three-fee-cards-to-a-row`. Two segments used to be two
- * full-width cards stacked, ~161px; they are now two cards side by side in one
- * row, and a card that stacks its range over three metrics is taller: 30px of
- * padding, 2px of border, a 1rem line for the range, `--space-2`, three 1.05rem
- * lines and the two `--space-1` between them — 176.5px, plus the `--space-4` the
- * list holds itself off by. 10rem covers 196.5px with a little over.
+ * The compact cards take about 161px including the list margin. 8.2rem
+ * reserves the first row with a little room to spare.
  * `segmentGrid.test.ts` does that arithmetic against the card's own stylesheet,
  * because a reserve for a height that lives in another file is exactly the kind
  * that drifts.
  */
 .segmentsSlot {
-  min-height: 10rem;
-}
-
-/* Matches the Clear markers button height so its appearance does not shift the row. */
-.tasksActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-  min-height: 2.6rem;
-}
-
-.range {
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  min-height: 8.2rem;
 }
 
 .muted {

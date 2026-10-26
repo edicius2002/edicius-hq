@@ -722,20 +722,56 @@ describe('RouteList', () => {
     ).toHaveTextContent('↑ 25%');
   });
 
-  it('shows an unknown percentage until the worker reports a total', () => {
+  it('names each phase before its denominator is known', () => {
     const key = 'LIM|CUZ|2026-10';
-    renderList({
+    const { rerender, props } = renderList({
       routes: [ROUTES[0]],
       selectedId: 'LIM|CUZ',
       activeMonth: '2026-10',
       collecting: [key],
-      progress: new Map([[key, { stage: 'queued', completed: 0, total: null }]]),
+      progress: new Map([[key, { stage: 'submitting', completed: 0, total: null }]]),
     });
     expect(
       screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, queued 0%',
+        name: 'Fetching LIM → CUZ, October 2026, submitting',
       }),
-    ).toHaveTextContent('↓ 0%');
+    ).toHaveTextContent('Sending');
+
+    rerender(
+      <RouteList
+        {...props}
+        progress={new Map([[key, { stage: 'queued', completed: 0, total: null }]])}
+      />,
+    );
+    expect(
+      screen.getByRole('button', {
+        name: 'Fetching LIM → CUZ, October 2026, queued',
+      }),
+    ).toHaveTextContent('Queued');
+
+    rerender(
+      <RouteList
+        {...props}
+        progress={new Map([[key, { stage: 'collecting', completed: 0, total: null }]])}
+      />,
+    );
+    expect(
+      screen.getByRole('button', {
+        name: 'Fetching LIM → CUZ, October 2026, downloading, preparing',
+      }),
+    ).toHaveTextContent('↓ Preparing');
+
+    rerender(
+      <RouteList
+        {...props}
+        progress={new Map([[key, { stage: 'syncing', completed: 0, total: null }]])}
+      />,
+    );
+    expect(
+      screen.getByRole('button', {
+        name: 'Fetching LIM → CUZ, October 2026, syncing, preparing',
+      }),
+    ).toHaveTextContent('↑ Preparing');
   });
 
   it('does not render inline terminal report text', () => {

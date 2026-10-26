@@ -1,5 +1,5 @@
 begin;
-select plan(111);
+select plan(114);
 
 select has_table('public'::name, 'edicius_owners'::name);
 select has_table('public'::name, 'app_documents'::name);
@@ -275,6 +275,27 @@ select throws_ok(
        '{"stage":"collecting","completed":2,"total":30}'::jsonb
      ) $$,
   '22023', 'invalid_collector_progress', 'Airfare progress cannot move backwards'
+);
+select is(
+  (public.update_collector_request_progress(
+    (select request_id from public.collector_requests where operation = 'airfare-route' and status = 'running'),
+    '{"stage":"syncing","completed":0,"total":null}'::jsonb
+  )).progress->>'stage',
+  'syncing', 'Airfare syncing begins with its own progress counter'
+);
+select is(
+  (public.update_collector_request_progress(
+    (select request_id from public.collector_requests where operation = 'airfare-route' and status = 'running'),
+    '{"stage":"syncing","completed":2,"total":4}'::jsonb
+  )).progress->>'completed',
+  '2', 'Airfare syncing advances independently of collection progress'
+);
+select throws_ok(
+  $$ select public.update_collector_request_progress(
+       (select request_id from public.collector_requests where operation = 'airfare-route' and status = 'running'),
+       '{"stage":"syncing","completed":1,"total":4}'::jsonb
+      ) $$,
+  '22023', 'invalid_collector_progress', 'Airfare syncing progress cannot move backwards'
 );
 select is(
   (public.complete_collector_request(

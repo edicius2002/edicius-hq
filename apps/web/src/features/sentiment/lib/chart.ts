@@ -72,8 +72,12 @@ const NUMBER = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 });
 
+export function formatChartValue(value: number): string {
+  return NUMBER.format(value);
+}
+
 export function formatSeriesValue(value: number, unit: string): string {
-  return `${NUMBER.format(value)} ${unit}`;
+  return `${formatChartValue(value)} ${unit}`;
 }
 
 export function formatChartDate(timestamp: string): string {

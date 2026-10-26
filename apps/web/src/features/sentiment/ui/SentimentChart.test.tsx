@@ -63,14 +63,26 @@ describe('SentimentChart', () => {
 
     const crosshair = container.querySelector('[data-testid="sentiment-crosshair"]');
     expect(crosshair?.getAttribute('style')).toContain('translate');
+    expect(within(svg).getByTestId('sentiment-x-reading')).toHaveTextContent('Jan 2, 2026');
+    expect(within(svg).getByTestId('sentiment-y-reading')).toHaveTextContent('6,060.00');
+    expect(within(svg).getByTestId('sentiment-y-reading-average')).toHaveTextContent('5,925.00');
+    expect(
+      within(svg).getByTestId('sentiment-x-reading').parentElement?.getAttribute('style'),
+    ).toContain('translateX');
+    expect(
+      within(svg).getByTestId('sentiment-y-reading').parentElement?.getAttribute('style'),
+    ).toContain('translateY');
     expect(screen.getByRole('status')).toHaveTextContent('Jan 2, 2026');
     expect(screen.getByRole('status')).toHaveTextContent('6,060.00 index points');
+    expect(screen.getByRole('status').className).toContain('srOnly');
   });
 
   it('shows the pointer reading only while its own chart is active', () => {
     const { svg, container } = chart();
 
     expect(container.querySelector('[data-testid="sentiment-crosshair"]')).not.toBeInTheDocument();
+    expect(within(svg).queryByTestId('sentiment-x-reading')).not.toBeInTheDocument();
+    expect(within(svg).queryByTestId('sentiment-y-reading')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
 
     fireEvent.pointerEnter(svg, { clientX: 360, clientY: 100 });

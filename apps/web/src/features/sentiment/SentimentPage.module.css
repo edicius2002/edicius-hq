@@ -106,13 +106,6 @@
   gap: var(--space-4);
 }
 
-.disclaimer {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.68rem;
-  text-align: center;
-}
-
 @media (max-width: 52rem) {
   .indicators {
     grid-template-columns: 1fr;

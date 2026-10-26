@@ -166,7 +166,7 @@ export function SentimentChart({ metric }: SentimentChartProps) {
                 className={styles.axis}
                 x={layout.xAt(point.timestamp)}
                 y={SENTIMENT_VIEW.height - 18}
-                textAnchor="middle"
+                textAnchor={point.timestamp === xTicks.at(-1)?.timestamp ? 'end' : 'middle'}
               >
                 {formatChartDate(point.timestamp, showYear)}
               </text>

@@ -108,12 +108,6 @@ export function SentimentPage() {
               <MetricPanel key={indicator.key} metric={indicator} />
             ))}
           </div>
-
-          <p className={styles.disclaimer}>
-            The index methodology and source readings are CNN's. When CNN refuses direct server
-            access, Fear &amp; Greed Graph supplies the mirrored history. Historical indicator
-            charts show each indicator's native measurement, which is not necessarily a 0–100 score.
-          </p>
         </>
       )}
     </section>

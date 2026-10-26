@@ -54,14 +54,14 @@ describe('the boxes the Weeks panel draws', () => {
     expect(months.map((month) => month.key)).toEqual(['2026-06', '2026-07']);
     expect(months.map((month) => month.weeks.length)).toEqual([3, 4]);
 
-    // One `img` per week card: the bar carries the accessible name.
-    expect(screen.getAllByRole('img')).toHaveLength(7);
+    expect(screen.getAllByRole('article')).toHaveLength(7);
+    expect(screen.queryByRole('img')).toBeNull();
   });
 
   it('names every week card with its own amount and its own dates', () => {
     renderChart();
 
-    expect(screen.getByRole('img', { name: /29\/06.*05\/07/ })).toBeTruthy();
+    expect(screen.getByRole('article', { name: /29\/06.*05\/07/ })).toBeTruthy();
     // The figure the card has to print whole, and the widest one there is here.
     // Nine characters under this suite's `en-US`, eight under the owner's own
     // locale — `moneyWeekGrid` sizes the card for the longer of the two.
@@ -69,14 +69,22 @@ describe('the boxes the Weeks panel draws', () => {
     expect('$4,272.50').toHaveLength(9);
   });
 
-  it('prints the share of the month beside the figure, unrounded', () => {
+  it('prints the share of the month below the figure, unrounded', () => {
     renderChart();
 
     // 4272.50 of July's 9069.46. One decimal, and the words that say what the
     // percentage is of — both of which the narrow card keeps, by wrapping the
     // pill onto a second line rather than shortening it.
-    expect(screen.getByText('47.1% of month')).toBeTruthy();
-    expect(screen.getByText('12.3% of month')).toBeTruthy();
+    expect(screen.getByText('47.1%')).toBeTruthy();
+    expect(screen.getByText('12.3%')).toBeTruthy();
+    expect(screen.getAllByText('of month')).toHaveLength(7);
+
+    const card = screen.getByRole('article', { name: /29\/06.*05\/07/ });
+    expect([...card.children].map((child) => child.className)).toEqual([
+      styles.weekRange,
+      styles.weekValue,
+      styles.weekPct,
+    ]);
   });
 });
 

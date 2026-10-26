@@ -8,11 +8,7 @@ import styles from './SegmentSummary.module.css';
 
 afterEach(cleanup);
 
-/**
- * The first, second and last of the six segments the archive holds today. The
- * second is the sub-minimum one, which is the only place `Fee (under min)` is
- * printed and the longest label a card ever has to fit.
- */
+/** The first, second and last of the six segments the archive holds today. */
 const SEGMENTS: SegmentSummaryItem[] = [
   {
     rangeLabel: '17/04 → 07/05',
@@ -66,10 +62,8 @@ describe('the fee card for one payment segment', () => {
   it('names the fee for what it is on that segment', () => {
     render(<SegmentSummary segments={SEGMENTS} />);
 
-    // The longest label any card prints, and the one the card width is sized
-    // for. It is a label and not a rounding: the fee really is nothing here.
-    expect(screen.getByText('Fee (under min)')).toBeTruthy();
-    expect(screen.getAllByText('Fee (10%)')).toHaveLength(2);
+    expect(screen.getByText('Fee 0%')).toBeTruthy();
+    expect(screen.getAllByText('Fee 10%')).toHaveLength(2);
   });
 
   it('prints every figure in full, two decimals and all', () => {
@@ -130,6 +124,6 @@ describe('the order the card puts its parts in', () => {
     }
 
     const first = within(metrics as HTMLElement).getAllByText(/Gross|Fee|Net/);
-    expect(first.map((node) => node.textContent)).toEqual(['Gross', 'Fee (10%)', 'Net']);
+    expect(first.map((node) => node.textContent)).toEqual(['Gross', 'Fee 10%', 'Net']);
   });
 });

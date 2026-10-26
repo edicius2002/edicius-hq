@@ -16,13 +16,8 @@ export const PROJECTION_YEARS = 10;
 
 export const PROJECTION_MONTHS = PROJECTION_YEARS * MONTHS_PER_YEAR;
 
-/**
- * The years the right-hand table names. Not every year: 1, 2 and 3 are where
- * the reader can still feel the difference between one row and the next, and 5
- * and 10 are the two the question is usually really about. Twelve rows of
- * near-identical growth is a table nobody reads to the bottom of.
- */
-export const YEAR_MARKS = [1, 2, 3, 5, 10];
+/** Every year of the ten-year projection appears in the summary. */
+export const YEAR_MARKS = Array.from({ length: PROJECTION_YEARS }, (_, index) => index + 1);
 
 /** The rate the field starts on, as a percentage. Editable, never stored. */
 export const DEFAULT_ANNUAL_RATE = 6;
@@ -114,8 +109,8 @@ export function projectMonths(
   return rows;
 }
 
-/** A year the right-hand table names, read off the month it ends on. */
-export type ProjectedYear = { year: number; balance: number; gain: number };
+/** A year the right-hand table names, with the amount earned in that year. */
+export type ProjectedYear = { year: number; balance: number; earned: number };
 
 /**
  * The named years, read from the months already projected.
@@ -130,7 +125,12 @@ export function yearsFrom(rows: ProjectedMonth[], marks: number[] = YEAR_MARKS):
   for (const year of marks) {
     const row = rows[year * MONTHS_PER_YEAR - 1];
     if (!row) continue;
-    years.push({ year, balance: row.balance, gain: row.gain });
+    const previousYearBalance = rows[(year - 1) * MONTHS_PER_YEAR - 1]?.balance;
+    years.push({
+      year,
+      balance: row.balance,
+      earned: row.balance - (previousYearBalance ?? row.balance - row.gain),
+    });
   }
   return years;
 }

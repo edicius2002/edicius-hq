@@ -107,6 +107,33 @@ export function buildWeeklySeries(stats: Record<string, DayStats>): WeekPoint[] 
   return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
+/** Fill the chart timeline without changing the weeks used by totals or markers. */
+export function fillCalendarWeeks(weeks: WeekPoint[]): WeekPoint[] {
+  if (!weeks.length) return [];
+
+  const byKey = new Map(weeks.map((week) => [week.key, week]));
+  const sorted = [...weeks].sort((a, b) => a.key.localeCompare(b.key));
+  const cursor = new Date(`${sorted[0].key}T00:00:00.000Z`);
+  const lastKey = sorted.at(-1)!.key;
+  const filled: WeekPoint[] = [];
+
+  while (cursor.toISOString().slice(0, 10) <= lastKey) {
+    const key = cursor.toISOString().slice(0, 10);
+    const actual = byKey.get(key);
+    const calendar = calendarWeekForDate(key)!;
+    filled.push(
+      actual ?? {
+        ...calendar,
+        amount: 0,
+        currency: sorted[0].currency,
+      },
+    );
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+  }
+
+  return filled;
+}
+
 /**
  * Monthly totals by Thursday-of-week — the same grouping as the Weeks chart.
  * A week is the payment unit (Mon–Sun); splitting it across calendar months

@@ -12,6 +12,7 @@ import styles from './MonthlyChart.module.css';
 
 const FALLBACK_WIDTH = 420;
 const MIN_WIDTH = 280;
+const MIN_MONTH_WIDTH = 70;
 const CHART_HEIGHT = 300;
 
 type MonthlyChartProps = {
@@ -22,9 +23,13 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
   const [wrapRef, measuredWidth] = useElementWidth<HTMLDivElement>(FALLBACK_WIDTH);
 
   const layout = useMemo(() => {
-    const width = Math.max(measuredWidth, MIN_WIDTH);
-    const height = CHART_HEIGHT;
     const pad = { top: 40, right: 26, bottom: 44, left: 60 };
+    const width = Math.max(
+      measuredWidth,
+      MIN_WIDTH,
+      points.length * MIN_MONTH_WIDTH + pad.left + pad.right,
+    );
+    const height = CHART_HEIGHT;
     const plotW = width - pad.left - pad.right;
     const plotH = height - pad.top - pad.bottom;
     const maxValue = Math.max(...points.map((p) => p.amount), 0);
@@ -42,10 +47,17 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
   const { width, height, pad, plotH, top, ticks, groupW, barW, yAt } = layout;
 
   return (
-    <div className={styles.wrap} ref={wrapRef}>
+    <div
+      className={styles.wrap}
+      ref={wrapRef}
+      tabIndex={0}
+      role="region"
+      aria-label="Monthly chart; scroll horizontally to view all months"
+    >
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}
+        style={{ width }}
         role="img"
         aria-label="Monthly deliverable value"
       >

@@ -43,7 +43,6 @@ export function MoneyWeekChart({
   return (
     <div className={styles.list}>
       {months.map((month) => {
-        const maxWeek = Math.max(...month.weeks.map((week) => week.amount), 0);
         const monthTools = widgets[month.key] ?? [];
         return (
           <section key={month.key} className={styles.monthRow}>
@@ -91,12 +90,8 @@ export function MoneyWeekChart({
                     ? MARKER_SEGMENT_STYLES[segmentIndex % MARKER_SEGMENT_STYLES.length]
                     : null;
 
-                const barHeight =
-                  maxWeek > 0
-                    ? Math.max((week.amount / maxWeek) * 100, week.amount > 0 ? 5 : 0)
-                    : 0;
                 const monthPct = month.amount > 0 ? (week.amount / month.amount) * 100 : 0;
-                const pctLabel = `${monthPct.toFixed(1).replace(/\.0$/, '')}% of month`;
+                const pctLabel = `${monthPct.toFixed(1).replace(/\.0$/, '')}%`;
 
                 const isMarked = markers.includes(week.key);
                 const isLastWeek = week.key === lastWeekKey;
@@ -120,19 +115,16 @@ export function MoneyWeekChart({
                     <article
                       className={`${styles.weekCard} ${segmentStyle ? styles.segmented : ''}`}
                       style={segmentVars}
+                      aria-label={`${week.label}: ${formatMoney(week.amount, week.currency)}, ${pctLabel} of month`}
                     >
+                      <strong className={styles.weekRange}>{week.label}</strong>
                       <strong className={styles.weekValue}>
                         {formatMoney(week.amount, week.currency)}
                       </strong>
-                      <span className={styles.weekPct}>{pctLabel}</span>
-                      <div
-                        className={styles.barTrack}
-                        role="img"
-                        aria-label={`${formatMoney(week.amount, week.currency)} in ${week.label}`}
-                      >
-                        <span className={styles.barFill} style={{ height: `${barHeight}%` }} />
-                      </div>
-                      <strong className={styles.weekRange}>{week.label}</strong>
+                      <span className={styles.weekPct}>
+                        <strong className={styles.weekPctValue}>{pctLabel}</strong>
+                        <span className={styles.weekPctCaption}>of month</span>
+                      </span>
                     </article>
 
                     {!isLastWeek ? (

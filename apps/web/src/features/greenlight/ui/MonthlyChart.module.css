@@ -1,6 +1,8 @@
 .wrap {
   width: 100%;
   min-height: 300px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .svg {

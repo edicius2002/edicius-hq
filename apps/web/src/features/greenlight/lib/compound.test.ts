@@ -101,8 +101,8 @@ describe('the projection', () => {
 describe('the years the table names', () => {
   const rows = projectMonths(CAPITAL, DEFAULT_ANNUAL_RATE);
 
-  it('is exactly 1, 2, 3, 5 and 10', () => {
-    expect(yearsFrom(rows).map((year) => year.year)).toEqual([1, 2, 3, 5, 10]);
+  it('covers every year from 1 through 10', () => {
+    expect(yearsFrom(rows).map((year) => year.year)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it('agrees with the figures worked out by hand', () => {
@@ -113,11 +113,11 @@ describe('the years the table names', () => {
     expect(byYear.get(5)!.balance).toBeCloseTo(27486.6, 2);
     expect(byYear.get(10)!.balance).toBeCloseTo(37075.3, 2);
 
-    expect(byYear.get(1)!.gain).toBeCloseTo(1256.86, 2);
-    expect(byYear.get(2)!.gain).toBeCloseTo(2591.24, 2);
-    expect(byYear.get(3)!.gain).toBeCloseTo(4007.92, 2);
-    expect(byYear.get(5)!.gain).toBeCloseTo(7108.8, 2);
-    expect(byYear.get(10)!.gain).toBeCloseTo(16697.5, 2);
+    expect(byYear.get(1)!.earned).toBeCloseTo(1256.86, 2);
+    expect(byYear.get(2)!.earned).toBeCloseTo(1334.38, 2);
+    expect(byYear.get(3)!.earned).toBeCloseTo(1416.68, 2);
+    expect(byYear.get(5)!.earned).toBeCloseTo(1596.82, 2);
+    expect(byYear.get(10)!.earned).toBeCloseTo(2153.88, 2);
   });
 
   it('reads the months rather than recomputing them, so the two tables cannot disagree', () => {
@@ -126,6 +126,7 @@ describe('the years the table names', () => {
     // page ends up printing two balances for one month.
     expect(yearsFrom(rows)[0].balance).toBe(rows[11].balance);
     expect(yearsFrom(rows).at(-1)!.balance).toBe(rows[119].balance);
+    expect(yearsFrom(rows)[1].earned).toBeCloseTo(rows[23].balance - rows[11].balance, 10);
   });
 
   it('drops a year the projection does not reach instead of extrapolating', () => {

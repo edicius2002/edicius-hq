@@ -365,12 +365,12 @@
  * layout this file is built around could not be reached below a window of
  * roughly 1590px. Pixels cannot be read two ways.
  *
- * 980px leaves room for 640px of chart — twice the side column, because
+ * 970px leaves room for 640px of chart — twice the side column, because
  * the chart is what the page is for — plus the 10px gap and the 320px the
  * side track takes whenever there is room for it. Under that the chart would
  * be the smaller half of its own page, so the two stack instead.
  */
-@container (max-width: 980px) {
+@container (max-width: 970px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }

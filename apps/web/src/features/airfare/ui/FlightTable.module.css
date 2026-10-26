@@ -1,6 +1,6 @@
 .wrap {
   display: grid;
-  gap: var(--space-2);
+  gap: 4px;
   min-width: 0;
 }
 
@@ -18,53 +18,23 @@
   min-height: 32px;
 }
 
-/*
- * The heading, the departure and every filter on one line — 12.257.
- *
- * `align-items: end` rather than `center`, so the heading sits on the same
- * baseline as the text inside the controls rather than floating in the middle
- * of taller boxes beside it.
- *
- * `wrap` lets the heading take its own line when the filters need the width;
- * forcing the controls narrower would wrap their labels and cost more height.
- */
+/* The departure period and filters share a compact row. */
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   align-content: start;
-  gap: var(--space-2);
-  height: 60px;
-  overflow-y: auto;
+  gap: 4px;
+  min-height: 52px;
 }
 
-/*
- * Was `AirfarePage`'s `.panelTitle`, and the same size and weight so the panel
- * still reads as one of the set. `nowrap` because a heading that breaks
- * between "Flights" and "seen" to save 40px has not saved anything.
- */
+/* The period stays on one line even when filters wrap below it. */
 .title {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 500;
   color: var(--color-muted);
   white-space: nowrap;
-}
-
-/*
- * The separator the analysis panel's heading and the cheapest-fare line
- * already use, so the headings on this page punctuate the same way.
- *
- * Those two write it as a literal `space · space`, which in this monospace
- * face is 33.4px; a margin instead of spaces because the glyph is
- * `aria-hidden` — a screen reader reading "middle dot" between a name and a
- * date is noise — and 0.45em puts it at 28.2px, close enough to read as the
- * same punctuation. Checked when the row came up 16px short: this is already
- * the tighter of the two and there is nothing to reclaim here.
- */
-.dot {
-  margin: 0 0.45em;
-  opacity: 0.6;
 }
 
 /*
@@ -124,7 +94,8 @@
 
 .filter > span {
   color: var(--color-muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
+  text-align: center;
 }
 
 .filter input,
@@ -133,15 +104,21 @@
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 3px var(--space-2);
-  min-height: 30px;
+  padding: 2px var(--space-2);
+  min-height: 28px;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.15;
   min-width: 0;
   /* Each control as wide as the widest thing it can hold and no wider — the
      row is now sized by its contents rather than dividing the panel into
      equal shares. */
   width: auto;
+  text-align: center;
+}
+
+.filter select {
+  text-align-last: center;
 }
 
 .filter input:focus-visible,
@@ -154,8 +131,8 @@
    where the eye expects an action that acts on them. */
 .clear {
   align-self: end;
-  min-height: 32px;
-  padding-block: 3px;
+  min-height: 28px;
+  padding-block: 2px;
 }
 
 /*
@@ -216,15 +193,15 @@
  * is $938.84 (7), and a possible three-stop itinerary reads `BOG, GRU, PTY`
  * (13). `Departs` is the fixed 16-character `dd/mm/yyyy HH:MM`; flight
  * numbers on disk fit eight characters including their airline code. The
- * remaining room belongs to the price change, which is where signed figures
- * need their decimal point to line up.
+ * Airline gets more room to show carrier names; the shorter numeric columns
+ * keep enough room for their compact values.
  */
 .departs {
   width: 20%;
 }
 
 .airline {
-  width: 12%;
+  width: 21%;
 }
 
 .flight {
@@ -232,19 +209,19 @@
 }
 
 .stops {
-  width: 19%;
+  width: 15%;
 }
 
 .duration {
-  width: 9%;
+  width: 8%;
 }
 
 .price {
-  width: 12%;
+  width: 10%;
 }
 
 .change {
-  width: 16%;
+  width: 14%;
 }
 
 /* The filtered count remains a live table caption, but its box costs no row. */
@@ -301,20 +278,19 @@
   display: block;
 }
 
+.skeletonRow td.numeric > span {
+  margin-left: auto;
+}
+
 .table tbody tr:last-child td {
   border-bottom: none;
 }
 
 /*
- * The compact airline spelling is eight characters including its ellipsis
- * (`Aerolin…`), so 10ch leaves the cell's 1ch side bearings without letting a
- * carrier name reclaim the table. The duration and price caps are their seven
- * visible characters, because the fixed column gives their padding separately.
- * Their titles keep the whole value available if the archive grows past those
- * observed bounds.
+ * The fixed airline column shows the full carrier name when it fits and clips
+ * gracefully when it does not. Duration and price retain their compact caps.
  */
 .airline {
-  max-width: 10ch;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -480,20 +456,6 @@
   border-radius: 2px;
 }
 
-/* Reserve the number of filter lines the panel needs at each width, even when
-   pending data has no airline or price facets yet. */
-@media (max-width: 1180px) {
-  .head {
-    height: 100px;
-  }
-}
-
-@media (max-width: 800px) {
-  .head {
-    height: 160px;
-  }
-}
-
 /* Airfare phone layout. */
 @media (max-width: 640px) {
   .scroller {
@@ -508,7 +470,6 @@
   .head {
     display: grid;
     gap: 4px;
-    height: 134px;
   }
   .title {
     white-space: normal;
@@ -526,7 +487,7 @@
     gap: 4px;
   }
   .filter:has(.range) > span {
-    text-align: start;
+    text-align: center;
   }
   .filter > span {
     font-size: 0.6rem;

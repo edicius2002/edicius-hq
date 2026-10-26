@@ -18,6 +18,9 @@ it('does not claim there are no itineraries while loading or after a failed requ
   expect(container.querySelectorAll('thead th')).toHaveLength(7);
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
   expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
+  const firstSkeletonCells = screen.getAllByTestId('flight-skeleton-row')[0].querySelectorAll('td');
+  expect(firstSkeletonCells[5]).toHaveClass(/numeric/);
+  expect(firstSkeletonCells[6]).toHaveClass(/numeric/);
   expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
   rerender(
     <FlightTable
@@ -37,8 +40,8 @@ it('does not claim there are no itineraries while loading or after a failed requ
   expect(screen.queryAllByTestId('flight-skeleton-row')).toHaveLength(0);
   expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
   rerender(<FlightTable snapshots={[]} granularity="day" departure={null} leg={null} />);
-  expect(screen.getByText('No itineraries observed yet.')).toBeInTheDocument();
-  expect(screen.getByText('No itineraries observed yet.').closest('tbody')).toBeInTheDocument();
+  expect(screen.queryByText('No itineraries observed yet.')).not.toBeInTheDocument();
+  expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
   expect(screen.getAllByRole('columnheader')).toHaveLength(7);
 });
 
@@ -153,25 +156,21 @@ describe('FlightTable', () => {
     expect(columns[5]).toHaveClass(/price/);
   });
 
-  it('says so when the latest observation is empty', () => {
+  it('keeps the table skeleton when the latest observation is empty', () => {
     render(<FlightTable snapshots={[]} granularity="day" departure="09/03/2027" leg={LEG} />);
-    expect(screen.getByText(/No itineraries/i)).toBeInTheDocument();
-    // A panel whose heading disappears with its data reads as a panel that
-    // lost its name, so the heading is outside the early return.
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Flights seen');
+    expect(screen.queryByText(/No itineraries/i)).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('flight-skeleton-row')).toHaveLength(10);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('09/03/2027');
   });
 
-  it('names the panel and the departure on the filter row, not on a line above it', () => {
-    // 12.257. The middot is the separator the watchlist row already uses
-    // between a pair and its month, and it is `aria-hidden` because a screen
-    // reader announcing "middle dot" between a name and a date is noise.
+  it('shows only the departure date while keeping the table name accessible', () => {
     render(
       <FlightTable snapshots={[SNAPSHOT]} granularity="day" departure="09/03/2027" leg={LEG} />,
     );
 
     const heading = screen.getByRole('heading', { level: 2 });
     expect(heading).toHaveAccessibleName('Flights seen 09/03/2027');
-    expect(heading.textContent).toBe('Flights seen·09/03/2027');
+    expect(heading.textContent).toBe('09/03/2027');
 
     // Heading and controls are siblings on one row: the group a screen reader
     // hears as "Filter flights" must not claim the heading as one of its
@@ -183,7 +182,7 @@ describe('FlightTable', () => {
 
   it('says only what it knows when no route is selected', () => {
     render(<FlightTable snapshots={[SNAPSHOT]} granularity="day" departure={null} leg={LEG} />);
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Flights seen');
+    expect(screen.queryByText('Flights seen')).not.toBeInTheDocument();
   });
 
   it('keeps the historical summary off the panel while naming the table accessibly', () => {
@@ -258,7 +257,7 @@ describe('FlightTable', () => {
     expect(options).toEqual(['Any', 'Avianca', 'LATAM']);
   });
 
-  it('cuts a carrier name too long for the row, and keeps the whole one within reach', async () => {
+  it('shortens long carrier names in the filter while showing them in the wider table cell', async () => {
     /*
      * 12.258. A select is as wide as its widest option, so `Aerolineas
      * Argentinas` — 19 of the archive's 1275 offers — was setting 251px of a
@@ -284,11 +283,13 @@ describe('FlightTable', () => {
     const cut = within(select).getByRole('option', { name: 'Aerolin…' });
     expect(cut).toHaveAttribute('title', 'Aerolineas Argentinas');
 
-    // The narrow table cell keeps the same compact spelling and exposes the
-    // full carrier name on hover/focus rather than making a long name decide
-    // the entire column's width.
+    // The fixed table column shows the full name where it fits and keeps its
+    // title for viewports that clip it.
     const row = bodyRows().find((one) => within(one).queryByText('AR 1365'))!;
-    expect(within(row).getByText('Aerolin…')).toHaveAttribute('title', 'Aerolineas Argentinas');
+    expect(within(row).getByText('Aerolineas Argentinas')).toHaveAttribute(
+      'title',
+      'Aerolineas Argentinas',
+    );
 
     // And the closed control names the carrier in full once one is chosen.
     await userEvent.selectOptions(select, 'AR');

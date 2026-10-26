@@ -2518,7 +2518,7 @@ export function RouteMap({
                   <circle
                     cx={xy[0]}
                     cy={xy[1]}
-                    r={4}
+                    r={2.5}
                     style={{ fill: colour }}
                     className={styles.node}
                   />
@@ -2558,7 +2558,7 @@ export function RouteMap({
                   <circle
                     cx={xy[0]}
                     cy={xy[1]}
-                    r={departure ? 4.6 : 4}
+                    r={departure ? 3 : 2.5}
                     // A departure stays neutral: every route on this page
                     // leaves from one, so colouring it would claim it belongs
                     // to a single arc.
@@ -2570,13 +2570,7 @@ export function RouteMap({
                     }
                     className={departure ? styles.home : styles.node}
                   />
-                  {/*
-                    Nine, not the seven it was. The ring is now painted outside
-                    the fill rather than half over it, so the marker's outer
-                    radius went from 5.4 to 6.2 at the origin — at `x + 7` the
-                    code would have been sitting 0.8 units off the ring, closer
-                    than it has ever been. Nine keeps the gap it had.
-                  */}
+                  {/* Leave a readable gap between the marker ring and its code. */}
                   <text x={xy[0] + 9} y={xy[1] + 3.5} className={styles.label}>
                     {code}
                   </text>

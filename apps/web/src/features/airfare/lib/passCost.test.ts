@@ -40,8 +40,8 @@ describe('what a pass over these months costs', () => {
     }
   });
 
-  it('says nothing is picked rather than saying it costs nothing', () => {
-    expect(describeCost(passCost([], TODAY))).toBe('No months picked yet.');
+  it('keeps the warning area empty when no months are picked', () => {
+    expect(describeCost(passCost([], TODAY))).toBeNull();
   });
 
   it('keeps an ordinary pass quiet', () => {

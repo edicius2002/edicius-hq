@@ -353,14 +353,8 @@
  * ocean and 15.71:1 on its lit side, and 2.21:1 against the palette's own
  * worst entry.
  *
- * `paint-order: stroke` is what makes the colour readable, and it is the whole
- * of the change. A stroke is centred on the circle's edge, so half of a 1.6
- * ring is painted *inwards*, over the fill: an `r` of 4 was showing a coloured
- * disc of 3.2, which is 32 square units of colour inside a 72 square unit
- * marker — 44% of the dot. Painting the ring first and the fill over it leaves
- * the whole of `r` coloured, and the stroke doubles to 3.2 so the half that
- * survives is still the 1.6 mapcn's marker has. 50 square units of colour, up
- * 56%, at a cost of 0.8 units on the marker's outside radius.
+ * `paint-order: stroke` keeps the colour visible inside the ring. The thinner
+ * stroke scales with the smaller city points in both map projections.
  *
  * The fill itself was already solid and already legible — every entry in
  * `lib/palette` sits at 4.78:1 on the land, 8.74:1 on the ocean and 7.08:1 on
@@ -371,7 +365,7 @@
 .node {
   fill: var(--arc-neutral);
   stroke: #fff;
-  stroke-width: 3.2;
+  stroke-width: 2.4;
   paint-order: stroke;
 }
 
@@ -383,7 +377,7 @@
 .home {
   fill: var(--color-text);
   stroke: #fff;
-  stroke-width: 3.2;
+  stroke-width: 2.4;
   paint-order: stroke;
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 
+import { useIsNarrow } from '@/app/layout/useIsNarrow';
 import {
   formatFlightMonth,
   formatFlightMonths,
@@ -17,7 +18,6 @@ import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
 import { shortMonth } from '@/features/airfare/lib/monthChips';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
 import { RouteEditor } from '@/features/airfare/ui/RouteEditor';
-import { RouteTransfer } from '@/features/airfare/ui/RouteTransfer';
 import { useReorder } from '@/shared/lib/useReorder';
 import { Button } from '@/shared/ui/Button';
 import { Skeleton } from '@/shared/ui/Skeleton';
@@ -63,17 +63,9 @@ type RouteListProps = {
   onCollect?: (route: FareRoute, month: string) => void;
   onAdd: (route: FareRoute) => void;
   onSave: (id: string, route: FareRoute) => void;
-  /**
-   * Put the fields back to adding a route.
-   *
-   * What a press on the empty part of this panel means. It clears the editor
-   * and deliberately **not** the selection: the reader said they were done
-   * editing, not that they were done looking at a chart.
-   */
+  /** Clear the selected route and discard its draft on an empty panel press. */
   onClearEditing: () => void;
   onMove: (from: string, to: string) => void;
-  transferDisabled?: boolean;
-  onImported?: () => void | Promise<void>;
   /** The stored document is being read, including a later refresh. */
   loading?: boolean;
   /** A failed read is not an empty watchlist. */
@@ -133,18 +125,14 @@ export function RouteList({
   onSave,
   onClearEditing,
   onMove,
-  transferDisabled = false,
-  onImported = () => undefined,
   loading = false,
   error = false,
 }: RouteListProps) {
   /*
    * A press on the panel's own background puts the fields back to adding.
    *
-   * Without it, choosing a row is a one-way door: the form is holding that
-   * watch and the only way back to a blank one is the Cancel button beside the
-   * heading, which is a long way from where the reader just pressed. Clicking
-   * the empty space below the rows is what everyone tries first.
+   * Clicking the empty space below the rows clears the selection and discards
+   * any unsaved editor changes.
    *
    * `target === currentTarget` is the whole guard, and it has to be exact
    * rather than a `closest('li')` test: every press inside a row bubbles
@@ -160,6 +148,7 @@ export function RouteList({
   // budget down the list, so dragging a route to the top says "poll this one
   // first when there is not enough budget for everything".
   const routeGroups = groupRoutePairs(routes);
+  const narrow = useIsNarrow();
   const { dragging, rowProps } = useReorder({
     order: routeGroups.map((group) => routeId(group[0])),
     onMove,
@@ -198,8 +187,10 @@ export function RouteList({
   }, [routes, loading]);
 
   const visibleGroups = loading ? [] : routeGroups;
-  const visibleRows = Array.from({ length: Math.ceil(visibleGroups.length / 2) }, (_, index) =>
-    visibleGroups.slice(index * 2, index * 2 + 2),
+  const groupsPerRow = narrow ? 1 : 2;
+  const visibleRows = Array.from(
+    { length: Math.ceil(visibleGroups.length / groupsPerRow) },
+    (_, index) => visibleGroups.slice(index * groupsPerRow, index * groupsPerRow + groupsPerRow),
   );
 
   return (
@@ -221,6 +212,7 @@ export function RouteList({
         watched={routes.map(routeId)}
         onAdd={onAdd}
         onSave={onSave}
+        onCancel={onClearEditing}
       />
 
       {error && routes.length === 0 ? (
@@ -487,7 +479,6 @@ export function RouteList({
           </ul>
         </div>
       )}
-      <RouteTransfer disabled={transferDisabled} onImported={onImported} />
     </div>
   );
 }

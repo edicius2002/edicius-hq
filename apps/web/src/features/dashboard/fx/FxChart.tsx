@@ -30,6 +30,11 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
   const values = points.flatMap((p) => [p.buy, p.sell]),
     lo = Math.min(...values) - 0.002,
     hi = Math.max(...values) + 0.002;
+  const yDivisions = 5;
+  const yTicks = Array.from(
+    { length: yDivisions + 1 },
+    (_, index) => lo + ((hi - lo) * index) / yDivisions,
+  );
   const x = (p: typeof point) =>
     plotLeft +
     (last === first ? 0.5 : (Date.parse(p.effective_at) - first) / (last - first)) * plotWidth;
@@ -146,7 +151,7 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
             }
           }}
         >
-          {[lo, (lo + hi) / 2, hi].map((n) => (
+          {yTicks.map((n) => (
             <g key={n}>
               <line x1={plotLeft} x2={plotRight} y1={y(n)} y2={y(n)} className={styles.grid} />
               <text className={styles.axis} x={plotLeft - 7} y={y(n) + 3} textAnchor="end">

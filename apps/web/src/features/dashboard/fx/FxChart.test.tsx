@@ -5,6 +5,31 @@ import type { History } from './types';
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('shows six labelled Y-axis marks and five visible divisions', () => {
+  const history: History = {
+    aggregation: 'observations',
+    points: [
+      {
+        owner_id: 'owner',
+        source: 'kambista',
+        effective_at: '2026-09-29T15:00:00Z',
+        observed_at: '2026-09-29T15:00:00Z',
+        buy: 3.71,
+        sell: 3.73,
+        context: {},
+      },
+    ],
+  };
+
+  render(<FxChart history={history} sourceName="Kambista" />);
+  const chart = screen.getByRole('slider', { name: 'History point' });
+  const marks = [...chart.querySelectorAll('line[class*="grid"]')];
+  expect(marks).toHaveLength(6);
+  expect(new Set(marks.map((mark) => mark.getAttribute('y1'))).size).toBe(6);
+  expect(chart).toHaveTextContent('3.708');
+  expect(chart).toHaveTextContent('3.732');
+});
+
 it('labels both axes and distinguishes intraday times for the USD/PEN series', () => {
   const history: History = {
     aggregation: 'observations',

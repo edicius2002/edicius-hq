@@ -1,10 +1,12 @@
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
+import { addMoney, moneyAmount, subtractMoney } from '@/features/finance/lib/money';
 import {
   boxWidth,
   CHIP_COLUMN_GAP,
   CHIPS_PER_LINE,
   HOLDING_CONTENT_WIDTH,
   NODE_FONT,
+  sizeOf,
   textWidth,
   type NodeContent,
 } from '@/features/finance/lib/geometry';
@@ -38,11 +40,11 @@ function listFlows(diagram: Diagram): Flow[] {
 }
 
 function grossOf(flow: Flow): number {
-  return Number.isFinite(flow.amount) && flow.amount !== null ? flow.amount : 0;
+  return moneyAmount(flow.amount) ?? 0;
 }
 
 function addTotal(totals: Map<AssetCode, number>, asset: AssetCode, amount: number): void {
-  totals.set(asset, (totals.get(asset) ?? 0) + amount);
+  totals.set(asset, addMoney(totals.get(asset) ?? 0, amount));
 }
 
 /** Assets never mix, so totals stay one entry per asset, ordered by code. */
@@ -60,7 +62,7 @@ function outgoingOf(diagram: Diagram, nodeId: NodeId, asset?: AssetCode): Flow[]
 }
 
 function committed(diagram: Diagram, nodeId: NodeId, asset?: AssetCode): number {
-  return outgoingOf(diagram, nodeId, asset).reduce((sum, flow) => sum + grossOf(flow), 0);
+  return outgoingOf(diagram, nodeId, asset).reduce((sum, flow) => addMoney(sum, grossOf(flow)), 0);
 }
 
 export function selectHoldingsOfAccount(diagram: Diagram, accountId: NodeId): HoldingNode[] {
@@ -104,7 +106,11 @@ function availableOf(diagram: Diagram, nodes: FinanceNode[]): AssetTotal[] {
         if (!balance.active) continue;
         const held = balance.amount ?? 0;
         if (held <= 0) continue;
-        addTotal(totals, balance.asset, held - committed(diagram, node.id, balance.asset));
+        addTotal(
+          totals,
+          balance.asset,
+          subtractMoney(held, committed(diagram, node.id, balance.asset)),
+        );
       }
       continue;
     }
@@ -112,7 +118,7 @@ function availableOf(diagram: Diagram, nodes: FinanceNode[]): AssetTotal[] {
     if (node.kind === 'holding' && node.active) {
       const held = node.amount ?? 0;
       if (held <= 0) continue;
-      addTotal(totals, node.asset, held - committed(diagram, node.id));
+      addTotal(totals, node.asset, subtractMoney(held, committed(diagram, node.id)));
     }
   }
 
@@ -183,7 +189,11 @@ export function selectAccountSummary(diagram: Diagram, accountId: NodeId): Accou
 
   const remaining = new Map<AssetCode, number>();
   for (const holding of holdings) {
-    addTotal(remaining, holding.asset, (holding.amount ?? 0) - committed(diagram, holding.id));
+    addTotal(
+      remaining,
+      holding.asset,
+      subtractMoney(holding.amount ?? 0, committed(diagram, holding.id)),
+    );
   }
 
   const incomingTotals = new Map<AssetCode, number>();
@@ -264,7 +274,7 @@ export function selectAllocation(
   }
 
   const out = committed(diagram, nodeId, asset);
-  const remaining = total - out;
+  const remaining = subtractMoney(total, out);
   return {
     total,
     committed: out,
@@ -306,15 +316,15 @@ export function selectAssetAllocations(diagram: Diagram, node: FinanceNode): Ass
   for (const holding of selectHoldingsOfAccount(diagram, node.id)) {
     if (!holding.active) continue;
     const entry = totals.get(holding.asset) ?? { total: 0, committed: 0 };
-    entry.total += holding.amount ?? 0;
-    entry.committed += committed(diagram, holding.id);
+    entry.total = addMoney(entry.total, holding.amount ?? 0);
+    entry.committed = addMoney(entry.committed, committed(diagram, holding.id));
     totals.set(holding.asset, entry);
   }
 
   return [...totals.entries()]
     .filter(([, entry]) => entry.committed > 0)
     .map(([asset, entry]) => {
-      const remaining = entry.total - entry.committed;
+      const remaining = subtractMoney(entry.total, entry.committed);
       return {
         asset,
         total: entry.total,
@@ -326,8 +336,35 @@ export function selectAssetAllocations(diagram: Diagram, node: FinanceNode): Ass
     });
 }
 
+/** Reserve the largest row layout a connected asset can need while flows settle. */
+function stableContent(
+  node: FinanceNode,
+  assets: AssetCode[],
+  connectedAssets: AssetCode[],
+  extraRow: boolean,
+): Pick<NodeContent, 'minimumWidth' | 'minimumHeight'> {
+  const minimumWidth = intrinsicWidth(
+    node.name || (node.kind === 'job' ? 'Job' : 'Account'),
+    assets,
+    connectedAssets.map((asset) => ({ asset })),
+  );
+  let minimumHeight = 0;
+  for (let allocatedRows = 0; allocatedRows <= connectedAssets.length; allocatedRows += 1) {
+    minimumHeight = Math.max(
+      minimumHeight,
+      sizeOf(node, {
+        assetRows: assets.length - allocatedRows,
+        allocatedRows,
+        extraRow,
+        minimumWidth,
+      }).height,
+    );
+  }
+  return { minimumWidth, minimumHeight };
+}
+
 /**
- * How many rows a node will show, from the document alone.
+ * How many rows a node shows and how much space its connections reserve.
  *
  * This is what lets `sizeOf` follow the content without a layout pass: every
  * question a box's height depends on — does this holding carry a fee, how many
@@ -348,6 +385,15 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
   const allocated = selectAssetAllocations(diagram, node);
 
   if (node.kind === 'job') {
+    const assets = node.balances
+      .filter((balance) => balance.active)
+      .map((balance) => balance.asset);
+    const connected = assets.filter((asset) =>
+      diagram.flowOrder.some((id) => {
+        const flow = diagram.flows[id];
+        return flow?.from === node.id && flow.asset === asset;
+      }),
+    );
     const chips = node.balances
       .filter(
         (balance) => balance.active && !allocated.some((item) => item.asset === balance.asset),
@@ -359,14 +405,29 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
       assetRows: chips.length,
       allocatedRows: allocated.length,
       // A job holds no holdings, so its own rows are the whole of its width.
-      minimumWidth: intrinsicWidth(node.name || 'Job', chips, allocated),
+      ...stableContent(node, assets, connected, false),
     };
   }
 
   const summary = selectAccountSummary(diagram, node.id);
+  const holdings = selectHoldingsOfAccount(diagram, node.id).filter((holding) => holding.active);
+  const assets = [...new Set(holdings.map((holding) => holding.asset))];
+  const connected = [
+    ...new Set(
+      holdings
+        .filter((holding) => diagram.flowOrder.some((id) => diagram.flows[id]?.from === holding.id))
+        .map((holding) => holding.asset),
+    ),
+  ];
+  const holdingIds = new Set(holdings.map((holding) => holding.id));
+  const hasFlow = diagram.flowOrder.some((id) => {
+    const flow = diagram.flows[id];
+    return flow && (holdingIds.has(flow.from) || holdingIds.has(flow.to));
+  });
   const chips = summary.remaining
     .filter((total) => !allocated.some((item) => item.asset === total.asset))
     .map((total) => total.asset);
+  const stable = stableContent(node, assets, connected, hasFlow);
   return {
     assetRows: chips.length,
     allocatedRows: allocated.length,
@@ -376,10 +437,8 @@ export function selectNodeContent(diagram: Diagram, node: FinanceNode): NodeCont
     // those holdings happen to sit is not part of it — an account says what it
     // holds, and two accounts saying the same thing are the same width however
     // far apart their holdings have been dragged.
-    minimumWidth: Math.max(
-      HOLDING_CONTENT_WIDTH,
-      intrinsicWidth(node.name || 'Account', chips, allocated),
-    ),
+    ...stable,
+    minimumWidth: Math.max(HOLDING_CONTENT_WIDTH, stable.minimumWidth ?? 0),
   };
 }
 
@@ -407,7 +466,7 @@ const WORST_AMOUNT = '9'.repeat('99,999.99'.length);
 function intrinsicWidth(
   name: string,
   chips: readonly AssetCode[],
-  allocated: readonly AssetAllocation[],
+  allocated: readonly { asset: AssetCode }[],
 ): number {
   const nameWidth = textWidth(name.length, NODE_FONT.name);
 

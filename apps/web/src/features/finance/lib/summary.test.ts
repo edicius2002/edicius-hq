@@ -186,6 +186,32 @@ describe('job node geometry', () => {
 });
 
 describe('selectAvailable', () => {
+  it('sums cents without leaking binary fractions', () => {
+    const d = diagram([
+      job('j1', [{ asset: 'USD', amount: 0.1, active: true }]),
+      job('j2', [{ asset: 'USD', amount: 0.2, active: true }]),
+    ]);
+    expect(selectAvailable(d)).toEqual([{ asset: 'USD', amount: 0.3 }]);
+  });
+
+  it('recognizes a balance fully allocated by two fractional flows', () => {
+    const d = diagram(
+      [
+        job('j1', [{ asset: 'USD', amount: 0.3, active: true }]),
+        account('a1'),
+        holding('h1', 'a1', 'USD', 0),
+        holding('h2', 'a1', 'USD', 0),
+      ],
+      [flow('f1', 'j1', 'h1', 'USD', 0.1), flow('f2', 'j1', 'h2', 'USD', 0.2)],
+    );
+    expect(selectAllocation(d, 'j1', 'USD')).toMatchObject({
+      total: 0.3,
+      committed: 0.3,
+      remaining: 0,
+      exceeded: false,
+    });
+  });
+
   it('subtracts what a source already committed', () => {
     const model = diagram(
       [

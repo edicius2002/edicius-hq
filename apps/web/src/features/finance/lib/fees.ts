@@ -1,5 +1,5 @@
 import type { Fee, FinanceNode } from '@/features/finance/model/types';
-import { roundAmount } from '@/shared/lib/money';
+import { fromCents, moneyAmount, toCents } from '@/features/finance/lib/money';
 
 /** One deduction and what the transfer is worth after it. */
 export type FeeStep = {
@@ -29,7 +29,10 @@ function isCharged(fee: Fee | null): fee is Fee {
  * charged to the cent when it is charged, not once the chain is over.
  */
 export function applyFee(amount: number, fee: Fee): number {
-  return roundAmount(fee.type === 'fixed' ? amount - fee.value : amount * (1 - fee.value / 100));
+  const cents = toCents(amount);
+  if (fee.type === 'fixed') return fromCents(cents - toCents(fee.value));
+  const basisPoints = toCents(fee.value);
+  return fromCents(Math.round((cents * (10000 - basisPoints)) / 10000));
 }
 
 /**
@@ -48,7 +51,7 @@ export function computeTransfer(
   source: FinanceNode | undefined,
   target: FinanceNode | undefined,
 ): TransferBreakdown {
-  const base = Number.isFinite(gross) ? gross : 0;
+  const base = moneyAmount(gross) ?? 0;
   const steps: FeeStep[] = [];
   let running = base;
 

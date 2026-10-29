@@ -4,13 +4,17 @@ import { useState, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmptyDiagram } from '@/features/finance/lib/document';
+import { executeFlow } from '@/features/finance/lib/execute';
 import {
   addAccount,
   addFrame,
   addHolding,
   addJob,
+  addJobAsset,
   connect,
+  setJobBalance,
   updateFlow,
+  updateHolding,
 } from '@/features/finance/lib/operations';
 import type {
   Anchor,
@@ -262,6 +266,91 @@ describe('camera controls', () => {
     expect(screen.queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Zoom out' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reset zoom to 100%' })).not.toBeInTheDocument();
+  });
+});
+
+describe('executing a flow', () => {
+  it('keeps node footprints and positions fixed as amounts and activity change', () => {
+    let diagram = populated();
+    diagram = addJobAsset(diagram, 'job-1', 'USD');
+    diagram = setJobBalance(diagram, 'job-1', 'USD', 1000);
+    const added = addHolding(diagram, {
+      id: 'holding-1',
+      accountId: 'acc-1',
+      asset: 'USD',
+      position: { x: 600, y: 300 },
+    });
+    if (!added.ok) throw new Error('fixture should add holding');
+    const connected = connect(added.value, {
+      id: 'flow-1',
+      from: 'job-1',
+      to: 'holding-1',
+      amount: 1000,
+    });
+    if (!connected.ok) throw new Error('fixture should connect flow');
+
+    const props = canvasProps();
+    const { rerender } = render(<FlowCanvas diagram={connected.value} {...props} />, {
+      wrapper: TestWrapper,
+    });
+    const before = Object.fromEntries(
+      ['job-1', 'acc-1', 'holding-1'].map((id) => {
+        const style = document
+          .querySelector<HTMLElement>(`[data-node-id="${id}"]`)
+          ?.getAttribute('style');
+        return [id, style];
+      }),
+    );
+
+    rerender(<FlowCanvas diagram={executeFlow(connected.value, 'flow-1')} {...props} />);
+    for (const id of ['job-1', 'acc-1', 'holding-1']) {
+      const node = document.querySelector<HTMLElement>(`[data-node-id="${id}"]`);
+      expect(node?.getAttribute('style')).toBe(before[id]);
+    }
+  });
+
+  it('keeps both accounts fixed when money moves between their holdings', () => {
+    let diagram = addAccount(createEmptyDiagram('d2'), {
+      id: 'source-account',
+      position: { x: 40, y: 40 },
+    });
+    diagram = addAccount(diagram, {
+      id: 'target-account',
+      position: { x: 400, y: 40 },
+    });
+    for (const [id, accountId, x] of [
+      ['source', 'source-account', 40],
+      ['target', 'target-account', 400],
+    ] as const) {
+      const added = addHolding(diagram, {
+        id,
+        accountId,
+        asset: 'USD',
+        position: { x, y: 180 },
+      });
+      if (!added.ok) throw new Error('fixture should add holding');
+      diagram = added.value;
+    }
+    diagram = updateHolding(diagram, 'source', { amount: 1000 });
+    diagram = updateHolding(diagram, 'target', { amount: 0 });
+    const connected = connect(diagram, {
+      id: 'flow-1',
+      from: 'source',
+      to: 'target',
+      amount: 1000,
+    });
+    if (!connected.ok) throw new Error('fixture should connect flow');
+
+    const props = canvasProps();
+    const { rerender } = render(<FlowCanvas diagram={connected.value} {...props} />, {
+      wrapper: TestWrapper,
+    });
+    const styleOf = (id: string) =>
+      document.querySelector<HTMLElement>(`[data-node-id="${id}"]`)?.getAttribute('style');
+    const before = ['source-account', 'target-account', 'source', 'target'].map(styleOf);
+
+    rerender(<FlowCanvas diagram={executeFlow(connected.value, 'flow-1')} {...props} />);
+    expect(['source-account', 'target-account', 'source', 'target'].map(styleOf)).toEqual(before);
   });
 });
 

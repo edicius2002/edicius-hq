@@ -250,11 +250,12 @@ export type NodeContent = {
   /** A holding with a fee on either side, or an account that has seen traffic. */
   extraRow?: boolean;
   /**
-   * The width this node's own rendered rows need — its name, its chips, its
-   * allocation lines. It is the whole of the width: where a node's holdings sit
-   * is not part of what it says.
+   * Width for its name, chips and potential allocation lines. Connections keep
+   * that width reserved when their pending amounts become empty.
    */
   minimumWidth?: number;
+  /** Space reserved by the node's connections, even after a flow is executed. */
+  minimumHeight?: number;
 };
 
 /**
@@ -307,7 +308,7 @@ export function sizeOf(node: FinanceNode, content: NodeContent = {}): Size {
   // were sized out of, left behind on the one kind that was not touched.
   return {
     width: contentWidth(node.kind, content),
-    height: heightOf(rows, chips + blocks + gapBetween),
+    height: Math.max(heightOf(rows, chips + blocks + gapBetween), content.minimumHeight ?? 0),
   };
 }
 
@@ -396,7 +397,7 @@ function verticalBias(anchor: Anchor): number {
  * anchor sits on, which keeps the line clear of its own node instead of cutting
  * back across it.
  */
-export function flowPath(from: Point, to: Point, fromAnchor: Anchor, toAnchor: Anchor): string {
+export function flowCurve(from: Point, to: Point, fromAnchor: Anchor, toAnchor: Anchor) {
   const distance = Math.hypot(to.x - from.x, to.y - from.y);
   const reach = Math.max(40, Math.min(distance * 0.45, 160));
 
@@ -409,8 +410,13 @@ export function flowPath(from: Point, to: Point, fromAnchor: Anchor, toAnchor: A
     y: to.y + verticalBias(toAnchor) * reach,
   };
 
+  return { from, c1, c2, to };
+}
+
+export function flowPath(from: Point, to: Point, fromAnchor: Anchor, toAnchor: Anchor): string {
+  const curve = flowCurve(from, to, fromAnchor, toAnchor);
   const round = (value: number) => Math.round(value * 10) / 10;
-  return `M ${round(from.x)} ${round(from.y)} C ${round(c1.x)} ${round(c1.y)}, ${round(c2.x)} ${round(c2.y)}, ${round(to.x)} ${round(to.y)}`;
+  return `M ${round(curve.from.x)} ${round(curve.from.y)} C ${round(curve.c1.x)} ${round(curve.c1.y)}, ${round(curve.c2.x)} ${round(curve.c2.y)}, ${round(curve.to.x)} ${round(curve.to.y)}`;
 }
 
 /** Where a flow's label sits: the curve's rough middle, nudged by any manual offset. */

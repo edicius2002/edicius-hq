@@ -550,6 +550,47 @@ describe('SEACE views', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows only unique Arequipa acronyms in the narrower entity column', async () => {
+    const first = fixtureRows[0];
+    fixtureRows = [
+      {
+        ...first,
+        payload: {
+          ...first.payload,
+          entity: 'SERVICIO DE AGUA POTABLE Y ALCANTARILLADO DE AREQUIPA',
+        },
+      },
+      {
+        ...first,
+        recordKey: '3',
+        payload: {
+          ...first.payload,
+          code: 'CM-SHARED',
+          entity: 'MUNICIPALIDAD DISTRITAL DE CAYLLOMA',
+        },
+      },
+      {
+        ...first,
+        recordKey: '4',
+        payload: {
+          ...first.payload,
+          code: 'CM-UNKNOWN',
+          entity: 'MUNICIPALIDAD DISTRITAL DE ATIQUIPA',
+        },
+      },
+    ];
+
+    const { container } = mount();
+    const shortName = await screen.findByText('SEDAPAR S.A');
+    expect(shortName).toHaveAttribute(
+      'title',
+      'SERVICIO DE AGUA POTABLE Y ALCANTARILLADO DE AREQUIPA',
+    );
+    expect(screen.getByText('MUNICIPALIDAD DISTRITAL DE CAYLLOMA')).toBeInTheDocument();
+    expect(screen.getByText('MUNICIPALIDAD DISTRITAL DE ATIQUIPA')).toBeInTheDocument();
+    expect(container.querySelectorAll('col')[2]).toHaveStyle('--desktop-column-width: 140px');
+  });
+
   it('includes Start and End together in the mobile date cell', async () => {
     const rows = fixtureRows;
     fixtureRows = [

@@ -14,6 +14,7 @@ import {
   type SeaceSync,
   type SeaceView,
 } from './data';
+import { uniqueEntityAcronym } from './entityAcronyms';
 import styles from './SeacePage.module.css';
 
 const regions = [
@@ -52,7 +53,7 @@ const views = [
 const pageSizes = [5, 10, 20, 50, 100];
 const columnWidths: Record<string, number> = {
   code: 120,
-  entity: 185,
+  entity: 140,
   description: 450,
   object: 90,
   published: 105,
@@ -90,6 +91,15 @@ const objectLabels: Record<string, string> = {
 const text = (row: SeaceRow, field: string) => {
   const value = row.payload[field];
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+};
+const entityLabel = (row: SeaceRow) => {
+  const fullName = text(row, 'entity');
+  const acronym = uniqueEntityAcronym(fullName, text(row, 'region'));
+  return (
+    <span data-row-text title={acronym ? fullName : undefined}>
+      {acronym || fullName || '—'}
+    </span>
+  );
 };
 const safeUrl = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -776,6 +786,8 @@ export function SeacePage() {
                               </a>
                             ))}
                           </span>
+                        ) : field === 'entity' ? (
+                          entityLabel(row)
                         ) : field === 'amount' ? (
                           <span data-row-text>{money(row)}</span>
                         ) : field === 'start' || field === 'termStart' ? (

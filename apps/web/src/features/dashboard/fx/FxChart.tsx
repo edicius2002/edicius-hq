@@ -10,8 +10,12 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
   const active = hoverActive || keyboardActive;
   const [container, size] = useElementSize<HTMLDivElement>();
   const width = size.width || 320;
-  const height = size.height || 120;
-  const plotWidth = Math.max(1, width - 65);
+  const height = size.height || 160;
+  const plotLeft = 64;
+  const plotRight = width - 12;
+  const plotTop = 12;
+  const plotBottom = height - 38;
+  const plotWidth = Math.max(1, plotRight - plotLeft);
   const points = history.points;
   if (!points.length)
     return (
@@ -26,9 +30,45 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
   const values = points.flatMap((p) => [p.buy, p.sell]),
     lo = Math.min(...values) - 0.002,
     hi = Math.max(...values) + 0.002;
+  const yDivisions = 5;
+  const yTicks = Array.from(
+    { length: yDivisions + 1 },
+    (_, index) => lo + ((hi - lo) * index) / yDivisions,
+  );
   const x = (p: typeof point) =>
-    50 + (last === first ? 0.5 : (Date.parse(p.effective_at) - first) / (last - first)) * plotWidth;
-  const y = (n: number) => height - 22 - ((n - lo) / (hi - lo)) * (height - 34);
+    plotLeft +
+    (last === first ? 0.5 : (Date.parse(p.effective_at) - first) / (last - first)) * plotWidth;
+  const tickX = (timestamp: number) =>
+    plotLeft + (last === first ? 0.5 : (timestamp - first) / (last - first)) * plotWidth;
+  const y = (n: number) => plotBottom - ((n - lo) / (hi - lo)) * (plotBottom - plotTop);
+  const intraday = history.aggregation === 'observations' && last - first < 86400_000;
+  const xTicks = [...new Set([first, first + (last - first) / 2, last])];
+  const limaDay = (timestamp: number) =>
+    new Date(timestamp).toLocaleDateString('en-US', {
+      timeZone: 'America/Lima',
+      month: 'short',
+      day: 'numeric',
+    });
+  const crossesLimaDay = limaDay(first) !== limaDay(last);
+  const tickLabel = (timestamp: number, index: number) => {
+    if (intraday) {
+      const hour = new Date(timestamp).toLocaleTimeString('en-US', {
+        timeZone: 'America/Lima',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      return crossesLimaDay && (index === 0 || index === xTicks.length - 1)
+        ? `${limaDay(timestamp)} ${hour}`
+        : hour;
+    }
+    return new Date(timestamp).toLocaleDateString('en-US', {
+      timeZone: 'America/Lima',
+      month: 'short',
+      day: 'numeric',
+      ...(last - first > 365 * 86400_000 ? { year: '2-digit' as const } : {}),
+    });
+  };
   const gapThreshold = history.aggregation === 'daily' ? 1.5 * 86400_000 : 45 * 60_000;
   const startsSegment = (i: number) =>
     i === 0 ||
@@ -47,7 +87,10 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
     const rect = target.getBoundingClientRect();
     const wanted =
       first +
-      Math.max(0, Math.min(1, (((clientX - rect.left) / rect.width) * width - 50) / plotWidth)) *
+      Math.max(
+        0,
+        Math.min(1, (((clientX - rect.left) / rect.width) * width - plotLeft) / plotWidth),
+      ) *
         (last - first);
     let nearest = 0;
     points.forEach((p, i) => {
@@ -62,6 +105,16 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
   }
   return (
     <div className={styles.chart} role="region" aria-label={`${sourceName} USD/PEN history`}>
+      <div className={styles.legend} aria-label="Chart series">
+        <span>
+          <i className={styles.buyKey} aria-hidden="true" />
+          Buy
+        </span>
+        <span>
+          <i className={styles.sellKey} aria-hidden="true" />
+          Sell
+        </span>
+      </div>
       <div ref={container} className={styles.plot}>
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -98,14 +151,64 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
             }
           }}
         >
-          {[lo, (lo + hi) / 2, hi].map((n) => (
+          {yTicks.map((n) => (
             <g key={n}>
-              <line x1="50" x2={width - 15} y1={y(n)} y2={y(n)} className={styles.grid} />
-              <text x="43" y={y(n) + 3} textAnchor="end">
+              <line x1={plotLeft} x2={plotRight} y1={y(n)} y2={y(n)} className={styles.grid} />
+              <text className={styles.axis} x={plotLeft - 7} y={y(n) + 3} textAnchor="end">
                 {price(n)}
               </text>
             </g>
           ))}
+          <line
+            className={styles.axisLine}
+            x1={plotLeft}
+            x2={plotLeft}
+            y1={plotTop}
+            y2={plotBottom}
+          />
+          <line
+            className={styles.axisLine}
+            x1={plotLeft}
+            x2={plotRight}
+            y1={plotBottom}
+            y2={plotBottom}
+          />
+          {xTicks.map((timestamp, index) => (
+            <g key={timestamp}>
+              <line
+                className={styles.axisLine}
+                x1={tickX(timestamp)}
+                x2={tickX(timestamp)}
+                y1={plotBottom}
+                y2={plotBottom + 4}
+              />
+              <text
+                className={styles.axis}
+                x={tickX(timestamp)}
+                y={height - 22}
+                textAnchor={index === 0 ? 'start' : index === xTicks.length - 1 ? 'end' : 'middle'}
+              >
+                {tickLabel(timestamp, index)}
+              </text>
+            </g>
+          ))}
+          <text
+            className={styles.axisTitle}
+            x={(plotLeft + plotRight) / 2}
+            y={height - 4}
+            textAnchor="middle"
+          >
+            {intraday ? 'Time (Lima)' : 'Date'}
+          </text>
+          <text
+            className={styles.axisTitle}
+            x="11"
+            y={(plotTop + plotBottom) / 2}
+            textAnchor="middle"
+            transform={`rotate(-90 11 ${(plotTop + plotBottom) / 2})`}
+          >
+            PEN per USD
+          </text>
           <path d={path('buy')} className={styles.buy} />
           <path d={path('sell')} className={styles.sell} />
           {isolated.map((capture) => (
@@ -116,7 +219,7 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
           ))}
           {active ? (
             <g className={styles.cursorGroup} style={{ transform: `translateX(${x(point)}px)` }}>
-              <line x1="0" x2="0" y1="8" y2={height - 18} className={styles.cursor} />
+              <line x1="0" x2="0" y1={plotTop} y2={plotBottom} className={styles.cursor} />
               <circle
                 className={styles.cursorPoint}
                 style={{ transform: `translateY(${y(point.buy)}px)` }}
@@ -135,20 +238,6 @@ export function FxChart({ history, sourceName }: { history: History; sourceName:
               />
             </g>
           ) : null}
-          <text x="50" y={height - 7}>
-            {new Date(first).toLocaleDateString('en-US', {
-              timeZone: 'America/Lima',
-              month: 'short',
-              day: 'numeric',
-            })}
-          </text>
-          <text x={width - 15} y={height - 7} textAnchor="end">
-            {new Date(last).toLocaleDateString('en-US', {
-              timeZone: 'America/Lima',
-              month: 'short',
-              day: 'numeric',
-            })}
-          </text>
         </svg>
       </div>
       <div className={styles.detail} data-testid="point-detail" aria-live="polite">

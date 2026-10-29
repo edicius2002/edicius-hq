@@ -550,6 +550,47 @@ describe('SEACE views', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows only unique Arequipa acronyms in the narrower entity column', async () => {
+    const first = fixtureRows[0];
+    fixtureRows = [
+      {
+        ...first,
+        payload: {
+          ...first.payload,
+          entity: 'SERVICIO DE AGUA POTABLE Y ALCANTARILLADO DE AREQUIPA',
+        },
+      },
+      {
+        ...first,
+        recordKey: '3',
+        payload: {
+          ...first.payload,
+          code: 'CM-SHARED',
+          entity: 'MUNICIPALIDAD DISTRITAL DE CAYLLOMA',
+        },
+      },
+      {
+        ...first,
+        recordKey: '4',
+        payload: {
+          ...first.payload,
+          code: 'CM-UNKNOWN',
+          entity: 'MUNICIPALIDAD DISTRITAL DE ATIQUIPA',
+        },
+      },
+    ];
+
+    const { container } = mount();
+    const shortName = await screen.findByText('SEDAPAR S.A');
+    expect(shortName).toHaveAttribute(
+      'title',
+      'SERVICIO DE AGUA POTABLE Y ALCANTARILLADO DE AREQUIPA',
+    );
+    expect(screen.getByText('MUNICIPALIDAD DISTRITAL DE CAYLLOMA')).toBeInTheDocument();
+    expect(screen.getByText('MUNICIPALIDAD DISTRITAL DE ATIQUIPA')).toBeInTheDocument();
+    expect(container.querySelectorAll('col')[2]).toHaveStyle('--desktop-column-width: 140px');
+  });
+
   it('includes Start and End together in the mobile date cell', async () => {
     const rows = fixtureRows;
     fixtureRows = [
@@ -608,6 +649,60 @@ describe('SEACE views', () => {
     ];
     mount('/seace/published');
     expect(await screen.findByRole('button', { name: 'Items' })).toBeInTheDocument();
+  });
+
+  it('toggles only the clicked row from empty cell space without selecting its text', async () => {
+    fixtureRows.push({
+      ...fixtureRows[0],
+      recordKey: '3',
+      payload: { ...fixtureRows[0].payload, code: 'CM-SECOND' },
+    });
+    mount();
+    const code = await screen.findByText('CM-RECENT');
+    const firstRow = code.closest('tr')!;
+    const firstCheckbox = within(firstRow).getByRole('checkbox', { name: 'Select CM-RECENT' });
+    const secondCheckbox = screen.getByRole('checkbox', { name: 'Select CM-SECOND' });
+
+    fireEvent.click(firstRow.cells[2]);
+    expect(firstCheckbox).toBeChecked();
+    expect(secondCheckbox).not.toBeChecked();
+
+    fireEvent.click(code);
+    expect(firstCheckbox).toBeChecked();
+
+    fireEvent.click(firstRow.cells[0]);
+    expect(firstCheckbox).not.toBeChecked();
+
+    fireEvent.click(firstCheckbox);
+    expect(firstCheckbox).toBeChecked();
+  });
+
+  it('keeps links and Items independent while empty space in Links toggles selection', async () => {
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: {
+          ...fixtureRows[0].payload,
+          items: ['Pump'],
+          documentName: 'Requirement.pdf',
+          documentUrl: 'https://prod6.seace.gob.pe/documents/requirement.pdf',
+        },
+      },
+    ];
+    mount();
+    const row = (await screen.findByText('CM-RECENT')).closest('tr')!;
+    const checkbox = within(row).getByRole('checkbox', { name: 'Select CM-RECENT' });
+    const dialog = document.querySelector('dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn();
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Items' }));
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(within(row).getByRole('link', { name: 'Requirement.pdf' }));
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(row.cells[row.cells.length - 1]);
+    expect(checkbox).toBeChecked();
   });
 
   it('moves an excluded record into the same view’s excluded table', async () => {

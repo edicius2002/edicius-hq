@@ -7,8 +7,31 @@
 }
 .plot {
   flex: 1;
-  min-height: 120px;
+  min-height: 150px;
   min-width: 0;
+}
+.legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  color: #b4a99c;
+  font-size: 9px;
+  line-height: 1.4;
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.legend i {
+  width: 12px;
+  border-top: 2px solid;
+}
+.buyKey {
+  border-color: #9bcba6;
+}
+.sellKey {
+  border-color: #e9ab88;
 }
 .chart svg {
   width: 100%;
@@ -22,19 +45,31 @@
 }
 .chart text {
   fill: var(--color-muted);
-  font-size: 9px;
+  font-size: 10px;
   font-family: var(--font-mono);
 }
+.axis {
+  font-variant-numeric: tabular-nums;
+}
+.chart .axisTitle {
+  fill: #b4a99c;
+  font-size: 10px;
+  font-weight: 700;
+}
+.axisLine {
+  stroke: #e9ded04a;
+  stroke-width: 1;
+}
 .grid {
-  stroke: #e9ded018;
-  stroke-dasharray: 3 4;
+  stroke: #e9ded024;
 }
 .buy,
 .sell {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 2.25;
   stroke-linejoin: round;
   stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 .buy {
   stroke: #9bcba6;
@@ -77,7 +112,7 @@
 @media (max-width: 44rem) {
   .plot {
     flex: none;
-    height: 130px;
+    height: 160px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -610,6 +610,60 @@ describe('SEACE views', () => {
     expect(await screen.findByRole('button', { name: 'Items' })).toBeInTheDocument();
   });
 
+  it('toggles only the clicked row from empty cell space without selecting its text', async () => {
+    fixtureRows.push({
+      ...fixtureRows[0],
+      recordKey: '3',
+      payload: { ...fixtureRows[0].payload, code: 'CM-SECOND' },
+    });
+    mount();
+    const code = await screen.findByText('CM-RECENT');
+    const firstRow = code.closest('tr')!;
+    const firstCheckbox = within(firstRow).getByRole('checkbox', { name: 'Select CM-RECENT' });
+    const secondCheckbox = screen.getByRole('checkbox', { name: 'Select CM-SECOND' });
+
+    fireEvent.click(firstRow.cells[2]);
+    expect(firstCheckbox).toBeChecked();
+    expect(secondCheckbox).not.toBeChecked();
+
+    fireEvent.click(code);
+    expect(firstCheckbox).toBeChecked();
+
+    fireEvent.click(firstRow.cells[0]);
+    expect(firstCheckbox).not.toBeChecked();
+
+    fireEvent.click(firstCheckbox);
+    expect(firstCheckbox).toBeChecked();
+  });
+
+  it('keeps links and Items independent while empty space in Links toggles selection', async () => {
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: {
+          ...fixtureRows[0].payload,
+          items: ['Pump'],
+          documentName: 'Requirement.pdf',
+          documentUrl: 'https://prod6.seace.gob.pe/documents/requirement.pdf',
+        },
+      },
+    ];
+    mount();
+    const row = (await screen.findByText('CM-RECENT')).closest('tr')!;
+    const checkbox = within(row).getByRole('checkbox', { name: 'Select CM-RECENT' });
+    const dialog = document.querySelector('dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn();
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Items' }));
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(within(row).getByRole('link', { name: 'Requirement.pdf' }));
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(row.cells[row.cells.length - 1]);
+    expect(checkbox).toBeChecked();
+  });
+
   it('moves an excluded record into the same view’s excluded table', async () => {
     mount();
     expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();

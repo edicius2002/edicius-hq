@@ -120,6 +120,80 @@ async function createCameraConflict() {
 }
 
 describe('FinancePage', () => {
+  it('opens a duplicated diagram with the original camera and saves that view', async () => {
+    const sourceCamera = { x: -300, y: 125, zoom: 1.4 };
+    remote.read.mockImplementation(async (key: string) =>
+      key === 'finance'
+        ? remoteDocument(createEmptyDocument('default'), 1)
+        : remoteDocument({ version: 1, cameras: { default: sourceCamera } }, 1),
+    );
+    remote.write.mockImplementation(async (_key: string, payload: unknown) =>
+      remoteDocument(payload, 2),
+    );
+
+    renderPage();
+    const duplicate = await screen.findByRole('button', { name: 'Duplicate Cash flow' });
+    await waitFor(() => expect(duplicate).toBeEnabled());
+    const canvas = screen.getByRole('region', { name: 'Diagram canvas' });
+    const surface = canvas.querySelector<HTMLElement>('div[style*="translate"]');
+    fireEvent.wheel(canvas, { clientX: 120, clientY: 80, deltaY: -100 });
+    await waitFor(() =>
+      expect(surface?.style.transform).not.toBe('translate(-300px, 125px) scale(1.4)'),
+    );
+    const currentTransform = surface?.style.transform;
+    fireEvent.click(duplicate);
+
+    await screen.findByRole('button', { name: 'Cash flow copy' });
+    expect(surface?.style.transform).toBe(currentTransform);
+
+    window.dispatchEvent(new Event('pagehide'));
+    await waitFor(() => expect(remote.write).toHaveBeenCalledWith('finance', expect.anything(), 1));
+    const financeWrite = remote.write.mock.calls.find(([key]) => key === 'finance')?.[1] as
+      ReturnType<typeof createEmptyDocument> | undefined;
+    const copyId = financeWrite?.activeDiagramId;
+    expect(copyId).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        remote.write.mock.calls.some(
+          ([key, payload]) =>
+            key === 'finance-camera-views' && Boolean((payload as CameraViews).cameras[copyId!]),
+        ),
+      ).toBe(true),
+    );
+    const copiedViews = remote.write.mock.calls.find(
+      ([key, payload]) =>
+        key === 'finance-camera-views' && Boolean((payload as CameraViews).cameras[copyId!]),
+    )?.[1] as CameraViews;
+    expect(copiedViews.cameras[copyId!]).toEqual(copiedViews.cameras.default);
+  });
+
+  it('adds a job at the center of the current camera view', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    remote.read.mockImplementation(async (key: string) =>
+      key === 'finance'
+        ? remoteDocument(createEmptyDocument('default'), 1)
+        : remoteDocument({ version: 1, cameras: { default: { x: -300, y: -200, zoom: 2 } } }, 1),
+    );
+    remote.write.mockImplementation(async (_key: string, payload: unknown) =>
+      remoteDocument(payload, 2),
+    );
+
+    try {
+      renderPage();
+      const add = await screen.findByRole('button', { name: 'Add job' }, { timeout: 5000 });
+      await waitFor(() => expect(add).toBeEnabled(), { timeout: 5000 });
+      fireEvent.click(add);
+
+      const node = await screen.findByRole('article', { name: 'Job Job' }, { timeout: 5000 });
+      expect(parseFloat(node.style.left) + parseFloat(node.style.width) / 2).toBeCloseTo(350, 0);
+      expect(parseFloat(node.style.top) + parseFloat(node.style.height) / 2).toBeCloseTo(250, 0);
+    } finally {
+      width.mockRestore();
+      height.mockRestore();
+    }
+  });
+
   it('loads Finance and camera documents in parallel from Supabase', async () => {
     const waiting = new Map<string, (value: unknown) => void>();
     remote.read.mockImplementation(

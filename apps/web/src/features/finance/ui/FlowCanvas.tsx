@@ -44,6 +44,7 @@ import {
   sizeOf,
 } from '@/features/finance/lib/geometry';
 import { formatAmount, formatAssetAmount } from '@/shared/lib/money';
+import type { PlacementView } from '@/features/finance/lib/placement';
 import {
   isFlowActive,
   selectAccountSummary,
@@ -93,6 +94,7 @@ type FlowCanvasProps = {
   onConnectModeChange?: (active: boolean) => void;
   /** Lets the page reconcile the separate remote camera document. */
   onCameraPersistenceChange?: (persistence: DiagramCameraPersistence) => void;
+  onViewChange?: (view: PlacementView) => void;
   /**
    * Chrome pinned to the top-left of the window. A readout about the diagram
    * belongs over the diagram, where the eye already is — in the toolbar it was
@@ -165,6 +167,7 @@ export function FlowCanvas({
   onResizeFrame,
   onConnectModeChange = () => undefined,
   onCameraPersistenceChange,
+  onViewChange,
   status,
 }: FlowCanvasProps) {
   const [viewportRef, viewportSize] = useElementSize<HTMLDivElement>();
@@ -172,6 +175,7 @@ export function FlowCanvas({
   const {
     camera,
     setCamera,
+    copyCameraTo,
     isFetching: isRestoringCamera,
     isError: isCameraError,
     saveState: cameraSaveState,
@@ -181,6 +185,10 @@ export function FlowCanvas({
     acceptRemote: acceptCameraRemote,
     overwriteRemote: overwriteCameraRemote,
   } = useDiagramCamera(diagram.id);
+
+  useEffect(() => {
+    onViewChange?.({ camera, viewport: viewportSize });
+  }, [camera, onViewChange, viewportSize]);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [pan, setPan] = useState<Pan | null>(null);
   const [frameDrag, setFrameDrag] = useState<FrameDrag | null>(null);
@@ -225,11 +233,13 @@ export function FlowCanvas({
       refreshConflict: refreshCameraConflict,
       acceptRemote: acceptCameraRemote,
       overwriteRemote: overwriteCameraRemote,
+      copyCameraTo,
     });
   }, [
     acceptCameraRemote,
     cameraConflict,
     cameraSaveState,
+    copyCameraTo,
     isCameraError,
     isRestoringCamera,
     onCameraPersistenceChange,

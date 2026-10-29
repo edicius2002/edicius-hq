@@ -28,6 +28,8 @@ export type DiagramCameraPersistence = Pick<
 > & {
   /** Includes the local restoration paint as well as the remote fetch. */
   isFetching: boolean;
+  /** Seed and persist a new diagram's view before it becomes active. */
+  copyCameraTo: (targetId: DiagramId, sourceCamera: Camera) => Promise<void>;
 };
 
 /**
@@ -89,6 +91,15 @@ export function useDiagramCamera(diagramId: DiagramId) {
     [diagramId, isFetching, store],
   );
 
+  const editCameraDocument = store.edit;
+  const copyCameraTo = useCallback(
+    async (targetId: DiagramId, sourceCamera: Camera) => {
+      await editCameraDocument((views) => setFinanceCamera(views, targetId, sourceCamera));
+      setRemembered((current) => new Map(current).set(targetId, sourceCamera));
+    },
+    [editCameraDocument],
+  );
+
   const acceptRemote = useCallback(() => {
     const conflict = store.conflict;
     if (conflict?.status === 'ready') {
@@ -111,6 +122,7 @@ export function useDiagramCamera(diagramId: DiagramId) {
   return {
     camera,
     setCamera: updateCamera,
+    copyCameraTo,
     isFetching,
     isError: store.isError,
     saveState: store.saveState,

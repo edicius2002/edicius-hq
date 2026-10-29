@@ -11,12 +11,20 @@ export type Tweet = {
   url: string;
 };
 
+function decodeTweetText(text: string): string {
+  const decoder = document.createElement('textarea');
+  return text.replace(/&(?:#(?:x[\da-f]+|\d+)|[a-z][a-z\d]+);/gi, (entity) => {
+    decoder.innerHTML = entity;
+    return decoder.value;
+  });
+}
+
 function tweetFromRow(postId: string, postedAt: string, payload: Json): Tweet {
   const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   return {
     id: postId,
     date: postedAt,
-    text: typeof value.text === 'string' ? value.text : '',
+    text: typeof value.text === 'string' ? decodeTweetText(value.text) : '',
     isReply: value.is_reply === true,
     url: typeof value.url === 'string' ? value.url : `https://x.com/i/status/${postId}`,
   };

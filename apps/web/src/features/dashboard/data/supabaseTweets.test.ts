@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { from, channel, removeChannel, limit, order, eq, gte, on } = vi.hoisted(() => {
@@ -54,6 +55,28 @@ describe('dashboard tweet data', () => {
     expect(gte).toHaveBeenCalledWith('posted_at', '2026-09-18T10:00:00.000Z');
     expect(order).toHaveBeenCalledWith('posted_at', { ascending: false });
     expect(limit).toHaveBeenCalledWith(500);
+  });
+
+  it('shows encoded characters from stored tweets as text', async () => {
+    limit.mockResolvedValue({
+      data: [
+        {
+          post_id: 'post-2',
+          posted_at: '2026-09-20T09:00:00Z',
+          payload: {
+            text: 'Day 24/ Text your dot with &lt;INSERT WILD REQUEST&gt; &amp; enjoy &#128161; &mdash; &constructor; <script>alert(1)</script>',
+            is_reply: false,
+            url: 'https://x.com/a/2',
+          },
+        },
+      ],
+      error: null,
+    });
+
+    const tweets = await fetchTweets('thsottiaux', new Date('2026-09-20T10:00:00Z'));
+    expect(tweets[0]?.text).toBe(
+      'Day 24/ Text your dot with <INSERT WILD REQUEST> & enjoy 💡 — &constructor; <script>alert(1)</script>',
+    );
   });
 
   it('subscribes to inserts for this handle and removes its channel', () => {

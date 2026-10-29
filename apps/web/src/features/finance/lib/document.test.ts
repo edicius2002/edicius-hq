@@ -50,6 +50,31 @@ describe('finance document', () => {
   });
 
   describe('normalization', () => {
+    it('repairs legacy floating point tails on stored money without changing geometry', () => {
+      const rawHolding = {
+        ...holding('h1', 'a1'),
+        amount: 7.039999999999964,
+        fees: { in: { type: 'fixed', value: 0.199999999999 }, out: null },
+      };
+      const rawFlow = { id: 'f1', from: 'h1', to: 'h2', amount: 0.30000000000000004, asset: 'USD' };
+      const doc = normalizeDocument(
+        {
+          diagrams: [
+            {
+              id: 'd1',
+              nodes: [account('a1'), account('a2'), rawHolding, holding('h2', 'a2')],
+              flows: [rawFlow],
+            },
+          ],
+        },
+        FALLBACK,
+      );
+      const diagram = getActiveDiagram(doc);
+      expect(diagram.nodes.h1.kind === 'holding' && diagram.nodes.h1.amount).toBe(7.04);
+      expect(diagram.nodes.h1.kind === 'holding' && diagram.nodes.h1.fees.in?.value).toBe(0.2);
+      expect(diagram.flows.f1.amount).toBe(0.3);
+    });
+
     it('falls back to an empty document for junk input', () => {
       for (const junk of [null, undefined, 42, 'nope', []]) {
         const doc = normalizeDocument(junk, FALLBACK);

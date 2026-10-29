@@ -28,7 +28,7 @@ describe('DiagramTabs', () => {
     expect(screen.getByRole('button', { name: 'One' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('offers rename as a visible action and commits it from the keyboard', async () => {
+  it('edits the active diagram by clicking its name and commits from the keyboard', async () => {
     const user = userEvent.setup();
     const onRename = vi.fn();
     render(
@@ -43,7 +43,8 @@ describe('DiagramTabs', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Rename One' }));
+    expect(screen.queryByRole('button', { name: 'Rename One' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'One' }));
     const input = screen.getByRole('textbox', { name: 'Rename One' });
     await user.clear(input);
     await user.type(input, 'Primary{Enter}');
@@ -75,7 +76,42 @@ describe('DiagramTabs', () => {
 
     render(<StatefulTabs />);
     await user.click(screen.getByRole('button', { name: 'Delete One' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete diagram?' });
+    expect(dialog).toHaveTextContent('One');
+    expect(screen.getByRole('button', { name: 'One' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete diagram' }));
 
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Two' })).toHaveFocus();
+  });
+
+  it('keeps the diagram when deletion is cancelled', async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn();
+    render(
+      <DiagramTabs
+        diagrams={DIAGRAMS}
+        activeId="one"
+        onSelect={vi.fn()}
+        onAdd={vi.fn()}
+        onDuplicate={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Delete One' }));
+    expect(screen.getByRole('alertdialog', { name: 'Delete diagram?' })).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe('');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'One' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete One' })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Delete One' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });

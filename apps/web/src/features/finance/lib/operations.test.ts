@@ -55,6 +55,25 @@ function expectOk<T, E>(result: { ok: true; value: T } | { ok: false; error: E }
 }
 
 describe('node transitions', () => {
+  it('stores no more than cents in edited balances, fees and flows', () => {
+    let d = scenario();
+    d = setJobBalance(d, 'job', 'USD', 1.999999999);
+    d = updateHolding(d, 'bankUsd', {
+      amount: 0.30000000000000004,
+      fees: { in: { type: 'fixed', value: 0.999999999 }, out: { type: 'percent', value: 1.2345 } },
+    });
+    d = expectOk(connect(d, { id: 'f1', from: 'job', to: 'bankUsd', amount: 0.199999999999 }));
+    d = updateFlow(d, 'f1', { amount: 1.005 });
+
+    expect(d.nodes.job.kind === 'job' && d.nodes.job.balances[0].amount).toBe(2);
+    expect((d.nodes.bankUsd as HoldingNode).amount).toBe(0.3);
+    expect((d.nodes.bankUsd as HoldingNode).fees).toEqual({
+      in: { type: 'fixed', value: 1 },
+      out: { type: 'percent', value: 1.23 },
+    });
+    expect(d.flows.f1.amount).toBe(1.01);
+  });
+
   it('never mutates the diagram it is given', () => {
     const before = createEmptyDiagram('d1');
     const after = addJob(before, { id: 'j1', position: origin });

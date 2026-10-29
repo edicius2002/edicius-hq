@@ -5,6 +5,7 @@ import { useFinanceData } from '@/features/finance/hooks/useFinanceData';
 import { formatAmount } from '@/shared/lib/money';
 import { NODE_SIZE } from '@/features/finance/lib/geometry';
 import { describeConnectError } from '@/features/finance/lib/operations';
+import type { PlacementView } from '@/features/finance/lib/placement';
 import {
   selectAvailable,
   selectHoldingsOfAccount,
@@ -26,14 +27,6 @@ import { SaveStatus } from '@/shared/ui/SaveStatus';
 
 import styles from './ui/FinancePage.module.css';
 
-/**
- * Jobs and accounts sit on a wide grid; each row leaves room underneath for the
- * holdings its accounts will grow, so nothing lands on top of anything else.
- */
-function nextPosition(topLevelCount: number) {
-  return { x: 80 + (topLevelCount % 4) * 260, y: 60 + Math.floor(topLevelCount / 4) * 420 };
-}
-
 /** Holdings stack below their own account rather than beside it, clear of each other. */
 function holdingPosition(accountPosition: Point, siblings: number) {
   const step = NODE_SIZE.holding.height + 12;
@@ -53,6 +46,10 @@ export function FinancePage() {
   const [frameMode, setFrameMode] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [cameraPersistence, setCameraPersistence] = useState<DiagramCameraPersistence | null>(null);
+  const viewRef = useRef<PlacementView | null>(null);
+  const publishView = useCallback((view: PlacementView) => {
+    viewRef.current = view;
+  }, []);
   const publishCameraPersistence = useCallback((next: DiagramCameraPersistence) => {
     setCameraPersistence((current) => {
       if (
@@ -78,10 +75,6 @@ export function FinancePage() {
 
   const available = useMemo(() => selectAvailable(diagram), [diagram]);
   const inTransit = useMemo(() => selectInTransit(diagram), [diagram]);
-  // Holdings are placed relative to their account, so they do not shift this grid.
-  const topLevelCount = diagram.nodeOrder.filter(
-    (id) => diagram.nodes[id]?.kind !== 'holding',
-  ).length;
 
   function stopConnecting() {
     setConnectMode(false);
@@ -274,13 +267,17 @@ export function FinancePage() {
       <div className={styles.toolGroup}>
         <Button
           disabled={editsBlocked}
-          onClick={() => void finance.addJob(nextPosition(topLevelCount))}
+          onClick={() => {
+            if (viewRef.current) void finance.addJobNearCenter(viewRef.current);
+          }}
         >
           Add job
         </Button>
         <Button
           disabled={editsBlocked}
-          onClick={() => void finance.addAccount(nextPosition(topLevelCount))}
+          onClick={() => {
+            if (viewRef.current) void finance.addAccountNearCenter(viewRef.current);
+          }}
         >
           Add account
         </Button>
@@ -365,7 +362,13 @@ export function FinancePage() {
                   void finance.addDiagram();
                 }}
                 onDuplicate={(id) => {
-                  if (!editsBlocked) void finance.duplicateDiagram(id);
+                  if (editsBlocked || !viewRef.current || !cameraPersistence) return;
+                  const copyId = crypto.randomUUID();
+                  const sourceCamera = viewRef.current.camera;
+                  void (async () => {
+                    await cameraPersistence.copyCameraTo(copyId, sourceCamera);
+                    await finance.duplicateDiagram(id, copyId);
+                  })();
                 }}
                 onRename={(id, name) => {
                   if (!editsBlocked) void finance.renameDiagram(id, name);
@@ -478,6 +481,7 @@ export function FinancePage() {
               else stopConnecting();
             }}
             onCameraPersistenceChange={publishCameraPersistence}
+            onViewChange={publishView}
           />
 
           <div className={styles.side}>

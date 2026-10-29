@@ -79,6 +79,9 @@
   vertical-align: middle;
   white-space: nowrap;
 }
+.table tbody tr {
+  cursor: pointer;
+}
 .table tr:last-child td {
   border-bottom: 0;
 }

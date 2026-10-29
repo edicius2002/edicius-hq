@@ -67,6 +67,13 @@ export function UsdPenGadget({ now }: { now: Date }) {
                     data-selected={source.id === preferences.source}
                     data-stale={status === 'Stale' || undefined}
                     title={row && status === 'Stale' ? time(row.observed_at) : undefined}
+                    onClick={() =>
+                      setPreferences((previous) =>
+                        previous.source === source.id
+                          ? previous
+                          : { ...previous, source: source.id },
+                      )
+                    }
                   >
                     <td>
                       <div className={styles.source}>
@@ -74,9 +81,6 @@ export function UsdPenGadget({ now }: { now: Date }) {
                           className={styles.select}
                           aria-label={`Select ${source.name}`}
                           aria-pressed={source.id === preferences.source}
-                          onClick={() =>
-                            setPreferences((previous) => ({ ...previous, source: source.id }))
-                          }
                         >
                           {source.name}
                         </button>

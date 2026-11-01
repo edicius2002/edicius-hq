@@ -45,6 +45,9 @@ vi.mock('@/features/airfare/hooks/useFareProjections', () => ({
     secondaryBoards: [],
   }),
 }));
+vi.mock('@/features/airfare/hooks/useLatestAirfareMonthRequest', () => ({
+  useLatestAirfareMonthRequest: () => ({ data: null }),
+}));
 vi.mock('@/features/airfare/hooks/useFareCalendar', () => ({
   useFareCalendar: () => ({ data: undefined, isPending: false, error: null }),
 }));

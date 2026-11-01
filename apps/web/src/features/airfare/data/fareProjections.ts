@@ -17,11 +17,22 @@ export type FareMonthProjection = {
   providerDays: Bucket[];
   unsoldDays: UnsoldPeriod[];
   latestBoards: FareSnapshot[];
+  currentBoards: FareSnapshot[];
+  departureChecks: DepartureCheck[];
+  availabilityKnown: boolean;
   viaSequences: string[][];
   /** Only populated by the historical fallback and never by the projection RPC. */
   archiveSnapshots?: FareSnapshot[];
   health: WatchHealth;
   pairReference: FarePairReference | null;
+};
+
+export type DepartureCheck = {
+  flightDate: string;
+  checkedAt: string | null;
+  outcome: 'changed' | 'unchanged' | 'rebaselined' | 'no-offers' | null;
+  lastAttemptAt: string;
+  lastErrorCode: string | null;
 };
 
 export type FareFlightPage = {
@@ -74,6 +85,52 @@ function dayBucket(value: unknown): Bucket {
   };
 }
 
+function boards(
+  value: unknown,
+  origin: string,
+  destination: string,
+  month: string,
+): FareSnapshot[] {
+  return items(value).map((value) => {
+    const board = record(value);
+    if (
+      board.origin !== origin ||
+      board.destination !== destination ||
+      !text(board.flightDate).startsWith(month) ||
+      !Array.isArray(board.offers)
+    ) {
+      throw new Error('Invalid Airfare projection board.');
+    }
+    return board as FareSnapshot;
+  });
+}
+
+function departureCheck(value: unknown, month: string): DepartureCheck {
+  const row = record(value);
+  const flightDate = text(row.flightDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(flightDate) || !flightDate.startsWith(month)) {
+    throw new Error('Invalid Airfare departure check.');
+  }
+  const checkedAt = row.checkedAt === null ? null : text(row.checkedAt);
+  const lastAttemptAt = text(row.lastAttemptAt);
+  const outcome = row.outcome;
+  const lastErrorCode = row.lastErrorCode === null ? null : text(row.lastErrorCode);
+  if (
+    (checkedAt !== null && !Number.isFinite(Date.parse(checkedAt))) ||
+    !Number.isFinite(Date.parse(lastAttemptAt)) ||
+    !(
+      outcome === null ||
+      outcome === 'changed' ||
+      outcome === 'unchanged' ||
+      outcome === 'rebaselined' ||
+      outcome === 'no-offers'
+    )
+  ) {
+    throw new Error('Invalid Airfare departure check.');
+  }
+  return { flightDate, checkedAt, outcome, lastAttemptAt, lastErrorCode };
+}
+
 export function parseFareMonthProjection(
   value: unknown,
   origin: string,
@@ -86,18 +143,11 @@ export function parseFareMonthProjection(
   }
   const health = record(body.health);
   const reference = body.pairReference === null ? null : record(body.pairReference);
-  const latestBoards = items(body.latestBoards).map((value) => {
-    const board = record(value);
-    if (
-      board.origin !== origin ||
-      board.destination !== destination ||
-      !text(board.flightDate).startsWith(month) ||
-      !Array.isArray(board.offers)
-    ) {
-      throw new Error('Invalid Airfare projection board.');
-    }
-    return board as FareSnapshot;
-  });
+  const latestBoards = boards(body.latestBoards, origin, destination, month);
+  const legacy = body.currentBoards === undefined && body.departureChecks === undefined;
+  if (!legacy && (!Array.isArray(body.currentBoards) || !Array.isArray(body.departureChecks))) {
+    throw new Error('Invalid Airfare availability projection.');
+  }
   return {
     origin,
     destination,
@@ -112,6 +162,11 @@ export function parseFareMonthProjection(
       return { key, label: key.slice(5), count: finite(day.count) };
     }),
     latestBoards,
+    currentBoards: legacy ? [] : boards(body.currentBoards, origin, destination, month),
+    departureChecks: legacy
+      ? []
+      : items(body.departureChecks).map((value) => departureCheck(value, month)),
+    availabilityKnown: !legacy,
     viaSequences: items(body.viaSequences).map((value) => items(value).map(text)),
     health: {
       lastCheckedAt: health.lastCheckedAt === null ? null : text(health.lastCheckedAt),

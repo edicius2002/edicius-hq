@@ -73,13 +73,23 @@ select is((select present from public.fare_flight_projections where origin='EMP'
   and month='2027-07'),false,'confirmed empty marks prior flight absent');
 select is((select payload #>> '{departureChecks,0,outcome}' from public.fare_month_projections
   where origin='EMP' and destination='DST' and month='2027-07'),'no-offers','per-date status records confirmed empty');
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+values (repeat('ad',32),'EMP','DST','2027-07-10','2026-09-20T11:30:00Z','2026-09-20T11:30:00Z',2,'test','USD',80,
+  '{"capturedAt":"2026-09-20T11:30:00Z","source":"test","origin":"EMP","destination":"DST","flightDate":"2027-07-10","returnDate":null,"currency":"USD","insights":null,"offers":[{"airline":"AA","flightNumber":"2","departureAt":"2027-07-10T10:00","arrivalAt":"2027-07-10T12:00","price":80,"currency":"USD"}]}');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('c5',32),'board','EMP','DST','2027-07-10','2026-09-20T11:30:00Z','changed','{"at":"2026-09-20T11:30:00Z"}');
+select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'adjacent valid date refreshes');
+select is((select payload #>> '{currentBoards,0,flightDate}' from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),'2027-07-10','valid adjacent date remains current while empty date is blank');
 reset role;
 insert into auth.users(id) values ('00000000-0000-0000-0000-000000000888');
 insert into public.edicius_owners(owner_id) values ('00000000-0000-0000-0000-000000000888');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000888',true);
-select is(public.read_owner_fare_flights_page('EMP','DST','2027-07','2026-09-20','2026-09-20')->>'inPeriod','0',
-  'current flight page omits historical offers on a confirmed empty date');
+select is(public.read_owner_fare_flights_page('EMP','DST','2027-07','2026-09-20','2026-09-20')->>'inPeriod','1',
+  'current flight page shows adjacent valid offer but omits historical offer on confirmed empty date');
 reset role;
 select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000999',true);
 set local role service_role;
@@ -88,7 +98,7 @@ insert into public.fare_checks
 values (repeat('c3',32),'board','EMP','DST','2027-07-09','2026-09-20T12:00:00Z','error','parse-drift','{"at":"2026-09-20T12:00:00Z"}');
 select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'error projection refreshes');
 select is((select jsonb_array_length(payload->'currentBoards') from public.fare_month_projections
-  where origin='EMP' and destination='DST' and month='2027-07'),0,'technical error does not restore stale offer');
+  where origin='EMP' and destination='DST' and month='2027-07'),1,'technical error does not restore stale offer');
 select is((select payload #>> '{departureChecks,0,lastErrorCode}' from public.fare_month_projections
   where origin='EMP' and destination='DST' and month='2027-07'),'parse-drift','latest error remains visible');
 insert into public.fare_checks
@@ -96,8 +106,8 @@ insert into public.fare_checks
 values (repeat('c4',32),'board','EMP','DST','2027-07-09','2026-09-20T13:00:00Z','unchanged','{"at":"2026-09-20T13:00:00Z"}');
 select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'unchanged offer projection refreshes');
 select is((select jsonb_array_length(payload->'currentBoards') from public.fare_month_projections
-  where origin='EMP' and destination='DST' and month='2027-07'),1,'unchanged later check restores current offer');
-select is((select count(*)::text from public.fare_snapshots where origin='EMP' and destination='DST'),'1','restoration reuses archived snapshot');
+  where origin='EMP' and destination='DST' and month='2027-07'),2,'unchanged later check restores current offer');
+select is((select count(*)::text from public.fare_snapshots where origin='EMP' and destination='DST'),'2','restoration reuses archived snapshot');
 
 insert into public.fare_snapshots
   (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)

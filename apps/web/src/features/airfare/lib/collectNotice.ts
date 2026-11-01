@@ -29,8 +29,9 @@ export function acceptedCollectNotice(request: AirfareRequest): CollectNotice {
 
 export function terminalCollectNotice(request: AirfareRequest): CollectNotice | null {
   if (request.status === 'complete' && request.result) {
-    const { lookedAt, changed, failed, skipped } = request.result;
-    const text = `Collection complete: ${lookedAt} departures checked, ${changed} updated.`;
+    const { lookedAt, changed, failed, skipped, noOffers = 0 } = request.result;
+    const empty = noOffers > 0 ? `, ${noOffers} without itineraries` : '';
+    const text = `Collection complete: ${lookedAt} departures checked, ${changed} updated${empty}.`;
     // A pass keeps what it read even when some departures could not be read or
     // were not polled; the outcome says so rather than calling it a clean success.
     const missed = [

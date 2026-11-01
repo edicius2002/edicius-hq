@@ -5,9 +5,14 @@ const state = vi.hoisted(() => {
   const maybeSingle = vi.fn();
   const requestEq = vi.fn(() => ({ maybeSingle }));
   const activeOrder = vi.fn();
+  const latestSingle = vi.fn();
+  const latestLimit = vi.fn(() => ({ maybeSingle: latestSingle }));
+  const latestOrder = vi.fn(() => ({ limit: latestLimit }));
+  const latestIn = vi.fn(() => ({ order: latestOrder }));
+  const latestContains = vi.fn(() => ({ in: latestIn }));
   const activeGt = vi.fn(() => ({ order: activeOrder }));
   const activeIn = vi.fn(() => ({ gt: activeGt }));
-  const operationEq = vi.fn(() => ({ in: activeIn, eq: requestEq }));
+  const operationEq = vi.fn(() => ({ in: activeIn, eq: requestEq, contains: latestContains }));
   const select = vi.fn(() => ({ eq: operationEq }));
   const from = vi.fn(() => ({ select }));
   const subscribe = vi.fn(() => ({ id: 'airfare-requests' }));
@@ -26,6 +31,11 @@ const state = vi.hoisted(() => {
     activeIn,
     activeGt,
     activeOrder,
+    latestContains,
+    latestIn,
+    latestOrder,
+    latestLimit,
+    latestSingle,
     requestEq,
     maybeSingle,
     channel,
@@ -44,6 +54,7 @@ import {
   enqueueAirfareRequest,
   fetchActiveAirfareRequests,
   fetchAirfareRequest,
+  fetchLatestAirfareMonthRequest,
   subscribeAirfareRequests,
 } from './airfareRequests';
 
@@ -111,6 +122,27 @@ describe('Airfare request boundary', () => {
     ).toThrow('malformed_request');
   });
 
+  it('decodes the Pi count of confirmed empty departures while accepting old results', () => {
+    const base = {
+      origin: 'LIM',
+      destination: 'CUZ',
+      month: '2026-11',
+      lookedAt: 2,
+      changed: 0,
+      failed: 0,
+      skipped: 0,
+      synced: true,
+    };
+    const legacy = decodeAirfareRequest({ ...ROW, status: 'complete', result: base });
+    const current = decodeAirfareRequest({
+      ...ROW,
+      status: 'complete',
+      result: { ...base, noOffers: 2 },
+    });
+    expect(legacy.result?.noOffers).toBe(0);
+    expect(current.result?.noOffers).toBe(2);
+  });
+
   it('reads only live active Airfare route requests', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-19T12:00:00.000Z'));
@@ -136,6 +168,36 @@ describe('Airfare request boundary', () => {
     await expect(fetchAirfareRequest(ROW.request_id)).rejects.toMatchObject({
       code: 'request_unavailable',
     });
+  });
+
+  it('reads the latest owner-visible terminal request for one route and month', async () => {
+    const completed = {
+      ...ROW,
+      status: 'complete',
+      result: {
+        origin: 'LIM',
+        destination: 'CUZ',
+        month: '2026-11',
+        lookedAt: 3,
+        changed: 1,
+        noOffers: 1,
+        failed: 0,
+        skipped: 1,
+        synced: true,
+      },
+    };
+    state.latestSingle.mockResolvedValue({ data: completed, error: null });
+    await expect(fetchLatestAirfareMonthRequest('LIM', 'CUZ', '2026-11')).resolves.toMatchObject({
+      result: { noOffers: 1, skipped: 1 },
+    });
+    expect(state.latestContains).toHaveBeenCalledWith('payload', {
+      origin: 'LIM',
+      destination: 'CUZ',
+      month: '2026-11',
+    });
+    expect(state.latestIn).toHaveBeenCalledWith('status', ['complete', 'failed', 'expired']);
+    expect(state.latestOrder).toHaveBeenCalledWith('updated_at', { ascending: false });
+    expect(state.latestLimit).toHaveBeenCalledWith(1);
   });
 
   it('subscribes to owner-visible Airfare rows, ignores malformed events, and disposes once', () => {

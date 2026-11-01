@@ -34,10 +34,10 @@
 
 **Interfaces:** `parse_payload(payload: Any, currency: str) -> list[FareOffer]` continues to raise `FareError('no-offers')` for a well-formed empty board and `FareError('parse-drift')` for an absent/malformed main block.
 
-- [ ] Add regression tests for explicit `payload[3] is None` with both blocks empty, valid best plus absent main block, malformed main block, and valid rest plus null best.
-- [ ] Run the focused parser test and confirm the explicit-null case fails on the old parser.
-- [ ] Make `_itinerary_rows` distinguish explicit null from absent/malformed; keep complete-board protection.
-- [ ] Run the focused parser tests, formatter and linter; commit this task.
+- [x] Add regression tests for explicit `payload[3] is None` with both blocks empty, valid best plus absent main block, malformed main block, and valid rest plus null best.
+- [x] Run the focused parser test and confirm the explicit-null case fails on the old parser.
+- [x] Make `_itinerary_rows` distinguish explicit null from absent/malformed; keep complete-board protection.
+- [x] Run the focused parser tests, formatter and linter; commit this task.
 
 ### Task 2: Confirm and record no-offers in the collector and worker
 
@@ -45,11 +45,11 @@
 
 **Interfaces:** `RouteResult.no_offers: bool = False`; `CollectionReport.no_offers: int`; manual result gains `noOffers: int`. The first `no-offers` result remains provisional until a second metered request resolves it. A confirmed empty appends `fare_checks.outcome='no-offers'` and returns `ok=True, no_offers=True, offers=0` without a snapshot.
 
-- [ ] Add failing tests for two empty replies, empty then offers, empty then error, and exhausted budget before confirmation; assert request-ledger count and recorded check outcome.
-- [ ] Run the focused tests and confirm the failure is the old one-response/refusal behavior.
-- [ ] Implement a confirmation path within `collect` that uses the same pacer, slot and `DailyBudget` for the second request in both serial and concurrent modes. Keep errors as `outcome='error'` and do not update confirmed availability.
-- [ ] Add an all-empty worker test asserting sync and completion with `noOffers`, then implement the worker count and result field.
-- [ ] Run collector, budget, pacing and worker suites; commit this task.
+- [x] Add failing tests for two empty replies, empty then offers, empty then error, and exhausted budget before confirmation; assert request-ledger count and recorded check outcome.
+- [x] Run the focused tests and confirm the failure is the old one-response/refusal behavior.
+- [x] Implement a confirmation path within `collect` that uses the same pacer, slot and `DailyBudget` for the second request in both serial and concurrent modes. Keep errors as `outcome='error'` and do not update confirmed availability.
+- [x] Add an all-empty worker test asserting sync and completion with `noOffers`, then implement the worker count and result field.
+- [x] Run collector, budget, pacing and worker suites; commit this task.
 
 ### Task 3: Project durable current availability from checks
 
@@ -57,10 +57,10 @@
 
 **Interfaces:** Monthly projection gains `departureChecks: [{ flightDate, checkedAt, outcome, errorCode? }]` for the latest confirmed and latest attempted check per date, and `currentBoards` whose dates exclude a latest confirmed `no-offers`. Historical `latestBoards` and price series remain unchanged. Flight projections mark current presence using the same confirmed-state rule. `changed`, `unchanged` and `rebaselined` count as confirmed offers; `error` never supersedes a confirmed status.
 
-- [ ] Add a SQL-level regression scenario: offer snapshot → confirmed `no-offers` → error → valid `unchanged`, asserting blank current board through the first three states and restoration in the fourth, with history retained.
-- [ ] Run the SQL regression and confirm it fails before the migration.
-- [ ] Extend `refresh_fare_month_projection` using the latest existing definition; derive latest confirmed state by `(checked_at, record_id)` and use it for current boards and flight presence. Update the flight-page read so dates confirmed empty are absent from the current table. Keep existing RLS and grants.
-- [ ] Run local Supabase migration/integration checks and verify owner/non-owner reads; commit this task.
+- [x] Add a SQL-level regression scenario: offer snapshot → confirmed `no-offers` → error → valid `unchanged`, asserting blank current board through the first three states and restoration in the fourth, with history retained.
+- [x] Run the SQL regression and confirm it fails before the migration.
+- [x] Extend `refresh_fare_month_projection` using the latest existing definition; derive latest confirmed state by `(checked_at, record_id)` and use it for current boards and flight presence. Update the flight-page read so dates confirmed empty are absent from the current table. Keep existing RLS and grants.
+- [x] Run local Supabase migration/integration checks and verify owner/non-owner reads; commit this task.
 
 ### Task 4: Read and display current versus historical state
 
@@ -68,17 +68,17 @@
 
 **Interfaces:** Optional `AirfareRequestResult.noOffers` supports old and new Pi results. `FareMonthProjection.currentBoards` and `departureChecks` are parsed with a safe legacy fallback that reports current availability as unknown, never rebrands old `latestBoards` as current. The current departure chart and flight table consume confirmed current offers; history uses historical snapshots/price series. Month summary remains visible after reload and names offers, confirmed empty, failed and skipped counts with check times.
 
-- [ ] Add failing decoder/notice tests for old and new request results and for all-empty completion without the warning triangle.
-- [ ] Add failing projection/UI tests for valid adjacent dates, confirmed blank date, historical capture date, later valid restoration, technical error preserving confirmed state, and reload from Supabase projection.
-- [ ] Implement typed projection parsing, current-board selection, visible persistent status and historical labeling. Retain invalidation after all completed syncs; do not add repeated-fetch warnings.
-- [ ] Run the focused Vitest suites, typecheck, lint and build; commit this task.
+- [x] Add failing decoder/notice tests for old and new request results and for all-empty completion without the warning triangle.
+- [x] Add failing projection/UI tests for valid adjacent dates, confirmed blank date, historical capture date, later valid restoration, technical error preserving confirmed state, and reload from Supabase projection.
+- [x] Implement typed projection parsing, current-board selection, visible persistent status and historical labeling. Retain invalidation after all completed syncs; do not add repeated-fetch warnings.
+- [x] Run the focused Vitest suites, typecheck, lint and build; commit this task.
 
 ### Task 5: End-to-end branch verification
 
 **Files:** Fix only defects exposed by the end-to-end checks; update the plan's checked steps and deployment notes if needed.
 
-- [ ] Run the full API and web test suites, format/lint/type checks, and any local Supabase integration tests available.
-- [ ] Verify a deterministic AEP–ARI-like mix of valid/empty dates through collector → sync/projection → browser data model; ensure an empty date later restores on a valid Fetch.
+- [x] Run the full API and web test suites, format/lint/type checks, and any local Supabase integration tests available.
+- [x] Verify a deterministic AEP–ARI-like mix of valid/empty dates through collector → sync/projection → browser data model; ensure an empty date later restores on a valid Fetch.
 - [ ] Check `git diff`, preserve the unrelated untracked document, and run a final branch review; commit any fixes.
 - [ ] Report the branch, commits, tests, and remaining deployment steps without deploying.
 

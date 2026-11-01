@@ -1,4 +1,12 @@
-alter table public.fare_flight_projections add column current_empty boolean not null default false;
+alter table public.fare_flight_projections add column if not exists current_empty boolean not null default false;
+
+-- Existing projections predate currentBoards/departureChecks. Queue them for
+-- the normal service refresh so a web rollout does not wait for a new fare
+-- event to populate the current-availability fields.
+insert into public.fare_projection_dirty_routes(origin,destination,changed_at,needs_full_refresh)
+select distinct origin,destination,now(),true from public.fare_month_projections
+on conflict (origin,destination) do update set
+  changed_at=excluded.changed_at,needs_full_refresh=true;
 
 create or replace function public.refresh_fare_month_projection(
   p_origin text, p_destination text, p_month text

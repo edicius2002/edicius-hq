@@ -81,3 +81,11 @@
 - [ ] Verify a deterministic AEP–ARI-like mix of valid/empty dates through collector → sync/projection → browser data model; ensure an empty date later restores on a valid Fetch.
 - [ ] Check `git diff`, preserve the unrelated untracked document, and run a final branch review; commit any fixes.
 - [ ] Report the branch, commits, tests, and remaining deployment steps without deploying.
+
+## Deployment sequence after branch review
+
+1. Apply `20261101000000_airfare_confirmed_empty.sql` in Supabase. The migration queues existing Airfare projection routes for a full refresh; it does not rewrite the append-only archive.
+2. Deploy the updated Pi collector to `bodas`, then run its normal Supabase sync to drain the queued projection routes. Confirm the selected route/month projection contains `currentBoards` and `departureChecks` before deploying the web change.
+3. Deploy the web build. Perform a manual Fetch on an AEP–ARI-like sparse month and confirm the page reports valid offers and confirmed empty dates separately, with older prices dated as historical. Fetch again to confirm a later offer restores the current view.
+
+The branch has not been deployed to production.

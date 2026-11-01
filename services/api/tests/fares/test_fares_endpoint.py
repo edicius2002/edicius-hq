@@ -34,6 +34,7 @@ from app.services.airfare_data import (
     HistoryRead,
     WatchHealth,
 )
+from app.services.fare_budget import RequestLedger, daily_budget
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_collector import CollectionReport, FareWatch, RouteResult, collect
 from app.services.fare_history import BaselinePoint, FareHistory
@@ -120,9 +121,77 @@ def test_collect_reports_a_route_google_has_no_flights_for(tmp_path):
         f'<script class="ds:1">AF_initDataCallback({{data:{empty}, sideChannel: {{}}}});</script>'
     )
     history = FareHistory(tmp_path)
+    ledger = RequestLedger(tmp_path / "spend")
+    budget = daily_budget(ceiling=2, ledger=ledger)
+    requests = 0
+
+    def answer(_request):
+        nonlocal requests
+        requests += 1
+        return httpx.Response(200, text=page)
 
     async def run():
-        async with transport(lambda request: httpx.Response(200, text=page)) as client:
+        async with transport(answer) as client:
+            return await collect(
+                [FareQuery("LIM", "IPC", "2026-10-16")],
+                history=history,
+                client=client,
+                gap_seconds=0,
+                budget=budget,
+            )
+
+    report = asyncio.run(run())
+    assert requests == 2
+    assert ledger.spent(budget.day) == 2
+    assert report.collected == 1
+    assert report.failed == 0
+    assert report.no_offers == 1
+    assert report.results[0].no_offers is True
+    assert history.checks("LIM", "IPC")[-1]["outcome"] == "no-offers"
+    assert history.read("LIM", "IPC") == []
+
+
+def test_second_google_answer_restores_offers_after_an_empty_first_answer(tmp_path):
+    empty = json.dumps([None, None, None, None, None, None, None, None])
+    empty_page = (
+        f'<script class="ds:1">AF_initDataCallback({{data:{empty}, sideChannel: {{}}}});</script>'
+    )
+    valid_page = read_fixture("google_flights_lim_scl.html")
+    replies = iter((empty_page, valid_page))
+    history = FareHistory(tmp_path)
+
+    async def run():
+        async with transport(lambda _request: httpx.Response(200, text=next(replies))) as client:
+            return await collect(
+                [FareQuery("LIM", "SCL", "2026-10-16")],
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert report.collected == 1
+    assert report.no_offers == 0
+    assert report.results[0].offers == 2
+    assert [row["outcome"] for row in history.checks("LIM", "SCL")] == ["changed"]
+    assert len(history.read("LIM", "SCL")) == 1
+
+
+def test_second_google_error_does_not_confirm_an_empty_departure(tmp_path):
+    empty = json.dumps([None, None, None, None, None, None, None, None])
+    empty_page = (
+        f'<script class="ds:1">AF_initDataCallback({{data:{empty}, sideChannel: {{}}}});</script>'
+    )
+    requests = 0
+    history = FareHistory(tmp_path)
+
+    def answer(_request):
+        nonlocal requests
+        requests += 1
+        return httpx.Response(200, text=empty_page) if requests == 1 else httpx.Response(429)
+
+    async def run():
+        async with transport(answer) as client:
             return await collect(
                 [FareQuery("LIM", "IPC", "2026-10-16")],
                 history=history,
@@ -131,8 +200,43 @@ def test_collect_reports_a_route_google_has_no_flights_for(tmp_path):
             )
 
     report = asyncio.run(run())
-    assert report.results[0].error_code == "no-offers"
-    assert history.read("LIM", "IPC") == []
+    assert requests == 2
+    assert report.failed == 1
+    assert report.no_offers == 0
+    assert [row["outcome"] for row in history.checks("LIM", "IPC")] == ["error"]
+
+
+def test_empty_confirmation_respects_the_daily_request_budget(tmp_path):
+    empty = json.dumps([None, None, None, None, None, None, None, None])
+    page = (
+        f'<script class="ds:1">AF_initDataCallback({{data:{empty}, sideChannel: {{}}}});</script>'
+    )
+    requests = 0
+    history = FareHistory(tmp_path / "history")
+    ledger = RequestLedger(tmp_path / "spend")
+    budget = daily_budget(ceiling=1, ledger=ledger)
+
+    def answer(_request):
+        nonlocal requests
+        requests += 1
+        return httpx.Response(200, text=page)
+
+    async def run():
+        async with transport(answer) as client:
+            return await collect(
+                [FareQuery("LIM", "IPC", "2026-10-16")],
+                history=history,
+                client=client,
+                gap_seconds=0,
+                budget=budget,
+            )
+
+    report = asyncio.run(run())
+    assert requests == 1
+    assert ledger.spent(budget.day) == 1
+    assert report.failed == 1
+    assert report.no_offers == 0
+    assert history.checks("LIM", "IPC")[-1]["outcome"] == "error"
 
 
 # --- the endpoint ------------------------------------------------------------

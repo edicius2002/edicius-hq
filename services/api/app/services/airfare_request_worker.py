@@ -349,6 +349,7 @@ class AirfareRequestWorker:
             "month": parsed.month,
             "lookedAt": len(report.results),
             "changed": report.changed,
+            "noOffers": report.no_offers,
             "failed": report.failed,
             "skipped": len(report.skipped),
             "synced": True,

@@ -576,7 +576,10 @@ _ABSENT = object()
 def _itinerary_rows(payload: Any, index: int) -> Any:
     """The rows of one itinerary block, `None` for empty, `_ABSENT` for missing."""
     try:
-        rows = payload[index][0]
+        block = payload[index]
+        if block is None:
+            return None
+        rows = block[0]
     except (IndexError, KeyError, TypeError):
         return _ABSENT
     if rows is None:
@@ -644,6 +647,12 @@ def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
         # `payload[2]`, so a board with no best-departing section is a shape
         # Google really sends and not a renumbering.
         best = None
+
+    if rest is None and best:
+        raise FareError(
+            "parse-drift",
+            "Google Flights returned best itineraries without the complete itinerary block",
+        )
 
     if not best and not rest:
         # Google's own way of saying it found nothing — either block empty or

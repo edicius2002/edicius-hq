@@ -69,6 +69,13 @@ def test_google_reporting_no_itineraries_is_its_own_code():
     assert caught.value.code == "no-offers"
 
 
+def test_explicit_null_itinerary_blocks_are_no_offers_not_parser_drift():
+    payload = [None, None, None, None, None, None, None, None]
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "no-offers"
+
+
 def test_itineraries_we_can_no_longer_read_raise_drift_rather_than_returning_none():
     """
     The whole reason this adapter is allowed to exist.

@@ -1,6 +1,7 @@
 """Manual board collection overlaps slow dates without changing pass accounting."""
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from itertools import pairwise
 
@@ -11,6 +12,7 @@ from app.adapters.fares.models import FareQuery
 from app.services import fare_collector
 from app.services.fare_budget import PassLock, RequestLedger, daily_budget
 from app.services.fare_collector import RouteResult
+from app.services.fare_history import FareHistory
 
 
 def queries(count: int) -> list[FareQuery]:
@@ -34,6 +36,40 @@ def result(query: FareQuery, *, ok: bool = True) -> RouteResult:
         ok,
         error_code=None if ok else "upstream-error",
     )
+
+
+def test_parallel_empty_confirmations_spend_and_record_every_request(tmp_path):
+    payload = json.dumps([None, None, None, None, None, None, None, None])
+    page = (
+        f'<script class="ds:1">AF_initDataCallback({{data:{payload}, sideChannel: {{}}}});</script>'
+    )
+    sent: list[str] = []
+    budget, ledger = allowance(tmp_path, 4)
+    history = FareHistory(tmp_path / "history")
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(str(request.url))
+        return httpx.Response(200, text=page)
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            return await fare_collector.collect(
+                queries(2),
+                client=client,
+                history=history,
+                gap_seconds=0,
+                budget=budget,
+                max_in_flight=2,
+            )
+
+    report = asyncio.run(scenario())
+    assert len(sent) == 4
+    assert ledger.spent(budget.day) == 4
+    assert report.no_offers == 2
+    assert [row["outcome"] for row in history.checks("LIM", "CUZ")] == [
+        "no-offers",
+        "no-offers",
+    ]
 
 
 def test_manual_collection_bounds_flights_and_keeps_report_in_departure_order(

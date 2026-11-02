@@ -1373,6 +1373,13 @@ describe('a route whose horizon has never been collected', () => {
 });
 
 describe('a departure date in the frame with no flight on it', () => {
+  it('marks a confirmed empty check as answered without inventing a fare snapshot', () => {
+    chart({ snapshots: WEEK, confirmedEmptyDates: ['2027-03-10'] });
+    expect(screen.getAllByTestId('day-unsold')).toHaveLength(1);
+    expect(screen.getAllByTestId('day-unanswered')).toHaveLength(3);
+    expect(screen.getByTestId('day-unsold')).toHaveTextContent('Google did not return itineraries');
+  });
+
   it('marks a day whose board came back empty apart from one nobody asked about', () => {
     // Without the marks the reader is left with a broken line and no reason
     // for it: the dashed line stops at both kinds of hole and neither is blank

@@ -47,6 +47,9 @@ async function readMonth(
     providerDays: bucketBaseline(history.baseline, 'day'),
     unsoldDays: unsoldPeriods(history.snapshots, 'day'),
     latestBoards: latestPerDeparture(history.snapshots),
+    currentBoards: [],
+    departureChecks: [],
+    availabilityKnown: false,
     viaSequences: [
       ...new Map(
         history.snapshots.flatMap((snapshot) =>
@@ -88,7 +91,8 @@ export function useFareProjections(route: FareRoute | null, month: string | null
       enabled: primary.data !== undefined,
     })),
     combine: (results) => ({
-      boards: results.flatMap((result) => result.data?.latestBoards ?? []),
+      boards: results.flatMap((result) => result.data?.currentBoards ?? []),
+      checks: results.flatMap((result) => result.data?.departureChecks ?? []),
       unavailable: results.flatMap((result, index) =>
         result.data === undefined ? [secondaryMonths[index]] : [],
       ),
@@ -103,6 +107,7 @@ export function useFareProjections(route: FareRoute | null, month: string | null
       isPreviousData: primary.data === undefined && data !== undefined,
     },
     secondaryBoards: secondary.boards,
+    secondaryChecks: secondary.checks,
     unavailableMonths: [
       ...(primary.data === undefined && month ? [month] : []),
       ...secondary.unavailable,

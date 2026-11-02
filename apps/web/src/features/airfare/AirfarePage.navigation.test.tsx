@@ -10,7 +10,6 @@ import { AirfarePage } from './AirfarePage';
 const state = vi.hoisted(() => ({
   fetchPage: vi.fn(),
   fetchMonth: vi.fn(),
-  latestRequest: vi.fn(),
   mapRenders: 0,
   routes: [
     { origin: 'ARI', destination: 'SCL', months: ['2027-03', '2027-04'], currency: 'USD' },
@@ -33,9 +32,6 @@ const state = vi.hoisted(() => ({
 vi.mock('./data/supabaseAirfare', () => ({
   fetchFareFlightPage: state.fetchPage,
   fetchFareMonthProjection: state.fetchMonth,
-}));
-vi.mock('./hooks/useLatestAirfareMonthRequest', () => ({
-  useLatestAirfareMonthRequest: () => ({ data: state.latestRequest() }),
 }));
 vi.mock('./hooks/useFareRoutes', () => ({
   useFareRoutes: () => ({ routes: state.routes, saveState: 'saved', retrySave: state.retry }),
@@ -208,7 +204,6 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation((_from, _to, month: string) => Promise.resolve(projection(month)));
   state.fetchPage.mockReset().mockResolvedValue(flightPage());
-  state.latestRequest.mockReset().mockReturnValue(null);
 });
 
 it('follows the next collected watched month into the selected tab and price history', async () => {
@@ -278,34 +273,9 @@ it('keeps confirmed empty dates blank until a later successful fetch restores cu
       { ...empty.departureChecks[0], outcome: 'changed', checkedAt: '2026-10-21T10:00:00Z' },
     ],
   });
-  state.latestRequest.mockReturnValue({
-    requestId: 'request-1',
-    payload: { origin: 'ARI', destination: 'SCL', month: '2027-03', currency: 'USD' },
-    progress: { stage: 'syncing', completed: 2, total: 2 },
-    status: 'complete',
-    result: {
-      origin: 'ARI',
-      destination: 'SCL',
-      month: '2027-03',
-      lookedAt: 2,
-      changed: 0,
-      noOffers: 1,
-      failed: 0,
-      skipped: 1,
-      synced: true,
-    },
-    errorCode: null,
-    createdAt: '2026-10-20T09:59:00Z',
-    expiresAt: '2026-10-20T10:10:00Z',
-    updatedAt: '2026-10-20T10:00:00Z',
-  });
   const client = renderPage();
-  await screen.findByText(/2027-03-01.*Google did not return itineraries/);
-  expect(screen.getByText(/Historical.*2026-09-20/)).toBeInTheDocument();
-  expect(
-    screen.getByText('No confirmed current offer. See the date checks below.'),
-  ).toBeInTheDocument();
-  expect(screen.getByText(/1 skipped/)).toBeInTheDocument();
+  await screen.findByText('No confirmed current offer.');
+  expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();
   expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(0);
 
   await act(async () => {
@@ -314,7 +284,7 @@ it('keeps confirmed empty dates blank until a later successful fetch restores cu
   await waitFor(() =>
     expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(1),
   );
-  expect(screen.queryByText(/2027-03-01.*Google did not return itineraries/)).toBeNull();
+  expect(screen.queryByText('No confirmed current offer.')).toBeNull();
 });
 
 it('shows an adjacent valid offer while the confirmed empty date stays historical', async () => {
@@ -346,11 +316,11 @@ it('shows an adjacent valid offer while the confirmed empty date stays historica
   state.fetchMonth.mockResolvedValue(month);
   renderPage();
 
-  await screen.findByText(/1 dates with offers, 1 confirmed empty/);
-  expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(1);
-  expect(screen.getByText(/2027-03-01.*Google did not return itineraries/)).toBeInTheDocument();
-  expect(screen.getByText(/Historical.*2026-09-20/)).toBeInTheDocument();
-  expect(screen.queryByText('No confirmed current offer. See the date checks below.')).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(1),
+  );
+  expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();
+  expect(screen.queryByText('No confirmed current offer.')).toBeNull();
 });
 
 it.each(['legacy projection', 'archive fallback'])(

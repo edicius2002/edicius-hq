@@ -8,7 +8,6 @@ import {
   routeId,
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
-import { useLatestAirfareMonthRequest } from '@/features/airfare/hooks/useLatestAirfareMonthRequest';
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareProjections } from '@/features/airfare/hooks/useFareProjections';
@@ -226,11 +225,6 @@ export function AirfarePage() {
    * is a prefix of every departure key inside it — 12.112.
    */
   const reading = history.data?.month ?? activeMonth;
-  const lastManualRequest = useLatestAirfareMonthRequest(
-    selected?.origin ?? null,
-    selected?.destination ?? null,
-    reading,
-  );
 
   /*
    * The months this watch is on, as a stable identity.
@@ -714,9 +708,6 @@ export function AirfarePage() {
           monthSnapshots={snapshots}
           watchedSnapshots={watchedSnapshots}
           confirmedEmptyDates={confirmedEmptyDates}
-          departureChecks={history.data?.departureChecks ?? []}
-          availabilityKnown={history.data?.availabilityKnown ?? false}
-          latestRequest={lastManualRequest.data ?? null}
           baseline={[]}
           priceDays={history.data?.priceDays}
           providerDays={history.data?.providerDays}

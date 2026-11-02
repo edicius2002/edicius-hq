@@ -184,7 +184,7 @@ export function RouteDetail({
               {!cheapest && !loading ? (
                 <p className={styles.emptyNote}>
                   {availabilityKnown
-                    ? 'No confirmed current offer. See the date checks below.'
+                    ? 'No confirmed current offer.'
                     : availabilityKnown === false
                       ? 'Current availability has not been verified yet.'
                       : 'Nothing observed yet. Run a collection pass.'}

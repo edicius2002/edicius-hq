@@ -33,14 +33,11 @@ import {
   type WatchedRange,
 } from '@/features/airfare/lib/flightScatter';
 import type { PairReference } from '@/features/airfare/lib/pairReference';
-import type { DepartureCheck } from '@/features/airfare/data/fareProjections';
-import type { AirfareRequest } from '@/features/airfare/data/airfareRequests';
 import type { Viewport } from '@/features/airfare/lib/viewport';
 import { DepartureChart } from '@/features/airfare/ui/DepartureChart';
 import { PeriodSwitch } from '@/features/airfare/ui/PeriodSwitch';
 import { PriceBandChart } from '@/features/airfare/ui/PriceBandChart';
 import type { CalendarCurve, FarePricePoint, FareSnapshot } from '@/shared/api/fares';
-import { formatMoney } from '@/shared/lib/money';
 import { Skeleton } from '@/shared/ui/Skeleton';
 
 import styles from './AnalysisPanel.module.css';
@@ -227,9 +224,6 @@ type AnalysisPanelProps = {
   /** The archive for every watched month — chart B's. */
   watchedSnapshots: FareSnapshot[];
   confirmedEmptyDates?: readonly string[];
-  departureChecks?: readonly DepartureCheck[];
-  availabilityKnown?: boolean;
-  latestRequest?: AirfareRequest | null;
   baseline: FarePricePoint[];
   /** Persisted daily series when the historical archive has not been downloaded. */
   priceDays?: Bucket[];
@@ -308,9 +302,6 @@ export function AnalysisPanel({
   monthSnapshots,
   watchedSnapshots,
   confirmedEmptyDates = [],
-  departureChecks = [],
-  availabilityKnown = false,
-  latestRequest = null,
   baseline,
   priceDays,
   providerDays,
@@ -552,82 +543,6 @@ export function AnalysisPanel({
       </div>
     ) : null;
 
-  const emptyChecks = departureChecks.filter((check) => check.outcome === 'no-offers');
-  const offerChecks = departureChecks.filter(
-    (check) =>
-      check.outcome === 'changed' ||
-      check.outcome === 'unchanged' ||
-      check.outcome === 'rebaselined',
-  );
-  const failedChecks = departureChecks.filter(
-    (check) =>
-      check.lastErrorCode !== null &&
-      (check.checkedAt === null || check.lastAttemptAt > check.checkedAt),
-  );
-  const lastCheckTime = departureChecks.reduce<string | null>(
-    (latest, check) =>
-      latest === null || check.lastAttemptAt > latest ? check.lastAttemptAt : latest,
-    null,
-  );
-  const status =
-    route && month && historyAvailable && !historyLoading ? (
-      <section className={styles.currentStatus} aria-label="Current fetch status">
-        <p>
-          {availabilityKnown
-            ? `${formatFlightMonth(month)}: ${offerChecks.length} dates with offers, ${emptyChecks.length} confirmed empty, ${failedChecks.length} failed checks.`
-            : `${formatFlightMonth(month)}: current availability awaits a projection refresh.`}
-          {lastCheckTime && ` Last attempt ${lastCheckTime.slice(0, 16).replace('T', ' ')} UTC.`}
-        </p>
-        {latestRequest?.result && (
-          <p>
-            Last manual Fetch {latestRequest.updatedAt.slice(0, 16).replace('T', ' ')} UTC:{' '}
-            {latestRequest.result.lookedAt} checked, {latestRequest.result.changed} changed,{' '}
-            {latestRequest.result.noOffers ?? 0} without itineraries, {latestRequest.result.failed}{' '}
-            failed, {latestRequest.result.skipped} skipped.
-          </p>
-        )}
-        {(latestRequest?.status === 'failed' || latestRequest?.status === 'expired') && (
-          <p>
-            Last manual Fetch {latestRequest.status === 'failed' ? 'failed' : 'expired'} on{' '}
-            {latestRequest.updatedAt.slice(0, 16).replace('T', ' ')} UTC. Current dates retain their
-            last confirmed checks.
-          </p>
-        )}
-        {emptyChecks.length > 0 && (
-          <ul>
-            {emptyChecks.map((check) => {
-              const historical = monthSnapshots.find(
-                (board) => board.flightDate === check.flightDate,
-              );
-              const historicalPrices =
-                historical?.offers
-                  .map((offer) => offer.price)
-                  .filter((price): price is number => price !== null) ?? [];
-              const lowest = historicalPrices.length ? Math.min(...historicalPrices) : null;
-              return (
-                <li key={check.flightDate}>
-                  {check.flightDate}: Google did not return itineraries (checked{' '}
-                  {check.checkedAt?.slice(0, 10)}).
-                  {historical && lowest !== null && (
-                    <>
-                      {' '}
-                      Historical {formatMoney(lowest, historical.currency)}, captured{' '}
-                      {historical.capturedAt.slice(0, 10)}.
-                    </>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {failedChecks.length > 0 && (
-          <p>
-            {failedChecks.length} dates could not be verified; earlier confirmed results remain.
-          </p>
-        )}
-      </section>
-    ) : null;
-
   return (
     <>
       <div className={styles.head}>
@@ -693,8 +608,6 @@ export function AnalysisPanel({
           </div>
         )}
       </div>
-
-      {status}
 
       {narrow ? (
         <div className={`${styles.body} ${view === 'moves' ? styles.movesBody : ''}`}>

@@ -447,6 +447,8 @@ closed-tab delivery would need separately scoped, always-on API work.
 
 ### 6b — Airfare
 
+**2026-11-02 display decision:** Remove the persistent post-Fetch status panel and per-date empty-result list from Airfare analysis. Keep confirmed availability in the projection, with current offers and historical observations separated in the chart and flight table.
+
 - [x] AIR-01 — provider adapter, archive, collector, `/airfare`
 - [x] AIR-02 — continuous monitoring: cadence by horizon, write-on-change, per-flight tracking
 - [ ] AIR-03 — alerts below the route's own median

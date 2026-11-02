@@ -259,6 +259,8 @@ const DRAG_SLOP = 4;
 
 type DepartureChartProps = {
   snapshots: FareSnapshot[];
+  /** Dates confirmed empty by two valid Google responses. */
+  confirmedEmptyDates?: readonly string[];
   /** The booking horizon as last collected, or null where there is none yet. */
   curve: CalendarCurve | null;
   /**
@@ -400,6 +402,7 @@ function searchFor(point: ScatterPoint, leg: Leg | null): FlightSearch | null {
  */
 export function DepartureChart({
   snapshots,
+  confirmedEmptyDates = [],
   curve,
   watched,
   granularity,
@@ -644,8 +647,13 @@ export function DepartureChart({
     () =>
       period === null
         ? []
-        : absentDays(snapshots, period).filter((day) => isWatched(day.day, watched)),
-    [snapshots, period, watched],
+        : absentDays(snapshots, period)
+            .filter((day) => isWatched(day.day, watched))
+            .map((day) => ({
+              ...day,
+              answered: day.answered || confirmedEmptyDates.includes(day.day),
+            })),
+    [snapshots, period, watched, confirmedEmptyDates],
   );
 
   const seams = useMemo(() => sourceSeams(days), [days]);
@@ -1733,9 +1741,7 @@ export function DepartureChart({
                 >
                   <title>
                     {axisDayLabel(day.day)}:{' '}
-                    {day.answered
-                      ? 'nothing on sale — the board came back empty'
-                      : 'never collected'}
+                    {day.answered ? 'Google did not return itineraries' : 'never collected'}
                   </title>
                   {day.answered ? (
                     <rect

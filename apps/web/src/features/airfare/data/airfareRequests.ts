@@ -24,6 +24,7 @@ export type AirfareRequestResult = {
   month: string;
   lookedAt: number;
   changed: number;
+  noOffers?: number;
   failed: number;
   skipped: number;
   synced: true;
@@ -87,6 +88,29 @@ export async function fetchAirfareRequest(requestId: string): Promise<AirfareReq
     .maybeSingle();
   if (error) throw new AirfareRequestError('request_unavailable');
   return data ? decodeAirfareRequest(data) : null;
+}
+
+export async function fetchLatestAirfareMonthRequest(
+  origin: string,
+  destination: string,
+  month: string,
+): Promise<AirfareRequest | null> {
+  const { data, error } = await supabase
+    .from('collector_requests')
+    .select(requestColumns)
+    .eq('operation', OPERATION)
+    .contains('payload', { origin, destination, month })
+    .in('status', ['complete', 'failed', 'expired'])
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new AirfareRequestError('request_unavailable');
+  if (!data) return null;
+  try {
+    return decodeAirfareRequest(data);
+  } catch {
+    throw new AirfareRequestError('malformed_request');
+  }
 }
 
 export function subscribeAirfareRequests(onRequest: (request: AirfareRequest) => void): () => void {
@@ -180,7 +204,7 @@ function decodeProgress(raw: unknown): AirfareRequestProgress {
 }
 
 function decodeResult(raw: unknown): AirfareRequestResult {
-  const value = exactRecord(raw, [
+  const keys = [
     'origin',
     'destination',
     'month',
@@ -189,7 +213,8 @@ function decodeResult(raw: unknown): AirfareRequestResult {
     'failed',
     'skipped',
     'synced',
-  ]);
+  ];
+  const value = exactRecord(raw, keys) ?? exactRecord(raw, [...keys, 'noOffers']);
   if (
     !value ||
     !iata(value.origin) ||
@@ -197,6 +222,7 @@ function decodeResult(raw: unknown): AirfareRequestResult {
     !month(value.month) ||
     !count(value.lookedAt) ||
     !count(value.changed) ||
+    !(value.noOffers === undefined || count(value.noOffers)) ||
     !count(value.failed) ||
     !count(value.skipped) ||
     value.synced !== true
@@ -208,6 +234,7 @@ function decodeResult(raw: unknown): AirfareRequestResult {
     month: value.month,
     lookedAt: value.lookedAt,
     changed: value.changed,
+    noOffers: value.noOffers ?? 0,
     failed: value.failed,
     skipped: value.skipped,
     synced: true,

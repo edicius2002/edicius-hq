@@ -32,6 +32,9 @@ insert into public.fare_baseline_points
 values
   (repeat('f',64),'TST','DST','2027-03-09','2026-09-20',50,'USD','test','{"flightDate":"2027-03-09","date":"2026-09-20","price":50}'),
   (repeat('0',64),'TST','DST','2027-03-10','2026-09-20',70,'USD','test','{"flightDate":"2027-03-10","date":"2026-09-20","price":70}');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('a1',32),'board','TST','DST','2027-03-09','2026-09-20T14:30:00Z','changed','{"at":"2026-09-20T14:30:00Z"}');
 
 select is((select count(*)::text from public.list_fare_projection_dirty_routes() where origin='TST' and destination='DST'),'1','snapshot insert marks one route dirty');
 select lives_ok($$select public.refresh_fare_month_projection('TST','DST','2027-03')$$, 'refresh succeeds');
@@ -49,6 +52,75 @@ select is((select category from public.fare_flight_projections where origin='TST
 select is((select payload->>'latestCapture' from public.fare_month_projections where origin='TST' and destination='DST' and month='2027-03'),'2026-09-20T14:00:00Z','latest capture spans all departures');
 select is((select last_seen_at from public.fare_flight_projections where origin='TST' and destination='DST' and month='2027-03' and flight_key='AA|1|2027-03-09T10:00|2027-03-09T12:00'),'2026-09-20T14:00:00Z','unpriced sighting sets period membership');
 select is((select payload ? 'airports' from public.fare_month_projections where origin='TST' and destination='DST' and month='2027-03'),false,'airport directory is read separately rather than copied into month projection');
+
+-- A confirmed empty hides the current board, while the archived snapshot stays.
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+values (repeat('ab',32),'EMP','DST','2027-07-09','2026-09-20T10:00:00Z','2026-09-20T10:00:00Z',1,'test','USD',100,
+  '{"capturedAt":"2026-09-20T10:00:00Z","source":"test","origin":"EMP","destination":"DST","flightDate":"2027-07-09","returnDate":null,"currency":"USD","insights":null,"offers":[{"airline":"AA","flightNumber":"1","departureAt":"2027-07-09T10:00","arrivalAt":"2027-07-09T12:00","price":100,"currency":"USD"}]}');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('c1',32),'board','EMP','DST','2027-07-09','2026-09-20T10:00:00Z','changed','{"at":"2026-09-20T10:00:00Z"}');
+select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'initial available projection refreshes');
+select is((select jsonb_array_length(payload->'currentBoards') from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),1,'confirmed offer is current');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('c2',32),'board','EMP','DST','2027-07-09','2026-09-20T11:00:00Z','no-offers','{"at":"2026-09-20T11:00:00Z"}');
+select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'empty projection refreshes');
+select is((select jsonb_array_length(payload->'currentBoards') from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),0,'confirmed empty hides current board');
+select is((select jsonb_array_length(payload->'latestBoards') from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),1,'confirmed empty keeps history');
+select is((select present from public.fare_flight_projections where origin='EMP' and destination='DST'
+  and month='2027-07'),false,'confirmed empty marks prior flight absent');
+select is((select payload #>> '{departureChecks,0,outcome}' from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),'no-offers','per-date status records confirmed empty');
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+values (repeat('ad',32),'EMP','DST','2027-07-10','2026-09-20T11:30:00Z','2026-09-20T11:30:00Z',2,'test','USD',80,
+  '{"capturedAt":"2026-09-20T11:30:00Z","source":"test","origin":"EMP","destination":"DST","flightDate":"2027-07-10","returnDate":null,"currency":"USD","insights":null,"offers":[{"airline":"AA","flightNumber":"2","departureAt":"2027-07-10T10:00","arrivalAt":"2027-07-10T12:00","price":80,"currency":"USD"}]}');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('c5',32),'board','EMP','DST','2027-07-10','2026-09-20T11:30:00Z','changed','{"at":"2026-09-20T11:30:00Z"}');
+select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'adjacent valid date refreshes');
+select is((select payload #>> '{currentBoards,0,flightDate}' from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),'2027-07-10','valid adjacent date remains current while empty date is blank');
+insert into public.fare_snapshots
+  (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
+values (repeat('e6',32),'UNK','DST','2027-08-09','2026-09-20T10:00:00Z','2026-09-20T10:00:00Z',1,'test','USD',70,
+  '{"capturedAt":"2026-09-20T10:00:00Z","source":"test","origin":"UNK","destination":"DST","flightDate":"2027-08-09","returnDate":null,"currency":"USD","insights":null,"offers":[{"airline":"AA","flightNumber":"1","departureAt":"2027-08-09T10:00","arrivalAt":"2027-08-09T12:00","price":70,"currency":"USD"}]}');
+select lives_ok($$select public.refresh_fare_month_projection('UNK','DST','2027-08')$$,'unknown legacy route projection refreshes');
+select is((select present from public.fare_flight_projections where origin='UNK' and destination='DST'
+  and month='2027-08'),false,'unconfirmed historical flight is not marked present');
+reset role;
+insert into auth.users(id) values ('00000000-0000-0000-0000-000000000888');
+insert into public.edicius_owners(owner_id) values ('00000000-0000-0000-0000-000000000888');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000888',true);
+select is(public.read_owner_fare_flights_page('EMP','DST','2027-07','2026-09-20','2026-09-20')->>'inPeriod','1',
+  'current flight page shows adjacent valid offer but omits historical offer on confirmed empty date');
+select is(public.read_owner_fare_flights_page('UNK','DST','2027-08','2026-09-20','2026-09-20')->>'inPeriod','0',
+  'current flight page omits an unconfirmed historical offer');
+reset role;
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000999',true);
+set local role service_role;
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,error_code,payload)
+values (repeat('c3',32),'board','EMP','DST','2027-07-09','2026-09-20T12:00:00Z','error','parse-drift','{"at":"2026-09-20T12:00:00Z"}');
+select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'error projection refreshes');
+select is((select jsonb_array_length(payload->'currentBoards') from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),1,'technical error does not restore stale offer');
+select is((select payload #>> '{departureChecks,0,lastErrorCode}' from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),'parse-drift','latest error remains visible');
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('c4',32),'board','EMP','DST','2027-07-09','2026-09-20T13:00:00Z','unchanged','{"at":"2026-09-20T13:00:00Z"}');
+select lives_ok($$select public.refresh_fare_month_projection('EMP','DST','2027-07')$$,'unchanged offer projection refreshes');
+select is((select jsonb_array_length(payload->'currentBoards') from public.fare_month_projections
+  where origin='EMP' and destination='DST' and month='2027-07'),2,'unchanged later check restores current offer');
+select is((select count(*)::text from public.fare_snapshots where origin='EMP' and destination='DST'),'2','restoration reuses archived snapshot');
+
 insert into public.fare_snapshots
   (record_id,origin,destination,flight_date,captured_at,captured_at_text,source_line,source,currency,cheapest_price,payload)
 select repeat('7',64),'STB','DST','2027-04-09'::date,'2026-09-20T10:00:00Z'::timestamptz,'2026-09-20T10:00:00Z',1,'test','USD',100,
@@ -56,6 +128,9 @@ select repeat('7',64),'STB','DST','2027-04-09'::date,'2026-09-20T10:00:00Z'::tim
 union all
 select repeat('8',64),'STB','DST','2027-04-09'::date,'2026-09-21T11:00:00Z'::timestamptz,'2026-09-21T11:00:00Z',2,'test','USD',100,
   jsonb_build_object('offers',jsonb_build_array(jsonb_build_object('airline','AA','flightNumber','1','departureAt','2027-04-09T10:00','arrivalAt','2027-04-09T12:00','price',100)));
+insert into public.fare_checks
+  (record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
+values (repeat('a2',32),'board','STB','DST','2027-04-09','2026-09-21T11:30:00Z','changed','{"at":"2026-09-21T11:30:00Z"}');
 select lives_ok($$select public.refresh_fare_month_projection('STB','DST','2027-04')$$,'stable flight projection refresh succeeds');
 select is((select change_percent::text from public.fare_flight_projections where origin='STB' and destination='DST' and month='2027-04'),'0','repeated stable price reports zero change');
 select is((select category from public.fare_flight_projections where origin='STB' and destination='DST' and month='2027-04'),'unchanged','repeated stable flight remains unchanged');

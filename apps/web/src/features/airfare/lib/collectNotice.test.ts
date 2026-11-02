@@ -98,6 +98,29 @@ describe('Pi Airfare request notices', () => {
     expect(completed?.detail).toBeUndefined();
   });
 
+  it('reports an all-empty month as completed without a warning triangle', () => {
+    const completed = terminalCollectNotice(
+      request({
+        status: 'complete',
+        result: {
+          origin: 'LIM',
+          destination: 'CUZ',
+          month: '2026-11',
+          lookedAt: 30,
+          changed: 0,
+          noOffers: 30,
+          failed: 0,
+          skipped: 0,
+          synced: true,
+        },
+      }),
+    );
+    expect(completed).toMatchObject({
+      kind: 'success',
+      text: 'Collection complete: 30 departures checked, 0 updated, 30 without itineraries.',
+    });
+  });
+
   it('does not expose collector failure codes', () => {
     const failed = terminalCollectNotice(
       request({ status: 'failed', errorCode: 'provider_secret_detail' }),

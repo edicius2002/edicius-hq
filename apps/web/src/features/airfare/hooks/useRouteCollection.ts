@@ -111,6 +111,15 @@ export function useRouteCollection(): RouteCollection {
       handledTerminal.current.add(request.requestId);
       const notice = terminalCollectNotice(request);
       if (notice) showNotice(notice);
+      void client.invalidateQueries({
+        queryKey: [
+          'fares',
+          'latestRequest',
+          request.payload.origin,
+          request.payload.destination,
+          request.payload.month,
+        ],
+      });
       if (request.status !== 'complete') return;
       for (const queryKey of [
         ['fares', 'history', request.payload.origin, request.payload.destination],

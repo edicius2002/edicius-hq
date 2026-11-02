@@ -106,6 +106,7 @@ def test_success_completes_only_after_progress_and_sync():
             "month": "2026-11",
             "lookedAt": 3,
             "changed": 2,
+            "noOffers": 0,
             "failed": 0,
             "skipped": 0,
             "synced": True,
@@ -114,6 +115,34 @@ def test_success_completes_only_after_progress_and_sync():
     stages = [entry.args[1]["stage"] for entry in remote.update_request_progress.call_args_list]
     assert stages[0] == "collecting"
     assert stages[-1] == "syncing"
+
+
+def test_all_confirmed_empty_departures_sync_and_complete():
+    remote = Mock(owner_id=OWNER)
+    remote.claim_request.side_effect = [request(), None]
+    empty = CollectionReport(
+        "start",
+        "finish",
+        "google",
+        [
+            RouteResult("LIM", "CUZ", "2026-11-01", None, True, no_offers=True),
+            RouteResult("LIM", "CUZ", "2026-11-02", None, True, no_offers=True),
+        ],
+    )
+    sync_pass = Mock(return_value=True)
+    worker = worker_for(
+        remote,
+        collect_route=AsyncMock(return_value=empty),
+        sync_pass=sync_pass,
+    )
+
+    assert asyncio.run(worker.reconcile_once()) is True
+    sync_pass.assert_called_once_with(empty)
+    remote.fail_request.assert_not_called()
+    result = remote.complete_request.call_args.args[1]
+    assert result["lookedAt"] == 2
+    assert result["noOffers"] == 2
+    assert result["failed"] == 0
 
 
 def test_invalid_payload_fails_without_collecting():

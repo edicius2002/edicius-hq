@@ -76,6 +76,13 @@ def test_explicit_null_itinerary_blocks_are_no_offers_not_parser_drift():
     assert caught.value.code == "no-offers"
 
 
+def test_malformed_best_block_cannot_certify_an_empty_main_block():
+    payload = [None, None, {"unexpected": "shape"}, None]
+    with pytest.raises(FareError) as caught:
+        google_flights.parse_payload(payload, "USD")
+    assert caught.value.code == "parse-drift"
+
+
 def test_itineraries_we_can_no_longer_read_raise_drift_rather_than_returning_none():
     """
     The whole reason this adapter is allowed to exist.
@@ -98,13 +105,13 @@ def test_one_bad_itinerary_does_not_cost_the_good_ones():
     assert len(offers) == 2
 
 
-def test_the_captured_lim_scl_page_carries_no_best_departing_block_at_all():
+def test_the_captured_lim_scl_page_has_an_explicitly_null_best_departing_block():
     """
     Why that fixture's count did not move when the second block was read.
 
     `payload[2]` is a literal `null` there, so the board really is the one list
-    — which is also the evidence that an absent best-departing block is a shape
-    Google sends rather than a renumbering to raise on.
+    — which permits an explicit null, but does not validate an absent or
+    malformed best-departing block.
     """
     payload = google_flights.extract_payload(read_fixture("google_flights_lim_scl.html"))
     assert payload[2] is None

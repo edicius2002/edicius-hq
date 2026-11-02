@@ -1,4 +1,4 @@
-alter table public.fare_flight_projections add column if not exists current_empty boolean not null default false;
+alter table public.fare_flight_projections add column if not exists current_unconfirmed boolean not null default true;
 
 -- Existing projections predate currentBoards/departureChecks. Queue them for
 -- the normal service refresh so a web rollout does not wait for a new fare
@@ -140,7 +140,7 @@ begin
       || coalesce(o.offer->>'arrivalAt','') as flight_key
     from latest_boards b cross join lateral jsonb_array_elements(b.payload->'offers') o(offer)
       left join latest_confirmed c on c.flight_date=b.flight_date
-    where c.outcome is distinct from 'no-offers'
+    where c.outcome in ('changed','unchanged','rebaselined')
   ), all_offers as (
     select s.record_id,s.captured_at_text,s.source_line,o.ordinality,
       o.offer,(o.offer->>'price')::numeric as price,
@@ -183,11 +183,11 @@ begin
   )
   insert into public.fare_flight_projections(
     origin,destination,month,flight_key,offer,first_price,price,previous_price,
-    sightings,last_seen_at,seen_days,present,current_empty,category,change_percent
+    sightings,last_seen_at,seen_days,present,current_unconfirmed,category,change_percent
   )
   select p_origin,p_destination,p_month,t.flight_key,t.offer,f.first_price,p.price,
     p.previous_price,si.sightings,si.last_seen_at,si.seen_days,
-    (k.flight_key is not null),coalesce(c.outcome='no-offers',false),
+    (k.flight_key is not null),coalesce(c.outcome not in ('changed','unchanged','rebaselined'),true),
     case when k.flight_key is null then 'gone'
       when p.previous_price > 0 and p.previous_price <> p.price
         then case when p.price > p.previous_price then 'rose' else 'fell' end
@@ -258,7 +258,7 @@ begin
     from public.fare_flight_projections f
     where f.origin=p_origin and f.destination=p_destination and f.month=p_month
       and f.seen_days && v_period_days
-      and not f.current_empty
+      and not f.current_unconfirmed
   ), filtered as materialized (
     select * from period_rows r where
       ((p_filters->>'minPrice') is null or r.price >= (p_filters->>'minPrice')::numeric)
@@ -314,7 +314,7 @@ begin
     from public.fare_flight_projections f
     where f.origin=p_origin and f.destination=p_destination and f.month=p_month
       and f.seen_days && v_period_days
-      and not f.current_empty
+      and not f.current_unconfirmed
       and ((p_filters->>'minPrice') is null or f.price >= (p_filters->>'minPrice')::numeric)
       and ((p_filters->>'maxPrice') is null or f.price <= (p_filters->>'maxPrice')::numeric)
       and ((p_filters->>'airline') is null or f.offer->>'airline'=p_filters->>'airline')

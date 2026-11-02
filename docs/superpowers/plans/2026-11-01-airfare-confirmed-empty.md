@@ -79,8 +79,8 @@
 
 - [x] Run the full API and web test suites, format/lint/type checks, and any local Supabase integration tests available.
 - [x] Verify a deterministic AEP–ARI-like mix of valid/empty dates through collector → sync/projection → browser data model; ensure an empty date later restores on a valid Fetch.
-- [ ] Check `git diff`, preserve the unrelated untracked document, and run a final branch review; commit any fixes.
-- [ ] Report the branch, commits, tests, and remaining deployment steps without deploying.
+- [x] Check `git diff`, preserve the unrelated untracked document, and run a final branch review; commit any fixes.
+- [x] Report the branch, commits, tests, and remaining deployment steps without deploying.
 
 ## Deployment sequence after branch review
 

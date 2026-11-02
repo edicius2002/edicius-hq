@@ -787,7 +787,14 @@ export function AirfarePage() {
           the same object the analysis panel above is given, so the two panels
           cannot disagree about which flights are reachable.
         */}
-        {selected && reading && history.data && history.data.revision !== 'archive' ? (
+        {selected && reading && history.data && !history.data.availabilityKnown ? (
+          <p className={styles.note} role="status">
+            {history.data.latestCapture
+              ? `Historical observations last captured ${history.data.latestCapture.slice(0, 10)}. `
+              : 'No historical observations yet. '}
+            Current flight offers are unavailable until this month has confirmed date checks.
+          </p>
+        ) : selected && reading && history.data && history.data.revision !== 'archive' ? (
           <ProjectedFlightTable
             key={selectedKey}
             route={selected}

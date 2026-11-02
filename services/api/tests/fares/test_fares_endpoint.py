@@ -206,6 +206,32 @@ def test_second_google_error_does_not_confirm_an_empty_departure(tmp_path):
     assert [row["outcome"] for row in history.checks("LIM", "IPC")] == ["error"]
 
 
+def test_malformed_confirmation_is_an_error_not_a_confirmed_empty(tmp_path):
+    empty = json.dumps([None, None, None, None])
+    malformed = json.dumps([None, None, {"unexpected": "shape"}, None])
+    pages = iter(
+        f'<script class="ds:1">AF_initDataCallback({{data:{payload}, sideChannel: {{}}}});</script>'
+        for payload in (empty, malformed)
+    )
+    history = FareHistory(tmp_path)
+    history.record_check("LIM", "IPC", "2026-10-16", at="2026-09-20T10:00:00Z", outcome="changed")
+
+    async def run():
+        async with transport(lambda _request: httpx.Response(200, text=next(pages))) as client:
+            return await collect(
+                [FareQuery("LIM", "IPC", "2026-10-16")],
+                history=history,
+                client=client,
+                gap_seconds=0,
+            )
+
+    report = asyncio.run(run())
+    assert report.failed == 1
+    assert report.no_offers == 0
+    assert report.results[0].error_code == "parse-drift"
+    assert [row["outcome"] for row in history.checks("LIM", "IPC")] == ["changed", "error"]
+
+
 def test_empty_confirmation_respects_the_daily_request_budget(tmp_path):
     empty = json.dumps([None, None, None, None, None, None, None, None])
     page = (

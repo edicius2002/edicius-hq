@@ -643,10 +643,12 @@ def parse_payload(payload: Any, currency: str) -> list[FareOffer]:
 
     best = _itinerary_rows(payload, _BEST_BLOCK)
     if best is _ABSENT:
-        # Not drift. The captured LIM-SCL response has a literal `null` at
-        # `payload[2]`, so a board with no best-departing section is a shape
-        # Google really sends and not a renumbering.
-        best = None
+        # A literal null is valid (LIM-SCL), but a missing or malformed block
+        # cannot certify emptiness and may hide offers that would be in best.
+        raise FareError(
+            "parse-drift",
+            "Google Flights payload no longer has best itineraries where we look for them",
+        )
 
     if rest is None and best:
         raise FareError(

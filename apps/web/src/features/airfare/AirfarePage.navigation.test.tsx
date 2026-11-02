@@ -353,6 +353,31 @@ it('shows an adjacent valid offer while the confirmed empty date stays historica
   expect(screen.queryByText('No confirmed current offer. See the date checks below.')).toBeNull();
 });
 
+it.each(['legacy projection', 'archive fallback'])(
+  'does not present unverified historical flight rows as current in the %s',
+  async (source) => {
+    state.routes = [{ ...state.routes[0], months: ['2027-03'] }];
+    const old = board('2027-03');
+    const month = projection('2027-03', [old]);
+    month.currentBoards = [];
+    month.departureChecks = [];
+    month.availabilityKnown = false;
+    if (source === 'archive fallback') {
+      month.revision = 'archive';
+      month.archiveSnapshots = [old];
+    }
+    state.fetchMonth.mockResolvedValue(month);
+    renderPage();
+
+    expect(await screen.findByText(/Current flight offers are unavailable/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Historical observations last captured 2026-09-20/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toBeInTheDocument();
+  },
+);
+
 it('does not select a watched month whose projection is still unavailable', async () => {
   const april = deferred<FareMonthProjection>();
   state.fetchMonth.mockImplementation((_from, _to, month: string) =>

@@ -4,6 +4,8 @@
 
 Manual Fetch must report every departure it checked without presenting a provider response with no itineraries as a parser failure. The current view must show every valid offer and leave dates with a confirmed empty result blank. Historical fare observations remain available with their capture dates. A later Fetch always queries again and can restore or replace the current offers.
 
+**Display revision (2026-11-02):** The user removed the persistent fetch status panel added by this design, including its month totals, last manual Fetch line, and per-date list. This supersedes the presentation requirement in data-flow step 5. Confirmed outcomes and request results remain stored; the chart and current flight table continue to use them.
+
 ## Observed failure
 
 The production Pi completed its Supabase sync for AEP–ARI, but a March 2027 request updated 3 dates and reported 28 failures. A direct Google Flights probe showed a well-formed response whose itinerary blocks were explicitly `null` on one affected date. `_itinerary_rows` currently maps `payload[index] is None` to the same `_ABSENT` sentinel as a missing or malformed block, so the collector records `parse-drift`. The manual worker counts every `FareError` as a failure, and the web reduces the outcome to a short-lived icon. The query invalidation keys appear correct.

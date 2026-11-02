@@ -53,9 +53,6 @@ vi.mock('@/features/airfare/hooks/useFareProjections', () => ({
     };
   },
 }));
-vi.mock('@/features/airfare/hooks/useLatestAirfareMonthRequest', () => ({
-  useLatestAirfareMonthRequest: () => ({ data: null }),
-}));
 vi.mock('@/features/airfare/hooks/useRouteCollection', () => ({
   useRouteCollection: () => ({
     collecting: state.collecting,

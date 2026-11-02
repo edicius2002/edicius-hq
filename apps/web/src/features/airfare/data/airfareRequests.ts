@@ -90,29 +90,6 @@ export async function fetchAirfareRequest(requestId: string): Promise<AirfareReq
   return data ? decodeAirfareRequest(data) : null;
 }
 
-export async function fetchLatestAirfareMonthRequest(
-  origin: string,
-  destination: string,
-  month: string,
-): Promise<AirfareRequest | null> {
-  const { data, error } = await supabase
-    .from('collector_requests')
-    .select(requestColumns)
-    .eq('operation', OPERATION)
-    .contains('payload', { origin, destination, month })
-    .in('status', ['complete', 'failed', 'expired'])
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new AirfareRequestError('request_unavailable');
-  if (!data) return null;
-  try {
-    return decodeAirfareRequest(data);
-  } catch {
-    throw new AirfareRequestError('malformed_request');
-  }
-}
-
 export function subscribeAirfareRequests(onRequest: (request: AirfareRequest) => void): () => void {
   let disposed = false;
   const channel = supabase

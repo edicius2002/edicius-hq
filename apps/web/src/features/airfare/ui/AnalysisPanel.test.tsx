@@ -213,39 +213,9 @@ it('shows both charts and the departure controls without a chart toggle on deskt
   expect(screen.getByText('2 / 31')).toBeInTheDocument();
 });
 
-it('keeps a technical failure visible while retaining the last confirmed empty outcome', () => {
-  render(
-    <Harness
-      monthSnapshots={[]}
-      watchedSnapshots={[]}
-      availabilityKnown
-      departureChecks={[
-        {
-          flightDate: '2027-03-09',
-          checkedAt: '2026-09-20T10:00:00Z',
-          outcome: 'no-offers',
-          lastAttemptAt: '2026-09-20T11:00:00Z',
-          lastErrorCode: 'parse-drift',
-        },
-      ]}
-      latestRequest={{
-        requestId: 'failed-request',
-        payload: { origin: 'ARI', destination: 'SCL', month: '2027-03', currency: 'USD' },
-        progress: { stage: 'syncing', completed: 1, total: 1 },
-        status: 'failed',
-        result: null,
-        errorCode: 'sync_failed',
-        createdAt: '2026-09-20T10:59:00Z',
-        expiresAt: '2026-09-20T11:09:00Z',
-        updatedAt: '2026-09-20T11:00:00Z',
-      }}
-    />,
-  );
-  expect(
-    screen.getByText(/0 dates with offers, 1 confirmed empty, 1 failed checks/),
-  ).toBeInTheDocument();
-  expect(screen.getByText(/Last manual Fetch failed/)).toBeInTheDocument();
-  expect(screen.getByText(/2027-03-09.*Google did not return itineraries/)).toBeInTheDocument();
+it('does not show a persistent fetch status panel after collection', () => {
+  render(<Harness monthSnapshots={[]} watchedSnapshots={[]} />);
+  expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();
 });
 
 it('keeps the desktop route heading on the selected month while the departure title follows its frame', () => {

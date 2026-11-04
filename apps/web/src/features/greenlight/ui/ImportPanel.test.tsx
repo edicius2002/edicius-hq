@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -48,6 +48,34 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ImportPanel>> = {}
 }
 
 describe('ImportPanel', () => {
+  it('keeps the latest selected file when an older read finishes later', async () => {
+    const { onImport } = renderPanel();
+    let finishOlder!: (content: string) => void;
+    const older = csvFile('', 'older.csv');
+    Object.defineProperty(older, 'text', {
+      value: () =>
+        new Promise<string>((resolve) => {
+          finishOlder = resolve;
+        }),
+    });
+    const newer = csvFile('', 'newer.csv');
+    Object.defineProperty(newer, 'text', {
+      value: async () => 'Date,Type,Amount,Currency\n2026-07-06,Deliverable,200,USD',
+    });
+
+    const input = screen.getByLabelText('Select CSV');
+    fireEvent.change(input, { target: { files: [older] } });
+    fireEvent.change(input, { target: { files: [newer] } });
+    await screen.findByText(/200/);
+
+    await act(async () => {
+      finishOlder('Date,Type,Amount,Currency\n2026-07-06,Deliverable,100,USD');
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('200');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Replace' }));
+    expect(onImport).toHaveBeenCalledWith(newer);
+  });
+
   it('keeps import controls free of the removed CSV status copy', () => {
     renderPanel();
     expect(screen.queryByText('Update from CSV')).toBeNull();

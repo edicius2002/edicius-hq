@@ -5,15 +5,19 @@ import { getAccessToken, subscribeToAuth } from '@/shared/auth/supabaseAuth';
 export type SupabaseSessionStatus = 'checking' | 'authenticated' | 'anonymous';
 
 /** Keeps the application gate in step with the browser's Supabase session. */
-export function useSupabaseSession(): { status: SupabaseSessionStatus } {
+export function useSupabaseSession(): { status: SupabaseSessionStatus; ownerId: string | null } {
   const [status, setStatus] = useState<SupabaseSessionStatus>('checking');
+  const [ownerId, setOwnerId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     let receivedAuthEvent = false;
     const unsubscribe = subscribeToAuth((_event, session) => {
       receivedAuthEvent = true;
-      if (mounted) setStatus(session ? 'authenticated' : 'anonymous');
+      if (mounted) {
+        setOwnerId(session?.user?.id ?? null);
+        setStatus(session ? 'authenticated' : 'anonymous');
+      }
     });
 
     void getAccessToken().then(
@@ -31,5 +35,5 @@ export function useSupabaseSession(): { status: SupabaseSessionStatus } {
     };
   }, []);
 
-  return { status };
+  return { status, ownerId };
 }

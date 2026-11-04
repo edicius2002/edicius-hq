@@ -135,11 +135,84 @@ class TestYahooParsing:
         }
         hits = yahoo.parse_search(payload, limit=10)
 
-        assert [h.symbol for h in hits] == ["AAPL", "MSFT"]
+        assert [h.symbol for h in hits] == ["AAPL"]
         assert hits[0].name == "Apple Inc."
+
+    @pytest.mark.parametrize(
+        "symbol, timezone",
+        [
+            ("7203.T", "Asia/Tokyo"),
+            ("BTC-USD", "UTC"),
+            ("EURUSD=X", "Europe/London"),
+        ],
+    )
+    def test_rejects_unsupported_yahoo_calendar_before_normalizing(self, symbol, timezone):
+        payload = yahoo_chart(
+            stamps=[DAY_1],
+            opens=[1],
+            highs=[2],
+            lows=[1],
+            closes=[2],
+            volumes=[10],
+            meta={"symbol": symbol, "exchangeTimezoneName": timezone},
+        )
+        with pytest.raises(ProviderError) as caught:
+            yahoo.parse_bars(payload, "1d", limit=100)
+        assert caught.value.code == "unsupported-calendar"
+
+        with pytest.raises(ProviderError) as live_caught:
+            yahoo.parse_live_bars(payload)
+        assert live_caught.value.code == "unsupported-calendar"
+
+    def test_search_hides_instruments_without_a_supported_us_exchange(self):
+        hits = yahoo.parse_search(
+            {
+                "quotes": [
+                    {"symbol": "SPY", "exchange": "PCX", "quoteType": "ETF"},
+                    {"symbol": "7203.T", "exchange": "JPX", "quoteType": "EQUITY"},
+                    {"symbol": "BTC-USD", "exchange": "CCC", "quoteType": "CRYPTOCURRENCY"},
+                    {"symbol": "EURUSD=X", "exchange": "CCY", "quoteType": "CURRENCY"},
+                ]
+            },
+            limit=10,
+        )
+        assert [hit.symbol for hit in hits] == ["SPY"]
 
 
 class TestBinanceParsing:
+    def test_search_pair_validates_a_trading_spot_symbol(self):
+        payload = {
+            "symbols": [
+                {
+                    "symbol": "BTCUSDT",
+                    "baseAsset": "BTC",
+                    "quoteAsset": "USDT",
+                    "status": "TRADING",
+                    "isSpotTradingAllowed": True,
+                }
+            ]
+        }
+        client = mock.Mock()
+        client.get = mock.AsyncMock(return_value=mock.Mock(status_code=200, json=lambda: payload))
+
+        hit = asyncio.run(binance.search_pair(client, "BTCUSDT"))
+
+        assert hit is not None
+        assert hit.symbol == "BTCUSDT"
+        assert hit.exchange == "Binance"
+
+    def test_registry_search_includes_valid_binance_pair_when_yahoo_has_no_hit(self):
+        pair = registry.SymbolHit("BTCUSDT", "BTC/USDT", "crypto", "Binance")
+
+        async def scenario():
+            with (
+                mock.patch.object(binance, "search_pair", return_value=pair),
+                mock.patch.object(yahoo, "search", return_value=[]),
+            ):
+                assert await registry.search(mock.AsyncMock(), "btcusdt") == [pair]
+
+        asyncio.run(scenario())
+
     def test_reads_klines_and_converts_milliseconds(self):
         payload = [[1700000000000, "10.0", "12.0", "9.0", "11.0", "5.5", 0]]
         bars = binance.parse_bars(payload)
@@ -147,6 +220,24 @@ class TestBinanceParsing:
         assert len(bars) == 1
         assert bars[0].time == 1700000000
         assert bars[0].high == 12.0
+
+    def test_fetches_older_klines_when_requested_depth_exceeds_binance_page_limit(self):
+        def kline(n):
+            return [n * 60_000, "1", "2", "1", "2", "3"]
+
+        latest = [kline(n) for n in range(500, 1500)]
+        older = [kline(n) for n in range(0, 500)]
+
+        async def scenario():
+            with mock.patch.object(binance, "_get_json", side_effect=[latest, older]) as get:
+                bars = await binance.fetch_bars(mock.AsyncMock(), "BTCUSDT", TIMEFRAMES["1m"])
+            assert len(bars) == 1500
+            assert bars[0].time == 0
+            assert bars[-1].time == 1499 * 60
+            assert get.call_args_list[0].args[2]["limit"] == 1000
+            assert get.call_args_list[1].args[2]["endTime"] == 500 * 60_000 - 1
+
+        asyncio.run(scenario())
 
     def test_skips_rows_that_are_not_candles(self):
         payload = [[1700000000000, "1", "2", "0.5", "1.5", "3"], "nonsense", [1, 2]]

@@ -176,11 +176,26 @@ async def _yahoo_one_by_one(
 
 
 async def search(client: httpx.AsyncClient, query: str, limit: int = 10) -> list[SymbolHit]:
-    """
-    Only Yahoo is asked. Binance lists a few hundred pairs and no useful search,
-    and a symbol typed in full still resolves through `provider_for`.
-    """
-    return await yahoo.search(client, query, limit)
+    """Include a validated Binance pair when the user types its full symbol."""
+    symbol = normalize_symbol(query)
+    if provider_for(symbol) != binance.PROVIDER:
+        return await yahoo.search(client, query, limit)
+    pair, yahoo_result = await asyncio.gather(
+        binance.search_pair(client, symbol),
+        yahoo.search(client, query, limit),
+        return_exceptions=True,
+    )
+    if isinstance(pair, BaseException):
+        if isinstance(yahoo_result, BaseException):
+            raise pair
+        return yahoo_result
+    if isinstance(yahoo_result, BaseException):
+        if pair is None:
+            raise yahoo_result
+        return [pair]
+    return ([pair] if pair else []) + [hit for hit in yahoo_result if hit.symbol != symbol][
+        : limit - (1 if pair else 0)
+    ]
 
 
 __all__ = [

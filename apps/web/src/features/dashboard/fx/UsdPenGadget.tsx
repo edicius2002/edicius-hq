@@ -45,9 +45,11 @@ export function UsdPenGadget({ now }: { now: Date }) {
             <p role="alert">
               {latest.data
                 ? 'Could not refresh quotes. Showing saved captures.'
-                : 'Could not load quotes.'}
+                : 'Could not load quotes.'}{' '}
+              <button onClick={() => void latest.refetch()}>Retry quotes</button>
             </p>
           ) : null}
+          {latest.isSuccess && rows.length === 0 ? <p>No quotes captured yet.</p> : null}
           <table className={styles.table} aria-label="USD/PEN source quotes">
             <thead>
               <tr>

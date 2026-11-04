@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
 import { Button } from '@/shared/ui/Button';
+import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
 import { Panel } from '@/shared/ui/Panel';
 import { Skeleton } from '@/shared/ui/Skeleton';
 
@@ -120,16 +121,30 @@ export function DashboardPage() {
   const entryTimers = useRef(new Map<string, number>());
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
   const codexResets = useCodexResets();
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  useEffect(() => subscribeToAuth((_event, session) => setOwnerId(session?.user.id ?? null)), []);
+  useEffect(() => {
+    if (!ownerId) return;
+    return () => {
+      void client.cancelQueries({ queryKey: ['tweets', ownerId] });
+      client.removeQueries({ queryKey: ['tweets', ownerId] });
+    };
+  }, [client, ownerId]);
   const query = useQuery({
-    queryKey: ['tweets', HANDLE],
-    queryFn: () => fetchTweets(HANDLE),
+    queryKey: ['tweets', ownerId, HANDLE],
+    enabled: ownerId !== null,
+    queryFn: ({ signal }) => {
+      if (!ownerId) throw new Error('An authenticated owner is required for tweet reads');
+      return fetchTweets(HANDLE, new Date(), signal);
+    },
   });
   useEffect(() => {
+    if (!ownerId) return;
     return subscribeTweets(
       HANDLE,
-      () => void client.invalidateQueries({ queryKey: ['tweets', HANDLE] }),
+      () => void client.invalidateQueries({ queryKey: ['tweets', ownerId, HANDLE] }),
     );
-  }, [client]);
+  }, [client, ownerId]);
   useLayoutEffect(() => {
     if (query.data === undefined) return;
     const ids = new Set(query.data.map((tweet) => tweet.id));
@@ -198,17 +213,20 @@ export function DashboardPage() {
         <UsdPenGadget now={now} />
       </div>
       <h2 className={styles.postsHeading}>@{HANDLE}</h2>
-      {query.isError && query.data !== undefined ? (
+      {ownerId && query.isError && query.data !== undefined ? (
         <Panel className={styles.statusPanel} role="alert">
           Could not refresh captured tweets. Showing the last available posts.
           <Button onClick={() => void query.refetch()}>Retry</Button>
         </Panel>
       ) : null}
-      {query.isLoading ? (
+      {!ownerId ? (
+        <Panel className={styles.statusPanel}>Waiting for account.</Panel>
+      ) : query.isLoading ? (
         <PostColumnsSkeleton />
       ) : query.isError && query.data === undefined ? (
         <Panel className={styles.statusPanel} role="alert">
           Could not load captured tweets.
+          <Button onClick={() => void query.refetch()}>Retry tweets</Button>
         </Panel>
       ) : tweets.length === 0 ? (
         <Panel className={styles.statusPanel}>No posts in the last 48 hours.</Panel>

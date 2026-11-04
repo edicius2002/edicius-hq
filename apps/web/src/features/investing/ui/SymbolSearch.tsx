@@ -21,8 +21,14 @@ type SymbolSearchProps = {
 
 export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
   const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<SymbolHit[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [result, setResult] = useState<{
+    query: string;
+    status: 'loading' | 'success' | 'error';
+    hits: SymbolHit[];
+  } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const generation = useRef(0);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
   /**
@@ -38,35 +44,38 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
    */
   const [picked, setPicked] = useState<string | null>(null);
 
-  // Nothing to search: the field holds what was just picked, or the query is
-  // too short. Cleared here, during render, rather than from the effect
-  // below.
-  if ((query === picked || query.trim().length < 2) && hits.length > 0) {
-    setHits([]);
-  }
-
   useEffect(() => {
-    if (query === picked) return;
+    const request = ++generation.current;
+    if (query === picked || dismissed) return;
 
     const wanted = query.trim();
     if (wanted.length < 2) return;
 
-    // Aborted on the next keystroke, so a slow answer for "mic" cannot land
-    // after the answer for "micros" and overwrite it.
     const controller = new AbortController();
     const id = setTimeout(() => {
-      setSearching(true);
       searchSymbols(wanted, controller.signal)
-        .then((result) => setHits(result.results))
-        .catch(() => setHits([]))
-        .finally(() => setSearching(false));
+        .then((answer) => {
+          if (generation.current === request && !controller.signal.aborted) {
+            setResult({ query: wanted, status: 'success', hits: answer.results });
+          }
+        })
+        .catch(() => {
+          if (generation.current === request && !controller.signal.aborted) {
+            setResult({ query: wanted, status: 'error', hits: [] });
+          }
+        });
     }, DEBOUNCE_MS);
 
     return () => {
+      generation.current += 1;
       clearTimeout(id);
       controller.abort();
     };
-  }, [query, picked]);
+  }, [query, picked, retry, dismissed]);
+
+  const wanted = query.trim();
+  const current = query !== picked && result?.query === wanted ? result : null;
+  const hits = current?.status === 'success' ? current.hits : [];
 
   /**
    * Picking sets the field to the symbol chosen rather than clearing it —
@@ -75,10 +84,11 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
    * only in a caller's own "Selected: X" line beside it.
    */
   function pick(hit: SymbolHit) {
+    generation.current += 1;
     setPicked(hit.symbol);
     onPick(hit.symbol, hit.name);
     setQuery(hit.symbol);
-    setHits([]);
+    setResult(null);
   }
 
   return (
@@ -89,8 +99,11 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
         placeholder="Symbol"
         aria-label="Search a symbol"
         onChange={(event) => {
+          generation.current += 1;
           setPicked(null);
+          setDismissed(false);
           setQuery(event.target.value);
+          setResult(null);
         }}
         onKeyDown={(event) => {
           // Enter with nothing chosen follows what was typed: a symbol you know
@@ -102,14 +115,36 @@ export function SymbolSearch({ onPick, following }: SymbolSearchProps) {
             event.preventDefault();
             pick(hits[0] ?? { symbol: query, name: query, kind: '', exchange: null });
           }
-          if (event.key === 'Escape') setHits([]);
+          if (event.key === 'Escape') {
+            generation.current += 1;
+            setDismissed(true);
+            setResult(null);
+          }
         }}
       />
 
-      {query.trim().length >= 2 && query !== picked ? (
+      {query.trim().length >= 2 && query !== picked && !dismissed ? (
         <ul className={styles.results} aria-label="Search results">
-          {searching && !hits.length ? <li className={styles.hint}>Searching…</li> : null}
-          {!searching && !hits.length ? <li className={styles.hint}>Nothing found.</li> : null}
+          {!current || current.status === 'loading' ? (
+            <li className={styles.hint}>Searching…</li>
+          ) : null}
+          {current?.status === 'success' && !hits.length ? (
+            <li className={styles.hint}>Nothing found.</li>
+          ) : null}
+          {current?.status === 'error' ? (
+            <li className={styles.hint}>
+              Search failed.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setResult(null);
+                  setRetry((value) => value + 1);
+                }}
+              >
+                Retry search
+              </button>
+            </li>
+          ) : null}
 
           {hits.map((hit) => {
             const already = following.has(hit.symbol);

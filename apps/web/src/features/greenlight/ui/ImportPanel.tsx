@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 
 import {
   formatImportPlan,
@@ -22,13 +22,22 @@ type Pending = PendingImport | null;
 type ImportPanelProps = {
   stats: Record<string, DayStats>;
   isImporting: boolean;
+  isAvailable?: boolean;
   onImport: (file: File) => void;
   onParseError: (message: string | null) => void;
 };
 
-export function ImportPanel({ stats, isImporting, onImport, onParseError }: ImportPanelProps) {
+export function ImportPanel({
+  stats,
+  isImporting,
+  isAvailable = true,
+  onImport,
+  onParseError,
+}: ImportPanelProps) {
   const [pending, setPending] = useState<Pending>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const selection = useRef(0);
+  const busy = isImporting || !isAvailable;
 
   const importPlan: ImportPlan | null = useMemo(() => {
     if (pending?.kind !== 'import') return null;
@@ -42,9 +51,13 @@ export function ImportPanel({ stats, isImporting, onImport, onParseError }: Impo
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    const selected = ++selection.current;
+    setPending(null);
+    setPendingFile(null);
 
     try {
       const imported = importGreenlightCsv(await file.text());
+      if (selected !== selection.current) return;
       onParseError(null);
       setPendingFile(file);
       setPending({
@@ -52,6 +65,7 @@ export function ImportPanel({ stats, isImporting, onImport, onParseError }: Impo
         incoming: imported.stats,
       });
     } catch (error) {
+      if (selected !== selection.current) return;
       setPending(null);
       setPendingFile(null);
       onParseError(error instanceof Error ? error.message : 'Failed to import CSV.');
@@ -74,6 +88,7 @@ export function ImportPanel({ stats, isImporting, onImport, onParseError }: Impo
   }
 
   function handleCancel() {
+    selection.current += 1;
     setPending(null);
     setPendingFile(null);
   }
@@ -86,7 +101,7 @@ export function ImportPanel({ stats, isImporting, onImport, onParseError }: Impo
       <div className={styles.row}>
         <label
           className={`${buttonStyles.button} ${buttonStyles.primary} ${styles.fileButton} ${
-            isImporting ? styles.fileDisabled : ''
+            busy ? styles.fileDisabled : ''
           }`}
         >
           {isImporting ? 'Importing…' : 'Select CSV'}
@@ -94,7 +109,7 @@ export function ImportPanel({ stats, isImporting, onImport, onParseError }: Impo
             type="file"
             accept=".csv,text/csv"
             aria-label="Select CSV"
-            disabled={isImporting}
+            disabled={busy}
             onChange={(event) => void handleFileChange(event)}
           />
         </label>
@@ -108,7 +123,7 @@ export function ImportPanel({ stats, isImporting, onImport, onParseError }: Impo
           {copy.removedLine ? <p className={styles.removed}>{copy.removedLine}.</p> : null}
           <p>{copy.headline}</p>
           {canApplyImport ? (
-            <Button variant="danger" onClick={handleConfirm}>
+            <Button variant="danger" disabled={busy} onClick={handleConfirm}>
               Replace
             </Button>
           ) : null}

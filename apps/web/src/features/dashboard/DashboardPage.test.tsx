@@ -1,15 +1,24 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const auth = vi.hoisted(() => ({
-  clearLocalSession: vi.fn(),
-  subscribeToAuth: (callback: (event: string, session: { user: { id: string } }) => void) => {
-    callback('INITIAL_SESSION', { user: { id: 'owner' } });
-    return () => {};
-  },
-  getAccessToken: vi.fn(async () => null),
-}));
+const auth = vi.hoisted(() => {
+  const callbacks = new Set<(event: string, session: { user: { id: string } } | null) => void>();
+  return {
+    clearLocalSession: vi.fn(),
+    subscribeToAuth: (
+      callback: (event: string, session: { user: { id: string } } | null) => void,
+    ) => {
+      callbacks.add(callback);
+      callback('INITIAL_SESSION', { user: { id: 'owner' } });
+      return () => callbacks.delete(callback);
+    },
+    emit: (event: string, session: { user: { id: string } } | null) => {
+      for (const callback of callbacks) callback(event, session);
+    },
+    getAccessToken: vi.fn(async () => null),
+  };
+});
 const tweetData = vi.hoisted(() => ({
   TWEET_WINDOW_MS: 48 * 60 * 60 * 1000,
   fetchTweets: vi.fn(),
@@ -132,6 +141,13 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
     </QueryClientProvider>,
   );
 }
+
+beforeEach(() => {
+  tweetData.fetchTweets.mockReset();
+  codex.fetchCodexResets.mockReset();
+  tweetData.subscribeTweets.mockReset();
+  tweetData.subscribeTweets.mockImplementation(() => () => {});
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -261,7 +277,7 @@ it('removes a tweet when the live clock passes 48 hours without refetching', asy
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   });
   client.setQueryData(
-    ['tweets', 'thsottiaux'],
+    ['tweets', 'owner', 'thsottiaux'],
     [{ ...TWEETS.tweets[0], date: '2026-09-30T12:00:01Z' }],
   );
   renderPage(client);
@@ -385,4 +401,46 @@ it('shows five clocks in PST, PT, PER, EST, ARG order and keeps a hidden page he
       .getAllByLabelText(/^(PST|PT|PER|EST|ARG) \d{2}:\d{2}$/)
       .map((clock) => clock.getAttribute('aria-label')?.split(' ')[0]),
   ).toEqual(['PST', 'PT', 'PER', 'EST', 'ARG']);
+});
+
+it('does not display a prior owner’s tweets during an account switch', async () => {
+  stubApi();
+  const unsubscribe = vi.fn();
+  tweetData.subscribeTweets.mockImplementation(() => unsubscribe);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  renderPage(client);
+  expect(await screen.findByText('post anon')).toBeInTheDocument();
+  let resolveNext!: (tweets: typeof TWEETS.tweets) => void;
+  tweetData.fetchTweets.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveNext = resolve;
+      }),
+  );
+  await act(async () => {
+    auth.emit('SIGNED_IN', { user: { id: 'next-owner' } });
+  });
+  expect(screen.queryByText('post anon')).not.toBeInTheDocument();
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  expect(client.getQueryData(['tweets', 'owner', 'thsottiaux'])).toBeUndefined();
+  await act(async () => {
+    resolveNext([
+      {
+        ...TWEETS.tweets[0],
+        id: 'new-post',
+        text: 'next owner post',
+        date: new Date().toISOString(),
+      },
+    ]);
+  });
+  expect(await screen.findByText('next owner post')).toBeInTheDocument();
+});
+
+it('offers a retry after the first tweet read fails', async () => {
+  stubApi();
+  tweetData.fetchTweets.mockRejectedValueOnce(new Error('offline'));
+  renderPage();
+  expect(await screen.findByText('Could not load captured tweets.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry tweets' }));
+  expect(await screen.findByText('post anon')).toBeInTheDocument();
 });

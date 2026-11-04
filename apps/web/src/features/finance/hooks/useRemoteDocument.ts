@@ -7,6 +7,7 @@ import {
   writeFinanceDocument,
   type FinanceDocumentKey,
 } from '@/features/finance/data/financeDocuments';
+import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
 import { createWriteQueue, type WriteQueue, type WriteState } from '@/shared/storage/writeQueue';
 
 const noop = () => undefined;
@@ -59,6 +60,7 @@ export function useRemoteDocument<T>({
   const queryClient = useQueryClient();
   const queryKey = ['finance-documents', key] as const;
   const revision = useRef(0);
+  const hasHydratedRevision = useRef(false);
   const localGeneration = useRef(0);
   const unacknowledgedLocalGeneration = useRef<number | null>(null);
   const sendingLocalGeneration = useRef<number | null>(null);
@@ -67,6 +69,8 @@ export function useRemoteDocument<T>({
   const ignoreStaleQueueFailureState = useRef(false);
   const overwritingRemote = useRef(false);
   const mounted = useRef(true);
+  const ownerId = useRef<string | null | undefined>(undefined);
+  const staleOwner = useRef(false);
   const conflictRef = useRef<DocumentConflict<T> | null>(null);
   const [conflict, setConflict] = useState<DocumentConflict<T> | null>(null);
   const [writeState, setWriteState] = useState<WriteState>('idle');
@@ -78,12 +82,13 @@ export function useRemoteDocument<T>({
 
   const loadConflict = useCallback(
     async (local: T): Promise<void> => {
+      if (staleOwner.current) return;
       const request = ++conflictGeneration.current;
       setConflictRecord({ status: 'loading', local });
 
       try {
         const remote = await readFinanceDocument<T>(key);
-        if (request !== conflictGeneration.current) return;
+        if (staleOwner.current || request !== conflictGeneration.current) return;
         if (!remote) throw new Error('The conflicting Finance document is no longer available.');
 
         setConflictRecord({
@@ -93,7 +98,7 @@ export function useRemoteDocument<T>({
           remoteRevision: remote.revision,
         });
       } catch {
-        if (request === conflictGeneration.current) {
+        if (!staleOwner.current && request === conflictGeneration.current) {
           setConflictRecord({ status: 'load-failed', local });
         }
       }
@@ -113,12 +118,14 @@ export function useRemoteDocument<T>({
   useEffect(() => {
     queueRef.current = createWriteQueue<T, number>({
       write: async (payload) => {
+        if (staleOwner.current) throw new Error('The Finance owner changed before this save.');
         sendingLocalGeneration.current = unacknowledgedLocalGeneration.current;
         queueWriteConflictGeneration.current = conflictGeneration.current;
         const saved = await writeFinanceDocument(key, payload, revision.current);
         return saved.revision;
       },
       onWritten: (nextRevision) => {
+        if (staleOwner.current) return;
         revision.current = nextRevision;
         if (
           sendingLocalGeneration.current !== null &&
@@ -130,6 +137,7 @@ export function useRemoteDocument<T>({
       },
       onError: (error, local) => {
         sendingLocalGeneration.current = null;
+        if (staleOwner.current) return;
         if (queueWriteConflictGeneration.current !== conflictGeneration.current) {
           // An explicit acceptance or overwrite has already superseded this
           // queued pass. Its state transition must not recreate a conflict.
@@ -150,12 +158,32 @@ export function useRemoteDocument<T>({
     });
   }, [key]);
 
+  useEffect(
+    () =>
+      subscribeToAuth((_event, session) => {
+        const nextOwner = session?.user.id ?? null;
+        if (ownerId.current === undefined) {
+          ownerId.current = nextOwner;
+        } else if (ownerId.current !== nextOwner) {
+          // A queued whole document belongs to the previous owner. The app
+          // remounts this store for the new owner; never flush the old queue
+          // using the new session's credentials.
+          staleOwner.current = true;
+          queueRef.current?.discard();
+        }
+      }),
+    [],
+  );
+
   const query = useQuery({
     queryKey,
     retry: false,
+    // A remount may reuse the payload while this hook has no acknowledged revision.
+    refetchOnMount: 'always',
     queryFn: async ({ signal }) => {
       const generationAtStart = localGeneration.current;
       const remote = await readFinanceDocument<T>(key, signal);
+      if (staleOwner.current) throw new Error('The Finance owner changed during this read.');
       const remoteRevision = remote?.revision ?? 0;
       const cached = queryClient.getQueryData<T>(queryKey);
 
@@ -173,6 +201,7 @@ export function useRemoteDocument<T>({
 
       const next = normalize(remote?.payload ?? null);
       revision.current = remoteRevision;
+      hasHydratedRevision.current = true;
       return next;
     },
   });
@@ -185,21 +214,28 @@ export function useRemoteDocument<T>({
   }, []);
 
   const assertEditable = useCallback((): T => {
+    if (staleOwner.current) throw new Error('The Finance owner changed before this edit.');
     if (conflictRef.current) {
       throw new Error('Resolve the Finance document conflict before editing again.');
+    }
+    if (!hasHydratedRevision.current || query.isError) {
+      throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
     }
     const cached = queryClient.getQueryData<T>(queryKey);
     if (cached === undefined) {
       throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
     }
     return normalize(cached);
-  }, [key, normalize, queryClient, queryKey]);
+  }, [key, normalize, query.isError, queryClient, queryKey]);
 
   const edit = useCallback(
     (change: (current: T) => T | Promise<T>) =>
       serialize(async () => {
         const current = assertEditable();
         const next = await change(current);
+        if (staleOwner.current) {
+          throw new Error('The Finance owner changed before this edit.');
+        }
         if (next === current) return current;
 
         // Check again after asynchronous editing work: a conflict could have
@@ -239,7 +275,7 @@ export function useRemoteDocument<T>({
     // Conflict choices are mutually exclusive. An overwrite owns the current
     // ready conflict until its CAS call settles, so no refresh may begin and
     // later repopulate state after that choice succeeds.
-    if (overwritingRemote.current) return Promise.resolve();
+    if (staleOwner.current || overwritingRemote.current) return Promise.resolve();
     const current = conflictRef.current;
     return current ? loadConflict(current.local) : Promise.resolve();
   }, [loadConflict]);
@@ -247,7 +283,14 @@ export function useRemoteDocument<T>({
   const acceptRemote = useCallback(() => {
     const current = conflictRef.current;
     const queue = queueRef.current;
-    if (!current || current.status !== 'ready' || overwritingRemote.current || !queue) return;
+    if (
+      staleOwner.current ||
+      !current ||
+      current.status !== 'ready' ||
+      overwritingRemote.current ||
+      !queue
+    )
+      return;
 
     const accepted = normalize(current.remote);
     // A failed CAS write is still held by the queue for a normal retry. This
@@ -266,13 +309,21 @@ export function useRemoteDocument<T>({
   const overwriteRemote = useCallback(async (): Promise<void> => {
     const current = conflictRef.current;
     const queue = queueRef.current;
-    if (!current || current.status !== 'ready' || overwritingRemote.current || !queue) return;
+    if (
+      staleOwner.current ||
+      !current ||
+      current.status !== 'ready' ||
+      overwritingRemote.current ||
+      !queue
+    )
+      return;
 
     overwritingRemote.current = true;
     queue.discard();
     setWriteState('saving');
     try {
       const saved = await writeFinanceDocument(key, current.local, current.remoteRevision);
+      if (staleOwner.current) return;
       localGeneration.current += 1;
       unacknowledgedLocalGeneration.current = null;
       revision.current = saved.revision;
@@ -281,6 +332,7 @@ export function useRemoteDocument<T>({
       setWriteState('saved');
       setConflictRecord(null);
     } catch (error) {
+      if (staleOwner.current) throw error;
       setWriteState('failed');
       if (error instanceof FinanceRevisionConflict) void loadConflict(current.local);
       throw error;
@@ -292,7 +344,7 @@ export function useRemoteDocument<T>({
   const flushQueuedEdits = useCallback(() => {
     // Retrying a known CAS failure would be an automatic conflict choice. The
     // resolution actions above are the only paths allowed to send it again.
-    if (conflictRef.current || overwritingRemote.current) return;
+    if (staleOwner.current || conflictRef.current || overwritingRemote.current) return;
     const queue = queueRef.current;
     if (!queue) return;
     void queue.flush();

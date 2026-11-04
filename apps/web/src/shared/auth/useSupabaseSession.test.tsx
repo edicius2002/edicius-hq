@@ -92,3 +92,22 @@ describe('useSupabaseSession', () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 });
+
+it('exposes owner identity when an authenticated session changes without signing out', async () => {
+  auth.getAccessToken.mockReturnValue(new Promise(() => {}));
+  function Owner() {
+    const session = useSupabaseSession();
+    return (
+      <output>
+        {session.status}:{session.ownerId ?? 'none'}
+      </output>
+    );
+  }
+  render(<Owner />);
+  act(() => emitAuth('SIGNED_IN', { user: { id: 'owner-a' } } as Session));
+  expect(screen.getByText('authenticated:owner-a')).toBeInTheDocument();
+  act(() => emitAuth('SIGNED_IN', { user: { id: 'owner-b' } } as Session));
+  expect(screen.getByText('authenticated:owner-b')).toBeInTheDocument();
+  act(() => emitAuth('SIGNED_OUT', null));
+  expect(screen.getByText('anonymous:none')).toBeInTheDocument();
+});

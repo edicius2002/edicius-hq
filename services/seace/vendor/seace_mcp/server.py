@@ -25,7 +25,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode, quote
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -186,7 +186,7 @@ def _linea_update() -> str:
 
 INSTRUCCIONES += _linea_update()
 
-mcp = FastMCP("Sistema Electrónico de Contrataciones del Estado - Seace (No oficial)", instructions=INSTRUCCIONES, stateless_http=True)
+mcp = MCPServer("Sistema Electrónico de Contrataciones del Estado - Seace (No oficial)", instructions=INSTRUCCIONES)
 
 _SEM: Optional[asyncio.Semaphore] = None
 _INFLIGHT = 0

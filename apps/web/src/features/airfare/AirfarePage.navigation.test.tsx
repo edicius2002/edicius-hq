@@ -115,6 +115,9 @@ function projection(month: string, latestBoards: FareSnapshot[] = []): FareMonth
     revision: '1',
     latestCapture: '2026-09-20T10:00:00Z',
     latestBoards,
+    currentBoards: latestBoards,
+    departureChecks: [],
+    availabilityKnown: true,
     viaSequences: [],
     priceDays: latestBoards.length
       ? [{ key: '2026-09-20', label: '09-20', low: 100, high: 100, middle: 100, count: 1 }]
@@ -248,6 +251,102 @@ it('keeps the reading month when the next watched month has no saved board', asy
   expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
   expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toHaveAccessibleName(/March 2027/);
 });
+
+it('keeps confirmed empty dates blank until a later successful fetch restores current offers', async () => {
+  state.routes = [{ ...state.routes[0], months: ['2027-03'] }];
+  const old = board('2027-03');
+  const empty = projection('2027-03', [old]);
+  empty.currentBoards = [];
+  empty.departureChecks = [
+    {
+      flightDate: '2027-03-01',
+      checkedAt: '2026-10-20T10:00:00Z',
+      outcome: 'no-offers',
+      lastAttemptAt: '2026-10-20T10:00:00Z',
+      lastErrorCode: null,
+    },
+  ];
+  state.fetchMonth.mockResolvedValueOnce(empty).mockResolvedValueOnce({
+    ...empty,
+    currentBoards: [{ ...old, capturedAt: '2026-10-21T10:00:00Z' }],
+    departureChecks: [
+      { ...empty.departureChecks[0], outcome: 'changed', checkedAt: '2026-10-21T10:00:00Z' },
+    ],
+  });
+  const client = renderPage();
+  await screen.findByText('No confirmed current offer.');
+  expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();
+  expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(0);
+
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['fares', 'projection', 'ARI', 'SCL', '2027-03'] });
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(1),
+  );
+  expect(screen.queryByText('No confirmed current offer.')).toBeNull();
+});
+
+it('shows an adjacent valid offer while the confirmed empty date stays historical', async () => {
+  state.routes = [{ ...state.routes[0], months: ['2027-03'] }];
+  const old = board('2027-03');
+  const next = {
+    ...old,
+    flightDate: '2027-03-02',
+    offers: [{ ...old.offers[0], departureAt: '2027-03-02T07:15', price: 80 }],
+  };
+  const month = projection('2027-03', [old, next]);
+  month.currentBoards = [next];
+  month.departureChecks = [
+    {
+      flightDate: '2027-03-01',
+      checkedAt: '2026-10-20T10:00:00Z',
+      outcome: 'no-offers',
+      lastAttemptAt: '2026-10-20T10:00:00Z',
+      lastErrorCode: null,
+    },
+    {
+      flightDate: '2027-03-02',
+      checkedAt: '2026-10-20T10:00:00Z',
+      outcome: 'changed',
+      lastAttemptAt: '2026-10-20T10:00:00Z',
+      lastErrorCode: null,
+    },
+  ];
+  state.fetchMonth.mockResolvedValue(month);
+  renderPage();
+
+  await waitFor(() =>
+    expect(screen.getByTestId('flight-dots').querySelectorAll('circle')).toHaveLength(1),
+  );
+  expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();
+  expect(screen.queryByText('No confirmed current offer.')).toBeNull();
+});
+
+it.each(['legacy projection', 'archive fallback'])(
+  'does not present unverified historical flight rows as current in the %s',
+  async (source) => {
+    state.routes = [{ ...state.routes[0], months: ['2027-03'] }];
+    const old = board('2027-03');
+    const month = projection('2027-03', [old]);
+    month.currentBoards = [];
+    month.departureChecks = [];
+    month.availabilityKnown = false;
+    if (source === 'archive fallback') {
+      month.revision = 'archive';
+      month.archiveSnapshots = [old];
+    }
+    state.fetchMonth.mockResolvedValue(month);
+    renderPage();
+
+    expect(await screen.findByText(/Current flight offers are unavailable/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Historical observations last captured 2026-09-20/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toBeInTheDocument();
+  },
+);
 
 it('does not select a watched month whose projection is still unavailable', async () => {
   const april = deferred<FareMonthProjection>();

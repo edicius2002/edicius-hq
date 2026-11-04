@@ -17,6 +17,7 @@ type RouteDetailProps = {
   cities: { from: string | null; to: string | null };
   /** A new route's archive can be pending even though its data is absent. */
   loading?: boolean;
+  availabilityKnown?: boolean;
 };
 
 /**
@@ -46,6 +47,7 @@ export function RouteDetail({
   health,
   cities,
   loading = false,
+  availabilityKnown,
 }: RouteDetailProps) {
   if (!route) {
     return (
@@ -180,7 +182,13 @@ export function RouteDetail({
           <div className={styles.range}>
             <div className={styles.track}>
               {!cheapest && !loading ? (
-                <p className={styles.emptyNote}>Nothing observed yet. Run a collection pass.</p>
+                <p className={styles.emptyNote}>
+                  {availabilityKnown
+                    ? 'No confirmed current offer.'
+                    : availabilityKnown === false
+                      ? 'Current availability has not been verified yet.'
+                      : 'Nothing observed yet. Run a collection pass.'}
+                </p>
               ) : null}
               {hasRange ? (
                 <>

@@ -30,6 +30,7 @@ function notice(id: string): CollectNotice {
   return {
     id,
     routeId: 'LIM-CUZ',
+    monthKey: 'LIM|CUZ|2026-11',
     title: id,
     text: id,
     kind: 'success',
@@ -42,6 +43,7 @@ describe('Pi Airfare request notices', () => {
       id: 'request-1',
       // The watchlist's key, so removing a watch can find its cards.
       routeId: routeId({ origin: 'LIM', destination: 'CUZ' }),
+      monthKey: 'LIM|CUZ|2026-11',
       title: 'LIM → CUZ · November 2026',
       text: 'Collection request accepted by the Pi.',
       kind: 'accepted',
@@ -94,6 +96,29 @@ describe('Pi Airfare request notices', () => {
       text: 'Collection complete: 31 departures checked, 3 updated.',
     });
     expect(completed?.detail).toBeUndefined();
+  });
+
+  it('reports an all-empty month as completed without a warning triangle', () => {
+    const completed = terminalCollectNotice(
+      request({
+        status: 'complete',
+        result: {
+          origin: 'LIM',
+          destination: 'CUZ',
+          month: '2026-11',
+          lookedAt: 30,
+          changed: 0,
+          noOffers: 30,
+          failed: 0,
+          skipped: 0,
+          synced: true,
+        },
+      }),
+    );
+    expect(completed).toMatchObject({
+      kind: 'success',
+      text: 'Collection complete: 30 departures checked, 0 updated, 30 without itineraries.',
+    });
   });
 
   it('does not expose collector failure codes', () => {

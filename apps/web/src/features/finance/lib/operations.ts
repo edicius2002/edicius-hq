@@ -1,5 +1,6 @@
 import { DEFAULT_ASSET } from '@/features/finance/lib/document';
 import { frameMembers, FRAME_MIN_SIZE } from '@/features/finance/lib/frames';
+import { moneyAmount } from '@/features/finance/lib/money';
 import { err, ok, type Result } from '@/features/finance/lib/result';
 import type {
   Anchor,
@@ -28,7 +29,10 @@ function normalizeFee(fee: HoldingNode['fees']['in']): HoldingNode['fees']['in']
   if (!fee || !Number.isFinite(fee.value)) return null;
   return {
     type: fee.type,
-    value: fee.type === 'percent' ? Math.min(100, Math.max(0, fee.value)) : Math.max(0, fee.value),
+    value:
+      moneyAmount(
+        fee.type === 'percent' ? Math.min(100, Math.max(0, fee.value)) : Math.max(0, fee.value),
+      ) ?? 0,
   };
 }
 
@@ -166,6 +170,7 @@ export function updateHolding(
   return mapHolding(diagram, id, (holding) => ({
     ...holding,
     ...patch,
+    amount: patch.amount === undefined ? holding.amount : moneyAmount(patch.amount),
     fees: patch.fees === undefined ? holding.fees : normalizeFees(patch.fees),
   }));
 }
@@ -204,7 +209,7 @@ export function setJobBalance(
   return mapJob(diagram, jobId, (job) => ({
     ...job,
     balances: job.balances.map((balance) =>
-      balance.asset === asset ? { ...balance, amount } : balance,
+      balance.asset === asset ? { ...balance, amount: moneyAmount(amount) } : balance,
     ),
   }));
 }
@@ -420,7 +425,7 @@ export function connect(
       to: input.to,
       fromAnchor: input.fromAnchor ?? 'r',
       toAnchor: input.toAnchor ?? 'l',
-      amount: input.amount ?? null,
+      amount: moneyAmount(input.amount ?? null),
       asset: assetForFlow(source, target),
       label: '',
       notes: '',
@@ -437,7 +442,13 @@ export function updateFlow(
   >,
 ): Diagram {
   const flow = diagram.flows[id];
-  return flow ? withFlow(diagram, { ...flow, ...patch }) : diagram;
+  return flow
+    ? withFlow(diagram, {
+        ...flow,
+        ...patch,
+        amount: patch.amount === undefined ? flow.amount : moneyAmount(patch.amount),
+      })
+    : diagram;
 }
 
 export function deleteFlow(diagram: Diagram, id: FlowId): Diagram {

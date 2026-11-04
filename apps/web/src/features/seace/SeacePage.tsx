@@ -14,6 +14,7 @@ import {
   type SeaceSync,
   type SeaceView,
 } from './data';
+import { uniqueEntityAcronym } from './entityAcronyms';
 import styles from './SeacePage.module.css';
 
 const regions = [
@@ -52,7 +53,7 @@ const views = [
 const pageSizes = [5, 10, 20, 50, 100];
 const columnWidths: Record<string, number> = {
   code: 120,
-  entity: 185,
+  entity: 140,
   description: 450,
   object: 90,
   published: 105,
@@ -91,6 +92,15 @@ const text = (row: SeaceRow, field: string) => {
   const value = row.payload[field];
   return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 };
+const entityLabel = (row: SeaceRow) => {
+  const fullName = text(row, 'entity');
+  const acronym = uniqueEntityAcronym(fullName, text(row, 'region'));
+  return (
+    <span data-row-text title={acronym ? fullName : undefined}>
+      {acronym || fullName || '—'}
+    </span>
+  );
+};
 const safeUrl = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
   try {
@@ -104,10 +114,10 @@ const safeUrl = (candidate: unknown): string | null => {
   }
 };
 const plainDate = (value: string) => {
-  if (!value) return '—';
+  if (!value) return <span data-row-text>—</span>;
   const [day, ...time] = value.split(' ');
   return (
-    <span className={styles.date}>
+    <span className={styles.date} data-row-text>
       <span>{day}</span>
       {time.length > 0 && <small>{time.join(' ')}</small>}
     </span>
@@ -691,7 +701,25 @@ export function SeacePage() {
                 ))}
               {!initialLoading &&
                 visible.map((row) => (
-                  <tr key={`${row.kind}:${row.recordKey}`}>
+                  <tr
+                    key={`${row.kind}:${row.recordKey}`}
+                    onClick={(event) => {
+                      if (!exclusionsReady || savingExclusions) return;
+                      const target = event.target;
+                      if (
+                        !(target instanceof Element) ||
+                        target.closest('a, button, input, label, select, textarea, [data-row-text]')
+                      )
+                        return;
+                      const key = exclusionKey(row);
+                      setSelectedKeys((current) => {
+                        const next = new Set(current);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        return next;
+                      });
+                    }}
+                  >
                     <td className={styles.selectCell}>
                       <input
                         type="checkbox"
@@ -726,7 +754,7 @@ export function SeacePage() {
                           .join(' ')}
                       >
                         {field === 'code' ? (
-                          text(row, field) || '—'
+                          <span data-row-text>{text(row, field) || '—'}</span>
                         ) : field === 'links' ? (
                           <span className={styles.links}>
                             {itemLines(row).length > 0 && (
@@ -758,8 +786,10 @@ export function SeacePage() {
                               </a>
                             ))}
                           </span>
+                        ) : field === 'entity' ? (
+                          entityLabel(row)
                         ) : field === 'amount' ? (
-                          money(row)
+                          <span data-row-text>{money(row)}</span>
                         ) : field === 'start' || field === 'termStart' ? (
                           <>
                             <span className={styles.desktopOnly}>
@@ -767,12 +797,14 @@ export function SeacePage() {
                             </span>
                             <span className={styles.mobilePeriod}>
                               <span>
-                                <strong>Start</strong>
-                                {compactDate(text(row, field))}
+                                <strong data-row-text>Start</strong>
+                                <span data-row-text>{compactDate(text(row, field))}</span>
                               </span>
                               <span>
-                                <strong>End</strong>
-                                {compactDate(text(row, field === 'start' ? 'end' : 'termEnd'))}
+                                <strong data-row-text>End</strong>
+                                <span data-row-text>
+                                  {compactDate(text(row, field === 'start' ? 'end' : 'termEnd'))}
+                                </span>
                               </span>
                             </span>
                           </>
@@ -786,7 +818,7 @@ export function SeacePage() {
                           ].includes(field) ? (
                           plainDate(text(row, field))
                         ) : (
-                          text(row, field) || '—'
+                          <span data-row-text>{text(row, field) || '—'}</span>
                         )}
                       </td>
                     ))}

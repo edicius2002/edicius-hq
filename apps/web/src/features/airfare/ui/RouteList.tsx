@@ -14,6 +14,7 @@ import {
   type FareRoute,
 } from '@/features/airfare/data/fareRoutes';
 import type { RouteCollectionProgress } from '@/features/airfare/hooks/useRouteCollection';
+import type { CollectNotice } from '@/features/airfare/lib/collectNotice';
 import { listEdge, type ListEdge } from '@/features/airfare/lib/listEdge';
 import { shortMonth } from '@/features/airfare/lib/monthChips';
 import { ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
@@ -34,6 +35,8 @@ type RouteListProps = {
   collecting: readonly string[];
   /** Queue progress by route-month key. */
   progress: ReadonlyMap<string, RouteCollectionProgress>;
+  /** Recent outcomes, used by the same row button instead of popup cards. */
+  notices: readonly CollectNotice[];
   /** Which month of the selected route the chart is reading. */
   activeMonth: string | null;
   /** The watch loaded into the editor above, or null while it is adding. */
@@ -87,13 +90,30 @@ function progressDescription(value: RouteCollectionProgress): string {
     : `${phase} ${progressPercent(value)}`;
 }
 
-function progressMark(value: RouteCollectionProgress): string {
-  if (value.stage === 'submitting') return 'Sending';
-  if (value.stage === 'queued') return 'Queued';
-  const arrow = value.stage === 'syncing' ? '↑' : '↓';
-  return value.total === null || value.total <= 0
-    ? `${arrow} Preparing`
-    : `${arrow} ${progressPercent(value)}`;
+function ProgressMark({ value }: { value: RouteCollectionProgress }) {
+  return (
+    <>
+      <svg className={styles.mark} viewBox="0 0 16 16" focusable="false">
+        {value.stage === 'submitting' ? (
+          <path d="M2.5 13.5 13 3M7.5 3H13v5.5" />
+        ) : value.stage === 'queued' ? (
+          <>
+            <circle cx="8" cy="8" r="5.5" />
+            <path d="M8 4.5V8l2.5 1.5" />
+          </>
+        ) : value.stage === 'syncing' ? (
+          <path d="M8 13.5v-10M4.5 6.5 8 3l3.5 3.5" />
+        ) : (
+          <path d="M8 2.5v10M4.5 9.5 8 13l3.5-3.5" />
+        )}
+      </svg>
+      {(value.stage === 'collecting' || value.stage === 'syncing') &&
+      value.total !== null &&
+      value.total > 0
+        ? progressPercent(value)
+        : null}
+    </>
+  );
 }
 
 /** The idle Fetch icon; active requests show the stage and percentage. */
@@ -105,6 +125,26 @@ function CollectMark() {
       <path d="M13.17 9.88A5.5 5.5 0 1 1 11.89 4.11" />
       {/* The head, on the arc's end and pointing the way it travels. */}
       <path d="M8.78 3.54 11.89 4.11 11.32 1" />
+    </svg>
+  );
+}
+
+function ResultMark({ kind }: { kind: 'success' | 'partial' | 'error' }) {
+  return (
+    <svg className={styles.mark} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      {kind === 'success' ? (
+        <path d="M2.5 8.5 6 12l7.5-8" />
+      ) : kind === 'partial' ? (
+        <>
+          <path d="M8 1.5 15 14H1z" />
+          <path d="M8 5.5v4M8 12v.5" />
+        </>
+      ) : (
+        <>
+          <circle cx="8" cy="8" r="6" />
+          <path d="m5.5 5.5 5 5m0-5-5 5" />
+        </>
+      )}
     </svg>
   );
 }
@@ -135,6 +175,7 @@ export function RouteList({
   editing,
   collecting,
   progress,
+  notices,
   onSelect,
   onOpenMonth,
   onRemove,
@@ -300,6 +341,16 @@ export function RouteList({
               const key = routeMonthKey(targetRoute, targetMonth);
               const busy = collecting.includes(key);
               const stage = progress.get(key);
+              const result = busy
+                ? undefined
+                : [...notices]
+                    .reverse()
+                    .find(
+                      (
+                        notice,
+                      ): notice is CollectNotice & { kind: 'success' | 'partial' | 'error' } =>
+                        notice.monthKey === key && notice.kind !== 'accepted',
+                    );
 
               return (
                 <li key={firstId} className={styles.item}>
@@ -387,6 +438,13 @@ export function RouteList({
                             {drawn.map((month) => {
                               const open = id === selectedId && month === activeMonth;
                               const inverseOnly = !route.months.includes(month);
+                              const monthFetching =
+                                !inverseOnly && collecting.includes(routeMonthKey(route, month));
+                              const monthLabel = inverseOnly
+                                ? formatFlightMonth(month) + ' — ' + routeLabel(inverse!) + ' only'
+                                : monthHasDeparted(month, today)
+                                  ? formatFlightMonth(month) + ' — departed'
+                                  : formatFlightMonth(month);
                               return (
                                 <button
                                   key={month}
@@ -396,19 +454,15 @@ export function RouteList({
                                     open ? styles.monthTabOpen : '',
                                     monthHasDeparted(month, today) ? styles.monthTabGone : '',
                                     inverseOnly ? styles.monthTabInverse : '',
+                                    monthFetching ? styles.monthTabFetching : '',
                                   ]
                                     .filter(Boolean)
                                     .join(' ')}
                                   aria-label={
-                                    inverseOnly
-                                      ? formatFlightMonth(month) +
-                                        ' — ' +
-                                        routeLabel(inverse!) +
-                                        ' only'
-                                      : monthHasDeparted(month, today)
-                                        ? formatFlightMonth(month) + ' — departed'
-                                        : formatFlightMonth(month)
+                                    monthFetching ? `${monthLabel}, fetching` : monthLabel
                                   }
+                                  aria-busy={monthFetching || undefined}
+                                  data-fetching={monthFetching || undefined}
                                   aria-current={open ? 'true' : undefined}
                                   aria-controls={inverseOnly ? undefined : ANALYSIS_PANEL_ID}
                                   tabIndex={!inverseOnly && month === tabStop ? 0 : -1}
@@ -435,6 +489,12 @@ export function RouteList({
                           onClick={() => onCollect(targetRoute, targetMonth)}
                           disabled={busy}
                           aria-busy={busy || undefined}
+                          data-result={result?.kind}
+                          title={
+                            result
+                              ? [result.text, result.detail].filter(Boolean).join(' ')
+                              : undefined
+                          }
                           aria-label={
                             busy
                               ? 'Fetching ' +
@@ -448,19 +508,26 @@ export function RouteList({
                               : 'Fetch ' +
                                 routeLabel(targetRoute) +
                                 ' now, ' +
-                                formatFlightMonth(targetMonth)
+                                formatFlightMonth(targetMonth) +
+                                (result
+                                  ? ', ' + [result.text, result.detail].filter(Boolean).join(' ')
+                                  : '')
                           }
                         >
                           {busy ? (
                             <span className={styles.fetchProgress} aria-hidden="true">
-                              {progressMark(
-                                stage ?? {
-                                  stage: 'queued',
-                                  completed: 0,
-                                  total: null,
-                                },
-                              )}
+                              <ProgressMark
+                                value={
+                                  stage ?? {
+                                    stage: 'queued',
+                                    completed: 0,
+                                    total: null,
+                                  }
+                                }
+                              />
                             </span>
+                          ) : result ? (
+                            <ResultMark kind={result.kind} />
                           ) : (
                             <CollectMark />
                           )}

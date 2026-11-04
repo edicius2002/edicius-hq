@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { canExecuteFlow, describeExecuteError, executeFlow } from '@/features/finance/lib/execute';
+import { updateFlow } from '@/features/finance/lib/operations';
 import type {
   Balance,
   Diagram,
@@ -204,6 +205,16 @@ describe('canExecuteFlow', () => {
 });
 
 describe('executeFlow', () => {
+  it('keeps repeated fractional transfers exact in stored balances', () => {
+    let current = pair(0.1, 0.3);
+    for (let step = 0; step < 3; step += 1) {
+      current = executeFlow(current, 'f1');
+      if (step < 2) current = updateFlow(current, 'f1', { amount: 0.1 });
+    }
+    expect((current.nodes.h1 as HoldingNode).amount).toBe(0);
+    expect((current.nodes.h2 as HoldingNode).amount).toBe(0.3);
+  });
+
   it('moves the gross out and the net in, and leaves the flow in place', () => {
     const after = executeFlow(pair(250), 'f1');
 

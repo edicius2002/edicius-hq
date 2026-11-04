@@ -342,6 +342,7 @@ describe('useRouteCollection', () => {
     await waitFor(() => expect(result.current.notices[0]?.kind).toBe('success'));
 
     for (const queryKey of [
+      ['fares', 'latestRequest', 'LIM', 'CUZ', '2026-11'],
       ['fares', 'history', 'LIM', 'CUZ'],
       ['fares', 'projection', 'LIM', 'CUZ'],
       ['fares', 'flightPage', 'LIM', 'CUZ'],
@@ -350,7 +351,7 @@ describe('useRouteCollection', () => {
     ]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey });
     }
-    expect(invalidate).toHaveBeenCalledTimes(5);
+    expect(invalidate).toHaveBeenCalledTimes(6);
     expect(result.current.collecting).toEqual([]);
   });
 
@@ -420,7 +421,7 @@ describe('useRouteCollection', () => {
       ),
     );
     expect(result.current.notices.at(-1)?.kind).toBe('success');
-    expect(invalidate).toHaveBeenCalledTimes(5);
+    expect(invalidate).toHaveBeenCalledTimes(7);
   });
 
   it('checks the database at local expiry so a missed completion still refreshes fares', async () => {
@@ -461,7 +462,7 @@ describe('useRouteCollection', () => {
     await act(async () => void (await vi.advanceTimersByTimeAsync(1_001)));
     expect(api.fetchAirfareRequest).toHaveBeenCalledWith(REQUEST_ID);
     expect(result.current.notices.at(-1)?.kind).toBe('success');
-    expect(invalidate).toHaveBeenCalledTimes(5);
+    expect(invalidate).toHaveBeenCalledTimes(7);
   });
 
   it('forgets all state belonging to a removed route', async () => {

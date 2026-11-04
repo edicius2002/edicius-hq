@@ -3,6 +3,64 @@ import { describe, expect, it } from 'vitest';
 import { parseFareMonthProjection, parseFareFlightPage } from './fareProjections';
 
 describe('Airfare projection decoding', () => {
+  it('keeps valid adjacent departures current while a confirmed empty date stays historical', () => {
+    const board = (flightDate: string) => ({
+      capturedAt: '2026-09-20T10:00:00Z',
+      source: 'test',
+      origin: 'AQP',
+      destination: 'LIM',
+      flightDate,
+      returnDate: null,
+      currency: 'USD',
+      insights: null,
+      offers: [],
+    });
+    const valid = board('2026-11-09');
+    const empty = board('2026-11-10');
+    const projection = parseFareMonthProjection(
+      {
+        origin: 'AQP',
+        destination: 'LIM',
+        month: '2026-11',
+        revision: '2',
+        latestCapture: valid.capturedAt,
+        priceDays: [],
+        providerDays: [],
+        unsoldDays: [],
+        latestBoards: [valid, empty],
+        currentBoards: [valid],
+        departureChecks: [
+          {
+            flightDate: '2026-11-09',
+            checkedAt: '2026-09-20T11:00:00Z',
+            outcome: 'changed',
+            lastAttemptAt: '2026-09-20T11:00:00Z',
+            lastErrorCode: null,
+          },
+          {
+            flightDate: '2026-11-10',
+            checkedAt: '2026-09-20T12:00:00Z',
+            outcome: 'no-offers',
+            lastAttemptAt: '2026-09-20T13:00:00Z',
+            lastErrorCode: 'parse-drift',
+          },
+        ],
+        viaSequences: [],
+        health: { lastCheckedAt: '2026-09-20T13:00:00Z', checks: 3, changes: 1, errors: 1 },
+        pairReference: null,
+      },
+      'AQP',
+      'LIM',
+      '2026-11',
+    );
+    expect(projection.currentBoards).toEqual([valid]);
+    expect(projection.latestBoards).toEqual([valid, empty]);
+    expect(projection.departureChecks[1]).toMatchObject({
+      outcome: 'no-offers',
+      lastErrorCode: 'parse-drift',
+    });
+  });
+
   it('turns persisted daily buckets and last boards into the current chart inputs', () => {
     const board = {
       capturedAt: '2026-09-20T10:00:00Z',
@@ -46,6 +104,8 @@ describe('Airfare projection decoding', () => {
     expect(result.providerDays[0].middle).toBe(90);
     expect(result.unsoldDays[0]).toEqual({ key: '2026-09-21', label: '09-21', count: 1 });
     expect(result.latestBoards).toEqual([board]);
+    expect(result.currentBoards).toEqual([]);
+    expect(result.departureChecks).toEqual([]);
     expect(result.viaSequences).toEqual([['LIM']]);
   });
 

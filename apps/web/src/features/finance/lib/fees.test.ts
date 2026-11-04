@@ -39,6 +39,10 @@ const account: AccountNode = {
 };
 
 describe('applyFee', () => {
+  it('rounds a half-cent fee result to a cent at the charge step', () => {
+    expect(applyFee(0.01, percent(50))).toBe(0.01);
+  });
+
   it('takes a percent of the amount it is given', () => {
     expect(applyFee(1000, percent(10))).toBeCloseTo(900);
   });

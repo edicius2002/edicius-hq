@@ -111,6 +111,27 @@ describe('Airfare request boundary', () => {
     ).toThrow('malformed_request');
   });
 
+  it('decodes the Pi count of confirmed empty departures while accepting old results', () => {
+    const base = {
+      origin: 'LIM',
+      destination: 'CUZ',
+      month: '2026-11',
+      lookedAt: 2,
+      changed: 0,
+      failed: 0,
+      skipped: 0,
+      synced: true,
+    };
+    const legacy = decodeAirfareRequest({ ...ROW, status: 'complete', result: base });
+    const current = decodeAirfareRequest({
+      ...ROW,
+      status: 'complete',
+      result: { ...base, noOffers: 2 },
+    });
+    expect(legacy.result?.noOffers).toBe(0);
+    expect(current.result?.noOffers).toBe(2);
+  });
+
   it('reads only live active Airfare route requests', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-19T12:00:00.000Z'));

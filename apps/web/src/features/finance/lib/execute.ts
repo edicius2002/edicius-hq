@@ -1,4 +1,5 @@
 import { computeTransfer, isOverdrawnByFees } from '@/features/finance/lib/fees';
+import { addMoney, moneyAmount } from '@/features/finance/lib/money';
 import { formatAmount } from '@/shared/lib/money';
 import { selectAllocation } from '@/features/finance/lib/summary';
 import type { AssetCode, Diagram, FlowId, FinanceNode } from '@/features/finance/model/types';
@@ -84,7 +85,7 @@ export function canExecuteFlow(diagram: Diagram, id: FlowId): Result<null, Execu
     return err({ code: 'account-endpoint' });
   }
 
-  const gross = flow.amount ?? 0;
+  const gross = moneyAmount(flow.amount) ?? 0;
   if (!(gross > 0)) return err({ code: 'no-amount' });
 
   // Both ends must speak the same asset. The legacy refused to convert rather
@@ -100,7 +101,7 @@ export function canExecuteFlow(diagram: Diagram, id: FlowId): Result<null, Execu
     return err({ code: 'fees-exceed-amount' });
   }
 
-  const held = heldOf(source, flow.asset);
+  const held = moneyAmount(heldOf(source, flow.asset));
   if (held === null || held < gross) {
     return err({ code: 'insufficient', asset: flow.asset, held: held ?? 0, needed: gross });
   }
@@ -115,12 +116,12 @@ export function canExecuteFlow(diagram: Diagram, id: FlowId): Result<null, Execu
 }
 
 function creditedTo(node: FinanceNode, asset: AssetCode, amount: number): FinanceNode {
-  if (node.kind === 'holding') return { ...node, amount: (node.amount ?? 0) + amount };
+  if (node.kind === 'holding') return { ...node, amount: addMoney(node.amount ?? 0, amount) };
   if (node.kind === 'job') {
     return {
       ...node,
       balances: node.balances.map((item) =>
-        item.asset === asset ? { ...item, amount: (item.amount ?? 0) + amount } : item,
+        item.asset === asset ? { ...item, amount: addMoney(item.amount ?? 0, amount) } : item,
       ),
     };
   }
@@ -141,7 +142,7 @@ export function executeFlow(diagram: Diagram, id: FlowId): Diagram {
   const flow = diagram.flows[id];
   const source = diagram.nodes[flow.from];
   const target = diagram.nodes[flow.to];
-  const gross = flow.amount ?? 0;
+  const gross = moneyAmount(flow.amount) ?? 0;
   const { net } = computeTransfer(gross, source, target);
 
   return {

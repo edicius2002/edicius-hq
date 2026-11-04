@@ -87,6 +87,25 @@ it('switches sources and ranges without mislabeling cached history', async () =>
     favorites: [],
   });
 });
+
+it('selects a source when clicking the row background or a quote cell', async () => {
+  const user = userEvent.setup();
+  mount();
+  expect(await screen.findByRole('region', { name: 'Kambista USD/PEN history' })).toBeVisible();
+
+  const sbsRow = screen.getByRole('button', { name: 'Select SBS reference' }).closest('tr')!;
+  await user.click(sbsRow);
+  expect(
+    await screen.findByRole('region', { name: 'SBS reference USD/PEN history' }),
+  ).toBeVisible();
+  expect(sbsRow).toHaveAttribute('data-selected', 'true');
+
+  const tuCambistaRow = screen.getByRole('button', { name: 'Select Tu Cambista' }).closest('tr')!;
+  await user.click(within(tuCambistaRow).getAllByRole('cell')[2]);
+  expect(await screen.findByRole('region', { name: 'Tu Cambista USD/PEN history' })).toBeVisible();
+  expect(tuCambistaRow).toHaveAttribute('data-selected', 'true');
+});
+
 it('keeps source order despite saved favorites and names the selected chart', async () => {
   localStorage.setItem(
     'edicius.fx.preferences',

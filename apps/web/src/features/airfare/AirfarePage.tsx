@@ -26,13 +26,12 @@ import {
   snapshotsForMonths,
 } from '@/features/airfare/lib/series';
 import { AnalysisPanel, ANALYSIS_PANEL_ID } from '@/features/airfare/ui/AnalysisPanel';
-import { CollectNotices } from '@/features/airfare/ui/CollectNotices';
 import { FlightTable } from '@/features/airfare/ui/FlightTable';
 import { ProjectedFlightTable } from '@/features/airfare/ui/ProjectedFlightTable';
 import { RouteDetail } from '@/features/airfare/ui/RouteDetail';
 import { RouteList } from '@/features/airfare/ui/RouteList';
 import { RouteMap, type Projection } from '@/features/airfare/ui/RouteMap';
-import type { Airport } from '@/shared/api/fares';
+import type { Airport, FareSnapshot } from '@/shared/api/fares';
 import { Panel } from '@/shared/ui/Panel';
 import { SaveStatus } from '@/shared/ui/SaveStatus';
 
@@ -46,6 +45,7 @@ const EMPTY_AIRPORTS = new Map<string, Airport>();
 /** Same reason as `EMPTY_AIRPORTS`: one identity for "this route watches nothing". */
 const EMPTY_MONTHS: readonly string[] = [];
 const EMPTY_VIA_SEQUENCES: string[][] = [];
+const EMPTY_FARE_SNAPSHOTS: FareSnapshot[] = [];
 
 /** Today as a calendar date, in the reader's own zone — which is when they fly. */
 function todayIso(): string {
@@ -55,7 +55,6 @@ function todayIso(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-/* eslint-disable react-hooks/preserve-manual-memoization -- Watchlist updates replace route objects; the explicit memos keep chart and globe work stable. */
 export function AirfarePage() {
   // Read once per mount rather than per render: a value that changes mid-render
   // would make the "already departed" test flip under a route the reader is
@@ -208,6 +207,7 @@ export function AirfarePage() {
   const {
     primary: history,
     secondaryBoards,
+    secondaryChecks,
     unavailableMonths,
   } = useFareProjections(selected, activeMonth);
   // Beside the archive rather than inside the panel that draws it: the two are
@@ -265,12 +265,30 @@ export function AirfarePage() {
    * dropped month under the current route.
    */
   const watchedSnapshots = useMemo(
-    () => snapshotsForMonths([...snapshots, ...secondaryBoards], watchedMonths),
-    [snapshots, secondaryBoards, watchedMonths],
+    () =>
+      snapshotsForMonths(
+        [...(history.data?.currentBoards ?? EMPTY_FARE_SNAPSHOTS), ...secondaryBoards],
+        watchedMonths,
+      ),
+    [history.data, secondaryBoards, watchedMonths],
+  );
+  const confirmedEmptyDates = useMemo(
+    () =>
+      [...(history.data?.departureChecks ?? []), ...(secondaryChecks ?? [])]
+        .filter(
+          (check) =>
+            check.outcome === 'no-offers' && watchedMonths.includes(monthOf(check.flightDate)),
+        )
+        .map((check) => check.flightDate),
+    [history.data, secondaryChecks, watchedMonths],
   );
   const collectedMonths = useMemo(
-    () => new Set(watchedSnapshots.map((snapshot) => monthOf(snapshot.flightDate))),
-    [watchedSnapshots],
+    () =>
+      new Set([
+        ...watchedSnapshots.map((snapshot) => monthOf(snapshot.flightDate)),
+        ...confirmedEmptyDates.map(monthOf),
+      ]),
+    [watchedSnapshots, confirmedEmptyDates],
   );
 
   /*
@@ -308,12 +326,17 @@ export function AirfarePage() {
     [history.data, today],
   );
 
-  // The board the detail panel describes: the cheapest departure in the
-  // watched month as it was last seen, not the last snapshot written — that
-  // one belongs to whichever departure the collector reached last, which says
-  // something about the pacing and nothing about the fares.
-  const latest = useMemo(() => cheapestDeparture(snapshots), [snapshots]);
-  const insights = useMemo(() => monthInsights(snapshots, latest), [snapshots, latest]);
+  // The detail panel says "Cheapest now", so its candidate boards must be
+  // confirmed current. The price-history chart still reads `snapshots`.
+  const currentSnapshots = useMemo(
+    () => history.data?.currentBoards ?? EMPTY_FARE_SNAPSHOTS,
+    [history.data],
+  );
+  const latest = useMemo(() => cheapestDeparture(currentSnapshots), [currentSnapshots]);
+  const insights = useMemo(
+    () => monthInsights(currentSnapshots, latest),
+    [currentSnapshots, latest],
+  );
   const health = history.data?.health ?? null;
   const stopRoutes = useMemo(() => {
     /*
@@ -522,19 +545,11 @@ export function AirfarePage() {
         <Panel
           className={`${styles.tall} ${styles.panel} ${styles.routesPanel}`}
           onClick={(event) => {
-            const target = event.target;
-            if (
-              target !== event.currentTarget &&
-              !(target instanceof Element && target.tagName === 'HEADER')
-            )
-              return;
+            if (event.target !== event.currentTarget) return;
             setSelectedId(null);
             setEditingId(null);
           }}
         >
-          <header className={styles.panelHead}>
-            <h2 className={styles.panelTitle}>Watched routes</h2>
-          </header>
           {(watchlist.saveState === 'failed' || watchlist.saveState === 'blocked') && (
             <SaveStatus state={watchlist.saveState} onRetry={watchlist.retrySave} />
           )}
@@ -554,6 +569,7 @@ export function AirfarePage() {
             editing={editing}
             collecting={rowCollection.collecting}
             progress={rowCollection.progress}
+            notices={rowCollection.notices}
             onCollect={rowCollection.collect}
             onSelect={(id) => {
               setSelectedId(id);
@@ -642,6 +658,7 @@ export function AirfarePage() {
             latest={latest}
             insights={insights}
             health={health}
+            availabilityKnown={history.data?.availabilityKnown ?? false}
             cities={cities}
             /* A pending archive is not an empty one; keep the detail's loading copy honest. */
             loading={history.isPending}
@@ -690,6 +707,7 @@ export function AirfarePage() {
           watchedMonths={watchedMonths}
           monthSnapshots={snapshots}
           watchedSnapshots={watchedSnapshots}
+          confirmedEmptyDates={confirmedEmptyDates}
           baseline={[]}
           priceDays={history.data?.priceDays}
           providerDays={history.data?.providerDays}
@@ -760,7 +778,14 @@ export function AirfarePage() {
           the same object the analysis panel above is given, so the two panels
           cannot disagree about which flights are reachable.
         */}
-        {selected && reading && history.data && history.data.revision !== 'archive' ? (
+        {selected && reading && history.data && !history.data.availabilityKnown ? (
+          <p className={styles.note} role="status">
+            {history.data.latestCapture
+              ? `Historical observations last captured ${history.data.latestCapture.slice(0, 10)}. `
+              : 'No historical observations yet. '}
+            Current flight offers are unavailable until this month has confirmed date checks.
+          </p>
+        ) : selected && reading && history.data && history.data.revision !== 'archive' ? (
           <ProjectedFlightTable
             key={selectedKey}
             route={selected}
@@ -784,12 +809,19 @@ export function AirfarePage() {
         )}
       </Panel>
 
-      {/*
-        Request acceptance and terminal outcomes appear in the fixed toast
-        stack. The scheduled collector never creates these notices.
-      */}
-      <CollectNotices notices={rowCollection.notices} />
+      {rowCollection.notices.length > 0 ? (
+        <div className={styles.collectAnnouncements} data-testid="collect-announcements">
+          {rowCollection.notices.map((notice) => (
+            <div
+              key={notice.id}
+              role={notice.kind === 'error' ? 'alert' : 'status'}
+              aria-atomic="true"
+            >
+              {notice.title} {notice.text} {notice.detail}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
-/* eslint-enable react-hooks/preserve-manual-memoization */

@@ -22,6 +22,7 @@ import {
 } from '@/features/finance/lib/history';
 import { executeFlow } from '@/features/finance/lib/execute';
 import * as ops from '@/features/finance/lib/operations';
+import { placeNewNode, type PlacementView } from '@/features/finance/lib/placement';
 import { err, ok, type Result } from '@/features/finance/lib/result';
 import type {
   AssetCode,
@@ -189,7 +190,8 @@ export function useFinanceData() {
     diagrams: document.diagrams,
     activeDiagramId: document.activeDiagramId,
     addDiagram: () => editDocument((doc) => addDiagram(doc, newId())),
-    duplicateDiagram: (id: DiagramId) => editDocument((doc) => duplicateDiagram(doc, id, newId())),
+    duplicateDiagram: (id: DiagramId, copyId: DiagramId = newId()) =>
+      editDocument((doc) => duplicateDiagram(doc, id, copyId)),
     renameDiagram: (id: DiagramId, name: string) =>
       editDocument((doc) => renameDiagram(doc, id, name)),
     selectDiagram: (id: DiagramId) => editDocument((doc) => setActiveDiagram(doc, id)),
@@ -206,6 +208,10 @@ export function useFinanceData() {
     // the run rather than through it.
     addJob: (position: Point) => run((d) => ops.addJob(d, { id: newId(), position })),
     addAccount: (position: Point) => run((d) => ops.addAccount(d, { id: newId(), position })),
+    addJobNearCenter: (view: PlacementView) =>
+      run((d) => ops.addJob(d, { id: newId(), position: placeNewNode(d, 'job', view) })),
+    addAccountNearCenter: (view: PlacementView) =>
+      run((d) => ops.addAccount(d, { id: newId(), position: placeNewNode(d, 'account', view) })),
     addHolding: (accountId: NodeId, asset: string, position: Point) =>
       runResult((d) => ops.addHolding(d, { id: newId(), accountId, asset, position })),
 

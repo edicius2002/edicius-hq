@@ -112,6 +112,15 @@ export function useRouteCollection(): RouteCollection {
       handledTerminal.current.add(request.requestId);
       const notice = terminalCollectNotice(request);
       if (notice) showNotice(notice);
+      void client.invalidateQueries({
+        queryKey: [
+          'fares',
+          'latestRequest',
+          request.payload.origin,
+          request.payload.destination,
+          request.payload.month,
+        ],
+      });
       if (request.status !== 'complete') return;
       for (const queryKey of [
         ['fares', 'history', request.payload.origin, request.payload.destination],
@@ -229,6 +238,7 @@ export function useRouteCollection(): RouteCollection {
           showNotice({
             id: noticeId,
             routeId: id,
+            monthKey: key,
             title: `${route.origin} → ${route.destination}`,
             text: 'Collection request could not be accepted. Try again.',
             kind: 'error',

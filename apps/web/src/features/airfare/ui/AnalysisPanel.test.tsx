@@ -213,6 +213,11 @@ it('shows both charts and the departure controls without a chart toggle on deskt
   expect(screen.getByText('2 / 31')).toBeInTheDocument();
 });
 
+it('does not show a persistent fetch status panel after collection', () => {
+  render(<Harness monthSnapshots={[]} watchedSnapshots={[]} />);
+  expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();
+});
+
 it('keeps the desktop route heading on the selected month while the departure title follows its frame', () => {
   vi.stubGlobal('matchMedia', () => ({
     matches: false,

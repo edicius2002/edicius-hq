@@ -223,6 +223,7 @@ type AnalysisPanelProps = {
   monthSnapshots: FareSnapshot[];
   /** The archive for every watched month — chart B's. */
   watchedSnapshots: FareSnapshot[];
+  confirmedEmptyDates?: readonly string[];
   baseline: FarePricePoint[];
   /** Persisted daily series when the historical archive has not been downloaded. */
   priceDays?: Bucket[];
@@ -300,6 +301,7 @@ export function AnalysisPanel({
   watchedMonths,
   monthSnapshots,
   watchedSnapshots,
+  confirmedEmptyDates = [],
   baseline,
   priceDays,
   providerDays,
@@ -419,7 +421,10 @@ export function AnalysisPanel({
   // month whose snapshots the page had already thrown away could never be
   // offered as a period, so fixing `isWatched` alone would have left the frame
   // unable to walk to the boards it had just learned to draw.
-  const boardDays = useMemo(() => departureDays(watchedSnapshots), [watchedSnapshots]);
+  const boardDays = useMemo(
+    () => [...new Set([...departureDays(watchedSnapshots), ...confirmedEmptyDates])].sort(),
+    [watchedSnapshots, confirmedEmptyDates],
+  );
   const keys = useMemo(
     () => framePeriodKeys(boardDays, curve, granularity),
     [boardDays, curve, granularity],
@@ -504,6 +509,7 @@ export function AnalysisPanel({
         unavailableMonths={unavailableMonths}
         key={routeKey ?? 'none'}
         snapshots={watchedSnapshots}
+        confirmedEmptyDates={confirmedEmptyDates}
         curve={curve}
         watched={watched}
         granularity={granularity}

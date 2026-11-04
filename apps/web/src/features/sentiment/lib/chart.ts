@@ -72,15 +72,25 @@ const NUMBER = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 });
 
-export function formatSeriesValue(value: number, unit: string): string {
-  return `${NUMBER.format(value)} ${unit}`;
+export function formatChartValue(value: number): string {
+  return NUMBER.format(value);
 }
 
-export function formatChartDate(timestamp: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+export function formatSeriesValue(value: number, unit: string): string {
+  return `${formatChartValue(value)} ${unit}`;
+}
+
+export function historySpansMoreThanYear(time: ChartLayout['time']): boolean {
+  const anniversary = new Date(time.min);
+  anniversary.setUTCFullYear(anniversary.getUTCFullYear() + 1);
+  return time.max > anniversary.getTime();
+}
+
+export function formatChartDate(timestamp: string, showYear: boolean): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    ...(showYear ? { year: '2-digit' as const } : {}),
     timeZone: 'UTC',
   }).format(new Date(timestamp));
 }

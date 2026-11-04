@@ -54,8 +54,9 @@ import asyncio
 import logging
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from time import monotonic, perf_counter
 from typing import Protocol
 
@@ -286,6 +287,8 @@ class RouteResult:
     #: Set only when `ok` is false. The machine-readable half of `FareError`.
     error_code: str | None = None
     error_message: str | None = None
+    #: Two valid Google answers agreed that this departure has no itineraries.
+    no_offers: bool = False
 
     @property
     def route(self) -> str:
@@ -317,6 +320,10 @@ class CollectionReport:
     @property
     def failed(self) -> int:
         return sum(1 for result in self.results if not result.ok)
+
+    @property
+    def no_offers(self) -> int:
+        return sum(1 for result in self.results if result.no_offers)
 
     @property
     def changed(self) -> int:
@@ -477,7 +484,15 @@ async def collect(
                             return None
                     finally:
                         unreserved -= 1
-                    result, written = await _collect_one(session, query, provider, store)
+
+                    async def reserve_retry() -> bool:
+                        return await request_pacer.wait(
+                            gap_seconds=gap_seconds, before_start=reserve
+                        )
+
+                    result, written = await _collect_confirmed(
+                        session, query, provider, store, reserve_retry
+                    )
                     if observer is not None:
                         observer.collected(result, written)
                     return result
@@ -530,6 +545,20 @@ async def collect(
                     len(queries),
                 )
         else:
+
+            async def reserve_retry(query: FareQuery) -> bool:
+                def reserve() -> bool:
+                    if deadline_seconds is not None and perf_counter() - began >= deadline_seconds:
+                        return False
+                    if not allowance.affords():
+                        return False
+                    allowance.take(
+                        kind="board", what=f"{query.route} {query.flight_date}", pass_id=pass_id
+                    )
+                    return True
+
+                return await request_pacer.wait(gap_seconds=gap_seconds, before_start=reserve)
+
             for index, query in enumerate(queries):
                 # Beside the budget check and shaped like it, because they are the
                 # same kind of stop: wanted, and refused before it was sent.
@@ -562,7 +591,9 @@ async def collect(
                 allowance.take(
                     kind="board", what=f"{query.route} {query.flight_date}", pass_id=pass_id
                 )
-                result, written = await _collect_one(session, query, provider, store)
+                result, written = await _collect_confirmed(
+                    session, query, provider, store, partial(reserve_retry, query)
+                )
                 results.append(result)
                 if observer is not None:
                     observer.collected(result, written)
@@ -1470,6 +1501,8 @@ async def _collect_one(
     try:
         result = await fetch_search(client, query, provider=provider)
     except FareError as error:
+        if error.code == "no-offers":
+            return outcome(ok=False, error_code=error.code, error_message=error.message), None
         logger.warning("fare collection refused %s: %s", query.route, error.message)
         store.record_check(
             query.origin,
@@ -1567,3 +1600,43 @@ async def _collect_one(
         # point that is not in the file behind it.
         snapshot if changed else None,
     )
+
+
+async def _collect_confirmed(
+    client: httpx.AsyncClient,
+    query: FareQuery,
+    provider: str,
+    store: FareHistory,
+    reserve_retry: Callable[[], Awaitable[bool]],
+) -> tuple[RouteResult, FareSnapshot | None]:
+    first, written = await _collect_one(client, query, provider, store)
+    if first.error_code != "no-offers":
+        return first, written
+
+    if not await reserve_retry():
+        store.record_check(
+            query.origin,
+            query.destination,
+            query.flight_date,
+            at=_now(),
+            outcome="error",
+            error_code="confirmation-unavailable",
+        )
+        return replace(
+            first,
+            error_code="confirmation-unavailable",
+            error_message="Could not confirm the empty result within this pass's limits",
+        ), None
+
+    second, written = await _collect_one(client, query, provider, store)
+    if second.error_code != "no-offers":
+        return second, written
+
+    store.record_check(
+        query.origin,
+        query.destination,
+        query.flight_date,
+        at=_now(),
+        outcome="no-offers",
+    )
+    return replace(second, ok=True, no_offers=True, error_code=None, error_message=None), None

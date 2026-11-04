@@ -121,7 +121,7 @@ describe('the three-panel airfare row', () => {
     expect(content).toBeGreaterThan(fourRowTabs);
     expect(content).toBeGreaterThan(fourFormChips);
     expect(rule('row', LIST)).toMatch(
-      /grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\) auto/,
+      /grid-template-columns:\s*minmax\(0, 0\.9fr\) minmax\(0, 1fr\) 86px/,
     );
     expect(narrowList).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
     expect(narrowForm).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/);

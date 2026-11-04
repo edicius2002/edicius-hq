@@ -1,4 +1,5 @@
 import { FRAME_MIN_SIZE } from '@/features/finance/lib/frames';
+import { moneyAmount } from '@/features/finance/lib/money';
 import {
   ANCHORS,
   DOCUMENT_VERSION,
@@ -155,6 +156,10 @@ function toAmount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function toMoneyAmount(value: unknown): number | null {
+  return moneyAmount(toAmount(value));
+}
+
 function toPoint(value: unknown): Point {
   if (!isRecord(value)) return { x: 0, y: 0 };
   return { x: toAmount(value.x) ?? 0, y: toAmount(value.y) ?? 0 };
@@ -162,7 +167,7 @@ function toPoint(value: unknown): Point {
 
 function toFee(value: unknown): Fee | null {
   if (!isRecord(value)) return null;
-  const amount = toAmount(value.value);
+  const amount = toMoneyAmount(value.value);
   if (amount === null) return null;
   const type = value.type === 'fixed' ? 'fixed' : 'percent';
   // A percent above 100 would flip the transfer negative.
@@ -191,7 +196,7 @@ function toBalances(value: unknown): Balance[] {
     seen.add(asset);
     balances.push({
       asset,
-      amount: toAmount(entry.amount),
+      amount: toMoneyAmount(entry.amount),
       active: entry.active !== false,
     });
   }
@@ -230,7 +235,7 @@ function toNode(value: unknown): FinanceNode | null {
     kind: 'holding',
     accountId,
     asset: toAsset(value.asset),
-    amount: toAmount(value.amount),
+    amount: toMoneyAmount(value.amount),
     fees: toFeePolicy(value.fees),
     active: value.active !== false,
   };
@@ -250,7 +255,7 @@ function toFlow(value: unknown): Flow | null {
     to,
     fromAnchor: toAnchor(value.fromAnchor, 'r'),
     toAnchor: toAnchor(value.toAnchor, 'l'),
-    amount: toAmount(value.amount),
+    amount: toMoneyAmount(value.amount),
     asset: toAsset(value.asset),
     label: toText(value.label),
     notes: toText(value.notes),

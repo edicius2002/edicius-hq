@@ -1,6 +1,7 @@
 import { useState, type InputHTMLAttributes } from 'react';
 
 import { amountToInput, parseAmount } from '@/shared/lib/money';
+import { moneyAmount } from '@/features/finance/lib/money';
 
 type AmountInputProps = Omit<
   InputHTMLAttributes<HTMLInputElement>,
@@ -38,11 +39,12 @@ export function AmountInput({ value, onChange, ...rest }: AmountInputProps) {
       // The numeric keypad on a phone, without the spinner and the locale
       // rendering that come with `type="number"`.
       inputMode="decimal"
-      value={draft ?? amountToInput(value)}
+      value={draft ?? amountToInput(moneyAmount(value))}
       onChange={(event) => {
         const next = event.target.value.replace(/\./g, ',');
+        if (!/^-?\d*(?:,\d{0,2})?$/.test(next)) return;
         setDraft(next);
-        onChange(parseAmount(next));
+        onChange(moneyAmount(parseAmount(next)));
       }}
       onBlur={(event) => {
         setDraft(null);

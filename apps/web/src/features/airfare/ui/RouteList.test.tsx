@@ -24,6 +24,7 @@ function renderList(overrides: Partial<React.ComponentProps<typeof RouteList>> =
     editing: null as FareRoute | null,
     collecting: [] as readonly string[],
     progress: new Map<string, AirfareRequestProgress>(),
+    notices: [] as React.ComponentProps<typeof RouteList>['notices'],
     onSelect: vi.fn(),
     onOpenMonth: vi.fn(),
     onRemove: vi.fn(),
@@ -699,7 +700,9 @@ describe('RouteList', () => {
       name: 'Fetching LIM → CUZ, October 2026, downloading 12%',
     });
     expect(busy).toBeDisabled();
-    expect(busy).toHaveTextContent('↓ 12%');
+    expect(busy).toHaveTextContent('12%');
+    expect(busy).not.toHaveTextContent(/[A-Za-z]/);
+    expect(busy.querySelector('svg')).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 
     rerender(<RouteList {...props} activeMonth="2026-12" />);
@@ -719,7 +722,93 @@ describe('RouteList', () => {
       screen.getByRole('button', {
         name: 'Fetching LIM → CUZ, October 2026, syncing 25%',
       }),
-    ).toHaveTextContent('↑ 25%');
+    ).toHaveTextContent('25%');
+  });
+
+  it('marks only the collecting month of the matching route direction', () => {
+    const outward = { ...ROUTES[0], months: ['2026-10', '2026-11'] };
+    const reverse: FareRoute = {
+      origin: 'CUZ',
+      destination: 'LIM',
+      months: ['2026-10'],
+      currency: 'USD',
+    };
+    const other: FareRoute = {
+      origin: 'AQP',
+      destination: 'LIM',
+      months: ['2026-10'],
+      currency: 'USD',
+    };
+    const { props, rerender } = renderList({
+      routes: [outward, reverse, other],
+      selectedId: 'LIM|CUZ',
+      collecting: ['LIM|CUZ|2026-10'],
+    });
+    const outwardMonths = screen.getByRole('group', { name: 'Months watched for LIM → CUZ' });
+    expect(within(outwardMonths).getByRole('button', { name: /October 2026/ })).toHaveAttribute(
+      'data-fetching',
+      'true',
+    );
+    expect(
+      within(outwardMonths).getByRole('button', { name: 'November 2026' }),
+    ).not.toHaveAttribute('data-fetching');
+    expect(
+      within(screen.getByRole('group', { name: 'Months watched for AQP → LIM' })).getByRole(
+        'button',
+        { name: 'October 2026' },
+      ),
+    ).not.toHaveAttribute('data-fetching');
+
+    rerender(<RouteList {...props} selectedId="CUZ|LIM" />);
+    const reverseMonths = screen.getByRole('group', { name: 'Months watched for CUZ → LIM' });
+    expect(within(reverseMonths).getByRole('button', { name: 'October 2026' })).not.toHaveAttribute(
+      'data-fetching',
+    );
+
+    rerender(<RouteList {...props} selectedId="CUZ|LIM" collecting={['CUZ|LIM|2026-10']} />);
+    expect(within(reverseMonths).getByRole('button', { name: /October 2026/ })).toHaveAttribute(
+      'data-fetching',
+      'true',
+    );
+  });
+
+  it('shows the terminal result in the fixed fetch button for that month', () => {
+    const route = { ...ROUTES[0], months: ['2026-10', '2026-11'] };
+    const { props, rerender } = renderList({
+      routes: [route],
+      selectedId: 'LIM|CUZ',
+      activeMonth: '2026-10',
+      notices: [
+        {
+          id: 'request-1',
+          routeId: 'LIM|CUZ',
+          monthKey: 'LIM|CUZ|2026-10',
+          title: 'LIM → CUZ · October 2026',
+          text: 'Collection complete: 2 departures checked, 1 updated.',
+          kind: 'success',
+        },
+      ],
+    });
+    const success = screen.getByRole('button', { name: /Collection complete: 2 departures/ });
+    expect(success).toHaveAttribute('data-result', 'success');
+    expect(success).toBeEnabled();
+    expect(success).not.toHaveTextContent(/[A-Za-z]/);
+
+    rerender(<RouteList {...props} activeMonth="2026-11" />);
+    expect(
+      screen.getByRole('button', { name: 'Fetch LIM → CUZ now, November 2026' }),
+    ).not.toHaveAttribute('data-result');
+
+    rerender(
+      <RouteList
+        {...props}
+        notices={[{ ...props.notices[0], kind: 'error', text: 'Collection failed. Try again.' }]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /Collection failed. Try again./ })).toHaveAttribute(
+      'data-result',
+      'error',
+    );
   });
 
   it('names each phase before its denominator is known', () => {
@@ -731,11 +820,11 @@ describe('RouteList', () => {
       collecting: [key],
       progress: new Map([[key, { stage: 'submitting', completed: 0, total: null }]]),
     });
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, submitting',
-      }),
-    ).toHaveTextContent('Sending');
+    const submitting = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, submitting',
+    });
+    expect(submitting).toHaveTextContent(/^$/);
+    expect(submitting.querySelector('svg')).toBeInTheDocument();
 
     rerender(
       <RouteList
@@ -743,11 +832,11 @@ describe('RouteList', () => {
         progress={new Map([[key, { stage: 'queued', completed: 0, total: null }]])}
       />,
     );
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, queued',
-      }),
-    ).toHaveTextContent('Queued');
+    const queued = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, queued',
+    });
+    expect(queued).toHaveTextContent(/^$/);
+    expect(queued.querySelector('svg')).toBeInTheDocument();
 
     rerender(
       <RouteList
@@ -755,11 +844,11 @@ describe('RouteList', () => {
         progress={new Map([[key, { stage: 'collecting', completed: 0, total: null }]])}
       />,
     );
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, downloading, preparing',
-      }),
-    ).toHaveTextContent('↓ Preparing');
+    const downloading = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, downloading, preparing',
+    });
+    expect(downloading).toHaveTextContent(/^$/);
+    expect(downloading.querySelector('svg')).toBeInTheDocument();
 
     rerender(
       <RouteList
@@ -767,11 +856,11 @@ describe('RouteList', () => {
         progress={new Map([[key, { stage: 'syncing', completed: 0, total: null }]])}
       />,
     );
-    expect(
-      screen.getByRole('button', {
-        name: 'Fetching LIM → CUZ, October 2026, syncing, preparing',
-      }),
-    ).toHaveTextContent('↑ Preparing');
+    const syncing = screen.getByRole('button', {
+      name: 'Fetching LIM → CUZ, October 2026, syncing, preparing',
+    });
+    expect(syncing).toHaveTextContent(/^$/);
+    expect(syncing.querySelector('svg')).toBeInTheDocument();
   });
 
   it('does not render inline terminal report text', () => {

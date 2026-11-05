@@ -10,12 +10,12 @@ fake, immediately returning Yahoo client. No Supabase or Yahoo calls are made by
 this local probe. Each run lasted 12.5 s; an optional fake broadcast POST took
 100 ms. Intervals use `time.monotonic()`; p95 is linearly interpolated.
 
-| Simulated POST | Source | Quote broadcasts | Quote interval p50 / p95 | Yahoo fetches | Yahoo interval p50 / p95 |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 0 ms | Baseline | 24 | 513.1 / 516.1 ms | 3 | 5001.6 / 5001.9 ms |
-| 0 ms | Branch | 47 | 264.2 / 267.0 ms | 7 | 2008.5 / 2013.8 ms |
-| 100 ms | Baseline | 20 | 606.7 / 609.9 ms | 3 | 5006.1 / 5010.7 ms |
-| 100 ms | Branch | 35 | 357.9 / 360.7 ms | 7 | 2008.8 / 2010.8 ms |
+| Simulated POST | Source   | Quote broadcasts | Quote interval p50 / p95 | Yahoo fetches | Yahoo interval p50 / p95 |
+| -------------- | -------- | ---------------: | -----------------------: | ------------: | -----------------------: |
+| 0 ms           | Baseline |               24 |         513.1 / 516.1 ms |             3 |       5001.6 / 5001.9 ms |
+| 0 ms           | Branch   |               47 |         264.2 / 267.0 ms |             7 |       2008.5 / 2013.8 ms |
+| 100 ms         | Baseline |               20 |         606.7 / 609.9 ms |             3 |       5006.1 / 5010.7 ms |
+| 100 ms         | Branch   |               35 |         357.9 / 360.7 ms |             7 |       2008.8 / 2010.8 ms |
 
 The scheduled pause starts after a broadcast POST finishes, so its latency adds
 to the observed quote interval. A Yahoo fetch likewise adds to the focused

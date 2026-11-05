@@ -10,6 +10,10 @@
   height: 300px;
 }
 
+.mobileList {
+  display: none;
+}
+
 .grid {
   stroke: rgba(255, 255, 255, 0.06);
   stroke-width: 1;
@@ -70,4 +74,55 @@
   color: var(--color-muted);
   margin: 1.75rem 0;
   text-align: center;
+}
+
+@media (max-width: 700px) {
+  .wrap {
+    min-height: 0;
+  }
+
+  .svg {
+    display: none;
+  }
+
+  .mobileList {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .mobileRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.2rem var(--space-2);
+    align-items: center;
+    min-width: 0;
+    font-size: 0.72rem;
+  }
+
+  .mobileLabel {
+    color: var(--color-muted);
+  }
+
+  .mobileValue {
+    color: var(--color-income);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mobileTrack {
+    grid-column: 1 / -1;
+    height: 0.45rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--color-surface-soft);
+  }
+
+  .mobileBar {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-income);
+  }
 }

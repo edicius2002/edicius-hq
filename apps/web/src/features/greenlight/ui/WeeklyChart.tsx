@@ -43,14 +43,15 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
     // The bars stay complete; only date labels thin out when space is limited.
     const maxLabels = Math.max(2, Math.floor(plotW / 72));
     const labelStep = points.length > maxLabels ? Math.ceil(points.length / maxLabels) : 1;
-    return { width, height, pad, ticks, bars, baseY, groupW, barW, labelStep, xAt, yAt };
+    return { width, height, pad, ticks, bars, baseY, groupW, barW, labelStep, maxValue, xAt, yAt };
   }, [points, measuredWidth]);
 
   if (!points.length) {
     return <p className={styles.empty}>No weeks to chart yet.</p>;
   }
 
-  const { width, height, pad, ticks, bars, baseY, groupW, barW, labelStep, xAt, yAt } = layout;
+  const { width, height, pad, ticks, bars, baseY, groupW, barW, labelStep, maxValue, xAt, yAt } =
+    layout;
   const hover = hoverIndex === null ? null : bars[hoverIndex];
 
   function onMove(event: PointerEvent<SVGSVGElement>) {
@@ -66,6 +67,27 @@ export function WeeklyChart({ points }: WeeklyChartProps) {
 
   return (
     <div className={styles.wrap} ref={wrapRef}>
+      <ol className={styles.mobileList} aria-label="Weekly deliverable values">
+        {points.map((point) => (
+          <li className={styles.mobileRow} key={point.key}>
+            <span className={styles.mobileLabel}>{point.label}</span>
+            <strong className={styles.mobileValue}>{formatBarMoney(point.amount)}</strong>
+            <span
+              className={styles.mobileTrack}
+              role="meter"
+              aria-label={`${point.label} deliverable value`}
+              aria-valuemin={0}
+              aria-valuemax={Math.max(maxValue, 1)}
+              aria-valuenow={Math.max(point.amount, 0)}
+            >
+              <span
+                className={styles.mobileBar}
+                style={{ width: `${maxValue ? Math.max((point.amount / maxValue) * 100, 0) : 0}%` }}
+              />
+            </span>
+          </li>
+        ))}
+      </ol>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}

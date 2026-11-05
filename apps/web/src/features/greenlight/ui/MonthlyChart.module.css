@@ -1,8 +1,18 @@
 .wrap {
+  position: relative;
   width: 100%;
   min-height: 300px;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .svg {

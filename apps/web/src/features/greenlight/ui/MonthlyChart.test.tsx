@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { MonthlyChart } from '@/features/greenlight/ui/MonthlyChart';
@@ -9,6 +9,15 @@ const POINTS = [
 ];
 
 describe('MonthlyChart', () => {
+  it('exposes each month and value to assistive technology', () => {
+    render(<MonthlyChart points={POINTS} />);
+
+    const values = within(
+      screen.getByRole('list', { name: 'Monthly deliverable values' }),
+    ).getAllByRole('listitem');
+    expect(values.map((item) => item.textContent)).toEqual(['Jun 2026: $100', 'Jul 2026: $200']);
+  });
+
   it('draws horizontal month bars against a money X axis on mobile', () => {
     render(<MonthlyChart points={POINTS} />);
 

@@ -65,6 +65,13 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
       role="region"
       aria-label="Monthly chart"
     >
+      <ul className={styles.srOnly} aria-label="Monthly deliverable values">
+        {points.map((point) => (
+          <li key={point.key}>
+            {point.label}: {formatBarMoney(point.amount)}
+          </li>
+        ))}
+      </ul>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}

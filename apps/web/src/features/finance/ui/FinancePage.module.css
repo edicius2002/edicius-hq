@@ -225,8 +225,10 @@
 
   .headerActions button {
     font-size: 0.6rem;
+    line-height: 1.1;
     min-width: 0;
-    padding: 4px 5px;
+    overflow-wrap: anywhere;
+    padding: 4px 3px;
     width: 100%;
   }
 
@@ -236,7 +238,8 @@
 
   .toolbar {
     display: grid;
-    gap: var(--space-2);
+    gap: var(--space-1);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-block: 0;
     width: 100%;
   }
@@ -244,11 +247,16 @@
   .toolGroup {
     display: grid;
     gap: var(--space-1);
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
 
+  /* The first two desktop groups become one row of four buttons on phones. */
+  .toolGroup:nth-child(-n + 2) {
+    display: contents;
+  }
+
   .toolGroup:last-child {
+    grid-column: 1 / -1;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 

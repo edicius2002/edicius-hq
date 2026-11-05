@@ -112,13 +112,15 @@ describe('the width at which the shell hands its navigation to a drawer', () => 
     expect(narrowBlock).not.toMatch(/padding:\s|padding-block/);
   });
 
-  it('gives Finance tabs and action rows the full phone width', () => {
+  it('fits Finance actions into two full-width phone rows', () => {
     const narrowBlock = /@media \(max-width:\s*640px\)\s*\{([\s\S]*?)\n\}/.exec(FINANCE)?.[1] ?? '';
 
     expect(narrowBlock, 'the 640px block must exist to be checked').not.toBe('');
     expect(narrowBlock).toMatch(/flex-direction:\s*column/);
-    expect(narrowBlock).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+    expect(narrowBlock).toMatch(/grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
     expect(narrowBlock).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(narrowBlock).toMatch(/display:\s*contents/);
+    expect(narrowBlock).toMatch(/grid-column:\s*1\s*\/\s*-1/);
     expect(narrowBlock).toMatch(/width:\s*100%/);
   });
 

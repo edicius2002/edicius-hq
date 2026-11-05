@@ -26,7 +26,7 @@ from app.services.chart_focus import ChartFocusBook
 from app.services.collector_cloud import CollectorCloud, CollectorCloudError, CollectorRequest
 
 LOGGER = logging.getLogger(__name__)
-LIVE_BROADCAST_SECONDS = 0.5
+LIVE_BROADCAST_SECONDS = 0.25
 QUOTE_INTEREST_TTL_SECONDS = 75.0
 CHART_FOCUS_TTL_SECONDS = 45.0
 MAX_CHART_FOCUSES = 8

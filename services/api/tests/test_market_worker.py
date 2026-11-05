@@ -850,6 +850,31 @@ def test_publisher_runs_without_another_reconciliation(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_changed_quote_reaches_broadcast_within_four_hundred_milliseconds():
+    async def scenario():
+        remote = cloud()
+        stopped = asyncio.Event()
+        published = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def record(_rows):
+            loop.call_soon_threadsafe(published.set)
+            return 1
+
+        remote.broadcast_quote_ticks.side_effect = record
+        worker = MarketWorker(remote, stream=IdleStream(), client=Mock())
+        worker.accept_quote_interest({"clientId": "tab-a", "active": True, "symbols": ["AAPL"]})
+        worker.accept(Tick("AAPL", 101, "yahoo", time=2))
+        task = asyncio.create_task(worker._publish_ticks(stopped))
+        try:
+            await asyncio.wait_for(published.wait(), timeout=0.4)
+        finally:
+            stopped.set()
+            await task
+
+    asyncio.run(scenario())
+
+
 def test_background_publisher_waits_for_a_recent_viewer_before_sending_ticks(monkeypatch):
     monkeypatch.setattr(market_worker, "LIVE_BROADCAST_SECONDS", 0.01)
 

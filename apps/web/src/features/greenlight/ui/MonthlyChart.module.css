@@ -11,6 +11,10 @@
   height: 300px;
 }
 
+.mobileSvg {
+  display: none;
+}
+
 .grid {
   stroke: rgba(255, 255, 255, 0.06);
   stroke-width: 1;
@@ -45,4 +49,21 @@
   color: var(--color-muted);
   margin: 1.75rem 0;
   text-align: center;
+}
+
+@media (max-width: 700px) {
+  .wrap {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .svg {
+    display: none;
+  }
+
+  .mobileSvg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
 }

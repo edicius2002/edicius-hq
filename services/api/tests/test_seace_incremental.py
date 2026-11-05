@@ -50,7 +50,7 @@ def test_incremental_retries_missing_details_for_still_open_notices(tmp_path):
                         }
                     },
                 }
-            return SimpleNamespace(isError=False, structuredContent=payload)
+            return SimpleNamespace(is_error=False, structured_content=payload)
 
     session = Session()
     existing = [

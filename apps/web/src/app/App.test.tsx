@@ -584,40 +584,18 @@ describe('Investing chart-first workspace', () => {
     expect(scroller?.contains(search)).toBe(false);
   });
 
-  it('can devote the workspace to the chart and returns with Escape', async () => {
-    const user = userEvent.setup();
+  it('keeps market panels visible without chart or market view toggles', async () => {
     renderAt('/investing');
     await arrivesAt('Investing');
-
-    await user.click(screen.getByRole('button', { name: 'Focus chart' }));
-
-    expect(screen.getByRole('region', { name: 'Focused investing chart' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Watchlist' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Positions' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Exit focus' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-
-    await user.keyboard('{Escape}');
 
     expect(screen.getByRole('heading', { name: 'Investing' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Watchlist' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Watchlist' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Positions' })).toBeInTheDocument();
-  });
-
-  it('collapses and restores both market lists without entering focus mode', async () => {
-    const user = userEvent.setup();
-    renderAt('/investing');
-    await arrivesAt('Investing');
-
-    await user.click(screen.getByRole('button', { name: 'Hide markets' }));
-    expect(screen.queryByRole('region', { name: 'Watchlist' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Positions' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Show markets' }));
-    expect(screen.getByRole('region', { name: 'Watchlist' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Positions' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Price Alerts' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(Hide|Show) markets$/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^(Focus chart|Exit focus)$/ }),
+    ).not.toBeInTheDocument();
   });
 });
 

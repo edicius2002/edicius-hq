@@ -112,30 +112,21 @@ describe('the width at which the shell hands its navigation to a drawer', () => 
     expect(narrowBlock).not.toMatch(/padding:\s|padding-block/);
   });
 
-  /*
-   * This assertion used to run the other way — no `wrap` in the narrow block,
-   * guarding the note at the top of `FinancePage.module.css` that wrapping
-   * moves the canvas down a row. That note governs desktop, where the row
-   * holds. At 360px it does not: `.toolbar` wraps inside the `nowrap` header
-   * anyway, so the header was seven rows and 304px tall with the tab strip
-   * squeezed to 76px — narrower than one tab. Wrapping was chosen there
-   * deliberately, and `order: 1` is what keeps the cost on the tabs rather
-   * than on the canvas. Checked so the pair cannot drift apart.
-   */
-  it('moves the Finance tab strip below the actions rather than above them', () => {
+  it('fits Finance actions into two full-width phone rows', () => {
     const narrowBlock = /@media \(max-width:\s*640px\)\s*\{([\s\S]*?)\n\}/.exec(FINANCE)?.[1] ?? '';
 
     expect(narrowBlock, 'the 640px block must exist to be checked').not.toBe('');
-    expect(narrowBlock).toMatch(/flex-wrap:\s*wrap/);
-    // Without the order the strip takes the first line and the canvas is what
-    // moves down — the exact regression the desktop rule exists to prevent.
-    expect(narrowBlock).toMatch(/order:\s*1/);
-    expect(narrowBlock).toMatch(/flex-basis:\s*100%/);
+    expect(narrowBlock).toMatch(/flex-direction:\s*column/);
+    expect(narrowBlock).toMatch(/grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+    expect(narrowBlock).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(narrowBlock).toMatch(/display:\s*contents/);
+    expect(narrowBlock).toMatch(/grid-column:\s*1\s*\/\s*-1/);
+    expect(narrowBlock).toMatch(/width:\s*100%/);
   });
 
   it('keeps the Finance header on one line above the threshold', () => {
-    // The desktop rule is untouched and stays that way: `nowrap` is declared
-    // outside any media query, and only the narrow block may reverse it.
+    // Desktop keeps its compact row; the phone rule above gives each section
+    // its own full-width row.
     const base = FINANCE.split('@media')[0];
 
     expect(base).toMatch(/flex-wrap:\s*nowrap/);

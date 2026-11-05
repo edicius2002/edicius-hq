@@ -13,7 +13,7 @@ type PageHeaderProps = {
    */
   beside?: ReactNode;
   titleId?: string;
-  /** For a page that needs its header to behave differently — Finance keeps its to one line. */
+  /** For a page that needs its header to behave differently at each viewport width. */
   className?: string;
 };
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/seace", tags=["seace"])
+_client: httpx.AsyncClient | None = None
 
 MAX_PDF_BYTES = 20 * 1024 * 1024
 CONTRACT_DOCUMENT = re.compile(r"/api/con/documentos/descargar/[0-9]+")
@@ -38,7 +39,17 @@ def allowed_document_url(candidate: str) -> bool:
 
 
 def document_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=30, follow_redirects=False)
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=30, follow_redirects=False)
+    return _client
+
+
+async def close_document_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
 
 
 @router.get("/document")
@@ -64,10 +75,8 @@ async def preview_document(url: str = Query(...)) -> Response:
         )
 
     try:
-        async with (
-            document_client() as client,
-            client.stream("GET", url, headers=headers) as upstream,
-        ):
+        client = document_client()
+        async with client.stream("GET", url, headers=headers) as upstream:
             if upstream.status_code != 200:
                 raise HTTPException(502, "SEACE document unavailable")
             chunks = bytearray()

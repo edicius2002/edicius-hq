@@ -176,6 +176,9 @@ const links = (row: SeaceRow) => {
   return result;
 };
 
+const documentPrefetchDelay = (lastStartedAt: number) =>
+  Math.max(250, lastStartedAt + 1_000 - Date.now());
+
 export function SeacePage() {
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -222,6 +225,15 @@ export function SeacePage() {
   const documentDialogRef = useRef<HTMLDialogElement>(null);
   const documentRequestRef = useRef<AbortController | null>(null);
   const documentObjectUrlRef = useRef<string | null>(null);
+  const documentPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const documentPrefetchExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDocumentPrefetchStartRef = useRef(0);
+  const prefetchedDocumentRef = useRef<{
+    url: string;
+    request: AbortController;
+    promise: Promise<Blob>;
+    settled: boolean;
+  } | null>(null);
   const [documentModal, setDocumentModal] = useState<{
     name: string;
     url: string;
@@ -229,8 +241,58 @@ export function SeacePage() {
     error?: string;
   } | null>(null);
 
+  const clearDocumentPrefetch = (abort: boolean) => {
+    if (documentPrefetchTimerRef.current) clearTimeout(documentPrefetchTimerRef.current);
+    documentPrefetchTimerRef.current = null;
+    if (documentPrefetchExpiryRef.current) clearTimeout(documentPrefetchExpiryRef.current);
+    documentPrefetchExpiryRef.current = null;
+    if (abort) prefetchedDocumentRef.current?.request.abort();
+    prefetchedDocumentRef.current = null;
+  };
+
+  const prefetchDocument = (url: string) => {
+    if (documentDialogRef.current?.open) return;
+    if (documentPrefetchTimerRef.current) clearTimeout(documentPrefetchTimerRef.current);
+    if (prefetchedDocumentRef.current?.url === url) return;
+    // Do not start a second speculative SEACE request while one is in flight.
+    if (prefetchedDocumentRef.current && !prefetchedDocumentRef.current.settled) return;
+    clearDocumentPrefetch(false);
+    const delay = documentPrefetchDelay(lastDocumentPrefetchStartRef.current);
+    documentPrefetchTimerRef.current = setTimeout(() => {
+      documentPrefetchTimerRef.current = null;
+      lastDocumentPrefetchStartRef.current = Date.now();
+      const request = new AbortController();
+      const entry = {
+        url,
+        request,
+        promise: loadSeaceDocument(url, request.signal),
+        settled: false,
+      };
+      prefetchedDocumentRef.current = entry;
+      void entry.promise.then(
+        () => {
+          if (prefetchedDocumentRef.current !== entry) return;
+          entry.settled = true;
+          documentPrefetchExpiryRef.current = setTimeout(
+            () => clearDocumentPrefetch(false),
+            30_000,
+          );
+        },
+        () => {
+          if (prefetchedDocumentRef.current === entry) clearDocumentPrefetch(false);
+        },
+      );
+    }, delay);
+  };
+
+  const cancelPendingDocumentPrefetch = () => {
+    if (documentPrefetchTimerRef.current) clearTimeout(documentPrefetchTimerRef.current);
+    documentPrefetchTimerRef.current = null;
+  };
+
   useEffect(
     () => () => {
+      clearDocumentPrefetch(true);
       documentRequestRef.current?.abort();
       if (documentObjectUrlRef.current) URL.revokeObjectURL(documentObjectUrlRef.current);
     },
@@ -480,15 +542,19 @@ export function SeacePage() {
     clearDocument();
   };
   const openDocument = async (link: { name: string; url: string }) => {
+    cancelPendingDocumentPrefetch();
+    const prefetched =
+      prefetchedDocumentRef.current?.url === link.url ? prefetchedDocumentRef.current : null;
+    clearDocumentPrefetch(!prefetched);
     documentRequestRef.current?.abort();
     if (documentObjectUrlRef.current) URL.revokeObjectURL(documentObjectUrlRef.current);
     documentObjectUrlRef.current = null;
-    const request = new AbortController();
+    const request = prefetched?.request ?? new AbortController();
     documentRequestRef.current = request;
     setDocumentModal({ name: link.name, url: link.url });
     if (!documentDialogRef.current?.open) documentDialogRef.current?.showModal();
     try {
-      const blob = await loadSeaceDocument(link.url, request.signal);
+      const blob = await (prefetched?.promise ?? loadSeaceDocument(link.url, request.signal));
       if (request.signal.aborted) return;
       const previewUrl = URL.createObjectURL(blob);
       documentObjectUrlRef.current = previewUrl;
@@ -830,6 +896,10 @@ export function SeacePage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 aria-haspopup="dialog"
+                                onMouseEnter={() => prefetchDocument(link.url)}
+                                onFocus={() => prefetchDocument(link.url)}
+                                onMouseLeave={cancelPendingDocumentPrefetch}
+                                onBlur={cancelPendingDocumentPrefetch}
                                 onClick={(event) => {
                                   if (
                                     event.button !== 0 ||

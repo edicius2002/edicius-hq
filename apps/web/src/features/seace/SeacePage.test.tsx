@@ -508,6 +508,107 @@ describe('SEACE views', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview');
   });
 
+  it('reuses an in-flight document prefetch when its link is clicked', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    let finish!: (blob: Blob) => void;
+    mocks.loadSeaceDocument.mockReturnValue(new Promise<Blob>((resolve) => (finish = resolve)));
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:prefetched'),
+    });
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+
+    fireEvent.mouseEnter(link);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.click(link);
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+    finish(new Blob(['%PDF-1.7\nexample'], { type: 'application/pdf' }));
+    expect(await within(screen.getByRole('dialog')).findByTitle('Contract.pdf')).toHaveAttribute(
+      'src',
+      'blob:prefetched',
+    );
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fetch a document after a brief hover', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    fireEvent.mouseEnter(link);
+    fireEvent.mouseLeave(link);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(mocks.loadSeaceDocument).not.toHaveBeenCalled();
+  });
+
+  it('reuses a completed prefetch from keyboard focus', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:focused'),
+    });
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+
+    fireEvent.focus(link);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.click(link);
+    expect(await within(screen.getByRole('dialog')).findByTitle('Contract.pdf')).toHaveAttribute(
+      'src',
+      'blob:focused',
+    );
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits speculative document requests to one in flight', async () => {
+    const first = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1';
+    const second = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/2';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: {
+          ...fixtureRows[0].payload,
+          documents: [
+            { name: 'First.pdf', url: first },
+            { name: 'Second.pdf', url: second },
+          ],
+        },
+      },
+    ];
+    mocks.loadSeaceDocument.mockReturnValue(new Promise<Blob>(() => {}));
+    mount('/seace/recent');
+    const firstLink = await screen.findByRole('link', { name: 'First.pdf' });
+    const secondLink = screen.getByRole('link', { name: 'Second.pdf' });
+    fireEvent.mouseEnter(firstLink);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.mouseEnter(secondLink);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledWith(first, expect.any(AbortSignal));
+  });
+
   it('shows the original link when the PDF preview cannot load', async () => {
     const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
     fixtureRows = [

@@ -26,6 +26,7 @@ from app.routers import (
 from app.routers.codex_resets import close_client as close_codex_resets_client
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
+from app.routers.seace_documents import close_document_client
 from app.routers.sentiment import close_client as close_sentiment_client
 from app.services.airfare_supabase import close_airfare_supabase_client, configured_airfare_supabase
 from app.services.calendar_job import CALENDAR_RUNNER
@@ -82,6 +83,7 @@ async def lifespan(_app: FastAPI):
     await close_fares_client()
     await close_sentiment_client()
     await close_codex_resets_client()
+    await close_document_client()
     close_airfare_supabase_client()
 
 

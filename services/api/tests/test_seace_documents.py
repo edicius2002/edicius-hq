@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,16 @@ from app.routers import seace_documents
 client = TestClient(app)
 PDF_URL = "https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571"
 PDF = b"%PDF-1.7\nexample"
+
+
+def test_document_client_reuses_connection_and_closes_on_shutdown():
+    async def check():
+        first = seace_documents.document_client()
+        assert seace_documents.document_client() is first
+        await seace_documents.close_document_client()
+        assert first.is_closed
+
+    asyncio.run(check())
 
 
 def test_preview_serves_upstream_attachment_inline(monkeypatch):

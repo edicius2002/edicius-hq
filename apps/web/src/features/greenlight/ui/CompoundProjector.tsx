@@ -128,40 +128,24 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
             <h3 id="first-year-title" className={styles.columnTitle}>
               The first year
             </h3>
-            <div className={styles.firstYearTables}>
-              {[firstYear.slice(0, 6), firstYear.slice(6)].map((half, index) => (
-                <table
-                  key={index}
-                  className={styles.table}
-                  aria-label={index === 0 ? 'Months 1 to 6' : 'Months 7 to 12'}
-                >
-                  <thead>
-                    <tr>
-                      <th scope="col" className={styles.numeric}>
-                        Month
-                      </th>
-                      <th scope="col" className={styles.numeric}>
-                        Balance
-                      </th>
-                      <th scope="col" className={styles.numeric}>
-                        Earned
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {half.map((row) => (
-                      <tr key={row.month}>
-                        <td className={styles.numeric}>{row.month}</td>
-                        <td className={styles.numeric}>{formatMoney(row.balance, currency)}</td>
-                        <td className={`${styles.numeric} ${styles.gain}`}>
-                          {signedMoney(row.interest, currency)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ))}
-            </div>
+            <table className={styles.table} aria-label="Months 1 to 12">
+              <thead>
+                <tr>
+                  <th scope="col">Month</th>
+                  <th scope="col">Balance</th>
+                  <th scope="col">Earned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {firstYear.map((row) => (
+                  <tr key={row.month}>
+                    <td>{row.month}</td>
+                    <td>{formatMoney(row.balance, currency)}</td>
+                    <td className={styles.gain}>{signedMoney(row.interest, currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
             <p className={styles.yearInterest}>
               <span>Year 1 earned</span>
               <strong className={styles.gain}>
@@ -174,40 +158,24 @@ export function CompoundProjector({ capital, currency = 'USD' }: CompoundProject
             <h3 id="by-year-title" className={styles.columnTitle}>
               By year
             </h3>
-            <div className={styles.byYearTables}>
-              {[years.slice(0, 5), years.slice(5)].map((half, index) => (
-                <table
-                  key={index}
-                  className={styles.table}
-                  aria-label={index === 0 ? 'Years 1 to 5' : 'Years 6 to 10'}
-                >
-                  <thead>
-                    <tr>
-                      <th scope="col" className={styles.numeric}>
-                        Year
-                      </th>
-                      <th scope="col" className={styles.numeric}>
-                        Balance
-                      </th>
-                      <th scope="col" className={styles.numeric}>
-                        Earned
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {half.map((year) => (
-                      <tr key={year.year}>
-                        <td className={styles.numeric}>{year.year}</td>
-                        <td className={styles.numeric}>{formatMoney(year.balance, currency)}</td>
-                        <td className={`${styles.numeric} ${styles.gain}`}>
-                          {signedMoney(year.earned, currency)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ))}
-            </div>
+            <table className={styles.table} aria-label="Years 1 to 10">
+              <thead>
+                <tr>
+                  <th scope="col">Year</th>
+                  <th scope="col">Balance</th>
+                  <th scope="col">Earned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {years.map((year) => (
+                  <tr key={year.year}>
+                    <td>{year.year}</td>
+                    <td>{formatMoney(year.balance, currency)}</td>
+                    <td className={styles.gain}>{signedMoney(year.earned, currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         </div>
       ) : (

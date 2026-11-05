@@ -36,9 +36,9 @@ DEPARTMENT_CODES = {
 
 
 def unpack(result):
-    if result.isError:
+    if result.is_error:
         raise RuntimeError("MCP tool failed: " + " ".join(x.text for x in result.content if x.type == "text"))
-    data = result.structuredContent
+    data = result.structured_content
     if data is None:
         data = json.loads(next(x.text for x in result.content if x.type == "text"))
     if not data.get("ok"):

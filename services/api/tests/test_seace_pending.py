@@ -49,7 +49,7 @@ class Session:
         self.calls.append(args)
         if isinstance(self.payload, Exception):
             raise self.payload
-        return SimpleNamespace(isError=False, structuredContent=self.payload)
+        return SimpleNamespace(is_error=False, structured_content=self.payload)
 
 
 def queue(path):
@@ -172,8 +172,8 @@ class CollectorSession(Session):
     async def call_tool(self, name, args):
         if name == "buscar_convocatorias_menores":
             return SimpleNamespace(
-                isError=False,
-                structuredContent={
+                is_error=False,
+                structured_content={
                     "ok": True,
                     "filas": [notice()],
                     "total": 1,
@@ -304,8 +304,8 @@ def test_full_search_records_discovery_before_later_page_failure(tmp_path, monke
                 if args["pagina"] > 1:
                     raise RuntimeError("search disconnected")
                 return SimpleNamespace(
-                    isError=False,
-                    structuredContent={
+                    is_error=False,
+                    structured_content={
                         "ok": True,
                         "filas": [notice()],
                         "total": 2,
@@ -440,8 +440,8 @@ def test_incremental_retries_discovery_not_yet_snapshotted_after_it_closes(tmp_p
         async def call_tool(self, name, args):
             if name == "buscar_convocatorias_menores":
                 return SimpleNamespace(
-                    isError=False,
-                    structuredContent={
+                    is_error=False,
+                    structured_content={
                         "ok": True,
                         "filas": [],
                         "total": 0,
@@ -483,8 +483,8 @@ def test_incomplete_incremental_search_cannot_advance_checkpoint(
         async def call_tool(self, name, args):
             if name == "buscar_convocatorias_menores":
                 return SimpleNamespace(
-                    isError=False,
-                    structuredContent={
+                    is_error=False,
+                    structured_content={
                         "ok": True,
                         "filas": [],
                         "total": int(args.get("estado") == broken_status),
@@ -517,8 +517,8 @@ def test_short_search_page_must_not_hide_remaining_discovered_work(tmp_path, bro
             if name == "buscar_convocatorias_menores":
                 broken = args.get("estado") == broken_status
                 return SimpleNamespace(
-                    isError=False,
-                    structuredContent={
+                    is_error=False,
+                    structured_content={
                         "ok": True,
                         "filas": [notice()] if broken and args["pagina"] == 1 else [],
                         "total": 2 if broken else 0,

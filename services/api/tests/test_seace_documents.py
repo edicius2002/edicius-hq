@@ -66,14 +66,20 @@ def test_preview_rejects_non_pdf_response(monkeypatch):
     assert client.get("/api/seace/document", params={"url": PDF_URL}).status_code == 502
 
 
-def test_preview_accepts_the_public_notice_document_endpoint(monkeypatch):
+def test_preview_uses_public_search_headers_for_notice_documents(monkeypatch):
     url = (
         "https://prod6.seace.gob.pe/v1/s8uit-services/archivo/archivos-publico/"
         "descargar-archivo-contrato/12345"
     )
 
     def answer(request):
-        assert request.headers["referer"] == "https://prod6.seace.gob.pe/buscador-publico/"
+        if (
+            not request.headers.get("user-agent", "").startswith("Mozilla/5.0")
+            or request.headers.get("accept") != "application/json, text/plain, */*"
+            or request.headers.get("accept-language") != "es-PE,es;q=0.9"
+            or request.headers.get("referer") != "https://prod6.seace.gob.pe/buscador-publico/"
+        ):
+            return httpx.Response(403)
         return httpx.Response(200, content=PDF)
 
     monkeypatch.setattr(

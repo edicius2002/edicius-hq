@@ -48,7 +48,20 @@ async def preview_document(url: str = Query(...)) -> Response:
 
     headers = {"Accept": "application/pdf"}
     if urlsplit(url).hostname == "prod6.seace.gob.pe":
-        headers["Referer"] = "https://prod6.seace.gob.pe/buscador-publico/"
+        # prod6 serves the PDF only with the public search client's request headers.
+        # Keep these aligned with services/seace/vendor/seace_mcp/server.py.
+        headers.update(
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/126.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "es-PE,es;q=0.9",
+                "Referer": "https://prod6.seace.gob.pe/buscador-publico/",
+            }
+        )
 
     try:
         async with (

@@ -1,86 +1,98 @@
-# Edicius HQ
+<p align="center">
+  <img src="./apps/web/public/favicon-e.png" alt="Edicius HQ mark" width="64" />
+</p>
 
-Private suite for personal finance and markets.
+<h1 align="center">Edicius HQ</h1>
 
-## Source of truth
+<p align="center">
+  A private workspace for personal finance, markets, airfare, and public procurement.
+</p>
 
-**[docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md)** — product decisions, structure, data plane, and delivery phases.
+<p align="center">
+  <a href="https://github.com/edicius2002/edicius-hq/actions/workflows/ci.yml"><img src="https://github.com/edicius2002/edicius-hq/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  &nbsp; React + TypeScript &nbsp;·&nbsp; FastAPI &nbsp;·&nbsp; Supabase
+</p>
 
-## Requirements
+---
 
-- Node.js **22** (see `.nvmrc`)
-- Python **3.12** (for local API without Docker)
-- Docker Desktop (recommended local DX)
-- **Berkeley Mono** license for the intended UI typeface (self-host under `apps/web/public/fonts/`; see that folder’s README). Without font files, the app falls back to system monospace.
+Edicius HQ brings seven tools into one authenticated web app. The repository contains the React frontend, a local FastAPI service, and the collectors and workers that feed its data plane. This README describes what is in the codebase; rollout details and operational evidence live in the [implementation plan](./docs/IMPLEMENTATION_PLAN.md) and [Pi collector runbook](./docs/pi-collectors-runbook.md).
 
-## Quick start (Docker Compose)
+## Explore the workspace
 
-```bash
-cp .env.example .env   # optional
-docker compose up --build
-```
+| Area                           | What it does                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| **Dashboard** · `/dashboard`   | USD/PEN quotes and history, world clocks, recent X posts, and Codex reset activity.                           |
+| **Finance** · `/finance`       | Visual cash-flow diagrams for accounts, jobs, currencies, and transfers, with saved views and backup/restore. |
+| **Greenlight** · `/greenlight` | CSV-based income analysis, weekly and monthly charts, and compound-growth projections.                        |
+| **Investing** · `/investing`   | Market charts, watchlists, technical indicators, positions, and browser price alerts.                         |
+| **Airfare** · `/airfare`       | Watched city pairs, manual collection, fare history, route maps, and price analysis.                          |
+| **SEACE** · `/seace/recent`    | Peruvian procurement notices with recent, open, closed, and published views, filters, and exclusions.         |
+| **Sentiment** · `/sentiment`   | CNN Fear & Greed history and its seven component indicators.                                                  |
 
-- Web: http://localhost:5173
-- API health: http://localhost:8000/api/health
+The app is responsive and uses Supabase Auth for browser sessions. Its production sign-in uses a passkey; localhost has a separate development sign-in described below.
 
-Hot-reload is enabled for both services. API local data persists in `services/api/.local-data/` (gitignored).
+## Run it locally
 
-Stop with `docker compose down`.
+### Prerequisites
 
-## Local development (without Docker)
+- **Node.js 22** and npm (`.nvmrc` pins the Node version).
+- **Python 3.12** if you will run the local API.
+- Access to the project's Supabase configuration and an authorized account. Local development reads production data.
+- **Docker Compose** only if you want to build the containerized web and API services.
 
-### Run the compiled app and API together
+### Web development
 
 ```bash
 npm ci
-npm start
+npm run dev
 ```
 
-This builds the web app, starts the local API, and serves the production bundle
-at http://127.0.0.1:5173. Finance data remains in
-`services/api/.local-data/`. Stop both with `Ctrl+C`.
-
-### Web
-
-```bash
-npm ci
-npm run dev          # Vite on http://localhost:5173
-```
-
-#### Signing in on localhost
-
-Passkeys are bound to the production origin, so `npm run dev` signs in through
-the dev server instead: it asks Supabase's admin API for a one-time token (no
-email is sent) and the browser exchanges it for its own session. Browsers and
-agents opening localhost are signed in without a prompt. It reads one file per
-machine, outside every checkout, so each worktree works without its own `.env`:
+Open **http://127.0.0.1:5173**. Passkeys are bound to the production origin, so the Vite development server signs in on localhost using a one-time Supabase token. Create a per-machine file at `%USERPROFILE%\.edicius-hq\dev-auth.env` on Windows or `~/.edicius-hq/dev-auth.env` on macOS/Linux with these values:
 
 ```text
-%USERPROFILE%\.edicius-hq\dev-auth.env      # or set EDICIUS_DEV_AUTH_FILE
 SUPABASE_URL=https://<project>.supabase.co
 SUPABASE_SECRET_KEY=<secret key>
 VITE_SUPABASE_PUBLISHABLE_KEY=<publishable key>
-EDICIUS_DEV_LOGIN_EMAIL=<owner email>       # optional with a single user
+EDICIUS_DEV_LOGIN_EMAIL=<owner email>  # needed when the project has multiple users
 ```
 
-The data is production's. The endpoint answers only same-origin requests from
-this machine, never the LAN, and does not exist in production builds. Signing
-out on localhost ends only that browser's session and stops the automatic
-sign-in for the tab.
+Set `EDICIUS_DEV_AUTH_FILE` to use a different file path. The secret stays in the local Vite process; keep this file out of Git. Signing out on localhost ends only that browser session.
 
-### API
+### Local API
 
-```bash
+Some local workflows still use FastAPI. Create its virtual environment and start the server in another terminal:
+
+```powershell
 cd services/api
-py -3.12 -m venv .venv          # Windows
-# python3.12 -m venv .venv      # macOS/Linux
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # Windows
-# .venv/bin/python -m pip install -r requirements.txt           # macOS/Linux
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cd ../..
-npm run api:dev      # http://127.0.0.1:8000
+npm run api:dev
 ```
 
-## Quality checks
+On macOS/Linux, use `python3.12 -m venv .venv` and `.venv/bin/python -m pip install -r requirements.txt`. The API listens on **http://127.0.0.1:8000**; its `/api/*` routes, including `/api/health`, require a Supabase access token.
+
+### Other ways to run
+
+| Command                     | Purpose                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm start`                 | Build the web app, then serve its compiled bundle and the local API together on ports 5173 and 8000. The development-only localhost sign-in is not part of this preview. |
+| `docker compose up --build` | Build and start the web and API containers. Compose does not mount the per-machine development auth file into the web container.                                         |
+
+Stop Compose with `docker compose down`. Local API data lives in the ignored `services/api/.local-data/` directory.
+
+## How the pieces fit
+
+| Piece                            | Responsibility                                                                                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`apps/web`](./apps/web)         | React, TypeScript, and Vite SPA; reads owner data and collected results through Supabase.                                                                |
+| [Supabase](./supabase)           | Browser authentication, owner-scoped documents, and indexed reads for collected data.                                                                    |
+| [`services/api`](./services/api) | Authenticated FastAPI routes for local development and retained workflows.                                                                               |
+| [`ops/pi`](./ops/pi)             | Raspberry Pi collectors and workers for provider acquisition. The Airfare archive is an append-only Pi journal; Supabase holds its indexed read replica. |
+
+The Raspberry Pi data-plane design is recorded in [ADR 0004](./docs/ADRs/0004-pi-collectors-supabase-data-plane.md). See the [domain glossary](./CONTEXT.md) for terms such as _watch_, _fare snapshot_, and _Airfare archive_. Repository implementation and production rollout are tracked separately in the [decision log](./docs/IMPLEMENTATION_PLAN.md).
+
+## Check changes
 
 ```bash
 npm run format:check
@@ -88,18 +100,11 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run lint:api
+npm run typecheck:api
 npm run test:api
 ```
 
-CI runs the same web gates plus API pytest on pull requests and `main`.
+CI runs the web and API checks and builds the API image for pull requests and `main`. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the issue, branch, and PR workflow.
 
-## Delivery order
-
-1. **Docs** — README, NOTICE, `.gitignore`, implementation plan
-2. **Initial Setup** — tooling, CI, Docker Compose (no UI shell)
-3. **Shell + placeholders** — four tabs with “Coming soon.”
-4. **API client + storage** — typed client, local KV, TanStack Query
-5. **UI foundation** — dark tokens, Berkeley Mono, shell primitives ([#10](https://github.com/edicius2002/edicius-hq/issues/10))
-6. Feature phases — Greenlight → Finance → Investing → Cloud
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for branch and PR workflow.
+> **Typography:** Berkeley Mono is commercially licensed and is not bundled here. See the [font setup notes](./apps/web/public/fonts/README.md); the app falls back to system monospace fonts.

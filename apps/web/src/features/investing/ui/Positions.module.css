@@ -325,7 +325,7 @@
   font-weight: 400;
 }
 
-/* Give the value and percentage a full card width on narrow screens. */
+/* Keep two compact position cards per row on narrow screens. */
 @container (max-width: 600px) {
   .toolbar {
     grid-template-columns: minmax(0, 1fr);
@@ -343,6 +343,10 @@
   }
 
   .list {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .identity {
+    padding-inline: 0;
   }
 }

@@ -77,30 +77,9 @@ export function InvestingPage() {
   const alerts = usePriceAlerts();
   const [symbol, setSymbol] = useState('AAPL');
   const [timeframe, setTimeframe] = useState<string>('1d');
-  const [marketPanelOpen, setMarketPanelOpen] = useState(true);
-  const [chartFocused, setChartFocused] = useState(false);
   // Mirrors the sound player's own flag in state, since a module singleton
   // gives no render of its own to react to being toggled.
   const [soundMuted, setSoundMuted] = useState(() => alertSoundPlayer.muted);
-
-  // Focus mode is a chart workspace, not a browser fullscreen request. Escape
-  // always returns to the page and the body cannot scroll behind the fixed
-  // surface while it is open.
-  useEffect(() => {
-    if (!chartFocused) return;
-
-    const previousOverflow = document.body.style.overflow;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setChartFocused(false);
-    };
-
-    document.body.style.overflow = 'hidden';
-    globalThis.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      globalThis.removeEventListener('keydown', onKeyDown);
-    };
-  }, [chartFocused]);
 
   const { indicators, toggle: toggleIndicator } = useIndicators();
   const panes = useMemo(() => activePanes(indicators), [indicators]);
@@ -125,14 +104,10 @@ export function InvestingPage() {
     const seen = new Set<string>([symbol, ...watchlist.symbols, ...holdings.symbols]);
     return [...seen];
   }, [watchlist.symbols, holdings.symbols, symbol]);
-  // The ticker, watchlist, and positions all show prices in the normal view.
-  // Chart focus hides those surfaces, so only its selected symbol needs ticks.
-  const viewed = useMemo(() => (chartFocused ? [symbol] : wanted), [chartFocused, symbol, wanted]);
-
   // Prices arrive by push. Asked before the sweep is set up, because how often
   // to sweep depends on whether the stream is carrying — and not the reverse.
-  const { ticks, bars, live: quoteStreamLive, discardTicksBefore } = useQuoteStream(viewed);
-  const live = useMarketInterest(quoteStreamLive, viewed);
+  const { ticks, bars, live: quoteStreamLive, discardTicksBefore } = useQuoteStream(wanted);
+  const live = useMarketInterest(quoteStreamLive, wanted);
   const selectedTick = ticks.get(symbol);
   const candles = useCandles(symbol, timeframe, selectedTick, bars, {
     preloadTimeframes: true,
@@ -219,13 +194,8 @@ export function InvestingPage() {
   );
 
   return (
-    <section
-      className={`${styles.page} ${chartFocused ? styles.focusMode : ''}`}
-      aria-label={chartFocused ? 'Focused investing chart' : 'Investing'}
-    >
-      <div
-        className={`${styles.workspace} ${!marketPanelOpen || chartFocused ? styles.workspaceWide : ''}`}
-      >
+    <section className={styles.page} aria-label="Investing">
+      <div className={styles.workspace}>
         <Panel className={styles.chartPanel} aria-label={`${symbol} chart`}>
           <div className={styles.chartHeader}>
             <h2 className={styles.symbol}>{symbol}</h2>
@@ -263,36 +233,6 @@ export function InvestingPage() {
                   {frame}
                 </button>
               ))}
-            </div>
-
-            <div className={styles.viewControls}>
-              {!chartFocused ? (
-                <button
-                  type="button"
-                  className={styles.viewControl}
-                  aria-expanded={marketPanelOpen}
-                  /* Every panel it hides, not just the one beside the chart:
-                     the button has always meant "leave me the chart", and
-                     naming only the rail would have left the positions and
-                     alerts boxes behind. */
-                  aria-controls="market-panel positions-panel alerts-panel"
-                  aria-label={marketPanelOpen ? 'Hide markets' : 'Show markets'}
-                  title={marketPanelOpen ? 'Hide market panel' : 'Show market panel'}
-                  onClick={() => setMarketPanelOpen((open) => !open)}
-                >
-                  Markets
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className={styles.viewControl}
-                aria-pressed={chartFocused}
-                aria-label={chartFocused ? 'Exit focus' : 'Focus chart'}
-                title={chartFocused ? 'Exit chart focus' : 'Focus chart'}
-                onClick={() => setChartFocused((focused) => !focused)}
-              >
-                {chartFocused ? 'Exit' : 'Focus'}
-              </button>
             </div>
           </div>
 
@@ -332,7 +272,6 @@ export function InvestingPage() {
           id="market-panel"
           className={styles.side}
           aria-labelledby="investing-watchlist-title"
-          hidden={!marketPanelOpen || chartFocused}
         >
           <div className={styles.railHeader}>
             <h2 id="investing-watchlist-title" className={styles.srOnly}>
@@ -388,7 +327,6 @@ export function InvestingPage() {
         id="positions-panel"
         className={styles.positionsPanel}
         aria-labelledby="investing-positions-title"
-        hidden={!marketPanelOpen || chartFocused}
       >
         <h2 id="investing-positions-title" className={styles.srOnly}>
           Positions
@@ -423,7 +361,6 @@ export function InvestingPage() {
         id="alerts-panel"
         className={styles.positionsPanel}
         aria-labelledby="investing-alerts-title"
-        hidden={!marketPanelOpen || chartFocused}
       >
         <div className={styles.positionsHeader}>
           <h2 id="investing-alerts-title" className={styles.panelTitle}>

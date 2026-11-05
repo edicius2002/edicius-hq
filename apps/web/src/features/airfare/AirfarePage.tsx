@@ -187,6 +187,7 @@ export function AirfarePage() {
     openOn,
     openMonthOf,
     followMonth,
+    setMonth,
     setGranularity,
     setAnchor,
     setViewport,
@@ -209,6 +210,7 @@ export function AirfarePage() {
     secondaryBoards,
     secondaryChecks,
     unavailableMonths,
+    fetchedMonths,
   } = useFareProjections(selected, activeMonth);
   // Beside the archive rather than inside the panel that draws it: the two are
   // the same kind of thing — one route's data, fetched where the route is
@@ -705,6 +707,8 @@ export function AirfarePage() {
           route={selected}
           month={reading}
           watchedMonths={watchedMonths}
+          fetchedMonths={fetchedMonths}
+          onMonthChange={setMonth}
           monthSnapshots={snapshots}
           watchedSnapshots={watchedSnapshots}
           confirmedEmptyDates={confirmedEmptyDates}

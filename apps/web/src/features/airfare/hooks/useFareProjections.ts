@@ -93,11 +93,19 @@ export function useFareProjections(route: FareRoute | null, month: string | null
     combine: (results) => ({
       boards: results.flatMap((result) => result.data?.currentBoards ?? []),
       checks: results.flatMap((result) => result.data?.departureChecks ?? []),
+      fetched: results.flatMap((result) =>
+        result.data && hasCollectedHistory(result.data) ? [result.data.month] : [],
+      ),
       unavailable: results.flatMap((result, index) =>
         result.data === undefined ? [secondaryMonths[index]] : [],
       ),
     }),
   });
+
+  const fetched = new Set([
+    ...(data && hasCollectedHistory(data) ? [data.month] : []),
+    ...secondary.fetched,
+  ]);
 
   return {
     primary: {
@@ -108,9 +116,20 @@ export function useFareProjections(route: FareRoute | null, month: string | null
     },
     secondaryBoards: secondary.boards,
     secondaryChecks: secondary.checks,
+    fetchedMonths: route?.months.filter((watched) => fetched.has(watched)) ?? [],
     unavailableMonths: [
       ...(primary.data === undefined && month ? [month] : []),
       ...secondary.unavailable,
     ],
   };
+}
+
+function hasCollectedHistory(projection: FareMonthProjection): boolean {
+  return (
+    projection.latestCapture !== null ||
+    projection.priceDays.length > 0 ||
+    projection.providerDays.length > 0 ||
+    projection.unsoldDays.length > 0 ||
+    projection.departureChecks.length > 0
+  );
 }

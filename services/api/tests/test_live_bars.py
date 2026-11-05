@@ -90,7 +90,7 @@ def test_watch_splits_providers_and_deduplicates_live_acquisition():
     assert {bar.symbol for bar in got} == {"BTCUSDT", "AAPL"}
 
 
-def test_yahoo_polls_immediately_then_every_five_seconds_and_stops_when_removed():
+def test_yahoo_polls_immediately_then_every_two_seconds_and_stops_when_removed():
     async def run() -> tuple[list[BarFocus], list[float]]:
         now = [timestamp("2026-09-22T10:00:00")]
         waits: list[float] = []
@@ -115,7 +115,7 @@ def test_yahoo_polls_immediately_then_every_five_seconds_and_stops_when_removed(
     fetches, waits = asyncio.run(run())
 
     assert fetches == [BarFocus("AAPL", "1m", False), BarFocus("AAPL", "1m", False)]
-    assert waits[:2] == [5.0, 5.0]
+    assert waits[:2] == [2.0, 2.0]
     assert len(fetches) == 2
 
 
@@ -172,7 +172,7 @@ def test_yahoo_failures_use_bounded_backoff_then_reset_after_a_valid_bar():
 
     waits = asyncio.run(run())
 
-    assert waits == [5.0, 10.0, 20.0, 40.0, 60.0, 5.0]
+    assert waits == [5.0, 10.0, 20.0, 40.0, 60.0, 2.0]
 
 
 def test_quiet_binance_does_not_block_yahoo_bar():

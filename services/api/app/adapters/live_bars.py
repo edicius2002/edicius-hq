@@ -75,7 +75,7 @@ class CompositeBarStream:
             backoff = 5.0
             if update is not None:
                 await self._queue.put(update)
-            await self._sleep(5.0)
+            await self._sleep(2.0)
 
     async def _pump_binance(self) -> None:
         async for update in self._binance.bars():

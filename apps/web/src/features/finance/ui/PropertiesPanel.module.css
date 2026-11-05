@@ -376,3 +376,20 @@
     font-size: 0.68rem;
   }
 }
+
+@media (max-width: 640px) {
+  .empty {
+    font-size: 0.7rem;
+  }
+
+  .badge,
+  .field,
+  .sectionTitle,
+  .hint,
+  .warning,
+  .settleBlocked,
+  .chain,
+  .frameAsset {
+    font-size: 0.6rem;
+  }
+}

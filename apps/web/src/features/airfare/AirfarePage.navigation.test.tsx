@@ -234,6 +234,24 @@ it('follows the next collected watched month into the selected tab and price his
   expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toHaveAccessibleName(/April 2027/);
 });
 
+it('changes the selected month and price history from the price-chart arrows', async () => {
+  state.fetchMonth.mockImplementation((_from, _to, month: string) =>
+    Promise.resolve(projection(month, [board(month)])),
+  );
+  renderPage();
+  const next = await screen.findByRole('button', { name: 'Next fetched month' });
+  fireEvent.click(next);
+
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Open April' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    ),
+  );
+  expect(screen.getByRole('img', { name: /Cheapest fare for/ })).toHaveAccessibleName(/April 2027/);
+  expect(screen.getByRole('heading', { name: 'ARI → SCL · April 2027' })).toBeInTheDocument();
+});
+
 it('keeps the reading month when the next watched month has no saved board', async () => {
   state.fetchMonth.mockImplementation((_from, _to, month: string) =>
     Promise.resolve(projection(month, month === '2027-03' ? [board(month)] : [])),
@@ -427,7 +445,7 @@ it('chart month navigation skips the unrelated map render', async () => {
   const before = state.mapRenders;
   const departure = screen.getByRole('img', { name: /What each departure date costs/ });
   const frame = departure.getAttribute('aria-label');
-  fireEvent.click(screen.getByRole('button', { name: /next.*month|next period/i }));
+  fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
   await waitFor(() => expect(departure.getAttribute('aria-label')).not.toBe(frame));
   expect(departure).toHaveAccessibleName(/01\/04\/2027/);
   expect(state.mapRenders).toBe(before);

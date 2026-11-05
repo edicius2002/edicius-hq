@@ -212,6 +212,9 @@ type AnalysisPanelProps = {
    * value, one owner.
    */
   watchedMonths: readonly string[];
+  /** Watched months whose saved price history has been collected and loaded. */
+  fetchedMonths: readonly string[];
+  onMonthChange: (month: string) => void;
   /**
    * The archive for the reading month — chart A's, the flight table's and the
    * detail strip's.
@@ -299,6 +302,8 @@ export function AnalysisPanel({
   route,
   month,
   watchedMonths,
+  fetchedMonths,
+  onMonthChange,
   monthSnapshots,
   watchedSnapshots,
   confirmedEmptyDates = [],
@@ -483,6 +488,32 @@ export function AnalysisPanel({
   // A wide heading names the selected reading; chart B has its own title and
   // frame controls. On a phone the heading still follows the visible chart.
   const titleMonth = narrow && view === 'days' ? departureTitleMonth : month;
+  const priceMonths = watchedMonths.filter((watchedMonth) => fetchedMonths.includes(watchedMonth));
+  const previousPriceMonth = month ? [...priceMonths].reverse().find((item) => item < month) : null;
+  const nextPriceMonth = month ? priceMonths.find((item) => item > month) : null;
+  const priceMonthSteps = route && month && priceMonths.length > 1 && (
+    <div className={styles.monthSteps} role="group" aria-label="How the price moved months">
+      <button
+        type="button"
+        aria-label="Previous fetched month"
+        disabled={!previousPriceMonth}
+        onClick={() => previousPriceMonth && onMonthChange(previousPriceMonth)}
+      >
+        &lsaquo;
+      </button>
+      <span>
+        {priceMonths.includes(month) ? priceMonths.indexOf(month) + 1 : '–'} / {priceMonths.length}
+      </span>
+      <button
+        type="button"
+        aria-label="Next fetched month"
+        disabled={!nextPriceMonth}
+        onClick={() => nextPriceMonth && onMonthChange(nextPriceMonth)}
+      >
+        &rsaquo;
+      </button>
+    </div>
+  );
 
   const priceChart =
     route === null ? (
@@ -607,6 +638,9 @@ export function AnalysisPanel({
             </div>
           </div>
         )}
+        {narrow && view === 'moves' && priceMonthSteps && (
+          <div className={styles.movesNavigation}>{priceMonthSteps}</div>
+        )}
       </div>
 
       {narrow ? (
@@ -617,9 +651,12 @@ export function AnalysisPanel({
       ) : (
         <div className={styles.columns}>
           <section className={styles.column} aria-labelledby="price-chart-title">
-            <h3 id="price-chart-title" className={styles.chartTitle}>
-              {MOVES_NAME}
-            </h3>
+            <div className={styles.columnHead}>
+              <h3 id="price-chart-title" className={styles.chartTitle}>
+                {MOVES_NAME}
+              </h3>
+              {priceMonthSteps}
+            </div>
             <div className={`${styles.body} ${styles.movesBody}`}>
               {priceChart}
               {historyNotice}

@@ -129,7 +129,7 @@ const CURVE: CalendarCurve = {
  */
 function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
   const [route, setRoute] = useState<FareRoute | null>(ROUTE);
-  const { view, setGranularity, setAnchor, setViewport } = useRouteView(
+  const { view, setMonth, setGranularity, setAnchor, setViewport } = useRouteView(
     route ? routeId(route) : null,
     route?.months[0] ?? null,
   );
@@ -145,6 +145,8 @@ function Harness(props: Partial<Parameters<typeof AnalysisPanel>[0]> = {}) {
         route={route}
         month={view.month}
         watchedMonths={route?.months ?? []}
+        fetchedMonths={route?.months ?? []}
+        onMonthChange={setMonth}
         monthSnapshots={MONTH}
         watchedSnapshots={MONTH}
         baseline={BASELINE}
@@ -664,6 +666,30 @@ describe('the controls that are gone', () => {
 });
 
 describe('how the price moved, on one axis and one period', () => {
+  it.each([true, false])('steps through fetched months on %s layout', (narrow) => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: narrow,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    render(
+      <Harness
+        route={{ ...ROUTE, months: ['2027-03', '2027-04', '2027-05'] }}
+        watchedMonths={['2027-03', '2027-04', '2027-05']}
+        fetchedMonths={['2027-03', '2027-05']}
+      />,
+    );
+    if (narrow) click(MOVES);
+
+    expect(screen.getByRole('button', { name: 'Previous fetched month' })).toBeDisabled();
+    press('Next fetched month');
+    expect(screen.getByRole('heading', { name: 'ARI → SCL · May 2027' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /departing in May 2027/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next fetched month' })).toBeDisabled();
+    press('Previous fetched month');
+    expect(screen.getByRole('heading', { name: 'ARI → SCL · March 2027' })).toBeInTheDocument();
+  });
+
   it('uses persisted daily buckets when only the latest departure boards are loaded', () => {
     render(
       <Harness

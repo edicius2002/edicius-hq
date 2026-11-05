@@ -60,3 +60,27 @@ it('does not duplicate retained primary boards in secondary months during a swit
   expect(result.current.primary.data?.latestBoards).toEqual([board]);
   expect(result.current.secondaryBoards).toEqual([]);
 });
+
+it('offers only months with collected history for price-chart navigation', async () => {
+  fetchMonth.mockImplementation((_origin: string, _destination: string, month: string) =>
+    Promise.resolve({
+      month,
+      latestCapture: month === '2026-11' ? '2026-10-01T12:00:00Z' : null,
+      priceDays: [],
+      providerDays: [],
+      unsoldDays: [],
+      departureChecks: [],
+      latestBoards: [],
+      currentBoards: [],
+    }),
+  );
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result } = renderHook(() => useFareProjections(route, '2026-11'), { wrapper });
+
+  await waitFor(() => expect(fetchMonth).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(result.current.unavailableMonths).toEqual([]));
+  expect(result.current.fetchedMonths).toEqual(['2026-11']);
+});

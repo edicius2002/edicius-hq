@@ -325,7 +325,7 @@
   font-weight: 400;
 }
 
-/* Give the value and percentage a full card width on narrow screens. */
+/* Keep two positions per row while letting each card grow vertically on phones. */
 @container (max-width: 600px) {
   .toolbar {
     grid-template-columns: minmax(0, 1fr);
@@ -343,6 +343,40 @@
   }
 
   .list {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .row {
+    flex-direction: column;
+  }
+
+  .identity,
+  .valuation {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+  }
+
+  .identity {
+    padding-inline: 0;
+  }
+
+  .holding,
+  .valuation > .up,
+  .valuation > .down {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .actions {
+    position: static;
+    justify-content: center;
+    background: none;
+    opacity: 1;
+  }
+
+  .action {
+    min-width: 2rem;
+    min-height: 2rem;
   }
 }

@@ -187,4 +187,9 @@
   .byYearTables {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .firstYearTables .table + .table thead,
+  .byYearTables .table + .table thead {
+    display: none;
+  }
 }

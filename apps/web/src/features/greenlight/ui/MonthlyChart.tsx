@@ -40,6 +40,17 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
     return { width, height, pad, plotH, top, ticks, groupW, barW, yAt };
   }, [points, measuredWidth]);
 
+  const mobileLayout = useMemo(() => {
+    const width = Math.max(measuredWidth, MIN_WIDTH);
+    const rowHeight = 38;
+    const pad = { top: 18, right: 70, bottom: 42, left: 86 };
+    const plotW = width - pad.left - pad.right;
+    const plotH = points.length * rowHeight;
+    const height = pad.top + plotH + pad.bottom;
+    const { top, ticks } = buildAxisTicks(Math.max(...points.map((point) => point.amount), 0), 2);
+    return { width, height, pad, plotW, plotH, rowHeight, top, ticks };
+  }, [points, measuredWidth]);
+
   if (!points.length) {
     return <p className={styles.empty}>No months to chart yet.</p>;
   }
@@ -52,8 +63,15 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
       ref={wrapRef}
       tabIndex={0}
       role="region"
-      aria-label="Monthly chart; scroll horizontally to view all months"
+      aria-label="Monthly chart"
     >
+      <ul className={styles.srOnly} aria-label="Monthly deliverable values">
+        {points.map((point) => (
+          <li key={point.key}>
+            {point.label}: {formatBarMoney(point.amount)}
+          </li>
+        ))}
+      </ul>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className={styles.svg}
@@ -118,6 +136,85 @@ export function MonthlyChart({ points }: MonthlyChartProps) {
                 <tspan className={styles.axisSub} x={cx} dy="12">
                   {monthBottom}
                 </tspan>
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <svg
+        viewBox={`0 0 ${mobileLayout.width} ${mobileLayout.height}`}
+        className={styles.mobileSvg}
+        role="img"
+        aria-label="Monthly deliverable value, horizontal bars"
+      >
+        {mobileLayout.ticks.map((tick, index) => {
+          const x = mobileLayout.pad.left + (tick / mobileLayout.top) * mobileLayout.plotW;
+          return (
+            <g key={tick}>
+              <line
+                className={styles.grid}
+                x1={x}
+                x2={x}
+                y1={mobileLayout.pad.top}
+                y2={mobileLayout.pad.top + mobileLayout.plotH}
+              />
+              <text
+                className={styles.axis}
+                x={x}
+                y={mobileLayout.height - 16}
+                textAnchor={
+                  index === 0 ? 'start' : index === mobileLayout.ticks.length - 1 ? 'end' : 'middle'
+                }
+              >
+                {formatAxisMoney(tick)}
+              </text>
+            </g>
+          );
+        })}
+        <line
+          className={styles.axisLine}
+          x1={mobileLayout.pad.left}
+          y1={mobileLayout.pad.top}
+          x2={mobileLayout.pad.left}
+          y2={mobileLayout.pad.top + mobileLayout.plotH}
+        />
+        <line
+          className={styles.axisLine}
+          x1={mobileLayout.pad.left}
+          y1={mobileLayout.pad.top + mobileLayout.plotH}
+          x2={mobileLayout.width - mobileLayout.pad.right}
+          y2={mobileLayout.pad.top + mobileLayout.plotH}
+        />
+        {points.map((point, index) => {
+          const y = mobileLayout.pad.top + mobileLayout.rowHeight * (index + 0.5);
+          const barW = Math.max((point.amount / mobileLayout.top) * mobileLayout.plotW, 0);
+          return (
+            <g key={point.key}>
+              <title>
+                {point.label}: {formatBarMoney(point.amount)}
+              </title>
+              <text
+                className={styles.axis}
+                x={mobileLayout.pad.left - 8}
+                y={y + 3}
+                textAnchor="end"
+              >
+                {point.label}
+              </text>
+              <rect
+                className={styles.bar}
+                x={mobileLayout.pad.left}
+                y={y - 8}
+                width={barW}
+                height={16}
+                rx={4}
+              />
+              <text
+                className={styles.value}
+                x={mobileLayout.width - mobileLayout.pad.right + 8}
+                y={y + 3}
+              >
+                {formatBarMoney(point.amount)}
               </text>
             </g>
           );

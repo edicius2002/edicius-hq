@@ -28,10 +28,8 @@ const NET = 20377.8;
 
 const capitalField = () => screen.getByLabelText('Capital');
 const rateField = () => screen.getByLabelText('Rate % a year');
-const firstYearTable = () => within(screen.getByRole('table', { name: 'Months 1 to 6' }));
-const secondHalfTable = () => within(screen.getByRole('table', { name: 'Months 7 to 12' }));
-const firstYearsTable = () => within(screen.getByRole('table', { name: 'Years 1 to 5' }));
-const lastYearsTable = () => within(screen.getByRole('table', { name: 'Years 6 to 10' }));
+const firstYearTable = () => within(screen.getByRole('table', { name: 'Months 1 to 12' }));
+const byYearTable = () => within(screen.getByRole('table', { name: 'Years 1 to 10' }));
 
 function storedWrapper(view: ProjectorView) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -86,6 +84,20 @@ describe('the rate it is told about', () => {
 });
 
 describe('the first year', () => {
+  it('keeps all twelve months under one header in one table', () => {
+    renderProjector(<CompoundProjector capital={NET} />);
+    expect(screen.getAllByRole('table')).toHaveLength(2);
+    const table = firstYearTable();
+    expect(table.getAllByRole('columnheader')).toHaveLength(3);
+    expect(table.getAllByRole('row')).toHaveLength(13);
+    expect(
+      table
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].textContent),
+    ).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']);
+  });
+
   it('earns $101.89 in month 1 and closes the year at $21,634.66', () => {
     renderProjector(<CompoundProjector capital={NET} />);
     const table = firstYearTable();
@@ -105,15 +117,7 @@ describe('the first year', () => {
     // Month 2 earns more than month 1, because month 1's interest was left in.
     expect(table.getByText('+$102.40')).toBeInTheDocument();
     expect(table.getByText('$20,582.09')).toBeInTheDocument();
-    expect(secondHalfTable().getByText('+$107.64')).toBeInTheDocument();
-  });
-
-  it('shows twelve months and no more', () => {
-    renderProjector(<CompoundProjector capital={NET} />);
-    // Each half has one header and six data rows.
-    expect(firstYearTable().getAllByRole('row')).toHaveLength(7);
-    expect(secondHalfTable().getAllByRole('row')).toHaveLength(7);
-    expect(secondHalfTable().getByText('12')).toBeInTheDocument();
+    expect(table.getByText('+$107.64')).toBeInTheDocument();
   });
 
   it('foots the year at $1,256.86, which is more than 6% of the capital', () => {
@@ -126,24 +130,26 @@ describe('the first year', () => {
 });
 
 describe('by year', () => {
-  it('names all ten years in two columns of five', () => {
+  it('keeps all ten years under one header in one table', () => {
     renderProjector(<CompoundProjector capital={NET} />);
-    const firstRows = firstYearsTable().getAllByRole('row').slice(1);
-    const lastRows = lastYearsTable().getAllByRole('row').slice(1);
-    expect(firstRows).toHaveLength(5);
-    expect(lastRows).toHaveLength(5);
+    const table = byYearTable();
+    expect(table.getAllByRole('columnheader')).toHaveLength(3);
+    expect(table.getAllByRole('row')).toHaveLength(11);
     expect(
-      [...firstRows, ...lastRows].map((row) => within(row).getAllByRole('cell')[0].textContent),
+      table
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].textContent),
     ).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']);
   });
 
   it('reaches $37,075.30 at ten years and shows earnings for each separate year', () => {
     renderProjector(<CompoundProjector capital={NET} />);
-    expect(lastYearsTable().getByText('$37,075.30')).toBeInTheDocument();
-    expect(lastYearsTable().getByText('+$2,153.88')).toBeInTheDocument();
-    expect(firstYearsTable().getByText('$27,486.60')).toBeInTheDocument();
-    expect(firstYearsTable().getByText('+$1,596.82')).toBeInTheDocument();
-    expect(firstYearsTable().getByText('+$1,334.38')).toBeInTheDocument();
+    expect(byYearTable().getByText('$37,075.30')).toBeInTheDocument();
+    expect(byYearTable().getByText('+$2,153.88')).toBeInTheDocument();
+    expect(byYearTable().getByText('$27,486.60')).toBeInTheDocument();
+    expect(byYearTable().getByText('+$1,596.82')).toBeInTheDocument();
+    expect(byYearTable().getByText('+$1,334.38')).toBeInTheDocument();
     expect(screen.queryByText('+$16,697.50')).toBeNull();
   });
 
@@ -151,8 +157,8 @@ describe('by year', () => {
     renderProjector(<CompoundProjector capital={NET} />);
     // Once as month 12's balance, once as year 1 — two printings of one row
     // rather than two computations that could drift apart.
-    expect(secondHalfTable().getByText('$21,634.66')).toBeInTheDocument();
-    expect(firstYearsTable().getByText('$21,634.66')).toBeInTheDocument();
+    expect(firstYearTable().getByText('$21,634.66')).toBeInTheDocument();
+    expect(byYearTable().getByText('$21,634.66')).toBeInTheDocument();
   });
 });
 
